@@ -7,28 +7,39 @@
 
 use crate::auth::Claims;
 use crate::middleware::require_role;
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*; // Re-exports adapteros_api_types::*
 use adapteros_db::users::Role;
-use axum::{extract::Extension, extract::Path, extract::State, http::StatusCode, response::Json};
+use axum::{extract::Extension, extract::Path, extract::Query, extract::State, http::StatusCode, response::Json};
 
-/// List all tenants
+/// List all tenants with pagination
 pub async fn list_tenants(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-) -> Result<Json<Vec<TenantResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let tenants = state.db.list_tenants().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    Extension(claims): Extension<Claims>,
+    Query(pagination): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<TenantResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY FIX: Require Admin role to list all tenants
+    // This prevents any authenticated user from seeing all tenant information
+    require_role(&claims, Role::Admin)?;
 
-    let response: Vec<TenantResponse> = tenants
+    let offset = (pagination.page.saturating_sub(1)) * pagination.limit;
+    let (tenants, total) = state
+        .db
+        .list_tenants_paginated(pagination.limit as i64, offset as i64)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let data: Vec<TenantResponse> = tenants
         .into_iter()
         .map(|t| TenantResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -45,6 +56,16 @@ pub async fn list_tenants(
             rate_limit_rpm: t.rate_limit_rpm,
         })
         .collect();
+
+    let pages = ((total as f64) / (pagination.limit as f64)).ceil() as u32;
+    let response = PaginatedResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        data,
+        total: total as u64,
+        page: pagination.page,
+        limit: pagination.limit,
+        pages,
+    };
 
     Ok(Json(response))
 }
@@ -134,7 +155,10 @@ pub async fn get_default_stack(
     Extension(claims): Extension<Claims>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<DefaultStackResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Allow any authenticated user to view default stack
+    // SECURITY FIX: Validate tenant isolation before accessing tenant data
+    // Users can only view default stack for their own tenant (or admin with explicit access)
+    validate_tenant_isolation(&claims, &tenant_id)?;
+
     let stack_id = state.db.get_default_stack(&tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -180,8 +204,9 @@ pub async fn set_default_stack(
     Path(tenant_id): Path<String>,
     Json(req): Json<SetDefaultStackRequest>,
 ) -> Result<Json<DefaultStackResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Allow any authenticated user to set default stack (they can only set for their own tenant)
-    // In production, you might want to add tenant_id validation from claims
+    // SECURITY FIX: Validate tenant isolation before modifying tenant data
+    // Users can only set default stack for their own tenant (or admin with explicit access)
+    validate_tenant_isolation(&claims, &tenant_id)?;
 
     state
         .db
@@ -241,7 +266,9 @@ pub async fn clear_default_stack(
     Extension(claims): Extension<Claims>,
     Path(tenant_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // Allow any authenticated user to clear default stack
+    // SECURITY FIX: Validate tenant isolation before modifying tenant data
+    // Users can only clear default stack for their own tenant (or admin with explicit access)
+    validate_tenant_isolation(&claims, &tenant_id)?;
 
     state
         .db
@@ -435,6 +462,9 @@ pub async fn pause_tenant(
         )
     })?;
 
+    // Invalidate tenant from dashboard cache so middleware re-validates on next request
+    state.dashboard_cache.invalidate_tenant(&tenant_id).await;
+
     let tenant = state.db.get_tenant(&tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -511,6 +541,9 @@ pub async fn archive_tenant(
         )
     })?;
 
+    // Invalidate tenant from dashboard cache so middleware rejects stale tokens
+    state.dashboard_cache.invalidate_tenant(&tenant_id).await;
+
     let tenant = state.db.get_tenant(&tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -571,9 +604,13 @@ pub async fn archive_tenant(
 )]
 pub async fn get_tenant_usage(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<TenantUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY FIX: Validate tenant isolation before accessing usage data
+    // Users can only view usage for their own tenant (or admin with explicit access)
+    validate_tenant_isolation(&claims, &tenant_id)?;
+
     let usage = state.db.get_tenant_usage(&tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,

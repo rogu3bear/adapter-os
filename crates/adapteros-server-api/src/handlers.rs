@@ -28,6 +28,7 @@ pub mod adapters;
 pub mod auth;
 pub mod auth_enhanced;
 pub mod batch;
+pub mod boot_progress;
 pub mod capacity;
 pub mod chat_sessions;
 pub mod chunked_upload;
@@ -43,6 +44,7 @@ pub mod federation;
 pub mod git;
 pub mod git_repository;
 pub mod golden;
+pub mod health;
 pub mod memory_detail;
 pub mod metrics_time_series;
 pub mod models;
@@ -56,8 +58,11 @@ pub mod replay;
 pub mod routing_decisions;
 pub mod services;
 pub mod settings;
+pub mod streaming;
 pub mod streaming_infer;
+pub mod system_info;
 pub mod system_overview;
+pub mod system_state;
 pub mod telemetry;
 pub mod tenants;
 pub mod training;
@@ -76,6 +81,22 @@ pub use auth::{__path_auth_login, auth_login, auth_logout, auth_me};
 
 // Re-export training handlers
 pub use training::*;
+
+// Re-export health and system info handlers
+pub use health::*;
+pub use system_info::*;
+
+// Re-export system state handler
+pub use system_state::*;
+
+// Re-export boot progress (specific to avoid ambiguity with streaming module)
+pub use boot_progress::{boot_progress_stream, BootProgressEvent};
+
+// Re-export streaming handlers
+pub use streaming::*;
+
+// Re-export adapter_stacks streaming handler
+pub use adapter_stacks::stack_policy_stream;
 
 // Re-export domain adapter handlers
 use adapteros_db::sqlx;
@@ -111,73 +132,6 @@ fn aos_error_to_response(error: AosError) -> (StatusCode, Json<ErrorResponse>) {
         status_code,
         Json(ErrorResponse::new(error.to_string()).with_code(error_code)),
     )
-}
-
-/// Health check endpoint
-#[utoipa::path(
-    tag = "system",
-    get,
-    path = "/healthz",
-    responses(
-        (status = 200, description = "Service is healthy", body = HealthResponse)
-    )
-)]
-pub async fn health() -> impl IntoResponse {
-    Json(HealthResponse {
-        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        status: "healthy".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        models: None,
-    })
-}
-
-/// Readiness check
-#[utoipa::path(
-    tag = "system",
-    get,
-    path = "/readyz",
-    responses(
-        (status = 200, description = "Service is ready", body = HealthResponse),
-        (status = 503, description = "Service is not ready", body = HealthResponse)
-    )
-)]
-pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
-    // Check boot state - only return ready if in Ready state
-    if let Some(ref boot_state) = state.boot_state {
-        if !boot_state.is_ready() {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(HealthResponse {
-                    schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                    status: format!("booting: {}", boot_state.current_state()),
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    models: None,
-                }),
-            );
-        }
-    }
-
-    // Check database connectivity
-    match state.db.pool().acquire().await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(HealthResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                status: "ready".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                models: None,
-            }),
-        ),
-        Err(_) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(HealthResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                status: "not ready".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                models: None,
-            }),
-        ),
-    }
 }
 
 /// Upsert a synthetic directory adapter and optionally activate it.
@@ -4438,7 +4392,7 @@ pub async fn infer(
                 }
 
                 // Update session activity
-                if let Err(e) = state.db.update_session_activity(session_id).await {
+                if let Err(e) = crate::security::update_session_activity(&state.db, session_id).await {
                     tracing::warn!(
                         session_id = %session_id,
                         error = %e,
@@ -5093,6 +5047,7 @@ pub async fn list_adapters(
             runtime_state: Some(adapter.current_state.clone()),
             pinned: None,
             memory_bytes: None,
+            deduplicated: None,
         });
     }
 
@@ -5192,6 +5147,7 @@ pub async fn get_adapter(
         runtime_state: Some(adapter.current_state),
         pinned: None,
         memory_bytes: None,
+        deduplicated: None,
     }))
 }
 /// Register new adapter
@@ -5428,6 +5384,7 @@ pub async fn register_adapter(
             runtime_state: Some("unloaded".to_string()),
             pinned: Some(false),
             memory_bytes: Some(0),
+            deduplicated: None,
         }),
     ))
 }
@@ -5726,6 +5683,7 @@ pub async fn load_adapter(
         runtime_state: Some(adapter.current_state),
         pinned: None,
         memory_bytes: None,
+        deduplicated: None,
     }))
 }
 
@@ -6930,23 +6888,6 @@ pub async fn get_routing_history(
 
 // ===== Agent D Contract Endpoints =====
 
-/// Get system metadata
-#[utoipa::path(
-    tag = "system",
-    get,
-    path = "/v1/meta",
-    responses(
-        (status = 200, description = "System metadata", body = MetaResponse)
-    )
-)]
-pub async fn meta() -> Json<MetaResponse> {
-    Json(MetaResponse {
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        build_hash: option_env!("BUILD_HASH").unwrap_or("dev").to_string(),
-        build_date: option_env!("BUILD_DATE").unwrap_or("unknown").to_string(),
-    })
-}
-
 /// Get routing decisions (placeholder for Agent D)
 #[utoipa::path(
     tag = "system",
@@ -8131,10 +8072,12 @@ pub async fn create_training_session(
             config,
             req.template_id,
             req.repo_id,
-            None,                           // dataset_id
+            req.dataset_id,                 // dataset_id
             Some(claims.tenant_id.clone()), // tenant_id (6th parameter)
             Some(claims.sub.clone()),       // initiated_by (7th parameter)
             Some(claims.role.clone()),      // initiated_by_role (8th parameter)
+            req.base_model_id,              // base_model_id (9th parameter)
+            req.collection_id,              // collection_id (10th parameter)
         )
         .await
         .map_err(|e| {
@@ -10236,7 +10179,7 @@ pub struct ParsedStackName {
 pub async fn validate_adapter_name(
     State(state): State<AppState>,
     Json(req): Json<ValidateAdapterNameRequest>,
-) -> Result<Json<ValidateAdapterNameResponse>, (StatusCode, String)> {
+) -> Result<Json<ValidateAdapterNameResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Create naming policy with default config
     let policy = NamingPolicy::new(NamingConfig::default());
 
@@ -10301,7 +10244,7 @@ pub async fn validate_adapter_name(
 pub async fn validate_stack_name(
     State(state): State<AppState>,
     Json(req): Json<ValidateStackNameRequest>,
-) -> Result<Json<ValidateStackNameResponse>, (StatusCode, String)> {
+) -> Result<Json<ValidateStackNameResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Create naming policy with default config
     let policy = NamingPolicy::new(NamingConfig::default());
 
@@ -10365,19 +10308,18 @@ pub async fn validate_stack_name(
 pub async fn get_next_revision(
     State(state): State<AppState>,
     Path((tenant, domain, purpose)): Path<(String, String, String)>,
-) -> Result<Json<NextRevisionResponse>, (StatusCode, String)> {
+) -> Result<Json<NextRevisionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use crate::error_helpers::internal_error;
+
     // Get registry from database
     let registry = state.registry.as_ref().ok_or_else(|| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Registry not available".to_string(),
-        )
+        internal_error("Registry not available")
     })?;
 
     // Get next revision number
     let next_rev = registry
         .next_revision_number(&tenant, &domain, &purpose)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(internal_error)?;
 
     // Format the suggested name
     let suggested_name = format!("{}/{}/{}/r{:03}", tenant, domain, purpose, next_rev);

@@ -4,6 +4,7 @@ use super::chunked_upload::{
 };
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
+use crate::error_helpers::{bad_request, db_error, internal_error, not_found, payload_too_large};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::{AppState, DatasetProgressEvent};
@@ -204,7 +205,10 @@ pub async fn upload_dataset(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     mut multipart: Multipart,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetUpload)
+        ?;
+
     let dataset_id = Uuid::now_v7().to_string();
     let storage_root = std::env::var("DATASET_STORAGE_PATH")
         .unwrap_or_else(|_| DEFAULT_DATASET_STORAGE.to_string());
@@ -214,19 +218,13 @@ pub async fn upload_dataset(
     let files_path = dataset_path.join("files");
     let temp_path = PathBuf::from(&storage_root).join("temp").join(&dataset_id);
 
-    fs::create_dir_all(&files_path).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to create dataset directory: {}", e),
-        )
-    })?;
+    fs::create_dir_all(&files_path)
+        .await
+        .map_err(|e| internal_error(format!("Failed to create dataset directory: {}", e)))?;
 
-    fs::create_dir_all(&temp_path).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to create temp directory: {}", e),
-        )
-    })?;
+    fs::create_dir_all(&temp_path)
+        .await
+        .map_err(|e| internal_error(format!("Failed to create temp directory: {}", e)))?;
 
     // Send initial progress event
     send_progress_event(
@@ -251,43 +249,36 @@ pub async fn upload_dataset(
     let mut file_count = 0;
 
     // Process multipart form
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            format!("Failed to read multipart field: {}", e),
-        )
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| bad_request(format!("Failed to read multipart field: {}", e)))?
+    {
         let name = field.name().unwrap_or("").to_string();
 
         match name.as_str() {
             "name" => {
-                dataset_name = field.text().await.map_err(|e| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        format!("Failed to read name field: {}", e),
-                    )
-                })?;
+                dataset_name = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read name field: {}", e)))?;
             }
             "description" => {
-                dataset_description = field.text().await.map_err(|e| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        format!("Failed to read description field: {}", e),
-                    )
-                })?;
+                dataset_description = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read description field: {}", e)))?;
             }
             "format" => {
-                dataset_format = field.text().await.map_err(|e| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        format!("Failed to read format field: {}", e),
-                    )
-                })?;
+                dataset_format = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read format field: {}", e)))?;
             }
             "file" | "files" => {
                 let file_name = field
                     .file_name()
-                    .ok_or((StatusCode::BAD_REQUEST, "File must have a name".to_string()))?
+                    .ok_or_else(|| bad_request("File must have a name"))?
                     .to_string();
 
                 let content_type = field
@@ -297,62 +288,47 @@ pub async fn upload_dataset(
 
                 // Stream file to temporary location
                 let temp_file_path = temp_path.join(&file_name);
-                let mut temp_file = fs::File::create(&temp_file_path).await.map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Failed to create temp file: {}", e),
-                    )
-                })?;
+                let mut temp_file = fs::File::create(&temp_file_path)
+                    .await
+                    .map_err(|e| internal_error(format!("Failed to create temp file: {}", e)))?;
 
                 let mut hasher = Hasher::new();
-                let data = field.bytes().await.map_err(|e| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        format!("Failed to read file data: {}", e),
-                    )
-                })?;
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read file data: {}", e)))?;
 
                 let file_size = data.len();
 
                 // Check file size limits
                 if file_size > MAX_FILE_SIZE {
                     fs::remove_dir_all(&temp_path).await.ok();
-                    return Err((
-                        StatusCode::PAYLOAD_TOO_LARGE,
-                        format!(
-                            "File {} exceeds maximum size of {}MB",
-                            file_name,
-                            MAX_FILE_SIZE / 1024 / 1024
-                        ),
-                    ));
+                    return Err(payload_too_large(&format!(
+                        "File {} exceeds maximum size of {}MB",
+                        file_name,
+                        MAX_FILE_SIZE / 1024 / 1024
+                    )));
                 }
 
                 total_size += file_size;
                 if total_size > MAX_TOTAL_SIZE {
                     fs::remove_dir_all(&temp_path).await.ok();
-                    return Err((
-                        StatusCode::PAYLOAD_TOO_LARGE,
-                        format!(
-                            "Total upload size exceeds maximum of {}MB",
-                            MAX_TOTAL_SIZE / 1024 / 1024
-                        ),
-                    ));
+                    return Err(payload_too_large(&format!(
+                        "Total upload size exceeds maximum of {}MB",
+                        MAX_TOTAL_SIZE / 1024 / 1024
+                    )));
                 }
 
                 // Write and hash file
                 hasher.update(&data);
-                temp_file.write_all(&data).await.map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Failed to write file: {}", e),
-                    )
-                })?;
-                temp_file.flush().await.map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Failed to flush file: {}", e),
-                    )
-                })?;
+                temp_file
+                    .write_all(&data)
+                    .await
+                    .map_err(|e| internal_error(format!("Failed to write file: {}", e)))?;
+                temp_file
+                    .flush()
+                    .await
+                    .map_err(|e| internal_error(format!("Failed to flush file: {}", e)))?;
 
                 let file_hash = hasher.finalize().to_hex().to_string();
 
@@ -361,10 +337,7 @@ pub async fn upload_dataset(
                 fs::rename(&temp_file_path, &permanent_path)
                     .await
                     .map_err(|e| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("Failed to move file to permanent location: {}", e),
-                        )
+                        internal_error(format!("Failed to move file to permanent location: {}", e))
                     })?;
 
                 file_count += 1;
@@ -416,7 +389,7 @@ pub async fn upload_dataset(
 
     if uploaded_files.is_empty() {
         fs::remove_dir_all(&dataset_path).await.ok();
-        return Err((StatusCode::BAD_REQUEST, "No files uploaded".to_string()));
+        return Err(bad_request("No files uploaded"));
     }
 
     if dataset_name.is_empty() {
@@ -446,12 +419,7 @@ pub async fn upload_dataset(
             Some(&claims.sub),
         )
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create dataset record: {}", e),
-            )
-        })?;
+        .map_err(|e| db_error(format!("Failed to create dataset record: {}", e)))?;
 
     // CRITICAL: Associate dataset with user's tenant for tenant isolation
     state
@@ -466,12 +434,7 @@ pub async fn upload_dataset(
             Some(&claims.tenant_id),
         )
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to set dataset tenant: {}", e),
-            )
-        })?;
+        .map_err(|e| db_error(format!("Failed to set dataset tenant: {}", e)))?;
 
     // Add file records to database
     for file in &uploaded_files {
@@ -488,10 +451,7 @@ pub async fn upload_dataset(
             .await
             .map_err(|e| {
                 error!("Failed to add file record: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to add file record: {}", e),
-                )
+                db_error(format!("Failed to add file record: {}", e))
             })?;
     }
 
@@ -543,24 +503,22 @@ pub async fn upload_dataset(
 )]
 pub async fn initiate_chunked_upload(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(request): Json<InitiateChunkedUploadRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetUpload)
+        ?;
+
     // Validate total size
     if request.total_size == 0 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "File size must be greater than 0".to_string(),
-        ));
+        return Err(bad_request("File size must be greater than 0"));
     }
 
     if request.total_size > MAX_TOTAL_SIZE as u64 {
-        return Err((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            format!(
-                "File size exceeds maximum of {}MB",
-                MAX_TOTAL_SIZE / 1024 / 1024
-            ),
-        ));
+        return Err(payload_too_large(&format!(
+            "File size exceeds maximum of {}MB",
+            MAX_TOTAL_SIZE / 1024 / 1024
+        )));
     }
 
     // Determine chunk size
@@ -582,12 +540,9 @@ pub async fn initiate_chunked_upload(
         .unwrap_or_else(|_| DEFAULT_DATASET_STORAGE.to_string());
     let temp_base = PathBuf::from(&storage_root).join("chunked");
 
-    fs::create_dir_all(&temp_base).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to create temp directory: {}", e),
-        )
-    })?;
+    fs::create_dir_all(&temp_base)
+        .await
+        .map_err(|e| internal_error(format!("Failed to create temp directory: {}", e)))?;
 
     // Use shared session manager from AppState
     let session = state
@@ -600,7 +555,7 @@ pub async fn initiate_chunked_upload(
             &temp_base,
         )
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(internal_error)?;
 
     info!(
         "Initiated chunked upload session {} for file {} ({} bytes, {} chunks)",
@@ -630,18 +585,20 @@ pub async fn list_datasets(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(params): Query<ListDatasetsQuery>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetList)
+        ?;
+
     let limit = params.limit.unwrap_or(50).min(100);
     let _offset = params.offset.unwrap_or(0);
 
-    let datasets = state.db.list_training_datasets(limit).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to list datasets: {}", e),
-        )
-    })?;
+    let datasets = state
+        .db
+        .list_training_datasets_for_tenant(&claims.tenant_id, limit)
+        .await
+        .map_err(|e| db_error(format!("Failed to list datasets: {}", e)))?;
 
-    // CRITICAL: Tenant isolation - filter datasets to only show those belonging to the user's tenant
+    // Tenant isolation enforced at database level via list_training_datasets_for_tenant
     let is_admin = claims.role == "admin";
     let responses: Vec<DatasetResponse> = datasets
         .into_iter()
@@ -696,29 +653,25 @@ pub async fn get_dataset(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetView)
+        ?;
+
     let dataset = state
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get dataset: {}", e),
-            )
-        })?
-        .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
+        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
 
     // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)
-            .map_err(|(code, json_err)| (code, json_err.0.error))?;
+            ?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id are only accessible to admins
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Access denied: dataset has no tenant association".to_string(),
-        ));
+        use crate::error_helpers::forbidden;
+        return Err(forbidden("Access denied: dataset has no tenant association"));
     }
 
     Ok(Json(DatasetResponse {
@@ -755,27 +708,35 @@ pub async fn get_dataset(
 )]
 pub async fn get_dataset_files(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetView)
+        ?;
+
     // Verify dataset exists
-    let _dataset = state
+    let dataset = state
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get dataset: {}", e),
-            )
-        })?
-        .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
+        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
 
-    let files = state.db.get_dataset_files(&dataset_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to get dataset files: {}", e),
-        )
-    })?;
+    // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)
+            ?;
+    } else if claims.role != "admin" {
+        // Datasets without tenant_id are only accessible to admins
+        use crate::error_helpers::forbidden;
+        return Err(forbidden("Access denied: dataset has no tenant association"));
+    }
+
+    let files = state
+        .db
+        .get_dataset_files(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to get dataset files: {}", e)))?;
 
     let responses: Vec<DatasetFileResponse> = files
         .into_iter()
@@ -810,35 +771,36 @@ pub async fn get_dataset_files(
 )]
 pub async fn get_dataset_statistics(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetView)
+        ?;
+
     // Verify dataset exists
-    let _dataset = state
+    let dataset = state
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get dataset: {}", e),
-            )
-        })?
-        .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
+        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
+
+    // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)
+            ?;
+    } else if claims.role != "admin" {
+        // Datasets without tenant_id are only accessible to admins
+        use crate::error_helpers::forbidden;
+        return Err(forbidden("Access denied: dataset has no tenant association"));
+    }
 
     let stats = state
         .db
         .get_dataset_statistics(&dataset_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get statistics: {}", e),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            "Statistics not computed for this dataset".to_string(),
-        ))?;
+        .map_err(|e| db_error(format!("Failed to get statistics: {}", e)))?
+        .ok_or_else(|| not_found("Statistics for this dataset"))?;
 
     Ok(Json(DatasetStatisticsResponse {
         schema_version: "1.0".to_string(),
@@ -874,32 +836,36 @@ pub async fn get_dataset_statistics(
 )]
 pub async fn validate_dataset(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
     Json(request): Json<ValidateDatasetRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetValidate)
+        ?;
+
     let dataset = state
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get dataset: {}", e),
-            )
-        })?
-        .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
+        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
+
+    // CRITICAL: Validate tenant isolation - non-admin users can only validate their own tenant's datasets
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)
+            ?;
+    } else if claims.role != "admin" {
+        // Datasets without tenant_id can only be validated by admins
+        use crate::error_helpers::forbidden;
+        return Err(forbidden("Access denied: dataset has no tenant association"));
+    }
 
     // Set status to 'validating' at start
     state
         .db
         .update_dataset_validation(&dataset_id, "validating", None)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to update validation status: {}", e),
-            )
-        })?;
+        .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
 
     // Send initial validation event
     send_progress_event(
@@ -917,12 +883,11 @@ pub async fn validate_dataset(
     );
 
     // Get dataset files
-    let files = state.db.get_dataset_files(&dataset_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to get dataset files: {}", e),
-        )
-    })?;
+    let files = state
+        .db
+        .get_dataset_files(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to get dataset files: {}", e)))?;
 
     let mut validation_errors = Vec::new();
     let mut is_valid = true;
@@ -1019,7 +984,7 @@ pub async fn validate_dataset(
         );
     }
 
-    // Update validation status in database
+    // Update validation status in database - set to "invalid" if validation failed
     let validation_status = if is_valid { "valid" } else { "invalid" };
     let validation_errors_str = if validation_errors.is_empty() {
         None
@@ -1036,10 +1001,19 @@ pub async fn validate_dataset(
         )
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to update validation status: {}", e),
-            )
+            // On database error, try to reset status to 'invalid' to prevent stuck 'validating' state
+            let db_clone = state.db.clone();
+            let dataset_id_clone = dataset_id.clone();
+            tokio::spawn(async move {
+                let _ = db_clone
+                    .update_dataset_validation(
+                        &dataset_id_clone,
+                        "invalid",
+                        Some("Validation failed due to internal error"),
+                    )
+                    .await;
+            });
+            internal_error(format!("Failed to update validation status: {}", e))
         })?;
 
     Ok(Json(ValidateDatasetResponse {
@@ -1073,9 +1047,13 @@ pub async fn validate_dataset(
 )]
 pub async fn preview_dataset(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetView)
+        ?;
+
     let limit = params
         .get("limit")
         .and_then(|l| l.parse::<usize>().ok())
@@ -1086,20 +1064,24 @@ pub async fn preview_dataset(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get dataset: {}", e),
-            )
-        })?
-        .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
+        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
 
-    let files = state.db.get_dataset_files(&dataset_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to get dataset files: {}", e),
-        )
-    })?;
+    // CRITICAL: Validate tenant isolation - non-admin users can only preview their own tenant's datasets
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)
+            ?;
+    } else if claims.role != "admin" {
+        // Datasets without tenant_id can only be previewed by admins
+        use crate::error_helpers::forbidden;
+        return Err(forbidden("Access denied: dataset has no tenant association"));
+    }
+
+    let files = state
+        .db
+        .get_dataset_files(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to get dataset files: {}", e)))?;
 
     let mut examples = Vec::new();
     let mut count = 0;
@@ -1155,30 +1137,23 @@ pub async fn delete_dataset(
     State(state): State<AppState>,
     Extension(claims): Extension<crate::auth::Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Get dataset to find storage path
     let dataset = state
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get dataset: {}", e),
-            )
-        })?
-        .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
+        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
 
     // CRITICAL: Validate tenant isolation before deletion - non-admin users can only delete their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)
-            .map_err(|(code, json_err)| (code, json_err.0.error))?;
+            ?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id can only be deleted by admins
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Access denied: dataset has no tenant association".to_string(),
-        ));
+        use crate::error_helpers::forbidden;
+        return Err(forbidden("Access denied: dataset has no tenant association"));
     }
 
     // Delete from database (cascades to files and statistics)
@@ -1186,12 +1161,7 @@ pub async fn delete_dataset(
         .db
         .delete_training_dataset(&dataset_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to delete dataset: {}", e),
-            )
-        })?;
+        .map_err(|e| db_error(format!("Failed to delete dataset: {}", e)))?;
 
     // Delete files from filesystem
     if tokio::fs::try_exists(&dataset.storage_path)
@@ -1274,17 +1244,12 @@ pub struct ProgressStreamQuery {
 pub async fn dataset_upload_progress(
     State(state): State<AppState>,
     Query(query): Query<ProgressStreamQuery>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, String)> {
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     // Get progress broadcast channel from state
     let rx = state
         .dataset_progress_tx
         .as_ref()
-        .ok_or_else(|| {
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Dataset progress streaming not available".to_string(),
-            )
-        })?
+        .ok_or_else(|| internal_error("Dataset progress streaming not available"))?
         .subscribe();
 
     let stream = BroadcastStream::new(rx).filter_map(move |result| {
@@ -1342,6 +1307,8 @@ async fn validate_file_hash_streaming(
 }
 
 /// Batch insert file records to reduce database transaction overhead
+/// Reserved for future optimized bulk insert operations
+#[allow(dead_code)]
 async fn batch_add_files(
     state: &AppState,
     dataset_id: &str,
@@ -1476,9 +1443,9 @@ pub async fn upload_chunk(
     Path(session_id): Path<String>,
     Query(query): Query<UploadChunkQuery>,
     body: axum::body::Bytes,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
-    require_permission(&claims, Permission::DatasetUpload).map_err(|e| (e.0, e.1.error.clone()))?;
+    require_permission(&claims, Permission::DatasetUpload)?;
 
     let chunk_index = query.chunk_index;
 
@@ -1487,7 +1454,7 @@ pub async fn upload_chunk(
         .upload_session_manager
         .get_session(&session_id)
         .await
-        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+        .map_err(|_| not_found("Upload session"))?;
 
     // Calculate expected chunks
     let expected_chunks = ((session.total_size + (session.chunk_size as u64 - 1))
@@ -1497,12 +1464,17 @@ pub async fn upload_chunk(
     if chunk_index >= expected_chunks {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!(
-                "Invalid chunk index {}. Expected 0-{} for {} total chunks",
-                chunk_index,
-                expected_chunks - 1,
-                expected_chunks
-            ),
+            Json(ErrorResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                error: format!(
+                    "Invalid chunk index {}. Expected 0-{} for {} total chunks",
+                    chunk_index,
+                    expected_chunks - 1,
+                    expected_chunks
+                ),
+                code: "INVALID_CHUNK_INDEX".to_string(),
+                details: None,
+            }),
         ));
     }
 
@@ -1510,7 +1482,12 @@ pub async fn upload_chunk(
     if session.received_chunks.contains_key(&chunk_index) {
         return Err((
             StatusCode::CONFLICT,
-            format!("Chunk {} has already been uploaded", chunk_index),
+            Json(ErrorResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                error: format!("Chunk {} has already been uploaded", chunk_index),
+                code: "DUPLICATE_CHUNK".to_string(),
+                details: None,
+            }),
         ));
     }
 
@@ -1530,11 +1507,16 @@ pub async fn upload_chunk(
     if body.len() > session.chunk_size {
         return Err((
             StatusCode::PAYLOAD_TOO_LARGE,
-            format!(
-                "Chunk size {} exceeds maximum chunk size {}",
-                body.len(),
-                session.chunk_size
-            ),
+            Json(ErrorResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                error: format!(
+                    "Chunk size {} exceeds maximum chunk size {}",
+                    body.len(),
+                    session.chunk_size
+                ),
+                code: "CHUNK_TOO_LARGE".to_string(),
+                details: None,
+            }),
         ));
     }
 
@@ -1542,26 +1524,17 @@ pub async fn upload_chunk(
     let chunk_path = session.temp_dir.join(format!("chunk_{:08}", chunk_index));
     let mut writer = ChunkWriter::new(&chunk_path).await.map_err(|e| {
         error!("Failed to create chunk writer: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to create chunk file: {}", e),
-        )
+        internal_error(format!("Failed to create chunk file: {}", e))
     })?;
 
     writer.write_chunk(&body).await.map_err(|e| {
         error!("Failed to write chunk data: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to write chunk: {}", e),
-        )
+        internal_error(format!("Failed to write chunk: {}", e))
     })?;
 
     let chunk_hash = writer.finalize().await.map_err(|e| {
         error!("Failed to finalize chunk: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to finalize chunk: {}", e),
-        )
+        internal_error(format!("Failed to finalize chunk: {}", e))
     })?;
 
     // Update session with received chunk
@@ -1571,10 +1544,7 @@ pub async fn upload_chunk(
         .await
         .map_err(|e| {
             error!("Failed to update session: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to update session: {}", e),
-            )
+            internal_error(format!("Failed to update session: {}", e))
         })?;
 
     // Check if upload is complete
@@ -1589,7 +1559,7 @@ pub async fn upload_chunk(
         .upload_session_manager
         .get_session(&session_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(internal_error)?;
 
     let chunks_received = updated_session.received_chunks.len();
 
@@ -1683,23 +1653,23 @@ pub async fn complete_chunked_upload(
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
     Json(request): Json<CompleteChunkedUploadRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
-    require_permission(&claims, Permission::DatasetUpload).map_err(|e| (e.0, e.1.error.clone()))?;
+    require_permission(&claims, Permission::DatasetUpload)?;
 
     // Get session
     let session = state
         .upload_session_manager
         .get_session(&session_id)
         .await
-        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+        .map_err(|_| not_found("Upload session"))?;
 
     // Verify upload is complete
     let is_complete = state
         .upload_session_manager
         .is_upload_complete(&session_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(internal_error)?;
 
     if !is_complete {
         let expected_chunks = ((session.total_size + (session.chunk_size as u64 - 1))
@@ -1714,17 +1684,22 @@ pub async fn complete_chunked_upload(
 
         return Err((
             StatusCode::BAD_REQUEST,
-            format!(
-                "Upload not complete. Received {}/{} chunks. Missing chunks: {:?}{}",
-                received,
-                expected_chunks,
-                missing,
-                if missing.len() < expected_chunks - received {
-                    "..."
-                } else {
-                    ""
-                }
-            ),
+            Json(ErrorResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                error: format!(
+                    "Upload not complete. Received {}/{} chunks. Missing chunks: {:?}{}",
+                    received,
+                    expected_chunks,
+                    missing,
+                    if missing.len() < expected_chunks - received {
+                        "..."
+                    } else {
+                        ""
+                    }
+                ),
+                code: "UPLOAD_INCOMPLETE".to_string(),
+                details: None,
+            }),
         ));
     }
 
@@ -1737,10 +1712,7 @@ pub async fn complete_chunked_upload(
 
     fs::create_dir_all(&files_path).await.map_err(|e| {
         error!("Failed to create dataset directory: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to create dataset directory: {}", e),
-        )
+        internal_error(format!("Failed to create dataset directory: {}", e))
     })?;
 
     let output_path = files_path.join(&session.file_name);
@@ -1792,10 +1764,7 @@ pub async fn complete_chunked_upload(
                 .await;
             });
         }
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to assemble file: {}", error_msg),
-        )
+        internal_error(format!("Failed to assemble file: {}", error_msg))
     })?;
 
     // Validate file format if requested
@@ -1823,10 +1792,7 @@ pub async fn complete_chunked_upload(
         .await
         .map_err(|e| {
             error!("Failed to create dataset record: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create dataset record: {}", e),
-            )
+            db_error(format!("Failed to create dataset record: {}", e))
         })?;
 
     // CRITICAL: Associate dataset with user's tenant for tenant isolation
@@ -1844,10 +1810,7 @@ pub async fn complete_chunked_upload(
         .await
         .map_err(|e| {
             error!("Failed to set dataset tenant: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to set dataset tenant: {}", e),
-            )
+            db_error(format!("Failed to set dataset tenant: {}", e))
         })?;
 
     // Add file record
@@ -1864,10 +1827,7 @@ pub async fn complete_chunked_upload(
         .await
         .map_err(|e| {
             error!("Failed to add file record: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to add file record: {}", e),
-            )
+            db_error(format!("Failed to add file record: {}", e))
         })?;
 
     // Clean up session
@@ -1943,15 +1903,15 @@ pub async fn get_upload_session_status(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
-    require_permission(&claims, Permission::DatasetView).map_err(|e| (e.0, e.1.error.clone()))?;
+    require_permission(&claims, Permission::DatasetView)?;
 
     let session = state
         .upload_session_manager
         .get_session(&session_id)
         .await
-        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+        .map_err(|_| not_found("Upload session"))?;
 
     let expected_chunks = ((session.total_size + (session.chunk_size as u64 - 1))
         / (session.chunk_size as u64)) as usize;
@@ -2004,16 +1964,16 @@ pub async fn cancel_chunked_upload(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
-    require_permission(&claims, Permission::DatasetUpload).map_err(|e| (e.0, e.1.error.clone()))?;
+    require_permission(&claims, Permission::DatasetUpload)?;
 
     // Get session to find temp dir
     let session = state
         .upload_session_manager
         .get_session(&session_id)
         .await
-        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+        .map_err(|_| not_found("Upload session"))?;
 
     // Remove session from manager
     state
@@ -2022,10 +1982,7 @@ pub async fn cancel_chunked_upload(
         .await
         .map_err(|e| {
             error!("Failed to remove session: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to remove session: {}", e),
-            )
+            internal_error(format!("Failed to remove session: {}", e))
         })?;
 
     // Clean up temp directory

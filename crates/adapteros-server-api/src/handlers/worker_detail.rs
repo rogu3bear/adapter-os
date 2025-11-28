@@ -6,7 +6,7 @@
 //! - Active tasks
 //! - Uptime and performance metrics
 
-use crate::permissions::{require_any_role, Role};
+use crate::permissions::{require_permission, Permission};
 use crate::{AppState, Claims, ErrorResponse};
 use adapteros_api_types::API_SCHEMA_VERSION;
 use axum::{
@@ -98,33 +98,37 @@ pub async fn get_worker_detail(
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
 ) -> Result<Json<WorkerDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Role check: Operator or above
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    // Permission check: WorkerView required
+    require_permission(&claims, Permission::WorkerView)?;
 
     // Fetch worker from database
-    let worker = sqlx::query_as::<_, WorkerRecord>(
-        "SELECT id, tenant_id, node_id, plan_id, status, pid, uds_path,
-                memory_headroom_pct, k_current, adapters_loaded_json,
-                started_at, last_heartbeat_at
-         FROM workers WHERE id = ?",
-    )
-    .bind(&worker_id)
-    .fetch_one(state.db.pool())
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("worker not found")
-                    .with_code("WORKER_NOT_FOUND")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let worker = state
+        .db
+        .get_worker_detail(&worker_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch worker")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("worker not found")
+                        .with_code("WORKER_NOT_FOUND"),
+                ),
+            )
+        })?;
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("System time before UNIX epoch")
+        .unwrap_or_default()
         .as_secs();
 
     // Calculate uptime
@@ -168,26 +172,9 @@ pub async fn get_worker_detail(
     }))
 }
 
-/// Worker record from database
-#[derive(Debug, sqlx::FromRow)]
-struct WorkerRecord {
-    id: String,
-    tenant_id: String,
-    node_id: String,
-    plan_id: String,
-    status: String,
-    pid: Option<i32>,
-    uds_path: String,
-    memory_headroom_pct: Option<f32>,
-    k_current: Option<i32>,
-    adapters_loaded_json: Option<String>,
-    started_at: String,
-    last_heartbeat_at: Option<String>,
-}
-
 /// Calculate worker uptime
 fn calculate_uptime(started_at: &str, current_timestamp: u64) -> u64 {
-    use chrono::{DateTime, Utc};
+    use chrono::DateTime;
 
     if let Ok(started) = DateTime::parse_from_rfc3339(started_at) {
         let started_timestamp = started.timestamp() as u64;
@@ -198,17 +185,15 @@ fn calculate_uptime(started_at: &str, current_timestamp: u64) -> u64 {
 }
 
 /// Determine worker type based on plan and configuration
-async fn determine_worker_type(worker: &WorkerRecord, state: &AppState) -> WorkerType {
+async fn determine_worker_type(worker: &adapteros_db::workers::WorkerDetail, state: &AppState) -> WorkerType {
     // Check if worker is associated with training jobs
-    let is_training = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM training_jobs WHERE worker_id = ? AND status = 'running'",
-    )
-    .bind(&worker.id)
-    .fetch_one(state.db.pool())
-    .await
-    .unwrap_or(0);
+    let is_training = state
+        .db
+        .is_worker_training(&worker.id)
+        .await
+        .unwrap_or(false);
 
-    if is_training > 0 {
+    if is_training {
         return WorkerType::Training;
     }
 
@@ -223,7 +208,7 @@ async fn determine_worker_type(worker: &WorkerRecord, state: &AppState) -> Worke
 
 /// Get worker resource usage
 async fn get_worker_resource_usage(
-    worker: &WorkerRecord,
+    worker: &adapteros_db::workers::WorkerDetail,
     state: &AppState,
     timestamp: u64,
 ) -> WorkerResourceUsage {
@@ -235,35 +220,24 @@ async fn get_worker_resource_usage(
     };
 
     // Get request metrics from telemetry
-    let requests_processed = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM telemetry_events
-         WHERE worker_id = ? AND event_type = 'inference_complete'",
-    )
-    .bind(&worker.id)
-    .fetch_one(state.db.pool())
-    .await
-    .unwrap_or(0);
+    let requests_processed = state
+        .db
+        .get_worker_telemetry_count(&worker.id, "inference_complete")
+        .await
+        .unwrap_or(0);
 
-    let errors_count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM telemetry_events
-         WHERE worker_id = ? AND event_type = 'error'",
-    )
-    .bind(&worker.id)
-    .fetch_one(state.db.pool())
-    .await
-    .unwrap_or(0);
+    let errors_count = state
+        .db
+        .get_worker_telemetry_count(&worker.id, "error")
+        .await
+        .unwrap_or(0);
 
-    let avg_latency_ms = sqlx::query_scalar::<_, Option<f64>>(
-        "SELECT AVG(CAST(json_extract(payload, '$.latency_ms') AS REAL))
-         FROM telemetry_events
-         WHERE worker_id = ? AND event_type = 'inference_complete'
-         AND timestamp > datetime('now', '-5 minutes')",
-    )
-    .bind(&worker.id)
-    .fetch_one(state.db.pool())
-    .await
-    .unwrap_or(None)
-    .unwrap_or(0.0) as f32;
+    let avg_latency_ms = state
+        .db
+        .get_worker_avg_latency_recent(&worker.id, 5)
+        .await
+        .unwrap_or(None)
+        .unwrap_or(0.0) as f32;
 
     WorkerResourceUsage {
         cpu_usage_percent: cpu_usage,
@@ -304,15 +278,11 @@ fn get_process_metrics(pid: i32) -> (f32, f32, i32) {
 /// Get active tasks for worker
 async fn get_active_tasks(worker_id: &str, state: &AppState) -> Vec<WorkerTask> {
     // Get training jobs
-    let training_tasks = sqlx::query_as::<_, TaskRecord>(
-        "SELECT id, 'training' as task_type, status, started_at, progress_pct
-         FROM training_jobs
-         WHERE worker_id = ? AND status IN ('running', 'pending')",
-    )
-    .bind(worker_id)
-    .fetch_all(state.db.pool())
-    .await
-    .unwrap_or_default();
+    let training_tasks = state
+        .db
+        .get_worker_active_training_tasks(worker_id)
+        .await
+        .unwrap_or_default();
 
     training_tasks
         .into_iter()
@@ -326,14 +296,4 @@ async fn get_active_tasks(worker_id: &str, state: &AppState) -> Vec<WorkerTask> 
             progress_percent: task.progress_pct,
         })
         .collect()
-}
-
-/// Task record from database
-#[derive(Debug, sqlx::FromRow)]
-struct TaskRecord {
-    id: String,
-    task_type: String,
-    status: String,
-    started_at: Option<String>,
-    progress_pct: Option<f32>,
 }

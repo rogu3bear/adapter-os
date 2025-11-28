@@ -333,15 +333,15 @@ async fn test_plugin_panic_does_not_crash_server() {
     // emit() should return Err with failed plugin name
     assert!(result.is_err(), "Should return error for failed plugin");
     let failures = result.unwrap_err();
-    assert_eq!(
-        failures.len(),
-        1,
-        "Should have exactly one failed plugin"
-    );
+    assert_eq!(failures.len(), 1, "Should have exactly one failed plugin");
     assert_eq!(failures[0], "panic-plugin", "Panic plugin should be listed");
 
     // Verify panic plugin was called
-    assert_eq!(panic_plugin.call_count(), 1, "Panic plugin should be called");
+    assert_eq!(
+        panic_plugin.call_count(),
+        1,
+        "Panic plugin should be called"
+    );
 
     // Verify good plugin was still called (server continues working)
     assert_eq!(good_plugin.call_count(), 1, "Good plugin should be called");
@@ -383,11 +383,7 @@ async fn test_plugin_timeout_does_not_block_event_bus() {
     // emit() should return Err with failed plugin name
     assert!(result.is_err(), "Should return error for timed out plugin");
     let failures = result.unwrap_err();
-    assert_eq!(
-        failures.len(),
-        1,
-        "Should have exactly one failed plugin"
-    );
+    assert_eq!(failures.len(), 1, "Should have exactly one failed plugin");
     assert_eq!(failures[0], "slow-plugin", "Slow plugin should be listed");
 
     // Verify slow plugin was called (but timed out)
@@ -419,15 +415,15 @@ async fn test_failed_plugin_error_logged_but_not_propagated() {
     // Assert: Error was logged and returned, but server continues
     assert!(result.is_err(), "Should return error for failed plugin");
     let failures = result.unwrap_err();
-    assert_eq!(
-        failures.len(),
-        1,
-        "Should have exactly one failed plugin"
-    );
+    assert_eq!(failures.len(), 1, "Should have exactly one failed plugin");
     assert_eq!(failures[0], "error-plugin", "Error plugin should be listed");
 
     // Verify error plugin was called
-    assert_eq!(error_plugin.call_count(), 1, "Error plugin should be called");
+    assert_eq!(
+        error_plugin.call_count(),
+        1,
+        "Error plugin should be called"
+    );
 
     // Verify good plugin was still called (error not propagated)
     assert_eq!(good_plugin.call_count(), 1, "Good plugin should be called");
@@ -640,13 +636,29 @@ async fn test_mixed_plugin_failures_do_not_stop_good_plugins() {
     );
 
     // Verify good plugins still received the event
-    assert_eq!(good_plugin1.call_count(), 1, "good-plugin1 should be called");
-    assert_eq!(good_plugin2.call_count(), 1, "good-plugin2 should be called");
+    assert_eq!(
+        good_plugin1.call_count(),
+        1,
+        "good-plugin1 should be called"
+    );
+    assert_eq!(
+        good_plugin2.call_count(),
+        1,
+        "good-plugin2 should be called"
+    );
 
     // Verify failed plugins were called (failures happened during execution)
-    assert_eq!(panic_plugin.call_count(), 1, "panic-plugin should be called");
+    assert_eq!(
+        panic_plugin.call_count(),
+        1,
+        "panic-plugin should be called"
+    );
     assert_eq!(slow_plugin.call_count(), 1, "slow-plugin should be called");
-    assert_eq!(error_plugin.call_count(), 1, "error-plugin should be called");
+    assert_eq!(
+        error_plugin.call_count(),
+        1,
+        "error-plugin should be called"
+    );
 }
 
 #[tokio::test]

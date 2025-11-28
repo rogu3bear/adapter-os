@@ -481,6 +481,14 @@ mod tests {
 
             Ok(())
         }
+
+        async fn set_tenant_enabled(
+            &self,
+            _tenant_id: &str,
+            _enabled: bool,
+        ) -> adapteros_core::Result<()> {
+            Ok(())
+        }
     }
 
     #[tokio::test]
@@ -514,8 +522,8 @@ mod tests {
     async fn test_event_bus_panic_isolation() {
         let bus = EventBus::new(10);
 
-        let plugin = TestPlugin::new("panic-plugin", vec![EventHookType::OnAdapterRegistered])
-            .with_panic();
+        let plugin =
+            TestPlugin::new("panic-plugin", vec![EventHookType::OnAdapterRegistered]).with_panic();
         let plugin = Arc::new(plugin);
 
         bus.register_plugin("panic-plugin".to_string(), plugin.clone())
@@ -572,8 +580,8 @@ mod tests {
     async fn test_event_bus_error_handling() {
         let bus = EventBus::new(10);
 
-        let plugin = TestPlugin::new("error-plugin", vec![EventHookType::OnAdapterRegistered])
-            .with_error();
+        let plugin =
+            TestPlugin::new("error-plugin", vec![EventHookType::OnAdapterRegistered]).with_error();
         let plugin = Arc::new(plugin);
 
         bus.register_plugin("error-plugin".to_string(), plugin.clone())

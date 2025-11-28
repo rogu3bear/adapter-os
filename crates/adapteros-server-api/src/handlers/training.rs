@@ -8,6 +8,7 @@
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
+use crate::services::{DefaultTrainingService, TrainingService};
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_core::AosError;
@@ -18,6 +19,7 @@ use axum::{
     http::StatusCode,
     response::Json,
 };
+use std::sync::Arc;
 use tracing::{error, info, warn};
 
 /// List training jobs with optional filters
@@ -187,13 +189,14 @@ fn build_training_error_response(error: &AosError) -> (StatusCode, Json<ErrorRes
     if is_validation_variant || is_dataset_validation_message {
         // Preserve the original validation message so the client can show actionable guidance
         let message = match error {
-            AosError::Validation(msg) => msg.as_str(),
-            _ => error_message.as_str(),
+            AosError::Validation(msg) => msg.clone(),
+            AosError::Database(msg) => msg.clone(),
+            _ => error_message.clone(),
         };
 
         return (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new(message).with_code("VALIDATION_ERROR")),
+            Json(ErrorResponse::new(&message).with_code("VALIDATION_ERROR")),
         );
     }
 
@@ -225,23 +228,8 @@ pub async fn start_training(
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
 
-    // Guardrail: Block training jobs when node is in Critical memory state (PRD G3)
-    let pressure = state.uma_monitor.get_current_pressure();
-    if pressure == MemoryPressureLevel::Critical {
-        warn!(
-            user_id = %claims.sub,
-            adapter_name = %request.adapter_name,
-            "Training job blocked due to Critical memory pressure"
-        );
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("Training jobs are currently blocked due to critical memory pressure. Please wait for memory pressure to decrease before starting new training jobs.")
-                    .with_code("MEMORY_PRESSURE_CRITICAL")
-                    .with_string_details("Node health is Critical. Training jobs require sufficient memory headroom."),
-            ),
-        ));
-    }
+    // Create training service instance
+    let service = DefaultTrainingService::new(Arc::new(state.clone()));
 
     // Validate adapter name
     if request.adapter_name.is_empty() {
@@ -251,244 +239,140 @@ pub async fn start_training(
         ));
     }
 
-    // CRITICAL: Validate dataset tenant isolation if dataset_id is provided
-    // Non-admin users can only train with datasets belonging to their tenant
-    if let Some(ref dataset_id) = request.dataset_id {
-        let dataset = state
+    // Check if evidence policy is enforced for this tenant
+    let evidence_policy_enforced = {
+        let policy_assignments = state
             .db
-            .get_training_dataset(dataset_id)
+            .get_policy_assignments("tenant", Some(&claims.tenant_id))
             .await
             .map_err(|e| {
-                error!(dataset_id = %dataset_id, error = %e, "Failed to get dataset for training");
+                error!(error = %e, "Failed to get policy assignments");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(
-                        ErrorResponse::new(&format!("Failed to verify dataset: {}", e))
-                            .with_code("DATABASE_ERROR"),
+                        ErrorResponse::new("Failed to check policy assignments")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
                     ),
                 )
             })?;
 
-        match dataset {
-            Some(ds) => {
-                if let Some(ref dataset_tenant_id) = ds.tenant_id {
-                    validate_tenant_isolation(&claims, dataset_tenant_id)?;
-                } else if claims.role != "admin" {
-                    // Datasets without tenant_id can only be used by admins
-                    return Err((
-                        StatusCode::FORBIDDEN,
-                        Json(
-                            ErrorResponse::new("Access denied: dataset has no tenant association")
-                                .with_code("TENANT_ISOLATION_ERROR"),
-                        ),
-                    ));
+        let mut enforced = false;
+        for assignment in &policy_assignments {
+            if assignment.enforced {
+                if let Ok(Some(pack)) = state.db.get_policy_pack(&assignment.policy_pack_id).await {
+                    if pack.policy_type == "evidence" && pack.status == "active" {
+                        enforced = true;
+                        break;
+                    }
                 }
             }
-            None => {
-                return Err((
-                    StatusCode::NOT_FOUND,
-                    Json(
-                        ErrorResponse::new(&format!("Dataset not found: {}", dataset_id))
-                            .with_code("NOT_FOUND"),
-                    ),
-                ));
-            }
         }
-    }
+        enforced
+    };
 
-    // POLICY ENFORCEMENT: Check evidence policy compliance
-    // Get policy assignments for this tenant
-    let policy_assignments = state
-        .db
-        .get_policy_assignments("tenant", Some(&claims.tenant_id))
+    // Use service to validate training request
+    let validation = service
+        .validate_training_request(
+            &claims.tenant_id,
+            request.dataset_id.as_deref(),
+            request.collection_id.as_deref(),
+            evidence_policy_enforced,
+        )
         .await
         .map_err(|e| {
-            error!(error = %e, "Failed to get policy assignments");
+            error!(error = %e, "Failed to validate training request");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("Failed to check policy assignments")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new(&format!("Failed to validate request: {}", e))
+                        .with_code("INTERNAL_ERROR"),
                 ),
             )
         })?;
 
-    // Check if evidence policy is assigned and enforced
-    for assignment in &policy_assignments {
-        if assignment.enforced {
-            // Fetch the policy pack
-            if let Ok(Some(pack)) = state.db.get_policy_pack(&assignment.policy_pack_id).await {
-                if pack.policy_type == "evidence" && pack.status == "active" {
-                    // Check if dataset_id is provided and valid
-                    if let Some(dataset_id) = &request.dataset_id {
-                        // Verify dataset has required evidence fields
-                        // For now, we just check that dataset exists and has validation_status = 'valid'
-                        let dataset_check = sqlx::query_scalar::<_, String>(
-                            "SELECT validation_status FROM training_datasets WHERE id = ?",
-                        )
-                        .bind(dataset_id)
-                        .fetch_optional(state.db.pool())
-                        .await
-                        .map_err(|e| {
-                            error!(error = %e, "Failed to check dataset");
-                            (
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(
-                                    ErrorResponse::new("Failed to check dataset")
-                                        .with_code("INTERNAL_ERROR")
-                                        .with_string_details(e.to_string()),
-                                ),
-                            )
-                        })?;
+    // If validation failed, return appropriate error
+    if !validation.is_valid {
+        let error_code = validation.error_code.as_deref().unwrap_or("VALIDATION_ERROR");
+        let error_message = validation
+            .error_message
+            .unwrap_or_else(|| "Validation failed".to_string());
 
-                        if let Some(status) = dataset_check {
-                            if status != "valid" {
-                                // Record policy violation
-                                let violation_id = state
-                                    .db
-                                    .record_policy_violation(
-                                        &pack.id,
-                                        Some(&assignment.id),
-                                        "evidence",
-                                        "critical",
-                                        "training_dataset",
-                                        Some(dataset_id),
-                                        &claims.tenant_id,
-                                        &format!("Evidence policy violation: Dataset {} is not validated (status: {})", dataset_id, status),
-                                        None,
-                                    )
-                                    .await
-                                    .map_err(|e| {
-                                        error!(error = %e, "Failed to record policy violation");
-                                        (
-                                            StatusCode::INTERNAL_SERVER_ERROR,
-                                            Json(
-                                                ErrorResponse::new("Failed to record policy violation")
-                                                    .with_code("INTERNAL_ERROR")
-                                                    .with_string_details(e.to_string()),
-                                            ),
-                                        )
-                                    })?;
+        let status_code = match error_code {
+            "NOT_FOUND" => StatusCode::NOT_FOUND,
+            "TENANT_ISOLATION_ERROR" => StatusCode::FORBIDDEN,
+            "POLICY_VIOLATION" => StatusCode::FORBIDDEN,
+            _ => StatusCode::BAD_REQUEST,
+        };
 
-                                warn!(
-                                    dataset_id = %dataset_id,
-                                    tenant_id = %claims.tenant_id,
-                                    violation_id = %violation_id,
-                                    "Evidence policy violation: Dataset not validated"
-                                );
+        // Record policy violation if this is a policy-related error
+        if error_code == "POLICY_VIOLATION" {
+            // Get the enforced evidence policy pack to record violation
+            let policy_assignments = state
+                .db
+                .get_policy_assignments("tenant", Some(&claims.tenant_id))
+                .await
+                .unwrap_or_default();
 
-                                // Reject training if evidence policy is enforced
-                                return Err((
-                                    StatusCode::FORBIDDEN,
-                                    Json(
-                                        ErrorResponse::new(&format!(
-                                            "Evidence policy violation: Dataset {} must be validated before training (current status: {})",
-                                            dataset_id, status
-                                        ))
-                                        .with_code("POLICY_VIOLATION")
-                                        .with_string_details(format!("Violation ID: {}", violation_id)),
-                                    ),
-                                ));
-                            }
-                        } else {
-                            // Dataset not found - record violation
-                            let violation_id = state
+            for assignment in &policy_assignments {
+                if assignment.enforced {
+                    if let Ok(Some(pack)) = state.db.get_policy_pack(&assignment.policy_pack_id).await {
+                        if pack.policy_type == "evidence" && pack.status == "active" {
+                            let resource_id = if error_message.contains("Dataset") && request.dataset_id.is_some() {
+                                request.dataset_id.as_deref()
+                            } else {
+                                None
+                            };
+
+                            let _ = state
                                 .db
                                 .record_policy_violation(
                                     &pack.id,
                                     Some(&assignment.id),
                                     "evidence",
                                     "critical",
-                                    "training_dataset",
-                                    Some(dataset_id),
+                                    "training_request",
+                                    resource_id,
                                     &claims.tenant_id,
-                                    &format!(
-                                        "Evidence policy violation: Dataset {} not found",
-                                        dataset_id
-                                    ),
+                                    &format!("Evidence policy violation: {}", error_message),
                                     None,
                                 )
-                                .await
-                                .map_err(|e| {
-                                    error!(error = %e, "Failed to record policy violation");
-                                    (
-                                        StatusCode::INTERNAL_SERVER_ERROR,
-                                        Json(
-                                            ErrorResponse::new("Failed to record policy violation")
-                                                .with_code("INTERNAL_ERROR")
-                                                .with_string_details(e.to_string()),
-                                        ),
-                                    )
-                                })?;
-
-                            warn!(
-                                dataset_id = %dataset_id,
-                                tenant_id = %claims.tenant_id,
-                                violation_id = %violation_id,
-                                "Evidence policy violation: Dataset not found"
-                            );
-
-                            return Err((
-                                StatusCode::NOT_FOUND,
-                                Json(
-                                    ErrorResponse::new(&format!(
-                                        "Dataset {} not found",
-                                        dataset_id
-                                    ))
-                                    .with_code("NOT_FOUND")
-                                    .with_string_details(format!("Violation ID: {}", violation_id)),
-                                ),
-                            ));
+                                .await;
+                            break;
                         }
-                    } else {
-                        // No dataset provided but evidence policy requires it
-                        let violation_id = state
-                            .db
-                            .record_policy_violation(
-                                &pack.id,
-                                Some(&assignment.id),
-                                "evidence",
-                                "critical",
-                                "training_job",
-                                None,
-                                &claims.tenant_id,
-                                "Evidence policy violation: No dataset provided for training",
-                                None,
-                            )
-                            .await
-                            .map_err(|e| {
-                                error!(error = %e, "Failed to record policy violation");
-                                (
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    Json(
-                                        ErrorResponse::new("Failed to record policy violation")
-                                            .with_code("INTERNAL_ERROR")
-                                            .with_string_details(e.to_string()),
-                                    ),
-                                )
-                            })?;
-
-                        warn!(
-                            tenant_id = %claims.tenant_id,
-                            violation_id = %violation_id,
-                            "Evidence policy violation: No dataset provided"
-                        );
-
-                        return Err((
-                            StatusCode::BAD_REQUEST,
-                            Json(
-                                ErrorResponse::new(
-                                    "Evidence policy requires a validated dataset for training",
-                                )
-                                .with_code("POLICY_VIOLATION")
-                                .with_string_details(format!("Violation ID: {}", violation_id)),
-                            ),
-                        ));
                     }
                 }
             }
         }
+
+        return Err((
+            status_code,
+            Json(ErrorResponse::new(&error_message).with_code(error_code)),
+        ));
+    }
+
+    // Use service to check if training can start (capacity + memory pressure)
+    if let Err(e) = service.can_start_training().await {
+        let error_message = e.to_string();
+        let (status_code, error_code) = if error_message.contains("concurrent training jobs") {
+            (StatusCode::SERVICE_UNAVAILABLE, "TRAINING_CAPACITY_LIMIT")
+        } else if error_message.contains("memory pressure") {
+            (StatusCode::SERVICE_UNAVAILABLE, "MEMORY_PRESSURE_CRITICAL")
+        } else {
+            (StatusCode::INTERNAL_SERVER_ERROR, "CAPACITY_CHECK_ERROR")
+        };
+
+        warn!(
+            user_id = %claims.sub,
+            adapter_name = %request.adapter_name,
+            error = %error_message,
+            "Training job rejected due to capacity or memory constraints"
+        );
+
+        return Err((
+            status_code,
+            Json(ErrorResponse::new(&error_message).with_code(error_code)),
+        ));
     }
 
     // Convert request config to training config
@@ -506,6 +390,8 @@ pub async fn start_training(
             Some(claims.tenant_id.clone()),
             Some(claims.sub.clone()),
             Some(claims.role.clone()),
+            request.base_model_id.clone(),
+            request.collection_id.clone(),
         )
         .await
         .map_err(|e| {

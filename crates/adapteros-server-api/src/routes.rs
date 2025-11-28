@@ -2,7 +2,8 @@ use crate::caching;
 use crate::handlers;
 use crate::handlers::auth;
 use crate::handlers::domain_adapters;
-use crate::middleware::{auth_middleware, client_ip_middleware, dual_auth_middleware};
+use crate::middleware::policy_enforcement::policy_enforcement_middleware;
+use crate::middleware::{auth_middleware, client_ip_middleware};
 use crate::middleware_security::{
     cors_layer, drain_middleware, rate_limiting_middleware, request_size_limit_middleware,
     request_tracking_middleware, security_headers_middleware,
@@ -15,6 +16,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
@@ -25,11 +27,13 @@ use utoipa_swagger_ui::SwaggerUi;
     paths(
         handlers::health,
         handlers::ready,
+        handlers::get_status,
         crate::health::check_all_health,
         crate::health::check_component_health,
         handlers::auth::auth_login,
         handlers::auth::auth_logout,
         handlers::auth::auth_me,
+        handlers::auth_enhanced::get_auth_config_handler,
         handlers::propose_patch,
         handlers::infer,
         handlers::streaming_infer::streaming_infer,
@@ -173,6 +177,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::documents::delete_document,
         handlers::documents::list_document_chunks,
         handlers::documents::download_document,
+        handlers::documents::process_document,
         // Collection handlers
         handlers::collections::create_collection,
         handlers::collections::list_collections,
@@ -248,6 +253,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::adapter_stacks::deactivate_stack,
         // PRD-INFRA-01: System, Nodes, Workers, Memory, Metrics handlers
         handlers::system_overview::get_system_overview,
+        handlers::system_state::get_system_state,
         handlers::node_detail::get_node_detail,
         handlers::worker_detail::get_worker_detail,
         handlers::memory_detail::get_uma_memory_breakdown,
@@ -403,7 +409,7 @@ use utoipa_swagger_ui::SwaggerUi;
         // Federation types
         crate::handlers::federation::FederationStatusResponse,
         crate::handlers::federation::QuarantineStatusResponse,
-        crate::handlers::federation::QuarantineDetails,
+        adapteros_db::federation::QuarantineDetails,
         // Chunked upload types
         handlers::datasets::InitiateChunkedUploadRequest,
         handlers::datasets::InitiateChunkedUploadResponse,
@@ -462,6 +468,21 @@ use utoipa_swagger_ui::SwaggerUi;
         // Owner CLI types
         handlers::owner_cli::CliRunRequest,
         handlers::owner_cli::CliRunResponse,
+        // System state types
+        adapteros_api_types::system_state::SystemStateResponse,
+        adapteros_api_types::system_state::SystemStateQuery,
+        adapteros_api_types::system_state::StateOrigin,
+        adapteros_api_types::system_state::NodeState,
+        adapteros_api_types::system_state::ServiceState,
+        adapteros_api_types::system_state::ServiceHealthStatus,
+        adapteros_api_types::system_state::TenantState,
+        adapteros_api_types::system_state::StackSummary,
+        adapteros_api_types::system_state::AdapterSummary,
+        adapteros_api_types::system_state::AdapterLifecycleState,
+        adapteros_api_types::system_state::MemoryState,
+        adapteros_api_types::system_state::MemoryPressureLevel,
+        adapteros_api_types::system_state::AneMemoryState,
+        adapteros_api_types::system_state::AdapterMemorySummary,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -513,19 +534,40 @@ pub fn build(state: AppState) -> Router {
             post(handlers::auth_enhanced::bootstrap_admin_handler),
         )
         .route(
-            "/v1/auth/dev-bypass",
-            post(handlers::auth_enhanced::dev_bypass_handler),
+            "/v1/auth/config",
+            get(handlers::auth_enhanced::get_auth_config_handler),
         )
         .route("/v1/meta", get(handlers::meta))
+        .route("/v1/status", get(handlers::get_status))
         .route(
             "/v1/version",
             get(|| async { axum::Json(versioning::get_version_info()) }),
         );
 
+    #[cfg(all(feature = "dev-bypass", debug_assertions))]
+    {
+        public_routes = public_routes.route(
+            "/v1/auth/dev-bypass",
+            post(handlers::auth_enhanced::dev_bypass_handler),
+        );
+    }
+
+    let public_routes =
+        public_routes
+            .with_state(state.clone())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                policy_enforcement_middleware,
+            ));
+
     // Metrics endpoint (custom auth, not JWT)
     let metrics_route = Router::new()
         .route("/v1/metrics", get(handlers::metrics_handler))
-        .with_state(state.clone());
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            policy_enforcement_middleware,
+        ));
 
     // Protected routes (require auth)
     let protected_routes = Router::new()
@@ -727,14 +769,20 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/policies/validate", post(handlers::validate_policy))
         .route("/v1/policies/apply", post(handlers::apply_policy))
         .route("/v1/policies/{cpid}/sign", post(handlers::sign_policy))
-        .route("/v1/policies/{cpid}/verify", get(handlers::verify_policy_signature))
+        .route(
+            "/v1/policies/{cpid}/verify",
+            get(handlers::verify_policy_signature),
+        )
         .route(
             "/v1/policies/compare",
             post(handlers::compare_policy_versions),
         )
         .route("/v1/policies/{cpid}/export", get(handlers::export_policy))
         .route("/v1/policies/assign", post(handlers::assign_policy))
-        .route("/v1/policies/assignments", get(handlers::list_policy_assignments))
+        .route(
+            "/v1/policies/assignments",
+            get(handlers::list_policy_assignments),
+        )
         .route("/v1/policies/violations", get(handlers::list_violations))
         .route(
             "/v1/telemetry/bundles",
@@ -782,6 +830,24 @@ pub fn build(state: AppState) -> Router {
             post(handlers::chat_sessions::create_chat_session)
                 .get(handlers::chat_sessions::list_chat_sessions),
         )
+        // Special paths MUST come before the {session_id} wildcard
+        .route(
+            "/v1/chat/sessions/archived",
+            get(handlers::chat_sessions::list_archived_sessions),
+        )
+        .route(
+            "/v1/chat/sessions/trash",
+            get(handlers::chat_sessions::list_deleted_sessions),
+        )
+        .route(
+            "/v1/chat/sessions/search",
+            get(handlers::chat_sessions::search_chat_sessions),
+        )
+        .route(
+            "/v1/chat/sessions/shared-with-me",
+            get(handlers::chat_sessions::get_sessions_shared_with_me),
+        )
+        // Wildcard route after special paths
         .route(
             "/v1/chat/sessions/{session_id}",
             get(handlers::chat_sessions::get_chat_session)
@@ -803,6 +869,66 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/chat/messages/{message_id}/evidence",
             get(handlers::chat_sessions::get_message_evidence),
+        )
+        // Chat tags routes
+        .route(
+            "/v1/chat/tags",
+            get(handlers::chat_sessions::list_chat_tags)
+                .post(handlers::chat_sessions::create_chat_tag),
+        )
+        .route(
+            "/v1/chat/tags/{tag_id}",
+            put(handlers::chat_sessions::update_chat_tag)
+                .delete(handlers::chat_sessions::delete_chat_tag),
+        )
+        // Chat categories routes
+        .route(
+            "/v1/chat/categories",
+            get(handlers::chat_sessions::list_chat_categories)
+                .post(handlers::chat_sessions::create_chat_category),
+        )
+        .route(
+            "/v1/chat/categories/{category_id}",
+            put(handlers::chat_sessions::update_chat_category)
+                .delete(handlers::chat_sessions::delete_chat_category),
+        )
+        // Chat session tags
+        .route(
+            "/v1/chat/sessions/{session_id}/tags",
+            get(handlers::chat_sessions::get_session_tags)
+                .post(handlers::chat_sessions::assign_tags_to_session),
+        )
+        .route(
+            "/v1/chat/sessions/{session_id}/tags/{tag_id}",
+            axum::routing::delete(handlers::chat_sessions::remove_tag_from_session),
+        )
+        // Chat session category
+        .route(
+            "/v1/chat/sessions/{session_id}/category",
+            put(handlers::chat_sessions::set_session_category),
+        )
+        // Chat session archive/restore
+        .route(
+            "/v1/chat/sessions/{session_id}/archive",
+            post(handlers::chat_sessions::archive_session),
+        )
+        .route(
+            "/v1/chat/sessions/{session_id}/restore",
+            post(handlers::chat_sessions::restore_session),
+        )
+        .route(
+            "/v1/chat/sessions/{session_id}/permanent",
+            axum::routing::delete(handlers::chat_sessions::hard_delete_session),
+        )
+        // Chat session shares
+        .route(
+            "/v1/chat/sessions/{session_id}/shares",
+            get(handlers::chat_sessions::get_session_shares)
+                .post(handlers::chat_sessions::share_session),
+        )
+        .route(
+            "/v1/chat/sessions/{session_id}/shares/{share_id}",
+            axum::routing::delete(handlers::chat_sessions::revoke_session_share),
         )
         // Owner CLI and Chat routes (admin only)
         .route(
@@ -872,6 +998,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::adapters::get_adapter_training_snapshot),
         )
         .route(
+            "/v1/adapters/{adapter_id}/training-export",
+            get(handlers::adapters::export_training_provenance),
+        )
+        .route(
             "/v1/adapters/directory/upsert",
             post(handlers::upsert_directory_adapter),
         )
@@ -937,6 +1067,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/adapter-stacks/{id}/history",
             get(handlers::adapter_stacks::get_stack_history),
+        )
+        .route(
+            "/v1/adapter-stacks/{id}/policies",
+            get(handlers::adapter_stacks::get_stack_policies),
         )
         .route(
             "/v1/adapter-stacks/{id}/activate",
@@ -1064,10 +1198,7 @@ pub fn build(state: AppState) -> Router {
             post(handlers::documents::upload_document),
         )
         .route("/v1/documents", get(handlers::documents::list_documents))
-        .route(
-            "/v1/documents/{id}",
-            get(handlers::documents::get_document),
-        )
+        .route("/v1/documents/{id}", get(handlers::documents::get_document))
         .route(
             "/v1/documents/{id}",
             delete(handlers::documents::delete_document),
@@ -1080,12 +1211,19 @@ pub fn build(state: AppState) -> Router {
             "/v1/documents/{id}/download",
             get(handlers::documents::download_document),
         )
+        .route(
+            "/v1/documents/{id}/process",
+            post(handlers::documents::process_document),
+        )
         // Collection routes
         .route(
             "/v1/collections",
             post(handlers::collections::create_collection),
         )
-        .route("/v1/collections", get(handlers::collections::list_collections))
+        .route(
+            "/v1/collections",
+            get(handlers::collections::list_collections),
+        )
         .route(
             "/v1/collections/{id}",
             get(handlers::collections::get_collection),
@@ -1147,6 +1285,11 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/system/overview",
             get(handlers::system_overview::get_system_overview),
+        )
+        // System state (ground truth) route
+        .route(
+            "/v1/system/state",
+            get(handlers::system_state::get_system_state),
         )
         // Metrics routes
         .route("/v1/metrics/quality", get(handlers::get_quality_metrics))
@@ -1295,6 +1438,27 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
         .route(
+            "/v1/stream/boot-progress",
+            get(handlers::boot_progress::boot_progress_stream),
+        )
+        .route(
+            "/v1/stream/stack-policies/{id}",
+            get(handlers::stack_policy_stream),
+        )
+        // TODO: These streaming routes need implementation
+        // .route(
+        //     "/v1/stream/notifications",
+        //     get(handlers::streaming::notifications_stream),
+        // )
+        // .route(
+        //     "/v1/stream/messages/{workspace_id}",
+        //     get(handlers::streaming::messages_stream),
+        // )
+        // .route(
+        //     "/v1/stream/activity/{workspace_id}",
+        //     get(handlers::streaming::activity_stream),
+        // )
+        .route(
             "/v1/plugins/{name}/enable",
             post(handlers::plugins::enable_plugin),
         )
@@ -1407,10 +1571,17 @@ pub fn build(state: AppState) -> Router {
             "/v1/dashboard/config/reset",
             post(handlers::dashboard::reset_dashboard_config),
         )
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ));
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    policy_enforcement_middleware,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    auth_middleware,
+                )),
+        );
 
     // Combine routes and apply security middleware layers
     // (layers are applied in reverse order - first layer applied processes last)
@@ -1440,6 +1611,9 @@ pub fn build(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             drain_middleware,
-        )) // Reject new requests during drain (outermost)
+        )) // Reject new requests during drain
+        .layer(axum::middleware::from_fn(
+            adapteros_telemetry::middleware::api_logger_middleware,
+        )) // API request/response logging (outermost)
         .with_state(state)
 }

@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! stopped → booting → initializing-db → loading-policies → starting-backend →
-//! loading-base-models → loading-adapters → ready → draining → stopping
+//! loading-base-models → loading-adapters → ready → fully-ready → draining → stopping
 //! ```
 //!
 //! ## Usage
@@ -58,8 +58,10 @@ pub enum BootState {
     LoadingBaseModels,
     /// Adapter warmup (lifecycle manager, heartbeat recovery)
     LoadingAdapters,
-    /// Accepting requests (HTTP/UDS)
+    /// Accepting requests (HTTP/UDS), models may still be loading
     Ready,
+    /// All priority models loaded and health-checked
+    FullyReady,
     /// Shutdown initiated (reject new requests, track in-flight)
     Draining,
     /// Component shutdown (ordered termination)
@@ -69,7 +71,12 @@ pub enum BootState {
 impl BootState {
     /// Returns true if this state indicates the server is accepting requests
     pub fn is_ready(&self) -> bool {
-        matches!(self, BootState::Ready)
+        matches!(self, BootState::Ready | BootState::FullyReady)
+    }
+
+    /// Returns true if all models are loaded and healthy
+    pub fn is_fully_ready(&self) -> bool {
+        matches!(self, BootState::FullyReady)
     }
 
     /// Returns true if this state indicates the server is shutting down
@@ -101,6 +108,7 @@ impl BootState {
             BootState::LoadingBaseModels => "loading-base-models",
             BootState::LoadingAdapters => "loading-adapters",
             BootState::Ready => "ready",
+            BootState::FullyReady => "fully-ready",
             BootState::Draining => "draining",
             BootState::Stopping => "stopping",
         }
@@ -128,6 +136,17 @@ pub struct StateTransition {
     pub timestamp: Instant,
 }
 
+/// Model loading status tracking
+#[derive(Debug, Clone, Default)]
+pub struct ModelLoadingStatus {
+    /// Models still being loaded
+    pub pending: Vec<String>,
+    /// Models successfully loaded
+    pub ready: Vec<String>,
+    /// Models that failed to load
+    pub failed: Vec<String>,
+}
+
 /// Manager for boot lifecycle state
 pub struct BootStateManager {
     /// Current state
@@ -136,6 +155,8 @@ pub struct BootStateManager {
     start_time: Instant,
     /// Database for audit logging (optional)
     db: Option<Arc<Db>>,
+    /// Model loading status
+    model_status: Arc<RwLock<ModelLoadingStatus>>,
 }
 
 impl BootStateManager {
@@ -145,6 +166,7 @@ impl BootStateManager {
             current: Arc::new(RwLock::new(BootState::Stopped)),
             start_time: Instant::now(),
             db: None,
+            model_status: Arc::new(RwLock::new(ModelLoadingStatus::default())),
         }
     }
 
@@ -154,6 +176,7 @@ impl BootStateManager {
             current: Arc::new(RwLock::new(BootState::Stopped)),
             start_time: Instant::now(),
             db: Some(db),
+            model_status: Arc::new(RwLock::new(ModelLoadingStatus::default())),
         }
     }
 
@@ -167,6 +190,16 @@ impl BootStateManager {
         self.current_state().is_ready()
     }
 
+    /// Check if server is accepting requests (Ready or FullyReady)
+    pub fn is_accepting_requests(&self) -> bool {
+        self.current_state().is_ready()
+    }
+
+    /// Check if all models are loaded and healthy
+    pub fn is_fully_ready(&self) -> bool {
+        self.current_state().is_fully_ready()
+    }
+
     /// Check if server is shutting down
     pub fn is_shutting_down(&self) -> bool {
         self.current_state().is_shutting_down()
@@ -175,6 +208,47 @@ impl BootStateManager {
     /// Check if server is booting
     pub fn is_booting(&self) -> bool {
         self.current_state().is_booting()
+    }
+
+    /// Get count of models still loading
+    pub fn pending_model_count(&self) -> usize {
+        self.model_status.read().pending.len()
+    }
+
+    /// Get count of ready models
+    pub fn ready_model_count(&self) -> usize {
+        self.model_status.read().ready.len()
+    }
+
+    /// Get current model loading status
+    pub fn get_model_status(&self) -> ModelLoadingStatus {
+        self.model_status.read().clone()
+    }
+
+    /// Mark a model as pending
+    pub fn add_pending_model(&self, model_id: String) {
+        let mut status = self.model_status.write();
+        if !status.pending.contains(&model_id) {
+            status.pending.push(model_id);
+        }
+    }
+
+    /// Mark a model as ready
+    pub fn mark_model_ready(&self, model_id: String) {
+        let mut status = self.model_status.write();
+        status.pending.retain(|id| id != &model_id);
+        if !status.ready.contains(&model_id) {
+            status.ready.push(model_id);
+        }
+    }
+
+    /// Mark a model as failed
+    pub fn mark_model_failed(&self, model_id: String) {
+        let mut status = self.model_status.write();
+        status.pending.retain(|id| id != &model_id);
+        if !status.failed.contains(&model_id) {
+            status.failed.push(model_id);
+        }
     }
 
     /// Get time elapsed since process start
@@ -288,6 +362,12 @@ impl BootStateManager {
         self.transition(BootState::Ready, "network-bound").await;
     }
 
+    /// Transition to FullyReady state
+    pub async fn fully_ready(&self) {
+        self.transition(BootState::FullyReady, "all-models-loaded")
+            .await;
+    }
+
     /// Transition to Draining state
     pub async fn drain(&self) {
         self.transition(BootState::Draining, "shutdown-signal")
@@ -312,6 +392,7 @@ impl Clone for BootStateManager {
             current: Arc::clone(&self.current),
             start_time: self.start_time,
             db: self.db.clone(),
+            model_status: Arc::clone(&self.model_status),
         }
     }
 }
@@ -379,5 +460,68 @@ mod tests {
 
         let elapsed = manager.elapsed();
         assert!(elapsed >= Duration::from_millis(10));
+    }
+
+    #[tokio::test]
+    async fn test_progressive_startup() {
+        let manager = BootStateManager::new();
+
+        // Boot to Ready state
+        manager.boot().await;
+        manager.init_db().await;
+        manager.load_policies().await;
+        manager.start_backend().await;
+        manager.load_base_models().await;
+        manager.load_adapters().await;
+        manager.ready().await;
+
+        assert_eq!(manager.current_state(), BootState::Ready);
+        assert!(manager.is_ready());
+        assert!(manager.is_accepting_requests());
+        assert!(!manager.is_fully_ready());
+
+        // Transition to FullyReady
+        manager.fully_ready().await;
+        assert_eq!(manager.current_state(), BootState::FullyReady);
+        assert!(manager.is_fully_ready());
+        assert!(manager.is_accepting_requests());
+    }
+
+    #[tokio::test]
+    async fn test_model_loading_tracking() {
+        let manager = BootStateManager::new();
+
+        // Add pending models
+        manager.add_pending_model("model-1".to_string());
+        manager.add_pending_model("model-2".to_string());
+        manager.add_pending_model("model-3".to_string());
+
+        assert_eq!(manager.pending_model_count(), 3);
+        assert_eq!(manager.ready_model_count(), 0);
+
+        // Mark model as ready
+        manager.mark_model_ready("model-1".to_string());
+        assert_eq!(manager.pending_model_count(), 2);
+        assert_eq!(manager.ready_model_count(), 1);
+
+        // Mark model as failed
+        manager.mark_model_failed("model-2".to_string());
+        assert_eq!(manager.pending_model_count(), 1);
+        assert_eq!(manager.ready_model_count(), 1);
+
+        // Get status
+        let status = manager.get_model_status();
+        assert_eq!(status.pending.len(), 1);
+        assert_eq!(status.ready.len(), 1);
+        assert_eq!(status.failed.len(), 1);
+        assert!(status.pending.contains(&"model-3".to_string()));
+        assert!(status.ready.contains(&"model-1".to_string()));
+        assert!(status.failed.contains(&"model-2".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_fully_ready_state_string() {
+        assert_eq!(BootState::FullyReady.as_str(), "fully-ready");
+        assert_eq!(BootState::FullyReady.to_string(), "fully-ready");
     }
 }

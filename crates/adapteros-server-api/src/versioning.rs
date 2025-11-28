@@ -12,10 +12,9 @@
 
 use axum::{
     extract::Request,
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue},
     middleware::Next,
-    response::{IntoResponse, Response},
-    Json,
+    response::Response,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};

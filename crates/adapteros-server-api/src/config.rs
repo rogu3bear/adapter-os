@@ -61,6 +61,18 @@ pub struct SecurityConfig {
     pub jwt_issuer: String,
     #[serde(default)]
     pub jwt_audience: Option<String>,
+    /// Enable dev login bypass (defaults to false for security)
+    #[serde(default = "default_false")]
+    pub dev_login_enabled: bool,
+    /// MFA requirement (defaults to false)
+    #[serde(default)]
+    pub require_mfa: Option<bool>,
+    /// Token TTL in seconds (defaults to 8 hours)
+    #[serde(default)]
+    pub token_ttl_seconds: Option<u64>,
+    /// JWT algorithm mode (eddsa or hs256)
+    #[serde(default)]
+    pub jwt_mode: Option<String>,
 }
 
 fn default_true() -> bool {

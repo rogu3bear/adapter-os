@@ -1,16 +1,19 @@
 pub mod audit_helper;
 pub mod auth;
+pub mod auth_common;
 pub mod boot_state;
 pub mod cab_workflow;
 pub mod caching;
-pub mod config;
 pub mod compression;
+pub mod config;
+pub mod error_helpers;
 pub mod errors;
 pub mod event_bus;
 pub mod handlers;
 pub mod health;
 pub mod ip_extraction;
 pub mod lifecycle;
+pub mod load_coordinator;
 pub mod middleware;
 pub mod middleware_security;
 pub mod operation_tracker;
@@ -20,6 +23,7 @@ pub mod request_id;
 pub mod routes;
 pub mod runtime_mode;
 pub mod security;
+pub mod services;
 pub mod settings_loader;
 pub mod signing;
 pub mod state;
@@ -33,13 +37,15 @@ pub mod versioning;
 
 pub use auth::Claims;
 pub use event_bus::EventBus;
+pub use load_coordinator::{LoadCoordinator, LoadCoordinatorMetrics};
 pub use plugin_registry::PluginRegistry;
 
+pub use config::PathsConfig;
 pub use lifecycle::{
     LifecycleContext, LifecycleHook, LifecycleHookRegistry, LifecyclePhase, ShutdownConfig,
     ShutdownCoordinator, ShutdownError, ShutdownProgress, ShutdownStatus,
 };
-pub use state::{AppState, CryptoState};
+pub use state::{ApiConfig, AppState, CryptoState};
 pub use telemetry::{
     spawn_telemetry_workers, SpanStatus, TelemetryWorkerConfig, TraceBuffer, TraceEvent,
     TraceSearchQuery,

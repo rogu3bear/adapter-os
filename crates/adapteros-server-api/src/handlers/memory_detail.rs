@@ -29,6 +29,9 @@ pub struct UmaMemoryBreakdownResponse {
     pub eviction_config: EvictionConfig,
     pub eviction_candidates: Vec<EvictionCandidate>,
     pub timestamp: u64,
+    /// Origin node identifier for traceability
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_node_id: Option<String>,
 }
 
 /// Memory region information
@@ -72,6 +75,9 @@ pub struct AdapterMemoryUsageResponse {
     pub adapters: Vec<AdapterMemoryInfo>,
     pub total_memory_mb: f32,
     pub timestamp: u64,
+    /// Origin node identifier for traceability
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_node_id: Option<String>,
 }
 
 /// Adapter memory information
@@ -120,7 +126,7 @@ pub async fn get_uma_memory_breakdown(
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("System time before UNIX epoch")
+        .unwrap_or_default()
         .as_secs();
 
     // Get UMA memory statistics
@@ -138,14 +144,34 @@ pub async fn get_uma_memory_breakdown(
     let available_mb = uma_stats.available_mb;
     let headroom_pct = uma_stats.headroom_pct;
 
-    // Estimate region breakdown (actual implementation would query Metal/CoreML)
-    let system_used = (used_mb as f32 * 0.4) as u64; // 40% for system
-    let gpu_used = (used_mb as f32 * 0.4) as u64; // 40% for GPU
-    let ane_used = (used_mb as f32 * 0.2) as u64; // 20% for ANE
+    // Calculate region breakdown using real ANE metrics where available
+    // On macOS with Apple Silicon, ANE metrics are collected from system stats
+    // ANE allocation is estimated as ~18% of unified memory architecture
+    // ANE usage is estimated from memory compression activity (proxy for ML workload)
+    let (ane_allocated, ane_used, ane_available) =
+        if let (Some(allocated), Some(used), Some(available)) = (
+            uma_stats.ane_allocated_mb,
+            uma_stats.ane_used_mb,
+            uma_stats.ane_available_mb,
+        ) {
+            (allocated, used, available)
+        } else {
+            // Fallback estimation for non-Apple Silicon or when ANE data unavailable
+            let ane_allocated = (total_mb as f32 * 0.18) as u64;
+            let ane_used = (used_mb as f32 * 0.15) as u64;
+            let ane_available = ane_allocated.saturating_sub(ane_used);
+            (ane_allocated, ane_used, ane_available)
+        };
 
-    let system_allocated = (total_mb as f32 * 0.4) as u64;
-    let gpu_allocated = (total_mb as f32 * 0.4) as u64;
-    let ane_allocated = (total_mb as f32 * 0.2) as u64;
+    // Estimate GPU and system breakdown (remaining after ANE)
+    let remaining_mb = total_mb.saturating_sub(ane_allocated);
+    let remaining_used = used_mb.saturating_sub(ane_used);
+
+    let gpu_allocated = (remaining_mb as f32 * 0.45) as u64; // 45% of remaining for GPU
+    let gpu_used = (remaining_used as f32 * 0.45) as u64;
+
+    let system_allocated = remaining_mb.saturating_sub(gpu_allocated); // Rest for system
+    let system_used = remaining_used.saturating_sub(gpu_used);
 
     Ok(Json(UmaMemoryBreakdownResponse {
         schema_version: API_SCHEMA_VERSION.to_string(),
@@ -153,20 +179,34 @@ pub async fn get_uma_memory_breakdown(
         system_memory: MemoryRegion {
             allocated_mb: system_allocated,
             used_mb: system_used,
-            available_mb: system_allocated - system_used,
-            usage_percent: (system_used as f32 / system_allocated as f32) * 100.0,
+            available_mb: system_allocated.saturating_sub(system_used),
+            usage_percent: if system_allocated > 0 {
+                (system_used as f32 / system_allocated as f32) * 100.0
+            } else {
+                0.0
+            },
         },
         gpu_memory: MemoryRegion {
             allocated_mb: gpu_allocated,
             used_mb: gpu_used,
-            available_mb: gpu_allocated - gpu_used,
-            usage_percent: (gpu_used as f32 / gpu_allocated as f32) * 100.0,
+            available_mb: gpu_allocated.saturating_sub(gpu_used),
+            usage_percent: if gpu_allocated > 0 {
+                (gpu_used as f32 / gpu_allocated as f32) * 100.0
+            } else {
+                0.0
+            },
         },
         ane_memory: MemoryRegion {
             allocated_mb: ane_allocated,
             used_mb: ane_used,
-            available_mb: ane_allocated - ane_used,
-            usage_percent: (ane_used as f32 / ane_allocated as f32) * 100.0,
+            available_mb: ane_available,
+            usage_percent: uma_stats.ane_usage_percent.unwrap_or_else(|| {
+                if ane_allocated > 0 {
+                    (ane_used as f32 / ane_allocated as f32) * 100.0
+                } else {
+                    0.0
+                }
+            }),
         },
         free_memory: MemoryRegion {
             allocated_mb: total_mb,
@@ -184,7 +224,19 @@ pub async fn get_uma_memory_breakdown(
         },
         eviction_candidates,
         timestamp,
+        origin_node_id: Some(get_local_node_id()),
     }))
+}
+
+/// Get local node identifier
+fn get_local_node_id() -> String {
+    std::env::var("AOS_NODE_ID")
+        .or_else(|_| {
+            hostname::get()
+                .map(|h| h.to_string_lossy().to_string())
+                .map_err(|_| std::env::VarError::NotPresent)
+        })
+        .unwrap_or_else(|_| "unknown".to_string())
 }
 
 /// Get adapter memory usage
@@ -205,32 +257,24 @@ pub async fn get_adapter_memory_usage(
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("System time before UNIX epoch")
+        .unwrap_or_default()
         .as_secs();
 
     // Get all adapters with memory info
-    let adapters = sqlx::query_as::<_, AdapterMemoryRecord>(
-        "SELECT a.adapter_id, a.name, a.rank, a.current_state,
-                COALESCE(a.last_access_at, a.created_at) as last_access,
-                COALESCE(a.access_count, 0) as access_count,
-                CASE WHEN p.adapter_id IS NOT NULL THEN 1 ELSE 0 END as pinned
-         FROM adapters a
-         LEFT JOIN pinned_adapters p ON a.adapter_id = p.adapter_id
-         WHERE a.active = 1
-         ORDER BY a.current_state DESC, a.last_access_at DESC",
-    )
-    .fetch_all(state.db.pool())
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to fetch adapter memory info")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let adapters = state
+        .db
+        .get_adapter_memory_info()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch adapter memory info")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     let mut total_memory_mb = 0.0;
     let adapter_infos: Vec<AdapterMemoryInfo> = adapters
@@ -266,22 +310,13 @@ pub async fn get_adapter_memory_usage(
         adapters: adapter_infos,
         total_memory_mb,
         timestamp,
+        origin_node_id: Some(get_local_node_id()),
     }))
 }
 
-/// Adapter memory record from database
-#[derive(Debug, sqlx::FromRow)]
-struct AdapterMemoryRecord {
-    adapter_id: Option<String>,
-    name: String,
-    rank: i32,
-    current_state: String,
-    last_access: String,
-    access_count: i64,
-    pinned: i32,
-}
-
 /// Get fallback UMA stats from system metrics
+/// Reserved for graceful degradation when ANE metrics are unavailable
+#[allow(dead_code)]
 fn get_fallback_uma_stats() -> UmaStats {
     use sysinfo::System;
 
@@ -300,6 +335,8 @@ fn get_fallback_uma_stats() -> UmaStats {
 }
 
 /// UMA statistics
+/// Reserved for fallback memory monitoring when ANE metrics are unavailable
+#[allow(dead_code)]
 struct UmaStats {
     total_mb: u64,
     used_mb: u64,
@@ -309,20 +346,11 @@ struct UmaStats {
 
 /// Get eviction candidates
 async fn get_eviction_candidates(state: &AppState) -> Vec<EvictionCandidate> {
-    let candidates = sqlx::query_as::<_, CandidateRecord>(
-        "SELECT a.adapter_id, a.rank, a.current_state,
-                COALESCE(a.last_access_at, a.created_at) as last_access,
-                COALESCE(a.activation_pct, 0.0) as activation_rate
-         FROM adapters a
-         LEFT JOIN pinned_adapters p ON a.adapter_id = p.adapter_id
-         WHERE a.current_state IN ('warm', 'cold')
-         AND p.adapter_id IS NULL
-         ORDER BY a.activation_pct ASC, a.last_access_at ASC
-         LIMIT 10",
-    )
-    .fetch_all(state.db.pool())
-    .await
-    .unwrap_or_default();
+    let candidates = state
+        .db
+        .get_eviction_candidates(10)
+        .await
+        .unwrap_or_default();
 
     candidates
         .into_iter()
@@ -340,16 +368,6 @@ async fn get_eviction_candidates(state: &AppState) -> Vec<EvictionCandidate> {
             }
         })
         .collect()
-}
-
-/// Candidate record from database
-#[derive(Debug, sqlx::FromRow)]
-struct CandidateRecord {
-    adapter_id: String,
-    rank: i32,
-    current_state: String,
-    last_access: String,
-    activation_rate: f32,
 }
 
 /// Estimate adapter size in MB based on rank

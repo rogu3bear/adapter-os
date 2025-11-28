@@ -7,7 +7,8 @@ use crate::auth::Claims;
 use crate::types::ErrorResponse;
 pub use adapteros_db::users::Role;
 use axum::{http::StatusCode, Json};
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
+use tracing::{debug, warn};
 
 /// Granular permissions for operations in AdapterOS
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +93,7 @@ pub enum Permission {
     ContactManage,
 
     // Dataset permissions
+    DatasetList,
     DatasetView,
     DatasetUpload,
     DatasetValidate,
@@ -114,6 +116,71 @@ pub enum Permission {
     // Activity permissions
     ActivityView,
     ActivityCreate,
+}
+
+const ALL_PERMISSIONS: [Permission; 56] = [
+    Permission::AdapterList,
+    Permission::AdapterView,
+    Permission::AdapterRegister,
+    Permission::AdapterDelete,
+    Permission::AdapterLoad,
+    Permission::AdapterUnload,
+    Permission::TrainingStart,
+    Permission::TrainingCancel,
+    Permission::TrainingView,
+    Permission::TrainingViewLogs,
+    Permission::TenantManage,
+    Permission::TenantView,
+    Permission::PolicyView,
+    Permission::PolicyValidate,
+    Permission::PolicyApply,
+    Permission::PolicySign,
+    Permission::InferenceExecute,
+    Permission::MetricsView,
+    Permission::NodeManage,
+    Permission::NodeView,
+    Permission::WorkerSpawn,
+    Permission::WorkerManage,
+    Permission::WorkerView,
+    Permission::GitView,
+    Permission::GitManage,
+    Permission::CodeView,
+    Permission::CodeScan,
+    Permission::AuditView,
+    Permission::AdapterStackView,
+    Permission::AdapterStackManage,
+    Permission::MonitoringManage,
+    Permission::ReplayManage,
+    Permission::FederationView,
+    Permission::FederationManage,
+    Permission::PlanView,
+    Permission::PlanManage,
+    Permission::PromotionManage,
+    Permission::TelemetryView,
+    Permission::TelemetryManage,
+    Permission::ContactView,
+    Permission::ContactManage,
+    Permission::DatasetList,
+    Permission::DatasetView,
+    Permission::DatasetUpload,
+    Permission::DatasetValidate,
+    Permission::DatasetDelete,
+    Permission::WorkspaceView,
+    Permission::WorkspaceManage,
+    Permission::WorkspaceMemberManage,
+    Permission::WorkspaceResourceManage,
+    Permission::NotificationView,
+    Permission::NotificationManage,
+    Permission::DashboardView,
+    Permission::DashboardManage,
+    Permission::ActivityView,
+    Permission::ActivityCreate,
+];
+
+impl fmt::Display for Permission {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 /// Check if a role has a specific permission
@@ -158,6 +225,7 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Viewer, Permission::FederationView) => true,
         (Role::Viewer, Permission::TelemetryView) => true,
         (Role::Viewer, Permission::ContactView) => true,
+        (Role::Viewer, Permission::DatasetList) => true,
         (Role::Viewer, Permission::DatasetView) => true,
         (Role::Viewer, Permission::WorkspaceView) => true,
         (Role::Viewer, Permission::NotificationView) => true,
@@ -197,6 +265,7 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Operator, Permission::ContactManage) => true,
         (Role::Operator, Permission::PlanView) => true,
         (Role::Operator, Permission::TelemetryView) => true,
+        (Role::Operator, Permission::DatasetList) => true,
         (Role::Operator, Permission::DatasetView) => true,
         (Role::Operator, Permission::DatasetUpload) => true,
         (Role::Operator, Permission::DatasetValidate) => true,
@@ -243,6 +312,7 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::SRE, Permission::TelemetryView) => true,
         (Role::SRE, Permission::ReplayManage) => true, // Can create/verify replay sessions for debugging
         (Role::SRE, Permission::FederationView) => true,
+        (Role::SRE, Permission::DatasetList) => true,
         (Role::SRE, Permission::DatasetView) => true,
         (Role::SRE, Permission::WorkspaceView) => true,
         (Role::SRE, Permission::NotificationView) => true,
@@ -282,6 +352,7 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Compliance, Permission::TelemetryView) => true,
         (Role::Compliance, Permission::ReplayManage) => true, // Can verify replay sessions for compliance
         (Role::Compliance, Permission::ContactView) => true,
+        (Role::Compliance, Permission::DatasetList) => true,
         (Role::Compliance, Permission::DatasetView) => true,
         (Role::Compliance, Permission::DatasetValidate) => true, // Can validate datasets
         (Role::Compliance, Permission::WorkspaceView) => true,
@@ -320,9 +391,23 @@ pub fn require_permission(
         )
     })?;
 
+    debug!(
+        user_id = %claims.sub,
+        role = %claims.role,
+        permission = ?permission,
+        check_type = "permission",
+        "Permission check performed"
+    );
+
     if has_permission(&role, permission) {
         Ok(())
     } else {
+        warn!(
+            user_id = %claims.sub,
+            role = %claims.role,
+            required_permission = ?permission,
+            "Permission denied"
+        );
         Err((
             StatusCode::FORBIDDEN,
             Json(
@@ -335,6 +420,15 @@ pub fn require_permission(
             ),
         ))
     }
+}
+
+/// Returns every granted permission name for a role
+pub fn permissions_for_role(role: &Role) -> Vec<Permission> {
+    ALL_PERMISSIONS
+        .iter()
+        .filter(|permission| has_permission(role, **permission))
+        .copied()
+        .collect()
 }
 
 /// Require any of the specified permissions

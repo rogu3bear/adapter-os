@@ -167,8 +167,10 @@ pub async fn start_git_session(
     })?;
 
     // Start session
-    let session = git_subsystem
-        .branch_manager()
+    let branch_manager = git_subsystem.branch_manager();
+    let session = branch_manager
+        .read()
+        .await
         .start_session(request.adapter_id, request.repo_id, request.base_branch)
         .await
         .map_err(|e| {
@@ -219,8 +221,10 @@ pub async fn end_git_session(
 
     let merge = matches!(request.action, SessionAction::Merge);
 
-    let merge_commit_sha = git_subsystem
-        .branch_manager()
+    let branch_manager = git_subsystem.branch_manager();
+    let merge_commit_sha = branch_manager
+        .read()
+        .await
         .end_session(&session_id, merge)
         .await
         .map_err(|e| {
@@ -264,7 +268,8 @@ pub async fn list_git_branches(
         )
     })?;
 
-    let sessions = git_subsystem.branch_manager().list_active_sessions().await;
+    let branch_manager = git_subsystem.branch_manager();
+    let sessions = branch_manager.read().await.list_active_sessions().await;
 
     let branches: Vec<GitBranchInfo> = sessions
         .into_iter()

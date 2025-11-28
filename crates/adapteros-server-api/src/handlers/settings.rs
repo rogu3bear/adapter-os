@@ -26,7 +26,12 @@ pub async fn get_settings(
     require_role(&claims, Role::Admin)?;
 
     // Load current configuration from AppState
-    let config = state.config.read().unwrap();
+    let config = state.config.read().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("Configuration lock poisoned").with_code("INTERNAL_ERROR")),
+        )
+    })?;
 
     let settings = SystemSettings {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -98,10 +103,10 @@ pub async fn update_settings(
     validate_settings_request(&req).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new(format!(
-                "Validation error: {}",
-                e
-            )).with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new(format!("Validation error: {}", e))
+                    .with_code("VALIDATION_ERROR"),
+            ),
         )
     })?;
 
@@ -141,10 +146,10 @@ pub async fn update_settings(
 
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(format!(
-                "Failed to persist settings: {}",
-                e
-            )).with_code("INTERNAL_ERROR")),
+            Json(
+                ErrorResponse::new(format!("Failed to persist settings: {}", e))
+                    .with_code("INTERNAL_ERROR"),
+            ),
         ));
     }
 
@@ -186,12 +191,9 @@ fn validate_settings_request(req: &UpdateSettingsRequest) -> Result<(), String> 
         if server.http_port == 0 {
             return Err("http_port must be greater than 0".to_string());
         }
-        if server.http_port > 65535 {
-            return Err("http_port must be less than 65535".to_string());
-        }
         if let Some(https_port) = server.https_port {
-            if https_port == 0 || https_port > 65535 {
-                return Err("https_port must be between 1 and 65535".to_string());
+            if https_port == 0 {
+                return Err("https_port must be greater than 0".to_string());
             }
         }
     }

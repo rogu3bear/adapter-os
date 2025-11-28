@@ -12,11 +12,12 @@ use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
+use crate::services::{AdapterService, DefaultAdapterService};
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::adapters::Adapter;
 use adapteros_db::users::Role;
-use adapteros_db::AdapterTrainingSnapshot;
+use adapteros_db::{AdapterRegistrationBuilder, AdapterTrainingSnapshot};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -25,6 +26,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::{error, info, warn};
 use utoipa::ToSchema;
 
@@ -90,176 +93,37 @@ pub async fn promote_adapter_lifecycle(
     // Require operator or admin role
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    // Get current adapter
-    let adapter = state
-        .db
-        .get_adapter(&adapter_id)
+    // Use the adapter service to promote lifecycle
+    let service = DefaultAdapterService::new(Arc::new(state.clone()));
+    let actor = claims.sub.clone();
+
+    let result = service
+        .promote_lifecycle(&adapter_id, &claims.tenant_id, &req.reason, &actor)
         .await
         .map_err(|e| {
-            error!("Failed to fetch adapter {}: {}", adapter_id, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
+            error!("Failed to promote adapter lifecycle: {}", e);
+            match e {
+                adapteros_core::error::AosError::NotFound(_) => (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
                 ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!("Adapter not found: {}", adapter_id);
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
-
-    let old_state = adapter.current_state.clone();
-
-    // Determine next state
-    let new_state_str = match old_state.as_str() {
-        "unloaded" => "cold",
-        "cold" => "warm",
-        "warm" => "hot",
-        "hot" => "resident",
-        "resident" => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("adapter already at maximum state (resident)")
-                        .with_code("BAD_REQUEST"),
+                adapteros_core::error::AosError::Validation(msg) => (
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new(&msg)
+                            .with_code("BAD_REQUEST"),
+                    ),
                 ),
-            ));
-        }
-        _ => {
-            warn!("Unknown state: {}, defaulting to cold", old_state);
-            "cold"
-        }
-    };
-
-    // Use lifecycle manager if available
-    let new_state = if let Some(ref lifecycle) = state.lifecycle_manager {
-        let mut manager = lifecycle.lock().await;
-
-        if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
-            // Promote adapter via lifecycle manager
-            manager.promote_adapter(adapter_idx).map_err(|e| {
-                error!("Failed to promote adapter via lifecycle manager: {}", e);
-                (
+                _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(
                         ErrorResponse::new("failed to promote adapter")
                             .with_code("INTERNAL_ERROR")
                             .with_string_details(e.to_string()),
                     ),
-                )
-            })?;
-
-            // Get the new state and sync with database
-            use adapteros_lora_lifecycle::AdapterState;
-            let new_state_enum = match new_state_str {
-                "cold" => AdapterState::Cold,
-                "warm" => AdapterState::Warm,
-                "hot" => AdapterState::Hot,
-                "resident" => AdapterState::Resident,
-                _ => AdapterState::Cold,
-            };
-
-            // Sync with database via lifecycle manager
-            if let Err(e) = manager
-                .update_adapter_state(adapter_idx, new_state_enum, &req.reason)
-                .await
-            {
-                tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to sync adapter state with database via lifecycle manager");
-                // Fallback: update DB directly
-                state
-                    .db
-                    .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to update adapter state: {}", e);
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                ErrorResponse::new("failed to update adapter state")
-                                    .with_code("INTERNAL_ERROR")
-                                    .with_string_details(e.to_string()),
-                            ),
-                        )
-                    })?;
+                ),
             }
-
-            new_state_str.to_string()
-        } else {
-            // Adapter not found in lifecycle manager, update DB directly
-            state
-                .db
-                .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
-                .await
-                .map_err(|e| {
-                    error!("Failed to update adapter state: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("failed to update adapter state")
-                                .with_code("INTERNAL_ERROR")
-                                .with_string_details(e.to_string()),
-                        ),
-                    )
-                })?;
-            new_state_str.to_string()
-        }
-    } else {
-        // Fallback: direct DB update if no lifecycle manager
-        state
-            .db
-            .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
-            .await
-            .map_err(|e| {
-                error!("Failed to update adapter state: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update adapter state")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
-        new_state_str.to_string()
-    };
-
-    let timestamp = chrono::Utc::now().to_rfc3339();
-    let actor = claims.sub.clone();
-
-    // Emit structured telemetry event (Policy Pack #9: Canonical JSON logging)
-    let telemetry_event = serde_json::json!({
-        "event_type": "adapter.lifecycle.promoted",
-        "component": "adapteros-server-api",
-        "severity": "info",
-        "message": format!("Adapter {} promoted: {} → {}", adapter_id, old_state, new_state),
-        "metadata": {
-            "adapter_id": adapter_id,
-            "old_state": old_state,
-            "new_state": new_state,
-            "actor": actor,
-            "reason": req.reason.clone(),
-            "timestamp": timestamp.clone(),
-        }
-    });
-
-    info!(
-        event = %telemetry_event,
-        adapter_id = %adapter_id,
-        old_state = %old_state,
-        new_state = %new_state,
-        actor = %actor,
-        reason = %req.reason,
-        "Adapter lifecycle promoted"
-    );
+        })?;
 
     // Audit log: adapter lifecycle promoted
     let _ = crate::audit_helper::log_success(
@@ -272,12 +136,12 @@ pub async fn promote_adapter_lifecycle(
     .await;
 
     Ok(Json(LifecycleTransitionResponse {
-        adapter_id,
-        old_state,
-        new_state: new_state.to_string(),
-        reason: req.reason,
+        adapter_id: result.adapter_id,
+        old_state: result.old_state,
+        new_state: result.new_state,
+        reason: result.reason,
         actor,
-        timestamp,
+        timestamp: result.timestamp,
     }))
 }
 
@@ -320,176 +184,37 @@ pub async fn demote_adapter_lifecycle(
     // Require operator or admin role
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    // Get current adapter
-    let adapter = state
-        .db
-        .get_adapter(&adapter_id)
+    // Use the adapter service to demote lifecycle
+    let service = DefaultAdapterService::new(Arc::new(state.clone()));
+    let actor = claims.sub.clone();
+
+    let result = service
+        .demote_lifecycle(&adapter_id, &claims.tenant_id, &req.reason, &actor)
         .await
         .map_err(|e| {
-            error!("Failed to fetch adapter {}: {}", adapter_id, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
+            error!("Failed to demote adapter lifecycle: {}", e);
+            match e {
+                adapteros_core::error::AosError::NotFound(_) => (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
                 ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!("Adapter not found: {}", adapter_id);
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
-
-    let old_state = adapter.current_state.clone();
-
-    // Determine previous state
-    let new_state_str = match old_state.as_str() {
-        "resident" => "hot",
-        "hot" => "warm",
-        "warm" => "cold",
-        "cold" => "unloaded",
-        "unloaded" => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("adapter already at minimum state (unloaded)")
-                        .with_code("BAD_REQUEST"),
+                adapteros_core::error::AosError::Validation(msg) => (
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new(&msg)
+                            .with_code("BAD_REQUEST"),
+                    ),
                 ),
-            ));
-        }
-        _ => {
-            warn!("Unknown state: {}, defaulting to unloaded", old_state);
-            "unloaded"
-        }
-    };
-
-    // Use lifecycle manager if available
-    let new_state = if let Some(ref lifecycle) = state.lifecycle_manager {
-        let mut manager = lifecycle.lock().await;
-
-        if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
-            // Demote adapter via lifecycle manager
-            manager.demote_adapter(adapter_idx).map_err(|e| {
-                error!("Failed to demote adapter via lifecycle manager: {}", e);
-                (
+                _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(
                         ErrorResponse::new("failed to demote adapter")
                             .with_code("INTERNAL_ERROR")
                             .with_string_details(e.to_string()),
                     ),
-                )
-            })?;
-
-            // Get the new state and sync with database
-            use adapteros_lora_lifecycle::AdapterState;
-            let new_state_enum = match new_state_str {
-                "unloaded" => AdapterState::Unloaded,
-                "cold" => AdapterState::Cold,
-                "warm" => AdapterState::Warm,
-                "hot" => AdapterState::Hot,
-                _ => AdapterState::Unloaded,
-            };
-
-            // Sync with database via lifecycle manager
-            if let Err(e) = manager
-                .update_adapter_state(adapter_idx, new_state_enum, &req.reason)
-                .await
-            {
-                tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to sync adapter state with database via lifecycle manager");
-                // Fallback: update DB directly
-                state
-                    .db
-                    .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to update adapter state: {}", e);
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                ErrorResponse::new("failed to update adapter state")
-                                    .with_code("INTERNAL_ERROR")
-                                    .with_string_details(e.to_string()),
-                            ),
-                        )
-                    })?;
+                ),
             }
-
-            new_state_str.to_string()
-        } else {
-            // Adapter not found in lifecycle manager, update DB directly
-            state
-                .db
-                .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
-                .await
-                .map_err(|e| {
-                    error!("Failed to update adapter state: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("failed to update adapter state")
-                                .with_code("INTERNAL_ERROR")
-                                .with_string_details(e.to_string()),
-                        ),
-                    )
-                })?;
-            new_state_str.to_string()
-        }
-    } else {
-        // Fallback: direct DB update if no lifecycle manager
-        state
-            .db
-            .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
-            .await
-            .map_err(|e| {
-                error!("Failed to update adapter state: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update adapter state")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
-        new_state_str.to_string()
-    };
-
-    let timestamp = chrono::Utc::now().to_rfc3339();
-    let actor = claims.sub.clone();
-
-    // Emit structured telemetry event (Policy Pack #9: Canonical JSON logging)
-    let telemetry_event = serde_json::json!({
-        "event_type": "adapter.lifecycle.demoted",
-        "component": "adapteros-server-api",
-        "severity": "info",
-        "message": format!("Adapter {} demoted: {} → {}", adapter_id, old_state, new_state),
-        "metadata": {
-            "adapter_id": adapter_id,
-            "old_state": old_state,
-            "new_state": new_state,
-            "actor": actor,
-            "reason": req.reason.clone(),
-            "timestamp": timestamp.clone(),
-        }
-    });
-
-    info!(
-        event = %telemetry_event,
-        adapter_id = %adapter_id,
-        old_state = %old_state,
-        new_state = %new_state,
-        actor = %actor,
-        reason = %req.reason,
-        "Adapter lifecycle demoted"
-    );
+        })?;
 
     // Audit log: adapter lifecycle demoted
     let _ = crate::audit_helper::log_success(
@@ -502,12 +227,12 @@ pub async fn demote_adapter_lifecycle(
     .await;
 
     Ok(Json(LifecycleTransitionResponse {
-        adapter_id,
-        old_state,
-        new_state: new_state.to_string(),
-        reason: req.reason,
+        adapter_id: result.adapter_id,
+        old_state: result.old_state,
+        new_state: result.new_state,
+        reason: result.reason,
         actor,
-        timestamp,
+        timestamp: result.timestamp,
     }))
 }
 
@@ -592,6 +317,8 @@ pub async fn get_adapter_lineage(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterLineageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterView)?;
+
     // Verify adapter exists
     let current_adapter = state
         .db
@@ -817,6 +544,8 @@ pub async fn get_adapter_detail(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterView)?;
+
     let adapter = state
         .db
         .get_adapter(&adapter_id)
@@ -1180,6 +909,8 @@ pub async fn get_pin_status(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<PinStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterView)?;
+
     // Verify adapter exists
     let adapter = state
         .db
@@ -1250,7 +981,7 @@ pub async fn get_pin_status(
 
         pinned_adapters
             .into_iter()
-            .find(|p| p.adapter_id == adapter_id)
+            .find(|p| p.adapter_id.as_deref() == Some(adapter_id.as_str()))
             .map(|p| {
                 (
                     Some(p.reason),
@@ -1278,7 +1009,7 @@ pub async fn get_pin_status(
 // Adapter Hot-Swap Handler
 // ============================================================================
 
-use crate::audit_helper::{actions, log_failure, log_success, resources};
+use crate::audit_helper::{actions, log_success, resources};
 use crate::types::{
     AdapterStatsResponse, AdapterSwapRequest, AdapterSwapResponse, CategoryPoliciesResponse,
     CategoryPolicyRequest, CategoryPolicyResponse,
@@ -1929,6 +1660,9 @@ pub async fn update_category_policy(
 // Adapter Import Handler
 // ============================================================================
 
+/// Maximum adapter file size (500 MB)
+const MAX_ADAPTER_SIZE: u64 = 500 * 1024 * 1024;
+
 /// Import an adapter from an uploaded .aos file
 ///
 /// # Request
@@ -1937,6 +1671,12 @@ pub async fn update_category_policy(
 ///
 /// # Response
 /// Returns the registered adapter details
+///
+/// # Features
+/// - **Streaming upload**: Writes to temp file during upload, avoiding memory pressure
+/// - **Deduplication**: Returns existing adapter if hash matches (with `deduplicated: true`)
+/// - **Transactional safety**: Temp file + atomic rename, rollback on failure
+/// - **Auto-load**: Registers with lifecycle manager when `load=true`
 ///
 /// # Example
 /// ```
@@ -1954,6 +1694,7 @@ pub async fn update_category_policy(
     responses(
         (status = 200, description = "Adapter imported successfully", body = AdapterResponse),
         (status = 400, description = "Invalid file or format", body = ErrorResponse),
+        (status = 413, description = "Payload too large", body = ErrorResponse),
         (status = 500, description = "Import failed", body = ErrorResponse)
     ),
     tag = "adapters"
@@ -1964,12 +1705,64 @@ pub async fn import_adapter(
     Query(params): Query<HashMap<String, String>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use adapteros_core::B3Hash;
+    use blake3::Hasher;
+    use tokio::io::AsyncWriteExt;
+
     // Require adapter register permission
     require_permission(&claims, Permission::AdapterRegister)?;
 
-    // Extract file from multipart
-    let mut file_data: Option<Vec<u8>> = None;
+    let auto_load = params.get("load").map(|v| v == "true").unwrap_or(false);
+
+    // Get adapters root from config
+    let adapters_root = {
+        let config = state.config.read().map_err(|_| {
+            error!("Config lock poisoned");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("config lock poisoned").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+        config.paths.adapters_root.clone()
+    };
+
+    // Create adapters directory if needed
+    let adapters_path = PathBuf::from(&adapters_root);
+    tokio::fs::create_dir_all(&adapters_path)
+        .await
+        .map_err(|e| {
+            error!("Failed to create adapters directory: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to create adapters directory")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // === STREAMING UPLOAD (Issue 6) ===
+    // Stream to temp file while computing whole-file hash
+    let temp_id = uuid::Uuid::now_v7();
+    let temp_path = adapters_path.join(format!("{}.aos.tmp", temp_id));
+
+    let mut temp_file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
+        error!("Failed to create temp file: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to create temp file")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let mut hasher = Hasher::new();
+    let mut total_bytes: u64 = 0;
     let mut filename: Option<String> = None;
+    let mut file_found = false;
 
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         error!("Failed to read multipart field: {}", e);
@@ -1983,47 +1776,161 @@ pub async fn import_adapter(
         )
     })? {
         if field.name() == Some("file") {
+            file_found = true;
             filename = field.file_name().map(|s| s.to_string());
-            file_data = Some(
-                field
-                    .bytes()
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to read file bytes: {}", e);
-                        (
-                            StatusCode::BAD_REQUEST,
-                            Json(
-                                ErrorResponse::new("failed to read file")
-                                    .with_code("BAD_REQUEST")
-                                    .with_string_details(e.to_string()),
-                            ),
-                        )
-                    })?
-                    .to_vec(),
-            );
+
+            // Stream chunks to temp file
+            let mut field = field;
+            while let Some(chunk) = field.chunk().await.map_err(|e| {
+                error!("Failed to read chunk: {}", e);
+                let _ = std::fs::remove_file(&temp_path);
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("failed to read file chunk")
+                            .with_code("BAD_REQUEST")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })? {
+                total_bytes += chunk.len() as u64;
+
+                // Check size limit
+                if total_bytes > MAX_ADAPTER_SIZE {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return Err((
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        Json(
+                            ErrorResponse::new(format!(
+                                "adapter file too large (max {} MB)",
+                                MAX_ADAPTER_SIZE / (1024 * 1024)
+                            ))
+                            .with_code("PAYLOAD_TOO_LARGE"),
+                        ),
+                    ));
+                }
+
+                // Update hash (Issue 5: whole-file hash)
+                hasher.update(&chunk);
+
+                // Write to temp file
+                temp_file.write_all(&chunk).await.map_err(|e| {
+                    error!("Failed to write chunk to temp file: {}", e);
+                    let _ = std::fs::remove_file(&temp_path);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("failed to write to temp file")
+                                .with_code("INTERNAL_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+            }
         }
     }
 
-    let data = file_data.ok_or_else(|| {
+    // Ensure we got a file
+    if !file_found {
+        let _ = tokio::fs::remove_file(&temp_path).await;
         warn!("No file provided in import request");
-        (
+        return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse::new("no file provided").with_code("BAD_REQUEST")),
+        ));
+    }
+
+    // Flush and close temp file
+    temp_file.flush().await.map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to flush temp file")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+    drop(temp_file);
+
+    // Compute whole-file hash (Issue 5)
+    let file_hash = hasher.finalize().to_hex().to_string();
+
+    // === DEDUPLICATION CHECK (Issue 4) ===
+    // Check if adapter with same hash already exists BEFORE any further processing
+    if let Ok(Some(existing)) = state.db.find_adapter_by_hash(&file_hash).await {
+        // Cleanup temp file - we don't need it
+        let _ = tokio::fs::remove_file(&temp_path).await;
+
+        info!(
+            existing_id = %existing.adapter_id.as_ref().unwrap_or(&existing.id),
+            hash = %file_hash,
+            actor = %claims.sub,
+            "Deduplicated adapter import - returning existing adapter"
+        );
+
+        let now = chrono::Utc::now().to_rfc3339();
+        return Ok(Json(AdapterResponse {
+            schema_version: "v1".to_string(),
+            id: existing.id.clone(),
+            adapter_id: existing.adapter_id.clone().unwrap_or(existing.id),
+            name: existing.name,
+            hash_b3: existing.hash_b3,
+            rank: existing.rank,
+            tier: existing.tier,
+            languages: vec![],
+            framework: existing.framework,
+            category: Some(existing.category),
+            scope: Some(existing.scope),
+            framework_id: existing.framework_id,
+            framework_version: existing.framework_version,
+            repo_id: existing.repo_id,
+            commit_sha: existing.commit_sha,
+            intent: existing.intent,
+            created_at: existing.created_at,
+            updated_at: Some(now),
+            stats: None,
+            version: existing.version,
+            lifecycle_state: existing.lifecycle_state,
+            runtime_state: Some(existing.current_state),
+            pinned: Some(existing.pinned != 0),
+            memory_bytes: Some(existing.memory_bytes),
+            deduplicated: Some(true),
+        }));
+    }
+
+    // === VALIDATE AOS FORMAT ===
+    // Read the file for validation (already streamed to disk)
+    let data = tokio::fs::read(&temp_path).await.map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to read temp file")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
     let _name = filename.unwrap_or_else(|| "imported.aos".to_string());
 
-    // Validate AOS magic bytes (AOS3 format)
-    if data.len() < 8 {
+    // Validate minimum size
+    if data.len() < 64 {
+        let _ = tokio::fs::remove_file(&temp_path).await;
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("invalid AOS file: too small").with_code("INVALID_FORMAT")),
+            Json(
+                ErrorResponse::new("invalid AOS file: too small (< 64 bytes)")
+                    .with_code("INVALID_FORMAT"),
+            ),
         ));
     }
 
     // Check for AOS3 magic bytes
     if &data[0..4] != b"AOS3" {
+        let _ = tokio::fs::remove_file(&temp_path).await;
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
@@ -2049,6 +1956,7 @@ pub async fn import_adapter(
 
     // Validate offsets
     if manifest_offset + manifest_size > data.len() {
+        let _ = tokio::fs::remove_file(&temp_path).await;
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
@@ -2058,9 +1966,21 @@ pub async fn import_adapter(
         ));
     }
 
+    if weights_offset + weights_size > data.len() {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid AOS file: weights offset out of bounds")
+                    .with_code("INVALID_FORMAT"),
+            ),
+        ));
+    }
+
     // Extract and parse manifest JSON
     let manifest_bytes = &data[manifest_offset..manifest_offset + manifest_size];
     let manifest_str = std::str::from_utf8(manifest_bytes).map_err(|_| {
+        let _ = std::fs::remove_file(&temp_path);
         (
             StatusCode::BAD_REQUEST,
             Json(
@@ -2071,6 +1991,7 @@ pub async fn import_adapter(
     })?;
 
     let manifest: serde_json::Value = serde_json::from_str(manifest_str).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
         (
             StatusCode::BAD_REQUEST,
             Json(
@@ -2108,29 +2029,115 @@ pub async fn import_adapter(
         .map(|s| s.to_string())
         .unwrap_or_else(|| "1.0.0".to_string());
 
-    let weights_hash = manifest
-        .get("weights_hash")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            // Compute hash if not present
-            use adapteros_core::B3Hash;
-            let weights_data = &data[weights_offset..weights_offset + weights_size];
-            B3Hash::hash(weights_data).to_hex().to_string()
-        });
+    // Compute weights hash from the weights section
+    let weights_data = &data[weights_offset..weights_offset + weights_size];
+    let weights_hash = B3Hash::hash(weights_data).to_hex().to_string();
 
-    let auto_load = params.get("load").map(|v| v == "true").unwrap_or(false);
+    // === TRANSACTIONAL SAFETY (Issue 1) ===
+    // Step 1: Atomic rename from temp to final path
+    let file_path = adapters_path.join(format!("{}.aos", adapter_id));
+    let file_path_str = file_path.to_string_lossy().to_string();
+
+    if let Err(e) = tokio::fs::rename(&temp_path, &file_path).await {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        error!("Failed to rename temp file to final path: {}", e);
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to finalize adapter file")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        ));
+    }
+
+    // Step 2: Register in database (rollback file on failure)
+    let tier = if auto_load { "warm" } else { "ephemeral" };
+    let registration_params = AdapterRegistrationBuilder::new()
+        .adapter_id(&adapter_id)
+        .tenant_id(&claims.tenant_id)
+        .name(&adapter_name)
+        .hash_b3(&weights_hash)
+        .rank(rank)
+        .tier(tier)
+        .aos_file_path(Some(&file_path_str))
+        .aos_file_hash(Some(&file_hash)) // Store whole-file hash separately from weights hash
+        .build()
+        .map_err(|e| {
+            // Rollback: remove the file we just created
+            let _ = std::fs::remove_file(&file_path);
+            error!("Failed to build adapter registration params: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to build registration params")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let registered_id = match state.db.register_adapter(registration_params).await {
+        Ok(id) => id,
+        Err(e) => {
+            // Rollback: remove the file on DB failure
+            let _ = tokio::fs::remove_file(&file_path).await;
+            error!("Failed to register adapter in database: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to register adapter")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    };
+
+    // === AUTO-LOAD (Issue 2) ===
+    // Register with lifecycle manager and optionally load
+    if let Some(ref lifecycle) = state.lifecycle_manager {
+        let mut manager = lifecycle.lock().await;
+        let hash = B3Hash::from_hex(&weights_hash).unwrap_or_else(|_| B3Hash::hash(weights_data));
+
+        match manager.register_adapter(
+            adapter_id.clone(),
+            hash,
+            Some("code".to_string()),
+            auto_load,
+        ) {
+            Ok(adapter_idx) => {
+                info!(
+                    adapter_id = %adapter_id,
+                    adapter_idx = adapter_idx,
+                    auto_load = auto_load,
+                    "Registered adapter with lifecycle manager"
+                );
+            }
+            Err(e) => {
+                // Don't fail the import, just warn
+                warn!(
+                    adapter_id = %adapter_id,
+                    error = %e,
+                    "Failed to register adapter with lifecycle manager (import still succeeded)"
+                );
+            }
+        }
+    }
 
     // Emit telemetry event
     info!(
         event = "adapter.imported",
         adapter_id = %adapter_id,
+        registered_id = %registered_id,
         auto_load = %auto_load,
-        file_size = %data.len(),
+        file_size = %total_bytes,
+        file_path = %file_path_str,
         rank = %rank,
         weights_hash = %weights_hash,
+        file_hash = %file_hash,
         actor = %claims.sub,
-        "Adapter imported from AOS file"
+        "Adapter imported from AOS file with full transactional safety"
     );
 
     // Audit log
@@ -2152,11 +2159,7 @@ pub async fn import_adapter(
         name: adapter_name,
         hash_b3: weights_hash,
         rank,
-        tier: if auto_load {
-            "warm".to_string()
-        } else {
-            "ephemeral".to_string()
-        },
+        tier: tier.to_string(),
         languages: vec![],
         framework: None,
         category: None,
@@ -2178,6 +2181,7 @@ pub async fn import_adapter(
         }),
         pinned: None,
         memory_bytes: None,
+        deduplicated: Some(false),
     }))
 }
 
@@ -2246,4 +2250,205 @@ pub async fn get_adapter_training_snapshot(
     );
 
     Ok(Json(snapshot))
+}
+
+/// Export complete training provenance for an adapter
+///
+/// Returns full provenance data including:
+/// - Adapter metadata (id, name, version, base_model)
+/// - Training jobs that produced this adapter
+/// - Datasets used for training
+/// - Documents with their content hashes
+/// - Configuration versions (chunking, training)
+/// - Export timestamp and integrity hash
+///
+/// GET /v1/adapters/:adapter_id/training-export
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/{adapter_id}/training-export",
+    tag = "adapters",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Training provenance export", body = TrainingProvenanceExportResponse),
+        (status = 404, description = "Adapter or snapshot not found", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    )
+)]
+pub async fn export_training_provenance(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<Json<TrainingProvenanceExportResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use blake3::Hasher;
+
+    // Permission check
+    require_permission(&claims, Permission::AdapterView).map_err(|e| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
+        )
+    })?;
+
+    // Get adapter details
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            error!(adapter_id = %adapter_id, error = %e, "Failed to get adapter");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get adapter")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Get training snapshot
+    let snapshot = state
+        .db
+        .get_adapter_training_snapshot(&adapter_id)
+        .await
+        .map_err(|e| {
+            error!(adapter_id = %adapter_id, error = %e, "Failed to get training snapshot");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get training snapshot")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Build export data
+    let mut training_jobs = Vec::new();
+    let mut datasets = Vec::new();
+    let mut documents = Vec::new();
+    let mut chunking_config: Option<serde_json::Value> = None;
+    let mut training_config: Option<serde_json::Value> = None;
+
+    // If we have a training snapshot, extract documents and job info
+    if let Some(ref snapshot) = snapshot {
+        // Get training job details
+        if let Ok(Some(job)) = state.db.get_training_job(&snapshot.training_job_id).await {
+            // Parse training config JSON
+            let config_value: serde_json::Value =
+                serde_json::from_str(&job.training_config_json).unwrap_or(serde_json::json!({}));
+            training_config = Some(config_value.clone());
+
+            training_jobs.push(TrainingExportJob {
+                id: job.id,
+                config_hash: job.config_hash_b3,
+                training_config: config_value,
+                started_at: job.started_at,
+                completed_at: job.completed_at,
+                status: job.status,
+            });
+
+            // Get dataset if linked
+            if let Some(ref dataset_id) = job.dataset_id {
+                if let Ok(Some(dataset)) = state.db.get_training_dataset(dataset_id).await {
+                    datasets.push(TrainingExportDataset {
+                        id: dataset.id,
+                        name: dataset.name,
+                        hash: dataset.hash_b3,
+                        source_location: dataset.source_location,
+                    });
+                }
+            }
+        }
+
+        // Parse documents from snapshot
+        if let Ok(doc_refs) =
+            serde_json::from_str::<Vec<serde_json::Value>>(&snapshot.documents_json)
+        {
+            for doc_ref in doc_refs {
+                if let Some(doc_id) = doc_ref.get("doc_id").and_then(|v| v.as_str()) {
+                    // Fetch full document info
+                    if let Ok(Some(doc)) = state.db.get_document(doc_id).await {
+                        documents.push(TrainingExportDocument {
+                            id: doc.id,
+                            name: doc.name,
+                            hash: doc.content_hash,
+                            page_count: doc.page_count,
+                            created_at: doc.created_at,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Parse chunking config from snapshot
+        if let Ok(chunking) =
+            serde_json::from_str::<serde_json::Value>(&snapshot.chunking_config_json)
+        {
+            chunking_config = Some(chunking);
+        }
+    }
+
+    // Build adapter export data
+    let adapter_export = TrainingExportAdapter {
+        id: adapter.id.clone(),
+        name: adapter.name.clone(),
+        version: adapter.version.clone(),
+        base_model: adapter.parent_id.clone(),
+        rank: adapter.rank,
+        alpha: adapter.alpha,
+        created_at: adapter.created_at.clone(),
+    };
+
+    // Build config versions
+    let config_versions = TrainingExportConfigVersions {
+        chunking_config,
+        training_config,
+    };
+
+    // Build pre-hash response for computing export hash
+    let export_timestamp = chrono::Utc::now().to_rfc3339();
+    let pre_hash_response = serde_json::json!({
+        "schema_version": "v1",
+        "adapter": adapter_export,
+        "training_jobs": training_jobs,
+        "datasets": datasets,
+        "documents": documents,
+        "config_versions": config_versions,
+        "export_timestamp": export_timestamp,
+    });
+
+    // Compute BLAKE3 hash of the export
+    let mut hasher = Hasher::new();
+    hasher.update(pre_hash_response.to_string().as_bytes());
+    let export_hash = hasher.finalize().to_hex().to_string();
+
+    let response = TrainingProvenanceExportResponse {
+        schema_version: "v1".to_string(),
+        adapter: adapter_export,
+        training_jobs,
+        datasets,
+        documents,
+        config_versions,
+        export_timestamp,
+        export_hash,
+    };
+
+    info!(
+        adapter_id = %adapter_id,
+        documents_count = response.documents.len(),
+        jobs_count = response.training_jobs.len(),
+        actor = %claims.sub,
+        "Exported training provenance"
+    );
+
+    Ok(Json(response))
 }

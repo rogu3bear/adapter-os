@@ -162,6 +162,12 @@ pub mod actions {
     pub const POLICY_SIGN: &str = "policy.sign";
     pub const POLICY_VALIDATE: &str = "policy.validate";
 
+    // Stack policy actions (PRD-GOV-01)
+    pub const STACK_POLICY_ASSIGN: &str = "stack.policy.assign";
+    pub const STACK_POLICY_REVOKE: &str = "stack.policy.revoke";
+    pub const STACK_POLICY_VIOLATION: &str = "stack.policy.violation";
+    pub const STACK_POLICY_VIOLATION_RESOLVED: &str = "stack.policy.violation.resolved";
+
     // Worker actions
     pub const WORKER_SPAWN: &str = "worker.spawn";
     pub const WORKER_DEBUG_START: &str = "worker.debug.start";

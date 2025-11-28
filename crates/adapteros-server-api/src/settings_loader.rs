@@ -132,6 +132,16 @@ mod tests {
             },
             directory_analysis_timeout_secs: 120,
             capacity_limits: Default::default(),
+            general: None,
+            server: Default::default(),
+            security: Default::default(),
+            performance: Default::default(),
+            paths: crate::config::PathsConfig {
+                artifacts_root: "var/artifacts".to_string(),
+                bundles_root: "var/bundles".to_string(),
+                adapters_root: "var/adapters".to_string(),
+                plan_dir: "var/plans".to_string(),
+            },
         }));
 
         let result = load_and_apply_overrides(&api_config);

@@ -14,15 +14,32 @@ use crate::security::{
 };
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use sqlx;
 use adapteros_core::identity::IdentityEnvelope;
 use axum::{
     extract::State,
-    http::{Request, StatusCode},
+    http::{header, HeaderMap, Request, StatusCode},
     middleware::Next,
     response::Response,
     Json,
 };
 use tracing::{debug, warn};
+
+/// Extract auth_token from Cookie header
+fn extract_token_from_cookie(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|cookies| {
+            for cookie in cookies.split(';') {
+                let cookie = cookie.trim();
+                if let Some(token) = cookie.strip_prefix("auth_token=") {
+                    return Some(token.to_string());
+                }
+            }
+            None
+        })
+}
 
 /// Enhanced authentication middleware with all security checks
 ///
@@ -42,7 +59,7 @@ pub async fn enhanced_auth_middleware(
         req.extensions_mut().insert(ClientIp(ip.clone()));
     }
 
-    // Extract token from Authorization header or query parameter
+    // Extract token from Authorization header, query parameter, or cookie
     let auth_header = req
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -54,9 +71,13 @@ pub async fn enhanced_auth_middleware(
             .map(|(_, value)| value.into_owned())
     });
 
+    // Also try to extract token from cookies for browser-based authentication
+    let cookie_token = extract_token_from_cookie(req.headers());
+
     let token = auth_header
         .and_then(|header| header.strip_prefix("Bearer "))
-        .or(query_token.as_deref());
+        .or(query_token.as_deref())
+        .or(cookie_token.as_deref());
 
     let token = token.ok_or_else(|| {
         warn!("Missing Authorization header");
@@ -117,6 +138,54 @@ pub async fn enhanced_auth_middleware(
                     .with_string_details("this token has been revoked"),
             ),
         ));
+    }
+
+    // Validate tenant exists (with caching to avoid per-request DB queries)
+    // Skip for admin role who can access any tenant
+    if claims.role != "admin" {
+        let tenant_id = &claims.tenant_id;
+
+        // Check cache first (60s TTL)
+        let tenant_valid = if let Some(cached) = state.dashboard_cache.tenant_exists(tenant_id).await
+        {
+            debug!(tenant_id = %tenant_id, cached = true, "Tenant validation from cache");
+            cached
+        } else {
+            // Cache miss - query DB
+            let exists: bool = sqlx::query_scalar::<_, i64>(
+                "SELECT 1 FROM tenants WHERE id = ? LIMIT 1",
+            )
+            .bind(tenant_id)
+            .fetch_optional(state.db.pool())
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+
+            // Update cache
+            state
+                .dashboard_cache
+                .set_tenant_exists(tenant_id.clone(), exists)
+                .await;
+            debug!(tenant_id = %tenant_id, exists = exists, cached = false, "Tenant validation from DB");
+            exists
+        };
+
+        if !tenant_valid {
+            warn!(
+                tenant_id = %tenant_id,
+                user_id = %claims.sub,
+                "Token references non-existent tenant"
+            );
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(
+                    ErrorResponse::new("invalid tenant")
+                        .with_code("TENANT_NOT_FOUND")
+                        .with_string_details("tenant no longer exists"),
+                ),
+            ));
+        }
     }
 
     // Check IP access control
@@ -212,8 +281,12 @@ pub async fn basic_auth_middleware(
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok());
 
+    // Also try to extract token from cookies for browser-based authentication
+    let cookie_token = extract_token_from_cookie(req.headers());
+
     let token = auth_header
         .and_then(|header| header.strip_prefix("Bearer "))
+        .or(cookie_token.as_deref())
         .ok_or_else(|| {
             (
                 StatusCode::UNAUTHORIZED,
@@ -232,6 +305,28 @@ pub async fn basic_auth_middleware(
             Json(ErrorResponse::new("invalid token").with_code("UNAUTHORIZED")),
         )
     })?;
+
+    // SECURITY: Check if token has been revoked (critical for basic_auth_middleware)
+    if is_token_revoked(&state.db, &claims.jti)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Failed to check token revocation");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+    {
+        warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used in basic auth");
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(
+                ErrorResponse::new("token revoked")
+                    .with_code("TOKEN_REVOKED")
+                    .with_string_details("this token has been revoked"),
+            ),
+        ));
+    }
 
     let tenant_id = claims.tenant_id.clone();
     req.extensions_mut().insert(claims);

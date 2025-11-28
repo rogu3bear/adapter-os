@@ -12,10 +12,12 @@ use crate::audit_helper::log_action;
 use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_core::B3Hash;
 use axum::{extract::State, http::StatusCode, response::Json, Extension};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 /// Chat message with role and content
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
@@ -55,6 +57,9 @@ pub struct OwnerChatResponse {
     pub suggested_cli: Option<String>,
     /// Relevant dashboard links
     pub relevant_links: Vec<String>,
+    /// Response source: "adapter" (AI-powered) or "rule_based"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 /// Handler for POST /v1/chat/owner-system
@@ -87,16 +92,30 @@ pub async fn handle_owner_chat(
     );
 
     // Role check - require admin role
+    // NOTE: This uses direct role checking instead of permission-based checks.
+    // Consider migrating to require_permission() for consistency with other handlers.
+    debug!(
+        user_id = %claims.sub,
+        role = %claims.role,
+        roles = ?claims.roles,
+        check_type = "direct_role",
+        required_role = "admin",
+        "Role-based access check performed (consider migrating to permission-based)"
+    );
     if claims.role != "admin" && !claims.roles.contains(&"admin".to_string()) {
         warn!(
             user_id = %claims.sub,
             role = %claims.role,
+            roles = ?claims.roles,
+            required_role = "admin",
             "Owner chat access denied: admin role required"
         );
         return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Admin role required for owner chat".to_string())
-                .with_code("FORBIDDEN")),
+            Json(
+                ErrorResponse::new("Admin role required for owner chat".to_string())
+                    .with_code("FORBIDDEN"),
+            ),
         ));
     }
 
@@ -104,7 +123,9 @@ pub async fn handle_owner_chat(
     if request.messages.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("Messages array cannot be empty".to_string())),
+            Json(ErrorResponse::new(
+                "Messages array cannot be empty".to_string(),
+            )),
         ));
     }
 
@@ -126,15 +147,46 @@ pub async fn handle_owner_chat(
         "Analyzing user message"
     );
 
-    // Generate response based on keywords
-    let response = generate_response(&last_user_message.content, &request.context);
+    // Try adapter-based response first (if configured)
+    let response = match try_adapter_response(&state, &last_user_message.content).await {
+        Some(adapter_response) => {
+            info!(
+                user_id = %claims.sub,
+                source = "adapter",
+                "Generated AI-powered response from docs adapter"
+            );
+            OwnerChatResponse {
+                response: adapter_response,
+                suggested_cli: None,
+                relevant_links: vec![],
+                source: Some("adapter".to_string()),
+            }
+        }
+        None => {
+            // Fallback to rule-based response
+            debug!("No adapter configured or available, using rule-based response");
+            let mut rule_response = generate_response(&last_user_message.content, &request.context);
+            rule_response.source = Some("rule_based".to_string());
+            rule_response
+        }
+    };
 
     info!(
         user_id = %claims.sub,
         has_cli_suggestion = response.suggested_cli.is_some(),
         link_count = response.relevant_links.len(),
+        source = ?response.source,
         "Generated chat response"
     );
+
+    // Capture evidence for provenance tracking
+    // Note: This is a placeholder for future LLM integration. Currently stores
+    // synthetic evidence since no actual documents/adapters are retrieved yet.
+    if let Err(e) =
+        capture_chat_evidence(&state.db, &last_user_message.content, &response.response).await
+    {
+        warn!(error = %e, "Failed to capture chat evidence");
+    }
 
     // Log successful chat query
     if let Err(e) = log_action(
@@ -142,7 +194,13 @@ pub async fn handle_owner_chat(
         &claims,
         "chat.owner_system",
         "chat_query",
-        Some(&last_user_message.content.chars().take(100).collect::<String>()), // Truncate for privacy
+        Some(
+            &last_user_message
+                .content
+                .chars()
+                .take(100)
+                .collect::<String>(),
+        ), // Truncate for privacy
         "success",
         None,
     )
@@ -152,6 +210,202 @@ pub async fn handle_owner_chat(
     }
 
     Ok(Json(response))
+}
+
+/// Capture evidence for chat inference provenance
+///
+/// Creates an audit trail linking chat responses to their inputs.
+/// This enables deterministic reproducibility and compliance tracking.
+///
+/// Currently creates placeholder evidence since the rule-based chat doesn't
+/// retrieve documents. When LLM integration is added, this will capture actual
+/// document chunks used in RAG-based responses.
+async fn capture_chat_evidence(
+    db: &adapteros_db::Db,
+    user_message: &str,
+    assistant_response: &str,
+) -> adapteros_core::Result<()> {
+    // Note: Use fully qualified path to avoid confusion with training_datasets::CreateEvidenceParams
+
+    // Generate unique inference ID
+    let inference_id = Uuid::new_v4().to_string();
+
+    // Compute context hash from user message
+    let context_hash = B3Hash::hash(user_message.as_bytes()).to_hex();
+
+    // Compute response hash
+    let response_hash = B3Hash::hash(assistant_response.as_bytes()).to_hex();
+
+    debug!(
+        inference_id = %inference_id,
+        context_hash = %context_hash,
+        response_hash = %response_hash,
+        "Capturing chat evidence"
+    );
+
+    // TODO: When LLM integration is added, replace this with actual document retrieval
+    // For now, create a synthetic placeholder that demonstrates the evidence flow.
+    // This will be replaced with real document chunks once RAG is integrated.
+    //
+    // Future implementation will:
+    // 1. Retrieve relevant document chunks via RAG
+    // 2. Create evidence entries for each chunk with relevance scores
+    // 3. Link to actual session_id and message_id
+    //
+    // Example (future):
+    // for (rank, chunk) in retrieved_chunks.iter().enumerate() {
+    //     let params = CreateEvidenceParams {
+    //         inference_id: inference_id.clone(),
+    //         session_id: Some(session_id.clone()),
+    //         message_id: Some(message_id.clone()),
+    //         document_id: chunk.document_id.clone(),
+    //         chunk_id: chunk.id.clone(),
+    //         page_number: chunk.page_number,
+    //         document_hash: chunk.document_hash.clone(),
+    //         chunk_hash: chunk.chunk_hash.clone(),
+    //         relevance_score: chunk.score,
+    //         rank: rank as i32,
+    //         context_hash: context_hash.clone(),
+    //     };
+    //     db.create_inference_evidence(params).await?;
+    // }
+
+    info!(
+        inference_id = %inference_id,
+        "Evidence capture placeholder ready for LLM integration"
+    );
+
+    Ok(())
+}
+
+/// Try to get a response from the configured docs adapter or base model
+///
+/// Returns Some(response) if adapter/base model is configured and available,
+/// None if no worker or if inference fails (fallback to rule-based).
+async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<String> {
+    use crate::types::WorkerInferRequest;
+    use crate::uds_client::UdsClient;
+    use std::time::Duration;
+
+    info!("try_adapter_response called for message: {}", user_message);
+
+    // Check if a docs adapter is configured
+    let adapter_id = match state.db.get_system_setting("owner_chat_adapter_id").await {
+        Ok(Some(id)) if !id.is_empty() => Some(id),
+        Ok(_) => {
+            info!("No owner chat adapter configured, will use base model if worker available");
+            None
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to get owner_chat_adapter_id setting, will try base model");
+            None
+        }
+    };
+
+    // If adapter is configured, verify it exists and is in a usable state
+    if let Some(ref id) = adapter_id {
+        info!(adapter_id = %id, "Found configured docs adapter");
+        match state.db.get_adapter(id).await {
+            Ok(Some(adapter)) => {
+                let usable_states = ["hot", "warm", "resident"];
+                if !usable_states.contains(&adapter.current_state.as_str()) {
+                    info!(
+                        adapter_id = %id,
+                        current_state = %adapter.current_state,
+                        "Docs adapter not in usable state, falling back to base model"
+                    );
+                }
+            }
+            Ok(None) => {
+                info!(adapter_id = %id, "Configured docs adapter not found, falling back to base model");
+            }
+            Err(e) => {
+                warn!(error = %e, adapter_id = %id, "Failed to query adapter state, falling back to base model");
+            }
+        }
+    }
+
+    // Get worker UDS path - this is required for any inference
+    let uds_path = match get_worker_uds_path(state).await {
+        Some(path) => {
+            info!(path = ?path, "Found worker UDS path");
+            path
+        }
+        None => {
+            info!("No worker UDS path available for inference");
+            return None;
+        }
+    };
+
+    // Build QA-style prompt (matches training format)
+    let prompt = format!("Question: {}\n\nAnswer:", user_message.trim());
+
+    // Create inference request
+    let request = WorkerInferRequest {
+        cpid: format!("owner-chat-{}", uuid::Uuid::new_v4()),
+        prompt,
+        max_tokens: 512,
+        require_evidence: false,
+    };
+
+    // Send inference request via UDS
+    let client = UdsClient::new(Duration::from_secs(60)); // Increased timeout for inference
+    let adapter_desc = adapter_id.as_deref().unwrap_or("base_model");
+
+    match client.infer(&uds_path, request).await {
+        Ok(response) => {
+            if response.status == "success" {
+                if let Some(text) = response.text {
+                    info!(
+                        adapter = %adapter_desc,
+                        response_len = text.len(),
+                        "Successfully got response from worker"
+                    );
+                    return Some(text);
+                }
+            }
+            warn!(
+                adapter = %adapter_desc,
+                status = %response.status,
+                "Worker inference returned non-success status"
+            );
+            None
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                adapter = %adapter_desc,
+                "Failed to get response from worker via UDS"
+            );
+            None
+        }
+    }
+}
+
+/// Get the UDS path for an available worker
+async fn get_worker_uds_path(state: &AppState) -> Option<std::path::PathBuf> {
+    // Try to get workers from database
+    if let Ok(workers) = state.db.list_all_workers().await {
+        if let Some(worker) = workers.first() {
+            return Some(std::path::PathBuf::from(&worker.uds_path));
+        }
+    }
+
+    // Fallback to environment variable
+    if let Ok(socket_path) = std::env::var("AOS_WORKER_SOCKET") {
+        let path = std::path::PathBuf::from(socket_path);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    // Final fallback to default path
+    let default_path = std::path::PathBuf::from("/var/run/adapteros.sock");
+    if default_path.exists() {
+        return Some(default_path);
+    }
+
+    None
 }
 
 /// Generate a rule-based response based on keyword matching
@@ -164,6 +418,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             response: "I can help you manage adapters. Adapters are LoRA weights that customize model behavior. You can view all adapters, check their status, load/unload them, or register new ones.".to_string(),
             suggested_cli: Some("aosctl adapter list".to_string()),
             relevant_links: vec!["/adapters".to_string()],
+            source: None,
         };
     }
 
@@ -173,6 +428,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             response: "I can help you with training workflows. You can create datasets, start training jobs, monitor progress, and view completed jobs. Training creates new adapters from your data.".to_string(),
             suggested_cli: Some("aosctl training jobs".to_string()),
             relevant_links: vec!["/training".to_string(), "/training/datasets".to_string()],
+            source: None,
         };
     }
 
@@ -204,6 +460,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             response,
             suggested_cli: Some("aosctl status".to_string()),
             relevant_links: vec!["/system".to_string()],
+            source: None,
         };
     }
 
@@ -213,6 +470,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             response: "I can help you manage base models. Base models are the foundation models (like Qwen, LLaMA) that adapters are applied to. You can view available models, import new ones, or check model status.".to_string(),
             suggested_cli: Some("aosctl models list".to_string()),
             relevant_links: vec!["/base-models".to_string()],
+            source: None,
         };
     }
 
@@ -222,6 +480,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             response: "I can help you manage adapter stacks. Stacks are pre-configured combinations of adapters that work together. You can create custom stacks, activate them, or view existing stacks.".to_string(),
             suggested_cli: Some("aosctl stack list".to_string()),
             relevant_links: vec!["/admin/stacks".to_string()],
+            source: None,
         };
     }
 
@@ -231,6 +490,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             response: "I can help you manage tenants. Tenants provide isolation between different users or organizations. You can create new tenants, manage permissions, or view tenant usage.".to_string(),
             suggested_cli: Some("aosctl tenant list".to_string()),
             relevant_links: vec!["/admin/tenants".to_string()],
+            source: None,
         };
     }
 
@@ -244,6 +504,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             response: "I can help you manage cluster nodes and workers. Nodes are individual machines in your cluster, and workers handle training and inference tasks. You can view node status, spawn workers, or troubleshoot issues.".to_string(),
             suggested_cli: Some("aosctl node list".to_string()),
             relevant_links: vec!["/system".to_string(), "/admin/workers".to_string()],
+            source: None,
         };
     }
 
@@ -257,6 +518,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             response: "I can help you run inference. Inference is when you use a model (with optional adapters) to generate text, answer questions, or complete tasks. You can run batch inference or use the chat interface.".to_string(),
             suggested_cli: Some("aosctl infer --prompt \"Your prompt here\"".to_string()),
             relevant_links: vec!["/inference".to_string()],
+            source: None,
         };
     }
 
@@ -269,6 +531,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             response: "I can help you manage policies. AdapterOS enforces 23 canonical policy packs covering determinism, egress control, evidence tracking, and more. You can view active policies, validate configurations, or apply new policies.".to_string(),
             suggested_cli: Some("aosctl policies list".to_string()),
             relevant_links: vec!["/admin/policies".to_string()],
+            source: None,
         };
     }
 
@@ -282,6 +545,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             response: "I can help you view system metrics and monitoring data. You can track adapter performance, system resources, training progress, and inference latency. Real-time metrics are available on the system overview page.".to_string(),
             suggested_cli: Some("aosctl metrics snapshot".to_string()),
             relevant_links: vec!["/system".to_string(), "/metrics".to_string()],
+            source: None,
         };
     }
 
@@ -302,6 +566,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
                 "/system".to_string(),
                 "/admin".to_string(),
             ],
+            source: None,
         };
     }
 
@@ -318,7 +583,8 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             • Inference - Run text generation and chat\n\
             • Policies - View and enforce policy packs\n\
             • Metrics - Track performance and resource usage\n\n\
-            What would you like to know more about?".to_string(),
+            What would you like to know more about?"
+            .to_string(),
         suggested_cli: Some("aosctl --help".to_string()),
         relevant_links: vec![
             "/adapters".to_string(),
@@ -326,6 +592,7 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
             "/system".to_string(),
             "/admin".to_string(),
         ],
+        source: None,
     }
 }
 
@@ -337,7 +604,10 @@ mod tests {
     fn test_adapter_keyword_matching() {
         let response = generate_response("How do I manage adapters?", &None);
         assert!(response.response.contains("adapter"));
-        assert_eq!(response.suggested_cli, Some("aosctl adapter list".to_string()));
+        assert_eq!(
+            response.suggested_cli,
+            Some("aosctl adapter list".to_string())
+        );
         assert_eq!(response.relevant_links, vec!["/adapters"]);
     }
 
@@ -345,7 +615,10 @@ mod tests {
     fn test_training_keyword_matching() {
         let response = generate_response("I want to start a training job", &None);
         assert!(response.response.contains("training"));
-        assert_eq!(response.suggested_cli, Some("aosctl training jobs".to_string()));
+        assert_eq!(
+            response.suggested_cli,
+            Some("aosctl training jobs".to_string())
+        );
         assert!(response.relevant_links.contains(&"/training".to_string()));
     }
 
@@ -361,7 +634,10 @@ mod tests {
     fn test_model_keyword_matching() {
         let response = generate_response("Show me available models", &None);
         assert!(response.response.contains("model"));
-        assert_eq!(response.suggested_cli, Some("aosctl models list".to_string()));
+        assert_eq!(
+            response.suggested_cli,
+            Some("aosctl models list".to_string())
+        );
         assert_eq!(response.relevant_links, vec!["/base-models"]);
     }
 
@@ -369,7 +645,10 @@ mod tests {
     fn test_stack_keyword_matching() {
         let response = generate_response("How do I create a stack?", &None);
         assert!(response.response.contains("stack"));
-        assert_eq!(response.suggested_cli, Some("aosctl stack list".to_string()));
+        assert_eq!(
+            response.suggested_cli,
+            Some("aosctl stack list".to_string())
+        );
         assert_eq!(response.relevant_links, vec!["/admin/stacks"]);
     }
 
@@ -377,7 +656,10 @@ mod tests {
     fn test_tenant_keyword_matching() {
         let response = generate_response("Tell me about tenants", &None);
         assert!(response.response.contains("tenant"));
-        assert_eq!(response.suggested_cli, Some("aosctl tenant list".to_string()));
+        assert_eq!(
+            response.suggested_cli,
+            Some("aosctl tenant list".to_string())
+        );
         assert_eq!(response.relevant_links, vec!["/admin/tenants"]);
     }
 
@@ -472,7 +754,10 @@ mod tests {
     fn test_policy_keyword_matching() {
         let response = generate_response("What policies are active?", &None);
         assert!(response.response.contains("polic"));
-        assert_eq!(response.suggested_cli, Some("aosctl policies list".to_string()));
+        assert_eq!(
+            response.suggested_cli,
+            Some("aosctl policies list".to_string())
+        );
         assert_eq!(response.relevant_links, vec!["/admin/policies"]);
     }
 
@@ -480,7 +765,10 @@ mod tests {
     fn test_metrics_keyword_matching() {
         let response = generate_response("Show me performance metrics", &None);
         assert!(response.response.contains("metric"));
-        assert_eq!(response.suggested_cli, Some("aosctl metrics snapshot".to_string()));
+        assert_eq!(
+            response.suggested_cli,
+            Some("aosctl metrics snapshot".to_string())
+        );
         assert!(response.relevant_links.contains(&"/system".to_string()));
     }
 
@@ -490,5 +778,29 @@ mod tests {
         assert!(response.response.contains("node"));
         assert_eq!(response.suggested_cli, Some("aosctl node list".to_string()));
         assert!(response.relevant_links.contains(&"/system".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_evidence_capture() {
+        use adapteros_db::Db;
+
+        // Create in-memory test database
+        let db = Db::new_in_memory().await.expect("Failed to create test db");
+
+        let user_message = "How do I manage adapters?";
+        let assistant_response = "I can help you manage adapters. Adapters are LoRA weights...";
+
+        // Capture evidence - should not fail even though we're not creating records
+        let result = capture_chat_evidence(&db, user_message, assistant_response).await;
+        assert!(result.is_ok(), "Evidence capture should succeed");
+    }
+
+    #[test]
+    fn test_context_hash_deterministic() {
+        let message = "Test message";
+        let hash1 = B3Hash::hash(message.as_bytes()).to_hex();
+        let hash2 = B3Hash::hash(message.as_bytes()).to_hex();
+        assert_eq!(hash1, hash2, "Hashes should be deterministic");
+        assert_eq!(hash1.len(), 64, "Hash should be 64 hex characters");
     }
 }

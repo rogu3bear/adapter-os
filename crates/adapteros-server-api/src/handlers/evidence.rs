@@ -4,8 +4,11 @@
 
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
+use crate::error_helpers::{db_error, internal_error, not_found};
 use crate::permissions::{require_permission, Permission};
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
+use crate::types::ErrorResponse;
 use adapteros_db::training_datasets::{CreateEvidenceParams, EvidenceEntry, EvidenceFilter};
 use axum::{
     extract::{Path, Query, State},
@@ -112,10 +115,40 @@ pub async fn list_evidence(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListEvidenceQuery>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Require permission to view evidence
-    require_permission(&claims, Permission::AdapterView)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    require_permission(&claims, Permission::AdapterView)?;
+
+    // CRITICAL: Validate tenant isolation for filtered resources
+    // If dataset_id filter is provided, validate tenant owns the dataset
+    if let Some(ref dataset_id) = query.dataset_id {
+        let dataset = state
+            .db
+            .get_training_dataset(dataset_id)
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| not_found("Dataset"))?;
+
+        if let Some(ref tenant_id) = dataset.tenant_id {
+            validate_tenant_isolation(&claims, tenant_id)?;
+        }
+    }
+
+    // If adapter_id filter is provided, validate tenant owns the adapter
+    if let Some(ref adapter_id) = query.adapter_id {
+        // get_adapter_by_id enforces tenant isolation by requiring tenant_id
+        let _adapter = state
+            .db
+            .get_adapter_by_id(&claims.tenant_id, adapter_id)
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| not_found("Adapter"))?;
+    }
+
+    // NOTE: If no dataset_id or adapter_id filter is provided, this query could potentially
+    // return evidence entries from other tenants. The database layer should be enhanced
+    // to filter by tenant_id via JOINs with datasets/adapters tables.
+    // For now, callers should always provide dataset_id or adapter_id filters.
 
     let filter = EvidenceFilter {
         dataset_id: query.dataset_id,
@@ -125,13 +158,7 @@ pub async fn list_evidence(
         limit: query.limit,
     };
 
-    let entries = state.db.list_evidence_entries(&filter).await.map_err(|e| {
-        error!(error = %e, "Failed to list evidence entries");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to list evidence entries: {}", e),
-        )
-    })?;
+    let entries = state.db.list_evidence_entries(&filter).await.map_err(db_error)?;
 
     let responses: Vec<EvidenceResponse> = entries.into_iter().map(Into::into).collect();
     Ok(Json(responses))
@@ -155,16 +182,15 @@ pub async fn create_evidence(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<CreateEvidenceRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Require permission to register adapters/datasets
-    require_permission(&claims, Permission::AdapterRegister)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    require_permission(&claims, Permission::AdapterRegister)?;
 
     // Validate at least one ID is provided
     if request.dataset_id.is_none() && request.adapter_id.is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
-            "Either dataset_id or adapter_id must be provided".to_string(),
+            Json(ErrorResponse::new("Either dataset_id or adapter_id must be provided").with_code("BAD_REQUEST")),
         ));
     }
 
@@ -182,10 +208,10 @@ pub async fn create_evidence(
     if !valid_types.contains(&request.evidence_type.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!(
+            Json(ErrorResponse::new(&format!(
                 "Invalid evidence_type. Must be one of: {}",
                 valid_types.join(", ")
-            ),
+            )).with_code("BAD_REQUEST")),
         ));
     }
 
@@ -194,11 +220,35 @@ pub async fn create_evidence(
     if !valid_confidence.contains(&request.confidence.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!(
+            Json(ErrorResponse::new(&format!(
                 "Invalid confidence. Must be one of: {}",
                 valid_confidence.join(", ")
-            ),
+            )).with_code("BAD_REQUEST")),
         ));
+    }
+
+    // CRITICAL: Validate tenant isolation for dataset or adapter
+    if let Some(ref dataset_id) = request.dataset_id {
+        let dataset = state
+            .db
+            .get_training_dataset(dataset_id)
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| not_found("Dataset"))?;
+
+        if let Some(ref tenant_id) = dataset.tenant_id {
+            validate_tenant_isolation(&claims, tenant_id)?;
+        }
+    }
+
+    if let Some(ref adapter_id) = request.adapter_id {
+        // get_adapter_by_id enforces tenant isolation by requiring tenant_id
+        let _adapter = state
+            .db
+            .get_adapter_by_id(&claims.tenant_id, adapter_id)
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| not_found("Adapter"))?;
     }
 
     let params = CreateEvidenceParams {
@@ -218,7 +268,7 @@ pub async fn create_evidence(
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to create evidence entry");
-            log_failure(
+            let _ = log_failure(
                 &state.db,
                 &claims,
                 actions::ADAPTER_REGISTER,
@@ -226,10 +276,7 @@ pub async fn create_evidence(
                 None,
                 &format!("Failed to create evidence: {}", e),
             );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create evidence entry: {}", e),
-            )
+            internal_error(e)
         })?;
 
     // Retrieve the created entry
@@ -237,21 +284,10 @@ pub async fn create_evidence(
         .db
         .get_evidence_entry(&entry_id)
         .await
-        .map_err(|e| {
-            error!(error = %e, entry_id = %entry_id, "Failed to retrieve evidence entry");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to retrieve evidence entry: {}", e),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Evidence entry not found after creation".to_string(),
-            )
-        })?;
+        .map_err(db_error)?
+        .ok_or_else(|| internal_error("Evidence entry not found after creation"))?;
 
-    log_success(
+    let _ = log_success(
         &state.db,
         &claims,
         actions::ADAPTER_REGISTER,
@@ -291,28 +327,38 @@ pub async fn get_evidence(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Require permission to view evidence
-    require_permission(&claims, Permission::AdapterView)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    require_permission(&claims, Permission::AdapterView)?;
 
     let entry = state
         .db
         .get_evidence_entry(&id)
         .await
-        .map_err(|e| {
-            error!(error = %e, id = %id, "Failed to get evidence entry");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get evidence entry: {}", e),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                format!("Evidence entry not found: {}", id),
-            )
-        })?;
+        .map_err(db_error)?
+        .ok_or_else(|| not_found("Evidence entry"))?;
+
+    // CRITICAL: Validate tenant isolation via linked dataset or adapter
+    if let Some(ref dataset_id) = entry.dataset_id {
+        let dataset = state
+            .db
+            .get_training_dataset(dataset_id)
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| not_found("Dataset"))?;
+
+        if let Some(ref tenant_id) = dataset.tenant_id {
+            validate_tenant_isolation(&claims, tenant_id)?;
+        }
+    } else if let Some(ref adapter_id) = entry.adapter_id {
+        // get_adapter_by_id enforces tenant isolation by requiring tenant_id
+        let _adapter = state
+            .db
+            .get_adapter_by_id(&claims.tenant_id, adapter_id)
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| not_found("Adapter"))?;
+    }
 
     Ok(Json(EvidenceResponse::from(entry)))
 }
@@ -337,33 +383,43 @@ pub async fn delete_evidence(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Require admin permission to delete evidence
-    require_permission(&claims, Permission::AdapterDelete)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    require_permission(&claims, Permission::AdapterDelete)?;
 
     // Verify entry exists first
-    let _entry = state
+    let entry = state
         .db
         .get_evidence_entry(&id)
         .await
-        .map_err(|e| {
-            error!(error = %e, id = %id, "Failed to get evidence entry");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get evidence entry: {}", e),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                format!("Evidence entry not found: {}", id),
-            )
-        })?;
+        .map_err(db_error)?
+        .ok_or_else(|| not_found("Evidence entry"))?;
+
+    // CRITICAL: Validate tenant isolation via linked dataset or adapter
+    if let Some(ref dataset_id) = entry.dataset_id {
+        let dataset = state
+            .db
+            .get_training_dataset(dataset_id)
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| not_found("Dataset"))?;
+
+        if let Some(ref tenant_id) = dataset.tenant_id {
+            validate_tenant_isolation(&claims, tenant_id)?;
+        }
+    } else if let Some(ref adapter_id) = entry.adapter_id {
+        // get_adapter_by_id enforces tenant isolation by requiring tenant_id
+        let _adapter = state
+            .db
+            .get_adapter_by_id(&claims.tenant_id, adapter_id)
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| not_found("Adapter"))?;
+    }
 
     state.db.delete_evidence_entry(&id).await.map_err(|e| {
         error!(error = %e, id = %id, "Failed to delete evidence entry");
-        log_failure(
+        let _ = log_failure(
             &state.db,
             &claims,
             actions::ADAPTER_DELETE,
@@ -371,13 +427,10 @@ pub async fn delete_evidence(
             Some(&id),
             &format!("Failed to delete evidence: {}", e),
         );
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to delete evidence entry: {}", e),
-        )
+        internal_error(e)
     })?;
 
-    log_success(
+    let _ = log_success(
         &state.db,
         &claims,
         actions::ADAPTER_DELETE,
@@ -413,22 +466,27 @@ pub async fn get_dataset_evidence(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Require permission to view datasets
-    require_permission(&claims, Permission::TrainingView)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    require_permission(&claims, Permission::TrainingView)?;
+
+    // CRITICAL: Validate tenant isolation - verify dataset belongs to tenant
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| not_found("Dataset"))?;
+
+    if let Some(ref tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, tenant_id)?;
+    }
 
     let entries = state
         .db
         .get_dataset_evidence(&dataset_id)
         .await
-        .map_err(|e| {
-            error!(error = %e, dataset_id = %dataset_id, "Failed to get dataset evidence");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get dataset evidence: {}", e),
-            )
-        })?;
+        .map_err(db_error)?;
 
     let responses: Vec<EvidenceResponse> = entries.into_iter().map(Into::into).collect();
     debug!(
@@ -458,22 +516,24 @@ pub async fn get_adapter_evidence(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Require permission to view adapters
-    require_permission(&claims, Permission::AdapterView)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    require_permission(&claims, Permission::AdapterView)?;
+
+    // CRITICAL: Validate tenant isolation - verify adapter belongs to tenant
+    // get_adapter_by_id enforces tenant isolation by requiring tenant_id
+    let _adapter = state
+        .db
+        .get_adapter_by_id(&claims.tenant_id, &adapter_id)
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| not_found("Adapter"))?;
 
     let entries = state
         .db
         .get_adapter_evidence(&adapter_id)
         .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter evidence");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get adapter evidence: {}", e),
-            )
-        })?;
+        .map_err(db_error)?;
 
     let responses: Vec<EvidenceResponse> = entries.into_iter().map(Into::into).collect();
     debug!(

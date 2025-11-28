@@ -7,7 +7,7 @@
 //! - Compression
 //! - Caching (ETags, conditional requests)
 
-use crate::auth::{validate_token, Claims};
+use crate::auth::{validate_token, validate_token_ed25519, Claims};
 use crate::ip_extraction::{extract_client_ip, ClientIp};
 use crate::security::is_token_revoked;
 use crate::state::AppState;
@@ -16,7 +16,7 @@ use adapteros_core::identity::IdentityEnvelope;
 use adapteros_db::users::Role;
 use axum::{
     extract::State,
-    http::{Request, StatusCode},
+    http::{header, HeaderMap, Request, StatusCode},
     middleware::Next,
     response::Response,
     Json,
@@ -26,24 +26,56 @@ use std::env;
 use std::str::FromStr;
 use uuid::Uuid;
 
+/// Extract auth_token from Cookie header
+fn extract_token_from_cookie(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|cookies| {
+            for cookie in cookies.split(';') {
+                let cookie = cookie.trim();
+                if let Some(token) = cookie.strip_prefix("auth_token=") {
+                    return Some(token.to_string());
+                }
+            }
+            None
+        })
+}
+
 pub mod caching;
 pub mod compression;
+pub mod policy_enforcement;
 pub mod request_id;
 pub mod versioning;
 
 pub use caching::{caching_middleware, CacheControl};
 pub use compression::compression_middleware;
+pub use policy_enforcement::policy_enforcement_middleware;
 pub use request_id::request_id_middleware;
 pub use versioning::{versioning_middleware, ApiVersion, DeprecationInfo};
 
+/// SECURITY: Dev no-auth bypass is only available in debug builds
+/// This function is compile-time restricted to debug_assertions builds
+#[cfg(debug_assertions)]
 fn dev_no_auth_enabled() -> bool {
-    cfg!(debug_assertions)
-        && env::var("AOS_DEV_NO_AUTH")
-            .map(|v| {
-                let lower = v.to_ascii_lowercase();
-                matches!(lower.as_str(), "1" | "true" | "yes" | "on")
-            })
-            .unwrap_or(false)
+    env::var("AOS_DEV_NO_AUTH")
+        .map(|v| {
+            let lower = v.to_ascii_lowercase();
+            matches!(lower.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
+/// SECURITY: In release builds, dev_no_auth is NEVER enabled
+#[cfg(not(debug_assertions))]
+fn dev_no_auth_enabled() -> bool {
+    // SECURITY: Always return false in release builds, regardless of environment variable
+    if env::var("AOS_DEV_NO_AUTH").is_ok() {
+        tracing::error!(
+            "AOS_DEV_NO_AUTH detected in release build - this flag is ignored in production"
+        );
+    }
+    false
 }
 
 fn dev_no_auth_claims() -> Claims {
@@ -54,6 +86,7 @@ fn dev_no_auth_claims() -> Claims {
         role: "admin".to_string(),
         roles: vec!["admin".to_string()],
         tenant_id: "system".to_string(),
+        admin_tenants: vec![], // Dev mode: no cross-tenant access by default
         exp: (now + Duration::hours(8)).timestamp(),
         iat: now.timestamp(),
         jti: Uuid::new_v4().to_string(),
@@ -107,12 +140,22 @@ pub async fn auth_middleware(
             .map(|(_, value)| value.into_owned())
     });
 
+    // Also try to extract token from cookies for browser-based authentication
+    let cookie_token = extract_token_from_cookie(req.headers());
+
     let token = auth_header
         .and_then(|header| header.strip_prefix("Bearer "))
-        .or(query_token.as_deref());
+        .or(query_token.as_deref())
+        .or(cookie_token.as_deref());
 
     if let Some(token) = token {
-        match validate_token(token, &state.jwt_secret) {
+        // Use Ed25519 or HMAC validation based on server configuration
+        let claims_result = if state.use_ed25519 {
+            validate_token_ed25519(token, &state.ed25519_public_key)
+        } else {
+            validate_token(token, &state.jwt_secret)
+        };
+        match claims_result {
             Ok(claims) => {
                 // Check if token has been revoked
                 if let Err(e) = is_token_revoked(&state.db, &claims.jti).await {
@@ -138,8 +181,9 @@ pub async fn auth_middleware(
                     ));
                 }
 
-                // Extract tenant_id before moving claims
+                // Extract tenant_id and expiration before moving claims
                 let tenant_id = claims.tenant_id.clone();
+                let token_exp = claims.exp;
                 // Insert claims into request extensions for handlers to use
                 req.extensions_mut().insert(claims);
                 let identity = IdentityEnvelope::new(
@@ -149,7 +193,30 @@ pub async fn auth_middleware(
                     IdentityEnvelope::default_revision(),
                 );
                 req.extensions_mut().insert(identity);
-                return Ok(next.run(req).await);
+
+                // Execute the request handler
+                let response = next.run(req).await;
+
+                // SECURITY: Re-validate token expiration after handler completes
+                // This prevents token expiry during long-running requests
+                let now = Utc::now().timestamp();
+                if now >= token_exp {
+                    tracing::warn!(
+                        exp = token_exp,
+                        now = now,
+                        "Token expired during request processing"
+                    );
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        Json(
+                            ErrorResponse::new("token expired")
+                                .with_code("TOKEN_EXPIRED")
+                                .with_string_details("token expired during request processing"),
+                        ),
+                    ));
+                }
+
+                return Ok(response);
             }
             Err(e) => {
                 tracing::warn!(error = %e, "Token validation failed");
@@ -209,42 +276,22 @@ pub async fn dual_auth_middleware(
             .map(|(_, value)| value.into_owned())
     });
 
+    // Also try to extract token from cookies for browser-based authentication
+    let cookie_token = extract_token_from_cookie(req.headers());
+
     let token = auth_header
         .and_then(|header| header.strip_prefix("Bearer "))
-        .or(query_token.as_deref());
+        .or(query_token.as_deref())
+        .or(cookie_token.as_deref());
 
     if let Some(token) = token {
-        // SECURITY: Only allow debug bypass in development mode
-        #[cfg(debug_assertions)]
-        {
-            if token == "adapteros-local" {
-                let now = Utc::now();
-                let claims = Claims {
-                    sub: "api-key-user".to_string(),
-                    email: "api@adapteros.local".to_string(),
-                    role: "User".to_string(),
-                    roles: vec!["User".to_string()],
-                    tenant_id: "default".to_string(),
-                    exp: (now + Duration::hours(1)).timestamp(),
-                    iat: now.timestamp(),
-                    jti: Uuid::new_v4().to_string(),
-                    nbf: now.timestamp(),
-                };
-                let tenant_id = claims.tenant_id.clone();
-                tracing::debug!("Using debug bypass token (dev mode only)");
-                req.extensions_mut().insert(claims);
-                let identity = IdentityEnvelope::new(
-                    tenant_id,
-                    "api".to_string(),
-                    "middleware".to_string(),
-                    IdentityEnvelope::default_revision(),
-                );
-                req.extensions_mut().insert(identity);
-                return Ok(next.run(req).await);
-            }
-        }
-
-        match validate_token(token, &state.jwt_secret) {
+        // Use Ed25519 or HMAC validation based on server configuration
+        let claims_result = if state.use_ed25519 {
+            validate_token_ed25519(token, &state.ed25519_public_key)
+        } else {
+            validate_token(token, &state.jwt_secret)
+        };
+        match claims_result {
             Ok(claims) => {
                 let tenant_id = claims.tenant_id.clone();
                 req.extensions_mut().insert(claims);

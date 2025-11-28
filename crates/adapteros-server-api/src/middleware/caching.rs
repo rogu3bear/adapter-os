@@ -9,7 +9,6 @@
 //! [source: crates/adapteros-server-api/src/middleware/caching.rs]
 
 use axum::{
-    body::Body,
     extract::Request,
     http::{header, HeaderValue, StatusCode},
     middleware::Next,

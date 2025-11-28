@@ -452,7 +452,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore] // Requires database
+    #[ignore = "Requires PostgreSQL test database - run with: cargo test --release -- --ignored"]
     async fn test_cab_workflow_promotion() {
         // Note: This test requires a test database with proper schema
         // Run with: cargo test --package adapteros-server-api test_cab_workflow_promotion -- --ignored

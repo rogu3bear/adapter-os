@@ -1,23 +1,19 @@
-///! Enhanced authentication handlers with comprehensive security
-///!
-///! Endpoints:
-///! - POST /v1/auth/login - Login with email/password
-///! - POST /v1/auth/logout - Logout and revoke token
-///! - POST /v1/auth/refresh - Refresh JWT token
-///! - GET /v1/auth/sessions - List active sessions
-///! - DELETE /v1/auth/sessions/:jti - Revoke specific session
-///! - POST /v1/auth/bootstrap - Create initial admin user (one-time)
-use crate::audit_helper::{actions, log_failure, log_success, resources};
-use crate::auth::{generate_token_ed25519, hash_password, refresh_token, verify_password, Claims};
+use crate::auth::{
+    generate_token_ed25519_with_admin_tenants, generate_token_with_admin_tenants, hash_password,
+    refresh_token, verify_password, Claims,
+};
+use crate::auth_common::AuthConfig;
 use crate::ip_extraction::ClientIp;
 use crate::security::{
-    create_session, get_user_sessions, is_account_locked, revoke_all_user_tokens, revoke_token,
-    track_auth_attempt,
+    create_session, get_user_sessions, is_account_locked, revoke_token, track_auth_attempt,
 };
 use crate::state::AppState;
 use crate::types::ErrorResponse;
-use adapteros_api_types::auth::{LoginRequest, LoginResponse, UserInfoResponse};
-use adapteros_db::{users::Role, Db};
+use adapteros_api_types::auth::{LoginRequest, LoginResponse};
+use adapteros_db::{
+    users::{Role, User},
+    Db,
+};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -65,6 +61,47 @@ pub struct SessionsResponse {
     pub sessions: Vec<SessionInfo>,
 }
 
+fn audit_claims_for_user(user: &User, tenant_id: &str) -> Claims {
+    Claims {
+        sub: user.id.clone(),
+        email: user.email.clone(),
+        role: user.role.clone(),
+        roles: vec![user.role.clone()],
+        tenant_id: tenant_id.to_string(),
+        admin_tenants: vec![],
+        exp: 0,
+        iat: 0,
+        jti: String::new(),
+        nbf: 0,
+    }
+}
+
+async fn log_auth_event(
+    db: &Db,
+    claims: &Claims,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<&str>,
+    status: &str,
+    error_message: Option<&str>,
+    ip_address: Option<&str>,
+) {
+    let _ = db
+        .log_audit(
+            &claims.sub,
+            &claims.role,
+            &claims.tenant_id,
+            action,
+            resource_type,
+            resource_id,
+            status,
+            error_message,
+            ip_address,
+            None,
+        )
+        .await;
+}
+
 /// Bootstrap initial admin user (one-time operation)
 ///
 /// Can only be called when no users exist in the database.
@@ -85,17 +122,14 @@ pub async fn bootstrap_admin_handler(
     Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<BootstrapRequest>,
 ) -> Result<Json<BootstrapResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Check if any users exist
-    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(state.db.pool())
-        .await
-        .map_err(|e| {
-            warn!(error = %e, "Failed to query user count");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("database error").with_code("DATABASE_ERROR")),
-            )
-        })?;
+    // Check if any users exist using Db trait method
+    let user_count = state.db.count_users().await.map_err(|e| {
+        warn!(error = %e, "Failed to query user count");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("database error").with_code("DATABASE_ERROR")),
+        )
+    })?;
 
     if user_count > 0 {
         warn!("Bootstrap attempt when users already exist");
@@ -133,7 +167,13 @@ pub async fn bootstrap_admin_handler(
     // Create admin user with "system" tenant
     let user_id = state
         .db
-        .create_user(&req.email, &req.display_name, &pw_hash, Role::Admin, "system")
+        .create_user(
+            &req.email,
+            &req.display_name,
+            &pw_hash,
+            Role::Admin,
+            "system",
+        )
         .await
         .map_err(|e| {
             warn!(error = %e, "Failed to create admin user");
@@ -230,7 +270,7 @@ pub async fn login_handler(
 
     let user = match user {
         Some(u) if !u.disabled => u,
-        Some(_) => {
+        Some(u) => {
             track_auth_attempt(
                 &state.db,
                 &req.email,
@@ -240,6 +280,24 @@ pub async fn login_handler(
             )
             .await
             .ok();
+
+            let tenant_id = if u.role == "admin" {
+                "system".to_string()
+            } else {
+                "default".to_string()
+            };
+            let audit_claims = audit_claims_for_user(&u, &tenant_id);
+            log_auth_event(
+                &state.db,
+                &audit_claims,
+                "auth.login",
+                "session",
+                None,
+                "failure",
+                Some("account disabled"),
+                Some(&client_ip.0),
+            )
+            .await;
 
             return Err((
                 StatusCode::FORBIDDEN,
@@ -281,6 +339,12 @@ pub async fn login_handler(
         )
     })?;
 
+    let tenant_id = if user.role == "admin" {
+        "system".to_string()
+    } else {
+        "default".to_string()
+    };
+
     if !valid {
         track_auth_attempt(
             &state.db,
@@ -292,6 +356,19 @@ pub async fn login_handler(
         .await
         .ok();
 
+        let audit_claims = audit_claims_for_user(&user, &tenant_id);
+        log_auth_event(
+            &state.db,
+            &audit_claims,
+            "auth.login",
+            "session",
+            None,
+            "failure",
+            Some("invalid password"),
+            Some(&client_ip.0),
+        )
+        .await;
+
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(
@@ -302,22 +379,39 @@ pub async fn login_handler(
         ));
     }
 
-    // Determine tenant_id (use user's tenant or "system" for admin)
-    let tenant_id = if user.role == "admin" {
-        "system".to_string()
+    // Get token TTL from config (default 8 hours)
+    let token_ttl = {
+        let config = state.config.read().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+        config.security.token_ttl_seconds.unwrap_or(8 * 3600)
+    };
+
+    // Get admin tenant access list if user is admin
+    let admin_tenants = if user.role == "admin" {
+        adapteros_db::get_user_tenant_access(&state.db, &user.id)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(error = %e, user_id = %user.id, "Failed to get admin tenant access, defaulting to empty");
+                vec![]
+            })
     } else {
-        // For now, default to "default" tenant. In production, get from user record.
-        "default".to_string()
+        vec![]
     };
 
     // Generate JWT token
     let token = if state.use_ed25519 {
-        generate_token_ed25519(
+        generate_token_ed25519_with_admin_tenants(
             &user.id,
             &user.email,
             &user.role,
             &tenant_id,
+            &admin_tenants,
             &state.ed25519_keypair,
+            token_ttl,
         )
         .map_err(|e| {
             warn!(error = %e, "Failed to generate token");
@@ -327,12 +421,14 @@ pub async fn login_handler(
             )
         })?
     } else {
-        crate::auth::generate_token(
+        generate_token_with_admin_tenants(
             &user.id,
             &user.email,
             &user.role,
             &tenant_id,
+            &admin_tenants,
             &state.jwt_secret,
+            token_ttl,
         )
         .map_err(|e| {
             warn!(error = %e, "Failed to generate token");
@@ -383,22 +479,17 @@ pub async fn login_handler(
         .ok();
 
     // Log audit (best effort, doesn't fail login)
-    state
-        .db
-        .log_audit(
-            &user.id,
-            &user.role,
-            &tenant_id,
-            "auth.login",
-            "session",
-            Some(&claims.jti),
-            "success",
-            None,
-            Some(&client_ip.0),
-            None,
-        )
-        .await
-        .ok();
+    log_auth_event(
+        &state.db,
+        &claims,
+        "auth.login",
+        "session",
+        Some(&claims.jti),
+        "success",
+        None,
+        Some(&client_ip.0),
+    )
+    .await;
 
     info!(
         user_id = %user.id,
@@ -479,65 +570,182 @@ pub async fn logout_handler(
     ),
     tag = "auth"
 )]
+#[axum::debug_handler]
 pub async fn refresh_token_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<RefreshResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Generate new token
-    let new_token = refresh_token(&claims, &state.ed25519_keypair).map_err(|e| {
-        warn!(error = %e, "Failed to refresh token");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR")),
-        )
-    })?;
+    // Extract config value before any await to avoid holding RwLockReadGuard across await
+    let token_ttl = state.config.read()
+        .map(|cfg| cfg.security.token_ttl_seconds.unwrap_or(8 * 3600))
+        .unwrap_or_else(|_| {
+            warn!("Config lock poisoned during token refresh, using default TTL");
+            8 * 3600 // Default 8 hours
+        });
 
-    // Decode new token to get jti and exp
-    let new_claims = if state.use_ed25519 {
+    let new_token = match refresh_token(&claims, &state.ed25519_keypair, token_ttl) {
+        Ok(token) => token,
+        Err(e) => {
+            warn!(error = %e, "Failed to refresh token");
+            log_auth_event(
+                &state.db,
+                &claims,
+                "auth.refresh",
+                "session",
+                None,
+                "failure",
+                Some("token refresh failed"),
+                None,
+            )
+            .await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR")),
+            ));
+        }
+    };
+
+    let new_claims = match if state.use_ed25519 {
         crate::auth::validate_token_ed25519(&new_token, &state.ed25519_public_key)
     } else {
         crate::auth::validate_token(&new_token, &state.jwt_secret)
-    }
-    .map_err(|e| {
-        warn!(error = %e, "Token validation failed after refresh");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-        )
-    })?;
+    } {
+        Ok(claims) => claims,
+        Err(e) => {
+            warn!(error = %e, "Token validation failed after refresh");
+            log_auth_event(
+                &state.db,
+                &claims,
+                "auth.refresh",
+                "session",
+                None,
+                "failure",
+                Some("token validation failed"),
+                None,
+            )
+            .await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            ));
+        }
+    };
 
-    // Revoke old token
     let expires_at = Utc::now() + Duration::hours(8);
-    revoke_token(
-        &state.db,
-        &claims.jti,
-        &claims.sub,
-        &claims.tenant_id,
-        &expires_at.to_rfc3339(),
-        Some(&claims.sub),
-        Some("token refresh"),
-    )
-    .await
-    .ok();
+    let expires_at_str = expires_at.to_rfc3339();
 
-    // Create new session (critical - must succeed)
-    create_session(
-        &state.db,
-        &new_claims.jti,
-        &claims.sub,
-        &claims.tenant_id,
-        &expires_at.to_rfc3339(),
-        None,
-        None,
+    let mut tx = match state.db.pool().begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            warn!(error = %e, "Failed to begin transaction for token refresh");
+            log_auth_event(
+                &state.db,
+                &claims,
+                "auth.refresh",
+                "session",
+                None,
+                "failure",
+                Some("transaction begin failed"),
+                None,
+            )
+            .await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            ));
+        }
+    };
+
+    if let Err(e) = sqlx::query(
+        "INSERT INTO user_sessions (jti, user_id, tenant_id, created_at, expires_at, last_activity)
+         VALUES (?, ?, ?, datetime('now'), ?, datetime('now'))",
     )
+    .bind(&new_claims.jti)
+    .bind(&claims.sub)
+    .bind(&claims.tenant_id)
+    .bind(&expires_at_str)
+    .execute(&mut *tx)
     .await
-    .map_err(|e| {
-        warn!(error = %e, user_id = %claims.sub, "Failed to create refreshed session - refresh aborted");
-        (
+    {
+        warn!(error = %e, user_id = %claims.sub, "Failed to create refreshed session");
+        log_auth_event(
+            &state.db,
+            &claims,
+            "auth.refresh",
+            "session",
+            Some(&new_claims.jti),
+            "failure",
+            Some("session creation failed"),
+            None,
+        )
+        .await;
+        return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new("session creation failed").with_code("SESSION_ERROR")),
+        ));
+    }
+
+    if let Err(e) = sqlx::query(
+        "INSERT INTO revoked_tokens (jti, user_id, tenant_id, revoked_at, revoked_by, reason, expires_at)
+         VALUES (?, ?, ?, datetime('now'), ?, 'token refresh', ?)
+         ON CONFLICT(jti) DO NOTHING",
+    )
+    .bind(&claims.jti)
+    .bind(&claims.sub)
+    .bind(&claims.tenant_id)
+    .bind(&claims.sub)
+    .bind(&expires_at_str)
+    .execute(&mut *tx)
+    .await
+    {
+        warn!(error = %e, "Failed to revoke old token during refresh");
+        log_auth_event(
+            &state.db,
+            &claims,
+            "auth.refresh",
+            "session",
+            Some(&claims.jti),
+            "failure",
+            Some("token revocation failed"),
+            None,
         )
-    })?;
+        .await;
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+        ));
+    }
+
+    if let Err(e) = tx.commit().await {
+        warn!(error = %e, user_id = %claims.sub, "Failed to commit token refresh transaction");
+        log_auth_event(
+            &state.db,
+            &claims,
+            "auth.refresh",
+            "session",
+            Some(&new_claims.jti),
+            "failure",
+            Some("transaction commit failed"),
+            None,
+        )
+        .await;
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+        ));
+    }
+
+    log_auth_event(
+        &state.db,
+        &claims,
+        "auth.refresh",
+        "session",
+        Some(&new_claims.jti),
+        "success",
+        None,
+        None,
+    )
+    .await;
 
     info!(
         user_id = %claims.sub,
@@ -567,15 +775,27 @@ pub async fn list_sessions_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<SessionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let sessions = get_user_sessions(&state.db, &claims.sub)
-        .await
-        .map_err(|e| {
+    let sessions = match get_user_sessions(&state.db, &claims.sub).await {
+        Ok(sessions) => sessions,
+        Err(e) => {
             warn!(error = %e, "Failed to get user sessions");
-            (
+            log_auth_event(
+                &state.db,
+                &claims,
+                "auth.sessions.list",
+                "session",
+                None,
+                "failure",
+                Some("failed to read sessions"),
+                None,
+            )
+            .await;
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-            )
-        })?;
+            ));
+        }
+    };
 
     let sessions_info: Vec<SessionInfo> = sessions
         .into_iter()
@@ -586,6 +806,18 @@ pub async fn list_sessions_handler(
             last_activity,
         })
         .collect();
+
+    log_auth_event(
+        &state.db,
+        &claims,
+        "auth.sessions.list",
+        "session",
+        None,
+        "success",
+        None,
+        None,
+    )
+    .await;
 
     Ok(Json(SessionsResponse {
         sessions: sessions_info,
@@ -613,19 +845,42 @@ pub async fn revoke_session_handler(
     Path(jti): Path<String>,
 ) -> Result<Json<LogoutResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Verify the session belongs to the user
-    let sessions = get_user_sessions(&state.db, &claims.sub)
-        .await
-        .map_err(|e| {
+    let sessions = match get_user_sessions(&state.db, &claims.sub).await {
+        Ok(sessions) => sessions,
+        Err(e) => {
             warn!(error = %e, "Failed to get user sessions");
-            (
+            log_auth_event(
+                &state.db,
+                &claims,
+                "auth.session.revoke",
+                "session",
+                Some(&jti),
+                "failure",
+                Some("failed to read sessions"),
+                None,
+            )
+            .await;
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-            )
-        })?;
+            ));
+        }
+    };
 
     let session_exists = sessions.iter().any(|(s_jti, _, _, _)| s_jti == &jti);
 
     if !session_exists {
+        log_auth_event(
+            &state.db,
+            &claims,
+            "auth.session.revoke",
+            "session",
+            Some(&jti),
+            "failure",
+            Some("session not found"),
+            None,
+        )
+        .await;
         return Err((
             StatusCode::NOT_FOUND,
             Json(
@@ -637,7 +892,7 @@ pub async fn revoke_session_handler(
     }
 
     let expires_at = Utc::now() + Duration::hours(8);
-    revoke_token(
+    if let Err(e) = revoke_token(
         &state.db,
         &jti,
         &claims.sub,
@@ -647,14 +902,36 @@ pub async fn revoke_session_handler(
         Some("manual revocation"),
     )
     .await
-    .map_err(|e| {
+    {
         warn!(error = %e, "Failed to revoke session");
-        (
+        log_auth_event(
+            &state.db,
+            &claims,
+            "auth.session.revoke",
+            "session",
+            Some(&jti),
+            "failure",
+            Some("revocation failed"),
+            None,
+        )
+        .await;
+        return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new("revocation failed").with_code("INTERNAL_ERROR")),
-        )
-    })?;
+        ));
+    }
 
+    log_auth_event(
+        &state.db,
+        &claims,
+        "auth.session.revoke",
+        "session",
+        Some(&jti),
+        "success",
+        None,
+        None,
+    )
+    .await;
     info!(user_id = %claims.sub, jti = %jti, "Session revoked");
 
     Ok(Json(LogoutResponse {
@@ -664,6 +941,7 @@ pub async fn revoke_session_handler(
 
 /// Development bypass handler - creates admin user session
 /// Only available in debug builds - generates proper JWT even in dev mode
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
 #[utoipa::path(
     post,
     path = "/v1/auth/dev-bypass",
@@ -675,12 +953,35 @@ pub async fn revoke_session_handler(
 )]
 pub async fn dev_bypass_handler(
     State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
+    headers: HeaderMap,
     Extension(client_ip): Extension<ClientIp>,
-) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // SECURITY: Only allow in debug builds
-    #[cfg(not(debug_assertions))]
-    {
+) -> Result<(HeaderMap, Json<LoginResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let auth_cfg = AuthConfig::from_state(&state);
+
+    if !auth_cfg.dev_login_allowed() {
+        let guard_claims = Claims {
+            sub: "dev-bypass".to_string(),
+            email: "dev-bypass@adapteros.local".to_string(),
+            role: "system".to_string(),
+            roles: vec!["system".to_string()],
+            tenant_id: "system".to_string(),
+            admin_tenants: vec![],
+            exp: 0,
+            iat: 0,
+            jti: String::new(),
+            nbf: 0,
+        };
+        log_auth_event(
+            &state.db,
+            &guard_claims,
+            "auth.dev_login",
+            "session",
+            None,
+            "failure",
+            Some("dev bypass disabled"),
+            Some(&client_ip.0),
+        )
+        .await;
         return Err((
             StatusCode::FORBIDDEN,
             Json(
@@ -701,30 +1002,58 @@ pub async fn dev_bypass_handler(
     let user_id = "dev-admin-user".to_string();
     let email = "dev-admin@adapteros.local".to_string();
     let role = "admin".to_string();
-    let tenant_id = "system".to_string();
+    let tenant_id = "default".to_string(); // Use "default" tenant which exists in DB
 
-    // Generate proper JWT token (same as login handler, not hardcoded)
-    let token = if state.use_ed25519 {
-        generate_token_ed25519(&user_id, &email, &role, &tenant_id, &state.ed25519_keypair)
-            .map_err(|e| {
-                warn!(error = %e, "Failed to generate dev bypass token");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
-                )
-            })?
-    } else {
-        crate::auth::generate_token(&user_id, &email, &role, &tenant_id, &state.jwt_secret)
-            .map_err(|e| {
-                warn!(error = %e, "Failed to generate dev bypass token");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
-                )
-            })?
+    // Ensure the dev user exists in the database so /auth/me works
+    info!(user_id = %user_id, "Creating/updating dev user in database");
+    match state
+        .db
+        .ensure_user(
+            &user_id,
+            &email,
+            "Developer Admin",
+            "", // empty password hash for dev user
+            adapteros_db::users::Role::Admin,
+            &tenant_id,
+        )
+        .await
+    {
+        Ok(()) => {
+            info!(user_id = %user_id, "Dev user ensured in database successfully");
+        }
+        Err(e) => {
+            warn!(error = %e, user_id = %user_id, "Failed to ensure dev user exists in database, continuing anyway");
+            // Don't fail - the user can still authenticate, they just won't see their profile in /me
+        }
+    }
+
+    let dev_user = User {
+        id: user_id.clone(),
+        email: email.clone(),
+        display_name: "Developer Admin".to_string(),
+        pw_hash: String::new(),
+        role: role.clone(),
+        disabled: false,
+        created_at: Utc::now().to_rfc3339(),
+        tenant_id: tenant_id.clone(),
     };
 
-    // Decode to get jti and exp for session creation
+    let ctx = AuthContext::from_user(dev_user).map_err(|err| {
+        warn!(error = %err, "Failed to build dev auth context");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let token = build_auth_token(&ctx, &auth_cfg).map_err(|err| {
+        warn!(error = %err, "Failed to generate dev bypass token");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
     let claims = if state.use_ed25519 {
         crate::auth::validate_token_ed25519(&token, &state.ed25519_public_key)
     } else {
@@ -738,8 +1067,7 @@ pub async fn dev_bypass_handler(
         )
     })?;
 
-    // Create session with user agent for audit tracking (critical - must succeed)
-    let expires_at = Utc::now() + Duration::hours(8);
+    let expires_at = Utc::now() + Duration::seconds(auth_cfg.effective_ttl() as i64);
     create_session(
         &state.db,
         &claims.jti,
@@ -758,23 +1086,17 @@ pub async fn dev_bypass_handler(
         )
     })?;
 
-    // Log audit (best effort, doesn't fail dev bypass)
-    state
-        .db
-        .log_audit(
-            &user_id,
-            &role,
-            &tenant_id,
-            "auth.dev_bypass",
-            "session",
-            Some(&claims.jti),
-            "success",
-            None,
-            Some(&client_ip.0),
-            None,
-        )
-        .await
-        .ok();
+    log_auth_event(
+        &state.db,
+        &claims,
+        "auth.dev_login",
+        "session",
+        Some(&claims.jti),
+        "success",
+        None,
+        Some(&client_ip.0),
+    )
+    .await;
 
     info!(
         user_id = %user_id,
@@ -783,12 +1105,101 @@ pub async fn dev_bypass_handler(
         "Dev bypass login successful"
     );
 
-    Ok(Json(LoginResponse {
-        schema_version: "v1".to_string(),
-        token,
-        user_id,
-        tenant_id,
-        role,
-        expires_in: (claims.exp - Utc::now().timestamp()) as u64,
-    }))
+    let mut response_headers = HeaderMap::new();
+    attach_auth_cookie(&mut response_headers, &token, &auth_cfg).map_err(|err| {
+        warn!(error = %err, "Failed to attach auth cookie for dev bypass");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    Ok((
+        response_headers,
+        Json(LoginResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            token,
+            user_id: ctx.user.id.clone(),
+            tenant_id: ctx.user.tenant_id.clone(),
+            role: ctx.role.to_string(),
+            expires_in: auth_cfg.effective_ttl(),
+        }),
+    ))
+}
+
+/// Authentication configuration response for frontend
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AuthConfigResponse {
+    /// Whether user registration is allowed
+    pub allow_registration: bool,
+    /// Whether email verification is required
+    pub require_email_verification: bool,
+    /// Session timeout in minutes
+    pub session_timeout_minutes: u32,
+    /// Maximum failed login attempts before lockout
+    pub max_login_attempts: u32,
+    /// Minimum password length
+    pub password_min_length: u32,
+    /// Whether MFA is required
+    pub mfa_required: bool,
+    /// Allowed email domains for registration (empty = all)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_domains: Option<Vec<String>>,
+    /// Whether running in production mode
+    pub production_mode: bool,
+    /// Whether dev login bypass is enabled in config
+    pub dev_token_enabled: bool,
+    /// Whether dev bypass is actually allowed (computed from config)
+    pub dev_bypass_allowed: bool,
+    /// JWT signing mode (eddsa or hmac)
+    pub jwt_mode: String,
+    /// Token expiry in hours
+    pub token_expiry_hours: u32,
+}
+
+/// Get authentication configuration
+///
+/// Returns authentication settings for the frontend to use.
+/// This endpoint is public (no auth required) so the login page
+/// can display dev bypass button when available.
+#[utoipa::path(
+    get,
+    path = "/v1/auth/config",
+    responses(
+        (status = 200, description = "Auth configuration", body = AuthConfigResponse),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "auth"
+)]
+pub async fn get_auth_config_handler(
+    State(state): State<AppState>,
+) -> Result<Json<AuthConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let config = state.config.read().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+    let auth_cfg = AuthConfig::from_state(&state);
+
+    let response = AuthConfigResponse {
+        allow_registration: false, // Registration not implemented yet
+        require_email_verification: false,
+        session_timeout_minutes: (auth_cfg.effective_ttl() / 60) as u32,
+        max_login_attempts: 5, // Hardcoded for now, could be in config
+        password_min_length: 12,
+        mfa_required: config.security.require_mfa.unwrap_or(false),
+        allowed_domains: None,
+        production_mode: config.server.production_mode,
+        dev_token_enabled: config.security.dev_login_enabled,
+        dev_bypass_allowed: auth_cfg.dev_login_allowed(),
+        jwt_mode: config
+            .security
+            .jwt_mode
+            .clone()
+            .unwrap_or_else(|| "eddsa".to_string()),
+        token_expiry_hours: (auth_cfg.effective_ttl() / 3600) as u32,
+    };
+
+    Ok(Json(response))
 }

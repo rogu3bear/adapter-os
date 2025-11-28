@@ -459,7 +459,7 @@ pub async fn check_all_health(State(state): State<AppState>) -> impl IntoRespons
 
     // Extract ComponentHealth from responses
     let mut health_checks = Vec::new();
-    for response in components {
+    for _response in components {
         // Try to extract the JSON body from the response
         // Note: This is a simplified approach; in practice, we'd need to handle this more carefully
         // For now, we'll call the functions directly
@@ -529,7 +529,7 @@ pub async fn check_all_health(State(state): State<AppState>) -> impl IntoRespons
 
 /// Extract ComponentHealth from a response
 async fn extract_health(response: Response) -> ComponentHealth {
-    let (parts, body) = response.into_parts();
+    let (_parts, body) = response.into_parts();
 
     // Try to read the body
     match axum::body::to_bytes(body, usize::MAX).await {

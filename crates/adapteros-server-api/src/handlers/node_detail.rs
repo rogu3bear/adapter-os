@@ -92,23 +92,29 @@ pub async fn get_node_detail(
     require_permission(&claims, Permission::NodeView)?;
 
     // Fetch node from database
-    let node = sqlx::query_as::<_, NodeRecord>(
-        "SELECT id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at
-         FROM nodes WHERE id = ?",
-    )
-    .bind(&node_id)
-    .fetch_one(state.db.pool())
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("node not found")
-                    .with_code("NODE_NOT_FOUND")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let node = state
+        .db
+        .get_node_detail(&node_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch node")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("node not found")
+                        .with_code("NODE_NOT_FOUND"),
+                ),
+            )
+        })?;
 
     // Collect system metrics
     let mut collector = SystemMetricsCollector::new();
@@ -116,23 +122,18 @@ pub async fn get_node_detail(
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("System time before UNIX epoch")
+        .unwrap_or_default()
         .as_secs();
 
     // Get hardware info
     let hardware = get_hardware_info(&mut collector);
 
     // Get adapters loaded on this node
-    let adapters_loaded = sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT a.adapter_id
-         FROM workers w
-         JOIN adapters a ON a.id IN (SELECT json_extract(value, '$') FROM json_each(w.adapters_loaded_json))
-         WHERE w.node_id = ? AND w.status = 'serving'",
-    )
-    .bind(&node_id)
-    .fetch_all(state.db.pool())
-    .await
-    .unwrap_or_default();
+    let adapters_loaded = state
+        .db
+        .get_node_adapters_from_workers(&node_id)
+        .await
+        .unwrap_or_default();
 
     // Determine federation role
     let federation_role = determine_federation_role(&state, &node_id).await;
@@ -171,18 +172,6 @@ pub async fn get_node_detail(
             .unwrap_or_else(|_| serde_json::json!({})),
         created_at: node.created_at,
     }))
-}
-
-/// Node record from database
-#[derive(Debug, sqlx::FromRow)]
-struct NodeRecord {
-    id: String,
-    hostname: String,
-    agent_endpoint: String,
-    status: String,
-    last_seen_at: Option<String>,
-    labels_json: Option<String>,
-    created_at: String,
 }
 
 /// Get hardware information
@@ -235,15 +224,13 @@ fn get_hardware_info(collector: &mut SystemMetricsCollector) -> HardwareInfo {
 /// Determine federation role for node
 async fn determine_federation_role(state: &AppState, node_id: &str) -> String {
     // Check if node is primary in federation
-    let is_primary = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM federation_config WHERE primary_node_id = ?",
-    )
-    .bind(node_id)
-    .fetch_one(state.db.pool())
-    .await
-    .unwrap_or(0);
+    let is_primary = state
+        .db
+        .is_federation_primary(node_id)
+        .await
+        .unwrap_or(false);
 
-    if is_primary > 0 {
+    if is_primary {
         "primary".to_string()
     } else {
         "replica".to_string()

@@ -923,6 +923,12 @@ pub struct MetaResponse {
     pub version: String,
     pub build_hash: String,
     pub build_date: String,
+    /// Runtime environment: "dev", "staging", or "prod"
+    pub environment: String,
+    /// Whether production mode is enabled in config
+    pub production_mode: bool,
+    /// Whether dev login bypass is enabled
+    pub dev_login_enabled: bool,
 }
 
 /// Routing decisions query parameters with comprehensive filters
@@ -1141,6 +1147,147 @@ pub struct ExportPolicyResponse {
     pub policy_json: String,
     pub signature: Option<String>,
     pub exported_at: String,
+}
+
+// ===== Stack Policy Types =====
+
+/// Stack policies response - returns policies assigned to a stack with compliance info
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct StackPoliciesResponse {
+    /// Stack ID
+    pub stack_id: String,
+    /// Stack name
+    pub stack_name: String,
+    /// Policies directly assigned to this stack
+    pub assignments: Vec<PolicyAssignmentDetail>,
+    /// Compliance summary for the stack
+    pub compliance: StackComplianceSummary,
+    /// Recent policy violations (last 24h)
+    pub recent_violations: Vec<PolicyViolationSummary>,
+    /// Response timestamp (RFC3339)
+    pub timestamp: String,
+}
+
+/// Detailed policy assignment information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PolicyAssignmentDetail {
+    /// Assignment ID
+    pub id: String,
+    /// Policy pack ID (e.g., "cp-egress-001")
+    pub policy_pack_id: String,
+    /// Policy type (e.g., "egress", "determinism", "naming")
+    pub policy_type: String,
+    /// Human-readable policy name
+    pub policy_name: String,
+    /// Policy version
+    pub version: String,
+    /// Policy status (active, deprecated, draft)
+    pub status: String,
+    /// Whether the policy is enforced (true) or audit-only (false)
+    pub enforced: bool,
+    /// Priority for conflict resolution (higher = higher priority)
+    pub priority: i32,
+    /// When the policy was assigned (RFC3339)
+    pub assigned_at: String,
+    /// Who assigned the policy
+    pub assigned_by: String,
+    /// Optional expiration date (RFC3339)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
+/// Stack compliance summary with overall score and category breakdown
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct StackComplianceSummary {
+    /// Overall compliance score (0-100)
+    pub overall_score: f64,
+    /// Compliance status: "compliant", "warning", "non_compliant"
+    pub status: String,
+    /// Compliance breakdown by category
+    pub by_category: HashMap<String, CategoryComplianceScore>,
+    /// When compliance was last calculated (RFC3339)
+    pub last_calculated: String,
+}
+
+/// Compliance score for a specific category
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CategoryComplianceScore {
+    /// Category score (0-100)
+    pub score: f64,
+    /// Number of checks that passed
+    pub passed: i32,
+    /// Number of checks that failed
+    pub failed: i32,
+}
+
+/// Summary of a policy violation
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PolicyViolationSummary {
+    /// Violation ID
+    pub id: String,
+    /// Policy pack ID that was violated
+    pub policy_pack_id: String,
+    /// Violation severity: "critical", "high", "medium", "low"
+    pub severity: String,
+    /// Human-readable violation message
+    pub message: String,
+    /// When the violation was detected (RFC3339)
+    pub detected_at: String,
+    /// When the violation was resolved (RFC3339), if resolved
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_at: Option<String>,
+}
+
+/// Policy violation error response - returned when an operation is blocked by policy
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PolicyViolationErrorResponse {
+    /// Error message
+    pub error: String,
+    /// Error code (always "POLICY_VIOLATION")
+    pub code: String,
+    /// HTTP status code (403 or 422)
+    pub status: u16,
+    /// Detailed violation information
+    pub details: PolicyViolationErrorDetails,
+}
+
+/// Details about policy violations that blocked an operation
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PolicyViolationErrorDetails {
+    /// List of violations that occurred
+    pub violations: Vec<PolicyViolationItem>,
+    /// Whether an admin can override these violations
+    pub can_override: bool,
+}
+
+/// Single policy violation item in an error response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PolicyViolationItem {
+    /// Policy ID that was violated
+    pub policy_id: String,
+    /// Human-readable policy name
+    pub policy_name: String,
+    /// Violation severity
+    pub severity: String,
+    /// Detailed violation message
+    pub message: String,
+    /// Whether this violation blocks the operation
+    pub blocking: bool,
+    /// Whether this specific violation can be overridden
+    pub can_override: bool,
+    /// Suggested remediation steps
+    pub remediation: String,
+}
+
+/// SSE event for stack policy streaming
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct StackPolicyStreamEvent {
+    /// Event type: policy_assigned, policy_revoked, violation_detected, violation_resolved, compliance_changed
+    pub event: String,
+    /// Event data (varies by event type)
+    pub data: serde_json::Value,
+    /// Event timestamp (RFC3339)
+    pub timestamp: String,
 }
 
 // ===== Promotion Execution Types (Phase 7) =====
@@ -1501,6 +1648,12 @@ pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> Tra
         completed_at: job.completed_at,
         error_message: job.error_message,
         estimated_completion,
+        base_model_id: None,
+        collection_id: None,
+        build_id: None,
+        config_hash_b3: None,
+        adapter_id: None,
+        weights_hash_b3: None,
     }
 }
 
@@ -2109,4 +2262,110 @@ pub struct WorkerStopResponse {
     pub previous_status: String,
     /// Timestamp when stop was initiated
     pub stopped_at: String,
+}
+
+// ============================================================================
+// Training Provenance Export Types
+// ============================================================================
+
+/// Adapter metadata for training provenance export
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TrainingExportAdapter {
+    /// Adapter ID
+    pub id: String,
+    /// Adapter name
+    pub name: String,
+    /// Adapter version
+    pub version: String,
+    /// Base model used for training
+    pub base_model: Option<String>,
+    /// LoRA rank
+    pub rank: i32,
+    /// LoRA alpha
+    pub alpha: f64,
+    /// Creation timestamp (RFC3339)
+    pub created_at: String,
+}
+
+/// Training job reference for provenance export
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TrainingExportJob {
+    /// Training job ID
+    pub id: String,
+    /// BLAKE3 hash of training configuration
+    pub config_hash: Option<String>,
+    /// Full training configuration JSON
+    pub training_config: Value,
+    /// Job start timestamp (RFC3339)
+    pub started_at: String,
+    /// Job completion timestamp (RFC3339)
+    pub completed_at: Option<String>,
+    /// Job status
+    pub status: String,
+}
+
+/// Dataset reference for provenance export
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TrainingExportDataset {
+    /// Dataset ID
+    pub id: String,
+    /// Dataset name
+    pub name: String,
+    /// BLAKE3 hash of dataset
+    pub hash: String,
+    /// Source location URI/path
+    pub source_location: Option<String>,
+}
+
+/// Document reference for provenance export
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TrainingExportDocument {
+    /// Document ID
+    pub id: String,
+    /// Document name
+    pub name: String,
+    /// BLAKE3 hash of document content
+    pub hash: String,
+    /// Number of pages (for PDFs)
+    pub page_count: Option<i32>,
+    /// Upload timestamp (RFC3339)
+    pub created_at: String,
+}
+
+/// Configuration versions for provenance export
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TrainingExportConfigVersions {
+    /// Chunking configuration used for document processing
+    pub chunking_config: Option<Value>,
+    /// Training hyperparameters configuration
+    pub training_config: Option<Value>,
+}
+
+/// Complete training provenance export response
+///
+/// Returns full provenance data for an adapter including:
+/// - Adapter metadata (id, name, version, base_model)
+/// - Training jobs that produced this adapter
+/// - Datasets used for training
+/// - Documents with their content hashes
+/// - Configuration versions (chunking, training)
+/// - Export timestamp and integrity hash
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TrainingProvenanceExportResponse {
+    /// Schema version for this response format
+    pub schema_version: String,
+    /// Adapter metadata
+    pub adapter: TrainingExportAdapter,
+    /// Training jobs that contributed to this adapter
+    pub training_jobs: Vec<TrainingExportJob>,
+    /// Datasets used for training
+    pub datasets: Vec<TrainingExportDataset>,
+    /// Documents with content hashes
+    pub documents: Vec<TrainingExportDocument>,
+    /// Configuration versions for reproducibility
+    pub config_versions: TrainingExportConfigVersions,
+    /// Export generation timestamp (RFC3339)
+    pub export_timestamp: String,
+    /// BLAKE3 hash of the entire export for integrity verification
+    pub export_hash: String,
 }

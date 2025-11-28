@@ -35,6 +35,12 @@ use uuid::Uuid;
 ///
 /// This enforces tenant isolation at the request level.
 ///
+/// **Security Fix (2025-11-27):**
+/// - Removed blanket admin bypass vulnerability
+/// - Admins can only access tenants listed in their `admin_tenants` claim
+/// - Empty `admin_tenants` = can only access their own tenant
+/// - All cross-tenant access attempts are logged for audit
+///
 /// # Example
 /// ```no_run
 /// use adapteros_server_api::security::validate_tenant_isolation;
@@ -50,33 +56,161 @@ pub fn validate_tenant_isolation(
     claims: &Claims,
     resource_tenant_id: &str,
 ) -> std::result::Result<(), (StatusCode, Json<ErrorResponse>)> {
-    // Admin users with "admin" role can access all tenants
-    if claims.role == "admin" {
+    // Check if accessing own tenant (always allowed)
+    if claims.tenant_id == resource_tenant_id {
         return Ok(());
     }
 
-    if claims.tenant_id != resource_tenant_id {
-        warn!(
+    // For cross-tenant access, check if user is admin with explicit access
+    if claims.role == "admin"
+        && claims
+            .admin_tenants
+            .contains(&resource_tenant_id.to_string())
+    {
+        // Admin has explicit access to this tenant - allow and log
+        info!(
             user_id = %claims.sub,
+            user_email = %claims.email,
+            user_role = %claims.role,
             user_tenant = %claims.tenant_id,
             resource_tenant = %resource_tenant_id,
-            "Tenant isolation violation attempt"
+            admin_tenants = ?claims.admin_tenants,
+            "Cross-tenant access granted via admin_tenants"
         );
-
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("tenant isolation violation")
-                    .with_code("TENANT_ISOLATION_ERROR")
-                    .with_string_details(format!(
-                        "user tenant '{}' cannot access resource in tenant '{}'",
-                        claims.tenant_id, resource_tenant_id
-                    )),
-            ),
-        ));
+        return Ok(());
     }
 
+    // Access denied - log the violation attempt
+    warn!(
+        user_id = %claims.sub,
+        user_email = %claims.email,
+        user_role = %claims.role,
+        user_tenant = %claims.tenant_id,
+        resource_tenant = %resource_tenant_id,
+        admin_tenants = ?claims.admin_tenants,
+        "Tenant isolation violation: access denied"
+    );
+
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(
+            ErrorResponse::new("tenant isolation violation")
+                .with_code("TENANT_ISOLATION_ERROR")
+                .with_string_details(format!(
+                    "user tenant '{}' cannot access resource in tenant '{}'. User role: {}, Admin tenants: {:?}",
+                    claims.tenant_id, resource_tenant_id, claims.role, claims.admin_tenants
+                )),
+        ),
+    ))
+}
+
+/// Log cross-tenant access attempt to audit table
+///
+/// Records all attempts (both successful and denied) for security audit trail
+pub async fn log_tenant_access_attempt(
+    db: &Db,
+    claims: &Claims,
+    resource_tenant_id: &str,
+    access_granted: bool,
+    reason: Option<&str>,
+    request_path: Option<&str>,
+) -> Result<()> {
+    let id = Uuid::now_v7().to_string();
+    let timestamp = Utc::now().to_rfc3339();
+
+    sqlx::query(
+        "INSERT INTO tenant_access_audit
+         (id, user_id, user_email, user_role, user_tenant_id, resource_tenant_id,
+          access_granted, reason, request_path, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(&claims.sub)
+    .bind(&claims.email)
+    .bind(&claims.role)
+    .bind(&claims.tenant_id)
+    .bind(resource_tenant_id)
+    .bind(access_granted as i64)
+    .bind(reason)
+    .bind(request_path)
+    .bind(&timestamp)
+    .execute(db.pool())
+    .await?;
+
     Ok(())
+}
+
+/// Validate tenant isolation with database audit logging
+///
+/// Same as validate_tenant_isolation but also logs to database for compliance
+pub async fn validate_tenant_isolation_with_audit(
+    db: &Db,
+    claims: &Claims,
+    resource_tenant_id: &str,
+    request_path: Option<&str>,
+) -> std::result::Result<(), (StatusCode, Json<ErrorResponse>)> {
+    // Check if accessing own tenant (always allowed)
+    if claims.tenant_id == resource_tenant_id {
+        return Ok(());
+    }
+
+    // For cross-tenant access, check if user is admin with explicit access
+    let access_granted = claims.role == "admin"
+        && claims
+            .admin_tenants
+            .contains(&resource_tenant_id.to_string());
+
+    // Log the attempt (ignore logging errors to not block the request)
+    let reason = if access_granted {
+        Some("admin with explicit tenant access")
+    } else {
+        Some("tenant isolation violation")
+    };
+    let _ = log_tenant_access_attempt(
+        db,
+        claims,
+        resource_tenant_id,
+        access_granted,
+        reason,
+        request_path,
+    )
+    .await;
+
+    if access_granted {
+        info!(
+            user_id = %claims.sub,
+            user_email = %claims.email,
+            user_role = %claims.role,
+            user_tenant = %claims.tenant_id,
+            resource_tenant = %resource_tenant_id,
+            admin_tenants = ?claims.admin_tenants,
+            "Cross-tenant access granted via admin_tenants"
+        );
+        return Ok(());
+    }
+
+    // Access denied - log the violation attempt
+    warn!(
+        user_id = %claims.sub,
+        user_email = %claims.email,
+        user_role = %claims.role,
+        user_tenant = %claims.tenant_id,
+        resource_tenant = %resource_tenant_id,
+        admin_tenants = ?claims.admin_tenants,
+        "Tenant isolation violation: access denied"
+    );
+
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(
+            ErrorResponse::new("tenant isolation violation")
+                .with_code("TENANT_ISOLATION_ERROR")
+                .with_string_details(format!(
+                    "user tenant '{}' cannot access resource in tenant '{}'. User role: {}, Admin tenants: {:?}",
+                    claims.tenant_id, resource_tenant_id, claims.role, claims.admin_tenants
+                )),
+        ),
+    ))
 }
 
 /// Track authentication attempt (for brute force protection)
@@ -244,6 +378,22 @@ pub async fn cleanup_expired_sessions(db: &Db) -> Result<usize> {
 mod tests {
     use super::*;
 
+    async fn init_test_schema(db: &Db) {
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS auth_attempts (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL,
+                ip_address TEXT NOT NULL,
+                success INTEGER NOT NULL,
+                attempted_at TEXT NOT NULL DEFAULT (datetime('now')),
+                failure_reason TEXT
+            )",
+        )
+        .execute(db.pool())
+        .await
+        .expect("Failed to create auth_attempts table");
+    }
+
     #[test]
     fn test_tenant_isolation_same_tenant() {
         let claims = Claims {
@@ -252,6 +402,7 @@ mod tests {
             role: "operator".to_string(),
             roles: vec!["operator".to_string()],
             tenant_id: "tenant-a".to_string(),
+            admin_tenants: vec![],
             exp: 0,
             iat: 0,
             jti: "jti-1".to_string(),
@@ -269,6 +420,7 @@ mod tests {
             role: "operator".to_string(),
             roles: vec!["operator".to_string()],
             tenant_id: "tenant-a".to_string(),
+            admin_tenants: vec![],
             exp: 0,
             iat: 0,
             jti: "jti-1".to_string(),
@@ -279,22 +431,46 @@ mod tests {
     }
 
     #[test]
-    fn test_tenant_isolation_admin_bypass() {
+    fn test_tenant_isolation_admin_no_bypass() {
         let claims = Claims {
             sub: "admin-1".to_string(),
             email: "admin@system.com".to_string(),
             role: "admin".to_string(),
             roles: vec!["admin".to_string()],
             tenant_id: "system".to_string(),
+            admin_tenants: vec![], // Empty = can only access own tenant
             exp: 0,
             iat: 0,
             jti: "jti-2".to_string(),
             nbf: 0,
         };
 
-        // Admin can access any tenant
-        assert!(validate_tenant_isolation(&claims, "tenant-a").is_ok());
-        assert!(validate_tenant_isolation(&claims, "tenant-b").is_ok());
+        // Admin with empty admin_tenants can only access their own tenant
+        assert!(validate_tenant_isolation(&claims, "system").is_ok());
+        assert!(validate_tenant_isolation(&claims, "tenant-a").is_err());
+        assert!(validate_tenant_isolation(&claims, "tenant-b").is_err());
+    }
+
+    #[test]
+    fn test_tenant_isolation_admin_with_access() {
+        let claims = Claims {
+            sub: "admin-1".to_string(),
+            email: "admin@system.com".to_string(),
+            role: "admin".to_string(),
+            roles: vec!["admin".to_string()],
+            tenant_id: "system".to_string(),
+            admin_tenants: vec!["tenant-a".to_string(), "tenant-b".to_string()],
+            exp: 0,
+            iat: 0,
+            jti: "jti-2".to_string(),
+            nbf: 0,
+        };
+
+        // Admin can access tenants in admin_tenants list
+        assert!(validate_tenant_isolation(&claims, "system").is_ok()); // Own tenant
+        assert!(validate_tenant_isolation(&claims, "tenant-a").is_ok()); // Granted access
+        assert!(validate_tenant_isolation(&claims, "tenant-b").is_ok()); // Granted access
+        assert!(validate_tenant_isolation(&claims, "tenant-c").is_err()); // No access
     }
 
     #[tokio::test]
@@ -302,6 +478,7 @@ mod tests {
         let db = Db::connect("sqlite::memory:")
             .await
             .expect("Failed to create test database");
+        init_test_schema(&db).await;
 
         track_auth_attempt(
             &db,
@@ -324,6 +501,7 @@ mod tests {
         let db = Db::connect("sqlite::memory:")
             .await
             .expect("Failed to create test database");
+        init_test_schema(&db).await;
 
         // Simulate 5 failed attempts
         for _ in 0..5 {

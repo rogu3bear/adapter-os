@@ -5,7 +5,6 @@ use adapteros_core::Result;
 use adapteros_db::Db;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -259,11 +258,32 @@ pub async fn cleanup_expired_ip_rules(db: &Db) -> Result<usize> {
 mod tests {
     use super::*;
 
+    async fn init_test_schema(db: &Db) {
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS ip_access_control (
+                id TEXT PRIMARY KEY,
+                ip_address TEXT NOT NULL,
+                ip_range TEXT,
+                list_type TEXT NOT NULL CHECK(list_type IN ('allow', 'deny')),
+                tenant_id TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                created_by TEXT NOT NULL,
+                expires_at TEXT,
+                reason TEXT
+            )",
+        )
+        .execute(db.pool())
+        .await
+        .expect("Failed to create ip_access_control table");
+    }
+
     #[tokio::test]
     async fn test_ip_denylist() {
         let db = Db::connect("sqlite::memory:")
             .await
             .expect("Failed to create test database");
+        init_test_schema(&db).await;
 
         // Add to denylist
         add_ip_rule(
@@ -297,6 +317,7 @@ mod tests {
         let db = Db::connect("sqlite::memory:")
             .await
             .expect("Failed to create test database");
+        init_test_schema(&db).await;
 
         // Add to allowlist
         add_ip_rule(

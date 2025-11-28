@@ -6,6 +6,7 @@
 use crate::audit_helper::{actions, log_success, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_permission, Permission};
+use crate::PaginatedResponse;
 use adapteros_db::workspaces::{ResourceType, WorkspaceRole};
 use axum::{
     extract::{Extension, Path, Query, State},
@@ -58,12 +59,16 @@ pub struct ShareResourceRequest {
     pub resource_id: String,
 }
 
-/// List all workspaces
+/// List all workspaces with pagination
 #[utoipa::path(
     get,
     path = "/v1/workspaces",
+    params(
+        ("page" = Option<u32>, Query, description = "Page number (1-indexed)"),
+        ("limit" = Option<u32>, Query, description = "Items per page")
+    ),
     responses(
-        (status = 200, description = "List of workspaces", body = Vec<WorkspaceResponse>),
+        (status = 200, description = "Paginated list of workspaces", body = PaginatedResponse<WorkspaceResponse>),
         (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal server error")
     ),
@@ -72,22 +77,28 @@ pub struct ShareResourceRequest {
 pub async fn list_workspaces(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<Vec<WorkspaceResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    Query(pagination): Query<adapteros_api_types::PaginationParams>,
+) -> Result<Json<adapteros_api_types::PaginatedResponse<WorkspaceResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceView)?;
 
-    let workspaces = state.db.list_workspaces().await.map_err(|e| {
-        error!("Failed to list workspaces: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to list workspaces")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let offset = (pagination.page.saturating_sub(1)) * pagination.limit;
+    let (workspaces, total) = state
+        .db
+        .list_workspaces_paginated(pagination.limit as i64, offset as i64)
+        .await
+        .map_err(|e| {
+            error!("Failed to list workspaces: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to list workspaces")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
-    let responses: Vec<WorkspaceResponse> = workspaces
+    let data: Vec<WorkspaceResponse> = workspaces
         .into_iter()
         .map(|w| WorkspaceResponse {
             id: w.id,
@@ -99,7 +110,17 @@ pub async fn list_workspaces(
         })
         .collect();
 
-    Ok(Json(responses))
+    let pages = ((total as f64) / (pagination.limit as f64)).ceil() as u32;
+    let response = adapteros_api_types::PaginatedResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        data,
+        total: total as u64,
+        page: pagination.page,
+        limit: pagination.limit,
+        pages,
+    };
+
+    Ok(Json(response))
 }
 
 /// List workspaces for current user

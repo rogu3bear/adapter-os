@@ -178,7 +178,7 @@ impl UploadSessionManager {
             .ok_or_else(|| anyhow!("Upload session {} not found or expired", session_id))
     }
 
-    /// Update session with received chunk
+    /// Update session with received chunk (with lock to prevent race during cleanup)
     pub async fn add_chunk(
         &self,
         session_id: &str,
@@ -192,6 +192,26 @@ impl UploadSessionManager {
 
         session.received_chunks.insert(chunk_index, chunk_hash);
         Ok(())
+    }
+
+    /// Start background cleanup task that runs every hour to remove expired sessions
+    /// Returns a JoinHandle that can be used to cancel the task
+    pub fn start_cleanup_task(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // 1 hour
+            loop {
+                interval.tick().await;
+                match self.cleanup_expired().await {
+                    Ok(count) if count > 0 => {
+                        info!("Cleanup task removed {} expired upload sessions", count);
+                    }
+                    Err(e) => {
+                        warn!("Cleanup task failed: {}", e);
+                    }
+                    _ => {}
+                }
+            }
+        })
     }
 
     /// Check if upload is complete
@@ -286,8 +306,12 @@ impl ChunkWriter {
 pub struct ChunkAssembler {
     output_path: PathBuf,
     chunk_dir: PathBuf,
+    /// Chunk size used for validation (reserved for future integrity checks)
+    #[allow(dead_code)]
     chunk_size: usize,
     expected_chunks: usize,
+    /// Compression format for decompression after assembly (reserved for future feature)
+    #[allow(dead_code)]
     compression: CompressionFormat,
 }
 
@@ -310,7 +334,7 @@ impl ChunkAssembler {
         }
     }
 
-    /// Assemble all chunks into final file
+    /// Assemble all chunks into final file using streaming reads to avoid OOM
     pub async fn assemble(&self) -> Result<(String, u64)> {
         debug!(
             "Assembling {} chunks into {}",
@@ -325,27 +349,45 @@ impl ChunkAssembler {
         let mut final_hasher = Hasher::new();
         let mut total_bytes = 0u64;
 
-        // Read chunks in order
+        // Bounded buffer for streaming reads (10MB to prevent OOM)
+        const STREAM_BUFFER_SIZE: usize = 10 * 1024 * 1024;
+        let mut buffer = vec![0u8; STREAM_BUFFER_SIZE];
+
+        // Read chunks in order using streaming to avoid loading entire chunk into memory
         for i in 0..self.expected_chunks {
             let chunk_path = self.chunk_dir.join(format!("chunk_{:08}", i));
 
-            match fs::read(&chunk_path).await {
-                Ok(chunk_data) => {
-                    output_file
-                        .write_all(&chunk_data)
-                        .await
-                        .context(format!("Failed to write chunk {} to output", i))?;
-                    final_hasher.update(&chunk_data);
-                    total_bytes += chunk_data.len() as u64;
-
-                    // Clean up chunk file
-                    let _ = fs::remove_file(&chunk_path).await;
-                }
+            // Open chunk file for streaming read
+            let mut chunk_file = match File::open(&chunk_path).await {
+                Ok(file) => file,
                 Err(e) => {
-                    error!("Failed to read chunk {}: {}", i, e);
+                    error!("Failed to open chunk {}: {}", i, e);
                     return Err(anyhow!("Missing chunk {} during assembly", i));
                 }
+            };
+
+            // Stream chunk to output file using bounded buffer
+            loop {
+                let n = chunk_file
+                    .read(&mut buffer)
+                    .await
+                    .context(format!("Failed to read chunk {}", i))?;
+
+                if n == 0 {
+                    break;
+                }
+
+                // Write to output and update hash
+                output_file
+                    .write_all(&buffer[..n])
+                    .await
+                    .context(format!("Failed to write chunk {} to output", i))?;
+                final_hasher.update(&buffer[..n]);
+                total_bytes += n as u64;
             }
+
+            // Clean up chunk file
+            let _ = fs::remove_file(&chunk_path).await;
         }
 
         output_file
@@ -413,7 +455,46 @@ impl CompressionHandler {
                 continue;
             }
 
-            let output_path = output_dir.join(file.name());
+            // Security: Validate entry name to prevent path traversal attacks
+            let entry_name = file.name();
+            if entry_name.contains("..") || Path::new(entry_name).is_absolute() {
+                return Err(anyhow!(
+                    "Zip entry contains invalid path (path traversal attempt): {}",
+                    entry_name
+                ));
+            }
+
+            let output_path = output_dir.join(entry_name);
+
+            // Security: Verify resolved path stays within output directory
+            // Use lexical comparison since output_path may not exist yet
+            let canonical_output_dir = output_dir
+                .canonicalize()
+                .context("Failed to canonicalize output directory")?;
+            if let Ok(canonical_output) = output_path.canonicalize() {
+                if !canonical_output.starts_with(&canonical_output_dir) {
+                    return Err(anyhow!(
+                        "Zip entry would extract outside target directory: {}",
+                        entry_name
+                    ));
+                }
+            } else {
+                // File doesn't exist yet, check the parent directory
+                if let Some(parent) = output_path.parent() {
+                    if parent.exists() {
+                        let canonical_parent = parent
+                            .canonicalize()
+                            .context("Failed to canonicalize parent directory")?;
+                        if !canonical_parent.starts_with(&canonical_output_dir) {
+                            return Err(anyhow!(
+                                "Zip entry would extract outside target directory: {}",
+                                entry_name
+                            ));
+                        }
+                    }
+                }
+            }
+
             if let Some(parent) = output_path.parent() {
                 fs::create_dir_all(parent)
                     .await

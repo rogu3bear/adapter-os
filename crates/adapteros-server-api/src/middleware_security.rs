@@ -14,10 +14,9 @@ use axum::{
     extract::State,
     http::{header, Method, Request, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
     Json,
 };
-use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, warn};
@@ -284,6 +283,8 @@ pub fn cors_layer() -> CorsLayer {
 
     #[cfg(not(debug_assertions))]
     {
+        use std::collections::HashSet;
+
         // Production: Restrict origins
         let allowed_origins: HashSet<String> = std::env::var("ALLOWED_ORIGINS")
             .unwrap_or_else(|_| "https://adapteros.com,https://app.adapteros.com".to_string())

@@ -3,23 +3,23 @@
 //! Provides REST endpoints for managing document collections.
 //! Collections group related documents together for organizational purposes.
 
-use crate::auth::Claims;
 use crate::audit_helper::{actions, log_success, resources};
+use crate::auth::Claims;
+use crate::error_helpers::{conflict, db_error, not_found};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::*;
+use crate::types::{ErrorResponse, PaginatedResponse};
 use adapteros_db::collections::CreateCollectionParams;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
     Extension,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::info;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 /// Collection response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -87,10 +87,9 @@ pub async fn create_collection(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateCollectionRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
-    require_permission(&claims, Permission::DatasetUpload)
-        .map_err(|e| (e.0, e.1.error.clone()))?;
+    require_permission(&claims, Permission::DatasetUpload)?;
 
     // Create database record
     let collection_id = state
@@ -102,13 +101,7 @@ pub async fn create_collection(
             metadata_json: None,
         })
         .await
-        .map_err(|e| {
-            error!("Failed to create collection record: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create collection record: {}", e),
-            )
-        })?;
+        .map_err(db_error)?;
 
     info!(
         "Created collection {} for tenant {}",
@@ -137,12 +130,16 @@ pub async fn create_collection(
     }))
 }
 
-/// List collections
+/// List collections with pagination
 #[utoipa::path(
     get,
     path = "/v1/collections",
+    params(
+        ("page" = Option<u32>, Query, description = "Page number (1-indexed)"),
+        ("limit" = Option<u32>, Query, description = "Items per page")
+    ),
     responses(
-        (status = 200, description = "List of collections", body = Vec<CollectionResponse>),
+        (status = 200, description = "Paginated list of collections", body = PaginatedResponse<CollectionResponse>),
         (status = 500, description = "Internal server error")
     ),
     tag = "collections"
@@ -150,24 +147,19 @@ pub async fn create_collection(
 pub async fn list_collections(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+    Query(pagination): Query<adapteros_api_types::PaginationParams>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
-    require_permission(&claims, Permission::DatasetView)
-        .map_err(|e| (e.0, e.1.error.clone()))?;
+    require_permission(&claims, Permission::DatasetView)?;
 
-    let collections = state
+    let offset = (pagination.page.saturating_sub(1)) * pagination.limit;
+    let (collections, total) = state
         .db
-        .list_collections(&claims.tenant_id)
+        .list_collections_paginated(&claims.tenant_id, pagination.limit as i64, offset as i64)
         .await
-        .map_err(|e| {
-            error!("Failed to list collections: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to list collections: {}", e),
-            )
-        })?;
+        .map_err(db_error)?;
 
-    let mut responses = Vec::new();
+    let mut data = Vec::new();
     for c in collections {
         let document_count = state
             .db
@@ -175,7 +167,7 @@ pub async fn list_collections(
             .await
             .unwrap_or(0);
 
-        responses.push(CollectionResponse {
+        data.push(CollectionResponse {
             schema_version: "1.0".to_string(),
             collection_id: c.id,
             name: c.name,
@@ -187,7 +179,17 @@ pub async fn list_collections(
         });
     }
 
-    Ok(Json(responses))
+    let pages = ((total as f64) / (pagination.limit as f64)).ceil() as u32;
+    let response = adapteros_api_types::PaginatedResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        data,
+        total: total as u64,
+        page: pagination.page,
+        limit: pagination.limit,
+        pages,
+    };
+
+    Ok(Json(response))
 }
 
 /// Get a specific collection with documents
@@ -209,37 +211,23 @@ pub async fn get_collection(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
-    require_permission(&claims, Permission::DatasetView)
-        .map_err(|e| (e.0, e.1.error.clone()))?;
+    require_permission(&claims, Permission::DatasetView)?;
 
-    let collection = state.db.get_collection(&id).await.map_err(|e| {
-        error!("Failed to get collection: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to get collection: {}", e),
-        )
-    })?;
+    let collection = state.db.get_collection(&id).await.map_err(db_error)?;
 
-    let collection = collection.ok_or((StatusCode::NOT_FOUND, "Collection not found".to_string()))?;
+    let collection = collection.ok_or_else(|| not_found("Collection"))?;
 
     // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &collection.tenant_id)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    validate_tenant_isolation(&claims, &collection.tenant_id)?;
 
     // Get documents in collection
     let documents = state
         .db
         .get_collection_documents(&id)
         .await
-        .map_err(|e| {
-            error!("Failed to list collection documents: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to list collection documents: {}", e),
-            )
-        })?;
+        .map_err(db_error)?;
 
     let document_infos: Vec<CollectionDocumentInfo> = documents
         .into_iter()
@@ -286,34 +274,20 @@ pub async fn delete_collection(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
-    require_permission(&claims, Permission::DatasetDelete)
-        .map_err(|e| (e.0, e.1.error.clone()))?;
+    require_permission(&claims, Permission::DatasetDelete)?;
 
     // Get collection to validate tenant
-    let collection = state.db.get_collection(&id).await.map_err(|e| {
-        error!("Failed to get collection: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to get collection: {}", e),
-        )
-    })?;
+    let collection = state.db.get_collection(&id).await.map_err(db_error)?;
 
-    let collection = collection.ok_or((StatusCode::NOT_FOUND, "Collection not found".to_string()))?;
+    let collection = collection.ok_or_else(|| not_found("Collection"))?;
 
     // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &collection.tenant_id)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    validate_tenant_isolation(&claims, &collection.tenant_id)?;
 
     // Delete from database (cascades to collection_documents)
-    state.db.delete_collection(&id).await.map_err(|e| {
-        error!("Failed to delete collection: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to delete collection: {}", e),
-        )
-    })?;
+    state.db.delete_collection(&id).await.map_err(db_error)?;
 
     info!("Deleted collection {}", id);
 
@@ -352,44 +326,29 @@ pub async fn add_document_to_collection(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
     Json(req): Json<AddDocumentRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
-    require_permission(&claims, Permission::DatasetUpload)
-        .map_err(|e| (e.0, e.1.error.clone()))?;
+    require_permission(&claims, Permission::DatasetUpload)?;
 
     // Verify collection exists and tenant isolation
-    let collection = state.db.get_collection(&id).await.map_err(|e| {
-        error!("Failed to get collection: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to get collection: {}", e),
-        )
-    })?;
+    let collection = state.db.get_collection(&id).await.map_err(db_error)?;
 
-    let collection = collection.ok_or((StatusCode::NOT_FOUND, "Collection not found".to_string()))?;
+    let collection = collection.ok_or_else(|| not_found("Collection"))?;
 
     // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &collection.tenant_id)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    validate_tenant_isolation(&claims, &collection.tenant_id)?;
 
     // Verify document exists and belongs to same tenant
     let document = state
         .db
         .get_document(&req.document_id)
         .await
-        .map_err(|e| {
-            error!("Failed to get document: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get document: {}", e),
-            )
-        })?;
+        .map_err(db_error)?;
 
-    let document = document.ok_or((StatusCode::NOT_FOUND, "Document not found".to_string()))?;
+    let document = document.ok_or_else(|| not_found("Document"))?;
 
     // CRITICAL: Ensure document belongs to same tenant
-    validate_tenant_isolation(&claims, &document.tenant_id)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Add document to collection
     state
@@ -399,16 +358,9 @@ pub async fn add_document_to_collection(
         .map_err(|e| {
             let error_str = e.to_string();
             if error_str.contains("UNIQUE constraint failed") {
-                (
-                    StatusCode::CONFLICT,
-                    "Document already in collection".to_string(),
-                )
+                conflict("Document already in collection")
             } else {
-                error!("Failed to add document to collection: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to add document to collection: {}", e),
-                )
+                db_error(e)
             }
         })?;
 
@@ -447,38 +399,24 @@ pub async fn remove_document_from_collection(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path((id, doc_id)): Path<(String, String)>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
-    require_permission(&claims, Permission::DatasetDelete)
-        .map_err(|e| (e.0, e.1.error.clone()))?;
+    require_permission(&claims, Permission::DatasetDelete)?;
 
     // Verify collection exists and tenant isolation
-    let collection = state.db.get_collection(&id).await.map_err(|e| {
-        error!("Failed to get collection: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to get collection: {}", e),
-        )
-    })?;
+    let collection = state.db.get_collection(&id).await.map_err(db_error)?;
 
-    let collection = collection.ok_or((StatusCode::NOT_FOUND, "Collection not found".to_string()))?;
+    let collection = collection.ok_or_else(|| not_found("Collection"))?;
 
     // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &collection.tenant_id)
-        .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    validate_tenant_isolation(&claims, &collection.tenant_id)?;
 
     // Remove document from collection
     state
         .db
         .remove_document_from_collection(&id, &doc_id)
         .await
-        .map_err(|e| {
-            error!("Failed to remove document from collection: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to remove document from collection: {}", e),
-            )
-        })?;
+        .map_err(db_error)?;
 
     info!("Removed document {} from collection {}", doc_id, id);
 

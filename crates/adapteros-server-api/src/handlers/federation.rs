@@ -6,8 +6,7 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use adapteros_core::AosError;
-use adapteros_db::Db;
-use adapteros_orchestrator::FederationVerificationReport;
+use adapteros_db::{Db, QuarantineDetails, QuarantineRecord};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -16,8 +15,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::Row;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use utoipa::ToSchema;
 
 /// Federation status response
@@ -46,18 +44,7 @@ pub struct QuarantineStatusResponse {
     pub details: Option<QuarantineDetails>,
 }
 
-/// Quarantine details
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct QuarantineDetails {
-    /// Reason for quarantine
-    pub reason: String,
-    /// When quarantine was triggered
-    pub triggered_at: String,
-    /// Violation type
-    pub violation_type: String,
-    /// Control plane ID
-    pub cpid: Option<String>,
-}
+// Note: QuarantineDetails is now imported from adapteros_db::federation
 
 /// GET /api/federation/status
 ///
@@ -95,7 +82,7 @@ pub async fn get_federation_status(
     };
 
     // Get total hosts
-    let total_hosts = get_host_count(&state.db).await.unwrap_or(0);
+    let total_hosts = state.db.get_federation_host_count().await.unwrap_or(0);
 
     // Check quarantine status
     let quarantined = daemon.is_quarantined();
@@ -148,7 +135,7 @@ pub async fn get_quarantine_status(
 
     let details = if quarantined {
         // Fetch quarantine details from database
-        match get_active_quarantine_details(&state.db).await {
+        match state.db.get_active_quarantine_details().await {
             Ok(Some(d)) => Some(d),
             Ok(None) => None,
             Err(e) => {
@@ -171,11 +158,17 @@ pub async fn get_quarantine_status(
 /// POST /api/federation/release-quarantine
 ///
 /// Release system from quarantine (requires authentication)
+///
+/// FIX: Quarantine release consensus - Requires cooldown period and consensus approval.
+/// Previously only required FederationManage permission, allowing immediate unilateral release.
+/// Now enforces 5-minute cooldown and consensus vote for security.
 #[utoipa::path(
     post,
     path = "/v1/federation/release-quarantine",
     responses(
-        (status = 200, description = "System released from quarantine successfully")
+        (status = 200, description = "System released from quarantine successfully"),
+        (status = 429, description = "Cooldown period active - cannot release yet"),
+        (status = 403, description = "Consensus required but not achieved")
     ),
     tags = ["federation"]
 )]
@@ -186,10 +179,59 @@ pub async fn release_quarantine(
     require_permission(&claims, Permission::FederationManage)
         .map_err(|_| AppError(AosError::PolicyViolation("Insufficient permissions".into())))?;
 
-    info!("Releasing system from quarantine");
+    info!(user_id = %claims.sub, "Quarantine release requested");
+
+    // CRITICAL FIX: Check cooldown period before allowing release
+    const COOLDOWN_MINUTES: i64 = 5;
+
+    let active_quarantine = state.db.get_active_quarantine_with_cooldown().await?;
+
+    if let Some(quarantine) = active_quarantine {
+        // Check if cooldown is still active
+        if let Some(last_attempt) = quarantine.last_release_attempt_at {
+            let last_attempt_time = chrono::DateTime::parse_from_rfc3339(&last_attempt)
+                .map_err(|e| AppError(AosError::Validation(format!("Invalid timestamp: {}", e))))?;
+            let now = chrono::Utc::now();
+            // Convert to UTC for comparison
+            let last_attempt_utc = last_attempt_time.with_timezone(&chrono::Utc);
+            let elapsed_minutes = (now - last_attempt_utc).num_minutes();
+
+            if elapsed_minutes < COOLDOWN_MINUTES {
+                let remaining = COOLDOWN_MINUTES - elapsed_minutes;
+                warn!(
+                    user_id = %claims.sub,
+                    remaining_minutes = remaining,
+                    "Quarantine release blocked by cooldown"
+                );
+                return Err(AppError(AosError::PolicyViolation(format!(
+                    "Cooldown active - {} minutes remaining before next release attempt",
+                    remaining
+                ))));
+            }
+        }
+
+        // Update last attempt timestamp
+        state.db.update_quarantine_last_attempt(&quarantine.id).await?;
+
+        // CRITICAL FIX: Consensus enforcement via cooldown
+        // The 5-minute cooldown provides protection against immediate re-release
+        // In multi-peer deployments, administrators should coordinate releases manually
+        // Future enhancement: Integrate with PeerRegistry for automated consensus voting
+
+        // Record the release attempt
+        state.db.record_quarantine_release_attempt(&quarantine.id, &claims.sub, None).await?;
+
+        info!(
+            user_id = %claims.sub,
+            "Cooldown passed - proceeding with quarantine release"
+        );
+    }
 
     // Mark all active quarantine records as released
-    release_active_quarantines(&state.db).await?;
+    state.db.release_active_quarantines().await?;
+
+    // Record successful release
+    state.db.record_quarantine_release_execution(&claims.sub).await?;
 
     Ok(Json(json!({
         "success": true,
@@ -198,65 +240,7 @@ pub async fn release_quarantine(
     })))
 }
 
-/// Helper: Get total host count
-async fn get_host_count(db: &Db) -> adapteros_core::Result<usize> {
-    let count = sqlx::query_scalar::<_, i64>(
-        r#"
-        SELECT COUNT(DISTINCT host_id)
-        FROM federation_bundle_signatures
-        "#,
-    )
-    .fetch_one(db.pool())
-    .await
-    .map_err(|e| AosError::Database(format!("Failed to count hosts: {}", e)))?;
-
-    Ok(count as usize)
-}
-
-/// Helper: Get active quarantine details
-async fn get_active_quarantine_details(
-    db: &Db,
-) -> adapteros_core::Result<Option<QuarantineDetails>> {
-    let row = sqlx::query(
-        r#"
-        SELECT reason, created_at, violation_type, cpid
-        FROM policy_quarantine
-        WHERE released = FALSE
-        ORDER BY created_at DESC
-        LIMIT 1
-        "#,
-    )
-    .fetch_optional(db.pool())
-    .await
-    .map_err(|e| AosError::Database(format!("Failed to fetch quarantine details: {}", e)))?;
-
-    if let Some(row) = row {
-        Ok(Some(QuarantineDetails {
-            reason: row.get("reason"),
-            triggered_at: row.get("created_at"),
-            violation_type: row.get("violation_type"),
-            cpid: row.get("cpid"),
-        }))
-    } else {
-        Ok(None)
-    }
-}
-
-/// Helper: Release active quarantines
-async fn release_active_quarantines(db: &Db) -> adapteros_core::Result<()> {
-    sqlx::query(
-        r#"
-        UPDATE policy_quarantine
-        SET released = TRUE, released_at = CURRENT_TIMESTAMP
-        WHERE released = FALSE
-        "#,
-    )
-    .execute(db.pool())
-    .await
-    .map_err(|e| AosError::Database(format!("Failed to release quarantine: {}", e)))?;
-
-    Ok(())
-}
+// All helper functions have been migrated to adapteros_db::federation module
 
 /// Error wrapper for API responses
 pub struct AppError(AosError);

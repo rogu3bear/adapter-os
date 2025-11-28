@@ -240,7 +240,7 @@ impl OperationTracker {
 
         // Emit initial progress event
         if let Some(ref tx) = self.progress_tx {
-            let (operation_type_str, resource_type) = match operation_type {
+            let (operation_type_str, _resource_type) = match operation_type {
                 OperationType::Model(ModelOperationType::Load) => ("load", "model"),
                 OperationType::Model(ModelOperationType::Unload) => ("unload", "model"),
                 OperationType::Adapter(AdapterOperationType::Load) => ("load", "adapter"),
@@ -311,7 +311,7 @@ impl OperationTracker {
         resource_id: &str,
         tenant_id: &str,
         progress_pct: f64,
-        message: Option<String>,
+        _message: Option<String>,
     ) {
         let key = (resource_id.to_string(), tenant_id.to_string());
         let operations_lock = match self.get_operations_write() {

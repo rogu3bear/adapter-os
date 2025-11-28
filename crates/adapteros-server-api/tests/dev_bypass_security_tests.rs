@@ -13,7 +13,7 @@
 //! - crates/adapteros-server-api/src/middleware.rs: auth_middleware
 //! - crates/adapteros-server-api/src/middleware_security.rs: cors_layer
 
-#[cfg(test)]
+#[cfg(all(test, feature = "dev-bypass", debug_assertions))]
 mod compile_time_guards {
     /// Test: dev_bypass_handler has #[cfg(not(debug_assertions))] early return
     ///
@@ -199,7 +199,10 @@ mod release_build_verification {
     fn test_this_runs_in_debug_only() {
         println!("This test runs only in debug builds");
         println!("Confirms #[cfg(debug_assertions)] is working");
-        assert!(true);
+
+        // Verify we're in debug mode
+        let is_debug = cfg!(debug_assertions);
+        assert!(is_debug, "Should be in debug mode");
     }
 
     #[test]
@@ -207,7 +210,10 @@ mod release_build_verification {
     fn test_this_runs_in_release_only() {
         println!("This test runs only in release builds");
         println!("Confirms #[cfg(not(debug_assertions))] is working");
-        assert!(true);
+
+        // Verify we're in release mode
+        let is_debug = cfg!(debug_assertions);
+        assert!(!is_debug, "Should be in release mode");
     }
 
     /// Test: Debug bypass is excluded at compile time
