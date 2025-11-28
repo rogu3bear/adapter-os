@@ -142,9 +142,7 @@ impl TrainArgs {
                 batch_size: self.batch_size,
                 epochs: self.epochs,
                 hidden_dim: self.hidden_dim,
-                max_gpu_memory_mb: 0,
-                preferred_backend: None,
-                require_gpu: false,
+                ..TrainingConfig::default()
             };
 
             info!("Using command-line training configuration");

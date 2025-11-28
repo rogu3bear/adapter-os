@@ -138,7 +138,9 @@ async fn load_drift_policy(db_path: Option<&std::path::Path>) -> Result<DriftPol
     let db_path = db_path.unwrap_or(std::path::Path::new("var/aos.db"));
 
     if db_path.exists() {
-        match adapteros_db::Db::connect(db_path.to_str().unwrap()).await {
+        let db_path_str = db_path.to_str()
+            .ok_or_else(|| anyhow::anyhow!("Database path contains invalid UTF-8: {}", db_path.display()))?;
+        match adapteros_db::Db::connect(db_path_str).await {
             Ok(db) => {
                 // Try to load tenant-specific policies
                 match db.get_policies("default").await {

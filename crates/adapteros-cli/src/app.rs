@@ -1055,6 +1055,20 @@ pub enum Commands {
         ci: bool,
     },
 
+    /// Launch interactive TUI dashboard (requires --features tui)
+    #[command(after_help = r#"Examples:
+  # Launch TUI dashboard
+  aosctl tui
+
+  # Launch with custom server URL
+  aosctl tui --server-url http://localhost:9000
+"#)]
+    Tui {
+        /// Server URL for API connections (default: http://localhost:8080)
+        #[arg(long, env = "AOS_SERVER_URL")]
+        server_url: Option<String>,
+    },
+
     /// Display offline manual
     #[command(after_help = r#"Examples:
   # Display manpage
@@ -1160,6 +1174,22 @@ pub enum Commands {
     IngestDocs {
         #[command(flatten)]
         args: ingest_docs::IngestDocsArgs,
+    },
+
+    /// Train adapter on documentation markdown files
+    #[command(after_help = r#"Examples:
+  # Train on all docs/*.md files with auto-activation
+  aosctl train-docs
+
+  # Train with custom settings
+  aosctl train-docs --docs-dir ./my-docs --revision v2
+
+  # Dry run to preview what would be trained
+  aosctl train-docs --dry-run
+"#)]
+    TrainDocs {
+        #[command(flatten)]
+        args: train_docs::TrainDocsArgs,
     },
 
     /// Alias for tenant-init (for convenience)
@@ -1726,6 +1756,20 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             .await?;
         }
 
+        #[cfg(feature = "tui")]
+        Commands::Tui { server_url } => {
+            commands::tui::run(commands::tui::TuiArgs {
+                server_url: server_url.clone(),
+            })
+            .await?;
+        }
+        #[cfg(not(feature = "tui"))]
+        Commands::Tui { .. } => {
+            anyhow::bail!(
+                "TUI feature not enabled. Rebuild with: cargo build --features tui"
+            );
+        }
+
         Commands::Manual { args } => {
             commands::manual::run_manual(args.clone())?;
         }
@@ -1750,6 +1794,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         Commands::IngestDocs { args } => {
+            args.execute().await?;
+        }
+
+        Commands::TrainDocs { args } => {
             args.execute().await?;
         }
 
@@ -1821,10 +1869,12 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Explain { .. } => "explain",
         Commands::ErrorCodes { .. } => "error-codes",
         Commands::Tutorial { .. } => "tutorial",
+        Commands::Tui { .. } => "tui",
         Commands::Manual { .. } => "manual",
         Commands::Train { .. } => "train",
         Commands::TrainBaseAdapter { .. } => "train-base-adapter",
         Commands::IngestDocs { .. } => "ingest-docs",
+        Commands::TrainDocs { .. } => "train-docs",
         Commands::CodeInit { .. } => "code-init",
         Commands::CodeUpdate { .. } => "code-update",
         Commands::CodeList { .. } => "code-list",

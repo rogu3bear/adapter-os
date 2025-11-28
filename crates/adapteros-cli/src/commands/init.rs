@@ -19,6 +19,7 @@ use rand::{distributions::Alphanumeric, rngs::OsRng, Rng};
 use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
 #[derive(Args, Debug, Clone)]
@@ -113,8 +114,7 @@ fn get_config_dir() -> Result<PathBuf> {
     let config_dir = PathBuf::from(home).join(".aos");
 
     if !config_dir.exists() {
-        fs::create_dir_all(&config_dir)
-            .context("Failed to create config directory")?;
+        fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
     }
 
     Ok(config_dir)
@@ -153,12 +153,47 @@ tenant_id = "system"
         ui_url,
     );
 
-    fs::write(&config_path, config_content)
-        .context("Failed to write config file")?;
+    fs::write(&config_path, config_content).context("Failed to write config file")?;
 
     output.verbose(format!("Config written to: {}", config_path.display()));
 
     Ok(config_path)
+}
+
+/// Test connectivity to the API server (checks both /healthz and /v1/meta)
+async fn test_api_connectivity(api_url: &str, timeout_secs: u64) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .context("Failed to create HTTP client")?;
+
+    let base = api_url.trim_end_matches('/');
+
+    // Check /healthz
+    let healthz_url = format!("{}/healthz", base);
+    let response = client
+        .get(&healthz_url)
+        .send()
+        .await
+        .context("Could not connect to server /healthz")?;
+
+    if !response.status().is_success() {
+        bail!("Server /healthz returned {}", response.status());
+    }
+
+    // Check /v1/meta
+    let meta_url = format!("{}/v1/meta", base);
+    let response = client
+        .get(&meta_url)
+        .send()
+        .await
+        .context("Could not connect to server /v1/meta")?;
+
+    if !response.status().is_success() {
+        bail!("Server /v1/meta returned {}", response.status());
+    }
+
+    Ok(())
 }
 
 /// Run the init command
@@ -173,7 +208,8 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
     debug!(email = %args.owner_email, "Email validation passed");
 
     // Determine database URL
-    let db_url = args.database_url
+    let db_url = args
+        .database_url
         .clone()
         .unwrap_or_else(|| "sqlite://./var/aos-cp.sqlite3".to_string());
     debug!(db_url = %db_url, "Using database URL");
@@ -189,7 +225,10 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
                     .unwrap_or(0);
 
                 if user_count > 0 {
-                    warn!(user_count = user_count, "System already initialized with existing users");
+                    warn!(
+                        user_count = user_count,
+                        "System already initialized with existing users"
+                    );
                     output.warning("System appears to be already initialized");
                     output.warning(&format!("Found {} existing users", user_count));
                     output.info("");
@@ -214,6 +253,34 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
     }
 
     output.info("Initializing AdapterOS system...");
+    output.blank();
+
+    // Step 2.5: Test API server connectivity (informational)
+    output.progress("Testing API server connectivity...");
+    match test_api_connectivity(&args.api_url, 5).await {
+        Ok(_) => {
+            info!(api_url = %args.api_url, "API server reachable");
+            output.success(&format!("Server reachable at {}", args.api_url));
+        }
+        Err(e) => {
+            warn!(api_url = %args.api_url, error = %e, "API server not reachable");
+            output.warning(&format!("Could not connect to server: {}", e));
+            output.info("");
+            output.info("The server may not be running yet.");
+            output.info("To start the server: cargo run --release -p adapteros-server");
+            output.info("");
+            if !args.yes {
+                output.info("Continue with setup anyway? (y/N): ");
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                if input.trim().to_lowercase() != "y" {
+                    info!("Init cancelled by user - server not reachable");
+                    output.info("Initialization cancelled");
+                    return Ok(());
+                }
+            }
+        }
+    }
     output.blank();
 
     // Step 3: Run database migrations
@@ -242,7 +309,8 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
             tenant.id
         }
         None => {
-            let id = db.create_tenant("system", false)
+            let id = db
+                .create_tenant("system", false)
                 .await
                 .context("Failed to create default tenant")?;
             info!(tenant_id = %id, "Created default tenant 'system'");
@@ -300,7 +368,8 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
     }
 
     // Derive display name
-    let display_name = args.owner_name
+    let display_name = args
+        .owner_name
         .clone()
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| derive_display_name(&args.owner_email));
@@ -324,7 +393,13 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
 
     // Create user
     let user_id = db
-        .create_user(&args.owner_email, &display_name, &password_hash, Role::Admin, "system")
+        .create_user(
+            &args.owner_email,
+            &display_name,
+            &password_hash,
+            Role::Admin,
+            "system",
+        )
         .await
         .context("Failed to create owner user")?;
 
@@ -397,7 +472,9 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
         output.result("  NEXT STEPS");
         output.result("=".repeat(60));
         output.blank();
-        output.result(&format!("1. Start the API server: cargo run -p adapteros-server-api"));
+        output.result(&format!(
+            "1. Start the API server: cargo run -p adapteros-server-api"
+        ));
         output.result(&format!("2. Start the UI: cd ui && pnpm dev"));
         output.result(&format!("3. Access the UI at: {}", args.ui_url));
         output.result(&format!("4. Login with the credentials above"));
@@ -408,7 +485,10 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
         output.blank();
 
         if !args.skip_config {
-            output.info(&format!("Configuration saved to: {}", config_path.display()));
+            output.info(&format!(
+                "Configuration saved to: {}",
+                config_path.display()
+            ));
         }
     }
 

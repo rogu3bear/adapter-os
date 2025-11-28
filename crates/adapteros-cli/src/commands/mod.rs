@@ -5,6 +5,7 @@ pub mod adapter_info;
 pub mod adapter_swap;
 pub mod adapters;
 pub mod aos;
+pub mod aos_impl;
 pub mod audit;
 pub mod audit_determinism;
 pub mod backend_status;
@@ -12,6 +13,7 @@ pub mod bootstrap;
 pub mod build_plan;
 pub mod cdp_list;
 pub mod chat;
+pub mod check;
 pub mod code;
 pub mod codegraph;
 pub mod completions;
@@ -66,12 +68,15 @@ pub mod secd_audit;
 pub mod secd_status;
 pub mod serve;
 pub mod telemetry;
+#[cfg(feature = "tui")]
+pub mod tui;
 // Legacy telemetry commands - consolidated into telemetry.rs
 // pub mod telemetry_list;     // Consolidated into telemetry.rs
 // pub mod verify_telemetry;   // Consolidated into telemetry.rs
 pub mod telemetry_show;
 pub mod trace;
 pub mod train;
+pub mod train_docs;
 pub mod tutorial;
 pub mod verify;
 pub mod verify_adapter;

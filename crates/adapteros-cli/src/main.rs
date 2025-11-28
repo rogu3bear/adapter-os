@@ -44,8 +44,8 @@ mod output;
 
 use adapteros_lora_worker::memory::{MemoryPressureLevel, UmaPressureMonitor};
 use commands::golden::GoldenCmd;
-use commands::*;
 use commands::init;
+use commands::*;
 use logging::init_logging;
 use output::{OutputMode, OutputWriter};
 
@@ -193,6 +193,20 @@ Examples:
   aosctl doctor --timeout 30
 ")]
     Doctor(commands::doctor::DoctorCommand),
+
+    /// Post-reboot startup verification (requires running server)
+    #[command(after_help = "\
+Examples:
+  # Run post-reboot startup checks
+  aosctl check startup
+
+  # Check against custom server URL
+  aosctl check startup --server-url http://localhost:8080
+
+  # Check with custom timeout
+  aosctl check startup --timeout 30
+")]
+    Check(commands::check::CheckCommand),
 
     /// Pre-flight system readiness check (run before launching server)
     #[command(after_help = "\
@@ -892,6 +906,21 @@ Examples:
         ci: bool,
     },
 
+    /// Launch interactive TUI dashboard (requires --features tui)
+    #[command(after_help = "\
+Examples:
+  # Launch TUI dashboard
+  aosctl tui
+
+  # Launch with custom server URL
+  aosctl tui --server-url http://localhost:9000
+")]
+    Tui {
+        /// Server URL for API connections (default: http://localhost:8080)
+        #[arg(long, env = "AOS_SERVER_URL")]
+        server_url: Option<String>,
+    },
+
     /// Display offline manual
     #[command(after_help = "\
 Examples:
@@ -930,6 +959,23 @@ Examples:
     Train {
         #[command(flatten)]
         args: train::TrainArgs,
+    },
+
+    /// Train adapter on documentation markdown files
+    #[command(after_help = "\
+Examples:
+  # Train on all docs/*.md files with auto-activation
+  aosctl train-docs
+
+  # Train with custom settings
+  aosctl train-docs --docs-dir ./my-docs --revision v2
+
+  # Dry run to preview what would be trained
+  aosctl train-docs --dry-run
+")]
+    TrainDocs {
+        #[command(flatten)]
+        args: train_docs::TrainDocsArgs,
     },
 
     /// Initialize AdapterOS system (Owner Home setup)
@@ -1283,6 +1329,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::doctor::run(cmd.clone(), &output).await?;
         }
 
+        // Post-reboot Startup Verification
+        Commands::Check(cmd) => {
+            commands::check::run(cmd.clone(), &output).await?;
+        }
+
         // Pre-flight System Readiness Check
         Commands::Preflight(cmd) => {
             commands::preflight::run(cmd.clone(), &output).await?;
@@ -1560,11 +1611,31 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             .await?;
         }
 
+        // TUI Dashboard
+        Commands::Tui { server_url } => {
+            #[cfg(feature = "tui")]
+            {
+                commands::tui::run(commands::tui::TuiArgs {
+                    server_url: server_url.clone(),
+                })
+                .await?;
+            }
+            #[cfg(not(feature = "tui"))]
+            {
+                let _ = server_url; // Suppress unused warning
+                anyhow::bail!("TUI feature not enabled. Rebuild with: cargo build --features tui");
+            }
+        }
+
         Commands::Manual { args } => {
             commands::manual::run_manual(args.clone())?;
         }
 
         Commands::Train { args } => {
+            args.execute().await?;
+        }
+
+        Commands::TrainDocs { args } => {
             args.execute().await?;
         }
 
@@ -1857,6 +1928,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Node(_) => "node",
         Commands::Status { .. } => "status",
         Commands::Doctor { .. } => "doctor",
+        Commands::Check(_) => "check",
         Commands::Maintenance { .. } => "maintenance",
         Commands::Deploy { .. } => "deploy",
         Commands::Registry(_) => "registry",
@@ -1892,8 +1964,10 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Tutorial { .. } => "tutorial",
         Commands::Manual { .. } => "manual",
         Commands::Train { .. } => "train",
+        Commands::TrainDocs { .. } => "train-docs",
         Commands::Code(_) => "code",
         Commands::BackendStatus(_) => "backend-status",
+        Commands::Tui { .. } => "tui",
         // Deprecated commands
         Commands::AdapterListDeprecated { .. } => "adapter-list",
         Commands::AdapterPinDeprecated { .. } => "adapter-pin",

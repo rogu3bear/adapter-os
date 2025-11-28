@@ -5,8 +5,8 @@
 use adapteros_core::{AosError, Result};
 use adapteros_ingest_docs::{
     generate_revision, generate_training_data_from_documents, load_tokenizer,
-    prepare_documents_for_rag, ChunkingOptions, DocumentIngestor, SimpleEmbeddingModel,
-    TrainingGenConfig, TrainingStrategy, EMBEDDING_DIMENSION,
+    prepare_documents_for_rag, ChunkingOptions, DocumentIngestor, EmbeddingModel,
+    ProductionEmbeddingModel, TrainingGenConfig, TrainingStrategy, EMBEDDING_DIMENSION,
 };
 use adapteros_lora_rag::pgvector::PgVectorIndex;
 use clap::Args;
@@ -65,6 +65,11 @@ pub struct IngestDocsArgs {
     /// Document revision (defaults to auto-generated timestamp)
     #[arg(long)]
     rev: Option<String>,
+
+    /// Path to embedding model (sentence-transformer format)
+    /// If not provided, falls back to simple feature-based embeddings
+    #[arg(long, env = "AOS_EMBEDDING_MODEL_PATH")]
+    embedding_model: Option<PathBuf>,
 }
 
 impl IngestDocsArgs {
@@ -169,9 +174,17 @@ impl IngestDocsArgs {
 
         let tenant_id = self.tenant.as_ref().unwrap();
 
-        // Create embedding model
-        let embedding_model = Arc::new(SimpleEmbeddingModel::new(tokenizer.clone()))
-            as Arc<dyn adapteros_ingest_docs::EmbeddingModel>;
+        // Create embedding model - use ProductionEmbeddingModel which will try MLX first
+        let embedding_model: Arc<dyn EmbeddingModel> = Arc::new(ProductionEmbeddingModel::load(
+            self.embedding_model.as_ref(),
+            tokenizer.clone(),
+        ));
+
+        info!(
+            "Using embedding model with dimension={}, hash={}",
+            embedding_model.dimension(),
+            embedding_model.model_hash().to_hex()
+        );
 
         // Prepare documents for RAG
         let default_rev = generate_revision();
@@ -181,9 +194,13 @@ impl IngestDocsArgs {
 
         info!("Prepared {} chunks for RAG indexing", rag_params.len());
 
+        // Get the model hash for database index
+        let model_hash = embedding_model.model_hash();
+
         // Connect to database and insert
         if let Some(db_url) = &self.db_url {
-            self.insert_into_database(db_url, &rag_params).await?;
+            self.insert_into_database(db_url, &rag_params, model_hash)
+                .await?;
         } else {
             warn!("No database URL provided, skipping actual database insertion");
             info!(
@@ -198,6 +215,7 @@ impl IngestDocsArgs {
         &self,
         db_url: &str,
         rag_params: &[adapteros_ingest_docs::RagChunkParams],
+        embedding_hash: adapteros_core::B3Hash,
     ) -> Result<()> {
         info!("Connecting to database: {}", db_url);
 
@@ -207,9 +225,11 @@ impl IngestDocsArgs {
             db_url.starts_with("sqlite://") || db_url.contains(".db") || db_url.contains(".sqlite");
 
         if is_postgres {
-            self.insert_into_postgres(db_url, rag_params).await
+            self.insert_into_postgres(db_url, rag_params, embedding_hash)
+                .await
         } else if is_sqlite {
-            self.insert_into_sqlite(db_url, rag_params).await
+            self.insert_into_sqlite(db_url, rag_params, embedding_hash)
+                .await
         } else {
             Err(AosError::Config(
                 "Database URL must be either PostgreSQL (postgres://) or SQLite (sqlite:// or .db file)".to_string(),
@@ -221,6 +241,7 @@ impl IngestDocsArgs {
         &self,
         db_url: &str,
         rag_params: &[adapteros_ingest_docs::RagChunkParams],
+        embedding_hash: adapteros_core::B3Hash,
     ) -> Result<()> {
         use sqlx::postgres::PgPool;
 
@@ -228,8 +249,7 @@ impl IngestDocsArgs {
             .await
             .map_err(|e| AosError::Database(format!("Failed to connect to PostgreSQL: {}", e)))?;
 
-        // Create PgVectorIndex
-        let embedding_hash = adapteros_core::B3Hash::hash(b"simple_embedding_v1");
+        // Create PgVectorIndex with actual embedding model hash
         let index = PgVectorIndex::new_postgres(pool, embedding_hash, EMBEDDING_DIMENSION);
 
         // Insert each chunk
@@ -259,6 +279,7 @@ impl IngestDocsArgs {
         &self,
         db_url: &str,
         rag_params: &[adapteros_ingest_docs::RagChunkParams],
+        embedding_hash: adapteros_core::B3Hash,
     ) -> Result<()> {
         use sqlx::sqlite::SqlitePool;
 
@@ -273,8 +294,7 @@ impl IngestDocsArgs {
             .await
             .map_err(|e| AosError::Database(format!("Failed to connect to SQLite: {}", e)))?;
 
-        // Create PgVectorIndex with SQLite backend
-        let embedding_hash = adapteros_core::B3Hash::hash(b"simple_embedding_v1");
+        // Create PgVectorIndex with SQLite backend and actual embedding model hash
         let index = PgVectorIndex::new_sqlite(pool, embedding_hash, EMBEDDING_DIMENSION);
 
         // Insert each chunk

@@ -174,7 +174,10 @@ async fn connect_and_fetch_adapter_states(
         }
     }
 
-    unreachable!()
+    // Loop exhausted all retries without returning (should not happen with retries > 0)
+    Err(adapteros_core::AosError::Io(
+        "Failed to list adapters: all retries exhausted".to_string(),
+    ))
 }
 
 /// Connect to worker via UDS and fetch adapter profile with retry logic
@@ -222,7 +225,10 @@ async fn connect_and_fetch_adapter_profile(
         }
     }
 
-    unreachable!()
+    // Loop exhausted all retries without returning (should not happen with retries > 0)
+    Err(adapteros_core::AosError::Io(
+        "Failed to get adapter profile: all retries exhausted".to_string(),
+    ))
 }
 
 /// Send adapter command via UDS with retry logic
@@ -286,7 +292,10 @@ async fn send_adapter_command(
         }
     }
 
-    unreachable!()
+    // Loop exhausted all retries without returning (should not happen with retries > 0)
+    Err(adapteros_core::AosError::Io(
+        "Failed to send adapter command: all retries exhausted".to_string(),
+    ))
 }
 
 #[derive(Debug, Subcommand, Clone)]

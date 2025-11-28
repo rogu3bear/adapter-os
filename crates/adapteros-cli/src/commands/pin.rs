@@ -100,7 +100,10 @@ pub async fn list_pinned(db: &Db, tenant_id: &str, output: &OutputWriter) -> Res
     let json_data: Vec<PinnedAdapter> = pinned
         .iter()
         .map(|pin| PinnedAdapter {
-            adapter_id: pin.adapter_id.clone(),
+            adapter_id: pin
+                .adapter_id
+                .clone()
+                .unwrap_or_else(|| pin.adapter_pk.clone()),
             pinned_until: pin
                 .pinned_until
                 .clone()
@@ -117,8 +120,12 @@ pub async fn list_pinned(db: &Db, tenant_id: &str, output: &OutputWriter) -> Res
 
     for pin in pinned {
         let until = pin.pinned_until.unwrap_or_else(|| "forever".to_string());
+        let adapter_display = pin
+            .adapter_id
+            .clone()
+            .unwrap_or_else(|| pin.adapter_pk.clone());
         table.add_row(vec![
-            Cell::new(pin.adapter_id),
+            Cell::new(adapter_display),
             Cell::new(until),
             Cell::new(pin.reason),
             Cell::new(pin.pinned_at),

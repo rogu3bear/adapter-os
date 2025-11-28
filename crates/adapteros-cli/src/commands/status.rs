@@ -5,13 +5,15 @@
 //! - `aosctl status cluster`  – node list and health
 //! - `aosctl status tick`     – global tick ledger summary
 //! - `aosctl status memory`   – host memory usage and headroom
+//! - `aosctl status system`   – comprehensive system status (meta + health + migrations)
 
 use crate::output::OutputWriter;
 use adapteros_db::{sqlx, Db};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
-use comfy_table::{presets::UTF8_FULL, Cell, Table};
-use serde::Serialize;
+use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use sysinfo::System;
 
 /// Top-level `status` command.
@@ -35,6 +37,17 @@ pub enum StatusSubcommand {
 
     /// Show host memory usage and headroom
     Memory,
+
+    /// Show comprehensive system status (meta + health + migrations)
+    System {
+        /// Server URL (defaults to AOS_SERVER_URL env var or http://localhost:8080)
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        server_url: String,
+
+        /// Timeout in seconds
+        #[arg(long, default_value = "10")]
+        timeout: u64,
+    },
 }
 
 /// Dispatch the selected status subcommand.
@@ -44,6 +57,10 @@ pub async fn run(cmd: StatusCommand, output: &OutputWriter) -> Result<()> {
         StatusSubcommand::Cluster => cluster_status(output).await,
         StatusSubcommand::Tick => tick_status(output).await,
         StatusSubcommand::Memory => memory_status(output),
+        StatusSubcommand::System {
+            server_url,
+            timeout,
+        } => system_status(&server_url, timeout, output).await,
     }
 }
 
@@ -63,7 +80,8 @@ struct AdapterStatus {
 
 async fn adapters_status(output: &OutputWriter) -> Result<()> {
     let db = Db::connect_env().await?;
-    let adapters = db.list_adapters().await?;
+    // CLI is a system-level tool - use system API
+    let adapters = db.list_all_adapters_system().await?;
 
     if adapters.is_empty() {
         output.warning("No adapters found in database");
@@ -364,4 +382,188 @@ fn format_bytes(bytes: i64) -> String {
     } else {
         format!("{} B", bytes.max(0))
     }
+}
+
+// ---------------------------------------------------------------------------
+// status system
+// ---------------------------------------------------------------------------
+
+/// Component health status from server (matches doctor.rs)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ComponentStatus {
+    Healthy,
+    Degraded,
+    Unhealthy,
+}
+
+/// Individual component health check result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentHealth {
+    pub component: String,
+    pub status: ComponentStatus,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+    pub timestamp: u64,
+}
+
+/// Aggregate health response for all components
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemHealthResponse {
+    pub overall_status: ComponentStatus,
+    pub components: Vec<ComponentHealth>,
+    pub timestamp: u64,
+}
+
+/// Combined system status for JSON output
+#[derive(Debug, Serialize)]
+struct SystemStatusJson {
+    meta: Option<serde_json::Value>,
+    health: Option<SystemHealthResponse>,
+    migration_count: Option<i64>,
+}
+
+async fn system_status(server_url: &str, timeout: u64, output: &OutputWriter) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout))
+        .build()
+        .context("Failed to create HTTP client")?;
+
+    let base = server_url.trim_end_matches('/');
+
+    // Fetch /v1/meta
+    output.section("System Metadata");
+    let meta_url = format!("{}/v1/meta", base);
+    let meta: Option<serde_json::Value> = match client.get(&meta_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            let meta: serde_json::Value = resp.json().await.unwrap_or_default();
+            output.kv("Version", meta["version"].as_str().unwrap_or("unknown"));
+            output.kv(
+                "Build",
+                &format!(
+                    "{} ({})",
+                    meta["build_hash"].as_str().unwrap_or("unknown"),
+                    meta["build_date"].as_str().unwrap_or("unknown")
+                ),
+            );
+            output.kv(
+                "Environment",
+                meta["environment"].as_str().unwrap_or("unknown"),
+            );
+            output.kv("Production Mode", &meta["production_mode"].to_string());
+            output.kv("Dev Login", &meta["dev_login_enabled"].to_string());
+            Some(meta)
+        }
+        Ok(resp) => {
+            output.warning(&format!("Could not fetch metadata: HTTP {}", resp.status()));
+            None
+        }
+        Err(e) => {
+            output.warning(&format!("Could not fetch metadata: {}", e));
+            None
+        }
+    };
+
+    output.blank();
+
+    // Fetch /healthz/all
+    output.section("Component Health");
+    let health_url = format!("{}/healthz/all", base);
+    let health: Option<SystemHealthResponse> = match client.get(&health_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            let health: SystemHealthResponse =
+                resp.json().await.unwrap_or_else(|_| SystemHealthResponse {
+                    overall_status: ComponentStatus::Unhealthy,
+                    components: vec![],
+                    timestamp: 0,
+                });
+            display_health_table(&health, output)?;
+            Some(health)
+        }
+        Ok(resp) => {
+            output.warning(&format!(
+                "Could not fetch health status: HTTP {}",
+                resp.status()
+            ));
+            None
+        }
+        Err(e) => {
+            output.warning(&format!("Could not fetch health status: {}", e));
+            None
+        }
+    };
+
+    output.blank();
+
+    // Database migrations
+    output.section("Database");
+    let migration_count = match Db::connect_env().await {
+        Ok(db) => {
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+                .fetch_one(db.pool())
+                .await
+                .unwrap_or(0);
+            output.kv("Migrations Applied", &count.to_string());
+            Some(count)
+        }
+        Err(e) => {
+            output.warning(&format!("Could not connect to database: {}", e));
+            None
+        }
+    };
+
+    if output.is_json() {
+        output.json(&SystemStatusJson {
+            meta,
+            health,
+            migration_count,
+        })?;
+    }
+
+    Ok(())
+}
+
+fn display_health_table(health: &SystemHealthResponse, _output: &OutputWriter) -> Result<()> {
+    let mut table = Table::new();
+    table.load_preset(UTF8_FULL);
+    table.set_header(vec!["Component", "Status", "Message"]);
+
+    for component in &health.components {
+        let (status_symbol, status_color) = match component.status {
+            ComponentStatus::Healthy => ("OK", Color::Green),
+            ComponentStatus::Degraded => ("WARN", Color::Yellow),
+            ComponentStatus::Unhealthy => ("FAIL", Color::Red),
+        };
+
+        table.add_row(vec![
+            Cell::new(&component.component),
+            Cell::new(status_symbol).fg(status_color),
+            Cell::new(&component.message),
+        ]);
+    }
+
+    println!("{}", table);
+
+    // Display overall status
+    let (overall_symbol, overall_color) = match health.overall_status {
+        ComponentStatus::Healthy => ("Healthy", Color::Green),
+        ComponentStatus::Degraded => ("Degraded", Color::Yellow),
+        ComponentStatus::Unhealthy => ("Unhealthy", Color::Red),
+    };
+
+    println!();
+    // Use ANSI colors for overall status since Cell doesn't implement Display
+    let color_code = match overall_color {
+        Color::Green => "\x1b[32m",
+        Color::Yellow => "\x1b[33m",
+        Color::Red => "\x1b[31m",
+        _ => "",
+    };
+    println!(
+        "Overall System Health: {}{}\x1b[0m",
+        color_code, overall_symbol
+    );
+
+    Ok(())
 }

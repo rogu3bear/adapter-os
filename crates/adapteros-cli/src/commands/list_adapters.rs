@@ -27,7 +27,8 @@ pub async fn run(tier: Option<&str>, include_meta: bool, output: &OutputWriter) 
     // If --include-meta is set, fetch full metadata from database
     if include_meta {
         let db = Db::connect_env().await?;
-        let mut adapter_records = db.list_adapters().await?;
+        // CLI is a system-level tool - use system API
+        let mut adapter_records = db.list_all_adapters_system().await?;
 
         // Filter by tier if specified
         if let Some(tier_filter) = tier {
@@ -59,7 +60,8 @@ pub async fn run(tier: Option<&str>, include_meta: bool, output: &OutputWriter) 
 
     // Default behavior: use database and table format
     let db = Db::connect_env().await?;
-    let adapters = db.list_adapters().await?;
+    // CLI is a system-level tool - use system API
+    let adapters = db.list_all_adapters_system().await?;
 
     // Filter adapters if tier is specified
     let filtered: Vec<_> = adapters
