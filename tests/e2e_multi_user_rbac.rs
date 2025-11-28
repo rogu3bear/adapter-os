@@ -427,7 +427,13 @@ async fn test_role_hierarchy() {
 
         harness
             .db()
-            .create_user(email, &format!("Test {}", email), &password_hash, role, "default")
+            .create_user(
+                email,
+                &format!("Test {}", email),
+                &password_hash,
+                role,
+                "default",
+            )
             .await
             .expect(&format!("Failed to create user with role {:?}", role));
     }

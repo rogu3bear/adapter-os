@@ -536,5 +536,9 @@ fn test_module_compiles() {
     // This test just ensures the module compiles correctly
     // All the actual integration tests are marked as #[ignore]
     // and will be implemented as the authentication system matures
-    assert!(true);
+
+    // Verify basic module imports work
+    use adapteros_server_api::AuthConfig;
+    let config = AuthConfig::default();
+    assert_eq!(config.mode, adapteros_server_api::AuthMode::Development);
 }

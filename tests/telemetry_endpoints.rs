@@ -78,7 +78,7 @@ async fn setup_test_state() -> Result<AppState> {
 
 /// Test GET /v1/telemetry/events/recent endpoint
 #[tokio::test]
-#[ignore] // Requires database setup
+#[ignore = "Requires database setup - run with: cargo test --features integration -- --ignored"]
 async fn test_get_recent_activity() -> Result<()> {
     println!("Testing GET /v1/telemetry/events/recent endpoint...");
 
@@ -90,6 +90,7 @@ async fn test_get_recent_activity() -> Result<()> {
         sub: "test-user".to_string(),
         email: "test@example.com".to_string(),
         role: Role::Admin.to_string(),
+        roles: vec!["admin".to_string()],
         tenant_id: "test-tenant".to_string(),
         exp: (now + chrono::Duration::hours(1)).timestamp(),
         iat: now.timestamp(),
@@ -155,7 +156,7 @@ async fn test_get_recent_activity() -> Result<()> {
 
 /// Test GET /v1/telemetry/events/recent with event type filtering
 #[tokio::test]
-#[ignore]
+#[ignore = "Requires database setup - run with: cargo test --features integration -- --ignored"]
 async fn test_get_recent_activity_with_filter() -> Result<()> {
     println!("Testing GET /v1/telemetry/events/recent with event type filter...");
 
@@ -166,6 +167,7 @@ async fn test_get_recent_activity_with_filter() -> Result<()> {
         sub: "test-user".to_string(),
         email: "test@example.com".to_string(),
         role: Role::Viewer.to_string(),
+        roles: vec!["admin".to_string()],
         tenant_id: "test-tenant".to_string(),
         exp: (now + chrono::Duration::hours(1)).timestamp(),
         iat: now.timestamp(),
@@ -232,7 +234,7 @@ async fn test_get_recent_activity_with_filter() -> Result<()> {
 
 /// Test SSE stream endpoint authentication with query parameter token
 #[tokio::test]
-#[ignore]
+#[ignore = "Requires database setup - run with: cargo test --features integration -- --ignored"]
 async fn test_sse_stream_query_param_auth() -> Result<()> {
     println!("Testing SSE stream with query parameter token authentication...");
 
@@ -243,6 +245,7 @@ async fn test_sse_stream_query_param_auth() -> Result<()> {
         sub: "test-user".to_string(),
         email: "test@example.com".to_string(),
         role: Role::Operator.to_string(),
+        roles: vec!["admin".to_string()],
         tenant_id: "test-tenant".to_string(),
         exp: (now + chrono::Duration::hours(1)).timestamp(),
         iat: now.timestamp(),

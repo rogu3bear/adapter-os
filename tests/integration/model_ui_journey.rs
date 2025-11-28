@@ -65,6 +65,7 @@ async fn setup_test_env() -> anyhow::Result<(AppState, Claims)> {
         sub: user_id,
         tenant_id,
         role: "admin".to_string(),
+        roles: vec!["admin".to_string()],
         exp: 0,
     };
     Ok((app_state, claims))

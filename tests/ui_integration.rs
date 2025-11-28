@@ -202,6 +202,7 @@ async fn make_request_with_role(
         sub: "test_user".to_string(),
         email: "test@example.com".to_string(),
         role: role.to_string(),
+        roles: vec!["admin".to_string()],
         tenant_id: "default".to_string(),
         exp: exp as i64,
         iat: iat as i64,
@@ -317,46 +318,32 @@ async fn test_endpoint_connectivity() {
 }
 
 #[tokio::test]
+#[ignore = "Requires API client mock infrastructure - verify process debugging, monitoring, and routing methods exist in ui/src/api/client.ts"]
 async fn test_api_client_methods() {
     // Test that all new API client methods are properly implemented
     // Citation: ui/src/api/client.ts L747-L817
-
-    // Verify that all process debugging methods exist
-    // getProcessLogs, getProcessCrashes, startDebugSession, runTroubleshootingStep
-    assert!(true); // Methods exist in client.ts
-
-    // Verify that all monitoring methods exist
-    // listMonitoringRules, createMonitoringRule, listAlerts, acknowledgeAlert
-    assert!(true); // Methods exist in client.ts
-
-    // Verify that routing methods exist
-    // getRoutingDecisions
-    assert!(true); // Methods exist in client.ts
-
-    // Verify that type definitions exist
-    // ProcessLogFilters, ProcessLog, ProcessCrash, DebugSessionConfig, etc.
-    assert!(true); // Types exist in types.ts
+    //
+    // Blocked: Needs mock API server or TypeScript compilation check
+    // Required methods:
+    // - Process debugging: getProcessLogs, getProcessCrashes, startDebugSession, runTroubleshootingStep
+    // - Monitoring: listMonitoringRules, createMonitoringRule, listAlerts, acknowledgeAlert
+    // - Routing: getRoutingDecisions
+    // - Type definitions: ProcessLogFilters, ProcessLog, ProcessCrash, DebugSessionConfig
 }
 
 #[tokio::test]
+#[ignore = "Requires component analysis framework - verify ApiClient usage in ProcessDebugger, ContactsPage, RealtimeMetrics, DomainAdapterManager"]
 async fn test_component_api_usage() {
     // Test that components use ApiClient consistently
     // Citation: ui/src/components/ProcessDebugger.tsx L129-L131
-
-    // Verify ProcessDebugger uses real API calls
-    assert!(true); // Updated to use apiClient.getProcessLogs()
-
-    // Verify ContactsPage uses ApiClient
-    assert!(true); // Updated to use apiClient.listContacts()
-
-    // Verify RealtimeMetrics uses ApiClient
-    assert!(true); // Updated to use apiClient.getSystemMetrics()
-
-    // Verify DomainAdapterManager uses ApiClient
-    assert!(true); // Updated to use apiClient.listDomainAdapters()
-
-    // Verify AlertsPage already uses ApiClient
-    assert!(true); // Already using apiClient.getSystemMetrics()
+    //
+    // Blocked: Needs component testing infrastructure or static analysis
+    // Components to verify:
+    // - ProcessDebugger: should use apiClient.getProcessLogs()
+    // - ContactsPage: should use apiClient.listContacts()
+    // - RealtimeMetrics: should use apiClient.getSystemMetrics()
+    // - DomainAdapterManager: should use apiClient.listDomainAdapters()
+    // - AlertsPage: already uses ApiClient (apiClient.getSystemMetrics())
 }
 
 #[tokio::test]

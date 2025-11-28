@@ -35,6 +35,7 @@ async fn test_403_responses_include_forbidden_code() {
         sub: "test-user".to_string(),
         email: "test@example.com".to_string(),
         role: "invalid-role".to_string(), // Invalid role string
+        roles: vec!["invalid-role".to_string()],
         tenant_id: "test-tenant".to_string(),
         exp: (Utc::now() + chrono::Duration::hours(1)).timestamp(),
         iat: Utc::now().timestamp(),
