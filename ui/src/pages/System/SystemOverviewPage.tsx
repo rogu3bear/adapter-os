@@ -19,71 +19,7 @@ import {
 import { useMetricsStream } from '@/hooks/useStreamingEndpoints';
 import type { MetricsSnapshotEvent } from '@/api/streaming-types';
 import { Activity, Wifi, WifiOff } from 'lucide-react';
-
-function HealthBadge({ status }: { status: HealthStatus }) {
-  const variant = {
-    healthy: 'success' as const,
-    warning: 'warning' as const,
-    critical: 'destructive' as const,
-    unknown: 'secondary' as const,
-  }[status];
-
-  return (
-    <Badge variant={variant}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </Badge>
-  );
-}
-
-function MetricCard({
-  title,
-  value,
-  unit,
-  progress,
-  status,
-  isLoading,
-}: {
-  title: string;
-  value: string | number;
-  unit?: string;
-  progress?: number;
-  status?: HealthStatus;
-  isLoading?: boolean;
-}) {
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <Skeleton className="h-4 w-24" />
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-8 w-16 mb-2" />
-          <Skeleton className="h-2 w-full" />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardDescription>{title}</CardDescription>
-          {status && <HealthBadge status={status} />}
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold">
-          {value}
-          {unit && <span className="text-sm font-normal text-muted-foreground ml-1">{unit}</span>}
-        </div>
-        {progress !== undefined && (
-          <Progress value={progress} className="mt-2" />
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+import { HealthBadge, MetricCard } from './shared/MetricComponents';
 
 function QuickLinkCard({
   title,
