@@ -252,43 +252,8 @@ impl FilterBuilder {
     }
 }
 
-/// Execute a query with dynamic parameters
-///
-/// Helper to reduce boilerplate when using FilterBuilder with sqlx.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// # use adapteros_db::query_helpers::{FilterBuilder, execute_filtered_query};
-/// # use sqlx::SqlitePool;
-/// # async fn example(pool: &SqlitePool) -> adapteros_core::Result<Vec<String>> {
-/// let mut builder = FilterBuilder::new("SELECT id FROM adapters WHERE tenant_id = ?");
-/// builder.add_param("default");
-/// builder.add_filter("tier", Some("ephemeral"));
-///
-/// let rows: Vec<(String,)> = execute_filtered_query(&builder, pool).await?;
-/// let ids = rows.into_iter().map(|(id,)| id).collect();
-/// # Ok(ids)
-/// # }
-/// ```
-pub async fn execute_filtered_query<'q, DB, T>(
-    builder: &FilterBuilder,
-    executor: impl sqlx::Executor<'q, Database = DB>,
-) -> Result<Vec<T>>
-where
-    DB: Database,
-    T: for<'r> sqlx::FromRow<'r, DB::Row> + Send + Unpin,
-{
-    let mut query = sqlx::query_as::<_, T>(builder.query());
-    for param in builder.params() {
-        query = query.bind(param);
-    }
-
-    query
-        .fetch_all(executor)
-        .await
-        .map_err(db_err("execute filtered query"))
-}
+// Note: execute_filtered_query was removed due to trait bound complexity.
+// Users should build queries manually using the FilterBuilder pattern shown in audit.rs
 
 #[cfg(test)]
 mod tests {

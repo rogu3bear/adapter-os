@@ -26,6 +26,15 @@ use axum::{
 use std::time::Instant;
 use tracing::{error, info, warn};
 
+/// Helper: Extract request ID from headers (reduces duplication)
+fn extract_request_id(req: &Request<Body>) -> String {
+    req.headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
 /// Create a middleware layer for full API logging
 ///
 /// Returns a layer that can be added to an axum Router.
@@ -80,14 +89,7 @@ pub async fn api_logger_middleware(req: Request<Body>, next: Next) -> Response {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
     let query = req.uri().query().map(|q| q.to_string());
-
-    // Try to extract request ID from headers (X-Request-Id)
-    let request_id = req
-        .headers()
-        .get("x-request-id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "-".to_string());
+    let request_id = extract_request_id(&req);
 
     // Execute the request
     let response = next.run(req).await;
