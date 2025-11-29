@@ -103,6 +103,7 @@ impl RetryStrategy {
                 max_delay: Duration::from_secs(5),
                 backoff_factor: 2.0,
                 jitter: true,
+                deterministic_jitter: false,
                 circuit_breaker: Some(CircuitBreakerConfig {
                     failure_threshold: 5,
                     success_threshold: 2,
@@ -133,6 +134,7 @@ impl RetryStrategy {
                 max_delay: Duration::from_secs(10),
                 backoff_factor: 2.0,
                 jitter: true,
+                deterministic_jitter: true, // Use deterministic jitter for reproducibility
                 circuit_breaker: Some(CircuitBreakerConfig {
                     failure_threshold: 3,
                     success_threshold: 2,
@@ -163,6 +165,7 @@ impl RetryStrategy {
                 max_delay: Duration::from_secs(300), // 5 minutes
                 backoff_factor: 2.0,
                 jitter: true,
+                deterministic_jitter: false,
                 circuit_breaker: Some(CircuitBreakerConfig {
                     failure_threshold: 10,
                     success_threshold: 3,
@@ -193,6 +196,7 @@ impl RetryStrategy {
                 max_delay: Duration::from_secs(60),
                 backoff_factor: 1.5,
                 jitter: false, // No jitter for predictable critical operations
+                deterministic_jitter: false,
                 circuit_breaker: Some(CircuitBreakerConfig {
                     failure_threshold: 20,
                     success_threshold: 5,
@@ -223,6 +227,7 @@ impl RetryStrategy {
                 max_delay: Duration::from_secs(300),
                 backoff_factor: 2.0,
                 jitter: true,
+                deterministic_jitter: false,
                 circuit_breaker: Some(CircuitBreakerConfig {
                     failure_threshold: 5,
                     success_threshold: 2,

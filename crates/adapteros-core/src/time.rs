@@ -1,8 +1,9 @@
 //! Timestamp utilities for AdapterOS
 //!
-//! Provides consistent RFC 3339 timestamp generation across the codebase.
+//! Provides consistent RFC 3339 timestamp generation and Unix timestamp utilities
+//! across the codebase.
 
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Returns the current UTC time as an RFC 3339 formatted string.
 ///
@@ -16,7 +17,7 @@ use std::time::SystemTime;
 /// ```
 pub fn now_rfc3339() -> String {
     let duration = SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
         .expect("System time before UNIX epoch");
 
     let secs = duration.as_secs();
@@ -36,6 +37,101 @@ pub fn now_rfc3339() -> String {
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         year, month, day, hours, minutes, seconds
     )
+}
+
+/// Get current Unix timestamp in seconds.
+///
+/// Returns 0 if the system time is before the Unix epoch (highly unlikely).
+///
+/// # Examples
+///
+/// ```rust
+/// use adapteros_core::time::unix_timestamp_secs;
+///
+/// let timestamp = unix_timestamp_secs();
+/// // Returns something like 1737816000
+/// ```
+pub fn unix_timestamp_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Get current Unix timestamp in milliseconds.
+///
+/// Returns 0 if the system time is before the Unix epoch (highly unlikely).
+///
+/// # Examples
+///
+/// ```rust
+/// use adapteros_core::time::unix_timestamp_millis;
+///
+/// let timestamp = unix_timestamp_millis();
+/// // Returns something like 1737816000000
+/// ```
+pub fn unix_timestamp_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Get current Unix timestamp in microseconds (u64 for compatibility).
+///
+/// Returns 0 if the system time is before the Unix epoch (highly unlikely).
+///
+/// # Examples
+///
+/// ```rust
+/// use adapteros_core::time::unix_timestamp_micros;
+///
+/// let timestamp = unix_timestamp_micros();
+/// // Returns something like 1737816000000000
+/// ```
+pub fn unix_timestamp_micros() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_micros() as u64)
+        .unwrap_or(0)
+}
+
+/// Get current Unix timestamp in microseconds (u128 for high precision).
+///
+/// Returns 0 if the system time is before the Unix epoch (highly unlikely).
+///
+/// # Examples
+///
+/// ```rust
+/// use adapteros_core::time::unix_timestamp_micros_u128;
+///
+/// let timestamp = unix_timestamp_micros_u128();
+/// // Returns something like 1737816000000000
+/// ```
+pub fn unix_timestamp_micros_u128() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_micros())
+        .unwrap_or(0)
+}
+
+/// Get current Unix timestamp in nanoseconds.
+///
+/// Returns 0 if the system time is before the Unix epoch (highly unlikely).
+///
+/// # Examples
+///
+/// ```rust
+/// use adapteros_core::time::unix_timestamp_nanos;
+///
+/// let timestamp = unix_timestamp_nanos();
+/// // Returns something like 1737816000000000000
+/// ```
+pub fn unix_timestamp_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
 }
 
 /// Convert days since Unix epoch to (year, month, day)
@@ -84,5 +180,60 @@ mod tests {
         // 2025-01-01 is 20089 days since epoch
         let (y, m, d) = days_to_ymd(20089);
         assert_eq!((y, m, d), (2025, 1, 1));
+    }
+
+    #[test]
+    fn test_unix_timestamp_secs() {
+        let timestamp = unix_timestamp_secs();
+        // Should be a reasonable timestamp (after 2020-01-01 which is ~1577836800)
+        assert!(timestamp > 1577836800);
+        // Should be before 2100-01-01 (which is ~4102444800)
+        assert!(timestamp < 4102444800);
+    }
+
+    #[test]
+    fn test_unix_timestamp_millis() {
+        let timestamp = unix_timestamp_millis();
+        // Should be a reasonable timestamp in milliseconds
+        assert!(timestamp > 1577836800000);
+        assert!(timestamp < 4102444800000);
+    }
+
+    #[test]
+    fn test_unix_timestamp_micros() {
+        let timestamp = unix_timestamp_micros();
+        // Should be a reasonable timestamp in microseconds
+        assert!(timestamp > 1577836800000000);
+        assert!(timestamp < 4102444800000000);
+    }
+
+    #[test]
+    fn test_unix_timestamp_micros_u128() {
+        let timestamp = unix_timestamp_micros_u128();
+        // Should be a reasonable timestamp in microseconds
+        assert!(timestamp > 1577836800000000);
+        assert!(timestamp < 4102444800000000);
+    }
+
+    #[test]
+    fn test_unix_timestamp_nanos() {
+        let timestamp = unix_timestamp_nanos();
+        // Should be a reasonable timestamp in nanoseconds
+        assert!(timestamp > 1577836800000000000);
+        assert!(timestamp < 4102444800000000000);
+    }
+
+    #[test]
+    fn test_timestamp_precision_relationships() {
+        // Take snapshots close in time
+        let secs = unix_timestamp_secs();
+        let millis = unix_timestamp_millis();
+        let micros = unix_timestamp_micros();
+        let nanos = unix_timestamp_nanos();
+
+        // Verify the relationships (allowing for small timing differences)
+        assert!((millis / 1000).abs_diff(secs) <= 1);
+        assert!((micros / 1_000_000).abs_diff(secs) <= 1);
+        assert!((nanos / 1_000_000_000).abs_diff(secs as u128) <= 1);
     }
 }

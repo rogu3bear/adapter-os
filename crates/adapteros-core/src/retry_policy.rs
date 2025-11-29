@@ -23,6 +23,8 @@ pub struct RetryPolicy {
     pub backoff_factor: f64,
     /// Jitter factor (0.0 = no jitter, 1.0 = full jitter)
     pub jitter: bool,
+    /// Use deterministic jitter (for deterministic contexts like inference/training)
+    pub deterministic_jitter: bool,
     /// Circuit breaker configuration
     pub circuit_breaker: Option<CircuitBreakerConfig>,
     /// Retry budget configuration
@@ -39,6 +41,7 @@ impl Default for RetryPolicy {
             max_delay: Duration::from_secs(30),
             backoff_factor: 2.0,
             jitter: true,
+            deterministic_jitter: false,
             circuit_breaker: Some(CircuitBreakerConfig::default()),
             budget: Some(RetryBudgetConfig::default()),
             service_type: "default".to_string(),
@@ -55,6 +58,7 @@ impl RetryPolicy {
             max_delay: Duration::from_millis(500),
             backoff_factor: 2.0,
             jitter: true,
+            deterministic_jitter: false,
             circuit_breaker: Some(CircuitBreakerConfig {
                 failure_threshold: 5,
                 success_threshold: 2,
@@ -74,6 +78,7 @@ impl RetryPolicy {
             max_delay: Duration::from_secs(60),
             backoff_factor: 1.5,
             jitter: true,
+            deterministic_jitter: false,
             circuit_breaker: Some(CircuitBreakerConfig {
                 failure_threshold: 3,
                 success_threshold: 2,
@@ -93,6 +98,7 @@ impl RetryPolicy {
             max_delay: Duration::from_secs(10),
             backoff_factor: 1.5,
             jitter: true,
+            deterministic_jitter: false,
             circuit_breaker: Some(CircuitBreakerConfig {
                 failure_threshold: 5,
                 success_threshold: 3,
@@ -117,6 +123,7 @@ impl RetryPolicy {
             max_delay: Duration::from_secs(30),
             backoff_factor: 2.0,
             jitter: true,
+            deterministic_jitter: false,
             circuit_breaker: Some(CircuitBreakerConfig {
                 failure_threshold: 3,
                 success_threshold: 2,
@@ -407,6 +414,30 @@ impl RetryManager {
         cb_result
     }
 
+    /// Generate deterministic or random jitter based on policy
+    fn generate_jitter(policy: &RetryPolicy, delay: Duration, attempt: u32) -> Duration {
+        let jitter_range = (delay.as_millis() as f64 * 0.1) as u64; // 10% jitter
+        if jitter_range == 0 {
+            return Duration::ZERO;
+        }
+
+        let jitter_amount = if policy.deterministic_jitter {
+            // Use HKDF-based deterministic jitter
+            use hkdf::Hkdf;
+            use sha2::Sha256;
+            let label = format!("retry_jitter:{}:{}", policy.service_type, attempt);
+            let hk = Hkdf::<Sha256>::new(Some(label.as_bytes()), b"adapteros-retry");
+            let mut seed_bytes = [0u8; 8];
+            hk.expand(&[], &mut seed_bytes).unwrap();
+            u64::from_le_bytes(seed_bytes) % jitter_range
+        } else {
+            fastrand::Rng::new().u64(0..jitter_range)
+        };
+
+        Duration::from_millis(jitter_amount)
+    }
+
+
     /// Execute operation with retry logic
     async fn execute_with_retry<F, T>(
         &self,
@@ -456,11 +487,7 @@ impl RetryManager {
 
                         // Apply jitter if enabled
                         if policy.jitter {
-                            let jitter_range = (delay.as_millis() as f64 * 0.1) as u64; // 10% jitter
-                            if jitter_range > 0 {
-                                let jitter_amount = fastrand::Rng::new().u64(0..jitter_range);
-                                delay += Duration::from_millis(jitter_amount);
-                            }
+                            delay += Self::generate_jitter(policy, delay, attempt);
                         }
 
                         // Apply exponential backoff
