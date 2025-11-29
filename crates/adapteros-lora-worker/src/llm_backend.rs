@@ -65,81 +65,12 @@ impl LocalLlmBackend {
 
     /// Create a prompt for patch generation
     fn create_patch_prompt(&self, context: &PatchContext) -> String {
-        let evidence_text = if context.evidence_summary.is_empty() {
-            "No evidence provided.".to_string()
-        } else {
-            format!("Evidence:\n{}", context.evidence_summary)
-        };
-
-        let file_contexts_text = context
-            .file_contexts
-            .iter()
-            .map(|(file, content)| format!("File: {}\n```\n{}\n```", file, content))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        let constraints_text = if context.constraints.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "\nConstraints:\n{}",
-                context
-                    .constraints
-                    .iter()
-                    .map(|c| format!("- {}", c))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )
-        };
-
-        format!(
-            r#"<|im_start|>system
-You are an expert code assistant that generates precise, well-documented patches.
-Generate a patch that addresses the given description using the provided evidence and context.
-
-Output Format:
-1. First, provide a rationale explaining the changes
-2. Then, provide the patch in unified diff format
-
-<|im_end|>
-<|im_start|>user
-Description: {}
-
-{}
-
-File Contexts:
-{}
-{}
-
-Generate a patch addressing this description. Include:
-1. A clear rationale (2-3 sentences)
-2. The patch in unified diff format
-
-<|im_end|>
-<|im_start|>assistant
-"#,
-            context.request.description, evidence_text, file_contexts_text, constraints_text
-        )
+        crate::patch_generator::create_patch_prompt(context)
     }
 
     /// Parse rationale and patch from generated text
     fn parse_response(&self, response: &str) -> (String, String) {
-        // Try to extract rationale (before patch)
-        let parts: Vec<&str> = response.split("---").collect();
-
-        if parts.len() >= 2 {
-            let rationale = parts[0].trim().to_string();
-            let patch = format!("---{}", parts[1..].join("---"));
-            (rationale, patch)
-        } else if response.contains("diff --git") {
-            let parts: Vec<&str> = response.split("diff --git").collect();
-            let rationale = parts[0].trim().to_string();
-            let patch = format!("diff --git{}", parts[1..].join("diff --git"));
-            (rationale, patch)
-        } else {
-            // No clear patch format, treat as rationale only
-            (response.trim().to_string(), String::new())
-        }
+        crate::patch_generator::parse_patch_response(response)
     }
 
     /// Generate text using MLX model
@@ -253,74 +184,14 @@ impl RemoteLlmBackend {
         self
     }
 
-    /// Create a prompt for patch generation (mirrors LocalLlmBackend)
+    /// Create a prompt for patch generation
     fn create_patch_prompt(&self, context: &PatchContext) -> String {
-        let evidence_text = if context.evidence_summary.is_empty() {
-            "No evidence provided.".to_string()
-        } else {
-            format!("Evidence:\n{}", context.evidence_summary)
-        };
-
-        let file_contexts_text = context
-            .file_contexts
-            .iter()
-            .map(|(file, content)| format!("File: {}\n```\n{}\n```", file, content))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        let constraints_text = if context.constraints.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "\nConstraints:\n{}",
-                context
-                    .constraints
-                    .iter()
-                    .map(|c| format!("- {}", c))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )
-        };
-
-        format!(
-            r#"You are an expert code assistant that generates precise, well-documented patches.
-Generate a patch that addresses the given description using the provided evidence and context.
-
-Output Format:
-1. First, provide a rationale explaining the changes
-2. Then, provide the patch in unified diff format
-
-Description: {}
-
-{}
-
-File Contexts:
-{}
-{}
-
-Generate a patch addressing this description. Include:
-1. A clear rationale (2-3 sentences)
-2. The patch in unified diff format"#,
-            context.request.description, evidence_text, file_contexts_text, constraints_text
-        )
+        crate::patch_generator::create_patch_prompt(context)
     }
 
     /// Parse rationale and patch from generated text
     fn parse_response(&self, response: &str) -> (String, String) {
-        let parts: Vec<&str> = response.split("---").collect();
-
-        if parts.len() >= 2 {
-            let rationale = parts[0].trim().to_string();
-            let patch = format!("---{}", parts[1..].join("---"));
-            (rationale, patch)
-        } else if response.contains("diff --git") {
-            let parts: Vec<&str> = response.split("diff --git").collect();
-            let rationale = parts[0].trim().to_string();
-            let patch = format!("diff --git{}", parts[1..].join("diff --git"));
-            (rationale, patch)
-        } else {
-            (response.trim().to_string(), String::new())
-        }
+        crate::patch_generator::parse_patch_response(response)
     }
 
     /// Call the remote LLM API
