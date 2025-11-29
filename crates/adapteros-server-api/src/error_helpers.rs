@@ -149,3 +149,105 @@ pub fn not_implemented(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
         Json(ErrorResponse::new(msg).with_code("FEATURE_DISABLED")),
     )
 }
+
+/// Database error handler with custom message - logs the error and returns a 500 response
+///
+/// Similar to `db_error` but allows customizing the error message shown to the user.
+///
+/// # Example
+/// ```ignore
+/// state.db.create_tenant(&name).await.map_err(|e| db_error_msg("failed to create tenant", e))?;
+/// ```
+pub fn db_error_msg<E: std::fmt::Display>(msg: &str, e: E) -> (StatusCode, Json<ErrorResponse>) {
+    error!("Database error ({}): {}", msg, e);
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(
+            ErrorResponse::new(msg)
+                .with_code("INTERNAL_SERVER_ERROR")
+                .with_string_details(e.to_string()),
+        ),
+    )
+}
+
+/// Standard database error with "database error" message and details
+///
+/// This matches the most common pattern in the codebase of using "database error" as the message.
+///
+/// # Example
+/// ```ignore
+/// state.db.get_tenant(&id).await.map_err(db_error_with_details)?;
+/// ```
+pub fn db_error_with_details<E: std::fmt::Display>(e: E) -> (StatusCode, Json<ErrorResponse>) {
+    db_error_msg("database error", e)
+}
+
+/// Not found error with custom details
+///
+/// # Example
+/// ```ignore
+/// node.ok_or_else(|| not_found_with_details("node not found", format!("Node ID: {}", id)))?;
+/// ```
+pub fn not_found_with_details(msg: &str, details: String) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(
+            ErrorResponse::new(msg)
+                .with_code("NOT_FOUND")
+                .with_string_details(details),
+        ),
+    )
+}
+
+/// Bad gateway error - returns a 502 response
+///
+/// Used when a downstream service fails or returns an error.
+///
+/// # Example
+/// ```ignore
+/// client.post(&url).send().await.map_err(|e| bad_gateway("failed to contact node agent", e))?;
+/// ```
+pub fn bad_gateway<E: std::fmt::Display>(msg: &str, e: E) -> (StatusCode, Json<ErrorResponse>) {
+    error!("Bad gateway ({}): {}", msg, e);
+    (
+        StatusCode::BAD_GATEWAY,
+        Json(
+            ErrorResponse::new(msg)
+                .with_code("INTERNAL_SERVER_ERROR")
+                .with_string_details(e.to_string()),
+        ),
+    )
+}
+
+/// Internal error with custom message and details
+///
+/// # Example
+/// ```ignore
+/// response.json().await.map_err(|e| internal_error_msg("failed to parse response", e))?;
+/// ```
+pub fn internal_error_msg<E: std::fmt::Display>(msg: &str, e: E) -> (StatusCode, Json<ErrorResponse>) {
+    error!("Internal error ({}): {}", msg, e);
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(
+            ErrorResponse::new(msg)
+                .with_code("INTERNAL_SERVER_ERROR")
+                .with_string_details(e.to_string()),
+        ),
+    )
+}
+
+/// Service unavailable error - returns a 503 response
+///
+/// Used when a required service is temporarily unavailable.
+///
+/// # Example
+/// ```ignore
+/// if !service.is_ready() { return Err(service_unavailable("Worker service is starting up")); }
+/// ```
+pub fn service_unavailable(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ErrorResponse::new(msg).with_code("SERVICE_UNAVAILABLE")),
+    )
+}

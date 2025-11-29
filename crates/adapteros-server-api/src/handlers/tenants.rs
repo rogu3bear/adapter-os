@@ -6,6 +6,7 @@
 //! 【2025-01-20†modularity†tenant_handlers】
 
 use crate::auth::Claims;
+use crate::error_helpers::{db_error_msg, db_error_with_details};
 use crate::middleware::require_role;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -28,16 +29,7 @@ pub async fn list_tenants(
         .db
         .list_tenants_paginated(pagination.limit as i64, offset as i64)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(db_error_with_details)?;
 
     let data: Vec<TenantResponse> = tenants
         .into_iter()
@@ -82,27 +74,9 @@ pub async fn create_tenant(
         .db
         .create_tenant(&req.name, req.itar_flag)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to create tenant")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| db_error_msg("failed to create tenant", e))?;
 
-    let tenant = state.db.get_tenant(&id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let tenant = state.db.get_tenant(&id).await.map_err(db_error_with_details)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -159,16 +133,7 @@ pub async fn get_default_stack(
     // Users can only view default stack for their own tenant (or admin with explicit access)
     validate_tenant_isolation(&claims, &tenant_id)?;
 
-    let stack_id = state.db.get_default_stack(&tenant_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let stack_id = state.db.get_default_stack(&tenant_id).await.map_err(db_error_with_details)?;
 
     let stack_id = stack_id.ok_or_else(|| {
         (
@@ -220,14 +185,7 @@ pub async fn set_default_stack(
                     Json(ErrorResponse::new("Stack not found for tenant").with_code("NOT_FOUND")),
                 )
             } else {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(error_str),
-                    ),
-                )
+                db_error_with_details(error_str)
             }
         })?;
 
@@ -274,16 +232,7 @@ pub async fn clear_default_stack(
         .db
         .clear_default_stack(&tenant_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(db_error_with_details)?;
 
     // Audit log: default stack cleared
     let _ = crate::audit_helper::log_success(
@@ -327,16 +276,7 @@ pub async fn update_tenant(
             .db
             .rename_tenant(&tenant_id, &name)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update tenant name")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+            .map_err(|e| db_error_msg("failed to update tenant name", e))?;
     }
 
     // Update ITAR flag if provided
@@ -345,16 +285,7 @@ pub async fn update_tenant(
             .db
             .update_tenant_itar_flag(&tenant_id, itar_flag)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update ITAR flag")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+            .map_err(|e| db_error_msg("failed to update ITAR flag", e))?;
     }
 
     // Update limits if any provided
@@ -373,29 +304,11 @@ pub async fn update_tenant(
                 req.rate_limit_rpm,
             )
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update tenant limits")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+            .map_err(|e| db_error_msg("failed to update tenant limits", e))?;
     }
 
     // Fetch updated tenant
-    let tenant = state.db.get_tenant(&tenant_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let tenant = state.db.get_tenant(&tenant_id).await.map_err(db_error_with_details)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -451,30 +364,12 @@ pub async fn pause_tenant(
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
 
-    state.db.pause_tenant(&tenant_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to pause tenant")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state.db.pause_tenant(&tenant_id).await.map_err(|e| db_error_msg("failed to pause tenant", e))?;
 
     // Invalidate tenant from dashboard cache so middleware re-validates on next request
     state.dashboard_cache.invalidate_tenant(&tenant_id).await;
 
-    let tenant = state.db.get_tenant(&tenant_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let tenant = state.db.get_tenant(&tenant_id).await.map_err(db_error_with_details)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -530,30 +425,12 @@ pub async fn archive_tenant(
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
 
-    state.db.archive_tenant(&tenant_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to archive tenant")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state.db.archive_tenant(&tenant_id).await.map_err(|e| db_error_msg("failed to archive tenant", e))?;
 
     // Invalidate tenant from dashboard cache so middleware rejects stale tokens
     state.dashboard_cache.invalidate_tenant(&tenant_id).await;
 
-    let tenant = state.db.get_tenant(&tenant_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let tenant = state.db.get_tenant(&tenant_id).await.map_err(db_error_with_details)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -611,16 +488,7 @@ pub async fn get_tenant_usage(
     // Users can only view usage for their own tenant (or admin with explicit access)
     validate_tenant_isolation(&claims, &tenant_id)?;
 
-    let usage = state.db.get_tenant_usage(&tenant_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to get tenant usage")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let usage = state.db.get_tenant_usage(&tenant_id).await.map_err(|e| db_error_msg("failed to get tenant usage", e))?;
 
     Ok(Json(TenantUsageResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -666,16 +534,7 @@ pub async fn assign_policies_to_tenant(
             .db
             .assign_policy_to_tenant(&tenant_id, &policy_id, &assigned_by)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to assign policy")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+            .map_err(|e| db_error_msg("failed to assign policy", e))?;
     }
 
     // Audit log: policies assigned
@@ -721,16 +580,7 @@ pub async fn assign_adapters_to_tenant(
             .db
             .assign_adapter_to_tenant(&tenant_id, &adapter_id, &assigned_by)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to assign adapter")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+            .map_err(|e| db_error_msg("failed to assign adapter", e))?;
     }
 
     // Audit log: adapters assigned
