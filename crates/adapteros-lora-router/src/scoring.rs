@@ -157,6 +157,7 @@ impl ScoringFunction for EntropyFloorScorer {
             gates_q15,
             entropy,
             candidates,
+            decision_hash: None, // Scoring functions don't use decision hashing
         }
     }
 }
@@ -284,6 +285,7 @@ impl ScoringFunction for AdapterAwareScorer {
             gates_q15,
             entropy,
             candidates,
+            decision_hash: None, // Scoring functions don't use decision hashing
         }
     }
 }

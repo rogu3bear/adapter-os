@@ -7,6 +7,7 @@
 
 pub mod calibration;
 pub mod code_features;
+pub mod constants;
 pub mod features;
 pub mod framework_routing;
 pub mod metrics;
@@ -19,6 +20,47 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::collections::HashSet;
 
+/// Router determinism configuration
+///
+/// Controls deterministic floating-point behavior and decision hashing
+/// to ensure reproducible routing decisions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouterDeterminismConfig {
+    /// Use IEEE 754 deterministic softmax with f64 intermediate precision and Kahan summation
+    pub ieee754_deterministic: bool,
+    /// Enable decision hashing with BLAKE3 for audit trail
+    pub enable_decision_hashing: bool,
+}
+
+impl Default for RouterDeterminismConfig {
+    fn default() -> Self {
+        Self {
+            ieee754_deterministic: true,  // Enabled by default for reproducibility
+            enable_decision_hashing: true, // Enabled by default for audit trail
+        }
+    }
+}
+
+/// Decision hash for audit and reproducibility verification
+///
+/// Contains BLAKE3 hash of routing inputs and outputs, along with metadata
+/// to enable determinism proofs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionHash {
+    /// BLAKE3 hash of input features and priors
+    pub input_hash: String,
+    /// BLAKE3 hash of output indices and gates
+    pub output_hash: String,
+    /// Combined hash of input + output for compact verification
+    pub combined_hash: String,
+    /// Tau (temperature) used in this decision
+    pub tau: f32,
+    /// Epsilon (entropy floor) used in this decision
+    pub eps: f32,
+    /// K (number of selected adapters)
+    pub k: usize,
+}
+
 // Telemetry imports
 use adapteros_telemetry::events::{RouterCandidate as TelemetryCandidate, RouterDecisionEvent};
 use adapteros_telemetry::writer::RouterDecisionWriter;
@@ -27,6 +69,7 @@ pub use calibration::{
     CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod, ValidationMetrics,
 };
 pub use code_features::{CodeFeatureExtractor, CodeFeatures as CodeFeaturesExt};
+pub use constants::*;
 pub use features::{extract_attn_entropy, CodeFeatures, PromptVerb};
 pub use framework_routing::{
     compute_framework_scores, FrameworkRoutingContext, FrameworkRoutingScore,
@@ -147,8 +190,6 @@ impl RouterWeights {
     }
 }
 
-pub const MAX_K: usize = 8;
-
 /// Router for selecting K adapters with quantized gates
 pub struct Router {
     /// Feature weights for scoring
@@ -188,6 +229,10 @@ pub struct Router {
     telemetry_writer: Option<RouterDecisionWriter>,
     /// Current step counter for telemetry correlation
     step_counter: usize,
+
+    // Determinism controls
+    /// Determinism configuration for reproducible routing
+    determinism_config: RouterDeterminismConfig,
 }
 
 impl Router {
@@ -209,6 +254,7 @@ impl Router {
             active_stack_hash: None,
             telemetry_writer: None,
             step_counter: 0,
+            determinism_config: RouterDeterminismConfig::default(),
         }
     }
 
@@ -256,6 +302,7 @@ impl Router {
             active_stack_hash: None,
             telemetry_writer: None,
             step_counter: 0,
+            determinism_config: RouterDeterminismConfig::default(),
         }
     }
 
@@ -267,6 +314,21 @@ impl Router {
     /// Clear the telemetry writer (useful for testing)
     pub fn clear_telemetry_writer(&mut self) {
         self.telemetry_writer = None;
+    }
+
+    /// Set determinism configuration
+    pub fn set_determinism_config(&mut self, config: RouterDeterminismConfig) {
+        self.determinism_config = config;
+    }
+
+    /// Get current determinism configuration
+    pub fn determinism_config(&self) -> &RouterDeterminismConfig {
+        &self.determinism_config
+    }
+
+    /// Get the full log token count (for testing)
+    pub fn full_log_tokens(&self) -> usize {
+        self.full_log_tokens
     }
 
     /// Emit a router decision telemetry event (non-blocking)
@@ -722,6 +784,7 @@ impl Router {
             gates_q15,
             entropy,
             candidates: candidate_entries,
+            decision_hash: None, // Deprecated method doesn't use decision hashing
         };
 
         // Emit telemetry event (non-blocking)
@@ -737,6 +800,113 @@ impl Router {
             .filter(|&&g| g > 0.0)
             .map(|&g| -g * g.log2())
             .sum()
+    }
+
+    /// Deterministic softmax using f64 intermediate precision and Kahan summation
+    ///
+    /// This implementation provides IEEE 754 deterministic behavior by:
+    /// 1. Using f64 for intermediate computations to reduce rounding errors
+    /// 2. Kahan summation for numerically stable sum calculation
+    /// 3. Consistent ordering of operations
+    ///
+    /// # Arguments
+    /// * `logits` - Input scores (raw logits)
+    /// * `tau` - Temperature parameter for softmax
+    ///
+    /// # Returns
+    /// Softmax probabilities as f32 (converted from f64 intermediate precision)
+    fn deterministic_softmax(logits: &[(usize, f32)], tau: f32) -> Vec<f32> {
+        if logits.is_empty() {
+            return Vec::new();
+        }
+
+        // Find max for numerical stability (use f64 for intermediate computation)
+        let max = logits
+            .iter()
+            .map(|(_, score)| *score as f64)
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        // Compute exponentials and sum using Kahan summation for numerical stability
+        let mut sum = 0.0f64;
+        let mut c = 0.0f64; // Kahan summation compensation
+        let exps: Vec<f64> = logits
+            .iter()
+            .map(|(_, score)| {
+                let exp = (((*score as f64) - max) / (tau as f64)).exp();
+
+                // Kahan summation: accumulate with compensation for lost low-order bits
+                let y = exp - c;
+                let t = sum + y;
+                c = (t - sum) - y;
+                sum = t;
+
+                exp
+            })
+            .collect();
+
+        // Normalize and convert back to f32
+        if sum == 0.0 {
+            // All logits were -inf, return uniform distribution
+            let uniform = 1.0f32 / logits.len() as f32;
+            vec![uniform; logits.len()]
+        } else {
+            exps.iter().map(|&e| (e / sum) as f32).collect()
+        }
+    }
+
+    /// Compute decision hash for audit and reproducibility verification
+    ///
+    /// Hashes both inputs and outputs to create a verifiable audit trail.
+    ///
+    /// # Arguments
+    /// * `features` - Input feature vector
+    /// * `priors` - Input prior scores
+    /// * `indices` - Output adapter indices
+    /// * `gates_q15` - Output quantized gates
+    ///
+    /// # Returns
+    /// DecisionHash containing input, output, and combined hashes
+    fn compute_decision_hash(
+        &self,
+        features: &[f32],
+        priors: &[f32],
+        indices: &[u16],
+        gates_q15: &[i16],
+    ) -> DecisionHash {
+        // Hash inputs (features + priors)
+        let mut input_bytes = Vec::new();
+        for &f in features {
+            input_bytes.extend_from_slice(&f.to_le_bytes());
+        }
+        for &p in priors {
+            input_bytes.extend_from_slice(&p.to_le_bytes());
+        }
+        let input_hash = B3Hash::hash(&input_bytes);
+
+        // Hash outputs (indices + gates)
+        let mut output_bytes = Vec::new();
+        for &idx in indices {
+            output_bytes.extend_from_slice(&idx.to_le_bytes());
+        }
+        for &gate in gates_q15 {
+            output_bytes.extend_from_slice(&gate.to_le_bytes());
+        }
+        let output_hash = B3Hash::hash(&output_bytes);
+
+        // Combine both hashes for compact verification
+        let mut combined_bytes = Vec::new();
+        combined_bytes.extend_from_slice(input_hash.as_bytes());
+        combined_bytes.extend_from_slice(output_hash.as_bytes());
+        let combined_hash = B3Hash::hash(&combined_bytes);
+
+        DecisionHash {
+            input_hash: input_hash.to_short_hex(),
+            output_hash: output_hash.to_short_hex(),
+            combined_hash: combined_hash.to_short_hex(),
+            tau: self.tau,
+            eps: self.eps,
+            k: self.k,
+        }
     }
 
     /// Compute per-adapter orthogonality penalty
@@ -815,19 +985,25 @@ impl Router {
         // Take top K
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
 
-        // Softmax with temperature
-        let max_score = top_k
-            .iter()
-            .map(|(_, s)| s)
-            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let exp_scores: Vec<f32> = top_k
-            .iter()
-            .map(|(_, s)| ((s - max_score) / self.tau).exp())
-            .collect();
-        let sum_exp: f32 = exp_scores.iter().sum();
+        // Apply softmax with temperature
+        let mut gates: Vec<f32> = if self.determinism_config.ieee754_deterministic {
+            // Use deterministic softmax with f64 intermediate precision and Kahan summation
+            Self::deterministic_softmax(&top_k, self.tau)
+        } else {
+            // Standard f32 softmax (may have platform-dependent rounding)
+            let max_score = top_k
+                .iter()
+                .map(|(_, s)| s)
+                .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            let exp_scores: Vec<f32> = top_k
+                .iter()
+                .map(|(_, s)| ((s - max_score) / self.tau).exp())
+                .collect();
+            let sum_exp: f32 = exp_scores.iter().sum();
+            exp_scores.iter().map(|e| e / sum_exp).collect()
+        };
 
-        // Normalize and apply entropy floor
-        let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
+        // Apply entropy floor
         let min_gate = self.eps / self.k as f32;
         for g in &mut gates {
             *g = g.max(min_gate);
@@ -872,11 +1048,20 @@ impl Router {
             }
         }
 
+        // Compute decision hash if enabled
+        let decision_hash = if self.determinism_config.enable_decision_hashing {
+            let feature_vec: Vec<f32> = features.to_vec();
+            Some(self.compute_decision_hash(&feature_vec, priors, &indices, &gates_q15))
+        } else {
+            None
+        };
+
         let decision = Decision {
             indices,
             gates_q15,
             entropy,
             candidates: candidate_entries,
+            decision_hash,
         };
 
         // Emit telemetry event (non-blocking)
@@ -910,6 +1095,7 @@ impl Router {
                 gates_q15: SmallVec::new(),
                 entropy: 0.0,
                 candidates: Vec::new(),
+                decision_hash: None,
             };
         }
 
@@ -937,6 +1123,7 @@ impl Router {
                 gates_q15: SmallVec::new(),
                 entropy: 0.0,
                 candidates: Vec::new(),
+                decision_hash: None,
             };
         }
 
@@ -1005,6 +1192,7 @@ impl Router {
             gates_q15,
             entropy,
             candidates: candidate_entries,
+            decision_hash: None, // Deprecated method doesn't use decision hashing
         };
 
         // Emit telemetry event (non-blocking)
@@ -1199,6 +1387,8 @@ pub struct Decision {
     pub gates_q15: SmallVec<[i16; 8]>,
     pub entropy: f32,
     pub candidates: Vec<DecisionCandidate>,
+    /// Optional decision hash for audit and reproducibility verification
+    pub decision_hash: Option<DecisionHash>,
 }
 
 impl Decision {
@@ -1548,6 +1738,210 @@ mod tests {
             "Higher entropy floor should result in higher minimum gate: {} vs {}",
             actual_min_high,
             actual_min_low
+        );
+    }
+
+    #[test]
+    fn test_deterministic_softmax_reproducibility() {
+        // Test that deterministic softmax produces identical results across multiple runs
+        let scores = vec![
+            (0, 0.9f32),
+            (1, 0.5f32),
+            (2, 0.3f32),
+            (3, 0.1f32),
+        ];
+        let tau = 1.0f32;
+
+        // Run deterministic softmax multiple times
+        let result1 = Router::deterministic_softmax(&scores, tau);
+        let result2 = Router::deterministic_softmax(&scores, tau);
+        let result3 = Router::deterministic_softmax(&scores, tau);
+
+        // All results should be identical
+        assert_eq!(result1.len(), result2.len());
+        assert_eq!(result2.len(), result3.len());
+
+        for i in 0..result1.len() {
+            assert_eq!(
+                result1[i], result2[i],
+                "Deterministic softmax should produce identical results (run 1 vs 2)"
+            );
+            assert_eq!(
+                result2[i], result3[i],
+                "Deterministic softmax should produce identical results (run 2 vs 3)"
+            );
+        }
+
+        // Results should sum to approximately 1.0
+        let sum: f32 = result1.iter().sum();
+        assert!((sum - 1.0).abs() < 0.0001, "Softmax should sum to 1.0");
+    }
+
+    #[test]
+    fn test_decision_hash_computation() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Enable decision hashing
+        let mut config = RouterDeterminismConfig::default();
+        config.enable_decision_hashing = true;
+        router.set_determinism_config(config);
+
+        let features = vec![0.5f32; 10];
+        let priors = vec![0.1, 0.9, 0.5, 0.3, 0.7];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
+
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+
+        // Decision should have a hash
+        assert!(
+            decision.decision_hash.is_some(),
+            "Decision should have hash when hashing is enabled"
+        );
+
+        let hash = decision.decision_hash.unwrap();
+
+        // Hash should have all fields populated
+        assert!(!hash.input_hash.is_empty(), "Input hash should be populated");
+        assert!(
+            !hash.output_hash.is_empty(),
+            "Output hash should be populated"
+        );
+        assert!(
+            !hash.combined_hash.is_empty(),
+            "Combined hash should be populated"
+        );
+        assert_eq!(hash.tau, 1.0, "Tau should match router config");
+        assert_eq!(hash.eps, 0.02, "Eps should match router config");
+        assert_eq!(hash.k, 3, "K should match router config");
+    }
+
+    #[test]
+    fn test_decision_hash_reproducibility() {
+        // Test that identical inputs produce identical hashes
+        let mut router1 = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+        let mut router2 = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Enable decision hashing on both
+        let config = RouterDeterminismConfig::default();
+        router1.set_determinism_config(config.clone());
+        router2.set_determinism_config(config);
+
+        let features = vec![0.5f32; 10];
+        let priors = vec![0.1, 0.9, 0.5, 0.3, 0.7];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
+
+        let decision1 = router1.route_with_adapter_info(&features, &priors, &adapter_info);
+        let decision2 = router2.route_with_adapter_info(&features, &priors, &adapter_info);
+
+        // Both decisions should have hashes
+        assert!(decision1.decision_hash.is_some());
+        assert!(decision2.decision_hash.is_some());
+
+        let hash1 = decision1.decision_hash.unwrap();
+        let hash2 = decision2.decision_hash.unwrap();
+
+        // Hashes should be identical for identical inputs
+        assert_eq!(
+            hash1.input_hash, hash2.input_hash,
+            "Input hashes should match for identical inputs"
+        );
+        assert_eq!(
+            hash1.output_hash, hash2.output_hash,
+            "Output hashes should match for deterministic routing"
+        );
+        assert_eq!(
+            hash1.combined_hash, hash2.combined_hash,
+            "Combined hashes should match"
+        );
+    }
+
+    #[test]
+    fn test_ieee754_deterministic_flag() {
+        // Test that the IEEE 754 deterministic flag is respected
+        let mut router_deterministic =
+            Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+        let mut router_standard = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Enable deterministic mode for first router
+        let mut config_det = RouterDeterminismConfig::default();
+        config_det.ieee754_deterministic = true;
+        router_deterministic.set_determinism_config(config_det);
+
+        // Disable deterministic mode for second router
+        let mut config_std = RouterDeterminismConfig::default();
+        config_std.ieee754_deterministic = false;
+        router_standard.set_determinism_config(config_std);
+
+        let features = vec![0.5f32; 10];
+        let priors = vec![0.1, 0.9, 0.5, 0.3, 0.7];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
+
+        let decision_det =
+            router_deterministic.route_with_adapter_info(&features, &priors, &adapter_info);
+        let decision_std =
+            router_standard.route_with_adapter_info(&features, &priors, &adapter_info);
+
+        // Both should produce valid decisions
+        assert_eq!(decision_det.indices.len(), 3);
+        assert_eq!(decision_std.indices.len(), 3);
+
+        // Gates should sum to approximately 1.0 in both cases
+        let sum_det: f32 = decision_det.gates_f32().iter().sum();
+        let sum_std: f32 = decision_std.gates_f32().iter().sum();
+        assert!((sum_det - 1.0).abs() < 0.01);
+        assert!((sum_std - 1.0).abs() < 0.01);
+
+        // For these simple inputs, results should be very close (may differ in last bits)
+        // We don't assert exact equality since f32 vs f64 paths may differ slightly
+    }
+
+    #[test]
+    fn test_decision_hash_disabled() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Disable decision hashing
+        let mut config = RouterDeterminismConfig::default();
+        config.enable_decision_hashing = false;
+        router.set_determinism_config(config);
+
+        let features = vec![0.5f32; 10];
+        let priors = vec![0.1, 0.9, 0.5, 0.3, 0.7];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
+
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+
+        // Decision should NOT have a hash when disabled
+        assert!(
+            decision.decision_hash.is_none(),
+            "Decision should not have hash when hashing is disabled"
         );
     }
 }
