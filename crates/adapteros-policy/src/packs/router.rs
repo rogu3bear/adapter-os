@@ -733,36 +733,15 @@ mod tests {
         let config = RouterConfig::default();
         let policy = RouterPolicy::new(config);
 
-        let stack = StackConfiguration {
-            id: "test-stack".to_string(),
-            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string(), "a4".to_string()],
-            adapters: vec![
-                AdapterMetadata {
-                    id: "a1".to_string(),
-                    tier: "tier_1".to_string(),
-                    tags: vec![],
-                    forbidden_peers: vec!["a2".to_string()],
-                },
-                AdapterMetadata {
-                    id: "a2".to_string(),
-                    tier: "tier_0".to_string(),
-                    tags: vec![],
-                    forbidden_peers: vec![],
-                },
-                AdapterMetadata {
-                    id: "a3".to_string(),
-                    tier: "tier_2".to_string(),
-                    tags: vec![],
-                    forbidden_peers: vec![],
-                },
-                AdapterMetadata {
-                    id: "a4".to_string(),
-                    tier: "tier_0".to_string(),
-                    tags: vec![],
-                    forbidden_peers: vec![],
-                },
+        let stack = create_stack(
+            "test-stack",
+            vec![
+                create_adapter("a1", "tier_1", vec![], vec!["a2".to_string()]),
+                create_adapter("a2", "tier_0", vec![], vec![]),
+                create_adapter("a3", "tier_2", vec![], vec![]),
+                create_adapter("a4", "tier_0", vec![], vec![]),
             ],
-        };
+        );
 
         // Selection includes both a1 (tier-1) and a2 (forbidden peer)
         let selected_indices = vec![0, 1, 2, 3];

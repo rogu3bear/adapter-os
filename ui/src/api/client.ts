@@ -4672,6 +4672,108 @@ class ApiClient {
   // ============================================================================
   // Document API Methods
   // ============================================================================
+  // Chat Sharing API Methods
+  // ============================================================================
+
+  /**
+   * Share a chat session with users or workspace
+   *
+   * POST /v1/chat/sessions/:session_id/shares
+   *
+   * @param sessionId - Session ID
+   * @param request - Share request with user_ids/workspace_id and permission level
+   * @returns Share response with created share IDs
+   */
+  async shareSession(
+    sessionId: string,
+    request: chatTypes.ShareSessionRequest
+  ): Promise<chatTypes.ShareSessionResponse> {
+    logger.info('Sharing chat session', {
+      component: 'ApiClient',
+      operation: 'shareSession',
+      sessionId,
+      userCount: request.user_ids?.length || 0,
+      hasWorkspace: !!request.workspace_id,
+      permission: request.permission,
+    });
+
+    return this.request<chatTypes.ShareSessionResponse>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/shares`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
+
+  /**
+   * Get all shares for a chat session
+   *
+   * GET /v1/chat/sessions/:session_id/shares
+   *
+   * @param sessionId - Session ID
+   * @returns Array of session shares
+   */
+  async getSessionShares(sessionId: string): Promise<chatTypes.SessionShare[]> {
+    return this.request<chatTypes.SessionShare[]>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/shares`
+    );
+  }
+
+  /**
+   * Revoke a session share
+   *
+   * DELETE /v1/chat/sessions/:session_id/shares/:share_id
+   *
+   * @param sessionId - Session ID
+   * @param shareId - Share ID to revoke
+   * @param shareType - Type of share ('user' or 'workspace'), defaults to 'user'
+   */
+  async revokeSessionShare(
+    sessionId: string,
+    shareId: string,
+    shareType: 'user' | 'workspace' = 'user'
+  ): Promise<void> {
+    logger.info('Revoking session share', {
+      component: 'ApiClient',
+      operation: 'revokeSessionShare',
+      sessionId,
+      shareId,
+      shareType,
+    });
+
+    const params = new URLSearchParams();
+    params.append('type', shareType);
+
+    return this.request<void>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/shares/${encodeURIComponent(shareId)}?${params.toString()}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  /**
+   * Get chat sessions shared with the current user
+   *
+   * GET /v1/chat/sessions/shared-with-me
+   *
+   * @param query - Optional query parameters
+   * @returns Array of chat sessions shared with the current user
+   */
+  async getSessionsSharedWithMe(
+    query?: chatTypes.ListArchivedQuery
+  ): Promise<chatTypes.ChatSessionWithStatus[]> {
+    const params = new URLSearchParams();
+    if (query?.limit) params.append('limit', query.limit.toString());
+
+    const queryString = params.toString();
+    return this.request<chatTypes.ChatSessionWithStatus[]>(
+      `/v1/chat/sessions/shared-with-me${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  // ============================================================================
 
   /**
    * Upload a document for RAG indexing
