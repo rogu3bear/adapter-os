@@ -898,6 +898,7 @@ impl Db {
 pub use sqlx;
 pub use sqlx::Row;
 
+pub mod query_helpers;
 pub mod activity_events;
 pub use activity_events::ActivityEvent;
 pub mod adapter_snapshots;

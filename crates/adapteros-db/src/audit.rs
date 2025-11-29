@@ -3,6 +3,7 @@
 //! All sensitive operations are logged to the audit_logs table for compliance review.
 //! Audit logs are immutable and queryable for compliance officers and administrators.
 
+use crate::query_helpers::{db_err, FilterBuilder};
 use crate::Db;
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
@@ -265,50 +266,37 @@ impl Db {
         // Enforce maximum limit
         let limit = limit.min(1000);
 
-        let mut query = String::from(
+        // Use FilterBuilder to construct dynamic query
+        let mut builder = FilterBuilder::new(
             "SELECT id, timestamp, user_id, user_role, tenant_id, action, resource_type,
                     resource_id, status, error_message, ip_address, metadata_json
-             FROM audit_logs WHERE tenant_id = ?",
+             FROM audit_logs WHERE tenant_id = ?"
         );
-        let mut params: Vec<String> = vec![tenant_id.to_string()];
+        builder.add_param(tenant_id);
+        builder.add_filter("user_id", user_id);
+        builder.add_filter("action", action);
+        builder.add_filter("resource_type", resource_type);
 
-        if let Some(uid) = user_id {
-            query.push_str(" AND user_id = ?");
-            params.push(uid.to_string());
-        }
-
-        if let Some(act) = action {
-            query.push_str(" AND action = ?");
-            params.push(act.to_string());
-        }
-
-        if let Some(rt) = resource_type {
-            query.push_str(" AND resource_type = ?");
-            params.push(rt.to_string());
-        }
-
+        // Handle timestamp filters with custom operators
         if let Some(start) = start_date {
-            query.push_str(" AND timestamp >= ?");
-            params.push(start.to_string());
+            builder.push_str(" AND timestamp >= ?");
+            builder.add_param(start);
         }
-
         if let Some(end) = end_date {
-            query.push_str(" AND timestamp <= ?");
-            params.push(end.to_string());
+            builder.push_str(" AND timestamp <= ?");
+            builder.add_param(end);
         }
 
-        query.push_str(" ORDER BY timestamp DESC LIMIT ?");
-        params.push(limit.to_string());
+        builder.push_str(" ORDER BY timestamp DESC LIMIT ?");
+        builder.add_param(limit);
 
-        // Build query dynamically
-        let mut q = sqlx::query_as::<_, AuditLog>(&query);
-        for param in &params {
+        // Build and execute query
+        let mut q = sqlx::query_as::<_, AuditLog>(builder.query());
+        for param in builder.params() {
             q = q.bind(param);
         }
 
-        let logs = q.fetch_all(&*self.pool()).await.map_err(|e| {
-            AosError::Database(format!("Failed to query audit logs for tenant: {}", e))
-        })?;
+        let logs = q.fetch_all(&*self.pool()).await.map_err(db_err("query audit logs for tenant"))?;
         Ok(logs)
     }
 
@@ -572,7 +560,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to fetch audit logs for tenant: {}", e)))?;
+        .map_err(db_err("fetch audit logs for tenant"))?;
 
         if logs.is_empty() {
             return Ok(true); // Empty chain is valid

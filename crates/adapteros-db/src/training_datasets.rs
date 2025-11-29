@@ -1,5 +1,6 @@
 //! Training dataset database operations
 
+use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
@@ -129,7 +130,7 @@ impl Db {
         .bind(created_by)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create training dataset: {}", e)))?;
+        .map_err(db_err("create training dataset"))?;
         Ok(id)
     }
 
@@ -146,7 +147,7 @@ impl Db {
         .bind(dataset_id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get training dataset: {}", e)))?;
+        .map_err(db_err("get training dataset"))?;
         Ok(dataset)
     }
 
@@ -174,7 +175,7 @@ impl Db {
         .bind(limit)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to list training datasets: {}", e)))?;
+        .map_err(db_err("list training datasets"))?;
         Ok(datasets)
     }
 
@@ -246,7 +247,7 @@ impl Db {
         .bind(limit)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to list all training datasets (system): {}", e)))?;
+        .map_err(db_err("list all training datasets (system)"))?;
         Ok(datasets)
     }
 
@@ -256,7 +257,7 @@ impl Db {
             .bind(dataset_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete training dataset: {}", e)))?;
+            .map_err(db_err("delete training dataset"))?;
         Ok(())
     }
 
@@ -284,7 +285,7 @@ impl Db {
         .bind(mime_type)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to add dataset file: {}", e)))?;
+        .map_err(db_err("add dataset file"))?;
 
         // Update dataset file count and size
         sqlx::query(
@@ -298,7 +299,7 @@ impl Db {
         .bind(dataset_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update dataset file count: {}", e)))?;
+        .map_err(db_err("update dataset file count"))?;
 
         Ok(id)
     }
@@ -314,7 +315,7 @@ impl Db {
         .bind(dataset_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get dataset files: {}", e)))?;
+        .map_err(db_err("get dataset files"))?;
         Ok(files)
     }
 
@@ -335,7 +336,7 @@ impl Db {
         .bind(dataset_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update dataset validation: {}", e)))?;
+        .map_err(db_err("update dataset validation"))?;
         Ok(())
     }
 
@@ -365,7 +366,7 @@ impl Db {
         .bind(total_tokens)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to store dataset statistics: {}", e)))?;
+        .map_err(db_err("store dataset statistics"))?;
         Ok(())
     }
 
@@ -383,7 +384,7 @@ impl Db {
         .bind(dataset_id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get dataset statistics: {}", e)))?;
+        .map_err(db_err("get dataset statistics"))?;
         Ok(stats)
     }
 
@@ -421,7 +422,7 @@ impl Db {
         .bind(metadata_json)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create evidence entry: {}", e)))?;
+        .map_err(db_err("create evidence entry"))?;
         Ok(id)
     }
 
@@ -485,7 +486,7 @@ impl Db {
         let entries = sqlx_query
             .fetch_all(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to list evidence entries: {}", e)))?;
+            .map_err(db_err("list evidence entries"))?;
         Ok(entries)
     }
 
@@ -500,7 +501,7 @@ impl Db {
         .bind(id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get evidence entry: {}", e)))?;
+        .map_err(db_err("get evidence entry"))?;
         Ok(entry)
     }
 
@@ -516,7 +517,7 @@ impl Db {
         .bind(dataset_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get dataset evidence: {}", e)))?;
+        .map_err(db_err("get dataset evidence"))?;
         Ok(entries)
     }
 
@@ -532,7 +533,7 @@ impl Db {
         .bind(adapter_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get adapter evidence: {}", e)))?;
+        .map_err(db_err("get adapter evidence"))?;
         Ok(entries)
     }
 
@@ -568,7 +569,7 @@ impl Db {
             .bind(entry_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete evidence entry: {}", e)))?;
+            .map_err(db_err("delete evidence entry"))?;
         Ok(())
     }
 
@@ -595,7 +596,7 @@ impl Db {
         .bind(link_type)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create dataset-adapter link: {}", e)))?;
+        .map_err(db_err("create dataset-adapter link"))?;
         Ok(id)
     }
 
@@ -610,7 +611,7 @@ impl Db {
         .bind(dataset_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get dataset adapters: {}", e)))?;
+        .map_err(db_err("get dataset adapters"))?;
         Ok(links)
     }
 
@@ -633,7 +634,7 @@ impl Db {
         .bind(adapter_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get adapter datasets: {}", e)))?;
+        .map_err(db_err("get adapter datasets"))?;
         Ok(links)
     }
 
@@ -653,7 +654,7 @@ impl Db {
         .bind(dataset_id)
         .fetch_one(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to count dataset usage: {}", e)))?;
+        .map_err(db_err("count dataset usage"))?;
         Ok(count.0)
     }
 
