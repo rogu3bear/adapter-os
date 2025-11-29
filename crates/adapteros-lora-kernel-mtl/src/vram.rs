@@ -12,7 +12,6 @@
 use adapteros_core::B3Hash;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// GPU buffer fingerprint for integrity verification
 ///
@@ -46,10 +45,7 @@ impl GpuBufferFingerprint {
         mid_sample: &[u8],
     ) -> Self {
         let checkpoint_hash = B3Hash::hash_multi(&[first_sample, last_sample, mid_sample]);
-        let allocated_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let allocated_at = adapteros_core::time::unix_timestamp_secs();
 
         Self {
             buffer_bytes,

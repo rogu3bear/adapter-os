@@ -17,7 +17,7 @@
 #![allow(clippy::identity_op)]
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_kernel_api::{attestation, FusedKernels, GpuBufferFingerprint, IoBuffers, RouterRing};
 
 #[cfg(target_os = "macos")]
 use metal::*;
@@ -34,25 +34,24 @@ use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 
+// Research/experimental modules (not production-ready, see RESEARCH.md)
 pub mod ane_acceleration;
-pub mod compute_shaders;
+pub mod metal3x;
+pub mod vision_kernels;
+
+// Production modules
 pub mod debug;
 pub mod fused_mlp;
 pub mod fused_qkv;
 pub mod gpu_memory_pool;
 pub mod keys;
 pub mod kv_cache;
-pub mod layout;
 pub mod manifest;
 pub mod memory_integration;
-pub mod metal3x;
-pub mod mplora;
 pub mod noise_tracker;
-pub mod optimization;
 pub mod recovery;
 pub mod ring_buffer;
 pub mod rms_norm;
-pub mod vision_kernels;
 pub mod vram;
 
 // CoreML backend support (conditional compilation)
@@ -67,16 +66,12 @@ pub use coreml_backend::{
     init_coreml, is_coreml_available, is_neural_engine_available, shutdown_coreml, CoreMLBackend,
 };
 
-pub use compute_shaders::{ComputeShaderDescriptor, ComputeShaderRegistry, ShaderExecutionStats};
 pub use debug::{KernelDebugger, KernelParams};
 pub use fused_mlp::{FusedMlpKernel, LoraConfig};
 pub use fused_qkv::{FlashAttentionKernel, FusedQkvKernel, GqaConfig};
 pub use kv_cache::{CachedFlashAttention, KVCache, KVCacheConfig, LayerKVCache};
-pub use layout::LayoutValidator;
 pub use manifest::{verify_embedded_manifest, KernelManifest};
-pub use mplora::MploraKernel;
 pub use noise_tracker::{NoiseTracker, NoiseTrackingConfig};
-pub use optimization::{KernelOptimizationPlan, KernelOptimizer, KernelPerformanceMetrics};
 #[cfg(target_os = "macos")]
 pub use recovery::RecoveryResult;
 pub use recovery::RecoveryWrapper;
@@ -218,6 +213,13 @@ pub struct MetalKernels {
     adapter_weights: HashMap<u16, AdapterWeights>,
     // GPU memory pool for buffer reuse
     memory_pool: Option<GpuMemoryPool>,
+    // GPU buffer fingerprints for integrity verification
+    gpu_fingerprints: HashMap<u16, GpuBufferFingerprint>,
+    // Metrics tracking
+    total_operations: std::sync::atomic::AtomicU64,
+    successful_operations: std::sync::atomic::AtomicU64,
+    failed_operations: std::sync::atomic::AtomicU64,
+    total_latency_us: std::sync::atomic::AtomicU64,
 }
 
 // Safety: Metal objects are thread-safe
@@ -280,6 +282,11 @@ impl MetalKernels {
             lm_head_pipeline: None,
             adapter_weights: HashMap::new(),
             memory_pool: Some(memory_pool),
+            gpu_fingerprints: HashMap::new(),
+            total_operations: std::sync::atomic::AtomicU64::new(0),
+            successful_operations: std::sync::atomic::AtomicU64::new(0),
+            failed_operations: std::sync::atomic::AtomicU64::new(0),
+            total_latency_us: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -1447,6 +1454,278 @@ impl FusedKernels for MetalKernels {
             compiler_flags,
             deterministic,
         })
+    }
+
+    /// Load adapter weights from SafeTensors into GPU memory for hot-swap
+    ///
+    /// Parses SafeTensors bytes containing LoRA A/B matrices and creates Metal buffers
+    /// for GPU-accelerated adapter fusion during inference.
+    ///
+    /// Expected tensor naming convention:
+    /// - `*.lora_A.weight` for rank-reduction matrices
+    /// - `*.lora_B.weight` for rank-expansion matrices
+    ///
+    /// Target modules (in order): q_proj, k_proj, v_proj, down_proj, up_proj
+    fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
+        let tensors = SafeTensors::deserialize(weights)
+            .map_err(|e| AosError::Kernel(format!("Failed to parse adapter SafeTensors: {}", e)))?;
+
+        let mut lora_a_buffers: Vec<Buffer> = Vec::new();
+        let mut lora_b_buffers: Vec<Buffer> = Vec::new();
+        let mut total_vram_bytes: u64 = 0;
+        let mut inferred_rank: Option<usize> = None;
+
+        // Collect all tensor names and sort to ensure deterministic order
+        let mut tensor_names: Vec<_> = tensors.names().into_iter().collect();
+        tensor_names.sort();
+
+        // Group tensors by target module, maintaining order: q_proj, k_proj, v_proj, down_proj, up_proj
+        let target_modules = ["q_proj", "k_proj", "v_proj", "down_proj", "up_proj"];
+
+        for module_name in &target_modules {
+            // Find lora_A tensor for this module
+            let lora_a_name = tensor_names
+                .iter()
+                .find(|n| n.contains(module_name) && n.contains("lora_A"))
+                .cloned();
+
+            // Find lora_B tensor for this module
+            let lora_b_name = tensor_names
+                .iter()
+                .find(|n| n.contains(module_name) && n.contains("lora_B"))
+                .cloned();
+
+            // Process lora_A if found
+            if let Some(name) = lora_a_name {
+                let tensor = tensors.tensor(name).map_err(|e| {
+                    AosError::Kernel(format!("Failed to get tensor {}: {}", name, e))
+                })?;
+
+                let shape = tensor.shape();
+                if shape.len() >= 2 && inferred_rank.is_none() {
+                    // LoRA A shape is [rank, in_features] - rank is first dimension
+                    inferred_rank = Some(shape[0]);
+                }
+
+                let floats = Self::tensor_to_f32(tensor)?;
+                let buffer_size = (floats.len() * std::mem::size_of::<f32>()) as u64;
+                total_vram_bytes += buffer_size;
+
+                let buffer = self.device.new_buffer_with_data(
+                    floats.as_ptr() as *const std::ffi::c_void,
+                    buffer_size,
+                    MTLResourceOptions::StorageModeShared,
+                );
+                lora_a_buffers.push(buffer);
+            }
+
+            // Process lora_B if found
+            if let Some(name) = lora_b_name {
+                let tensor = tensors.tensor(name).map_err(|e| {
+                    AosError::Kernel(format!("Failed to get tensor {}: {}", name, e))
+                })?;
+
+                let floats = Self::tensor_to_f32(tensor)?;
+                let buffer_size = (floats.len() * std::mem::size_of::<f32>()) as u64;
+                total_vram_bytes += buffer_size;
+
+                let buffer = self.device.new_buffer_with_data(
+                    floats.as_ptr() as *const std::ffi::c_void,
+                    buffer_size,
+                    MTLResourceOptions::StorageModeShared,
+                );
+                lora_b_buffers.push(buffer);
+            }
+        }
+
+        // Require at least some tensors were loaded
+        if lora_a_buffers.is_empty() && lora_b_buffers.is_empty() {
+            return Err(AosError::Kernel(format!(
+                "No LoRA tensors found in adapter {}. Available tensors: {:?}",
+                id, tensor_names
+            )));
+        }
+
+        // Default rank if not inferred (shouldn't happen with valid adapters)
+        let rank = inferred_rank.unwrap_or(16);
+
+        // Default alpha (commonly 2x rank or equal to rank)
+        let alpha = (rank * 2) as f32;
+
+        // Compute BLAKE3 hash for integrity verification
+        let hash_b3 = B3Hash::hash(weights);
+
+        let adapter_weights = AdapterWeights {
+            lora_a_buffers,
+            lora_b_buffers,
+            rank,
+            alpha,
+            vram_bytes: total_vram_bytes,
+            hash_b3,
+        };
+
+        // Track VRAM attribution (adapter_id as u32, weights bytes, 0 for kv_cache estimate)
+        self.vram_tracker.track_adapter(id as u32, total_vram_bytes, 0);
+
+        tracing::info!(
+            adapter_id = id,
+            rank = rank,
+            alpha = alpha,
+            vram_bytes = total_vram_bytes,
+            lora_a_count = adapter_weights.lora_a_buffers.len(),
+            lora_b_count = adapter_weights.lora_b_buffers.len(),
+            hash = %hash_b3.to_short_hex(),
+            "Loaded adapter into Metal GPU memory"
+        );
+
+        self.adapter_weights.insert(id, adapter_weights);
+        Ok(())
+    }
+
+    /// Unload adapter weights from GPU memory
+    ///
+    /// Removes the adapter from the GPU cache and frees associated Metal buffers.
+    fn unload_adapter(&mut self, id: u16) -> Result<()> {
+        if let Some(adapter) = self.adapter_weights.remove(&id) {
+            // Track VRAM deallocation
+            self.vram_tracker.untrack_adapter(id as u32);
+
+            // Remove fingerprint when adapter is unloaded
+            self.gpu_fingerprints.remove(&id);
+
+            tracing::info!(
+                adapter_id = id,
+                vram_freed = adapter.vram_bytes,
+                "Unloaded adapter from Metal GPU memory"
+            );
+            Ok(())
+        } else {
+            // Not an error to unload a non-existent adapter (idempotent)
+            tracing::debug!(adapter_id = id, "Adapter not found in GPU cache, nothing to unload");
+            Ok(())
+        }
+    }
+
+    fn store_gpu_fingerprint(
+        &mut self,
+        id: u16,
+        buffer_size: u64,
+        checkpoint_hash_hex: &str,
+    ) -> Result<()> {
+        // Parse the hex hash string back to B3Hash
+        let checkpoint_hash = B3Hash::from_hex(checkpoint_hash_hex).map_err(|e| {
+            AosError::Kernel(format!("Invalid checkpoint hash hex: {}", e))
+        })?;
+
+        self.gpu_fingerprints.insert(
+            id,
+            GpuBufferFingerprint {
+                buffer_bytes: buffer_size,
+                checkpoint_hash,
+            },
+        );
+
+        tracing::debug!(
+            adapter_id = id,
+            buffer_size = buffer_size,
+            "Stored GPU fingerprint for adapter"
+        );
+
+        Ok(())
+    }
+
+    fn verify_gpu_fingerprint(
+        &self,
+        id: u16,
+        buffer_size: u64,
+        checkpoint_hash_hex: &str,
+    ) -> Result<bool> {
+        match self.gpu_fingerprints.get(&id) {
+            Some(baseline) => {
+                let matches = baseline.buffer_bytes == buffer_size
+                    && baseline.checkpoint_hash.to_hex() == checkpoint_hash_hex;
+
+                if !matches {
+                    tracing::warn!(
+                        adapter_id = id,
+                        expected_size = baseline.buffer_bytes,
+                        actual_size = buffer_size,
+                        expected_hash = %baseline.checkpoint_hash.to_hex(),
+                        actual_hash = checkpoint_hash_hex,
+                        "GPU fingerprint mismatch detected"
+                    );
+                }
+
+                Ok(matches)
+            }
+            None => {
+                // No baseline stored yet
+                Ok(false)
+            }
+        }
+    }
+
+    fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
+        self.gpu_fingerprints
+            .iter()
+            .map(|(&id, fp)| (id as u32, fp.clone()))
+            .collect()
+    }
+
+    fn get_metrics(&self) -> adapteros_lora_kernel_api::BackendMetrics {
+        use std::sync::atomic::Ordering;
+
+        let total_ops = self.total_operations.load(Ordering::Relaxed);
+        let successful_ops = self.successful_operations.load(Ordering::Relaxed);
+        let failed_ops = self.failed_operations.load(Ordering::Relaxed);
+        let total_latency = self.total_latency_us.load(Ordering::Relaxed);
+
+        let avg_latency_us = if total_ops > 0 {
+            total_latency / total_ops
+        } else {
+            0
+        };
+
+        adapteros_lora_kernel_api::BackendMetrics {
+            total_operations: total_ops,
+            successful_operations: successful_ops,
+            failed_operations: failed_ops,
+            avg_latency: std::time::Duration::from_micros(avg_latency_us),
+            memory_usage_bytes: self.vram_tracker.get_total_vram(),
+        }
+    }
+
+    fn health_check(&self) -> Result<adapteros_lora_kernel_api::BackendHealth> {
+        use adapteros_lora_kernel_api::BackendHealth;
+
+        // Check if device is available (external GPUs can be disconnected)
+        if self.device.is_removable() {
+            return Ok(BackendHealth::Degraded {
+                reason: "GPU is removable (external device)".to_string(),
+            });
+        }
+
+        // Check if library is loaded
+        if self.library.is_none() {
+            return Ok(BackendHealth::Degraded {
+                reason: "Metal library not loaded".to_string(),
+            });
+        }
+
+        // Check memory pressure
+        let total_vram = self.vram_tracker.get_total_vram();
+        // Metal doesn't expose total VRAM directly, but we can check if we're using a lot
+        // This is a heuristic - if we're using more than 8GB, report degraded
+        if total_vram > 8 * 1024 * 1024 * 1024 {
+            return Ok(BackendHealth::Degraded {
+                reason: format!(
+                    "High memory usage: {} GB",
+                    total_vram / (1024 * 1024 * 1024)
+                ),
+            });
+        }
+
+        Ok(BackendHealth::Healthy)
     }
 }
 
