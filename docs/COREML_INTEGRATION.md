@@ -1,7 +1,7 @@
 # CoreML Integration Guide for AdapterOS
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
-**Last Updated:** 2025-11-22
+**Last Updated:** 2025-11-29
 **Purpose:** Complete guide to CoreML backend integration for ANE acceleration
 
 > **Status:** CoreML backend is **fully implemented and operational**. The Swift bridge and MLTensor API wrapper are complete. Adapter loading is supported via caching. See [COREML_ACTIVATION.md](./COREML_ACTIVATION.md) for operational procedures and [CLAUDE.md](../CLAUDE.md) for current backend status.
@@ -734,80 +734,93 @@ impl CoreMLBackend {
 
 ## Model Preparation
 
-### Step 1: Export Base Model to CoreML
+### Step 1: Export Base Model to CoreML (Production)
+
+AdapterOS provides a production-ready export script at `scripts/export_coreml_production.py` that creates optimized FP16 models with multiple sequence length variants.
 
 **Prerequisites:**
-- Python 3.9+
-- `coremltools` 7.0+
-- Hugging Face `transformers` library
+- Python 3.11+ (Homebrew recommended: `brew install python@3.11`)
+- Create virtual environment with specific versions:
 
-**Export Script:**
+```bash
+# Create dedicated venv for CoreML conversion
+python3.11 -m venv ui/.venv-coreml
+source ui/.venv-coreml/bin/activate
+
+# Install specific versions (tested and working)
+pip install torch==2.4.0 coremltools==7.2 transformers numpy==1.26.4
+```
+
+**Production Export Script:**
+
+```bash
+# Export single 2048-token FP16 variant with validation
+python scripts/export_coreml_production.py --seq-len 2048 --validate
+
+# Export all standard variants (512, 2048, 4096)
+python scripts/export_coreml_production.py --all-variants
+
+# Export FP32 for debugging (larger but more precise)
+python scripts/export_coreml_production.py --seq-len 2048 --fp32
+```
+
+**Available Model Variants:**
+
+| Variant | Seq Length | Size | Use Case |
+|---------|------------|------|----------|
+| `qwen2.5-7b-instruct-fp16-512.mlpackage` | 512 | ~7GB | Quick responses, chat |
+| `qwen2.5-7b-instruct-fp16-2048.mlpackage` | 2048 | ~7GB | Standard context (default) |
+| `qwen2.5-7b-instruct-fp16-4096.mlpackage` | 4GB | ~7GB | Extended context |
+
+**Key Features:**
+- **FP16 precision** - 50% smaller than FP32, optimized for ANE
+- **ANE-aligned dimensions** - Batch size 1, sequence lengths multiple of 8
+- **Built-in validation** - Compares output against PyTorch reference
+- **Metadata tagging** - Stores seq_len, precision, source model in model
+
+**Script Location:** `scripts/export_coreml_production.py`
+
+**Legacy Export (for reference):**
 ```python
 #!/usr/bin/env python3
-# scripts/export_coreml_model.py
+# Simple export example (use production script instead)
 
 import coremltools as ct
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-def export_qwen_coreml(model_path: str, output_path: str):
-    """
-    Export Qwen2.5 base model to CoreML .mlpackage format
+class LogitsOnlyWrapper(torch.nn.Module):
+    """Wrapper to return only logits (avoids DynamicCache tracing issues)"""
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
 
-    Args:
-        model_path: Path to Hugging Face model (e.g., "Qwen/Qwen2.5-7B")
-        output_path: Output .mlpackage path (e.g., "models/qwen2.5-7b.mlpackage")
-    """
-    # Load base model
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        torch_dtype=torch.float16,
-        trust_remote_code=True
-    )
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    def forward(self, input_ids):
+        outputs = self.model(input_ids, use_cache=False)
+        return outputs.logits
 
-    # Set to eval mode
-    model.eval()
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen2.5-7B-Instruct",
+    torch_dtype=torch.float16,
+    attn_implementation="eager",  # Required for clean tracing
+)
+wrapped = LogitsOnlyWrapper(model)
+wrapped.eval()
 
-    # Create example input (batch_size=1, seq_len=128)
-    input_ids = torch.randint(0, tokenizer.vocab_size, (1, 128), dtype=torch.long)
+example_input = torch.randint(0, 152064, (1, 2048), dtype=torch.long)
+with torch.no_grad():
+    traced = torch.jit.trace(wrapped, (example_input,), strict=False)
 
-    # Trace model
-    traced_model = torch.jit.trace(model, (input_ids,))
-
-    # Convert to CoreML with ANE optimizations
-    mlmodel = ct.convert(
-        traced_model,
-        inputs=[ct.TensorType(name="input_ids", shape=(1, 128), dtype=ct.int32)],
-        outputs=[ct.TensorType(name="logits", dtype=ct.float16)],
-        minimum_deployment_target=ct.target.macOS13,  # macOS 13+ for ANE
-        compute_units=ct.ComputeUnit.ALL,  # Enable ANE
-        convert_to="mlprogram",  # ML Program (supports ANE)
-    )
-
-    # Add metadata
-    mlmodel.author = "AdapterOS"
-    mlmodel.license = "MIT"
-    mlmodel.short_description = "Qwen2.5-7B Base Model for LoRA Inference"
-
-    # Save as .mlpackage
-    mlmodel.save(output_path)
-    print(f"✅ Exported CoreML model: {output_path}")
-
-    # Verify ANE compatibility
-    spec = mlmodel.get_spec()
-    print(f"Compute units: {spec.description.metadata.userDefined}")
-
-if __name__ == "__main__":
-    export_qwen_coreml(
-        model_path="Qwen/Qwen2.5-7B",
-        output_path="models/qwen2.5-7b.mlpackage"
-    )
-```
-
-**Run:**
-```bash
-python scripts/export_coreml_model.py
+mlmodel = ct.convert(
+    traced,
+    inputs=[ct.TensorType(name="input_ids", shape=(1, 2048), dtype=np.int32)],
+    outputs=[ct.TensorType(name="logits")],
+    minimum_deployment_target=ct.target.macOS13,
+    compute_units=ct.ComputeUnit.ALL,
+    convert_to="mlprogram",
+    compute_precision=ct.precision.FLOAT16,
+)
+mlmodel.save("models/qwen2.5-7b-instruct-fp16-2048.mlpackage")
 ```
 
 ---
