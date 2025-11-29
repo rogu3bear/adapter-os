@@ -1,4 +1,5 @@
 use crate::auth::Claims;
+use crate::error_helpers::{db_error_msg, db_error_with_details};
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -16,16 +17,7 @@ pub async fn list_nodes(
 ) -> Result<Json<Vec<NodeResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
 
-    let nodes = state.db.list_nodes().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let nodes = state.db.list_nodes().await.map_err(db_error_with_details)?;
 
     let response: Vec<NodeResponse> = nodes
         .into_iter()
@@ -54,27 +46,9 @@ pub async fn register_node(
         .db
         .register_node(&req.hostname, &req.agent_endpoint)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to register node")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| db_error_msg("failed to register node", e))?;
 
-    let node = state.db.get_node(&id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let node = state.db.get_node(&id).await.map_err(db_error_with_details)?;
 
     let node = node.ok_or_else(|| {
         (

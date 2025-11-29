@@ -1,4 +1,5 @@
 use crate::auth::Claims;
+use crate::error_helpers::{bad_gateway, db_error_msg, internal_error_msg, not_found_with_details};
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -28,26 +29,8 @@ pub async fn worker_spawn(
         .db
         .get_node(&req.node_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("node not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Node ID: {}", req.node_id)),
-                ),
-            )
-        })?;
+        .map_err(|e| db_error_msg("database error", e))?
+        .ok_or_else(|| not_found_with_details("node not found", format!("Node ID: {}", req.node_id)))?;
 
     // Prepare spawn request for node agent
     let spawn_req = serde_json::json!({
@@ -64,39 +47,14 @@ pub async fn worker_spawn(
         .json(&spawn_req)
         .send()
         .await
-        .map_err(|e| {
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(
-                    ErrorResponse::new("failed to contact node agent")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| bad_gateway("failed to contact node agent", e))?;
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("node agent spawn failed")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(error_text),
-            ),
-        ));
+        return Err(internal_error_msg("node agent spawn failed", error_text));
     }
 
-    let spawn_response: serde_json::Value = response.json().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to parse node agent response")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let spawn_response: serde_json::Value = response.json().await.map_err(|e| internal_error_msg("failed to parse node agent response", e))?;
 
     let pid = spawn_response["pid"].as_i64().ok_or_else(|| {
         (
@@ -123,26 +81,8 @@ pub async fn worker_spawn(
         .uds_path(&uds_path)
         .status("starting");
     builder = builder.pid(pid);
-    let params = builder.build().map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to build worker parameters")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-    state.db.insert_worker(params).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to register worker in database")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let params = builder.build().map_err(|e| internal_error_msg("failed to build worker parameters", e))?;
+    state.db.insert_worker(params).await.map_err(|e| db_error_msg("failed to register worker in database", e))?;
 
     // Return worker info
     Ok(Json(WorkerResponse {
