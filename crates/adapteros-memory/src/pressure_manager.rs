@@ -231,14 +231,7 @@ impl MemoryPressureManager {
                 );
             }
 
-            return Ok(MemoryPressureReport {
-                pressure_level: pressure.level,
-                action_taken: EvictionStrategy::ReduceK,
-                adapters_evicted: vec![],
-                bytes_freed: 0,
-                headroom_before: pressure.headroom_pct,
-                headroom_after: pressure.headroom_pct,
-            });
+            return Ok(self.create_report(pressure.level, EvictionStrategy::ReduceK, vec![], 0, pressure.headroom_pct));
         }
 
         // No K reduction mechanism available
@@ -247,14 +240,7 @@ impl MemoryPressureManager {
             "K reduction requested but no sender or coordinator available"
         );
 
-        Ok(MemoryPressureReport {
-            pressure_level: pressure.level,
-            action_taken: EvictionStrategy::ReduceK,
-            adapters_evicted: vec![],
-            bytes_freed: 0,
-            headroom_before: pressure.headroom_pct,
-            headroom_after: pressure.headroom_pct,
-        })
+        Ok(self.create_report(pressure.level, EvictionStrategy::ReduceK, vec![], 0, pressure.headroom_pct))
     }
 
     /// Evict low priority adapters (LRU, unpinned)

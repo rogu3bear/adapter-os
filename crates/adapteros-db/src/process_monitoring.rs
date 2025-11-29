@@ -12,6 +12,7 @@
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
+use crate::query_helpers::db_err;
 
 // ===== Type Definitions =====
 

@@ -5,6 +5,7 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;
+use crate::query_helpers::db_err;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Document {

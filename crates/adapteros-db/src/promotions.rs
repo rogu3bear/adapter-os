@@ -7,6 +7,7 @@ use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use crate::query_helpers::db_err;
 
 // ===== Data Models =====
 

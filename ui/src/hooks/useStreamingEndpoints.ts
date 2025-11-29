@@ -43,6 +43,28 @@ export interface StreamHookResult<T> {
 }
 
 /**
+ * Factory function to create streaming hooks with consistent behavior
+ * Eliminates duplication across all stream endpoint hooks
+ */
+function createStreamHook<T extends { timestamp?: string }>(endpoint: string) {
+  return function useStream(options: UseSSEOptions<T> = {}): StreamHookResult<T> {
+    const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
+    const { data, error, connected, reconnect } = useSSE<T>(endpoint, memoizedOptions);
+
+    return useMemo(
+      () => ({
+        data,
+        error,
+        connected,
+        reconnect,
+        lastUpdated: data?.timestamp,
+      }),
+      [data, error, connected, reconnect]
+    );
+  };
+}
+
+/**
  * Base hook for training stream events
  * Endpoint: /v1/streams/training
  *
@@ -54,26 +76,7 @@ export interface StreamHookResult<T> {
  * });
  * ```
  */
-export function useTrainingStream(
-  options: UseSSEOptions<TrainingStreamEvent> = {}
-): StreamHookResult<TrainingStreamEvent> {
-  const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
-  const { data, error, connected, reconnect } = useSSE<TrainingStreamEvent>(
-    '/v1/streams/training',
-    memoizedOptions
-  );
-
-  return useMemo(
-    () => ({
-      data,
-      error,
-      connected,
-      reconnect,
-      lastUpdated: data?.timestamp,
-    }),
-    [data, error, connected, reconnect]
-  );
-}
+export const useTrainingStream = createStreamHook<TrainingStreamEvent>('/v1/streams/training');
 
 /**
  * Base hook for adapter discovery stream events
@@ -86,26 +89,7 @@ export function useTrainingStream(
  * });
  * ```
  */
-export function useDiscoveryStream(
-  options: UseSSEOptions<DiscoveryStreamEvent> = {}
-): StreamHookResult<DiscoveryStreamEvent> {
-  const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
-  const { data, error, connected, reconnect } = useSSE<DiscoveryStreamEvent>(
-    '/v1/streams/discovery',
-    memoizedOptions
-  );
-
-  return useMemo(
-    () => ({
-      data,
-      error,
-      connected,
-      reconnect,
-      lastUpdated: data?.timestamp,
-    }),
-    [data, error, connected, reconnect]
-  );
-}
+export const useDiscoveryStream = createStreamHook<DiscoveryStreamEvent>('/v1/streams/discovery');
 
 /**
  * Base hook for contact/collaboration stream events
@@ -118,26 +102,7 @@ export function useDiscoveryStream(
  * });
  * ```
  */
-export function useContactsStream(
-  options: UseSSEOptions<ContactStreamEvent> = {}
-): StreamHookResult<ContactStreamEvent> {
-  const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
-  const { data, error, connected, reconnect } = useSSE<ContactStreamEvent>(
-    '/v1/streams/contacts',
-    memoizedOptions
-  );
-
-  return useMemo(
-    () => ({
-      data,
-      error,
-      connected,
-      reconnect,
-      lastUpdated: data?.timestamp,
-    }),
-    [data, error, connected, reconnect]
-  );
-}
+export const useContactsStream = createStreamHook<ContactStreamEvent>('/v1/streams/contacts');
 
 /**
  * Base hook for file change stream events
@@ -156,26 +121,7 @@ export function useContactsStream(
  * });
  * ```
  */
-export function useFileChangesStream(
-  options: UseSSEOptions<FileChangeStreamEvent> = {}
-): StreamHookResult<FileChangeStreamEvent> {
-  const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
-  const { data, error, connected, reconnect } = useSSE<FileChangeStreamEvent>(
-    '/v1/streams/file-changes',
-    memoizedOptions
-  );
-
-  return useMemo(
-    () => ({
-      data,
-      error,
-      connected,
-      reconnect,
-      lastUpdated: data?.timestamp,
-    }),
-    [data, error, connected, reconnect]
-  );
-}
+export const useFileChangesStream = createStreamHook<FileChangeStreamEvent>('/v1/streams/file-changes');
 
 /**
  * Base hook for system metrics stream events
