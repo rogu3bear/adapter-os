@@ -4297,6 +4297,90 @@ class ApiClient {
   }
 
   // ============================================================================
+  // Chat Session Sharing API Methods
+  // ============================================================================
+
+  /**
+   * Share a chat session with users or workspace
+   *
+   * POST /v1/chat/sessions/:session_id/shares
+   *
+   * @param sessionId - Session ID
+   * @param request - Share request with user_ids, workspace_id, and permission
+   * @returns Share response with created share IDs
+   */
+  async shareSession(
+    sessionId: string,
+    request: chatTypes.ShareSessionRequest
+  ): Promise<chatTypes.ShareSessionResponse> {
+    logger.info('Sharing chat session', {
+      component: 'ApiClient',
+      operation: 'shareSession',
+      sessionId,
+      userCount: request.user_ids?.length,
+      workspaceId: request.workspace_id,
+      permission: request.permission,
+    });
+
+    return this.request<chatTypes.ShareSessionResponse>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/shares`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
+
+  /**
+   * Get all shares for a session
+   *
+   * GET /v1/chat/sessions/:session_id/shares
+   *
+   * @param sessionId - Session ID
+   * @returns Array of session shares
+   */
+  async getSessionShares(sessionId: string): Promise<chatTypes.SessionShare[]> {
+    return this.request<chatTypes.SessionShare[]>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/shares`
+    );
+  }
+
+  /**
+   * Get sessions shared with the current user
+   *
+   * GET /v1/chat/sessions/shared-with-me
+   *
+   * @returns Array of chat sessions shared with current user
+   */
+  async getSessionsSharedWithMe(): Promise<chatTypes.ChatSession[]> {
+    return this.request<chatTypes.ChatSession[]>('/v1/chat/sessions/shared-with-me');
+  }
+
+  /**
+   * Revoke a session share
+   *
+   * DELETE /v1/chat/sessions/:session_id/shares/:share_id
+   *
+   * @param sessionId - Session ID
+   * @param shareId - Share ID to revoke
+   */
+  async revokeSessionShare(sessionId: string, shareId: string): Promise<void> {
+    logger.info('Revoking session share', {
+      component: 'ApiClient',
+      operation: 'revokeSessionShare',
+      sessionId,
+      shareId,
+    });
+
+    return this.request<void>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/shares/${encodeURIComponent(shareId)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  // ============================================================================
   // Chat Tags API Methods
   // ============================================================================
 

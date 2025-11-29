@@ -556,36 +556,15 @@ mod tests {
         let policy = RouterPolicy::new(config);
 
         // Valid stack with 4 adapters (K=4)
-        let stack = StackConfiguration {
-            id: "test-stack".to_string(),
-            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string(), "a4".to_string()],
-            adapters: vec![
-                AdapterMetadata {
-                    id: "a1".to_string(),
-                    tier: "tier_0".to_string(),
-                    tags: vec!["security".to_string()],
-                    forbidden_peers: vec![],
-                },
-                AdapterMetadata {
-                    id: "a2".to_string(),
-                    tier: "tier_1".to_string(),
-                    tags: vec!["reliability".to_string()],
-                    forbidden_peers: vec![],
-                },
-                AdapterMetadata {
-                    id: "a3".to_string(),
-                    tier: "tier_2".to_string(),
-                    tags: vec![],
-                    forbidden_peers: vec![],
-                },
-                AdapterMetadata {
-                    id: "a4".to_string(),
-                    tier: "tier_0".to_string(),
-                    tags: vec![],
-                    forbidden_peers: vec![],
-                },
+        let stack = create_stack(
+            "test-stack",
+            vec![
+                create_adapter("a1", "tier_0", vec!["security".to_string()], vec![]),
+                create_adapter("a2", "tier_1", vec!["reliability".to_string()], vec![]),
+                create_adapter("a3", "tier_2", vec![], vec![]),
+                create_adapter("a4", "tier_0", vec![], vec![]),
             ],
-        };
+        );
 
         assert!(policy.validate_stack_configuration(&stack).is_ok());
     }

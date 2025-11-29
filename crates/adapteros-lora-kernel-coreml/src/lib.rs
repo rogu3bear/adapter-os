@@ -20,9 +20,6 @@ pub mod config;
 pub mod ffi;
 pub mod fusion;
 
-#[cfg(test)]
-mod test_utils;
-
 pub use config::{ComputeUnits, CoreMLConfig};
 pub use ffi::{
     capabilities, AneCheckResult, ComputeUnitPreference, CoreMLAsyncCallback, MLTensorHandle,

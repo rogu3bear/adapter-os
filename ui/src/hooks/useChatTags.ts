@@ -83,10 +83,10 @@ export function useSessionTags(
  * Assign tags to a chat session
  */
 export function useAssignTagsToSession(
-  options?: UseMutationOptions<void, Error, { sessionId: string; request: AssignTagsRequest }>
+  options?: UseMutationOptions<ChatTag[], Error, { sessionId: string; tagIds: string[] }>
 ) {
-  return useMutation<void, Error, { sessionId: string; request: AssignTagsRequest }>({
-    mutationFn: ({ sessionId, request }) => apiClient.assignTagsToSession(sessionId, request),
+  return useMutation<ChatTag[], Error, { sessionId: string; tagIds: string[] }>({
+    mutationFn: ({ sessionId, tagIds }) => apiClient.assignTagsToSession(sessionId, tagIds),
     ...options,
   });
 }

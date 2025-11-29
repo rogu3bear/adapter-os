@@ -844,45 +844,14 @@ impl<K: FusedKernels + 'static, L: AdapterLookup + 'static> AdapterExecutionBack
                 adapteros_core::AosError::NotFound(format!("Adapter not found: {}", adapter_id))
             })?;
 
-        // Create router ring with single adapter
-        let mut ring = RouterRing::new(1);
-        ring.set(&[adapter_index], &[i16::MAX]); // Full weight to single adapter
-
-        // Create IO buffers
-        let mut io = IoBuffers::new(self.vocab_size);
-        io.input_ids = input_tokens.to_vec();
-
-        // Execute kernel
-        {
-            let mut kernels = self.kernels.lock().await;
-            kernels.run_step(&ring, &mut io).map_err(|e| {
-                error!(
-                    adapter_id = %adapter_id,
-                    error = %e,
-                    "Kernel execution failed"
-                );
-                e
-            })?;
-        }
-
-        // Convert logits to output tokens (simplified: argmax)
-        let output_tokens = if io.output_logits.is_empty() {
-            vec![]
-        } else {
-            // Find argmax
-            let (max_idx, _) = io
-                .output_logits
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .unwrap_or((0, &0.0));
-            vec![max_idx as u32]
-        };
-
-        Ok(AdapterExecutionResult {
-            output_tokens,
-            state_updates: HashMap::new(),
-        })
+        execute_adapter_with_kernel(
+            &self.kernels,
+            adapter_index,
+            adapter_id,
+            input_tokens,
+            self.vocab_size,
+        )
+        .await
     }
 }
 #[cfg(test)]
