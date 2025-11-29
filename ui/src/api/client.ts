@@ -4317,8 +4317,8 @@ class ApiClient {
       component: 'ApiClient',
       operation: 'shareSession',
       sessionId,
-      userCount: request.user_ids?.length,
-      workspaceId: request.workspace_id,
+      userCount: request.user_ids?.length || 0,
+      hasWorkspace: !!request.workspace_id,
       permission: request.permission,
     });
 
@@ -4346,14 +4346,23 @@ class ApiClient {
   }
 
   /**
-   * Get sessions shared with the current user
+   * Get chat sessions shared with the current user
    *
    * GET /v1/chat/sessions/shared-with-me
    *
-   * @returns Array of chat sessions shared with current user
+   * @param query - Optional query parameters
+   * @returns Array of chat sessions shared with the current user
    */
-  async getSessionsSharedWithMe(): Promise<chatTypes.ChatSession[]> {
-    return this.request<chatTypes.ChatSession[]>('/v1/chat/sessions/shared-with-me');
+  async getSessionsSharedWithMe(
+    query?: chatTypes.ListArchivedQuery
+  ): Promise<chatTypes.ChatSessionWithStatus[]> {
+    const params = new URLSearchParams();
+    if (query?.limit) params.append('limit', query.limit.toString());
+
+    const queryString = params.toString();
+    return this.request<chatTypes.ChatSessionWithStatus[]>(
+      `/v1/chat/sessions/shared-with-me${queryString ? `?${queryString}` : ''}`
+    );
   }
 
   /**
@@ -4363,17 +4372,26 @@ class ApiClient {
    *
    * @param sessionId - Session ID
    * @param shareId - Share ID to revoke
+   * @param shareType - Type of share ('user' or 'workspace'), defaults to 'user'
    */
-  async revokeSessionShare(sessionId: string, shareId: string): Promise<void> {
+  async revokeSessionShare(
+    sessionId: string,
+    shareId: string,
+    shareType: 'user' | 'workspace' = 'user'
+  ): Promise<void> {
     logger.info('Revoking session share', {
       component: 'ApiClient',
       operation: 'revokeSessionShare',
       sessionId,
       shareId,
+      shareType,
     });
 
+    const params = new URLSearchParams();
+    params.append('type', shareType);
+
     return this.request<void>(
-      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/shares/${encodeURIComponent(shareId)}`,
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/shares/${encodeURIComponent(shareId)}?${params.toString()}`,
       {
         method: 'DELETE',
       }
