@@ -15,6 +15,8 @@ use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use crate::unified_enforcement::{PolicyViolation, ViolationSeverity};
+
 /// Policy pack identifier
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum PolicyPackId {
@@ -318,50 +320,6 @@ pub struct PolicyValidationResult {
     pub duration_ms: u64,
 }
 
-/// Policy violation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PolicyViolation {
-    /// Violation identifier
-    pub violation_id: String,
-
-    /// Policy pack that was violated
-    pub policy_pack: String,
-
-    /// Violation severity
-    pub severity: ViolationSeverity,
-
-    /// Violation message
-    pub message: String,
-
-    /// Violation details
-    pub details: Option<serde_json::Value>,
-
-    /// Remediation steps
-    pub remediation: Option<String>,
-
-    /// Violation timestamp
-    pub timestamp: DateTime<Utc>,
-}
-
-/// Violation severity
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum ViolationSeverity {
-    /// Information
-    Info,
-
-    /// Warning
-    Warning,
-
-    /// Error
-    Error,
-
-    /// Critical
-    Critical,
-
-    /// Blocker
-    Blocker,
-}
-
 /// Policy warning
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyWarning {
@@ -656,7 +614,7 @@ impl PolicyPackManager {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: pack_id.name().to_string(),
-                            severity: ViolationSeverity::Error,
+                            severity: ViolationSeverity::High,
                             message: format!("Policy pack validation failed: {}", e),
                             details: Some(serde_json::json!({"error": e.to_string()})),
                             remediation: Some("Check policy pack configuration".to_string()),
@@ -683,9 +641,9 @@ impl PolicyPackManager {
                             // Warning level violations don't block operations unless they're Error severity
                             if matches!(
                                 violation.severity,
-                                ViolationSeverity::Error
+                                ViolationSeverity::High
                                     | ViolationSeverity::Critical
-                                    | ViolationSeverity::Blocker
+                                    | ViolationSeverity::Critical
                             ) {
                                 valid = false;
                                 break;
@@ -695,9 +653,9 @@ impl PolicyPackManager {
                             // Error level violations block operations only for Error, Critical, or Blocker severity
                             if matches!(
                                 violation.severity,
-                                ViolationSeverity::Error
+                                ViolationSeverity::High
                                     | ViolationSeverity::Critical
-                                    | ViolationSeverity::Blocker
+                                    | ViolationSeverity::Critical
                             ) {
                                 valid = false;
                                 break;
@@ -844,7 +802,7 @@ impl PolicyPackValidator for EgressValidator {
                     violations.push(PolicyViolation {
                         violation_id: Uuid::new_v4().to_string(),
                         policy_pack: "Egress Ruleset".to_string(),
-                        severity: ViolationSeverity::Blocker,
+                        severity: ViolationSeverity::Critical,
                         message: msg.to_string(),
                         details: Some(serde_json::json!({
                             "operation": "dns_resolution",
@@ -882,7 +840,7 @@ impl PolicyPackValidator for EgressValidator {
                             violations.push(PolicyViolation {
                                 violation_id: Uuid::new_v4().to_string(),
                                 policy_pack: "Egress Ruleset".to_string(),
-                                severity: ViolationSeverity::Blocker,
+                                severity: ViolationSeverity::Critical,
                                 message: msg.clone(),
                                 details: Some(serde_json::json!({
                                     "protocol": protocol,
@@ -964,7 +922,7 @@ impl PolicyPackValidator for DeterminismValidator {
             violations.push(PolicyViolation {
                 violation_id: Uuid::new_v4().to_string(),
                 policy_pack: "Determinism Ruleset".to_string(),
-                severity: ViolationSeverity::Error,
+                severity: ViolationSeverity::High,
                 message: "Runtime kernel compilation is not allowed".to_string(),
                 details: Some(serde_json::json!({"operation": "kernel_compile"})),
                 remediation: Some("Use precompiled .metallib blobs".to_string()),
@@ -979,7 +937,7 @@ impl PolicyPackValidator for DeterminismValidator {
                     violations.push(PolicyViolation {
                         violation_id: Uuid::new_v4().to_string(),
                         policy_pack: "Determinism Ruleset".to_string(),
-                        severity: ViolationSeverity::Error,
+                        severity: ViolationSeverity::High,
                         message: "Non-HKDF RNG usage detected".to_string(),
                         details: Some(serde_json::json!({"rng_type": rng_type})),
                         remediation: Some("Use HKDF-seeded RNG only".to_string()),
@@ -1044,7 +1002,7 @@ impl PolicyPackValidator for RouterValidator {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "Router Ruleset".to_string(),
-                            severity: ViolationSeverity::Error,
+                            severity: ViolationSeverity::High,
                             message: "K-sparse value exceeds maximum".to_string(),
                             details: Some(serde_json::json!({"k_sparse": k})),
                             remediation: Some("Reduce K-sparse value to maximum of 4".to_string()),
@@ -1062,7 +1020,7 @@ impl PolicyPackValidator for RouterValidator {
                     violations.push(PolicyViolation {
                         violation_id: Uuid::new_v4().to_string(),
                         policy_pack: "Router Ruleset".to_string(),
-                        severity: ViolationSeverity::Error,
+                        severity: ViolationSeverity::High,
                         message: "Gate quantization must be Q15".to_string(),
                         details: Some(serde_json::json!({"gate_quant": quant_type})),
                         remediation: Some("Use Q15 quantization for gates".to_string()),
@@ -1128,7 +1086,7 @@ impl PolicyPackValidator for EvidenceValidator {
                             violations.push(PolicyViolation {
                                 violation_id: Uuid::new_v4().to_string(),
                                 policy_pack: "Evidence Ruleset".to_string(),
-                                severity: ViolationSeverity::Error,
+                                severity: ViolationSeverity::High,
                                 message: "Evidence spans are required for inference".to_string(),
                                 details: Some(serde_json::json!({"evidence_spans": spans})),
                                 remediation: Some("Include at least one evidence span".to_string()),
@@ -1195,7 +1153,7 @@ impl PolicyPackValidator for RefusalValidator {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "Refusal Ruleset".to_string(),
-                            severity: ViolationSeverity::Warning,
+                            severity: ViolationSeverity::Medium,
                             message: "Low confidence response should be refused".to_string(),
                             details: Some(serde_json::json!({"confidence": conf})),
                             remediation: Some("Refuse response due to low confidence".to_string()),
@@ -1262,7 +1220,7 @@ impl PolicyPackValidator for NumericUnitsValidator {
                                 violations.push(PolicyViolation {
                                     violation_id: Uuid::new_v4().to_string(),
                                     policy_pack: "Numeric & Units Ruleset".to_string(),
-                                    severity: ViolationSeverity::Error,
+                                    severity: ViolationSeverity::High,
                                     message: "Units are required for numeric values".to_string(),
                                     details: Some(serde_json::json!({"value": value})),
                                     remediation: Some(
@@ -1333,7 +1291,7 @@ impl PolicyPackValidator for RagIndexValidator {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "RAG Index Ruleset".to_string(),
-                            severity: ViolationSeverity::Blocker,
+                            severity: ViolationSeverity::Critical,
                             message: "Cross-tenant access detected".to_string(),
                             details: Some(serde_json::json!({"tenant_id": tenant_id})),
                             remediation: Some("Enforce per-tenant isolation".to_string()),
@@ -1398,7 +1356,7 @@ impl PolicyPackValidator for IsolationValidator {
                     violations.push(PolicyViolation {
                         violation_id: Uuid::new_v4().to_string(),
                         policy_pack: "Isolation Ruleset".to_string(),
-                        severity: ViolationSeverity::Error,
+                        severity: ViolationSeverity::High,
                         message: "Shared memory usage is forbidden".to_string(),
                         details: Some(serde_json::json!({"use_shared_memory": use_shm})),
                         remediation: Some("Disable shared memory usage".to_string()),
@@ -1463,7 +1421,7 @@ impl PolicyPackValidator for TelemetryValidator {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "Telemetry Ruleset".to_string(),
-                            severity: ViolationSeverity::Warning,
+                            severity: ViolationSeverity::Medium,
                             message: "Sampling rate exceeds maximum".to_string(),
                             details: Some(serde_json::json!({"sampling_rate": rate})),
                             remediation: Some("Reduce sampling rate to maximum of 1.0".to_string()),
@@ -1592,7 +1550,7 @@ impl PolicyPackValidator for PerformanceValidator {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "Performance Ruleset".to_string(),
-                            severity: ViolationSeverity::Error,
+                            severity: ViolationSeverity::High,
                             message: "Latency exceeds p95 budget".to_string(),
                             details: Some(serde_json::json!({"latency_p95_ms": latency})),
                             remediation: Some(
@@ -1659,7 +1617,7 @@ impl PolicyPackValidator for MemoryValidator {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "Memory Ruleset".to_string(),
-                            severity: ViolationSeverity::Error,
+                            severity: ViolationSeverity::High,
                             message: "Memory headroom below minimum threshold".to_string(),
                             details: Some(serde_json::json!({"headroom_pct": headroom})),
                             remediation: Some(
@@ -1726,7 +1684,7 @@ impl PolicyPackValidator for ArtifactsValidator {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "Artifacts Ruleset".to_string(),
-                            severity: ViolationSeverity::Blocker,
+                            severity: ViolationSeverity::Critical,
                             message: "Artifact signature is required".to_string(),
                             details: Some(serde_json::json!({"artifact": artifact})),
                             remediation: Some("Sign artifact with Ed25519".to_string()),
@@ -1793,7 +1751,7 @@ impl PolicyPackValidator for SecretsValidator {
                                 violations.push(PolicyViolation {
                                     violation_id: Uuid::new_v4().to_string(),
                                     policy_pack: "Secrets Ruleset".to_string(),
-                                    severity: ViolationSeverity::Blocker,
+                                    severity: ViolationSeverity::Critical,
                                     message: "Plaintext secrets are not allowed".to_string(),
                                     details: Some(serde_json::json!({"secret": secret})),
                                     remediation: Some(
@@ -1863,7 +1821,7 @@ impl PolicyPackValidator for BuildReleaseValidator {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "Build & Release Ruleset".to_string(),
-                            severity: ViolationSeverity::Blocker,
+                            severity: ViolationSeverity::Critical,
                             message: "Replay shows non-zero diff".to_string(),
                             details: Some(serde_json::json!({"replay_diff": diff})),
                             remediation: Some("Fix determinism issues before release".to_string()),
@@ -1928,7 +1886,7 @@ impl PolicyPackValidator for ComplianceValidator {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "Compliance Ruleset".to_string(),
-                            severity: ViolationSeverity::Error,
+                            severity: ViolationSeverity::High,
                             message: "Compliance evidence links are required".to_string(),
                             details: Some(serde_json::json!({"compliance": compliance})),
                             remediation: Some("Provide evidence links for compliance".to_string()),
@@ -1994,7 +1952,7 @@ impl PolicyPackValidator for IncidentValidator {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "Incident Ruleset".to_string(),
-                            severity: ViolationSeverity::Error,
+                            severity: ViolationSeverity::High,
                             message: "Incident response procedures are required".to_string(),
                             details: Some(serde_json::json!({"incident_type": incident_type})),
                             remediation: Some(
@@ -2060,7 +2018,7 @@ impl PolicyPackValidator for LlmOutputValidator {
                     violations.push(PolicyViolation {
                         violation_id: Uuid::new_v4().to_string(),
                         policy_pack: "LLM Output Ruleset".to_string(),
-                        severity: ViolationSeverity::Error,
+                        severity: ViolationSeverity::High,
                         message: "Output format must be JSON".to_string(),
                         details: Some(serde_json::json!({"output_format": output_format})),
                         remediation: Some("Use JSON format for all outputs".to_string()),
@@ -2205,7 +2163,7 @@ impl PolicyPackValidator for FullPackValidator {
                     violations.push(PolicyViolation {
                         violation_id: Uuid::new_v4().to_string(),
                         policy_pack: "Full Pack Example".to_string(),
-                        severity: ViolationSeverity::Error,
+                        severity: ViolationSeverity::High,
                         message: "Invalid policy schema version".to_string(),
                         details: Some(serde_json::json!({"schema": schema})),
                         remediation: Some("Use schema version 'adapteros.policy.v1'".to_string()),

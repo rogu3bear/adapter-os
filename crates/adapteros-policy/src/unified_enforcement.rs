@@ -147,25 +147,25 @@ pub struct PolicyViolation {
     pub details: Option<serde_json::Value>,
 
     /// Remediation steps
-    pub remediation: Option<Vec<String>>,
+    pub remediation: Option<String>,
 
     /// Violation timestamp
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
 /// Violation severity
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ViolationSeverity {
-    /// Low severity
+    /// Low severity (informational)
     Low,
 
-    /// Medium severity
+    /// Medium severity (warning)
     Medium,
 
-    /// High severity
+    /// High severity (error)
     High,
 
-    /// Critical severity
+    /// Critical severity (must fix)
     Critical,
 }
 

@@ -204,14 +204,7 @@ impl MemoryPressureManager {
             tokio::spawn(send_once(sender.clone(), request.clone()));
             // }
 
-            return Ok(MemoryPressureReport {
-                pressure_level: pressure.level,
-                action_taken: EvictionStrategy::ReduceK,
-                adapters_evicted: vec![],
-                bytes_freed: 0,
-                headroom_before: pressure.headroom_pct,
-                headroom_after: pressure.headroom_pct,
-            });
+            return Ok(self.create_report(pressure.level, EvictionStrategy::ReduceK, vec![], 0, pressure.headroom_pct));
         }
 
         // Fall back to synchronous coordinator
@@ -273,13 +266,11 @@ impl MemoryPressureManager {
         let mut evicted = Vec::new();
         let mut total_freed = 0u64;
 
-        for (adapter_id, backend, bytes, priority) in candidates {
+        for (adapter_id, backend, _bytes, priority) in candidates {
             if priority == f32::MAX {
-                // Skip pinned adapters
-                continue;
+                continue; // Skip pinned adapters
             }
 
-            // Evict adapter
             if let Some(freed) = self.tracker.untrack_adapter(adapter_id) {
                 evicted.push(EvictedAdapter {
                     adapter_id,
@@ -301,16 +292,7 @@ impl MemoryPressureManager {
             }
         }
 
-        let headroom_after = self.tracker.check_memory_pressure().headroom_pct;
-
-        Ok(MemoryPressureReport {
-            pressure_level: PressureLevel::Medium,
-            action_taken: EvictionStrategy::EvictLowPriority,
-            adapters_evicted: evicted,
-            bytes_freed: total_freed,
-            headroom_before,
-            headroom_after,
-        })
+        Ok(self.create_report(PressureLevel::Medium, EvictionStrategy::EvictLowPriority, evicted, total_freed, headroom_before))
     }
 
     /// Evict across backends (Metal before CoreML for ANE efficiency)
@@ -322,113 +304,18 @@ impl MemoryPressureManager {
         let mut evicted = Vec::new();
         let mut total_freed = 0u64;
 
-        // First pass: evict Metal adapters
-        for (adapter_id, backend, bytes, priority) in &candidates {
-            if priority == &f32::MAX || *backend != BackendType::Metal {
-                continue;
-            }
-
-            if let Some(freed) = self.tracker.untrack_adapter(*adapter_id) {
-                evicted.push(EvictedAdapter {
-                    adapter_id: *adapter_id,
-                    backend: *backend,
-                    bytes_freed: freed,
-                });
-                total_freed += freed;
-
-                warn!(
-                    adapter_id = adapter_id,
-                    backend = backend.as_str(),
-                    bytes_freed = freed,
-                    "Evicted Metal adapter (cross-backend strategy)"
-                );
-
-                if total_freed >= target_bytes {
-                    let headroom_after = self.tracker.check_memory_pressure().headroom_pct;
-                    return Ok(MemoryPressureReport {
-                        pressure_level: PressureLevel::High,
-                        action_taken: EvictionStrategy::EvictCrossBackend,
-                        adapters_evicted: evicted,
-                        bytes_freed: total_freed,
-                        headroom_before,
-                        headroom_after,
-                    });
-                }
-            }
+        // Evict in order: Metal → MLX → CoreML (preserve ANE resources)
+        if self.try_evict_backend(&candidates, BackendType::Metal, target_bytes, &mut evicted, &mut total_freed, "cross-backend-metal") {
+            return Ok(self.create_report(PressureLevel::High, EvictionStrategy::EvictCrossBackend, evicted, total_freed, headroom_before));
         }
 
-        // Second pass: evict MLX adapters
-        for (adapter_id, backend, bytes, priority) in &candidates {
-            if priority == &f32::MAX || *backend != BackendType::Mlx {
-                continue;
-            }
-
-            if let Some(freed) = self.tracker.untrack_adapter(*adapter_id) {
-                evicted.push(EvictedAdapter {
-                    adapter_id: *adapter_id,
-                    backend: *backend,
-                    bytes_freed: freed,
-                });
-                total_freed += freed;
-
-                warn!(
-                    adapter_id = adapter_id,
-                    backend = backend.as_str(),
-                    bytes_freed = freed,
-                    "Evicted MLX adapter (cross-backend strategy)"
-                );
-
-                if total_freed >= target_bytes {
-                    let headroom_after = self.tracker.check_memory_pressure().headroom_pct;
-                    return Ok(MemoryPressureReport {
-                        pressure_level: PressureLevel::High,
-                        action_taken: EvictionStrategy::EvictCrossBackend,
-                        adapters_evicted: evicted,
-                        bytes_freed: total_freed,
-                        headroom_before,
-                        headroom_after,
-                    });
-                }
-            }
+        if self.try_evict_backend(&candidates, BackendType::Mlx, target_bytes, &mut evicted, &mut total_freed, "cross-backend-mlx") {
+            return Ok(self.create_report(PressureLevel::High, EvictionStrategy::EvictCrossBackend, evicted, total_freed, headroom_before));
         }
 
-        // Last resort: evict CoreML adapters
-        for (adapter_id, backend, bytes, priority) in &candidates {
-            if priority == &f32::MAX || *backend != BackendType::CoreML {
-                continue;
-            }
+        self.try_evict_backend(&candidates, BackendType::CoreML, target_bytes, &mut evicted, &mut total_freed, "cross-backend-coreml");
 
-            if let Some(freed) = self.tracker.untrack_adapter(*adapter_id) {
-                evicted.push(EvictedAdapter {
-                    adapter_id: *adapter_id,
-                    backend: *backend,
-                    bytes_freed: freed,
-                });
-                total_freed += freed;
-
-                warn!(
-                    adapter_id = adapter_id,
-                    backend = backend.as_str(),
-                    bytes_freed = freed,
-                    "Evicted CoreML adapter (last resort)"
-                );
-
-                if total_freed >= target_bytes {
-                    break;
-                }
-            }
-        }
-
-        let headroom_after = self.tracker.check_memory_pressure().headroom_pct;
-
-        Ok(MemoryPressureReport {
-            pressure_level: PressureLevel::High,
-            action_taken: EvictionStrategy::EvictCrossBackend,
-            adapters_evicted: evicted,
-            bytes_freed: total_freed,
-            headroom_before,
-            headroom_after,
-        })
+        Ok(self.create_report(PressureLevel::High, EvictionStrategy::EvictCrossBackend, evicted, total_freed, headroom_before))
     }
 
     /// Emergency eviction - evict all unpinned adapters
@@ -440,12 +327,9 @@ impl MemoryPressureManager {
         let mut evicted = Vec::new();
         let mut total_freed = 0u64;
 
-        for (adapter_id, backend, bytes, priority) in candidates {
+        for (adapter_id, backend, _bytes, priority) in candidates {
             if priority == f32::MAX {
-                warn!(
-                    adapter_id = adapter_id,
-                    "Cannot evict pinned adapter during emergency"
-                );
+                warn!(adapter_id, "Cannot evict pinned adapter during emergency");
                 continue;
             }
 
@@ -458,7 +342,7 @@ impl MemoryPressureManager {
                 total_freed += freed;
 
                 warn!(
-                    adapter_id = adapter_id,
+                    adapter_id,
                     backend = backend.as_str(),
                     bytes_freed = freed,
                     "Emergency eviction"
@@ -470,23 +354,16 @@ impl MemoryPressureManager {
             }
         }
 
-        let headroom_after = self.tracker.check_memory_pressure().headroom_pct;
+        let report = self.create_report(PressureLevel::Critical, EvictionStrategy::EmergencyEvict, evicted, total_freed, headroom_before);
 
-        if headroom_after < 15.0 {
+        if report.headroom_after < 15.0 {
             return Err(AosError::Memory(format!(
                 "Emergency eviction failed to restore headroom: {:.2}% (target: 15%)",
-                headroom_after
+                report.headroom_after
             )));
         }
 
-        Ok(MemoryPressureReport {
-            pressure_level: PressureLevel::Critical,
-            action_taken: EvictionStrategy::EmergencyEvict,
-            adapters_evicted: evicted,
-            bytes_freed: total_freed,
-            headroom_before,
-            headroom_after,
-        })
+        Ok(report)
     }
 
     /// Get current memory statistics
@@ -508,6 +385,65 @@ impl MemoryPressureManager {
             pinned_adapter_count: pinned_count,
             total_adapter_count: self.tracker.adapter_count(),
         }
+    }
+
+    /// Helper: Create memory pressure report (reduces duplication)
+    fn create_report(
+        &self,
+        pressure_level: PressureLevel,
+        action_taken: EvictionStrategy,
+        evicted: Vec<EvictedAdapter>,
+        total_freed: u64,
+        headroom_before: f32,
+    ) -> MemoryPressureReport {
+        let headroom_after = self.tracker.check_memory_pressure().headroom_pct;
+        MemoryPressureReport {
+            pressure_level,
+            action_taken,
+            adapters_evicted: evicted,
+            bytes_freed: total_freed,
+            headroom_before,
+            headroom_after,
+        }
+    }
+
+    /// Helper: Try to evict adapters from specific backend (reduces duplication)
+    fn try_evict_backend(
+        &self,
+        candidates: &[(u32, BackendType, u64, f32)],
+        target_backend: BackendType,
+        target_bytes: u64,
+        evicted: &mut Vec<EvictedAdapter>,
+        total_freed: &mut u64,
+        strategy_name: &str,
+    ) -> bool {
+        for (adapter_id, backend, _bytes, priority) in candidates {
+            if priority == &f32::MAX || *backend != target_backend {
+                continue;
+            }
+
+            if let Some(freed) = self.tracker.untrack_adapter(*adapter_id) {
+                evicted.push(EvictedAdapter {
+                    adapter_id: *adapter_id,
+                    backend: *backend,
+                    bytes_freed: freed,
+                });
+                *total_freed += freed;
+
+                warn!(
+                    adapter_id = adapter_id,
+                    backend = backend.as_str(),
+                    bytes_freed = freed,
+                    strategy = strategy_name,
+                    "Evicted adapter"
+                );
+
+                if *total_freed >= target_bytes {
+                    return true; // Target met
+                }
+            }
+        }
+        false // Target not met
     }
 }
 
