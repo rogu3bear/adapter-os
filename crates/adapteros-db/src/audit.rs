@@ -4,6 +4,7 @@
 //! Audit logs are immutable and queryable for compliance officers and administrators.
 
 use crate::Db;
+use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -216,7 +217,7 @@ impl Db {
         let logs = q
             .fetch_all(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .db_err("query audit logs")?;
         Ok(logs)
     }
 
@@ -440,7 +441,7 @@ impl Db {
         )
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .db_err("fetch audit logs")?;
 
         if logs.is_empty() {
             return Ok(true); // Empty chain is valid
@@ -454,7 +455,7 @@ impl Db {
         )
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .db_err("fetch audit chain metadata")?;
 
         let mut prev_hash: Option<String> = None;
         let mut prev_seq = 0i64;
@@ -717,7 +718,7 @@ impl Db {
         let stats = q
             .fetch_all(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .db_err("get audit stats by action")?;
         Ok(stats)
     }
 }

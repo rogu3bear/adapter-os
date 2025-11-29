@@ -1,4 +1,5 @@
 use crate::Db;
+use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -150,7 +151,7 @@ impl Db {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
             .fetch_one(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to count users: {}", e)))?;
+            .db_err("count users")?;
         Ok(count)
     }
 }

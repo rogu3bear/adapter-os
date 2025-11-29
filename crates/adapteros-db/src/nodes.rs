@@ -1,4 +1,5 @@
 use crate::Db;
+use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -25,7 +26,7 @@ impl Db {
         .bind(agent_endpoint)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .db_err("register node")?;
         Ok(id)
     }
 
@@ -34,7 +35,7 @@ impl Db {
             .bind(id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .db_err("update node heartbeat")?;
         Ok(())
     }
 
@@ -44,7 +45,7 @@ impl Db {
         )
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .db_err("list nodes")?;
         Ok(nodes)
     }
 
@@ -55,7 +56,7 @@ impl Db {
         .bind(id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .db_err("get node")?;
         Ok(node)
     }
 
@@ -65,7 +66,7 @@ impl Db {
             .bind(id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .db_err("update node status")?;
         Ok(())
     }
 
@@ -87,9 +88,7 @@ impl Db {
         .bind(node_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| {
-            AosError::Database(format!("Failed to get node loaded adapters: {}", e))
-        })?;
+        .db_err("get node loaded adapters")?;
 
         Ok(adapter_ids)
     }
@@ -105,7 +104,7 @@ impl Db {
         .bind(node_id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to check if node is primary: {}", e)))?
+        .db_err("check if node is primary")?
         .unwrap_or(0);
 
         Ok(is_primary > 0)
@@ -120,7 +119,7 @@ impl Db {
         .bind(node_id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get node detail: {}", e)))?;
+        .db_err("get node detail")?;
 
         Ok(node)
     }
@@ -138,7 +137,7 @@ impl Db {
         .bind(node_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get node adapters: {}", e)))?;
+        .db_err("get node adapters from workers")?;
 
         Ok(adapters)
     }

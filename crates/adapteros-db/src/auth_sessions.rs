@@ -4,6 +4,7 @@
 //! and session lifecycle.
 
 use crate::Db;
+use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
 
 impl Db {
@@ -28,7 +29,7 @@ impl Db {
         .bind(reason)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to revoke token: {}", e)))?;
+        .db_err("revoke token")?;
 
         Ok(())
     }
@@ -42,7 +43,7 @@ impl Db {
             .bind(jti)
             .execute(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete auth session: {}", e)))?;
+            .db_err("delete auth session")?;
 
         Ok(())
     }
@@ -74,7 +75,7 @@ impl Db {
         .bind(expires_at)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create auth session: {}", e)))?;
+        .db_err("create auth session")?;
 
         Ok(())
     }
@@ -85,9 +86,7 @@ impl Db {
             .bind(jti)
             .execute(self.pool())
             .await
-            .map_err(|e| {
-                AosError::Database(format!("Failed to update session activity: {}", e))
-            })?;
+            .db_err("update session activity")?;
 
         Ok(())
     }
@@ -100,7 +99,7 @@ impl Db {
         .bind(token_hash)
         .fetch_one(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to check token revocation: {}", e)))?;
+        .db_err("check token revocation")?;
 
         Ok(count > 0)
     }
@@ -117,7 +116,7 @@ impl Db {
         .bind(chrono::Utc::now().timestamp())
         .fetch_all(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get user sessions: {}", e)))?;
+        .db_err("get user sessions")?;
 
         Ok(sessions)
     }
@@ -128,9 +127,7 @@ impl Db {
             .bind(user_id)
             .execute(self.pool())
             .await
-            .map_err(|e| {
-                AosError::Database(format!("Failed to delete all user sessions: {}", e))
-            })?;
+            .db_err("delete all user sessions")?;
 
         Ok(())
     }
@@ -141,7 +138,7 @@ impl Db {
             .bind(chrono::Utc::now().timestamp())
             .execute(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to cleanup expired sessions: {}", e)))?;
+            .db_err("cleanup expired sessions")?;
 
         Ok(result.rows_affected())
     }

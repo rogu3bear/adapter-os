@@ -1,5 +1,6 @@
 use crate::adapters::Adapter; // assume
 use crate::Db;
+use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::tenant_snapshot::{AdapterInfo, PolicyInfo, StackInfo, TenantStateSnapshot};
 use adapteros_core::{AosError, B3Hash, Result};
 use chrono::Utc;
@@ -88,7 +89,7 @@ impl Db {
         let total = sqlx::query("SELECT COUNT(*) as cnt FROM tenants")
             .fetch_one(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?
+            .db_err("count tenants")?
             .get::<i64, _>(0);
 
         // Get paginated results
@@ -101,7 +102,7 @@ impl Db {
         .bind(offset)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .db_err("list tenants paginated")?;
 
         Ok((tenants, total))
     }
@@ -198,7 +199,7 @@ impl Db {
                 .bind(tenant_id)
                 .fetch_one(&*self.pool())
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to count adapters: {}", e)))?
+                .db_err("count adapters")?
                 .get::<i32, _>(0);
 
         // Count running training jobs
@@ -208,7 +209,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_one(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to count training jobs: {}", e)))?
+        .db_err("count training jobs")?
         .get::<i32, _>(0);
 
         // Count inference operations in last 24h
@@ -220,7 +221,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to count inference operations: {}", e)))?
+        .db_err("count inference operations")?
         .map(|row| row.get::<i32, _>(0))
         .unwrap_or(0);
 
@@ -298,7 +299,7 @@ impl Db {
             .bind(tenant_id)
             .fetch_all(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to query policies: {}", e)))?;
+            .db_err("query policies")?;
 
         for row in rows {
             let name: String = row.get(0);
@@ -325,7 +326,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to query configs: {}", e)))?;
+        .db_err("query configs")?;
 
         for row in config_rows {
             let key: String = row.get(0);

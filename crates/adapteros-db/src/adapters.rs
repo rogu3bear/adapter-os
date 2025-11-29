@@ -4,6 +4,18 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;
 
+/// Standard adapter SELECT fields for all queries
+///
+/// This constant ensures all adapter queries return the same columns
+/// in the same order, matching the Adapter struct field order.
+const ADAPTER_SELECT_FIELDS: &str =
+    "id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, \
+     languages_json, framework, category, scope, framework_id, framework_version, \
+     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, \
+     activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash, \
+     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, \
+     created_at, updated_at, active, version, lifecycle_state";
+
 /// Builder for creating adapter registration parameters
 #[derive(Debug, Default)]
 pub struct AdapterRegistrationBuilder {
@@ -479,20 +491,14 @@ impl Db {
 
     /// Find all expired adapters
     pub async fn find_expired_adapters(&self) -> Result<Vec<Adapter>> {
-        let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    version, lifecycle_state, created_at, updated_at, active
-             FROM adapters
-             WHERE expires_at IS NOT NULL AND expires_at < datetime('now')",
-        )
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        let query = format!(
+            "SELECT {} FROM adapters WHERE expires_at IS NOT NULL AND expires_at < datetime('now')",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -508,21 +514,14 @@ impl Db {
         note = "Use list_adapters_for_tenant() for tenant isolation"
     )]
     pub async fn list_adapters(&self) -> Result<Vec<Adapter>> {
-        let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    version, lifecycle_state, created_at, updated_at, active
-             FROM adapters
-             WHERE active = 1
-             ORDER BY tier ASC, created_at DESC",
-        )
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        let query = format!(
+            "SELECT {} FROM adapters WHERE active = 1 ORDER BY tier ASC, created_at DESC",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -541,21 +540,14 @@ impl Db {
     /// # Returns
     /// Vector of all active adapters ordered by tier (ascending) and creation date (descending)
     pub async fn list_all_adapters_system(&self) -> Result<Vec<Adapter>> {
-        let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    version, lifecycle_state, created_at, updated_at, active
-             FROM adapters
-             WHERE active = 1
-             ORDER BY tier ASC, created_at DESC",
-        )
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to list all adapters (system): {}", e)))?;
+        let query = format!(
+            "SELECT {} FROM adapters WHERE active = 1 ORDER BY tier ASC, created_at DESC",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list all adapters (system): {}", e)))?;
         Ok(adapters)
     }
 
@@ -583,22 +575,15 @@ impl Db {
     /// # }
     /// ```
     pub async fn list_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
-        let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    version, lifecycle_state, created_at, updated_at, active
-             FROM adapters
-             WHERE tenant_id = ? AND active = 1
-             ORDER BY tier ASC, created_at DESC",
-        )
-        .bind(tenant_id)
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to list adapters for tenant: {}", e)))?;
+        let query = format!(
+            "SELECT {} FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .bind(tenant_id)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list adapters for tenant: {}", e)))?;
         Ok(adapters)
     }
 
@@ -738,21 +723,15 @@ impl Db {
 
     /// Get adapter by ID
     pub async fn get_adapter(&self, adapter_id: &str) -> Result<Option<Adapter>> {
-        let adapter = sqlx::query_as::<_, Adapter>(
-            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    version, lifecycle_state, created_at, updated_at, active
-             FROM adapters
-             WHERE adapter_id = ?",
-        )
-        .bind(adapter_id)
-        .fetch_optional(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        let query = format!(
+            "SELECT {} FROM adapters WHERE adapter_id = ?",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapter = sqlx::query_as::<_, Adapter>(&query)
+            .bind(adapter_id)
+            .fetch_optional(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapter)
     }
 
@@ -761,22 +740,15 @@ impl Db {
     /// Returns an existing active adapter with the same hash_b3, enabling
     /// content-addressed deduplication during import.
     pub async fn find_adapter_by_hash(&self, hash_b3: &str) -> Result<Option<Adapter>> {
-        let adapter = sqlx::query_as::<_, Adapter>(
-            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    version, lifecycle_state, created_at, updated_at, active
-             FROM adapters
-             WHERE hash_b3 = ? AND active = 1
-             LIMIT 1",
-        )
-        .bind(hash_b3)
-        .fetch_optional(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to find adapter by hash: {}", e)))?;
+        let query = format!(
+            "SELECT {} FROM adapters WHERE hash_b3 = ? AND active = 1 LIMIT 1",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapter = sqlx::query_as::<_, Adapter>(&query)
+            .bind(hash_b3)
+            .fetch_optional(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to find adapter by hash: {}", e)))?;
         Ok(adapter)
     }
 
@@ -1059,64 +1031,43 @@ impl Db {
 
     /// List adapters by category
     pub async fn list_adapters_by_category(&self, category: &str) -> Result<Vec<Adapter>> {
-        let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    version, lifecycle_state, created_at, updated_at, active
-             FROM adapters
-             WHERE active = 1 AND category = ?
-             ORDER BY activation_count DESC, created_at DESC",
-        )
-        .bind(category)
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        let query = format!(
+            "SELECT {} FROM adapters WHERE active = 1 AND category = ? ORDER BY activation_count DESC, created_at DESC",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .bind(category)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
     }
 
     /// List adapters by scope
     pub async fn list_adapters_by_scope(&self, scope: &str) -> Result<Vec<Adapter>> {
-        let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    version, lifecycle_state, created_at, updated_at, active
-             FROM adapters
-             WHERE active = 1 AND scope = ?
-             ORDER BY activation_count DESC, created_at DESC",
-        )
-        .bind(scope)
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        let query = format!(
+            "SELECT {} FROM adapters WHERE active = 1 AND scope = ? ORDER BY activation_count DESC, created_at DESC",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .bind(scope)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
     }
 
     /// List adapters by state
     pub async fn list_adapters_by_state(&self, state: &str) -> Result<Vec<Adapter>> {
-        let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    version, lifecycle_state, created_at, updated_at, active
-             FROM adapters
-             WHERE active = 1 AND current_state = ?
-             ORDER BY activation_count DESC, created_at DESC",
-        )
-        .bind(state)
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        let query = format!(
+            "SELECT {} FROM adapters WHERE active = 1 AND current_state = ? ORDER BY activation_count DESC, created_at DESC",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .bind(state)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -1183,17 +1134,11 @@ impl Db {
     ///
     /// Uses recursive CTEs to traverse parent_id relationships.
     pub async fn get_adapter_lineage(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
-        let adapters = sqlx::query_as::<_, Adapter>(
+        let query = format!(
             "WITH RECURSIVE
              -- Get ancestors (walk up parent_id chain)
              ancestors AS (
-                 SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                        languages_json, framework, category, scope, framework_id, framework_version,
-                        repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                        activation_count, expires_at, load_state, last_loaded_at,
-                        aos_file_path, aos_file_hash,
-                        adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                        created_at, updated_at, active, version, lifecycle_state, 1 as depth
+                 SELECT {}, 1 as depth
                  FROM adapters
                  WHERE adapter_id = ?
                  UNION ALL
@@ -1209,13 +1154,7 @@ impl Db {
              ),
              -- Get descendants (walk down parent_id references)
              descendants AS (
-                 SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                        languages_json, framework, category, scope, framework_id, framework_version,
-                        repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                        activation_count, expires_at, load_state, last_loaded_at,
-                        aos_file_path, aos_file_hash,
-                        adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                        created_at, updated_at, active, version, lifecycle_state, 1 as depth
+                 SELECT {}, 1 as depth
                  FROM adapters
                  WHERE adapter_id = ?
                  UNION ALL
@@ -1229,25 +1168,21 @@ impl Db {
                  JOIN descendants desc ON a.parent_id = desc.adapter_id
                  WHERE desc.depth < 10  -- Prevent infinite loops
              )
-             SELECT DISTINCT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active, version, lifecycle_state
+             SELECT DISTINCT {}
              FROM (
                  SELECT * FROM ancestors
                  UNION
                  SELECT * FROM descendants
              )
-             ORDER BY created_at ASC"
-        )
-        .bind(adapter_id)
-        .bind(adapter_id)
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+             ORDER BY created_at ASC",
+            ADAPTER_SELECT_FIELDS, ADAPTER_SELECT_FIELDS, ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .bind(adapter_id)
+            .bind(adapter_id)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -1255,22 +1190,15 @@ impl Db {
     ///
     /// Returns all adapters that have this adapter as their parent_id.
     pub async fn get_adapter_children(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
-        let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active, version, lifecycle_state
-             FROM adapters
-             WHERE parent_id = ? AND active = 1
-             ORDER BY revision ASC, created_at ASC"
-        )
-        .bind(adapter_id)
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        let query = format!(
+            "SELECT {} FROM adapters WHERE parent_id = ? AND active = 1 ORDER BY revision ASC, created_at ASC",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .bind(adapter_id)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -1279,15 +1207,9 @@ impl Db {
     /// Returns ordered list of adapters from root ancestor to the specified adapter,
     /// tracing the parent_id chain upwards.
     pub async fn get_lineage_path(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
-        let adapters = sqlx::query_as::<_, Adapter>(
+        let query = format!(
             "WITH RECURSIVE lineage AS (
-                 SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                        languages_json, framework, category, scope, framework_id, framework_version,
-                        repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                        activation_count, expires_at, load_state, last_loaded_at,
-                        aos_file_path, aos_file_hash,
-                        adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                        created_at, updated_at, active, version, lifecycle_state, 0 as depth
+                 SELECT {}, 0 as depth
                  FROM adapters
                  WHERE adapter_id = ?
                  UNION ALL
@@ -1301,19 +1223,16 @@ impl Db {
                  JOIN lineage lin ON a.adapter_id = lin.parent_id
                  WHERE lin.depth < 10  -- Prevent infinite loops
              )
-             SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
-                    languages_json, framework, category, scope, framework_id, framework_version,
-                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
-                    activation_count, expires_at, load_state, last_loaded_at,
-                    aos_file_path, aos_file_hash,
-                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active, version, lifecycle_state
+             SELECT {}
              FROM lineage
-             ORDER BY depth DESC")
-        .bind(adapter_id)
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+             ORDER BY depth DESC",
+            ADAPTER_SELECT_FIELDS, ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .bind(adapter_id)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
     }
 
