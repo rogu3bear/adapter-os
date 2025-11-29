@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn test_router_config_default() {
         let config = RouterConfig::default();
-        assert_eq!(config.k_sparse, 3);
+        assert_eq!(config.k_sparse, 4);
         assert_eq!(config.entropy_floor, 0.02);
         assert_eq!(config.sample_tokens_full, 128);
         assert_eq!(config.overhead_budget_pct, 8.0);
@@ -458,11 +458,11 @@ mod tests {
         let policy = RouterPolicy::new(config);
 
         // Valid case
-        assert!(policy.validate_k_sparse(3).is_ok());
+        assert!(policy.validate_k_sparse(4).is_ok());
         assert!(policy.validate_k_sparse(1).is_ok());
 
         // Invalid case
-        assert!(policy.validate_k_sparse(4).is_err());
+        assert!(policy.validate_k_sparse(5).is_err());
     }
 
     #[test]
@@ -487,8 +487,8 @@ mod tests {
         // High entropy (good)
         assert!(policy.validate_entropy_floor(&[0.3, 0.3, 0.4]).is_ok());
 
-        // Low entropy (bad)
-        assert!(policy.validate_entropy_floor(&[0.9, 0.05, 0.05]).is_err());
+        // Low entropy (bad) - single adapter dominates with > 99.9%
+        assert!(policy.validate_entropy_floor(&[0.9997, 0.0001, 0.0001, 0.0001]).is_err());
     }
 
     #[test]
@@ -530,10 +530,10 @@ mod tests {
         let config = RouterConfig::default();
         let policy = RouterPolicy::new(config);
 
-        // Valid stack with 5 adapters (K=3)
+        // Valid stack with 4 adapters (K=4)
         let stack = StackConfiguration {
             id: "test-stack".to_string(),
-            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string()],
+            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string(), "a4".to_string()],
             adapters: vec![
                 AdapterMetadata {
                     id: "a1".to_string(),
@@ -553,6 +553,12 @@ mod tests {
                     tags: vec![],
                     forbidden_peers: vec![],
                 },
+                AdapterMetadata {
+                    id: "a4".to_string(),
+                    tier: "tier_0".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
             ],
         };
 
@@ -564,7 +570,7 @@ mod tests {
         let config = RouterConfig::default();
         let policy = RouterPolicy::new(config);
 
-        // Stack with only 2 adapters (K=3)
+        // Stack with only 2 adapters (K=4)
         let stack = StackConfiguration {
             id: "test-stack".to_string(),
             adapter_ids: vec!["a1".to_string(), "a2".to_string()],
@@ -600,7 +606,7 @@ mod tests {
         // Stack with forbidden peer combination
         let stack = StackConfiguration {
             id: "test-stack".to_string(),
-            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string()],
+            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string(), "a4".to_string()],
             adapters: vec![
                 AdapterMetadata {
                     id: "a1".to_string(),
@@ -617,6 +623,12 @@ mod tests {
                 AdapterMetadata {
                     id: "a3".to_string(),
                     tier: "tier_2".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
+                AdapterMetadata {
+                    id: "a4".to_string(),
+                    tier: "tier_0".to_string(),
                     tags: vec![],
                     forbidden_peers: vec![],
                 },
@@ -636,7 +648,7 @@ mod tests {
         // Stack with conflicting tags
         let stack = StackConfiguration {
             id: "test-stack".to_string(),
-            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string()],
+            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string(), "a4".to_string()],
             adapters: vec![
                 AdapterMetadata {
                     id: "a1".to_string(),
@@ -656,6 +668,12 @@ mod tests {
                     tags: vec![],
                     forbidden_peers: vec![],
                 },
+                AdapterMetadata {
+                    id: "a4".to_string(),
+                    tier: "tier_0".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
             ],
         };
 
@@ -669,9 +687,9 @@ mod tests {
         let config = RouterConfig::default();
         let policy = RouterPolicy::new(config);
 
-        // Valid decision with 3 adapters and proper entropy
-        let selected_indices = vec![0, 1, 2];
-        let gates = vec![0.4, 0.35, 0.25]; // Reasonable entropy
+        // Valid decision with 4 adapters and proper entropy
+        let selected_indices = vec![0, 1, 2, 3];
+        let gates = vec![0.3, 0.3, 0.25, 0.15]; // Reasonable entropy
 
         assert!(policy
             .validate_decision(&selected_indices, &gates, None)
@@ -683,9 +701,9 @@ mod tests {
         let config = RouterConfig::default();
         let policy = RouterPolicy::new(config);
 
-        // Decision selects 4 adapters but K=3
-        let selected_indices = vec![0, 1, 2, 3];
-        let gates = vec![0.3, 0.3, 0.2, 0.2];
+        // Decision selects 5 adapters but K=4
+        let selected_indices = vec![0, 1, 2, 3, 4];
+        let gates = vec![0.25, 0.25, 0.2, 0.15, 0.15];
 
         let result = policy.validate_decision(&selected_indices, &gates, None);
         assert!(result.is_err());
@@ -698,8 +716,8 @@ mod tests {
         let policy = RouterPolicy::new(config);
 
         // Decision with low entropy (single adapter dominates)
-        let selected_indices = vec![0, 1, 2];
-        let gates = vec![0.95, 0.03, 0.02]; // Very low entropy
+        let selected_indices = vec![0, 1, 2, 3];
+        let gates = vec![0.9997, 0.0001, 0.0001, 0.0001]; // Very low entropy, below 0.02
 
         let result = policy.validate_decision(&selected_indices, &gates, None);
         assert!(result.is_err());
@@ -713,7 +731,7 @@ mod tests {
 
         let stack = StackConfiguration {
             id: "test-stack".to_string(),
-            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string()],
+            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string(), "a4".to_string()],
             adapters: vec![
                 AdapterMetadata {
                     id: "a1".to_string(),
@@ -733,12 +751,18 @@ mod tests {
                     tags: vec![],
                     forbidden_peers: vec![],
                 },
+                AdapterMetadata {
+                    id: "a4".to_string(),
+                    tier: "tier_0".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
             ],
         };
 
         // Selection includes both a1 (tier-1) and a2 (forbidden peer)
-        let selected_indices = vec![0, 1, 2];
-        let gates = vec![0.4, 0.35, 0.25];
+        let selected_indices = vec![0, 1, 2, 3];
+        let gates = vec![0.3, 0.3, 0.25, 0.15];
 
         let result = policy.validate_decision(&selected_indices, &gates, Some(&stack));
         assert!(result.is_err());

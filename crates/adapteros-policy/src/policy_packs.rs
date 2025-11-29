@@ -501,7 +501,7 @@ impl PolicyPackManager {
                 "retrieval_tie_break": ["score_desc", "doc_id_asc"]
             }),
             PolicyPackId::Router => serde_json::json!({
-                "k_sparse": 3,
+                "k_sparse": 4,
                 "gate_quant": "q15",
                 "entropy_floor": 0.02,
                 "sample_tokens_full": 128
@@ -600,7 +600,7 @@ impl PolicyPackManager {
                 "packs": {
                     "egress": {"mode": "deny_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": ["/var/run/aos/<tenant>/*.sock"], "media_import": {"require_signature": true, "require_sbom": true}},
                     "determinism": {"require_metallib_embed": true, "require_kernel_hash_match": true, "rng": "hkdf_seeded", "retrieval_tie_break": ["score_desc", "doc_id_asc"]},
-                    "router": {"k_sparse": 3, "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128},
+                    "router": {"k_sparse": 4, "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128},
                     "evidence": {"require_open_book": true, "min_spans": 1, "prefer_latest_revision": true, "warn_on_superseded": true},
                     "refusal": {"abstain_threshold": 0.55, "missing_fields_templates": {"torque_spec": ["aircraft_effectivity", "component_pn"]}},
                     "numeric": {"canonical_units": {"torque": "in_lbf", "pressure": "psi"}, "max_rounding_error": 0.5, "require_units_in_trace": true},
@@ -1022,7 +1022,7 @@ impl RouterValidator {
     pub fn new() -> Self {
         Self {
             config: serde_json::json!({
-                "k_sparse": 3,
+                "k_sparse": 4,
                 "gate_quant": "q15",
                 "entropy_floor": 0.02,
                 "sample_tokens_full": 128
@@ -1040,14 +1040,14 @@ impl PolicyPackValidator for RouterValidator {
         if let Some(data) = &request.context.data {
             if let Some(k_value) = data.get("k_sparse") {
                 if let Some(k) = k_value.as_u64() {
-                    if k > 3 {
+                    if k > 4 {
                         violations.push(PolicyViolation {
                             violation_id: Uuid::new_v4().to_string(),
                             policy_pack: "Router Ruleset".to_string(),
                             severity: ViolationSeverity::Error,
                             message: "K-sparse value exceeds maximum".to_string(),
                             details: Some(serde_json::json!({"k_sparse": k})),
-                            remediation: Some("Reduce K-sparse value to maximum of 3".to_string()),
+                            remediation: Some("Reduce K-sparse value to maximum of 4".to_string()),
                             timestamp: Utc::now(),
                         });
                     }
@@ -2170,7 +2170,7 @@ impl FullPackValidator {
                 "packs": {
                     "egress": {"mode": "deny_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": ["/var/run/aos/<tenant>/*.sock"], "media_import": {"require_signature": true, "require_sbom": true}},
                     "determinism": {"require_metallib_embed": true, "require_kernel_hash_match": true, "rng": "hkdf_seeded", "retrieval_tie_break": ["score_desc", "doc_id_asc"]},
-                    "router": {"k_sparse": 3, "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128},
+                    "router": {"k_sparse": 4, "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128},
                     "evidence": {"require_open_book": true, "min_spans": 1, "prefer_latest_revision": true, "warn_on_superseded": true},
                     "refusal": {"abstain_threshold": 0.55, "missing_fields_templates": {"torque_spec": ["aircraft_effectivity", "component_pn"]}},
                     "numeric": {"canonical_units": {"torque": "in_lbf", "pressure": "psi"}, "max_rounding_error": 0.5, "require_units_in_trace": true},

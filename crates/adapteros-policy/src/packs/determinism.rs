@@ -314,16 +314,141 @@ impl Policy for DeterminismPolicy {
         Severity::Critical
     }
 
-    fn enforce(&self, _ctx: &dyn PolicyContext) -> Result<Audit> {
-        let violations = Vec::new();
+    fn enforce(&self, ctx: &dyn PolicyContext) -> Result<Audit> {
+        use crate::Violation;
 
-        // Basic validation - in a real implementation, this would check
-        // metallib embedding, kernel hashes, RNG seeding, etc.
+        let mut violations = Vec::new();
+        let mut warnings = Vec::new();
+        let metadata = ctx.metadata();
+
+        // Check RNG seeding method
+        if let Some(rng_method) = metadata.get("rng_seeding_method") {
+            match rng_method.as_str() {
+                "system_entropy" | "unseeded" => {
+                    violations.push(Violation {
+                        severity: Severity::Critical,
+                        message: format!("Non-deterministic RNG seeding: {}", rng_method),
+                        details: Some("Use HKDF-seeded or fixed-seed RNG for deterministic execution".to_string()),
+                    });
+                }
+                "hkdf_seeded" | "fixed_seed" => {
+                    // Valid - matches expected deterministic seeding
+                }
+                _ => {
+                    warnings.push(format!("Unknown RNG seeding method: {}", rng_method));
+                }
+            }
+        } else {
+            warnings.push("No RNG seeding method specified in context".to_string());
+        }
+
+        // Check metallib embedding if required
+        if self.config.require_metallib_embed {
+            match metadata.get("has_metallib") {
+                Some(value) if value == "true" => {
+                    // Valid - metallib is embedded
+                }
+                Some(value) if value == "false" => {
+                    violations.push(Violation {
+                        severity: Severity::Critical,
+                        message: "Metallib embedding required but not present".to_string(),
+                        details: Some("Policy requires embedded metallib blobs for deterministic kernel execution".to_string()),
+                    });
+                }
+                None => {
+                    warnings.push("Metallib embedding status not specified in context".to_string());
+                }
+                _ => {
+                    warnings.push("Invalid metallib embedding status value".to_string());
+                }
+            }
+        }
+
+        // Check kernel hash if required
+        if self.config.require_kernel_hash_match {
+            if let (Some(expected), Some(actual)) = (metadata.get("expected_kernel_hash"), metadata.get("actual_kernel_hash")) {
+                if expected != actual {
+                    violations.push(Violation {
+                        severity: Severity::Critical,
+                        message: format!("Kernel hash mismatch: expected {}, got {}", expected, actual),
+                        details: Some("Kernel hash must match to ensure deterministic execution".to_string()),
+                    });
+                }
+            }
+        }
+
+        // Check compiler flags for forbidden options
+        if let Some(flags) = metadata.get("compiler_flags") {
+            let forbidden_flags = [
+                "-ffast-math",
+                "-funsafe-math-optimizations",
+                "-fno-math-errno",
+                "-ffinite-math-only",
+            ];
+
+            for forbidden in &forbidden_flags {
+                if flags.contains(forbidden) {
+                    violations.push(Violation {
+                        severity: Severity::Critical,
+                        message: format!("Forbidden compiler flag detected: {}", forbidden),
+                        details: Some(format!("flags: {}", flags)),
+                    });
+                }
+            }
+        }
+
+        // Check floating-point mode
+        if let Some(fp_mode) = metadata.get("floating_point_mode") {
+            match fp_mode.as_str() {
+                "fast_math" | "unsafe" | "unknown" => {
+                    violations.push(Violation {
+                        severity: Severity::High,
+                        message: format!("Non-deterministic floating-point mode: {}", fp_mode),
+                        details: Some("Use IEEE 754 compliant floating-point mode for deterministic execution".to_string()),
+                    });
+                }
+                "ieee754" | "strict" => {
+                    // Valid - IEEE 754 compliant mode
+                }
+                _ => {
+                    warnings.push(format!("Unknown floating-point mode: {}", fp_mode));
+                }
+            }
+        }
+
+        // Check backend type
+        if let Some(backend_type) = metadata.get("backend_type") {
+            match backend_type.as_str() {
+                "coreml" | "metal" => {
+                    // Valid - deterministic backends
+                }
+                "mlx" => {
+                    // MLX is deterministic when properly seeded
+                    if !metadata.get("rng_seeding_method").map(|s| s == "hkdf_seeded" || s == "fixed_seed").unwrap_or(false) {
+                        warnings.push("MLX backend requires proper RNG seeding for determinism".to_string());
+                    }
+                }
+                _ => {
+                    warnings.push(format!("Unknown or potentially non-deterministic backend: {}", backend_type));
+                }
+            }
+        }
+
+        // Check deterministic flag if present
+        if let Some(deterministic_flag) = metadata.get("deterministic") {
+            if deterministic_flag != "true" {
+                violations.push(Violation {
+                    severity: Severity::Critical,
+                    message: "Backend reports non-deterministic execution".to_string(),
+                    details: Some(format!("deterministic flag: {}", deterministic_flag)),
+                });
+            }
+        }
 
         if violations.is_empty() {
-            Ok(Audit::passed(self.id()))
+            Ok(Audit::passed(self.id()).with_warnings(warnings))
         } else {
-            Ok(Audit::failed(self.id(), violations))
+            Ok(Audit::failed(self.id(), violations).with_warnings(warnings))
         }
     }
 }

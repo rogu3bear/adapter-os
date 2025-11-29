@@ -540,6 +540,10 @@ mod tests {
             fn metadata(&self) -> &HashMap<String, String> {
                 &self.metadata
             }
+
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
         }
 
         let config = EvidenceConfig::default();
@@ -574,6 +578,10 @@ mod tests {
         impl PolicyContext for TestContext {
             fn metadata(&self) -> &HashMap<String, String> {
                 &self.metadata
+            }
+
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
             }
         }
 
@@ -610,6 +618,10 @@ mod tests {
             fn metadata(&self) -> &HashMap<String, String> {
                 &self.metadata
             }
+
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
         }
 
         let config = EvidenceConfig::default();
@@ -644,6 +656,10 @@ mod tests {
         impl PolicyContext for TestContext {
             fn metadata(&self) -> &HashMap<String, String> {
                 &self.metadata
+            }
+
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
             }
         }
 

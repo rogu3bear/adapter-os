@@ -16,7 +16,6 @@ pub mod evidence;
 pub mod incident;
 pub mod isolation;
 pub mod memory;
-pub mod mplora;
 pub mod naming_policy;
 pub mod numeric;
 pub mod nvd_client;
@@ -67,10 +66,6 @@ pub use isolation::{
     NetworkIsolation, ProcessModel, RotationPolicy, RotationTrigger, TenantContext,
 };
 pub use memory::{AdapterMemoryInfo, EvictionDecision, MemoryConfig, MemoryPolicy, MemoryStats};
-pub use mplora::{
-    MploraConfig, MploraPath, MploraPerformanceMetrics, MploraPolicy, PathConstraints,
-    PathSelectionStrategy, PerformanceConstraints as MploraPerformanceConstraints,
-};
 pub use naming_policy::{
     AdapterNameValidation, NamingConfig, NamingPolicy, NamingViolation, NamingViolationType,
     StackNameValidation,
@@ -217,11 +212,6 @@ impl PolicyPackFactory {
         DriftPolicy::new(DriftConfig::default())
     }
 
-    /// Create an MPLoRA policy with default configuration
-    pub fn create_adapteros_policy() -> MploraPolicy {
-        MploraPolicy::new(MploraConfig::default())
-    }
-
     /// Create a naming policy with default configuration
     pub fn create_naming_policy() -> NamingPolicy {
         NamingPolicy::new(NamingConfig::default())
@@ -261,7 +251,6 @@ mod tests {
         let telemetry_policy = PolicyPackFactory::create_telemetry_policy();
         let deterministic_io_policy = PolicyPackFactory::create_deterministic_io_policy();
         let drift_policy = PolicyPackFactory::create_drift_policy();
-        let adapteros_policy = PolicyPackFactory::create_adapteros_policy();
         let naming_policy = PolicyPackFactory::create_naming_policy();
 
         // Verify all policies can be created
@@ -286,7 +275,6 @@ mod tests {
         assert_eq!(telemetry_policy.id(), PolicyId::Telemetry);
         assert_eq!(deterministic_io_policy.id(), PolicyId::DeterministicIo);
         assert_eq!(drift_policy.id(), PolicyId::Drift);
-        assert_eq!(adapteros_policy.id(), PolicyId::Mplora);
         assert_eq!(naming_policy.id(), PolicyId::Naming);
     }
 }

@@ -13,7 +13,6 @@ use blake3;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{error, info, warn};
 
 /// Policy integrity metadata
@@ -43,10 +42,7 @@ impl PolicyIntegrityMetadata {
         public_key: String,
         schema_version: u8,
     ) -> Self {
-        let signed_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let signed_at = adapteros_core::time::unix_timestamp_secs();
 
         Self {
             file_hash: file_hash.clone(),
@@ -91,10 +87,7 @@ impl Default for PolicyVerificationResult {
             version_compatible: false,
             error_message: None,
             issues: Vec::new(),
-            verified_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            verified_at: adapteros_core::time::unix_timestamp_secs(),
         }
     }
 }
@@ -167,10 +160,7 @@ impl PolicyIntegrityVerifier {
         metadata: &PolicyIntegrityMetadata,
     ) -> Result<PolicyVerificationResult> {
         let mut result = PolicyVerificationResult {
-            verified_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            verified_at: adapteros_core::time::unix_timestamp_secs(),
             ..Default::default()
         };
 
@@ -285,10 +275,7 @@ impl PolicyIntegrityVerifier {
             tampered,
             expected_hash: expected_hash.clone(),
             actual_hash,
-            detected_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            detected_at: adapteros_core::time::unix_timestamp_secs(),
             recovery_action,
         };
 
@@ -351,10 +338,7 @@ impl PolicyIntegrityVerifier {
 
     /// Record verified hash in cache
     pub fn cache_verification(&mut self, hash: String) {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let timestamp = adapteros_core::time::unix_timestamp_secs();
         self.verified_hashes.insert(hash, timestamp);
     }
 
