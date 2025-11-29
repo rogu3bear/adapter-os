@@ -1654,6 +1654,11 @@ pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> Tra
         config_hash_b3: None,
         adapter_id: None,
         weights_hash_b3: None,
+        category: None,
+        description: None,
+        language: None,
+        framework_id: None,
+        framework_version: None,
     }
 }
 

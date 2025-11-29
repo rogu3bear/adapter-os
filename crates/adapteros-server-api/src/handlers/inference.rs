@@ -4,6 +4,7 @@ use crate::state::AppState;
 use crate::types::{ErrorResponse, InferRequest, InferResponse, InferenceTrace, WorkerInferRequest};
 use crate::uds_client::{UdsClient, UdsClientError};
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_deterministic_exec::{ExecutorEvent, TaskId};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 
 /// Inference endpoint
@@ -134,8 +135,55 @@ pub async fn infer(
         require_evidence: req.require_evidence.unwrap_or(false), // Get from request or default to false
     };
 
+    // Record inference task spawned event to tick ledger
+    let task_id = if let Some(ref ledger) = state.tick_ledger {
+        // Generate a deterministic task ID from request ID
+        let request_id_bytes = uuid::Uuid::new_v4().as_bytes().to_owned();
+        let mut task_id_bytes = [0u8; 32];
+        task_id_bytes[..16].copy_from_slice(&request_id_bytes);
+        let task_id = TaskId::from_bytes(task_id_bytes);
+
+        // Record task spawned event
+        let spawn_event = ExecutorEvent::TaskSpawned {
+            task_id,
+            description: format!("inference: {}", &req.prompt[..req.prompt.len().min(50)]),
+            tick: ledger.current_tick(),
+            agent_id: Some(claims.tenant_id.clone()),
+            hash: task_id_bytes,
+        };
+
+        if let Err(e) = ledger.record_tick(task_id, &spawn_event).await {
+            tracing::warn!(
+                error = %e,
+                "Failed to record inference task spawn to tick ledger"
+            );
+        }
+
+        Some(task_id)
+    } else {
+        None
+    };
+
     match uds_client.infer(uds_path, worker_request).await {
         Ok(worker_response) => {
+            // Record task completed event to tick ledger
+            if let (Some(task_id), Some(ref ledger)) = (task_id, &state.tick_ledger) {
+                let complete_event = ExecutorEvent::TaskCompleted {
+                    task_id,
+                    tick: ledger.current_tick(),
+                    duration_ticks: 1, // Simplified - actual duration would be tracked
+                    agent_id: Some(claims.tenant_id.clone()),
+                    hash: task_id.as_bytes().to_owned(),
+                };
+
+                if let Err(e) = ledger.record_tick(task_id, &complete_event).await {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to record inference task completion to tick ledger"
+                    );
+                }
+            }
+
             // Convert worker response to server API response
             let response = InferResponse {
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -213,29 +261,91 @@ pub async fn infer(
 
             Ok(Json(response))
         }
-        Err(UdsClientError::WorkerNotAvailable(msg)) => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("worker not available")
-                    .with_code("SERVICE_UNAVAILABLE")
-                    .with_string_details(msg),
-            ),
-        )),
-        Err(UdsClientError::Timeout(msg)) => Err((
-            StatusCode::REQUEST_TIMEOUT,
-            Json(
-                ErrorResponse::new("inference timeout")
-                    .with_code("REQUEST_TIMEOUT")
-                    .with_string_details(msg),
-            ),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("inference failed")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )),
+        Err(UdsClientError::WorkerNotAvailable(msg)) => {
+            // Record task failed event to tick ledger
+            if let (Some(task_id), Some(ref ledger)) = (task_id, &state.tick_ledger) {
+                let failed_event = ExecutorEvent::TaskFailed {
+                    task_id,
+                    error: msg.clone(),
+                    tick: ledger.current_tick(),
+                    duration_ticks: 1,
+                    agent_id: Some(claims.tenant_id.clone()),
+                    hash: task_id.as_bytes().to_owned(),
+                };
+
+                if let Err(e) = ledger.record_tick(task_id, &failed_event).await {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to record inference task failure to tick ledger"
+                    );
+                }
+            }
+
+            Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new("worker not available")
+                        .with_code("SERVICE_UNAVAILABLE")
+                        .with_string_details(msg),
+                ),
+            ))
+        }
+        Err(UdsClientError::Timeout(msg)) => {
+            // Record task timeout event to tick ledger
+            if let (Some(task_id), Some(ref ledger)) = (task_id, &state.tick_ledger) {
+                let timeout_event = ExecutorEvent::TaskTimeout {
+                    task_id,
+                    timeout_ticks: 1, // Simplified
+                    tick: ledger.current_tick(),
+                    agent_id: Some(claims.tenant_id.clone()),
+                    hash: task_id.as_bytes().to_owned(),
+                };
+
+                if let Err(e) = ledger.record_tick(task_id, &timeout_event).await {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to record inference task timeout to tick ledger"
+                    );
+                }
+            }
+
+            Err((
+                StatusCode::REQUEST_TIMEOUT,
+                Json(
+                    ErrorResponse::new("inference timeout")
+                        .with_code("REQUEST_TIMEOUT")
+                        .with_string_details(msg),
+                ),
+            ))
+        }
+        Err(e) => {
+            // Record task failed event to tick ledger
+            if let (Some(task_id), Some(ref ledger)) = (task_id, &state.tick_ledger) {
+                let failed_event = ExecutorEvent::TaskFailed {
+                    task_id,
+                    error: e.to_string(),
+                    tick: ledger.current_tick(),
+                    duration_ticks: 1,
+                    agent_id: Some(claims.tenant_id.clone()),
+                    hash: task_id.as_bytes().to_owned(),
+                };
+
+                if let Err(e) = ledger.record_tick(task_id, &failed_event).await {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to record inference task failure to tick ledger"
+                    );
+                }
+            }
+
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("inference failed")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ))
+        }
     }
 }

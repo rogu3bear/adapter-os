@@ -1,6 +1,7 @@
 use adapteros_crypto::Keypair;
 use adapteros_db::git::FileChangeEvent;
 use adapteros_db::{sqlx, Db};
+use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_lora_rag::EmbeddingModel;
@@ -377,6 +378,8 @@ pub struct AppState {
     pub load_coordinator: Arc<LoadCoordinator>,
     // Embedding model for RAG retrieval (optional, loaded from config)
     pub embedding_model: Option<Arc<dyn EmbeddingModel + Send + Sync>>,
+    // Global tick ledger for inference tracking (optional, for deterministic execution)
+    pub tick_ledger: Option<Arc<GlobalTickLedger>>,
 }
 
 impl AppState {
@@ -457,6 +460,8 @@ impl AppState {
             load_coordinator: Arc::new(LoadCoordinator::new()),
             // Embedding model initialized via with_embedding_model
             embedding_model: None,
+            // Tick ledger initialized via with_tick_ledger
+            tick_ledger: None,
         }
     }
 
@@ -579,6 +584,12 @@ impl AppState {
         embedding_model: Arc<dyn EmbeddingModel + Send + Sync>,
     ) -> Self {
         self.embedding_model = Some(embedding_model);
+        self
+    }
+
+    /// Set global tick ledger for inference tracking
+    pub fn with_tick_ledger(mut self, tick_ledger: Arc<GlobalTickLedger>) -> Self {
+        self.tick_ledger = Some(tick_ledger);
         self
     }
 

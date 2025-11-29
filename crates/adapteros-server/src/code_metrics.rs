@@ -250,14 +250,8 @@ impl CodeMetrics {
 
     /// Cache a metric value
     pub fn cache_metric(&mut self, key: String, value: f32) {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or_else(|_| {
-                warn!("System time appears to be before UNIX epoch, using 0 for timestamp");
-                0
-            });
-        
+        let timestamp = adapteros_core::time::unix_timestamp_secs();
+
         self.cache.insert(key, MetricValue { value, timestamp });
     }
 

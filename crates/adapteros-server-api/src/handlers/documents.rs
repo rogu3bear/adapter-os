@@ -16,7 +16,6 @@ use axum::{
     response::{IntoResponse, Json},
     Extension,
 };
-use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs;
@@ -145,10 +144,9 @@ pub async fn upload_document(
         document_name = format!("Document {}", &document_id[0..8]);
     }
 
-    // Compute hash
-    let mut hasher = Hasher::new();
-    hasher.update(&file_data);
-    let file_hash = hasher.finalize().to_hex().to_string();
+    // Compute hash using B3Hash from adapteros-core
+    use adapteros_core::B3Hash;
+    let file_hash = B3Hash::hash(&file_data).to_hex();
 
     // Check for existing document with same content hash (deduplication)
     if let Some(existing_doc) = state

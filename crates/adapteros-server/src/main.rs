@@ -3,7 +3,8 @@ mod assets;
 use adapteros_core::{derive_seed, AosError, B3Hash};
 use adapteros_db::Db;
 use adapteros_deterministic_exec::{
-    init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
+    global_ledger::GlobalTickLedger, init_global_executor, select::select_2, spawn_deterministic,
+    EnforcementMode, ExecutorConfig,
 };
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_manifest::ManifestV3;
@@ -315,9 +316,13 @@ async fn main() -> Result<()> {
         global_seed,
         enable_event_logging: true,
         max_ticks_per_task: 10000,
+        enforcement_mode: EnforcementMode::AuditOnly,
         ..Default::default()
     };
-    init_global_executor(executor_config)?;
+
+    // Note: Tick ledger will be initialized after DB connection and attached via init_global_executor_with_ledger
+    // For now, initialize executor without ledger
+    init_global_executor(executor_config.clone())?;
     info!("Deterministic executor initialized with manifest-derived seed");
 
     // Transition to starting backend state
@@ -466,6 +471,22 @@ async fn main() -> Result<()> {
 
     // Upgrade boot state manager with database for audit logging
     let boot_state = BootStateManager::with_db(Arc::new(db.clone()));
+
+    // Initialize global tick ledger for inference tracking
+    let hostname = std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("HOST"))
+        .unwrap_or_else(|_| "unknown-host".to_string());
+
+    let tick_ledger = Arc::new(GlobalTickLedger::new(
+        Arc::new(db.clone()),
+        "default".to_string(), // Tenant ID - will be replaced by actual tenant in multi-tenant setups
+        hostname.clone(),
+    ));
+
+    info!(
+        host_id = %hostname,
+        "Initialized global tick ledger for inference tracking"
+    );
 
     // Resolve runtime mode with precedence: env > db > config > default
     let runtime_mode = {
@@ -1005,7 +1026,8 @@ async fn main() -> Result<()> {
     )
     .with_dataset_progress(dataset_progress_tx)
     .with_boot_state(boot_state.clone())
-    .with_runtime_mode(runtime_mode);
+    .with_runtime_mode(runtime_mode)
+    .with_tick_ledger(tick_ledger.clone());
 
     state = state.with_plugin_registry(Arc::new(adapteros_server_api::PluginRegistry::new(
         db.clone(),

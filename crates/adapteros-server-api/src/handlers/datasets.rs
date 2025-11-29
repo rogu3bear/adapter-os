@@ -9,6 +9,7 @@ use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::{AppState, DatasetProgressEvent};
 use crate::types::*;
+use adapteros_core::B3Hash;
 use adapteros_db::training_datasets::DatasetFile;
 use adapteros_deterministic_exec::spawn_deterministic;
 use axum::{
@@ -20,7 +21,6 @@ use axum::{
     },
     Extension, Json,
 };
-use blake3::Hasher;
 use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -291,7 +291,6 @@ pub async fn upload_dataset(
                     .await
                     .map_err(|e| internal_error(format!("Failed to create temp file: {}", e)))?;
 
-                let mut hasher = Hasher::new();
                 let data = field
                     .bytes()
                     .await
@@ -318,8 +317,7 @@ pub async fn upload_dataset(
                     )));
                 }
 
-                // Write and hash file
-                hasher.update(&data);
+                // Write file
                 temp_file
                     .write_all(&data)
                     .await
@@ -329,7 +327,8 @@ pub async fn upload_dataset(
                     .await
                     .map_err(|e| internal_error(format!("Failed to flush file: {}", e)))?;
 
-                let file_hash = hasher.finalize().to_hex().to_string();
+                // Compute hash using B3Hash
+                let file_hash = B3Hash::hash(&data).to_hex();
 
                 // Move file to permanent location
                 let permanent_path = files_path.join(&file_name);
@@ -395,12 +394,12 @@ pub async fn upload_dataset(
         dataset_name = format!("Dataset {}", &dataset_id[0..8]);
     }
 
-    // Compute dataset hash from all file hashes
-    let mut dataset_hasher = Hasher::new();
-    for file in &uploaded_files {
-        dataset_hasher.update(file.hash_b3.as_bytes());
-    }
-    let dataset_hash = dataset_hasher.finalize().to_hex().to_string();
+    // Compute dataset hash from all file hashes using B3Hash
+    let file_hashes: Vec<&[u8]> = uploaded_files
+        .iter()
+        .map(|f| f.hash_b3.as_bytes())
+        .collect();
+    let dataset_hash = B3Hash::hash_multi(&file_hashes).to_hex();
 
     // Store in database - associate dataset with the user's tenant
     let dataset_id_result = state
@@ -1283,12 +1282,19 @@ async fn validate_file_hash_streaming(
     file_path: &std::path::Path,
     expected_hash: &str,
 ) -> Result<bool, String> {
+    // Parse expected hash
+    let expected = B3Hash::from_hex(expected_hash)
+        .map_err(|e| format!("Invalid hash format: {}", e))?;
+
+    // Use IntegrityChecker for efficient streaming hash computation
+    // Note: IntegrityChecker is from adapteros-model-hub which may not be available here
+    // Fallback to manual streaming implementation
     let mut file = fs::File::open(file_path)
         .await
         .map_err(|e| format!("Failed to open file: {}", e))?;
 
-    let mut hasher = Hasher::new();
     let mut buffer = vec![0u8; STREAM_BUFFER_SIZE];
+    let mut hasher = blake3::Hasher::new();
 
     loop {
         let n = file
@@ -1303,8 +1309,8 @@ async fn validate_file_hash_streaming(
         hasher.update(&buffer[..n]);
     }
 
-    let computed_hash = hasher.finalize().to_hex().to_string();
-    Ok(computed_hash == expected_hash)
+    let computed = B3Hash::from_bytes(*hasher.finalize().as_bytes());
+    Ok(computed == expected)
 }
 
 /// Batch insert file records to reduce database transaction overhead

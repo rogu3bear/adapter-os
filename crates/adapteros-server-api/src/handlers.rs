@@ -11,6 +11,7 @@ use crate::validation::*;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::AosError;
 use adapteros_lora_lifecycle::GpuIntegrityReport;
+use sqlx::Row;
 // System metrics integration
 use adapteros_system_metrics;
 use adapteros_system_metrics::monitoring_types::{
