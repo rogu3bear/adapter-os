@@ -160,6 +160,7 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         batch_size: args.batch_size,
         epochs: args.epochs,
         hidden_dim: args.hidden_dim,
+        vocab_size: 151936, // Qwen2.5 vocab size
         preferred_backend: None,
         require_gpu: false,
         max_gpu_memory_mb: 0,

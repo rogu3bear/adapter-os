@@ -21,8 +21,6 @@ members = [
     "crates/adapteros-lora-kernel-coreml",
     "crates/adapteros-types",
     "crates/adapteros-lora-kernel-mtl",  # Metal kernels - re-enabled for MVP
-    # system-metrics - requires DATABASE_URL for sqlx macros
-    # TODO PRD-12: Set up sqlx offline mode or provide test database
     "crates/adapteros-system-metrics",
     "crates/adapteros-lora-mlx-ffi",  # MLX backend - now functional with real inference
     "crates/adapteros-autograd",  # Rust autograd system
