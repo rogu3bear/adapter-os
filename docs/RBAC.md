@@ -8,7 +8,7 @@
 
 ## Overview
 
-AdapterOS implements a 5-role RBAC system with 40+ granular permissions. Each role is mapped to specific permissions that control access to sensitive operations across the system.
+AdapterOS implements a 5-role RBAC system with 56 granular permissions. Each role is mapped to specific permissions that control access to sensitive operations across the system.
 
 ### Core Roles
 
@@ -47,7 +47,7 @@ graph TD
 
 ---
 
-## Permission Summary (40 Permissions)
+## Permission Summary (56 Permissions)
 
 **Adapter** (6): AdapterList, AdapterView, AdapterRegister, AdapterLoad, AdapterUnload, AdapterDelete
 
@@ -73,14 +73,22 @@ graph TD
 
 **Telemetry & Contacts** (4): TelemetryView, TelemetryManage, ContactView, ContactManage
 
-**Dataset** (4): DatasetView, DatasetUpload, DatasetValidate, DatasetDelete
+**Dataset** (5): DatasetList, DatasetView, DatasetUpload, DatasetValidate, DatasetDelete
+
+**Workspace** (4): WorkspaceView, WorkspaceManage, WorkspaceMemberManage, WorkspaceResourceManage
+
+**Notification** (2): NotificationView, NotificationManage
+
+**Dashboard** (2): DashboardView, DashboardManage
+
+**Activity** (2): ActivityView, ActivityCreate
 
 ---
 
 ## Role Specifications
 
 ### Admin (Full Access)
-- All 40+ permissions
+- All 56 permissions
 - Policy application and signing
 - Tenant management and creation
 - Node registration and deletion
@@ -226,7 +234,7 @@ GET /v1/audit/logs?action=adapter.register&status=success&limit=50
 
 - [AUTHENTICATION.md](AUTHENTICATION.md) - JWT authentication, Ed25519 signing, token management
 - [SECURITY.md](SECURITY.md) - Defense-in-depth security architecture, IP access control, rate limiting
-- [CLAUDE.md (RBAC section)](../CLAUDE.md#rbac-5-roles-40-permissions) - Quick reference for RBAC implementation
+- [CLAUDE.md (RBAC section)](../CLAUDE.md#rbac-5-roles-56-permissions) - Quick reference for RBAC implementation
 
 ---
 
