@@ -18,6 +18,7 @@ export * from './useViewTransition';
 
 // API Integration Hooks
 export * from './useChatSessionsApi';
+export * from './useChatSearch';
 export * from './useDocumentsApi';
 export * from './useCollectionsApi';
 export * from './useEvidenceApi';
