@@ -7,6 +7,7 @@
 //! - `aosctl status memory`   – host memory usage and headroom
 //! - `aosctl status system`   – comprehensive system status (meta + health + migrations)
 
+use crate::formatting::format_bytes;
 use crate::output::OutputWriter;
 use adapteros_db::{sqlx, Db};
 use anyhow::{Context, Result};
@@ -128,7 +129,7 @@ async fn adapters_status(output: &OutputWriter) -> Result<()> {
             Cell::new(if active { "yes" } else { "no" }),
             Cell::new(if pinned { "yes" } else { "no" }),
             Cell::new(expires_at.unwrap_or_else(|| "-".to_string())),
-            Cell::new(format_bytes(mem_bytes)),
+            Cell::new(format_bytes(mem_bytes.max(0) as u64)),
         ]);
     }
 
@@ -354,34 +355,13 @@ fn memory_status(output: &OutputWriter) -> Result<()> {
         output.json(&status)?;
     } else {
         output.section("Host memory");
-        output.kv("Total", &format_bytes(total_bytes as i64));
-        output.kv("Used", &format_bytes(used_bytes as i64));
+        output.kv("Total", &format_bytes(total_bytes));
+        output.kv("Used", &format_bytes(used_bytes));
         output.kv("Used %", &format!("{:.1}%", used_percent));
         output.kv("Headroom %", &format!("{:.1}%", headroom_percent));
     }
 
     Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn format_bytes(bytes: i64) -> String {
-    const KB: f64 = 1024.0;
-    const MB: f64 = KB * 1024.0;
-    const GB: f64 = MB * 1024.0;
-
-    let b = bytes.max(0) as f64;
-    if b >= GB {
-        format!("{:.2} GiB", b / GB)
-    } else if b >= MB {
-        format!("{:.2} MiB", b / MB)
-    } else if b >= KB {
-        format!("{:.2} KiB", b / KB)
-    } else {
-        format!("{} B", bytes.max(0))
-    }
 }
 
 // ---------------------------------------------------------------------------

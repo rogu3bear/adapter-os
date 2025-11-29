@@ -3,6 +3,8 @@ use adapteros_core::identity::IdentityEnvelope;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+pub mod formatting;
+
 #[derive(Parser)]
 #[command(name = "aos")]
 #[command(about = "AdapterOS CLI", long_about = None)]

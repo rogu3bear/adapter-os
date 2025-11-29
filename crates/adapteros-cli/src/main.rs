@@ -39,6 +39,7 @@ mod cli;
 mod cli_telemetry;
 mod commands;
 mod error_codes;
+mod formatting;
 mod logging;
 mod output;
 

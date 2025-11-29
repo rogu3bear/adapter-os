@@ -619,6 +619,7 @@ pub enum ExitCode {
     CoreML = 96,
     Mlx = 97,
     Routing = 98,
+    Platform = 99,
 
     // Domain errors (100-119)
     Telemetry = 100,
@@ -752,6 +753,7 @@ impl From<&adapteros_core::AosError> for ExitCode {
             AosError::HealthCheckFailed { .. } => ExitCode::HealthCheckFailed,
             AosError::ModelNotFound { .. } => ExitCode::ModelNotFound,
             AosError::ModelAcquisitionInProgress { .. } => ExitCode::ModelAcquisitionInProgress,
+            AosError::Platform(_) => ExitCode::Platform,
         }
     }
 }

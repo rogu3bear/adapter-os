@@ -14,17 +14,6 @@ use crate::commands::{baseline::BaselineCmd, golden::GoldenCmd};
 use crate::logging::init_logging;
 use crate::output::{OutputMode, OutputWriter};
 
-/// Backend type selection for inference
-#[derive(Debug, Clone, clap::ValueEnum)]
-pub enum BackendType {
-    /// Metal backend (macOS GPU)
-    Metal,
-    /// MLX backend (Python/MLX)
-    Mlx,
-    /// CoreML backend (macOS Neural Engine)
-    CoreML,
-}
-
 #[derive(Parser)]
 #[command(name = "aosctl")]
 #[command(about = "AdapterOS command-line interface", long_about = None)]

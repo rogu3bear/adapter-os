@@ -5,6 +5,7 @@
 //! - `aosctl node verify` - Verify cross-node determinism
 //! - `aosctl node sync` - Sync adapters across nodes
 
+use crate::formatting::{format_bytes, format_time_ago};
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
@@ -303,29 +304,6 @@ async fn query_node_status(endpoint: &str) -> Result<NodeStatus> {
     Ok(status)
 }
 
-/// Format time ago from ISO timestamp
-fn format_time_ago(timestamp: &str) -> String {
-    if timestamp.is_empty() {
-        "never".to_string()
-    } else {
-        // Simplified - in production would parse and calculate
-        "2s ago".to_string()
-    }
-}
-
-/// Format bytes as human-readable
-fn format_bytes(bytes: u64) -> String {
-    const GB: u64 = 1024 * 1024 * 1024;
-    const MB: u64 = 1024 * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}
 
 // ============================================================
 // Node Verify Implementation
@@ -954,20 +932,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_format_bytes() {
-        assert_eq!(format_bytes(0), "0 B");
-        assert_eq!(format_bytes(1024), "1024 B");
-        assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
-        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
-        assert_eq!(format_bytes(2 * 1024 * 1024 * 1024), "2.0 GB");
-    }
-
-    #[test]
-    fn test_format_time_ago() {
-        assert_eq!(format_time_ago(""), "never");
-        assert_eq!(format_time_ago("2025-01-01T00:00:00Z"), "2s ago");
-    }
 
     #[test]
     fn test_artifact_info_serialization() {

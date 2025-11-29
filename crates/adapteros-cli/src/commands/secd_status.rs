@@ -4,6 +4,8 @@ use adapteros_secd::{is_process_running, read_pid};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
+use crate::formatting::{format_duration, format_seconds};
+
 /// Display aos-secd daemon status
 pub async fn run(
     pid_file: &Path,
@@ -166,21 +168,3 @@ pub async fn run(
     Ok(())
 }
 
-fn format_duration(duration: std::time::Duration) -> String {
-    let secs = duration.as_secs();
-    let hours = secs / 3600;
-    let minutes = (secs % 3600) / 60;
-    let seconds = secs % 60;
-
-    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
-}
-
-fn format_seconds(secs: u64) -> String {
-    if secs < 60 {
-        format!("{}s", secs)
-    } else if secs < 3600 {
-        format!("{}m {}s", secs / 60, secs % 60)
-    } else {
-        format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
-    }
-}

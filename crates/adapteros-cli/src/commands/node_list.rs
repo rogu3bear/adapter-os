@@ -4,6 +4,8 @@ use adapteros_db::Db;
 use anyhow::Result;
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
 
+use crate::formatting::{format_bytes, format_time_ago};
+
 /// List nodes in the cluster
 pub async fn run(offline: bool) -> Result<()> {
     let db = Db::connect_env().await?;
@@ -107,27 +109,3 @@ async fn query_node_status(endpoint: &str) -> Result<NodeStatus> {
     Ok(status)
 }
 
-/// Format time ago from ISO timestamp
-fn format_time_ago(timestamp: &str) -> String {
-    // Simplified - in production would parse and calculate
-    if timestamp.is_empty() {
-        "never".to_string()
-    } else {
-        // Mock "time ago" - in production would use chrono
-        "2s ago".to_string()
-    }
-}
-
-/// Format bytes as human-readable
-fn format_bytes(bytes: u64) -> String {
-    const GB: u64 = 1024 * 1024 * 1024;
-    const MB: u64 = 1024 * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}
