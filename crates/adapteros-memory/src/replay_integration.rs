@@ -81,42 +81,17 @@ impl ReplayMemoryLogger {
         context: String,
         layout_hash: Option<MemoryLayoutHash>,
     ) -> Result<()> {
-        if !self.logging_enabled || !self.should_sample() {
-            return Ok(());
-        }
-
-        let event_id = Uuid::new_v4();
-        let timestamp = current_timestamp();
-        let event_counter = self
-            .event_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
         let payload = serde_json::json!({
             "pointer_addr": pointer_addr,
             "size_bytes": size_bytes,
             "context": context,
-            "event_counter": event_counter,
         });
 
-        let event_hash = self.calculate_event_hash(&payload, timestamp);
-
-        let event = MemoryEvent {
-            event_id,
-            event_type: MemoryEventType::Allocation,
-            timestamp,
-            event_hash,
-            payload,
-            layout_hash,
-        };
-
-        {
-            let mut events = self.memory_events.write();
-            events.push(event);
-        }
+        self.log_event(MemoryEventType::Allocation, payload, layout_hash)?;
 
         debug!(
-            "Logged memory allocation event: addr=0x{:x}, size={}, counter={}",
-            pointer_addr, size_bytes, event_counter
+            "Logged memory allocation event: addr=0x{:x}, size={}",
+            pointer_addr, size_bytes
         );
 
         Ok(())
@@ -130,42 +105,17 @@ impl ReplayMemoryLogger {
         context: String,
         layout_hash: Option<MemoryLayoutHash>,
     ) -> Result<()> {
-        if !self.logging_enabled || !self.should_sample() {
-            return Ok(());
-        }
-
-        let event_id = Uuid::new_v4();
-        let timestamp = current_timestamp();
-        let event_counter = self
-            .event_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
         let payload = serde_json::json!({
             "pointer_addr": pointer_addr,
             "size_bytes": size_bytes,
             "context": context,
-            "event_counter": event_counter,
         });
 
-        let event_hash = self.calculate_event_hash(&payload, timestamp);
-
-        let event = MemoryEvent {
-            event_id,
-            event_type: MemoryEventType::Deallocation,
-            timestamp,
-            event_hash,
-            payload,
-            layout_hash,
-        };
-
-        {
-            let mut events = self.memory_events.write();
-            events.push(event);
-        }
+        self.log_event(MemoryEventType::Deallocation, payload, layout_hash)?;
 
         debug!(
-            "Logged memory deallocation event: addr=0x{:x}, size={}, counter={}",
-            pointer_addr, size_bytes, event_counter
+            "Logged memory deallocation event: addr=0x{:x}, size={}",
+            pointer_addr, size_bytes
         );
 
         Ok(())
@@ -177,16 +127,6 @@ impl ReplayMemoryLogger {
         migration_event: &MemoryMigrationEvent,
         layout_hash: Option<MemoryLayoutHash>,
     ) -> Result<()> {
-        if !self.logging_enabled || !self.should_sample() {
-            return Ok(());
-        }
-
-        let event_id = Uuid::new_v4();
-        let timestamp = current_timestamp();
-        let event_counter = self
-            .event_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
         let payload = serde_json::json!({
             "migration_id": migration_event.event_id,
             "migration_type": migration_event.migration_type,
@@ -194,28 +134,13 @@ impl ReplayMemoryLogger {
             "dest_addr": migration_event.dest_addr,
             "size_bytes": migration_event.size_bytes,
             "context": migration_event.context,
-            "event_counter": event_counter,
         });
 
-        let event_hash = self.calculate_event_hash(&payload, timestamp);
-
-        let event = MemoryEvent {
-            event_id,
-            event_type: MemoryEventType::PageMigration,
-            timestamp,
-            event_hash,
-            payload,
-            layout_hash,
-        };
-
-        {
-            let mut events = self.memory_events.write();
-            events.push(event);
-        }
+        self.log_event(MemoryEventType::PageMigration, payload, layout_hash)?;
 
         info!(
-            "Logged page migration event: type={:?}, size={}, counter={}",
-            migration_event.migration_type, migration_event.size_bytes, event_counter
+            "Logged page migration event: type={:?}, size={}",
+            migration_event.migration_type, migration_event.size_bytes
         );
 
         Ok(())
@@ -231,44 +156,19 @@ impl ReplayMemoryLogger {
         reason: String,
         layout_hash: Option<MemoryLayoutHash>,
     ) -> Result<()> {
-        if !self.logging_enabled || !self.should_sample() {
-            return Ok(());
-        }
-
-        let event_id = Uuid::new_v4();
-        let timestamp = current_timestamp();
-        let event_counter = self
-            .event_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
         let payload = serde_json::json!({
             "buffer_id": buffer_id,
             "original_addr": original_addr,
             "new_addr": new_addr,
             "size_bytes": size_bytes,
             "reason": reason,
-            "event_counter": event_counter,
         });
 
-        let event_hash = self.calculate_event_hash(&payload, timestamp);
-
-        let event = MemoryEvent {
-            event_id,
-            event_type: MemoryEventType::BufferRelocation,
-            timestamp,
-            event_hash,
-            payload,
-            layout_hash,
-        };
-
-        {
-            let mut events = self.memory_events.write();
-            events.push(event);
-        }
+        self.log_event(MemoryEventType::BufferRelocation, payload, layout_hash)?;
 
         info!(
-            "Logged buffer relocation event: buffer_id={}, 0x{:x} -> 0x{:x}, counter={}",
-            buffer_id, original_addr, new_addr, event_counter
+            "Logged buffer relocation event: buffer_id={}, 0x{:x} -> 0x{:x}",
+            buffer_id, original_addr, new_addr
         );
 
         Ok(())
@@ -281,42 +181,17 @@ impl ReplayMemoryLogger {
         new_layout_hash: &MemoryLayoutHash,
         change_reason: String,
     ) -> Result<()> {
-        if !self.logging_enabled || !self.should_sample() {
-            return Ok(());
-        }
-
-        let event_id = Uuid::new_v4();
-        let timestamp = current_timestamp();
-        let event_counter = self
-            .event_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
         let payload = serde_json::json!({
             "old_layout_hash": old_layout_hash.layout_hash,
             "new_layout_hash": new_layout_hash.layout_hash,
             "change_reason": change_reason,
-            "event_counter": event_counter,
         });
 
-        let event_hash = self.calculate_event_hash(&payload, timestamp);
-
-        let event = MemoryEvent {
-            event_id,
-            event_type: MemoryEventType::LayoutChange,
-            timestamp,
-            event_hash,
-            payload,
-            layout_hash: Some(new_layout_hash.clone()),
-        };
-
-        {
-            let mut events = self.memory_events.write();
-            events.push(event);
-        }
+        self.log_event(MemoryEventType::LayoutChange, payload, Some(new_layout_hash.clone()))?;
 
         info!(
-            "Logged memory layout change event: reason={}, counter={}",
-            change_reason, event_counter
+            "Logged memory layout change event: reason={}",
+            change_reason
         );
 
         Ok(())
@@ -330,47 +205,21 @@ impl ReplayMemoryLogger {
         used_memory: u64,
         context: String,
     ) -> Result<()> {
-        if !self.logging_enabled || !self.should_sample() {
-            return Ok(());
-        }
-
-        let event_id = Uuid::new_v4();
-        let timestamp = current_timestamp();
-        let event_counter = self
-            .event_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
         let payload = serde_json::json!({
             "pressure_level": pressure_level,
             "total_memory": total_memory,
             "used_memory": used_memory,
             "context": context,
-            "event_counter": event_counter,
         });
 
-        let event_hash = self.calculate_event_hash(&payload, timestamp);
-
-        let event = MemoryEvent {
-            event_id,
-            event_type: MemoryEventType::MemoryPressure,
-            timestamp,
-            event_hash,
-            payload,
-            layout_hash: None,
-        };
-
-        {
-            let mut events = self.memory_events.write();
-            events.push(event);
-        }
+        self.log_event(MemoryEventType::MemoryPressure, payload, None)?;
 
         warn!(
-            "Logged memory pressure event: level={:.2}, used={}/{} ({}%), counter={}",
+            "Logged memory pressure event: level={:.2}, used={}/{} ({}%)",
             pressure_level,
             used_memory,
             total_memory,
-            (used_memory as f32 / total_memory as f32) * 100.0,
-            event_counter
+            (used_memory as f32 / total_memory as f32) * 100.0
         );
 
         Ok(())
@@ -497,6 +346,47 @@ impl ReplayMemoryLogger {
             "Memory replay logging {}",
             if enabled { "enabled" } else { "disabled" }
         );
+    }
+
+    /// Helper: Create and log a memory event (reduces duplication)
+    fn log_event(
+        &self,
+        event_type: MemoryEventType,
+        payload: serde_json::Value,
+        layout_hash: Option<MemoryLayoutHash>,
+    ) -> Result<()> {
+        if !self.logging_enabled || !self.should_sample() {
+            return Ok(());
+        }
+
+        let event_id = Uuid::new_v4();
+        let timestamp = current_timestamp();
+        let event_counter = self
+            .event_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+        let mut payload_with_counter = payload;
+        if let Some(obj) = payload_with_counter.as_object_mut() {
+            obj.insert("event_counter".to_string(), serde_json::json!(event_counter));
+        }
+
+        let event_hash = self.calculate_event_hash(&payload_with_counter, timestamp);
+
+        let event = MemoryEvent {
+            event_id,
+            event_type,
+            timestamp,
+            event_hash,
+            payload: payload_with_counter,
+            layout_hash,
+        };
+
+        {
+            let mut events = self.memory_events.write();
+            events.push(event);
+        }
+
+        Ok(())
     }
 
     /// Check if logging is enabled

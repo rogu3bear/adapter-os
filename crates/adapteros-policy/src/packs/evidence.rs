@@ -399,6 +399,28 @@ impl Policy for EvidencePolicy {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use std::collections::HashMap;
+
+    /// Test helper for creating a PolicyContext with metadata
+    struct TestContext {
+        metadata: HashMap<String, String>,
+    }
+
+    impl TestContext {
+        fn new(metadata: HashMap<String, String>) -> Self {
+            Self { metadata }
+        }
+    }
+
+    impl PolicyContext for TestContext {
+        fn metadata(&self) -> &HashMap<String, String> {
+            &self.metadata
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
 
     #[test]
     fn test_evidence_policy_creation() {
@@ -530,22 +552,6 @@ mod tests {
     // PRD-DATA-01: T1 adapter evidence requirement tests
     #[test]
     fn test_t1_adapter_without_primary_dataset_violation() {
-        use std::collections::HashMap;
-
-        struct TestContext {
-            metadata: HashMap<String, String>,
-        }
-
-        impl PolicyContext for TestContext {
-            fn metadata(&self) -> &HashMap<String, String> {
-                &self.metadata
-            }
-
-            fn as_any(&self) -> &dyn std::any::Any {
-                self
-            }
-        }
-
         let config = EvidenceConfig::default();
         let policy = EvidencePolicy::new(config);
 
@@ -555,7 +561,7 @@ mod tests {
         metadata.insert("evidence_count".to_string(), "1".to_string());
         // Note: primary_dataset_id is missing
 
-        let ctx = TestContext { metadata };
+        let ctx = TestContext::new(metadata);
         let result = policy.enforce(&ctx);
 
         assert!(result.is_ok());
@@ -569,22 +575,6 @@ mod tests {
 
     #[test]
     fn test_t1_adapter_without_evidence_entries_violation() {
-        use std::collections::HashMap;
-
-        struct TestContext {
-            metadata: HashMap<String, String>,
-        }
-
-        impl PolicyContext for TestContext {
-            fn metadata(&self) -> &HashMap<String, String> {
-                &self.metadata
-            }
-
-            fn as_any(&self) -> &dyn std::any::Any {
-                self
-            }
-        }
-
         let config = EvidenceConfig::default();
         let policy = EvidencePolicy::new(config);
 
@@ -594,7 +584,7 @@ mod tests {
         metadata.insert("primary_dataset_id".to_string(), "dataset-123".to_string());
         metadata.insert("evidence_count".to_string(), "0".to_string());
 
-        let ctx = TestContext { metadata };
+        let ctx = TestContext::new(metadata);
         let result = policy.enforce(&ctx);
 
         assert!(result.is_ok());
@@ -608,22 +598,6 @@ mod tests {
 
     #[test]
     fn test_t1_adapter_compliant() {
-        use std::collections::HashMap;
-
-        struct TestContext {
-            metadata: HashMap<String, String>,
-        }
-
-        impl PolicyContext for TestContext {
-            fn metadata(&self) -> &HashMap<String, String> {
-                &self.metadata
-            }
-
-            fn as_any(&self) -> &dyn std::any::Any {
-                self
-            }
-        }
-
         let config = EvidenceConfig::default();
         let policy = EvidencePolicy::new(config);
 
@@ -637,7 +611,7 @@ mod tests {
             "eval-dataset-456".to_string(),
         );
 
-        let ctx = TestContext { metadata };
+        let ctx = TestContext::new(metadata);
         let result = policy.enforce(&ctx);
 
         assert!(result.is_ok());
@@ -647,22 +621,6 @@ mod tests {
 
     #[test]
     fn test_non_t1_adapter_no_evidence_requirements() {
-        use std::collections::HashMap;
-
-        struct TestContext {
-            metadata: HashMap<String, String>,
-        }
-
-        impl PolicyContext for TestContext {
-            fn metadata(&self) -> &HashMap<String, String> {
-                &self.metadata
-            }
-
-            fn as_any(&self) -> &dyn std::any::Any {
-                self
-            }
-        }
-
         let config = EvidenceConfig::default();
         let policy = EvidencePolicy::new(config);
 
@@ -671,7 +629,7 @@ mod tests {
         metadata.insert("tier".to_string(), "ephemeral".to_string());
         // No dataset or evidence required
 
-        let ctx = TestContext { metadata };
+        let ctx = TestContext::new(metadata);
         let result = policy.enforce(&ctx);
 
         assert!(result.is_ok());
