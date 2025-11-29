@@ -124,22 +124,10 @@ impl ApiTestHarness {
         adapter_id: &str,
         tenant_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let hash = format!("{:0>64}", adapter_id);
-
-        sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, hash, tier, rank, activation_pct, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-        )
-        .bind(adapter_id)
-        .bind(tenant_id)
-        .bind(&hash)
-        .bind("persistent")
-        .bind(8)
-        .bind(0.0)
-        .execute(self.state.db().pool())
-        .await?;
-
-        Ok(())
+        use adapteros_testing::TestAdapterFactory;
+        TestAdapterFactory::create_adapter(self.state.db(), adapter_id, tenant_id)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 
     /// Create a dataset in the test database
@@ -148,20 +136,10 @@ impl ApiTestHarness {
         dataset_id: &str,
         name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let hash = format!("{:0>64}", dataset_id);
-
-        sqlx::query(
-            "INSERT INTO training_datasets (id, hash_b3, name, validation_status, created_at)
-             VALUES (?, ?, ?, ?, datetime('now'))",
-        )
-        .bind(dataset_id)
-        .bind(&hash)
-        .bind(name)
-        .bind("valid")
-        .execute(self.state.db().pool())
-        .await?;
-
-        Ok(())
+        use adapteros_testing::TestDatasetFactory;
+        TestDatasetFactory::create_dataset(self.state.db(), dataset_id, name)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 
     /// Create a training job in the test database
@@ -171,21 +149,10 @@ impl ApiTestHarness {
         dataset_id: &str,
         adapter_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        sqlx::query(
-            "INSERT INTO training_jobs
-             (id, dataset_id, adapter_id, status, progress_pct, loss, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-        )
-        .bind(job_id)
-        .bind(dataset_id)
-        .bind(adapter_id)
-        .bind("completed")
-        .bind(100)
-        .bind(0.05)
-        .execute(self.state.db().pool())
-        .await?;
-
-        Ok(())
+        use adapteros_testing::TestTrainingJobFactory;
+        TestTrainingJobFactory::create_completed_job(self.state.db(), job_id, dataset_id, adapter_id)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 
     /// Get the current database connection for manual queries

@@ -34,46 +34,22 @@ fn encode_jwt(claims: &Claims, secret: &[u8]) -> Result<String> {
     .map_err(|e| adapteros_core::AosError::Auth(format!("JWT encoding failed: {}", e)))
 }
 
-/// Test database setup
+/// Test database setup using consolidated fixtures
 async fn setup_test_db() -> Result<Db> {
-    let db = Db::connect(":memory:").await?;
-    sqlx::migrate!("./migrations")
-        .run(db.pool())
+    use adapteros_testing::TestDbBuilder;
+    TestDbBuilder::new()
+        .with_default_tenant()
+        .with_default_admin()
+        .build()
         .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Migration failed: {}", e)))?;
-    Ok(db)
 }
 
-/// Test application state setup
+/// Test application state setup using consolidated fixtures
 async fn setup_test_state() -> Result<AppState> {
-    let db = setup_test_db().await?;
-    let jwt_secret = b"test-secret-key-for-jwt-tokens-32-bytes!".to_vec();
-    let api_config = Arc::new(std::sync::RwLock::new(ApiConfig {
-        metrics: MetricsConfig {
-            enabled: true,
-            bearer_token: "test-token".to_string(),
-            system_metrics_interval_secs: 30,
-            telemetry_buffer_capacity: 1000,
-            telemetry_channel_capacity: 100,
-            trace_buffer_capacity: 1000,
-        },
-        golden_gate: None,
-        bundles_root: "var/bundles".to_string(),
-        rate_limits: None,
-        path_policy: Default::default(),
-        production_mode: false,
-    }));
-
-    let state = AppState::new(
-        db,
-        jwt_secret,
-        api_config,
-        adapteros_server_api::state::JwtMode::Hmac,
-        None,
-    )
-    .await?;
-
-    Ok(state)
+    use adapteros_testing::TestAppStateBuilder;
+    TestAppStateBuilder::new()
+        .build()
+        .await
 }
 
 /// Test GET /v1/telemetry/events/recent endpoint

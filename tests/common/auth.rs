@@ -1,12 +1,7 @@
-use std::sync::{Arc, RwLock};
-
-use adapteros_db::{users::Role, Db};
-use adapteros_metrics_exporter::MetricsExporter;
-use adapteros_orchestrator::TrainingService;
-use adapteros_server_api::auth::hash_password;
-use adapteros_server_api::state::{ApiConfig, MetricsConfig};
+use adapteros_db::users::Role;
 use adapteros_server_api::types::{ErrorResponse, LoginRequest, LoginResponse};
 use adapteros_server_api::AppState;
+use adapteros_testing::{TestAppStateBuilder, TestAuth, TestDbBuilder, TestUser};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -27,72 +22,39 @@ pub const DEFAULT_METRIC_SERIES: [&str; 4] = [
     "memory_usage_mb",
 ];
 
-fn default_api_config() -> ApiConfig {
-    ApiConfig {
-        metrics: MetricsConfig {
-            enabled: true,
-            bearer_token: "test-token".to_string(),
-            system_metrics_interval_secs: 30,
-        },
-        golden_gate: None,
-        bundles_root: "test-bundles".to_string(),
-        rate_limits: None,
-    }
-}
-
+/// Create test app state using consolidated fixtures
 pub async fn create_test_app_state() -> AppState {
-    let db = Db::connect("sqlite::memory:")
-        .await
-        .expect("failed to connect to in-memory sqlite");
-    db.migrate()
-        .await
-        .expect("failed to run database migrations for tests");
-
     let _ = std::fs::create_dir_all("var/bundles");
 
-    sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)")
-        .bind(DEFAULT_TENANT_ID)
-        .bind(DEFAULT_TENANT_NAME)
-        .bind(0)
-        .execute(db.pool())
+    // Use consolidated TestDbBuilder and TestAppStateBuilder
+    let db = TestDbBuilder::new()
+        .with_tenant(DEFAULT_TENANT_ID, DEFAULT_TENANT_NAME)
+        .with_user(TestUser {
+            email: DEFAULT_USER_EMAIL.to_string(),
+            display_name: DEFAULT_USER_DISPLAY_NAME.to_string(),
+            password: DEFAULT_USER_PASSWORD.to_string(),
+            role: Role::Admin,
+            tenant_id: DEFAULT_TENANT_ID.to_string(),
+        })
+        .build()
         .await
-        .expect("failed to seed test tenant");
+        .expect("failed to build test database");
 
-    let password_hash =
-        hash_password(DEFAULT_USER_PASSWORD).expect("failed to hash default test password");
-    db.create_user(
-        DEFAULT_USER_EMAIL,
-        DEFAULT_USER_DISPLAY_NAME,
-        &password_hash,
-        Role::Admin,
-        DEFAULT_TENANT_ID,
-    )
-    .await
-    .expect("failed to seed test user");
+    let state = TestAppStateBuilder::new()
+        .with_db(db)
+        .with_jwt_secret(DEFAULT_JWT_SECRET.to_vec())
+        .build()
+        .await
+        .expect("failed to build test app state");
 
-    let api_config = Arc::new(RwLock::new(default_api_config()));
-
-    let metrics_exporter = Arc::new(
-        MetricsExporter::new(vec![0.1, 0.5, 1.0]).expect("failed to create metrics exporter"),
-    );
-    let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new(
-        adapteros_telemetry::metrics::MetricsConfig::default(),
-    ));
-    let metrics_registry = Arc::new(adapteros_server_api::telemetry::MetricsRegistry::new());
+    // Register default metric series
     for name in DEFAULT_METRIC_SERIES {
-        metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_024);
+        state
+            .metrics_registry()
+            .get_or_create_series(name.to_string(), 1_000, 1_024);
     }
-    let training_service = Arc::new(TrainingService::new());
 
-    AppState::with_sqlite(
-        db,
-        DEFAULT_JWT_SECRET.to_vec(),
-        api_config,
-        metrics_exporter,
-        metrics_collector,
-        metrics_registry,
-        training_service,
-    )
+    state
 }
 
 pub async fn login_user(
