@@ -35,9 +35,9 @@ export function useBatchedTrainingNotifications({
   const { data: activeJobs } = useQuery({
     queryKey: ['training-jobs', 'active'],
     queryFn: async () => {
-      const allJobs = await apiClient.listTrainingJobs({ status: 'running' });
-      const queuedJobs = await apiClient.listTrainingJobs({ status: 'pending' });
-      return [...allJobs, ...queuedJobs];
+      const runningResponse = await apiClient.listTrainingJobs({ status: 'running' });
+      const pendingResponse = await apiClient.listTrainingJobs({ status: 'pending' });
+      return [...(runningResponse.jobs || []), ...(pendingResponse.jobs || [])];
     },
     enabled,
     refetchInterval: enabled ? refetchInterval : false,

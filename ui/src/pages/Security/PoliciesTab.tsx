@@ -11,17 +11,6 @@
 import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Shield,
@@ -37,6 +26,7 @@ import { toast } from 'sonner';
 
 import { PolicyTable } from './PolicyTable';
 import { PolicyDetail } from './PolicyDetail';
+import { ApplyPolicyDialog, ComparePoliciesDialog } from './PolicyDialogs';
 import { usePolicies, usePolicyMutations } from '@/hooks/useSecurity';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
@@ -314,121 +304,28 @@ export function PoliciesTab() {
         />
       )}
 
-      {/* Apply Policy Modal */}
-      <Dialog open={showApplyModal} onOpenChange={setShowApplyModal}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Apply Policy</DialogTitle>
-            <DialogDescription>
-              Enter the Policy ID and content to apply a new or updated policy.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="cpid">Policy ID</Label>
-              <Input
-                id="cpid"
-                value={applyCpid}
-                onChange={(e) => setApplyCpid(e.target.value)}
-                placeholder="e.g., policy-egress-v1"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="content">Policy Content (JSON)</Label>
-              <Textarea
-                id="content"
-                value={applyContent}
-                onChange={(e) => setApplyContent(e.target.value)}
-                placeholder='{"rules": [...], "version": "1.0"}'
-                className="font-mono h-48"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowApplyModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleApply} disabled={isApplyingPolicy}>
-              {isApplyingPolicy ? 'Applying...' : 'Apply Policy'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ApplyPolicyDialog
+        open={showApplyModal}
+        onOpenChange={setShowApplyModal}
+        cpid={applyCpid}
+        onCpidChange={setApplyCpid}
+        content={applyContent}
+        onContentChange={setApplyContent}
+        onApply={handleApply}
+        isApplying={isApplyingPolicy}
+      />
 
-      {/* Compare Policies Modal */}
-      <Dialog open={showCompareModal} onOpenChange={setShowCompareModal}>
-        <DialogContent className="sm:max-w-[700px]">
-          <DialogHeader>
-            <DialogTitle>Compare Policies</DialogTitle>
-            <DialogDescription>
-              Enter two Policy IDs to compare their differences.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="cpid1">First Policy ID</Label>
-                <Input
-                  id="cpid1"
-                  value={compareCpid1}
-                  onChange={(e) => setCompareCpid1(e.target.value)}
-                  placeholder="e.g., policy-v1"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="cpid2">Second Policy ID</Label>
-                <Input
-                  id="cpid2"
-                  value={compareCpid2}
-                  onChange={(e) => setCompareCpid2(e.target.value)}
-                  placeholder="e.g., policy-v2"
-                />
-              </div>
-            </div>
-            <Button onClick={handleCompare} disabled={isComparingPolicy} className="w-full">
-              {isComparingPolicy ? 'Comparing...' : 'Compare'}
-            </Button>
-
-            {compareResult && (
-              <div className="mt-4 space-y-4">
-                <div className="flex items-center gap-2">
-                  {compareResult.differences && compareResult.differences.length === 0 ? (
-                    <>
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="font-medium text-green-700">Policies are identical</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                      <span className="font-medium text-yellow-700">
-                        Found {compareResult.differences?.length || 0} difference(s)
-                      </span>
-                    </>
-                  )}
-                </div>
-
-                {compareResult.differences && compareResult.differences.length > 0 && (
-                  <div className="border rounded-md p-4 bg-muted/50 max-h-64 overflow-y-auto">
-                    <h4 className="font-medium mb-2">Differences:</h4>
-                    <ul className="space-y-2 text-sm">
-                      {compareResult.differences.map((diff, idx) => (
-                        <li key={idx} className="flex items-start gap-2">
-                          <span className="font-mono text-xs">{diff}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCompareModal(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ComparePoliciesDialog
+        open={showCompareModal}
+        onOpenChange={setShowCompareModal}
+        cpid1={compareCpid1}
+        onCpid1Change={setCompareCpid1}
+        cpid2={compareCpid2}
+        onCpid2Change={setCompareCpid2}
+        onCompare={handleCompare}
+        isComparing={isComparingPolicy}
+        result={compareResult}
+      />
     </div>
   );
 }

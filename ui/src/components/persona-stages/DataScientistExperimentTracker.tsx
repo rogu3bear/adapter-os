@@ -50,7 +50,7 @@ export default function DataScientistExperimentTracker() {
   const [selectedExperiment, setSelectedExperiment] = useState<string | null>(null);
 
   // Poll for training jobs (experiments)
-  const { data: experiments, isLoading, error, refetch } = usePolling<TrainingJob[]>(
+  const { data: response, isLoading, error, refetch } = usePolling(
     () => apiClient.listTrainingJobs(),
     'normal',
     {
@@ -59,6 +59,9 @@ export default function DataScientistExperimentTracker() {
       },
     }
   );
+
+  // Extract jobs from paginated response
+  const experiments = response?.jobs;
 
   const getStatusBadge = (status: TrainingStatus) => {
     switch (status) {

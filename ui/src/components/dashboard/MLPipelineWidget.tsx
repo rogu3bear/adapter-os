@@ -19,7 +19,7 @@ export function MLPipelineWidget() {
   const navigate = useNavigate();
 
   // Fetch training jobs from API
-  const { data: trainingJobs, isLoading, error } = usePolling<TrainingJob[]>(
+  const { data: response, isLoading, error } = usePolling(
     () => apiClient.listTrainingJobs(),
     'normal',
     {
@@ -27,6 +27,9 @@ export function MLPipelineWidget() {
       showLoadingIndicator: false
     }
   );
+
+  // Extract jobs from paginated response
+  const trainingJobs = response?.jobs;
 
   // Derive pipeline stages from training job data
   const stages: PipelineStage[] = useMemo(() => {

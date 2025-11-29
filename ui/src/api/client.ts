@@ -853,7 +853,7 @@ class ApiClient {
   // (duplicate methods removed; see definitions above returning types.Adapter)
 
   // Training endpoints
-  async listTrainingJobs(params?: { dataset_id?: string; status?: string; adapter_name?: string; template_id?: string; page?: number; page_size?: number }): Promise<trainingTypes.TrainingJob[]> {
+  async listTrainingJobs(params?: { dataset_id?: string; status?: string; adapter_name?: string; template_id?: string; page?: number; page_size?: number }): Promise<trainingTypes.ListTrainingJobsResponse> {
     const queryParams = new URLSearchParams();
     if (params?.dataset_id) queryParams.append('dataset_id', params.dataset_id);
     if (params?.status) queryParams.append('status', params.status);
@@ -861,10 +861,10 @@ class ApiClient {
     if (params?.template_id) queryParams.append('template_id', params.template_id);
     if (params?.page) queryParams.append('page', params.page.toString());
     if (params?.page_size) queryParams.append('page_size', params.page_size.toString());
-    
+
     const queryString = queryParams.toString();
     const url = queryString ? `/v1/training/jobs?${queryString}` : '/v1/training/jobs';
-    return this.request<trainingTypes.TrainingJob[]>(url);
+    return this.request<trainingTypes.ListTrainingJobsResponse>(url);
   }
 
   async getTrainingJob(jobId: string): Promise<trainingTypes.TrainingJob> {

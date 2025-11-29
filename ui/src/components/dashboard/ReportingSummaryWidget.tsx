@@ -26,12 +26,13 @@ export function ReportingSummaryWidget({ selectedTenant }: ReportingSummaryWidge
 
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for reporting metrics
   const fetchReportingData = async () => {
-    const [systemMetrics, adapters, trainingJobs] = await Promise.all([
+    const [systemMetrics, adapters, trainingJobsResponse] = await Promise.all([
       apiClient.getSystemMetrics().catch(() => null),
       apiClient.listAdapters().catch(() => []),
-      apiClient.listTrainingJobs().catch(() => []),
+      apiClient.listTrainingJobs().catch(() => ({ jobs: [], total: 0, page: 1, page_size: 0 })),
     ]);
 
+    const trainingJobs = trainingJobsResponse?.jobs || [];
     return {
       totalInferences: systemMetrics?.active_sessions || 0,
       totalTrainingJobs: trainingJobs.length,

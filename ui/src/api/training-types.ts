@@ -47,6 +47,21 @@ export interface TrainingJob {
   language?: string;
   framework_id?: string;
   framework_version?: string;
+
+  // Audit trail (matches Rust TrainingJob)
+  initiated_by?: string;
+  initiated_by_role?: string;
+
+  // Category-specific metadata (JSON strings from backend)
+  symbol_targets_json?: string;
+  api_patterns_json?: string;
+  repo_scope?: string;
+  file_patterns_json?: string;
+  exclude_patterns_json?: string;
+
+  // Post-training actions and provenance
+  post_actions_json?: string;
+  source_documents_json?: string;
 }
 
 export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';

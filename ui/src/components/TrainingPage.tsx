@@ -38,7 +38,7 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
 
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook
   // Use 'fast' (5s) for active jobs, 'slow' (30s) for completed jobs view
-  const { data, isLoading: loading, lastUpdated, error, refetch: refreshData } = usePolling(
+  const { data: response, isLoading: loading, lastUpdated, error, refetch: refreshData } = usePolling(
     () => apiClient.listTrainingJobs(),
     hasActiveJobs ? 'fast' : 'slow',
     {
@@ -46,13 +46,17 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
       onError: (err) => {
         logger.error('Failed to fetch training jobs', { component: 'TrainingPage' }, err);
       },
-      onSuccess: (jobs) => {
+      onSuccess: (resp) => {
         // Update polling speed based on active jobs
-        const active = (jobs as Array<{ status: string }>)?.some(j => j.status === 'running' || j.status === 'queued');
+        const jobs = (resp as { jobs?: Array<{ status: string }> })?.jobs || [];
+        const active = jobs.some(j => j.status === 'running' || j.status === 'queued');
         setHasActiveJobs(active || false);
       }
     }
   );
+
+  // Extract jobs array from response
+  const data = response?.jobs;
 
   // Handle null data case from usePolling hook - use established pattern
   const trainingJobs = data ?? [];

@@ -51,14 +51,8 @@ export function useTrainingJobs(
   return useQuery<ListTrainingJobsResponse, Error>({
     queryKey: [...QUERY_KEYS.trainingJobs, params],
     queryFn: async () => {
-      const jobs = await apiClient.listTrainingJobs(params);
-      return {
-        schema_version: '1.0',
-        jobs,
-        total: jobs.length,
-        page: params?.page || 1,
-        page_size: params?.page_size || jobs.length,
-      };
+      // API now returns ListTrainingJobsResponse directly
+      return await apiClient.listTrainingJobs(params);
     },
     refetchInterval: 5000, // Poll every 5 seconds for active jobs
     ...options,

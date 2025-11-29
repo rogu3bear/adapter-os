@@ -25,12 +25,13 @@ export function TrainingComparisonExample() {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Fetch all training jobs from API
       const response = await apiClient.listTrainingJobs();
-      setJobs(response);
-      
-      logger.info('Loaded training jobs for comparison', { count: response.length });
+      const jobList = response.jobs || [];
+      setJobs(jobList);
+
+      logger.info('Loaded training jobs for comparison', { count: jobList.length });
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to load training jobs');
       setError(error);

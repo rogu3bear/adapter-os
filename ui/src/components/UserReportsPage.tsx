@@ -42,7 +42,7 @@ export function UserReportsPage({ tenantId }: UserReportsPageProps) {
   const fetchReportData = useCallback(async () => {
     const [metricsRes, trainingRes, adaptersRes, activityRes] = await Promise.all([
       apiClient.getSystemMetrics().catch(() => null),
-      apiClient.listTrainingJobs().catch(() => []),
+      apiClient.listTrainingJobs().catch(() => ({ jobs: [], total: 0, page: 1, page_size: 0 })),
       apiClient.listAdapters().catch(() => []),
       // Fetch recent telemetry events from API
       effectiveTenant
@@ -54,9 +54,12 @@ export function UserReportsPage({ tenantId }: UserReportsPageProps) {
         : Promise.resolve([]), // Return empty array if no tenant selected
     ]);
 
+    // Extract jobs from paginated response
+    const trainingJobs = trainingRes?.jobs || [];
+
     return {
       metrics: metricsRes,
-      recentTraining: trainingRes.slice(0, 5),
+      recentTraining: trainingJobs.slice(0, 5),
       adapters: adaptersRes,
       activity: activityRes // Real telemetry events from API
     };

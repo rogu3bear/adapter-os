@@ -228,9 +228,17 @@ export function StartTrainingForm({
     setIsSubmitting(true);
 
     try {
+      // Ensure targets is always set (required by backend)
+      const configWithTargets = {
+        ...config,
+        targets: config.targets && config.targets.length > 0
+          ? config.targets
+          : ['q_proj', 'v_proj'],  // Default LoRA targets
+      };
+
       const request: StartTrainingRequest = {
         adapter_name: adapterName,
-        config,
+        config: configWithTargets,
         template_id: templateId || undefined,
         dataset_id: datasetId || undefined,
       };

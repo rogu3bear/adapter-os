@@ -90,7 +90,8 @@ export default function MLEngineerTrainingMetrics() {
   useEffect(() => {
     const loadJobs = async () => {
       try {
-        const jobList = await apiClient.listTrainingJobs();
+        const response = await apiClient.listTrainingJobs();
+        const jobList = response.jobs || [];
         setJobs(jobList);
         // Auto-select first running job
         const runningJob = jobList.find(j => j.status === 'running');
