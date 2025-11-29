@@ -304,3 +304,4 @@ aosctl
 # Generated/temporary directories
 training_data/
 ui-test-screenshots/
+.venv-coreml/
