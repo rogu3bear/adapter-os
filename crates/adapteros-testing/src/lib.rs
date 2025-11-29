@@ -3,13 +3,8 @@
 //! Provides a centralized testing framework that consolidates all testing
 //! patterns across the system with consistent setup, teardown, and assertions.
 
-// Kernel testing module is always available
 pub mod kernel_testing;
 pub mod unified_framework;
-
-// Fixtures module requires additional dependencies
-#[cfg(feature = "fixtures")]
-pub mod fixtures;
 
 // Re-export unified framework types
 pub use unified_framework::{
@@ -19,7 +14,7 @@ pub use unified_framework::{
     TestSuite, TestSuiteResult, TestSummary, TestType, TestingFramework, UnifiedTestingFramework,
 };
 
-// Re-export kernel testing utilities (always available)
+// Re-export kernel testing utilities
 pub use kernel_testing::{
     approx_eq, assert_bit_exact, assert_vectors_eq, compare_vectors, cpu_add, cpu_lora_forward,
     cpu_matmul, cpu_rms_norm, cpu_scale, cpu_softmax, cpu_softmax_2d, cpu_swiglu,
@@ -27,11 +22,4 @@ pub use kernel_testing::{
     test_input_sequence, test_position_ids, test_q15_gates, uniform_weights, xavier_weights,
     BenchTimer, ComparisonResult, MockAdapter, MockMlpWeights, MockQkvWeights, SeededLcg,
     Tolerance,
-};
-
-// Re-export fixture types (only when fixtures feature is enabled)
-#[cfg(feature = "fixtures")]
-pub use fixtures::{
-    TestAdapterFactory, TestAppStateBuilder, TestAssertions, TestAuth, TestDatasetFactory,
-    TestDbBuilder, TestDbConfig, TestTrainingJobFactory, TestUser,
 };

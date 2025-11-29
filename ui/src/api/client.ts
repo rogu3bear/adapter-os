@@ -4270,6 +4270,149 @@ class ApiClient {
   }
 
   /**
+   * Search chat sessions using FTS (Full-Text Search)
+   *
+   * GET /v1/chat/sessions/search
+   *
+   * @param query - Search query parameters
+   * @returns Array of search results with highlighted matches
+   */
+  async searchChatSessions(query: chatTypes.SearchSessionsQuery): Promise<chatTypes.ChatSearchResult[]> {
+    logger.info('Searching chat sessions', {
+      component: 'ApiClient',
+      operation: 'searchChatSessions',
+      query: query.q,
+      scope: query.scope,
+    });
+
+    const params = new URLSearchParams();
+    params.append('q', query.q);
+    if (query.scope) params.append('scope', query.scope);
+    if (query.category_id) params.append('category_id', query.category_id);
+    if (query.tags) params.append('tags', query.tags);
+    if (query.include_archived !== undefined) params.append('include_archived', query.include_archived.toString());
+    if (query.limit) params.append('limit', query.limit.toString());
+
+    return this.request<chatTypes.ChatSearchResult[]>(`/v1/chat/sessions/search?${params.toString()}`);
+  }
+
+  // ============================================================================
+  // Chat Categories API Methods
+  // ============================================================================
+
+  /**
+   * List all chat categories for current tenant
+   *
+   * GET /v1/chat/categories
+   *
+   * @returns Array of chat categories (tree-sorted by path)
+   */
+  async listChatCategories(): Promise<chatTypes.ChatCategory[]> {
+    return this.request<chatTypes.ChatCategory[]>('/v1/chat/categories');
+  }
+
+  /**
+   * Create a new chat category
+   *
+   * POST /v1/chat/categories
+   *
+   * @param req - Category creation request
+   * @returns Created category
+   */
+  async createChatCategory(req: chatTypes.CreateCategoryRequest): Promise<chatTypes.ChatCategory> {
+    logger.info('Creating chat category', {
+      component: 'ApiClient',
+      operation: 'createChatCategory',
+      name: req.name,
+      parent_id: req.parent_id,
+    });
+
+    return this.request<chatTypes.ChatCategory>('/v1/chat/categories', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  /**
+   * Update a chat category
+   *
+   * PUT /v1/chat/categories/:category_id
+   *
+   * @param categoryId - Category ID
+   * @param req - Category update request
+   * @returns Updated category
+   */
+  async updateChatCategory(
+    categoryId: string,
+    req: chatTypes.UpdateCategoryRequest
+  ): Promise<chatTypes.ChatCategory> {
+    logger.info('Updating chat category', {
+      component: 'ApiClient',
+      operation: 'updateChatCategory',
+      categoryId,
+    });
+
+    return this.request<chatTypes.ChatCategory>(
+      `/v1/chat/categories/${encodeURIComponent(categoryId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(req),
+      }
+    );
+  }
+
+  /**
+   * Delete a chat category
+   *
+   * DELETE /v1/chat/categories/:category_id
+   *
+   * @param categoryId - Category ID
+   */
+  async deleteChatCategory(categoryId: string): Promise<void> {
+    logger.info('Deleting chat category', {
+      component: 'ApiClient',
+      operation: 'deleteChatCategory',
+      categoryId,
+    });
+
+    return this.request<void>(
+      `/v1/chat/categories/${encodeURIComponent(categoryId)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  /**
+   * Set the category for a chat session
+   *
+   * PUT /v1/chat/sessions/:session_id/category
+   *
+   * @param sessionId - Session ID
+   * @param categoryId - Category ID (or null to clear)
+   */
+  async setSessionCategory(sessionId: string, categoryId: string | null): Promise<void> {
+    logger.info('Setting session category', {
+      component: 'ApiClient',
+      operation: 'setSessionCategory',
+      sessionId,
+      categoryId,
+    });
+
+    const payload: chatTypes.SetCategoryRequest = {
+      category_id: categoryId,
+    };
+
+    return this.request<void>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/category`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /**
    * Send a message to the Owner System Chat endpoint
    *
    * POST /v1/chat/owner-system

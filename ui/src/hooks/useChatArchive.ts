@@ -28,7 +28,7 @@ export function useArchivedSessions(
 ) {
   return useQuery<ChatSessionWithStatus[], Error>({
     queryKey: [...QUERY_KEYS.archivedSessions, params],
-    queryFn: () => apiClient.listArchivedSessions(params),
+    queryFn: () => apiClient.listArchivedChatSessions(params?.limit),
     ...options,
   });
 }
@@ -48,7 +48,7 @@ export function useDeletedSessions(
 ) {
   return useQuery<ChatSessionWithStatus[], Error>({
     queryKey: [...QUERY_KEYS.deletedSessions, params],
-    queryFn: () => apiClient.listDeletedSessions(params),
+    queryFn: () => apiClient.listDeletedChatSessions(params?.limit),
     ...options,
   });
 }
