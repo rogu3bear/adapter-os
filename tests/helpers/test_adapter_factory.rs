@@ -256,16 +256,26 @@ pub unsafe fn sample_buffer(buffer: &metal::Buffer, count: usize) -> Result<Vec<
     Ok(slice.to_vec())
 }
 
-/// Compute L2 distance between two vectors (re-exported from testing fixtures)
+/// Compute L2 distance between two vectors
 pub fn compute_l2_distance(a: &[f32], b: &[f32]) -> f32 {
-    adapteros_testing::TestAssertions::l2_distance(a, b)
+    if a.len() != b.len() {
+        panic!("Vectors must have same length");
+    }
+
+    let sum_sq_diff: f32 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - y).powi(2))
+        .sum();
+
+    sum_sq_diff.sqrt()
 }
 
 /// Assert approximate equality with epsilon
 #[macro_export]
 macro_rules! assert_approx_eq {
     ($left:expr, $right:expr, epsilon: $epsilon:expr) => {
-        let distance = adapteros_testing::TestAssertions::l2_distance($left, $right);
+        let distance = $crate::helpers::test_adapter_factory::compute_l2_distance($left, $right);
         assert!(
             distance < $epsilon,
             "Vectors not approximately equal:\n  L2 distance: {}\n  epsilon: {}",

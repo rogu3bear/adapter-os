@@ -36,7 +36,8 @@ fn encode_jwt(claims: &Claims, secret: &[u8]) -> Result<String> {
 
 /// Test database setup using consolidated fixtures
 async fn setup_test_db() -> Result<Db> {
-    use adapteros_testing::TestDbBuilder;
+    mod common;
+    use common::{TestDbBuilder};
     TestDbBuilder::new()
         .with_default_tenant()
         .with_default_admin()
@@ -46,7 +47,8 @@ async fn setup_test_db() -> Result<Db> {
 
 /// Test application state setup using consolidated fixtures
 async fn setup_test_state() -> Result<AppState> {
-    use adapteros_testing::TestAppStateBuilder;
+    mod common;
+    use common::TestAppStateBuilder;
     TestAppStateBuilder::new()
         .build()
         .await

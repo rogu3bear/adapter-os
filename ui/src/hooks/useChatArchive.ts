@@ -2,7 +2,6 @@ import { useQuery, useMutation, UseQueryOptions, UseMutationOptions } from '@tan
 import apiClient from '@/api/client';
 import type {
   ChatSessionWithStatus,
-  ArchiveSessionRequest,
   ListArchivedQuery,
 } from '@/api/chat-types';
 
@@ -92,7 +91,7 @@ export function useRestoreSession(
 /**
  * Permanently delete a session
  *
- * DELETE /v1/chat/sessions/:session_id/permanent
+ * DELETE /v1/chat/sessions/:session_id/hard
  *
  * Requires WorkspaceManage permission (admin-only)
  *
@@ -103,7 +102,7 @@ export function useHardDeleteSession(
   options?: UseMutationOptions<void, Error, string>
 ) {
   return useMutation<void, Error, string>({
-    mutationFn: (sessionId) => apiClient.hardDeleteSession(sessionId),
+    mutationFn: (sessionId) => apiClient.hardDeleteChatSession(sessionId),
     ...options,
   });
 }

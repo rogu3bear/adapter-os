@@ -434,6 +434,31 @@ impl Policy for RouterPolicy {
 mod tests {
     use super::*;
 
+    /// Helper to create test adapter metadata
+    fn create_adapter(
+        id: &str,
+        tier: &str,
+        tags: Vec<String>,
+        forbidden_peers: Vec<String>,
+    ) -> AdapterMetadata {
+        AdapterMetadata {
+            id: id.to_string(),
+            tier: tier.to_string(),
+            tags,
+            forbidden_peers,
+        }
+    }
+
+    /// Helper to create test stack configuration
+    fn create_stack(id: &str, adapters: Vec<AdapterMetadata>) -> StackConfiguration {
+        let adapter_ids = adapters.iter().map(|a| a.id.clone()).collect();
+        StackConfiguration {
+            id: id.to_string(),
+            adapter_ids,
+            adapters,
+        }
+    }
+
     #[test]
     fn test_router_policy_creation() {
         let config = RouterConfig::default();

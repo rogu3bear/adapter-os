@@ -124,7 +124,7 @@ impl ApiTestHarness {
         adapter_id: &str,
         tenant_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use adapteros_testing::TestAdapterFactory;
+        use super::fixtures_consolidated::TestAdapterFactory;
         TestAdapterFactory::create_adapter(self.state.db(), adapter_id, tenant_id)
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
@@ -136,7 +136,7 @@ impl ApiTestHarness {
         dataset_id: &str,
         name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use adapteros_testing::TestDatasetFactory;
+        use super::fixtures_consolidated::TestDatasetFactory;
         TestDatasetFactory::create_dataset(self.state.db(), dataset_id, name)
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
@@ -149,7 +149,7 @@ impl ApiTestHarness {
         dataset_id: &str,
         adapter_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use adapteros_testing::TestTrainingJobFactory;
+        use super::fixtures_consolidated::TestTrainingJobFactory;
         TestTrainingJobFactory::create_completed_job(self.state.db(), job_id, dataset_id, adapter_id)
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)

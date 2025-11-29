@@ -27,6 +27,65 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+/// Helper function to execute a single adapter with kernel backend
+///
+/// Shared implementation to avoid duplication between RealBackendAdapterBackend
+/// and KernelAdapterBackend. Handles routing setup, kernel execution, and
+/// output token extraction via argmax.
+async fn execute_adapter_with_kernel<K: FusedKernels>(
+    kernels: &Arc<Mutex<K>>,
+    adapter_index: u16,
+    adapter_id: &str,
+    input_tokens: &[u32],
+    vocab_size: usize,
+) -> Result<AdapterExecutionResult> {
+    // Create router ring with single adapter
+    let mut ring = RouterRing::new(1);
+    ring.set(&[adapter_index], &[i16::MAX]); // Full weight to single adapter
+
+    // Create IO buffers
+    let mut io = IoBuffers::new(vocab_size);
+    io.input_ids = input_tokens.to_vec();
+
+    // Execute kernel
+    {
+        let mut kernels_guard = kernels.lock().await;
+        kernels_guard.run_step(&ring, &mut io).map_err(|e| {
+            error!(
+                adapter_id = %adapter_id,
+                error = %e,
+                "Kernel execution failed"
+            );
+            e
+        })?;
+    }
+
+    // Convert logits to output tokens (simplified: argmax)
+    let output_tokens = if io.output_logits.is_empty() {
+        vec![]
+    } else {
+        // Find argmax
+        let (max_idx, _) = io
+            .output_logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or((0, &0.0));
+        vec![max_idx as u32]
+    };
+
+    debug!(
+        adapter_id = %adapter_id,
+        output_tokens_len = output_tokens.len(),
+        "Adapter execution completed"
+    );
+
+    Ok(AdapterExecutionResult {
+        output_tokens,
+        state_updates: HashMap::new(),
+    })
+}
+
 /// Workflow type for adapter execution
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]

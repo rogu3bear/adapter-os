@@ -1,7 +1,7 @@
+use super::fixtures_consolidated::{TestAppStateBuilder, TestAuth, TestDbBuilder, TestUser};
 use adapteros_db::users::Role;
 use adapteros_server_api::types::{ErrorResponse, LoginRequest, LoginResponse};
 use adapteros_server_api::AppState;
-use adapteros_testing::{TestAppStateBuilder, TestAuth, TestDbBuilder, TestUser};
 use axum::{
     body::Body,
     http::{Request, StatusCode},

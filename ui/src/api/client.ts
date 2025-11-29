@@ -4297,6 +4297,151 @@ class ApiClient {
   }
 
   // ============================================================================
+  // Chat Tags API Methods
+  // ============================================================================
+
+  /**
+   * List all chat tags for current tenant
+   *
+   * GET /v1/chat/tags
+   *
+   * @returns Array of chat tags
+   */
+  async listChatTags(): Promise<chatTypes.ChatTag[]> {
+    return this.request<chatTypes.ChatTag[]>('/v1/chat/tags');
+  }
+
+  /**
+   * Create a new chat tag
+   *
+   * POST /v1/chat/tags
+   *
+   * @param req - Tag creation request
+   * @returns Created chat tag
+   */
+  async createChatTag(req: chatTypes.CreateTagRequest): Promise<chatTypes.ChatTag> {
+    logger.info('Creating chat tag', {
+      component: 'ApiClient',
+      operation: 'createChatTag',
+      name: req.name,
+    });
+
+    return this.request<chatTypes.ChatTag>('/v1/chat/tags', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  /**
+   * Update a chat tag
+   *
+   * PUT /v1/chat/tags/:tag_id
+   *
+   * @param tagId - Tag ID to update
+   * @param req - Tag update request
+   * @returns Updated chat tag
+   */
+  async updateChatTag(tagId: string, req: chatTypes.UpdateTagRequest): Promise<chatTypes.ChatTag> {
+    logger.info('Updating chat tag', {
+      component: 'ApiClient',
+      operation: 'updateChatTag',
+      tagId,
+    });
+
+    return this.request<chatTypes.ChatTag>(`/v1/chat/tags/${encodeURIComponent(tagId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(req),
+    });
+  }
+
+  /**
+   * Delete a chat tag
+   *
+   * DELETE /v1/chat/tags/:tag_id
+   *
+   * @param tagId - Tag ID to delete
+   */
+  async deleteChatTag(tagId: string): Promise<void> {
+    logger.info('Deleting chat tag', {
+      component: 'ApiClient',
+      operation: 'deleteChatTag',
+      tagId,
+    });
+
+    return this.request<void>(`/v1/chat/tags/${encodeURIComponent(tagId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Assign tags to a chat session
+   *
+   * POST /v1/chat/sessions/:session_id/tags
+   *
+   * @param sessionId - Session ID
+   * @param tagIds - Array of tag IDs to assign
+   * @returns Array of assigned tags
+   */
+  async assignTagsToSession(sessionId: string, tagIds: string[]): Promise<chatTypes.ChatTag[]> {
+    logger.info('Assigning tags to session', {
+      component: 'ApiClient',
+      operation: 'assignTagsToSession',
+      sessionId,
+      tagCount: tagIds.length,
+    });
+
+    const payload: chatTypes.AssignTagsRequest = {
+      tag_ids: tagIds,
+    };
+
+    return this.request<chatTypes.ChatTag[]>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/tags`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /**
+   * Get tags for a chat session
+   *
+   * GET /v1/chat/sessions/:session_id/tags
+   *
+   * @param sessionId - Session ID
+   * @returns Array of tags assigned to the session
+   */
+  async getSessionTags(sessionId: string): Promise<chatTypes.ChatTag[]> {
+    return this.request<chatTypes.ChatTag[]>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/tags`
+    );
+  }
+
+  /**
+   * Remove a tag from a chat session
+   *
+   * DELETE /v1/chat/sessions/:session_id/tags/:tag_id
+   *
+   * @param sessionId - Session ID
+   * @param tagId - Tag ID to remove
+   */
+  async removeTagFromSession(sessionId: string, tagId: string): Promise<void> {
+    logger.info('Removing tag from session', {
+      component: 'ApiClient',
+      operation: 'removeTagFromSession',
+      sessionId,
+      tagId,
+    });
+
+    return this.request<void>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/tags/${encodeURIComponent(tagId)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  // ============================================================================
   // Chat Categories API Methods
   // ============================================================================
 

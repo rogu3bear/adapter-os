@@ -46,7 +46,7 @@ export interface StreamHookResult<T> {
  * Factory function to create streaming hooks with consistent behavior
  * Eliminates duplication across all stream endpoint hooks
  */
-function createStreamHook<T>(endpoint: string) {
+function createStreamHook<T extends Record<string, any>>(endpoint: string) {
   return function useStream(options: UseSSEOptions<T> = {}): StreamHookResult<T> {
     const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
     const { data, error, connected, reconnect } = useSSE<T>(endpoint, memoizedOptions);
@@ -57,7 +57,7 @@ function createStreamHook<T>(endpoint: string) {
         error,
         connected,
         reconnect,
-        lastUpdated: data && 'timestamp' in data ? String((data as any).timestamp) : undefined,
+        lastUpdated: data && 'timestamp' in data ? String(data.timestamp) : undefined,
       }),
       [data, error, connected, reconnect]
     );
