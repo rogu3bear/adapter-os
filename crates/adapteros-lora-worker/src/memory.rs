@@ -300,8 +300,8 @@ impl UmaPressureMonitor {
         self.headroom_pct() < self.min_headroom_pct as f32
     }
 
-    /// Get UMA statistics (async version)
-    pub async fn get_uma_stats(&self) -> UmaStats {
+    /// Calculate UMA statistics from current state
+    fn calculate_uma_stats(&self) -> UmaStats {
         let headroom_pct = self.headroom_pct();
         let total_mb = self
             .get_total_memory_bytes()
@@ -326,30 +326,14 @@ impl UmaPressureMonitor {
         }
     }
 
+    /// Get UMA statistics (async version)
+    pub async fn get_uma_stats(&self) -> UmaStats {
+        self.calculate_uma_stats()
+    }
+
     /// Get current memory stats (synchronous version)
     pub fn get_stats(&self) -> UmaStats {
-        let headroom_pct = self.headroom_pct();
-        let total_mb = self
-            .get_total_memory_bytes()
-            .map(|b| b / (1024 * 1024))
-            .unwrap_or(0);
-        let used_mb = ((100.0 - headroom_pct) / 100.0 * total_mb as f32) as u64;
-        let available_mb = total_mb - used_mb;
-
-        // Collect ANE metrics if on macOS
-        let (ane_allocated_mb, ane_used_mb, ane_available_mb, ane_usage_percent) =
-            self.get_ane_metrics();
-
-        UmaStats {
-            headroom_pct,
-            used_mb,
-            total_mb,
-            available_mb,
-            ane_allocated_mb,
-            ane_used_mb,
-            ane_available_mb,
-            ane_usage_percent,
-        }
+        self.calculate_uma_stats()
     }
 
     /// Get ANE-specific metrics

@@ -206,14 +206,11 @@ impl Generator {
         Ok(tokens)
     }
 
-    /// Generate next token from logits
-    pub fn next_token(&mut self, logits: &[f32]) -> Result<u32> {
-        if logits.is_empty() {
-            return Err(adapteros_core::AosError::Worker(
-                "Empty logits provided".to_string(),
-            ));
-        }
-
+    /// Apply temperature scaling and filtering to logits
+    ///
+    /// Shared logic for temperature, top-k, and top-p filtering.
+    /// Used by both `next_token` and `max_prob`.
+    fn process_logits(&self, logits: &[f32]) -> Vec<f32> {
         // Apply temperature
         let scaled_logits: Vec<f32> = if self.temperature != 1.0 {
             logits.iter().map(|&l| l / self.temperature).collect()
@@ -232,11 +229,22 @@ impl Generator {
         };
 
         // Apply nucleus (top-p) filtering if configured
-        let final_probs = if let Some(p) = self.top_p {
+        if let Some(p) = self.top_p {
             self.apply_top_p(&filtered_probs, p)
         } else {
             filtered_probs
-        };
+        }
+    }
+
+    /// Generate next token from logits
+    pub fn next_token(&mut self, logits: &[f32]) -> Result<u32> {
+        if logits.is_empty() {
+            return Err(adapteros_core::AosError::Worker(
+                "Empty logits provided".to_string(),
+            ));
+        }
+
+        let final_probs = self.process_logits(logits);
 
         // Sample from the distribution
         self.sample_from_distribution(&final_probs)
@@ -252,29 +260,7 @@ impl Generator {
             return 0.0;
         }
 
-        // Apply temperature
-        let scaled_logits: Vec<f32> = if self.temperature != 1.0 {
-            logits.iter().map(|&l| l / self.temperature).collect()
-        } else {
-            logits.to_vec()
-        };
-
-        // Convert logits to probabilities (softmax)
-        let probs = self.softmax(&scaled_logits);
-
-        // Apply top-k filtering if configured
-        let filtered_probs = if let Some(k) = self.top_k {
-            self.apply_top_k(&probs, k)
-        } else {
-            probs
-        };
-
-        // Apply nucleus (top-p) filtering if configured
-        let final_probs = if let Some(p) = self.top_p {
-            self.apply_top_p(&filtered_probs, p)
-        } else {
-            filtered_probs
-        };
+        let final_probs = self.process_logits(logits);
 
         final_probs
             .iter()
