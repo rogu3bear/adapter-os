@@ -62,10 +62,10 @@ export function useDeletedSessions(
  * @returns Mutation for archiving a session
  */
 export function useArchiveSession(
-  options?: UseMutationOptions<void, Error, { sessionId: string; request?: ArchiveSessionRequest }>
+  options?: UseMutationOptions<void, Error, { sessionId: string; reason?: string }>
 ) {
-  return useMutation<void, Error, { sessionId: string; request?: ArchiveSessionRequest }>({
-    mutationFn: ({ sessionId, request }) => apiClient.archiveSession(sessionId, request),
+  return useMutation<void, Error, { sessionId: string; reason?: string }>({
+    mutationFn: ({ sessionId, reason }) => apiClient.archiveChatSession(sessionId, reason),
     ...options,
   });
 }
@@ -84,7 +84,7 @@ export function useRestoreSession(
   options?: UseMutationOptions<void, Error, string>
 ) {
   return useMutation<void, Error, string>({
-    mutationFn: (sessionId) => apiClient.restoreSession(sessionId),
+    mutationFn: (sessionId) => apiClient.restoreChatSession(sessionId),
     ...options,
   });
 }
