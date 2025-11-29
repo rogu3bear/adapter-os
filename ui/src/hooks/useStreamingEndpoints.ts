@@ -139,26 +139,7 @@ export const useFileChangesStream = createStreamHook<FileChangeStreamEvent>('/v1
  * });
  * ```
  */
-export function useMetricsStream(
-  options: UseSSEOptions<MetricsStreamEvent> = {}
-): StreamHookResult<MetricsStreamEvent> {
-  const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
-  const { data, error, connected, reconnect } = useSSE<MetricsStreamEvent>(
-    '/v1/stream/metrics',
-    memoizedOptions
-  );
-
-  return useMemo(
-    () => ({
-      data,
-      error,
-      connected,
-      reconnect,
-      lastUpdated: data && 'timestamp' in data ? data.timestamp : undefined,
-    }),
-    [data, error, connected, reconnect]
-  );
-}
+export const useMetricsStream = createStreamHook<MetricsStreamEvent>('/v1/stream/metrics');
 
 /**
  * Base hook for telemetry stream events
@@ -173,26 +154,7 @@ export function useMetricsStream(
  * });
  * ```
  */
-export function useTelemetryStream(
-  options: UseSSEOptions<TelemetryStreamEvent> = {}
-): StreamHookResult<TelemetryStreamEvent> {
-  const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
-  const { data, error, connected, reconnect } = useSSE<TelemetryStreamEvent>(
-    '/v1/stream/telemetry',
-    memoizedOptions
-  );
-
-  return useMemo(
-    () => ({
-      data,
-      error,
-      connected,
-      reconnect,
-      lastUpdated: data?.timestamp,
-    }),
-    [data, error, connected, reconnect]
-  );
-}
+export const useTelemetryStream = createStreamHook<TelemetryStreamEvent>('/v1/stream/telemetry');
 
 /**
  * Base hook for adapter lifecycle stream events
@@ -209,26 +171,7 @@ export function useTelemetryStream(
  * });
  * ```
  */
-export function useAdaptersStream(
-  options: UseSSEOptions<AdapterStreamEvent> = {}
-): StreamHookResult<AdapterStreamEvent> {
-  const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
-  const { data, error, connected, reconnect } = useSSE<AdapterStreamEvent>(
-    '/v1/stream/adapters',
-    memoizedOptions
-  );
-
-  return useMemo(
-    () => ({
-      data,
-      error,
-      connected,
-      reconnect,
-      lastUpdated: data?.timestamp ? new Date(data.timestamp).toISOString() : undefined,
-    }),
-    [data, error, connected, reconnect]
-  );
-}
+export const useAdaptersStream = createStreamHook<AdapterStreamEvent>('/v1/stream/adapters');
 
 /**
  * Base hook for stack policy stream events (PRD-GOV-01)

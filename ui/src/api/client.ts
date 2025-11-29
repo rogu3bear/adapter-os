@@ -4162,6 +4162,114 @@ class ApiClient {
   }
 
   /**
+   * Archive a chat session
+   *
+   * POST /v1/chat/sessions/:session_id/archive
+   *
+   * @param sessionId - Session ID
+   * @param reason - Optional reason for archiving
+   */
+  async archiveChatSession(sessionId: string, reason?: string): Promise<void> {
+    logger.info('Archiving chat session', {
+      component: 'ApiClient',
+      operation: 'archiveChatSession',
+      sessionId,
+    });
+
+    const payload: chatTypes.ArchiveSessionRequest = {
+      reason,
+    };
+
+    return this.request<void>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/archive`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /**
+   * Restore a deleted or archived chat session (admin-only)
+   *
+   * POST /v1/chat/sessions/:session_id/restore
+   *
+   * @param sessionId - Session ID
+   */
+  async restoreChatSession(sessionId: string): Promise<void> {
+    logger.info('Restoring chat session', {
+      component: 'ApiClient',
+      operation: 'restoreChatSession',
+      sessionId,
+    });
+
+    return this.request<void>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/restore`,
+      {
+        method: 'POST',
+      }
+    );
+  }
+
+  /**
+   * Permanently delete a chat session (admin-only)
+   *
+   * DELETE /v1/chat/sessions/:session_id/hard
+   *
+   * @param sessionId - Session ID
+   */
+  async hardDeleteChatSession(sessionId: string): Promise<void> {
+    logger.info('Hard deleting chat session', {
+      component: 'ApiClient',
+      operation: 'hardDeleteChatSession',
+      sessionId,
+    });
+
+    return this.request<void>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/hard`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  /**
+   * List archived chat sessions
+   *
+   * GET /v1/chat/sessions/archived
+   *
+   * @param limit - Optional limit on number of sessions
+   * @returns Array of archived chat sessions with status
+   */
+  async listArchivedChatSessions(limit?: number): Promise<chatTypes.ChatSessionWithStatus[]> {
+    const params = new URLSearchParams();
+    if (limit) params.append('limit', limit.toString());
+
+    const queryString = params.toString();
+    return this.request<chatTypes.ChatSessionWithStatus[]>(
+      `/v1/chat/sessions/archived${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  /**
+   * List deleted chat sessions (trash)
+   *
+   * GET /v1/chat/sessions/trash
+   *
+   * @param limit - Optional limit on number of sessions
+   * @returns Array of deleted chat sessions with status
+   */
+  async listDeletedChatSessions(limit?: number): Promise<chatTypes.ChatSessionWithStatus[]> {
+    const params = new URLSearchParams();
+    if (limit) params.append('limit', limit.toString());
+
+    const queryString = params.toString();
+    return this.request<chatTypes.ChatSessionWithStatus[]>(
+      `/v1/chat/sessions/trash${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  /**
    * Send a message to the Owner System Chat endpoint
    *
    * POST /v1/chat/owner-system

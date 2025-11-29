@@ -154,13 +154,7 @@ pub async fn api_error_only_middleware(req: Request<Body>, next: Next) -> Respon
     // Extract minimal request metadata
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-
-    let request_id = req
-        .headers()
-        .get("x-request-id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "-".to_string());
+    let request_id = extract_request_id(&req);
 
     // Execute request
     let response = next.run(req).await;
