@@ -156,6 +156,9 @@ pub use workflow_executor::{
     WorkflowResult, WorkflowType,
 };
 
+// Re-export MemoryPressureLevel from adapteros-memory for public API
+pub use adapteros_memory::MemoryPressureLevel;
+
 /// Enhanced lifecycle manager for adapters with category-aware state management
 pub struct LifecycleManager {
     /// Adapter states
@@ -2506,11 +2509,6 @@ pub struct KReductionEvent {
     pub reason: String,
 }
 
-#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
-pub enum MemoryPressureLevel {
-    High,
-    Critical,
-}
 
 #[cfg(test)]
 mod tests {

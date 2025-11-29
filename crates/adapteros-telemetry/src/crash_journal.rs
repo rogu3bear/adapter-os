@@ -13,7 +13,6 @@ use std::backtrace::Backtrace;
 use std::panic::PanicHookInfo;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Crash journal entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,10 +95,7 @@ impl CrashJournal {
     /// Record a crash
     #[allow(deprecated)]
     pub fn record_crash(&self, panic_info: &PanicHookInfo) -> Result<()> {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|e| AosError::Io(format!("System time error: {}", e)))?
-            .as_secs();
+        let timestamp = adapteros_core::time::unix_timestamp_secs();
 
         // Extract panic message
         let message = panic_info

@@ -7,7 +7,7 @@
 //! - Policy Pack #12 (Memory): "MUST maintain ≥ 15 percent unified memory headroom"
 //! - CLAUDE.md L140: "Memory management: Adapter eviction with headroom maintenance"
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{constants::BYTES_PER_MB, constants::BYTES_PER_GB, AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -140,7 +140,7 @@ pub enum AdapterCategory {
 }
 
 /// Memory pressure levels
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MemoryPressureLevel {
     /// Low pressure - plenty of memory available
     Low,
@@ -419,7 +419,7 @@ impl MemoryManager for UnifiedMemoryManager {
 
         info!(
             adapters_evicted = adapters_evicted,
-            memory_freed_mb = memory_freed / (1024 * 1024),
+            memory_freed_mb = memory_freed / BYTES_PER_MB,
             duration_ms = duration.as_millis(),
             "Memory cleanup completed"
         );
@@ -428,7 +428,7 @@ impl MemoryManager for UnifiedMemoryManager {
             adapters_evicted,
             adapters_pinned,
             memory_freed_bytes: memory_freed,
-            memory_freed_mb: memory_freed / (1024 * 1024),
+            memory_freed_mb: memory_freed / BYTES_PER_MB,
             duration_ms: duration.as_millis() as u64,
             operations,
         })
@@ -476,19 +476,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_memory_manager_creation() {
-        let manager = UnifiedMemoryManager::new(1024 * 1024 * 1024, 15.0);
-        assert_eq!(manager.memory_limit, 1024 * 1024 * 1024);
+        let manager = UnifiedMemoryManager::new(BYTES_PER_GB, 15.0);
+        assert_eq!(manager.memory_limit, BYTES_PER_GB);
         assert_eq!(manager.headroom_threshold, 15.0);
     }
 
     #[tokio::test]
     async fn test_memory_usage_stats() {
-        let manager = UnifiedMemoryManager::new(1024 * 1024 * 1024, 15.0);
+        let manager = UnifiedMemoryManager::new(BYTES_PER_GB, 15.0);
         let stats = manager.get_memory_usage().await.unwrap();
 
-        assert_eq!(stats.total_memory, 1024 * 1024 * 1024);
+        assert_eq!(stats.total_memory, BYTES_PER_GB);
         assert_eq!(stats.used_memory, 0);
-        assert_eq!(stats.available_memory, 1024 * 1024 * 1024);
+        assert_eq!(stats.available_memory, BYTES_PER_GB);
         assert!(matches!(stats.pressure_level, MemoryPressureLevel::Low));
     }
 
@@ -504,7 +504,7 @@ mod tests {
     #[tokio::test]
     async fn test_deterministic_eviction_order() {
         // Test that eviction order is deterministic when quality scores are equal
-        let manager = UnifiedMemoryManager::new(1024 * 1024, 15.0);
+        let manager = UnifiedMemoryManager::new(BYTES_PER_MB, 15.0);
 
         // Add adapters with identical quality scores but different IDs
         let mut adapters = manager.adapters.lock().await;

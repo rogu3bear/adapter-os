@@ -9,6 +9,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::{
     dataset::ChangeType, dataset::FilePatch, DatasetGenerator, TrainingExample,
 };
+use adapteros_platform::common::PlatformUtils;
 use std::path::Path;
 use tracing::info;
 use walkdir::WalkDir;
@@ -73,7 +74,7 @@ pub fn build_from_directory(
             .unwrap_or(&path_abs)
             .to_path_buf();
         patches.push(FilePatch {
-            file_path: normalize_path(&rel_path),
+            file_path: PlatformUtils::normalize_path_separators(&rel_path.to_string_lossy()),
             old_content: content.clone(),
             new_content: content,
             change_type: ChangeType::Modify,
@@ -84,10 +85,6 @@ pub fn build_from_directory(
     let examples = gen.generate_from_patches(&patches)?;
     gen.validate_examples(&examples)?;
     Ok(examples)
-}
-
-fn normalize_path(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/")
 }
 
 #[cfg(test)]

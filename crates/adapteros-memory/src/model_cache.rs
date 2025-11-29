@@ -10,7 +10,7 @@
 //! - Deterministic Eviction: Uses BLAKE3 hash for tiebreaking【3†adapteros-memory/src/unified_interface.rs:379-397】
 
 use crate::unified_interface::MemoryManager;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{constants::BYTES_PER_MB, constants::BYTES_PER_GB, AosError, Result};
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::hash::Hash;
@@ -85,7 +85,7 @@ pub struct ModelCacheConfig {
 impl Default for ModelCacheConfig {
     fn default() -> Self {
         Self {
-            max_memory_bytes: 4 * 1024 * 1024 * 1024, // 4GB
+            max_memory_bytes: 4 * BYTES_PER_GB, // 4GB
             max_models: 10,
             headroom_threshold: 15.0,
             tenant_aware: true,
@@ -264,7 +264,7 @@ where
 
         info!(
             cleared_models = cleared_count,
-            cleared_memory_mb = cleared_memory / (1024 * 1024),
+            cleared_memory_mb = cleared_memory / BYTES_PER_MB,
             "Model cache cleared"
         );
     }
@@ -361,7 +361,7 @@ where
         if evicted_count > 0 {
             info!(
                 evicted_count = evicted_count,
-                freed_memory_mb = evicted_memory / (1024 * 1024),
+                freed_memory_mb = evicted_memory / BYTES_PER_MB,
                 needed_bytes = needed_bytes,
                 "Cache eviction completed"
             );

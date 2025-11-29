@@ -253,6 +253,23 @@ pub enum ExecutorEvent {
     },
 }
 
+/// Enforcement mode for tick ledger policy violations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnforcementMode {
+    /// Record violations but continue execution (default)
+    AuditOnly,
+    /// Log warnings for violations but continue
+    Warn,
+    /// Fail execution on policy violations
+    Enforce,
+}
+
+impl Default for EnforcementMode {
+    fn default() -> Self {
+        Self::AuditOnly
+    }
+}
+
 /// Configuration for the deterministic executor
 #[derive(Debug, Clone)]
 pub struct ExecutorConfig {
@@ -272,6 +289,8 @@ pub struct ExecutorConfig {
     pub enable_thread_pinning: bool,
     /// Number of worker threads (defaults to CPU count)
     pub worker_threads: Option<usize>,
+    /// Enforcement mode for tick ledger policy violations
+    pub enforcement_mode: EnforcementMode,
 }
 
 impl Default for ExecutorConfig {
@@ -285,6 +304,7 @@ impl Default for ExecutorConfig {
             agent_id: None,
             enable_thread_pinning: true,
             worker_threads: None,
+            enforcement_mode: EnforcementMode::default(),
         }
     }
 }
@@ -951,6 +971,18 @@ static GLOBAL_EXECUTOR: std::sync::OnceLock<Arc<DeterministicExecutor>> =
 /// Initialize the global deterministic executor
 pub fn init_global_executor(config: ExecutorConfig) -> Result<()> {
     let executor = Arc::new(DeterministicExecutor::new(config));
+    GLOBAL_EXECUTOR
+        .set(executor)
+        .map_err(|_| DeterministicExecutorError::NotInitialized)?;
+    Ok(())
+}
+
+/// Initialize the global deterministic executor with a tick ledger
+pub fn init_global_executor_with_ledger(
+    config: ExecutorConfig,
+    ledger: Arc<global_ledger::GlobalTickLedger>,
+) -> Result<()> {
+    let executor = Arc::new(DeterministicExecutor::with_global_ledger(config, ledger));
     GLOBAL_EXECUTOR
         .set(executor)
         .map_err(|_| DeterministicExecutorError::NotInitialized)?;

@@ -49,7 +49,7 @@ pub struct FFIPageMigrationInfo {
     pub size_bytes: u64,
     /// Timestamp in microseconds since epoch
     pub timestamp: u64,
-    /// Memory pressure level (0=normal, 1=warning, 2=critical)
+    /// Memory pressure level (0=low, 1=medium, 2=critical)
     pub pressure_level: u32,
 }
 
@@ -143,7 +143,7 @@ extern "C" {
     // ===== Memory Pressure =====
 
     /// Get current memory pressure level
-    /// Returns: 0=normal, 1=warning, 2=critical, -1=error
+    /// Returns: 0=low, 1=medium, 2=critical, -1=error
     pub fn iokit_memory_pressure_level() -> i32;
 
     /// Enable memory pressure callbacks
@@ -424,20 +424,24 @@ impl PageMigrationType {
 /// Memory pressure level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MemoryPressureLevel {
-    /// Normal memory conditions
-    Normal,
-    /// Warning level (approaching limit)
-    Warning,
+    /// Low memory pressure (healthy conditions)
+    Low,
+    /// Medium memory pressure (approaching limit)
+    Medium,
+    /// High memory pressure (system under stress)
+    High,
     /// Critical pressure (active eviction)
     Critical,
 }
 
 impl MemoryPressureLevel {
     /// Convert from IOKit i32 representation
+    /// Maps: 0=Low (normal), 1=Medium (warning), 2=Critical
+    /// Note: High level is not currently reported by IOKit but reserved for future use
     pub fn from_iokit(value: i32) -> Option<Self> {
         match value {
-            0 => Some(MemoryPressureLevel::Normal),
-            1 => Some(MemoryPressureLevel::Warning),
+            0 => Some(MemoryPressureLevel::Low),
+            1 => Some(MemoryPressureLevel::Medium),
             2 => Some(MemoryPressureLevel::Critical),
             _ => None,
         }
@@ -574,7 +578,7 @@ impl PageMigrationTracker {
             vm_stats_history: Arc::new(RwLock::new(Vec::new())),
             unified_memory_info: Arc::new(RwLock::new(None)),
             vm_regions: Arc::new(RwLock::new(Vec::new())),
-            last_pressure: Arc::new(RwLock::new(MemoryPressureLevel::Normal)),
+            last_pressure: Arc::new(RwLock::new(MemoryPressureLevel::Low)),
             supports_unified,
             event_sequence_hash: Arc::new(RwLock::new(B3Hash::hash(b""))),
         })
@@ -589,7 +593,7 @@ impl PageMigrationTracker {
             vm_stats_history: Arc::new(RwLock::new(Vec::new())),
             unified_memory_info: Arc::new(RwLock::new(None)),
             vm_regions: Arc::new(RwLock::new(Vec::new())),
-            last_pressure: Arc::new(RwLock::new(MemoryPressureLevel::Normal)),
+            last_pressure: Arc::new(RwLock::new(MemoryPressureLevel::Low)),
             supports_unified: false,
             event_sequence_hash: Arc::new(RwLock::new(B3Hash::hash(b""))),
         })
@@ -857,7 +861,7 @@ impl Default for PageMigrationTracker {
             vm_stats_history: Arc::new(RwLock::new(Vec::new())),
             unified_memory_info: Arc::new(RwLock::new(None)),
             vm_regions: Arc::new(RwLock::new(Vec::new())),
-            last_pressure: Arc::new(RwLock::new(MemoryPressureLevel::Normal)),
+            last_pressure: Arc::new(RwLock::new(MemoryPressureLevel::Low)),
             supports_unified: false,
             event_sequence_hash: Arc::new(RwLock::new(B3Hash::hash(b""))),
         })
@@ -940,16 +944,19 @@ mod tests {
     fn test_memory_pressure_conversion() {
         assert_eq!(
             MemoryPressureLevel::from_iokit(0),
-            Some(MemoryPressureLevel::Normal)
+            Some(MemoryPressureLevel::Low)
         );
         assert_eq!(
             MemoryPressureLevel::from_iokit(1),
-            Some(MemoryPressureLevel::Warning)
+            Some(MemoryPressureLevel::Medium)
         );
         assert_eq!(
             MemoryPressureLevel::from_iokit(2),
             Some(MemoryPressureLevel::Critical)
         );
+        // Invalid value returns None
+        assert_eq!(MemoryPressureLevel::from_iokit(-1), None);
+        assert_eq!(MemoryPressureLevel::from_iokit(99), None);
     }
 
     #[test]
@@ -968,7 +975,7 @@ mod tests {
         {
             if let Ok(tracker) = PageMigrationTracker::new() {
                 let stats = tracker.get_detailed_stats();
-                assert_eq!(stats.current_pressure, MemoryPressureLevel::Normal);
+                assert_eq!(stats.current_pressure, MemoryPressureLevel::Low);
             }
         }
     }

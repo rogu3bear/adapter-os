@@ -370,9 +370,20 @@ pub trait FusedKernels: Send + Sync {
     /// * `buffer_size` - Buffer size in bytes
     /// * `checkpoint_hash_hex` - BLAKE3 hash of checkpoint samples as hex string
     ///
-    /// Default implementation is no-op for backends without GPU tracking
-    fn store_gpu_fingerprint(&mut self, _id: u16, _buffer_size: u64, _checkpoint_hash_hex: &str) {
-        // No-op for backends without VRAM tracking
+    /// # Returns
+    /// * `Ok(())` - Fingerprint stored successfully
+    /// * `Err` - Backend does not support GPU fingerprinting
+    ///
+    /// Default implementation returns error - backends must implement if they support fingerprinting
+    fn store_gpu_fingerprint(
+        &mut self,
+        _id: u16,
+        _buffer_size: u64,
+        _checkpoint_hash_hex: &str,
+    ) -> Result<()> {
+        Err(adapteros_core::AosError::Kernel(
+            "GPU fingerprint storage not implemented for this backend".to_string(),
+        ))
     }
 
     /// Verify GPU buffer fingerprint matches stored baseline
@@ -386,17 +397,19 @@ pub trait FusedKernels: Send + Sync {
     ///
     /// # Returns
     /// * `Ok(true)` - Fingerprint matches baseline
-    /// * `Ok(false)` - No baseline stored yet (first verification)
-    /// * `Err(msg)` - Fingerprint mismatch
+    /// * `Ok(false)` - No baseline stored (first verification)
+    /// * `Err` - Backend does not support GPU fingerprinting
     ///
-    /// Default implementation returns Ok(true) for backends without GPU tracking
+    /// Default implementation returns error - backends must implement if they support fingerprinting
     fn verify_gpu_fingerprint(
         &self,
         _id: u16,
         _buffer_size: u64,
         _checkpoint_hash_hex: &str,
     ) -> Result<bool> {
-        Ok(true) // No verification for non-GPU backends
+        Err(adapteros_core::AosError::Kernel(
+            "GPU fingerprint verification not implemented for this backend".to_string(),
+        ))
     }
 
     /// Check if memory footprint is within adaptive baseline tolerance
@@ -408,17 +421,17 @@ pub trait FusedKernels: Send + Sync {
     /// * `buffer_size` - Current buffer size
     ///
     /// # Returns
-    /// * within_tolerance: bool
-    /// * z_score: f64
-    /// * baseline_stats: Option<(mean, stddev, sample_count)>
+    /// * within_tolerance: bool - false if not implemented (no baseline available)
+    /// * z_score: f64 - 0.0 if not implemented
+    /// * baseline_stats: Option<(mean, stddev, sample_count)> - None if not implemented
     ///
-    /// Default implementation returns (true, 0.0, None) for backends without tracking
+    /// Default implementation returns (false, 0.0, None) - no baseline means cannot verify
     fn check_memory_footprint(
         &self,
         _id: u16,
         _buffer_size: u64,
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
-        (true, 0.0, None) // No anomaly detection for non-GPU backends
+        (false, 0.0, None) // No baseline = cannot verify tolerance
     }
 
     /// Get backend metrics
@@ -432,9 +445,12 @@ pub trait FusedKernels: Send + Sync {
     ///
     /// Returns the current health status of the backend.
     ///
-    /// Default implementation returns Healthy.
+    /// Default implementation returns Degraded with "health check not implemented" reason.
+    /// Backends should override this to perform actual health verification.
     fn health_check(&self) -> Result<BackendHealth> {
-        Ok(BackendHealth::Healthy)
+        Ok(BackendHealth::Degraded {
+            reason: "Health check not implemented for this backend".to_string(),
+        })
     }
 
     /// Get GPU fingerprints for loaded adapters
@@ -541,7 +557,12 @@ impl FusedKernels for Box<dyn FusedKernels> {
         (**self).verify_adapter_buffers(id)
     }
 
-    fn store_gpu_fingerprint(&mut self, id: u16, buffer_size: u64, checkpoint_hash_hex: &str) {
+    fn store_gpu_fingerprint(
+        &mut self,
+        id: u16,
+        buffer_size: u64,
+        checkpoint_hash_hex: &str,
+    ) -> Result<()> {
         (**self).store_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
     }
 
@@ -605,7 +626,12 @@ impl FusedKernels for Box<dyn FusedKernels + Send + Sync> {
         (**self).verify_adapter_buffers(id)
     }
 
-    fn store_gpu_fingerprint(&mut self, id: u16, buffer_size: u64, checkpoint_hash_hex: &str) {
+    fn store_gpu_fingerprint(
+        &mut self,
+        id: u16,
+        buffer_size: u64,
+        checkpoint_hash_hex: &str,
+    ) -> Result<()> {
         (**self).store_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
     }
 

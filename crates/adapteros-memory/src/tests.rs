@@ -212,9 +212,9 @@ mod integration_tests {
         };
 
         let watchdog = MemoryWatchdog::new(config).unwrap();
-        
+
         let stats = watchdog.get_stats();
-        assert!(matches!(stats.memory_pressure, MemoryPressureLevel::Normal | MemoryPressureLevel::Moderate));
+        assert!(matches!(stats.memory_pressure, MemoryPressureLevel::Low | MemoryPressureLevel::Medium));
     }
 
     #[test]

@@ -14,7 +14,6 @@ use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
@@ -45,6 +44,43 @@ fn seeded_rng(context: &str) -> StdRng {
     let mut seed_array = [0u8; 32];
     seed_array.copy_from_slice(&seed_bytes[..32]);
     StdRng::from_seed(seed_array)
+}
+
+/// Execute KMS operation with retry logic
+/// Provides exponential backoff for transient failures
+#[cfg(any(feature = "aws-kms", feature = "gcp-kms", feature = "azure-kms"))]
+async fn kms_with_retry<F, T>(
+    max_retries: u32,
+    provider_name: &str,
+    mut op: F,
+) -> Result<T>
+where
+    F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
+{
+    let mut retries = 0;
+
+    loop {
+        match op().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                retries += 1;
+                if retries >= max_retries {
+                    return Err(e);
+                }
+
+                // Exponential backoff: 100ms, 200ms, 400ms, ...
+                let wait_ms = 100u64 * 2u64.pow(retries - 1);
+                tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
+
+                debug!(
+                    retries = %retries,
+                    error = %e,
+                    "Retrying {} operation",
+                    provider_name
+                );
+            }
+        }
+    }
 }
 
 /// Supported KMS backend types
@@ -270,30 +306,7 @@ impl AwsKmsBackend {
     where
         F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
     {
-        let mut retries = 0;
-        let max_retries = self.config.max_retries;
-
-        loop {
-            match op().await {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    retries += 1;
-                    if retries >= max_retries {
-                        return Err(e);
-                    }
-
-                    // Exponential backoff: 100ms, 200ms, 400ms, ...
-                    let wait_ms = 100u64 * 2u64.pow(retries - 1);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
-
-                    debug!(
-                        retries = %retries,
-                        error = %e,
-                        "Retrying AWS KMS operation"
-                    );
-                }
-            }
-        }
+        kms_with_retry(self.config.max_retries, "AWS KMS", op).await
     }
 }
 
@@ -371,10 +384,7 @@ impl KmsBackend for AwsKmsBackend {
                 } else {
                     Some(public_key.clone())
                 },
-                created_at: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
+                created_at: adapteros_core::time::unix_timestamp_secs(),
             },
         );
 
@@ -785,30 +795,7 @@ impl GcpKmsBackend {
     where
         F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
     {
-        let mut retries = 0;
-        let max_retries = self.config.max_retries;
-
-        loop {
-            match op().await {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    retries += 1;
-                    if retries >= max_retries {
-                        return Err(e);
-                    }
-
-                    // Exponential backoff: 100ms, 200ms, 400ms, ...
-                    let wait_ms = 100u64 * 2u64.pow(retries - 1);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
-
-                    debug!(
-                        retries = %retries,
-                        error = %e,
-                        "Retrying GCP KMS operation"
-                    );
-                }
-            }
-        }
+        kms_with_retry(self.config.max_retries, "GCP KMS", op).await
     }
 
     /// Ensure the key ring exists (creates if necessary)
@@ -1542,30 +1529,7 @@ impl AzureKeyVaultBackend {
     where
         F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
     {
-        let mut retries = 0;
-        let max_retries = self.config.max_retries;
-
-        loop {
-            match op().await {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    retries += 1;
-                    if retries >= max_retries {
-                        return Err(e);
-                    }
-
-                    // Exponential backoff: 100ms, 200ms, 400ms, ...
-                    let wait_ms = 100u64 * 2u64.pow(retries - 1);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
-
-                    debug!(
-                        retries = %retries,
-                        error = %e,
-                        "Retrying Azure Key Vault operation"
-                    );
-                }
-            }
-        }
+        kms_with_retry(self.config.max_retries, "Azure Key Vault", op).await
     }
 
     /// Build the key URI
@@ -1653,10 +1617,7 @@ impl KmsBackend for AzureKeyVaultBackend {
                 } else {
                     Some(public_key.clone())
                 },
-                created_at: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
+                created_at: adapteros_core::time::unix_timestamp_secs(),
                 version: version.clone(),
             },
         );
@@ -2331,10 +2292,7 @@ impl KmsBackend for LocalKmsBackend {
             algorithm: alg.clone(),
             key_material,
             public_key: public_key.clone(),
-            created_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            created_at: adapteros_core::time::unix_timestamp_secs(),
             version: 1,
         };
 
@@ -2690,14 +2648,6 @@ impl KmsProvider {
             None => key_id.to_string(),
         }
     }
-
-    /// Get current timestamp
-    fn current_timestamp() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-    }
 }
 
 impl KmsConfig {
@@ -2782,7 +2732,7 @@ impl KeyProvider for KmsProvider {
         let mut handles = self.key_handles.write().await;
         handles.insert(key_id.to_string(), new_key.clone());
 
-        let timestamp = Self::current_timestamp();
+        let timestamp = adapteros_core::time::unix_timestamp_secs();
 
         // Create receipt (signature would be from KMS in production)
         let receipt_data = format!(
@@ -2812,7 +2762,7 @@ impl KeyProvider for KmsProvider {
     }
 
     async fn attest(&self) -> Result<ProviderAttestation> {
-        let timestamp = Self::current_timestamp();
+        let timestamp = adapteros_core::time::unix_timestamp_secs();
         let fingerprint = self.backend.fingerprint();
 
         // Create attestation data

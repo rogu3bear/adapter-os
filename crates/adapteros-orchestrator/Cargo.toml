@@ -32,6 +32,7 @@ bincode = "1.3"
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-platform = { path = "../adapteros-platform" }
 blake3 = { workspace = true }
 tokenizers = { workspace = true }
 git2 = "0.18"

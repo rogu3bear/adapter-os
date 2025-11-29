@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Generate an HTML report from a telemetry bundle
 pub fn generate_html_report<P: AsRef<Path>, Q: AsRef<Path>>(
@@ -56,10 +55,7 @@ pub async fn generate_signed_performance_report<P: AsRef<Path>>(
     output_path: P,
     key_provider: Option<&dyn KeyProvider>,
 ) -> Result<PerformanceReportMetadata> {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| adapteros_core::AosError::Io(format!("System time error: {}", e)))?
-        .as_secs();
+    let timestamp = adapteros_core::time::unix_timestamp_secs();
 
     // Serialize performance data
     let report_json =

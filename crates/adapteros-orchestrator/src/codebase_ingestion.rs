@@ -17,6 +17,7 @@ use adapteros_codegraph::{CodeGraph, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::{MicroLoRATrainer, TrainingConfig, TrainingExample};
+use adapteros_platform::common::PlatformUtils;
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -507,10 +508,10 @@ fn relative_path(root: &Path, file_path: &str) -> String {
     let input = PathBuf::from(file_path);
     if input.is_absolute() {
         if let Ok(stripped) = input.strip_prefix(root) {
-            return stripped.to_string_lossy().replace('\\', "/");
+            return PlatformUtils::normalize_path_separators(&stripped.to_string_lossy());
         }
     }
-    input.to_string_lossy().replace('\\', "/")
+    PlatformUtils::normalize_path_separators(&input.to_string_lossy())
 }
 
 /// Symbol kind to human-readable label

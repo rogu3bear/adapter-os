@@ -16,7 +16,6 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -405,10 +404,7 @@ fn generate_span_id() -> String {
 
 /// Get current time in nanoseconds
 fn now_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64
+    adapteros_core::time::unix_timestamp_nanos() as u64
 }
 
 #[cfg(test)]

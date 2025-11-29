@@ -10,7 +10,6 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -508,10 +507,7 @@ pub struct MemoryMapStats {
 
 /// Get current timestamp in microseconds
 fn current_timestamp() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros()
+    adapteros_core::time::unix_timestamp_micros_u128()
 }
 
 #[cfg(test)]

@@ -1471,10 +1471,7 @@ mod tests {
         let announcement = DiscoveryAnnouncement {
             sender_id: "host1".to_string(),
             known_peers: vec!["host2".to_string(), "host3".to_string()],
-            announcement_time: std::time::SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            announcement_time: adapteros_core::time::unix_timestamp_secs(),
             federation_epoch: 1,
         };
 
