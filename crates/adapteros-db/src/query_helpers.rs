@@ -43,13 +43,13 @@ pub fn db_err(context: &str) -> impl Fn(sqlx::Error) -> AosError + '_ {
 /// # use adapteros_db::query_helpers::serde_err;
 /// # fn example() -> adapteros_core::Result<String> {
 /// let json = serde_json::to_string(&vec!["a", "b"])
-///     .map_err(serde_err("adapter IDs"))?;
+///     .map_err(serde_err)?;
 /// # Ok(json)
 /// # }
 /// ```
 #[inline]
-pub fn serde_err(context: &str) -> impl Fn(serde_json::Error) -> AosError + '_ {
-    move |e| AosError::Serialization(e)
+pub fn serde_err(e: serde_json::Error) -> AosError {
+    AosError::Serialization(e)
 }
 
 /// Batch operation result tracker

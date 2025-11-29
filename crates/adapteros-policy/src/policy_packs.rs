@@ -638,24 +638,20 @@ impl PolicyPackManager {
                             continue;
                         }
                         EnforcementLevel::Warning => {
-                            // Warning level violations don't block operations unless they're Error severity
+                            // Warning level violations don't block operations unless they're High or Critical severity
                             if matches!(
                                 violation.severity,
-                                ViolationSeverity::High
-                                    | ViolationSeverity::Critical
-                                    | ViolationSeverity::Critical
+                                ViolationSeverity::High | ViolationSeverity::Critical
                             ) {
                                 valid = false;
                                 break;
                             }
                         }
                         EnforcementLevel::Error => {
-                            // Error level violations block operations only for Error, Critical, or Blocker severity
+                            // Error level violations block operations only for High or Critical severity
                             if matches!(
                                 violation.severity,
-                                ViolationSeverity::High
-                                    | ViolationSeverity::Critical
-                                    | ViolationSeverity::Critical
+                                ViolationSeverity::High | ViolationSeverity::Critical
                             ) {
                                 valid = false;
                                 break;
