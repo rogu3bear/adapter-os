@@ -514,6 +514,22 @@ fn current_timestamp() -> u128 {
 mod tests {
     use super::*;
 
+    /// Helper: Create device for testing (reduces duplication)
+    #[allow(unused)]
+    fn create_test_device() -> Arc<metal::Device> {
+        #[cfg(target_os = "macos")]
+        {
+            Arc::new(metal::Device::system_default().unwrap())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Arc::new(metal::Device::system_default().unwrap_or_else(|| {
+                // Create a mock device for testing
+                unsafe { std::mem::transmute(0x1usize) }
+            }))
+        }
+    }
+
     #[test]
     fn test_memory_map_hasher_creation() {
         #[cfg(target_os = "macos")]
@@ -544,14 +560,7 @@ mod tests {
 
     #[test]
     fn test_memory_region_addition() {
-        #[cfg(target_os = "macos")]
-        let device = Arc::new(metal::Device::system_default().unwrap());
-        #[cfg(not(target_os = "macos"))]
-        let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-            // Create a mock device for testing
-            unsafe { std::mem::transmute(0x1usize) }
-        }));
-        let hasher = MemoryMapHasher::new(device, true);
+        let hasher = MemoryMapHasher::new(create_test_device(), true);
 
         let metadata = serde_json::json!({
             "test": "data",
