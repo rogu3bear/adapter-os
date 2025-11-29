@@ -76,7 +76,7 @@ impl Db {
         .bind(params.page_count)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create document: {}", e)))?;
+        .map_err(db_err("create document"))?;
         Ok(params.id)
     }
 
@@ -91,7 +91,7 @@ impl Db {
         .bind(id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get document: {}", e)))?;
+        .map_err(db_err("get document"))?;
         Ok(document)
     }
 
@@ -107,7 +107,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to list documents: {}", e)))?;
+        .map_err(db_err("list documents"))?;
         Ok(documents)
     }
 
@@ -118,7 +118,7 @@ impl Db {
             .bind(tenant_id)
             .fetch_one(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to count documents: {}", e)))?
+            .map_err(db_err("count documents"))?
             .try_get::<i64, _>(0)
             .unwrap_or(0);
 
@@ -135,7 +135,7 @@ impl Db {
         .bind(offset)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to list documents: {}", e)))?;
+        .map_err(db_err("list documents"))?;
 
         Ok((documents, total))
     }
@@ -163,7 +163,7 @@ impl Db {
         .bind(content_hash)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to find document by hash: {}", e)))?;
+        .map_err(db_err("find document by hash"))?;
         Ok(document)
     }
 
@@ -178,7 +178,7 @@ impl Db {
         .bind(id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update document status: {}", e)))?;
+        .map_err(db_err("update document status"))?;
         Ok(())
     }
 
@@ -189,26 +189,26 @@ impl Db {
             .pool()
             .begin()
             .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+            .map_err(db_err("begin transaction"))?;
 
         // Delete chunks first (cascading)
         sqlx::query("DELETE FROM document_chunks WHERE document_id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete document chunks: {}", e)))?;
+            .map_err(db_err("delete document chunks"))?;
 
         // Delete document
         sqlx::query("DELETE FROM documents WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete document: {}", e)))?;
+            .map_err(db_err("delete document"))?;
 
         // Commit transaction
         tx.commit()
             .await
-            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+            .map_err(db_err("commit transaction"))?;
 
         Ok(())
     }
@@ -232,7 +232,7 @@ impl Db {
         .bind(&params.text_preview)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create document chunk: {}", e)))?;
+        .map_err(db_err("create document chunk"))?;
         Ok(id)
     }
 
@@ -248,7 +248,7 @@ impl Db {
         .bind(document_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get document chunks: {}", e)))?;
+        .map_err(db_err("get document chunks"))?;
         Ok(chunks)
     }
 
@@ -263,7 +263,7 @@ impl Db {
         .bind(chunk_id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get chunk by ID: {}", e)))?;
+        .map_err(db_err("get chunk by ID"))?;
         Ok(chunk)
     }
 
@@ -322,7 +322,7 @@ impl Db {
         .bind(status)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get documents by status: {}", e)))?;
+        .map_err(db_err("get documents by status"))?;
         Ok(documents)
     }
 
@@ -337,7 +337,7 @@ impl Db {
         .bind(id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update document metadata: {}", e)))?;
+        .map_err(db_err("update document metadata"))?;
         Ok(())
     }
 
@@ -347,7 +347,7 @@ impl Db {
             .bind(tenant_id)
             .fetch_one(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to count documents: {}", e)))?;
+            .map_err(db_err("count documents"))?;
         Ok(count.0)
     }
 

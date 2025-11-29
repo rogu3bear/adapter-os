@@ -42,7 +42,7 @@ impl Db {
         .bind(&params.metadata_json)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create collection: {}", e)))?;
+        .map_err(db_err("create collection"))?;
         Ok(id)
     }
 
@@ -56,7 +56,7 @@ impl Db {
         .bind(id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get collection: {}", e)))?;
+        .map_err(db_err("get collection"))?;
         Ok(collection)
     }
 
@@ -71,7 +71,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to list collections: {}", e)))?;
+        .map_err(db_err("list collections"))?;
         Ok(collections)
     }
 
@@ -82,7 +82,7 @@ impl Db {
             .bind(tenant_id)
             .fetch_one(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to count collections: {}", e)))?
+            .map_err(db_err("count collections"))?
             .get::<i64, _>(0);
 
         // Get paginated results
@@ -97,7 +97,7 @@ impl Db {
         .bind(offset)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to list collections: {}", e)))?;
+        .map_err(db_err("list collections"))?;
 
         Ok((collections, total))
     }
@@ -109,7 +109,7 @@ impl Db {
             .pool()
             .begin()
             .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+            .map_err(db_err("begin transaction"))?;
 
         // Delete collection-document links first (cascading)
         sqlx::query("DELETE FROM collection_documents WHERE collection_id = ?")
@@ -125,12 +125,12 @@ impl Db {
             .bind(id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete collection: {}", e)))?;
+            .map_err(db_err("delete collection"))?;
 
         // Commit transaction
         tx.commit()
             .await
-            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+            .map_err(db_err("commit transaction"))?;
 
         Ok(())
     }
@@ -152,7 +152,7 @@ impl Db {
         .bind(document_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to add document to collection: {}", e)))?;
+        .map_err(db_err("add document to collection"))?;
         Ok(())
     }
 
@@ -189,7 +189,7 @@ impl Db {
         .bind(collection_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get collection documents: {}", e)))?;
+        .map_err(db_err("get collection documents"))?;
         Ok(documents)
     }
 
@@ -265,7 +265,7 @@ impl Db {
         .bind(id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update collection metadata: {}", e)))?;
+        .map_err(db_err("update collection metadata"))?;
         Ok(())
     }
 
@@ -304,7 +304,7 @@ impl Db {
         .bind(name)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get collection by name: {}", e)))?;
+        .map_err(db_err("get collection by name"))?;
         Ok(collection)
     }
 
@@ -315,7 +315,7 @@ impl Db {
                 .bind(tenant_id)
                 .fetch_one(&*self.pool())
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to count collections: {}", e)))?;
+                .map_err(db_err("count collections"))?;
         Ok(count.0)
     }
 }

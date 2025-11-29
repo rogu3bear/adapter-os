@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use tracing::{debug, info};
 
+use crate::query_helpers::db_err;
 use crate::Db;
 
 /// Chat session record
@@ -257,7 +258,7 @@ impl Db {
         .bind(&params.metadata_json)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create chat session: {}", e)))?;
+        .map_err(db_err("create chat session"))?;
 
         info!(session_id = %params.id, "Chat session created");
         Ok(params.id)
@@ -310,7 +311,7 @@ impl Db {
             .fetch_all(&*self.pool())
             .await
         }
-        .map_err(|e| AosError::Database(format!("Failed to list chat sessions: {}", e)))?;
+        .map_err(db_err("list chat sessions"))?;
 
         debug!(
             tenant_id = %tenant_id,
@@ -339,7 +340,7 @@ impl Db {
         .bind(session_id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get chat session: {}", e)))?;
+        .map_err(db_err("get chat session"))?;
 
         Ok(session)
     }
@@ -361,7 +362,7 @@ impl Db {
         .bind(session_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update session activity: {}", e)))?;
+        .map_err(db_err("update session activity"))?;
 
         Ok(())
     }
@@ -399,7 +400,7 @@ impl Db {
         .bind(session_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update session collection: {}", e)))?;
+        .map_err(db_err("update session collection"))?;
 
         Ok(())
     }
@@ -432,7 +433,7 @@ impl Db {
         .bind(&params.metadata_json)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to add chat message: {}", e)))?;
+        .map_err(db_err("add chat message"))?;
 
         // Update session activity
         self.update_chat_session_activity(&params.session_id).await?;
@@ -468,7 +469,7 @@ impl Db {
         .bind(limit)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get chat messages: {}", e)))?;
+        .map_err(db_err("get chat messages"))?;
 
         debug!(
             session_id = %session_id,
@@ -509,7 +510,7 @@ impl Db {
         .bind(trace_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to add session trace: {}", e)))?;
+        .map_err(db_err("add session trace"))?;
 
         Ok(result.last_insert_rowid())
     }
@@ -533,7 +534,7 @@ impl Db {
         .bind(session_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get session traces: {}", e)))?;
+        .map_err(db_err("get session traces"))?;
 
         debug!(
             session_id = %session_id,
@@ -558,7 +559,7 @@ impl Db {
                 .bind(session_id)
                 .fetch_one(&*self.pool())
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to count messages: {}", e)))?;
+                .map_err(db_err("count messages"))?;
 
         // Get trace counts by type
         let trace_counts: Vec<(String, i64)> = sqlx::query_as(
@@ -572,7 +573,7 @@ impl Db {
         .bind(session_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to count traces: {}", e)))?;
+        .map_err(db_err("count traces"))?;
 
         // Get session details
         let session = self
@@ -614,7 +615,7 @@ impl Db {
             .bind(session_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete chat session: {}", e)))?;
+            .map_err(db_err("delete chat session"))?;
 
         Ok(())
     }
@@ -648,7 +649,7 @@ impl Db {
         .bind(created_by)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create chat tag: {}", e)))?;
+        .map_err(db_err("create chat tag"))?;
 
         self.get_chat_tag(&id)
             .await?
@@ -723,7 +724,7 @@ impl Db {
 
         q.execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update chat tag: {}", e)))?;
+            .map_err(db_err("update chat tag"))?;
 
         Ok(())
     }
@@ -734,7 +735,7 @@ impl Db {
             .bind(tag_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete chat tag: {}", e)))?;
+            .map_err(db_err("delete chat tag"))?;
         Ok(())
     }
 
@@ -757,7 +758,7 @@ impl Db {
             .bind(assigned_by)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to assign tag: {}", e)))?;
+            .map_err(db_err("assign tag"))?;
         }
         Ok(())
     }
@@ -769,7 +770,7 @@ impl Db {
             .bind(tag_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to remove tag: {}", e)))?;
+            .map_err(db_err("remove tag"))?;
         Ok(())
     }
 
@@ -829,7 +830,7 @@ impl Db {
         .bind(parent_id)
         .fetch_one(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get sort order: {}", e)))?;
+        .map_err(db_err("get sort order"))?;
 
         sqlx::query(
             r#"
@@ -848,7 +849,7 @@ impl Db {
         .bind(color)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create category: {}", e)))?;
+        .map_err(db_err("create category"))?;
 
         self.get_chat_category(&id)
             .await?
@@ -926,7 +927,7 @@ impl Db {
 
         q.execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update category: {}", e)))?;
+            .map_err(db_err("update category"))?;
 
         Ok(())
     }
@@ -939,7 +940,7 @@ impl Db {
                 .bind(category_id)
                 .fetch_one(&*self.pool())
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to check children: {}", e)))?;
+                .map_err(db_err("check children"))?;
 
         if child_count > 0 {
             return Err(AosError::Validation(
@@ -953,7 +954,7 @@ impl Db {
                 .bind(category_id)
                 .fetch_one(&*self.pool())
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to check sessions: {}", e)))?;
+                .map_err(db_err("check sessions"))?;
 
         if session_count > 0 {
             return Err(AosError::Validation(
@@ -965,7 +966,7 @@ impl Db {
             .bind(category_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete category: {}", e)))?;
+            .map_err(db_err("delete category"))?;
 
         Ok(())
     }
@@ -981,7 +982,7 @@ impl Db {
             .bind(session_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to set session category: {}", e)))?;
+            .map_err(db_err("set session category"))?;
         Ok(())
     }
 
@@ -1006,7 +1007,7 @@ impl Db {
         .bind(session_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to soft delete session: {}", e)))?;
+        .map_err(db_err("soft delete session"))?;
 
         info!(session_id = %session_id, "Session soft deleted");
         Ok(())
@@ -1034,7 +1035,7 @@ impl Db {
         .bind(session_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to archive session: {}", e)))?;
+        .map_err(db_err("archive session"))?;
 
         info!(session_id = %session_id, "Session archived");
         Ok(())
@@ -1058,7 +1059,7 @@ impl Db {
         .bind(session_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to restore session: {}", e)))?;
+        .map_err(db_err("restore session"))?;
 
         info!(session_id = %session_id, "Session restored");
         Ok(())
@@ -1072,7 +1073,7 @@ impl Db {
             .bind(session_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to hard delete session: {}", e)))?;
+            .map_err(db_err("hard delete session"))?;
 
         Ok(())
     }
@@ -1120,7 +1121,7 @@ impl Db {
             .fetch_all(&*self.pool())
             .await
         }
-        .map_err(|e| AosError::Database(format!("Failed to list archived sessions: {}", e)))?;
+        .map_err(db_err("list archived sessions"))?;
 
         Ok(sessions)
     }
@@ -1168,7 +1169,7 @@ impl Db {
             .fetch_all(&*self.pool())
             .await
         }
-        .map_err(|e| AosError::Database(format!("Failed to list deleted sessions: {}", e)))?;
+        .map_err(db_err("list deleted sessions"))?;
 
         Ok(sessions)
     }
@@ -1233,7 +1234,7 @@ impl Db {
                 .bind(limit)
                 .fetch_all(&*self.pool())
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to search sessions: {}", e)))?;
+                .map_err(db_err("search sessions"))?;
 
             for row in rows {
                 // Filter by tags if specified
@@ -1295,7 +1296,7 @@ impl Db {
                 .bind(limit)
                 .fetch_all(&*self.pool())
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to search messages: {}", e)))?;
+                .map_err(db_err("search messages"))?;
 
             for row in rows {
                 results.push(ChatSearchResult {
@@ -1355,14 +1356,14 @@ impl Db {
         .bind(expires_at)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to share session with workspace: {}", e)))?;
+        .map_err(db_err("share session with workspace"))?;
 
         // Update is_shared flag
         sqlx::query("UPDATE chat_sessions SET is_shared = 1 WHERE id = ?")
             .bind(session_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update is_shared: {}", e)))?;
+            .map_err(db_err("update is_shared"))?;
 
         Ok(id)
     }
@@ -1398,14 +1399,14 @@ impl Db {
         .bind(expires_at)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to share session with user: {}", e)))?;
+        .map_err(db_err("share session with user"))?;
 
         // Update is_shared flag
         sqlx::query("UPDATE chat_sessions SET is_shared = 1 WHERE id = ?")
             .bind(session_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update is_shared: {}", e)))?;
+            .map_err(db_err("update is_shared"))?;
 
         Ok(id)
     }
@@ -1426,7 +1427,7 @@ impl Db {
             .bind(share_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to revoke share: {}", e)))?;
+            .map_err(db_err("revoke share"))?;
 
         Ok(())
     }
@@ -1446,7 +1447,7 @@ impl Db {
         .bind(session_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get workspace shares: {}", e)))?;
+        .map_err(db_err("get workspace shares"))?;
 
         // Get user shares
         let user_shares: Vec<SessionShare> = sqlx::query_as(
@@ -1461,7 +1462,7 @@ impl Db {
         .bind(session_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get user shares: {}", e)))?;
+        .map_err(db_err("get user shares"))?;
 
         let mut all_shares = workspace_shares;
         all_shares.extend(user_shares);
@@ -1564,7 +1565,7 @@ impl Db {
         .bind(user_id)
         .fetch_optional(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to check direct share: {}", e)))?;
+        .map_err(db_err("check direct share"))?;
 
         if direct.is_some() {
             return Ok(direct);
@@ -1601,7 +1602,7 @@ impl Db {
             .bind(session_id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update description: {}", e)))?;
+            .map_err(db_err("update description"))?;
         Ok(())
     }
 }

@@ -219,40 +219,21 @@ impl EvictionManager {
 
     /// Evict multiple adapters with zeroization
     pub async fn evict_adapters(&self, adapter_ids: &[String], reason: &str) -> Result<()> {
+        use adapteros_db::query_helpers::BatchTracker;
+
         info!(
             "Evicting {} adapters with reason: {}",
             adapter_ids.len(),
             reason
         );
 
-        let mut successful_evictions = 0;
-        let mut failed_evictions = 0;
+        let mut tracker = BatchTracker::new("eviction");
 
         for adapter_id in adapter_ids {
-            match self.evict_adapter(adapter_id, None, reason).await {
-                Ok(()) => {
-                    successful_evictions += 1;
-                }
-                Err(e) => {
-                    failed_evictions += 1;
-                    warn!("Failed to evict adapter {}: {}", adapter_id, e);
-                }
-            }
+            tracker.track(self.evict_adapter(adapter_id, None, reason).await);
         }
 
-        info!(
-            "Batch eviction completed: {} successful, {} failed",
-            successful_evictions, failed_evictions
-        );
-
-        if failed_evictions > 0 {
-            return Err(AosError::Worker(format!(
-                "Failed to evict {} adapters",
-                failed_evictions
-            )));
-        }
-
-        Ok(())
+        tracker.finish()
     }
 
     /// Get eviction statistics

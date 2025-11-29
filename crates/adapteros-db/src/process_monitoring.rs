@@ -335,7 +335,7 @@ impl ProcessMonitoringRule {
         .bind(&rule.created_by)
         .execute(pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create monitoring rule: {}", e)))?;
+        .map_err(db_err("create monitoring rule"))?;
 
         Ok(id)
     }
@@ -367,7 +367,7 @@ impl ProcessMonitoringRule {
         let rows = sqlx::query(&query)
             .fetch_all(pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to list monitoring rules: {}", e)))?;
+            .map_err(db_err("list monitoring rules"))?;
 
         let mut rules = Vec::new();
         for row in rows {
@@ -458,7 +458,7 @@ impl ProcessMonitoringRule {
         sqlx::query(&query)
             .execute(pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update monitoring rule: {}", e)))?;
+            .map_err(db_err("update monitoring rule"))?;
 
         Ok(())
     }
@@ -469,7 +469,7 @@ impl ProcessMonitoringRule {
             .bind(id)
             .execute(pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete monitoring rule: {}", e)))?;
+            .map_err(db_err("delete monitoring rule"))?;
 
         Ok(())
     }
@@ -497,7 +497,7 @@ impl ProcessHealthMetric {
         .bind(&tags_json)
         .execute(pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to insert health metric: {}", e)))?;
+        .map_err(db_err("insert health metric"))?;
 
         Ok(id)
     }
@@ -552,7 +552,7 @@ impl ProcessHealthMetric {
         let rows = sqlx::query(&query)
             .fetch_all(pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to query health metrics: {}", e)))?;
+            .map_err(db_err("query health metrics"))?;
 
         let mut metrics = Vec::new();
         for row in rows {
@@ -620,7 +620,7 @@ impl ProcessHealthMetric {
         let row = sqlx::query(&query)
             .fetch_one(pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to aggregate metrics: {}", e)))?;
+            .map_err(db_err("aggregate metrics"))?;
 
         let aggregated_value: f64 = row.get("aggregated_value");
         let sample_count: i64 = row.get("sample_count");
@@ -665,7 +665,7 @@ impl ProcessAlert {
         .bind(&status_str)
         .execute(pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create alert: {}", e)))?;
+        .map_err(db_err("create alert"))?;
 
         Ok(id)
     }
@@ -711,7 +711,7 @@ impl ProcessAlert {
         let rows = sqlx::query(&query)
             .fetch_all(pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to list alerts: {}", e)))?;
+            .map_err(db_err("list alerts"))?;
 
         let mut alerts = Vec::new();
         for row in rows {
@@ -789,7 +789,7 @@ impl ProcessAlert {
         sqlx::query(&query)
             .execute(pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update alert status: {}", e)))?;
+            .map_err(db_err("update alert status"))?;
 
         Ok(())
     }
@@ -828,7 +828,7 @@ impl ProcessAnomaly {
         .bind(&status_str)
         .execute(pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to insert anomaly: {}", e)))?;
+        .map_err(db_err("insert anomaly"))?;
 
         Ok(id)
     }
@@ -874,7 +874,7 @@ impl ProcessAnomaly {
         let rows = sqlx::query(&query)
             .fetch_all(pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to list anomalies: {}", e)))?;
+            .map_err(db_err("list anomalies"))?;
 
         let mut anomalies = Vec::new();
         for row in rows {
@@ -926,7 +926,7 @@ impl PerformanceBaseline {
         .bind(&baseline.metric_name)
         .fetch_optional(pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to check existing baseline: {}", e)))?;
+        .map_err(db_err("check existing baseline"))?;
 
         let id = existing_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
 
@@ -954,7 +954,7 @@ impl PerformanceBaseline {
         .bind(&expires_at_str)
         .execute(pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to upsert baseline: {}", e)))?;
+        .map_err(db_err("upsert baseline"))?;
 
         Ok(())
     }
@@ -994,7 +994,7 @@ impl PerformanceBaseline {
         .bind(metric_name)
         .fetch_optional(pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get baseline: {}", e)))?;
+        .map_err(db_err("get baseline"))?;
 
         if let Some(row) = row {
             Ok(Some(PerformanceBaseline {

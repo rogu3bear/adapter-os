@@ -115,7 +115,7 @@ impl Db {
         .bind(&params.notes)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create promotion request: {}", e)))?;
+        .map_err(db_err("create promotion request"))?;
 
         Ok(())
     }
@@ -135,7 +135,7 @@ impl Db {
         .bind(golden_run_id)
         .fetch_optional(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to fetch promotion request: {}", e)))?;
+        .map_err(db_err("fetch promotion request"))?;
 
         if let Some(row) = row {
             Ok(Some(PromotionRequest {
@@ -168,7 +168,7 @@ impl Db {
         .bind(request_id)
         .fetch_optional(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to fetch promotion request: {}", e)))?;
+        .map_err(db_err("fetch promotion request"))?;
 
         if let Some(row) = row {
             Ok(Some(PromotionRequest {
@@ -202,7 +202,7 @@ impl Db {
         .bind(request_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update promotion status: {}", e)))?;
+        .map_err(db_err("update promotion status"))?;
 
         Ok(())
     }
@@ -213,7 +213,7 @@ impl Db {
             .bind(request_id)
             .fetch_one(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to fetch promotion target stage: {}", e)))?;
+            .map_err(db_err("fetch promotion target stage"))?;
 
         let target_stage: String = row.try_get("target_stage")?;
         Ok(target_stage)
@@ -239,7 +239,7 @@ impl Db {
         .bind(params.error_message)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to record promotion gate: {}", e)))?;
+        .map_err(db_err("record promotion gate"))?;
 
         Ok(())
     }
@@ -255,7 +255,7 @@ impl Db {
         .bind(request_id)
         .fetch_all(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to fetch promotion gates: {}", e)))?;
+        .map_err(db_err("fetch promotion gates"))?;
 
         let gates = rows
             .iter()
@@ -293,7 +293,7 @@ impl Db {
         .bind(&params.public_key)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to record promotion approval: {}", e)))?;
+        .map_err(db_err("record promotion approval"))?;
 
         Ok(())
     }
@@ -312,7 +312,7 @@ impl Db {
         .bind(request_id)
         .fetch_all(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to fetch promotion approvals: {}", e)))?;
+        .map_err(db_err("fetch promotion approvals"))?;
 
         let approvals = rows
             .iter()
@@ -345,7 +345,7 @@ impl Db {
         .bind(stage_name)
         .fetch_optional(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to fetch golden run stage: {}", e)))?;
+        .map_err(db_err("fetch golden run stage"))?;
 
         if let Some(row) = row {
             Ok(Some(GoldenRunStage {
@@ -366,7 +366,7 @@ impl Db {
             .bind(stage_name)
             .fetch_one(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to fetch stage active golden run: {}", e)))?;
+            .map_err(db_err("fetch stage active golden run"))?;
 
         let active_id: String = row.try_get("active_golden_run_id")?;
         Ok(active_id)
@@ -394,7 +394,7 @@ impl Db {
         .bind(stage_name)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update golden run stage: {}", e)))?;
+        .map_err(db_err("update golden run stage"))?;
 
         Ok(())
     }
@@ -417,7 +417,7 @@ impl Db {
         .bind(stage_name)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to rollback golden run stage: {}", e)))?;
+        .map_err(db_err("rollback golden run stage"))?;
 
         Ok(())
     }
@@ -449,7 +449,7 @@ impl Db {
         .bind(approval_signature)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to record promotion history: {}", e)))?;
+        .map_err(db_err("record promotion history"))?;
 
         Ok(())
     }
@@ -479,7 +479,7 @@ impl Db {
         .bind(metadata)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to record rollback history: {}", e)))?;
+        .map_err(db_err("record rollback history"))?;
 
         Ok(())
     }

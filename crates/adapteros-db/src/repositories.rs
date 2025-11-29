@@ -111,7 +111,7 @@ impl Db {
         .bind(default_branch)
         .execute(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to register repository: {}", e)))?;
+        .map_err(db_err("register repository"))?;
 
         self.get_repository(&id).await
     }
@@ -130,7 +130,7 @@ impl Db {
         .bind(id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get repository: {}", e)))?;
+        .map_err(db_err("get repository"))?;
 
         Ok(repo)
     }
@@ -154,7 +154,7 @@ impl Db {
         .bind(repo_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get repository by repo_id: {}", e)))?;
+        .map_err(db_err("get repository by repo_id"))?;
 
         Ok(repo)
     }
@@ -182,7 +182,7 @@ impl Db {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to list repositories: {}", e)))?;
+        .map_err(db_err("list repositories"))?;
 
         Ok(repos)
     }
@@ -194,7 +194,7 @@ impl Db {
                 .bind(tenant_id)
                 .fetch_one(&self.pool)
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to count repositories: {}", e)))?;
+                .map_err(db_err("count repositories"))?;
 
         Ok(count)
     }
@@ -212,7 +212,7 @@ impl Db {
         .bind(id)
         .execute(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update repository status: {}", e)))?;
+        .map_err(db_err("update repository status"))?;
 
         Ok(())
     }
@@ -240,7 +240,7 @@ impl Db {
         .bind(id)
         .execute(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update repository scan: {}", e)))?;
+        .map_err(db_err("update repository scan"))?;
 
         Ok(())
     }
@@ -282,7 +282,7 @@ impl Db {
             .pool
             .begin()
             .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+            .map_err(db_err("begin transaction"))?;
 
         // Delete related CodeGraph metadata first (if exists)
         sqlx::query("DELETE FROM code_graph_metadata WHERE repo_id = ?")
@@ -298,19 +298,19 @@ impl Db {
             .bind(id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete scan jobs: {}", e)))?;
+            .map_err(db_err("delete scan jobs"))?;
 
         // Delete repository
         sqlx::query("DELETE FROM repositories WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete repository: {}", e)))?;
+            .map_err(db_err("delete repository"))?;
 
         // Commit transaction - all deletions succeed together
         tx.commit()
             .await
-            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+            .map_err(db_err("commit transaction"))?;
 
         Ok(())
     }
@@ -361,7 +361,7 @@ impl Db {
         .bind(test_map_hash)
         .execute(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to store code graph metadata: {}", e)))?;
+        .map_err(db_err("store code graph metadata"))?;
 
         Ok(id)
     }
@@ -385,7 +385,7 @@ impl Db {
         .bind(commit_sha)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get code graph metadata: {}", e)))?;
+        .map_err(db_err("get code graph metadata"))?;
 
         Ok(metadata)
     }
@@ -431,7 +431,7 @@ impl Db {
         .bind(commit_sha)
         .execute(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to create scan job: {}", e)))?;
+        .map_err(db_err("create scan job"))?;
 
         Ok(id)
     }
@@ -464,7 +464,7 @@ impl Db {
         .bind(job_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update scan job progress: {}", e)))?;
+        .map_err(db_err("update scan job progress"))?;
 
         Ok(())
     }
@@ -482,7 +482,7 @@ impl Db {
         .bind(job_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get scan job: {}", e)))?;
+        .map_err(db_err("get scan job"))?;
 
         Ok(job)
     }
@@ -503,7 +503,7 @@ impl Db {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to list scan jobs: {}", e)))?;
+        .map_err(db_err("list scan jobs"))?;
 
         Ok(jobs)
     }

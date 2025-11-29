@@ -3,7 +3,7 @@
 //! Provides database operations for policy packs, policy assignments, violations,
 //! and compliance scoring. Supports the 23 canonical policy packs with Ed25519 signing.
 
-use crate::Db;
+use crate::{query_helpers::db_err, Db};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -135,7 +135,7 @@ impl Db {
         .bind(created_by)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to store policy pack: {}", e)))?;
+        .map_err(db_err("store policy pack"))?;
 
         Ok(id.to_string())
     }
@@ -146,7 +146,7 @@ impl Db {
             .bind(id)
             .fetch_optional(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to fetch policy pack: {}", e)))?;
+            .map_err(db_err("fetch policy pack"))?;
 
         Ok(pack)
     }
@@ -180,7 +180,7 @@ impl Db {
         let packs = q
             .fetch_all(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to list policy packs: {}", e)))?;
+            .map_err(db_err("list policy packs"))?;
 
         Ok(packs)
     }
@@ -194,7 +194,7 @@ impl Db {
             .bind(id)
             .execute(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to activate policy pack: {}", e)))?;
+            .map_err(db_err("activate policy pack"))?;
 
         Ok(())
     }
@@ -210,7 +210,7 @@ impl Db {
         .bind(id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to deprecate policy pack: {}", e)))?;
+        .map_err(db_err("deprecate policy pack"))?;
 
         Ok(())
     }
@@ -247,7 +247,7 @@ impl Db {
         .bind(assigned_by)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to assign policy: {}", e)))?;
+        .map_err(db_err("assign policy"))?;
 
         Ok(id)
     }
@@ -278,7 +278,7 @@ impl Db {
             .fetch_all(&*self.pool())
             .await
         }
-        .map_err(|e| AosError::Database(format!("Failed to get policy assignments: {}", e)))?;
+        .map_err(db_err("get policy assignments"))?;
 
         Ok(assignments)
     }
@@ -333,7 +333,7 @@ impl Db {
         .bind(&detected_at)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to record policy violation: {}", e)))?;
+        .map_err(db_err("record policy violation"))?;
 
         Ok(id)
     }
@@ -384,7 +384,7 @@ impl Db {
         let violations = q
             .fetch_all(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to get policy violations: {}", e)))?;
+            .map_err(db_err("get policy violations"))?;
 
         Ok(violations)
     }
@@ -409,7 +409,7 @@ impl Db {
         .bind(violation_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to resolve policy violation: {}", e)))?;
+        .map_err(db_err("resolve policy violation"))?;
 
         Ok(())
     }
@@ -460,7 +460,7 @@ impl Db {
         .bind(period_end)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to store compliance score: {}", e)))?;
+        .map_err(db_err("store compliance score"))?;
 
         Ok(id)
     }
@@ -515,7 +515,7 @@ impl Db {
             .fetch_optional(&*self.pool())
             .await
         }
-        .map_err(|e| AosError::Database(format!("Failed to get compliance score: {}", e)))?;
+        .map_err(db_err("get compliance score"))?;
 
         Ok(score)
     }
@@ -670,7 +670,7 @@ impl Db {
         .bind(&cutoff_str)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get recent stack violations: {}", e)))?;
+        .map_err(db_err("get recent stack violations"))?;
 
         Ok(violations)
     }
@@ -730,7 +730,7 @@ impl Db {
             .fetch_all(&*self.pool())
             .await
         }
-        .map_err(|e| AosError::Database(format!("Failed to get compliance trend: {}", e)))?;
+        .map_err(db_err("get compliance trend"))?;
 
         Ok(scores)
     }
