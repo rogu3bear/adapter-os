@@ -289,10 +289,10 @@ mod tests {
     fn test_batch_tracker() {
         let mut tracker = BatchTracker::new("test");
 
-        tracker.track(Ok::<_, String>(()));
-        tracker.track(Ok::<_, String>(()));
-        tracker.track(Err("error".to_string()));
-        tracker.track(Ok::<_, String>(()));
+        tracker.track::<(), String>(Ok(()));
+        tracker.track::<(), String>(Ok(()));
+        tracker.track::<(), String>(Err("error".to_string()));
+        tracker.track::<(), String>(Ok(()));
 
         assert_eq!(tracker.successful(), 3);
         assert_eq!(tracker.failed(), 1);
@@ -305,8 +305,8 @@ mod tests {
     fn test_batch_tracker_all_success() {
         let mut tracker = BatchTracker::new("test");
 
-        tracker.track(Ok::<_, String>(()));
-        tracker.track(Ok::<_, String>(()));
+        tracker.track::<(), String>(Ok(()));
+        tracker.track::<(), String>(Ok(()));
 
         assert_eq!(tracker.successful(), 2);
         assert_eq!(tracker.failed(), 0);

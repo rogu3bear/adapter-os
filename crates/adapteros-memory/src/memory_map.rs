@@ -610,14 +610,7 @@ mod tests {
 
     #[test]
     fn test_memory_layout_hash_generation() {
-        #[cfg(target_os = "macos")]
-        let device = Arc::new(metal::Device::system_default().unwrap());
-        #[cfg(not(target_os = "macos"))]
-        let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-            // Create a mock device for testing
-            unsafe { std::mem::transmute(0x1usize) }
-        }));
-        let hasher = MemoryMapHasher::new(device, true);
+        let hasher = MemoryMapHasher::new(create_test_device(), true);
 
         // Add a region
         let _region_id = hasher
@@ -647,14 +640,7 @@ mod tests {
 
     #[test]
     fn test_layout_consistency_verification() {
-        #[cfg(target_os = "macos")]
-        let device = Arc::new(metal::Device::system_default().unwrap());
-        #[cfg(not(target_os = "macos"))]
-        let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-            // Create a mock device for testing
-            unsafe { std::mem::transmute(0x1usize) }
-        }));
-        let hasher = MemoryMapHasher::new(device, true);
+        let hasher = MemoryMapHasher::new(create_test_device(), true);
 
         // Generate initial layout hash
         let initial_hash = hasher.generate_memory_layout_hash().unwrap();
@@ -678,14 +664,7 @@ mod tests {
 
     #[test]
     fn test_hashing_enable_disable() {
-        #[cfg(target_os = "macos")]
-        let device = Arc::new(metal::Device::system_default().unwrap());
-        #[cfg(not(target_os = "macos"))]
-        let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-            // Create a mock device for testing
-            unsafe { std::mem::transmute(0x1usize) }
-        }));
-        let mut hasher = MemoryMapHasher::new(device, true);
+        let mut hasher = MemoryMapHasher::new(create_test_device(), true);
         assert!(hasher.is_hashing_enabled());
 
         hasher.set_hashing_enabled(false);
@@ -697,14 +676,7 @@ mod tests {
 
     #[test]
     fn test_region_removal() {
-        #[cfg(target_os = "macos")]
-        let device = Arc::new(metal::Device::system_default().unwrap());
-        #[cfg(not(target_os = "macos"))]
-        let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-            // Create a mock device for testing
-            unsafe { std::mem::transmute(0x1usize) }
-        }));
-        let hasher = MemoryMapHasher::new(device, true);
+        let hasher = MemoryMapHasher::new(create_test_device(), true);
 
         let region_id = hasher
             .add_region(
