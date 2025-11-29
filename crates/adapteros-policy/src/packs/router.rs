@@ -88,8 +88,13 @@ pub enum TieBreakRule {
 
 impl Default for RouterConfig {
     fn default() -> Self {
+        // Read k_sparse from environment with schema default (4) as fallback
+        let k_sparse = std::env::var("AOS_ROUTER_K_SPARSE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(4);
         Self {
-            k_sparse: 3,
+            k_sparse,
             gate_quant: GateQuantization::Q15,
             entropy_floor: 0.02,
             sample_tokens_full: 128,

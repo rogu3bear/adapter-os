@@ -15,13 +15,16 @@
 //! AOS_MODEL_BACKEND=auto
 //! ```
 
+pub mod global;
 pub mod guards;
 pub mod loader;
 pub mod model;
 pub mod precedence;
+pub mod runtime;
 pub mod schema;
 pub mod types;
 
+pub use global::{config, config_or_default, init_runtime_config, is_initialized, try_config, ConfigError};
 pub use guards::{ConfigGuards, FeatureFlags};
 pub use loader::ConfigLoader;
 pub use model::{
@@ -29,6 +32,7 @@ pub use model::{
     BackendPreference, ModelConfig,
 };
 pub use precedence::DeterministicConfig;
+pub use runtime::{ConfigSource, ParsedValue, RuntimeConfig};
 pub use schema::{
     default_schema, parse_bool, validate_value, ConfigSchema, ConfigType, ConfigVariable,
     DeprecationInfo, ValidationError,

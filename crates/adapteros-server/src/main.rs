@@ -146,6 +146,12 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // Initialize deterministic config system (validates all AOS_* env vars)
+    if let Err(e) = adapteros_config::init_runtime_config() {
+        warn!("Config validation: {}", e);
+        // Non-fatal: continue with defaults for missing vars
+    }
+
     // Handle OpenAPI generation
     if cli.generate_openapi {
         info!("Generating OpenAPI specification");

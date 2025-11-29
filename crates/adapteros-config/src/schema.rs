@@ -681,15 +681,6 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
-    schema.add_variable(
-        ConfigVariable::new("AOS_MODEL_ARCHITECTURE")
-            .config_type(ConfigType::String)
-            .default_value("qwen2.5")
-            .description("Model architecture identifier (e.g., qwen2.5, llama, mistral)")
-            .category("MODEL")
-            .build(),
-    );
-
     // ========================================================================
     // SERVER Configuration
     // ========================================================================
@@ -744,15 +735,6 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
-    schema.add_variable(
-        ConfigVariable::new("AOS_SERVER_GRACEFUL_SHUTDOWN")
-            .config_type(ConfigType::Duration)
-            .default_value("30s")
-            .description("Graceful shutdown timeout duration")
-            .category("SERVER")
-            .build(),
-    );
-
     // ========================================================================
     // DATABASE Configuration
     // ========================================================================
@@ -783,18 +765,6 @@ pub fn default_schema() -> ConfigSchema {
             .config_type(ConfigType::Duration)
             .default_value("30s")
             .description("Database connection timeout duration")
-            .category("DATABASE")
-            .build(),
-    );
-
-    schema.add_variable(
-        ConfigVariable::new("AOS_DATABASE_MAX_CONNECTIONS")
-            .config_type(ConfigType::Integer {
-                min: Some(1),
-                max: Some(1000),
-            })
-            .default_value("100")
-            .description("Maximum number of database connections")
             .category("DATABASE")
             .build(),
     );
@@ -843,15 +813,6 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
-    schema.add_variable(
-        ConfigVariable::new("AOS_SECURITY_ALLOWED_ORIGINS")
-            .config_type(ConfigType::String)
-            .default_value("*")
-            .description("Comma-separated list of allowed CORS origins")
-            .category("SECURITY")
-            .build(),
-    );
-
     // ========================================================================
     // LOGGING Configuration
     // ========================================================================
@@ -890,15 +851,6 @@ pub fn default_schema() -> ConfigSchema {
         ConfigVariable::new("AOS_LOG_FILE")
             .config_type(ConfigType::Path { must_exist: false })
             .description("Log file path (optional, logs to stdout if not set)")
-            .category("LOGGING")
-            .build(),
-    );
-
-    schema.add_variable(
-        ConfigVariable::new("AOS_LOG_MAX_SIZE")
-            .config_type(ConfigType::ByteSize)
-            .default_value("100MB")
-            .description("Maximum log file size before rotation")
             .category("LOGGING")
             .build(),
     );
@@ -986,6 +938,11 @@ pub fn default_schema() -> ConfigSchema {
                 "Global determinism seed (HKDF base, derived from manifest hash if not set)",
             )
             .category("BACKEND")
+            .deprecated_with_notes(
+                "AOS_DETERMINISM_MANIFEST_HASH",
+                "0.5.0",
+                "Seed is now derived from manifest hash via HKDF. Set in manifest.toml instead.",
+            )
             .build(),
     );
 
@@ -995,6 +952,11 @@ pub fn default_schema() -> ConfigSchema {
             .default_value("true")
             .description("Require backend determinism attestation before serving")
             .category("BACKEND")
+            .deprecated_with_notes(
+                "policy:determinism",
+                "0.5.0",
+                "Attestation is now enforced via the Determinism policy pack.",
+            )
             .build(),
     );
 
@@ -1022,6 +984,11 @@ pub fn default_schema() -> ConfigSchema {
             .default_value("q15")
             .description("Router gate quantization format: q15 (16-bit fixed point) or fp32")
             .category("ROUTER")
+            .deprecated_with_notes(
+                "policy:router",
+                "0.5.0",
+                "Quantization is now controlled by the Router policy pack. Q15 is always used.",
+            )
             .build(),
     );
 
@@ -1047,30 +1014,9 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
-    schema.add_variable(
-        ConfigVariable::new("AOS_TELEMETRY_RETENTION_DAYS")
-            .config_type(ConfigType::Integer {
-                min: Some(1),
-                max: Some(365),
-            })
-            .default_value("30")
-            .description("Number of days to retain telemetry data")
-            .category("TELEMETRY")
-            .build(),
-    );
-
     // ========================================================================
     // TRAINING Configuration
     // ========================================================================
-
-    schema.add_variable(
-        ConfigVariable::new("AOS_TRAINING_OUTPUT_DIR")
-            .config_type(ConfigType::Path { must_exist: false })
-            .default_value("./training-output")
-            .description("Output directory for training artifacts")
-            .category("TRAINING")
-            .build(),
-    );
 
     schema.add_variable(
         ConfigVariable::new("AOS_TRAINING_CHECKPOINT_INTERVAL")
@@ -1081,6 +1027,11 @@ pub fn default_schema() -> ConfigSchema {
             .default_value("100")
             .description("Training checkpoint save interval (steps)")
             .category("TRAINING")
+            .deprecated_with_notes(
+                "training_job.checkpoint_interval",
+                "0.5.0",
+                "Set checkpoint interval in training job configuration instead.",
+            )
             .build(),
     );
 
@@ -1093,6 +1044,11 @@ pub fn default_schema() -> ConfigSchema {
             .default_value("10")
             .description("Maximum number of training epochs")
             .category("TRAINING")
+            .deprecated_with_notes(
+                "training_job.max_epochs",
+                "0.5.0",
+                "Set max epochs in training job configuration instead.",
+            )
             .build(),
     );
 
@@ -1121,15 +1077,6 @@ pub fn default_schema() -> ConfigSchema {
         ConfigVariable::new("AOS_FEDERATION_PEERS")
             .config_type(ConfigType::String)
             .description("Comma-separated list of federation peer URLs")
-            .category("FEDERATION")
-            .build(),
-    );
-
-    schema.add_variable(
-        ConfigVariable::new("AOS_FEDERATION_HEARTBEAT_INTERVAL")
-            .config_type(ConfigType::Duration)
-            .default_value("30s")
-            .description("Federation heartbeat interval")
             .category("FEDERATION")
             .build(),
     );
@@ -1173,49 +1120,10 @@ pub fn default_schema() -> ConfigSchema {
     );
 
     schema.add_variable(
-        ConfigVariable::new("AOS_HF_HUB_TOKEN")
-            .config_type(ConfigType::String)
-            .description("API token for private model access (sensitive)")
-            .sensitive()
-            .category("MODEL_HUB")
-            .build(),
-    );
-
-    schema.add_variable(
         ConfigVariable::new("AOS_MODEL_CACHE_DIR")
             .config_type(ConfigType::Path { must_exist: false })
             .default_value("var/model-cache")
             .description("Directory for downloaded models from HuggingFace Hub")
-            .category("MODEL_HUB")
-            .build(),
-    );
-
-    schema.add_variable(
-        ConfigVariable::new("AOS_MODEL_LAZY_LOAD")
-            .config_type(ConfigType::Bool)
-            .default_value("true")
-            .description("Enable lazy model loading on first request")
-            .category("MODEL_HUB")
-            .build(),
-    );
-
-    schema.add_variable(
-        ConfigVariable::new("AOS_HEALTH_CHECK_ENABLED")
-            .config_type(ConfigType::Bool)
-            .default_value("true")
-            .description("Require warmup inference test for readiness")
-            .category("MODEL_HUB")
-            .build(),
-    );
-
-    schema.add_variable(
-        ConfigVariable::new("AOS_HEALTH_CHECK_TIMEOUT_MS")
-            .config_type(ConfigType::Integer {
-                min: Some(1000),
-                max: Some(300000),
-            })
-            .default_value("30000")
-            .description("Timeout for health inference test")
             .category("MODEL_HUB")
             .build(),
     );
@@ -1284,6 +1192,87 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    // =========================================================================
+    // WORKER - Background worker configuration
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_WORKER_THREADS")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: Some(64),
+            })
+            .default_value("4")
+            .description("Number of background worker threads")
+            .category("WORKER")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_WORKER_QUEUE_SIZE")
+            .config_type(ConfigType::Integer {
+                min: Some(10),
+                max: Some(10000),
+            })
+            .default_value("1000")
+            .description("Maximum items in worker queue")
+            .category("WORKER")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_WORKER_SHUTDOWN_TIMEOUT")
+            .config_type(ConfigType::Duration)
+            .default_value("30s")
+            .description("Graceful shutdown timeout for workers")
+            .category("WORKER")
+            .build(),
+    );
+
+    // =========================================================================
+    // DEBUG - Debug/development configuration
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_DEBUG_ENABLED")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Enable debug mode (disables some security checks)")
+            .category("DEBUG")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_DEBUG_PROFILING")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Enable runtime profiling")
+            .category("DEBUG")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_DEBUG_TRACE_REQUESTS")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Log full request/response bodies")
+            .category("DEBUG")
+            .build(),
+    );
+
+    // =========================================================================
+    // Additional SECURITY variables
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_SIGNING_KEY")
+            .config_type(ConfigType::String)
+            .description("Ed25519 signing key for manifest/artifact signing")
+            .sensitive()
+            .category("SECURITY")
+            .build(),
+    );
+
     schema
 }
 
@@ -1309,6 +1298,9 @@ mod tests {
         assert!(categories.contains(&"FEDERATION"));
         assert!(categories.contains(&"MODEL_HUB"));
         assert!(categories.contains(&"EMBEDDINGS"));
+        assert!(categories.contains(&"PATHS"));
+        assert!(categories.contains(&"WORKER"));
+        assert!(categories.contains(&"DEBUG"));
     }
 
     #[test]

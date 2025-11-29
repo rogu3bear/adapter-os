@@ -25,6 +25,7 @@ embeddings = ["adapteros-server-api/embeddings", "dep:adapteros-ingest-docs"]
 
 [dependencies]
 # Internal crates
+adapteros-config = { path = "../adapteros-config" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-server-api = { path = "../adapteros-server-api" }
 adapteros-db = { path = "../adapteros-db" }

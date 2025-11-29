@@ -100,6 +100,51 @@ See [docs/RBAC.md](docs/RBAC.md)
 
 ---
 
+## Configuration System
+
+**Crate:** `adapteros-config` | **Categories:** 16 | **Variables:** ~60
+
+### Precedence (highest to lowest)
+1. CLI arguments
+2. Environment variables (`.env` file supported)
+3. Manifest file
+
+### Key Categories
+
+| Category | Variables | Description |
+|----------|-----------|-------------|
+| MODEL | AOS_MODEL_PATH, AOS_MODEL_BACKEND | Base model configuration |
+| SERVER | AOS_SERVER_PORT, AOS_SERVER_HOST | Server binding |
+| DATABASE | AOS_DATABASE_URL, AOS_DATABASE_POOL_SIZE | SQLite/Postgres |
+| SECURITY | AOS_SECURITY_JWT_SECRET, AOS_SIGNING_KEY | Auth & signing |
+| ROUTER | AOS_ROUTER_K_SPARSE | K-sparse adapter selection |
+| PATHS | AOS_VAR_DIR, AOS_MODEL_CACHE_DIR | Runtime directories |
+| WORKER | AOS_WORKER_THREADS | Background workers |
+| DEBUG | AOS_DEBUG_ENABLED | Development mode |
+
+### Usage
+
+```rust
+// Initialize at startup (validates all AOS_* vars)
+adapteros_config::init_runtime_config()?;
+
+// Access config anywhere
+let cfg = adapteros_config::config();
+let port = cfg.server_port();
+let k_sparse = cfg.router_k_sparse();
+```
+
+```bash
+# .env file
+AOS_MODEL_PATH=./models/qwen2.5-7b-mlx
+AOS_SERVER_PORT=8080
+AOS_ROUTER_K_SPARSE=4
+```
+
+See `crates/adapteros-config/src/schema.rs` for full schema.
+
+---
+
 ## Multi-Backend Architecture
 
 | Backend | Status | Determinism | Crate |
@@ -187,7 +232,6 @@ var/
 | `AOS_ADAPTERS_DIR` | `var/adapters` | LoRA adapter storage |
 | `AOS_ARTIFACTS_DIR` | `var/artifacts` | Training artifacts |
 | `AOS_MODEL_PATH` | `./models/qwen2.5-7b` | Active model directory |
-| `AOS_TRAINING_OUTPUT_DIR` | `./training-output` | Training job outputs |
 | `AOS_EMBEDDING_MODEL_PATH` | `./models/bge-small-en-v1.5` | Embedding model |
 | `HF_TOKEN` | (none) | HuggingFace authentication |
 | `AOS_HF_REGISTRY_URL` | `https://huggingface.co` | Model registry URL |
