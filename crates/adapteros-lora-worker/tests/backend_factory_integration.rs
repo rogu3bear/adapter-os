@@ -3,6 +3,7 @@
 //! Tests for CoreML, Metal, and MLX backend integration with the backend factory.
 //! Verifies correct capability detection, automatic selection, and fallback behavior.
 
+use adapteros_core::constants::{BYTES_PER_MB, BYTES_PER_GB};
 use adapteros_lora_worker::backend_factory::{
     auto_select_backend, create_backend, create_backend_auto, describe_available_backends,
     detect_capabilities, BackendCapabilities, BackendChoice, BackendStrategy,
@@ -58,7 +59,7 @@ fn test_auto_select_backend_coreml_priority() {
         has_ane: true,
         has_coreml: true,
         has_mlx: false,
-        gpu_memory_bytes: Some(8 * 1024 * 1024 * 1024), // 8GB
+        gpu_memory_bytes: Some(8 * BYTES_PER_GB), // 8GB
     };
 
     // When CoreML and ANE are both available, CoreML should be selected
@@ -90,7 +91,7 @@ fn test_auto_select_backend_metal_fallback() {
         has_ane: false,
         has_coreml: false,
         has_mlx: false,
-        gpu_memory_bytes: Some(4 * 1024 * 1024 * 1024), // 4GB
+        gpu_memory_bytes: Some(4 * BYTES_PER_GB), // 4GB
     };
 
     // When only Metal is available, it should be selected
@@ -160,7 +161,7 @@ fn test_create_backend_auto() {
 #[test]
 fn test_create_backend_auto_with_model_size() {
     // Test auto selection with model size constraint
-    let model_size = 100 * 1024 * 1024; // 100MB model
+    let model_size = 100 * BYTES_PER_MB as usize; // 100MB model
 
     match create_backend_auto(Some(model_size)) {
         Ok(_backend) => {
@@ -183,7 +184,7 @@ fn test_backend_strategy_metal_with_coreml_fallback() {
         has_ane: false,
         has_coreml: false,
         has_mlx: false,
-        gpu_memory_bytes: Some(4 * 1024 * 1024 * 1024),
+        gpu_memory_bytes: Some(4 * BYTES_PER_GB),
     };
 
     let choice = strategy
@@ -233,7 +234,7 @@ fn test_backend_strategy_coreml_with_metal_fallback() {
         has_ane: true,
         has_coreml: true,
         has_mlx: false,
-        gpu_memory_bytes: Some(4 * 1024 * 1024 * 1024),
+        gpu_memory_bytes: Some(4 * BYTES_PER_GB),
     };
 
     let choice = strategy
@@ -248,7 +249,7 @@ fn test_backend_strategy_coreml_with_metal_fallback() {
         has_ane: false,
         has_coreml: false,
         has_mlx: false,
-        gpu_memory_bytes: Some(4 * 1024 * 1024 * 1024),
+        gpu_memory_bytes: Some(4 * BYTES_PER_GB),
     };
 
     let choice = strategy
@@ -268,7 +269,7 @@ fn test_backend_strategy_metal_only() {
         has_ane: false,
         has_coreml: false,
         has_mlx: false,
-        gpu_memory_bytes: Some(4 * 1024 * 1024 * 1024),
+        gpu_memory_bytes: Some(4 * BYTES_PER_GB),
     };
 
     let choice = strategy
@@ -418,11 +419,11 @@ fn test_gpu_memory_detection() {
         println!(
             "GPU memory detected: {} bytes ({} MB)",
             memory,
-            memory / (1024 * 1024)
+            memory / BYTES_PER_MB
         );
         // GPU memory should be reasonable (at least a few hundred MB)
         assert!(
-            memory > 100 * 1024 * 1024,
+            memory > 100 * BYTES_PER_MB,
             "GPU memory should be at least 100MB"
         );
     } else {
@@ -433,16 +434,16 @@ fn test_gpu_memory_detection() {
 #[test]
 fn test_headroom_calculation() {
     // Test the 15% headroom policy
-    let gpu_memory = 8 * 1024 * 1024 * 1024u64; // 8GB
+    let gpu_memory = 8 * BYTES_PER_GB; // 8GB
     let required_headroom = (gpu_memory as f64 * 0.15) as u64;
     let available = gpu_memory - required_headroom;
 
-    println!("Total GPU memory: {}MB", gpu_memory / (1024 * 1024));
+    println!("Total GPU memory: {}MB", gpu_memory / BYTES_PER_MB);
     println!(
         "Required headroom (15%): {}MB",
-        required_headroom / (1024 * 1024)
+        required_headroom / BYTES_PER_MB
     );
-    println!("Available for models: {}MB", available / (1024 * 1024));
+    println!("Available for models: {}MB", available / BYTES_PER_MB);
 
     assert!(required_headroom > 0, "Headroom should be > 0");
     assert!(

@@ -18,6 +18,7 @@ use tracing::{debug, info};
 /// Separated LoRA trainer that trains positive and negative weight groups independently
 pub struct SeparatedLoRATrainer {
     config: TrainingConfig,
+    training_seed: u64,
 }
 
 /// Result of separated training
@@ -66,7 +67,7 @@ impl SeparatedLoRATrainer {
         let seed_bytes = derive_seed(&base_hash, "separated_lora_training");
 
         // Convert seed bytes to u64 for RNG initialization
-        let _training_seed = u64::from_le_bytes([
+        let training_seed = u64::from_le_bytes([
             seed_bytes[0],
             seed_bytes[1],
             seed_bytes[2],
@@ -82,7 +83,7 @@ impl SeparatedLoRATrainer {
             std::env::var("AOS_TELEMETRY_DIR").unwrap_or_else(|_| "./var/telemetry".to_string());
         let _telemetry = TelemetryWriter::new(&telemetry_dir, 10_000, 10 * 1024 * 1024)?;
 
-        Ok(Self { config })
+        Ok(Self { config, training_seed })
     }
 
     /// Train with separated positive/negative weight groups
@@ -372,8 +373,14 @@ impl SeparatedLoRATrainer {
         Ok(())
     }
 
-    /// Initialize LoRA weights
+    /// Initialize LoRA weights with deterministic seeded RNG
     fn initialize_weights(&self) -> LoRAWeights {
+        use rand::{Rng, SeedableRng};
+        use rand_chacha::ChaCha20Rng;
+
+        // Create deterministic RNG from training seed
+        let mut rng = ChaCha20Rng::seed_from_u64(self.training_seed);
+
         let mut lora_a = Vec::new();
         let mut lora_b = Vec::new();
 
@@ -381,7 +388,7 @@ impl SeparatedLoRATrainer {
         for _ in 0..self.config.rank {
             let mut row = Vec::new();
             for _ in 0..self.config.hidden_dim {
-                row.push(0.01 * (rand::random::<f32>() - 0.5));
+                row.push(0.01 * (rng.gen::<f32>() - 0.5));
             }
             lora_a.push(row);
         }
@@ -390,7 +397,7 @@ impl SeparatedLoRATrainer {
         for _ in 0..self.config.hidden_dim {
             let mut row = Vec::new();
             for _ in 0..self.config.rank {
-                row.push(0.01 * (rand::random::<f32>() - 0.5));
+                row.push(0.01 * (rng.gen::<f32>() - 0.5));
             }
             lora_b.push(row);
         }
@@ -444,6 +451,7 @@ mod tests {
             batch_size: 2,
             epochs: 2,
             hidden_dim: 128,
+            vocab_size: 32000,
             preferred_backend: None,
             require_gpu: false,
             max_gpu_memory_mb: 0,

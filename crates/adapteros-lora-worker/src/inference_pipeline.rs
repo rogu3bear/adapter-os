@@ -93,6 +93,16 @@ impl InferencePipelineConfig {
             manifest_hash: None,
         }
     }
+
+    /// Set the manifest hash for deterministic HKDF seed derivation
+    ///
+    /// This should be called with the manifest's hash to ensure reproducible
+    /// inference across runs. Without this, a warning is logged and a default
+    /// seed is used.
+    pub fn with_manifest_hash(mut self, hash: B3Hash) -> Self {
+        self.manifest_hash = Some(hash);
+        self
+    }
 }
 
 /// Inference request

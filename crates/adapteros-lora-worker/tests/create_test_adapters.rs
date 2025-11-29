@@ -56,6 +56,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         batch_size: 2,
         epochs: 1,
         hidden_dim: 32,
+        vocab_size: 32000,
         max_gpu_memory_mb: 0,
         preferred_backend: None,
         require_gpu: false,
@@ -81,6 +82,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         batch_size: 2,
         epochs: 1,
         hidden_dim: 64, // 2x dimension
+        vocab_size: 32000,
         max_gpu_memory_mb: 0,
         preferred_backend: None,
         require_gpu: false,
@@ -135,6 +137,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
             batch_size: 2,
             epochs: 1,
             hidden_dim: 32,
+            vocab_size: 32000,
             max_gpu_memory_mb: 0,
             preferred_backend: None,
             require_gpu: false,

@@ -6,6 +6,7 @@
 
 use adapteros_codegraph::DirectoryAnalysis;
 use adapteros_core::{B3Hash, Result};
+use adapteros_platform::common::PlatformUtils;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
@@ -66,7 +67,7 @@ impl DirectoryAdapterManager {
         let adapter_id = build_adapter_id(tenant_id, &analysis.fingerprint);
         let rank = map_rank_from_directory(analysis);
         let activation_rules = vec![PathActivationRule {
-            prefix: normalize_path(&analysis.path),
+            prefix: PlatformUtils::normalize_path_separators(&analysis.path.to_string_lossy()),
             max_depth: 2,
             allow_descendants: true,
         }];
@@ -172,10 +173,6 @@ fn generate_weights(fingerprint: &B3Hash, rank: usize, hidden_dim: usize) -> LoR
     }
 
     LoRAWeights { lora_a, lora_b }
-}
-
-fn normalize_path(path: &std::path::Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
 }
 
 fn depth_of(path: &str) -> usize {

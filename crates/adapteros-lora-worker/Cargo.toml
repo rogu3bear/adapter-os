@@ -47,6 +47,7 @@ adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-memory = { path = "../adapteros-memory" }
 adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
+adapteros-platform = { path = "../adapteros-platform" }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
 tokio = { workspace = true }
 serde = { workspace = true }

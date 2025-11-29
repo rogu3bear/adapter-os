@@ -11,6 +11,12 @@ pub struct Generator {
     temperature: f32,
     top_k: Option<usize>,
     top_p: Option<f32>,
+    /// Base seed for HKDF derivation (deterministic mode only)
+    base_seed: [u8; 32],
+    /// Current step counter for re-seeding
+    step_counter: usize,
+    /// Whether this generator is in deterministic mode
+    deterministic_mode: bool,
 }
 
 impl Generator {
@@ -21,6 +27,9 @@ impl Generator {
             temperature: 1.0,
             top_k: None,
             top_p: None,
+            base_seed: seed,
+            step_counter: 0,
+            deterministic_mode: false,
         }
     }
 
@@ -46,7 +55,48 @@ impl Generator {
             temperature: 1.0,
             top_k: None,
             top_p: None,
+            base_seed: seed,
+            step_counter: 0,
+            deterministic_mode: true,
         }
+    }
+
+    /// Derive a step-specific seed using HKDF
+    ///
+    /// This ensures each generation step uses a deterministically derived
+    /// seed, enabling reproducible results across runs.
+    fn derive_step_seed(&self, step: usize) -> [u8; 32] {
+        use hkdf::Hkdf;
+        use sha2::Sha256;
+
+        let hk = Hkdf::<Sha256>::new(None, &self.base_seed);
+        let mut step_seed = [0u8; 32];
+        let info = format!("gen-step:{}", step);
+        hk.expand(info.as_bytes(), &mut step_seed)
+            .expect("HKDF expand failed");
+        step_seed
+    }
+
+    /// Re-seed the RNG for a specific generation step
+    ///
+    /// In deterministic mode, this ensures each step produces
+    /// reproducible outputs regardless of prior operations.
+    pub fn reseed_for_step(&mut self, step: usize) {
+        if self.deterministic_mode {
+            let step_seed = self.derive_step_seed(step);
+            self.rng = rand::rngs::StdRng::from_seed(step_seed);
+            self.step_counter = step;
+        }
+    }
+
+    /// Get the current step counter
+    pub fn current_step(&self) -> usize {
+        self.step_counter
+    }
+
+    /// Check if this generator is in deterministic mode
+    pub fn is_deterministic(&self) -> bool {
+        self.deterministic_mode
     }
 
     /// Set temperature for sampling (default: 1.0)
@@ -64,6 +114,15 @@ impl Generator {
     /// Set nucleus/top-p sampling (cumulative probability threshold)
     pub fn with_top_p(mut self, p: f32) -> Self {
         self.top_p = Some(p.clamp(0.0, 1.0));
+        self
+    }
+
+    /// Enable deterministic mode for step-level reproducibility
+    ///
+    /// When enabled, `reseed_for_step()` will derive step-specific seeds
+    /// using HKDF, enabling exact replay of generation sequences.
+    pub fn with_deterministic(mut self) -> Self {
+        self.deterministic_mode = true;
         self
     }
 
@@ -93,6 +152,9 @@ impl Generator {
         let mut io = adapteros_lora_kernel_api::IoBuffers::new(vocab_size);
 
         for step in 0..max_tokens {
+            // Re-seed RNG for deterministic step-level reproducibility
+            self.reseed_for_step(step);
+
             // Set input to last token
             let last_token = tokens.last().ok_or_else(|| {
                 AosError::Internal("Token sequence cannot be empty during generation".to_string())
@@ -375,5 +437,85 @@ mod tests {
             .expect("Test token generation should succeed");
 
         assert_eq!(token1, token2); // Same seed = same result
+    }
+
+    #[test]
+    fn test_deterministic_step_level_seeding() {
+        let seed = b"test-deterministic-generation!!";
+        let logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+
+        // Create two generators with same base seed
+        let mut gen1 = Generator::new_deterministic(seed, "inference");
+        let mut gen2 = Generator::new_deterministic(seed, "inference");
+
+        assert!(gen1.is_deterministic());
+        assert!(gen2.is_deterministic());
+
+        // Simulate generation loop - each step should produce same result
+        for step in 0..5 {
+            gen1.reseed_for_step(step);
+            gen2.reseed_for_step(step);
+
+            let token1 = gen1
+                .next_token(&logits)
+                .expect("Test token generation should succeed");
+            let token2 = gen2
+                .next_token(&logits)
+                .expect("Test token generation should succeed");
+
+            assert_eq!(
+                token1, token2,
+                "Step {} should produce identical tokens",
+                step
+            );
+        }
+    }
+
+    #[test]
+    fn test_step_seeding_produces_different_results_per_step() {
+        let seed = b"test-deterministic-generation!!";
+        let logits = vec![1.0, 1.0, 1.0, 1.0, 1.0]; // Uniform to ensure sampling variety
+
+        let mut gen = Generator::new_deterministic(seed, "inference");
+
+        // Collect tokens from different steps
+        let mut tokens = Vec::new();
+        for step in 0..10 {
+            gen.reseed_for_step(step);
+            let token = gen
+                .next_token(&logits)
+                .expect("Test token generation should succeed");
+            tokens.push(token);
+        }
+
+        // Not all tokens should be the same (with very high probability)
+        let first = tokens[0];
+        let all_same = tokens.iter().all(|&t| t == first);
+        // With uniform logits and 10 samples, the probability of all being the same is (1/5)^9 ≈ 5e-7
+        assert!(
+            !all_same,
+            "Step-level seeding should produce varying results across steps"
+        );
+    }
+
+    #[test]
+    fn test_non_deterministic_mode_skips_reseeding() {
+        let mut gen = Generator::new([42u8; 32]);
+        assert!(!gen.is_deterministic());
+
+        let logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+
+        // Even with reseeding calls, non-deterministic mode should maintain normal behavior
+        let token1 = gen
+            .next_token(&logits)
+            .expect("Test token generation should succeed");
+        gen.reseed_for_step(0);
+        let token2 = gen
+            .next_token(&logits)
+            .expect("Test token generation should succeed");
+
+        // These may or may not be equal, but the test ensures no crash
+        // In non-deterministic mode, reseed_for_step is a no-op
+        let _ = (token1, token2);
     }
 }

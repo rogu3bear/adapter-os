@@ -360,6 +360,7 @@ mod tests {
             batch_size: 32,
             epochs: 10,
             hidden_dim: 768,
+            vocab_size: 32000,
             preferred_backend: None,
             require_gpu: false,
             max_gpu_memory_mb: 0,

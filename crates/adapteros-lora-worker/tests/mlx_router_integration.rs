@@ -20,6 +20,7 @@ fn make_decision(indices: &[u16], gates: &[i16], entropy: f32) -> Decision {
         gates_q15: SmallVec::from_slice(gates),
         entropy,
         candidates: vec![],
+        decision_hash: None,
     }
 }
 
@@ -35,6 +36,7 @@ fn make_decision_with_candidates(
         gates_q15: SmallVec::from_slice(gates),
         entropy,
         candidates,
+        decision_hash: None,
     }
 }
 

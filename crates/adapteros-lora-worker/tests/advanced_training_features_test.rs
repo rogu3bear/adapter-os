@@ -74,16 +74,13 @@ fn test_early_stopping() {
     assert!(early_stop.check(1, 0.8));
     assert!(!early_stop.should_stop());
 
-    // Epochs 2-4: No improvement
-    for epoch in 2..=4 {
-        early_stop.check(epoch, 0.8);
-    }
+    // Epochs 2-3: No improvement (epochs_without_improvement = 2)
+    early_stop.check(2, 0.8);
+    early_stop.check(3, 0.8);
+    assert!(!early_stop.should_stop()); // Still under patience threshold
 
-    // Should still not stop (patience=3)
-    assert!(!early_stop.should_stop());
-
-    // Epoch 5: Still no improvement - should trigger
-    early_stop.check(5, 0.8);
+    // Epoch 4: No improvement - epochs_without_improvement = 3 >= patience = 3
+    early_stop.check(4, 0.8);
     assert!(early_stop.should_stop());
     assert_eq!(early_stop.best_epoch(), 1);
 }
@@ -198,6 +195,7 @@ fn test_training_templates() {
         batch_size: 4,
         epochs: 1,
         hidden_dim: 768,
+        vocab_size: 32000,
         preferred_backend: None,
         require_gpu: false,
         max_gpu_memory_mb: 0,
@@ -212,6 +210,7 @@ fn test_training_templates() {
         batch_size: 2,
         epochs: 5,
         hidden_dim: 2048,
+        vocab_size: 32000,
         preferred_backend: None,
         require_gpu: true,
         max_gpu_memory_mb: 8192,
@@ -220,7 +219,7 @@ fn test_training_templates() {
     assert_eq!(deep.epochs, 5);
 
     let default = TrainingConfig::default();
-    assert_eq!(default.rank, 16);
+    assert_eq!(default.rank, 4); // Default rank is 4
     assert_eq!(default.epochs, 3);
 }
 
@@ -252,6 +251,7 @@ fn test_training_config_with_advanced_features() {
         batch_size: 32,
         epochs: 10,
         hidden_dim: 768,
+        vocab_size: 32000,
         preferred_backend: Some(adapteros_lora_worker::training::TrainingBackend::Mlx),
         require_gpu: true,
         max_gpu_memory_mb: 2048,

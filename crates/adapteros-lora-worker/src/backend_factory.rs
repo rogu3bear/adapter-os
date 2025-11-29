@@ -4,7 +4,7 @@
 //! (Metal, CoreML, MLX) and capability detection.
 
 use adapteros_config::{BackendPreference, ModelConfig};
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::FusedKernels;
 use std::path::Path;
 use tracing::{debug, info, warn};
@@ -141,7 +141,7 @@ pub fn detect_capabilities() -> BackendCapabilities {
         has_ane = caps.has_ane,
         has_coreml = caps.has_coreml,
         has_mlx = caps.has_mlx,
-        gpu_memory_mb = caps.gpu_memory_bytes.map(|b| b / (1024 * 1024)),
+        gpu_memory_mb = caps.gpu_memory_bytes.map(|b| b / BYTES_PER_MB),
         "Backend capabilities detected"
     );
 
@@ -280,7 +280,7 @@ pub fn create_backend_with_model(
                 // Find and load model weights
                 let model_bytes = load_model_bytes(model_path)?;
                 info!(
-                    model_size_mb = model_bytes.len() / (1024 * 1024),
+                    model_size_mb = model_bytes.len() / BYTES_PER_MB as usize,
                     "Loaded model weights for Metal backend"
                 );
 
@@ -554,8 +554,8 @@ pub fn create_backend_auto(model_size_bytes: Option<usize>) -> Result<Box<dyn Fu
         let required_headroom = (gpu_mem as f64 * 0.15) as u64; // 15% headroom policy
         if model_size as u64 > gpu_mem - required_headroom {
             warn!(
-                model_size_mb = model_size / (1024 * 1024),
-                gpu_memory_mb = gpu_mem / (1024 * 1024),
+                model_size_mb = model_size / BYTES_PER_MB as usize,
+                gpu_memory_mb = gpu_mem / BYTES_PER_MB,
                 "Model may not fit in GPU memory with required headroom"
             );
         }
@@ -576,7 +576,7 @@ pub fn describe_available_backends() -> String {
             caps.metal_device_name
                 .as_deref()
                 .unwrap_or("Unknown device"),
-            caps.gpu_memory_bytes.unwrap_or(0) / (1024 * 1024)
+            caps.gpu_memory_bytes.unwrap_or(0) / BYTES_PER_MB
         ));
     }
 

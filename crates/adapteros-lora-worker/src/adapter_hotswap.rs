@@ -12,7 +12,7 @@
 //!
 //! GPU fingerprint format: GpuBufferFingerprint from adapteros-lora-kernel-mtl
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
 use adapteros_telemetry::TelemetryWriter;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -1025,7 +1025,7 @@ where
                     let vram_mb = match kernels_lock.verify_adapter_buffers(adapter_id_u16) {
                         Ok((buffer_size, first_sample, last_sample, mid_sample)) => {
                             // Use actual Metal buffer size (includes alignment padding)
-                            let vram_mb = (buffer_size / (1024 * 1024)).max(1);
+                            let vram_mb = (buffer_size / BYTES_PER_MB).max(1);
 
                             // Create and store GPU fingerprint for integrity verification
                             #[cfg(target_os = "macos")]
@@ -1038,19 +1038,24 @@ where
                                 &mid_sample,
                             );
                             #[cfg(target_os = "macos")]
-                            kernels_lock.store_gpu_fingerprint(
+                            if let Err(e) = kernels_lock.store_gpu_fingerprint(
                                 adapter_id_u16,
                                 buffer_size,
                                 &gpu_fp.checkpoint_hash.to_hex(),
-                            );
-
-                            #[cfg(target_os = "macos")]
-                            tracing::info!(
-                                adapter_id = %adapter_id,
-                                vram_mb = vram_mb,
-                                buffer_size = buffer_size,
-                                "Adapter loaded with GPU fingerprint stored"
-                            );
+                            ) {
+                                tracing::warn!(
+                                    adapter_id = %adapter_id,
+                                    error = %e,
+                                    "Failed to store GPU fingerprint (non-fatal)"
+                                );
+                            } else {
+                                tracing::info!(
+                                    adapter_id = %adapter_id,
+                                    vram_mb = vram_mb,
+                                    buffer_size = buffer_size,
+                                    "Adapter loaded with GPU fingerprint stored"
+                                );
+                            }
 
                             #[cfg(not(target_os = "macos"))]
                             tracing::info!(
@@ -1070,7 +1075,7 @@ where
                                 "Failed to verify GPU buffers, using payload size estimate"
                             );
                             let vram_bytes = weights.len() as u64;
-                            (vram_bytes / (1024 * 1024)).max(1)
+                            (vram_bytes / BYTES_PER_MB).max(1)
                         }
                     };
 

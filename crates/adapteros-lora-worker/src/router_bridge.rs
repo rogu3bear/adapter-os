@@ -147,13 +147,12 @@ mod tests {
 
     /// Helper to create a test Decision
     fn make_decision(indices: &[u16], gates: &[i16], entropy: f32) -> Decision {
-        use adapteros_lora_router::DecisionCandidate;
-
         Decision {
             indices: SmallVec::from_slice(indices),
             gates_q15: SmallVec::from_slice(gates),
             entropy,
             candidates: vec![],
+            decision_hash: None,
         }
     }
 

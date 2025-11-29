@@ -120,7 +120,7 @@ pub use health::{HealthConfig, HealthMonitor, ProcessHealthStatus as HealthStatu
 pub use inference_metrics::{
     AdapterStats, InferenceMeasurement, InferenceMetrics, InferenceMetricsCollector,
 };
-pub use kvcache::KvCache;
+pub use kvcache::{KvCache, SequenceGuard};
 pub use limiter::{ResourceGuard, ResourceLimiter, ResourceLimits};
 pub use linter_runner::{
     LintIssue, LintSeverity, LinterConfig, LinterResult, LinterRunner, LinterType,
@@ -271,6 +271,7 @@ pub struct RouterSummary {
 use crate::embeddings::EmbeddingModel;
 use crate::evidence::EvidenceRetriever;
 use crate::tokenizer::QwenTokenizer;
+use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 
 /// Worker for running inference with comprehensive safety mechanisms
@@ -286,8 +287,8 @@ pub struct Worker<K: FusedKernels + Send + Sync> {
     generator: Generator,
     embedding_model: Arc<EmbeddingModel>,
     evidence_retriever: Option<EvidenceRetriever>,
-    /// KV cache for transformer attention (reserved for cached generation)
-    _kv_cache: KvCache,
+    /// KV cache for transformer attention with generation tracking
+    kv_cache: Arc<StdMutex<KvCache>>,
     /// Last stack hash for change detection (reserved for stack caching)
     _last_stack_hash: RwLock<Option<B3Hash>>,
     // Safety mechanisms
@@ -349,11 +350,12 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         // Load tokenizer
         let tokenizer = Arc::new(QwenTokenizer::from_file(tokenizer_path)?);
 
-        // Create generator with deterministic seed
+        // Create generator with deterministic seed and step-level reproducibility
         let gen_seed = adapteros_core::derive_seed(&manifest.seeds.global, "generation");
         let generator = Generator::new(gen_seed)
             .with_temperature(0.7)
-            .with_top_p(0.9);
+            .with_top_p(0.9)
+            .with_deterministic();
 
         // Load embedding model - use dimensions from manifest
         let embedding_model = Arc::new(EmbeddingModel::from_model_path(
@@ -384,8 +386,8 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             None
         };
 
-        // Initialize kv_cache
-        let kv_cache = KvCache::new(1024 * 1024 * 1024); // 1GB default
+        // Initialize kv_cache with Arc<StdMutex<>> for interior mutability
+        let kv_cache = Arc::new(StdMutex::new(KvCache::new(adapteros_core::constants::BYTES_PER_GB))); // 1GB default
         let last_stack_hash = RwLock::new(None);
 
         // Initialize profiler
@@ -439,7 +441,7 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             generator,
             embedding_model,
             evidence_retriever,
-            _kv_cache: kv_cache,
+            kv_cache,
             _last_stack_hash: last_stack_hash,
             _timeout_config: timeout_config,
             _timeout_wrapper: timeout_wrapper,
@@ -738,6 +740,22 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
 
         // Snapshot current stack and increment refcounts
         let stack_handle = self.hotswap.table().get_current_stack_handle();
+        let current_generation = stack_handle.generation;
+
+        // Ensure KV cache coherence with current generation
+        // This will reset cache if generation changed since last inference
+        {
+            let mut kv_cache = self.kv_cache.lock().unwrap();
+            if let Ok(reset) = kv_cache.ensure_cache_coherence(current_generation) {
+                if reset {
+                    tracing::info!(
+                        old_generation = kv_cache.generation(),
+                        new_generation = current_generation,
+                        "KV cache reset due to adapter stack generation change"
+                    );
+                }
+            }
+        }
 
         // Increment refcounts for all active adapters (reuse table reference)
         let table = self.hotswap.table();
@@ -826,6 +844,9 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                         .record_step_latency(adapter_id, per_adapter_latency);
                 }
             }
+
+            // Re-seed generator for step-level determinism (enables replay)
+            self.generator.reseed_for_step(step);
 
             // Sample next token
             let next_token = self.generator.next_token(&io_buffers.output_logits)?;
@@ -1341,18 +1362,24 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                         }
                         Ok(false) => {
                             // No baseline exists yet - store this as the baseline
-                            kernels_lock.store_gpu_fingerprint(
+                            if let Err(e) = kernels_lock.store_gpu_fingerprint(
                                 *adapter_id_u16,
                                 buffer_size,
                                 &checkpoint_hash_hex,
-                            );
+                            ) {
+                                tracing::warn!(
+                                    adapter_id = %adapter_id,
+                                    error = %e,
+                                    "Failed to store GPU fingerprint baseline (non-fatal)"
+                                );
+                            } else {
+                                tracing::info!(
+                                    adapter_id = %adapter_id,
+                                    adapter_idx = adapter_id_u16,
+                                    "Stored initial GPU fingerprint baseline"
+                                );
+                            }
                             verified.push((*adapter_id_u16, adapter_id.clone()));
-
-                            tracing::info!(
-                                adapter_id = %adapter_id,
-                                adapter_idx = adapter_id_u16,
-                                "Stored initial GPU fingerprint baseline"
-                            );
                         }
                         Err(msg) => {
                             failed.push((
@@ -1480,8 +1507,8 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
     }
 
     /// Get reference to the KV cache
-    pub fn kv_cache(&self) -> &KvCache {
-        &self._kv_cache
+    pub fn kv_cache(&self) -> &Arc<StdMutex<KvCache>> {
+        &self.kv_cache
     }
 
     /// Get reference to the last stack hash
