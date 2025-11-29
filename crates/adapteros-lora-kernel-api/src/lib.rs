@@ -527,143 +527,83 @@ impl Default for MockKernels {
     }
 }
 
-/// Impl FusedKernels for Box<dyn FusedKernels> to enable dynamic dispatch
-impl FusedKernels for Box<dyn FusedKernels> {
-    fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
-        (**self).load(plan_bytes)
-    }
+/// Macro to implement FusedKernels for Box<dyn FusedKernels> variants
+/// Eliminates 138 lines of duplication between two nearly-identical impls
+macro_rules! impl_fused_kernels_for_box {
+    ($($bounds:tt)*) => {
+        impl FusedKernels for Box<dyn FusedKernels $($bounds)*> {
+            fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
+                (**self).load(plan_bytes)
+            }
 
-    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
-        (**self).run_step(ring, io)
-    }
+            fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+                (**self).run_step(ring, io)
+            }
 
-    fn device_name(&self) -> &str {
-        (**self).device_name()
-    }
+            fn device_name(&self) -> &str {
+                (**self).device_name()
+            }
 
-    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
-        (**self).attest_determinism()
-    }
+            fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+                (**self).attest_determinism()
+            }
 
-    fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
-        (**self).load_adapter(id, weights)
-    }
+            fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
+                (**self).load_adapter(id, weights)
+            }
 
-    fn unload_adapter(&mut self, id: u16) -> Result<()> {
-        (**self).unload_adapter(id)
-    }
+            fn unload_adapter(&mut self, id: u16) -> Result<()> {
+                (**self).unload_adapter(id)
+            }
 
-    fn verify_adapter_buffers(&self, id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
-        (**self).verify_adapter_buffers(id)
-    }
+            fn verify_adapter_buffers(&self, id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
+                (**self).verify_adapter_buffers(id)
+            }
 
-    fn store_gpu_fingerprint(
-        &mut self,
-        id: u16,
-        buffer_size: u64,
-        checkpoint_hash_hex: &str,
-    ) -> Result<()> {
-        (**self).store_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
-    }
+            fn store_gpu_fingerprint(
+                &mut self,
+                id: u16,
+                buffer_size: u64,
+                checkpoint_hash_hex: &str,
+            ) -> Result<()> {
+                (**self).store_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
+            }
 
-    fn verify_gpu_fingerprint(
-        &self,
-        id: u16,
-        buffer_size: u64,
-        checkpoint_hash_hex: &str,
-    ) -> Result<bool> {
-        (**self).verify_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
-    }
+            fn verify_gpu_fingerprint(
+                &self,
+                id: u16,
+                buffer_size: u64,
+                checkpoint_hash_hex: &str,
+            ) -> Result<bool> {
+                (**self).verify_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
+            }
 
-    fn check_memory_footprint(
-        &self,
-        id: u16,
-        buffer_size: u64,
-    ) -> (bool, f64, Option<(f64, f64, usize)>) {
-        (**self).check_memory_footprint(id, buffer_size)
-    }
+            fn check_memory_footprint(
+                &self,
+                id: u16,
+                buffer_size: u64,
+            ) -> (bool, f64, Option<(f64, f64, usize)>) {
+                (**self).check_memory_footprint(id, buffer_size)
+            }
 
-    fn get_metrics(&self) -> BackendMetrics {
-        (**self).get_metrics()
-    }
+            fn get_metrics(&self) -> BackendMetrics {
+                (**self).get_metrics()
+            }
 
-    fn health_check(&self) -> Result<BackendHealth> {
-        (**self).health_check()
-    }
+            fn health_check(&self) -> Result<BackendHealth> {
+                (**self).health_check()
+            }
 
-    fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
-        (**self).get_gpu_fingerprints()
-    }
+            fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
+                (**self).get_gpu_fingerprints()
+            }
+        }
+    };
 }
 
-/// Impl FusedKernels for Box<dyn FusedKernels + Send + Sync> to enable dynamic dispatch with explicit bounds
-impl FusedKernels for Box<dyn FusedKernels + Send + Sync> {
-    fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
-        (**self).load(plan_bytes)
-    }
-
-    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
-        (**self).run_step(ring, io)
-    }
-
-    fn device_name(&self) -> &str {
-        (**self).device_name()
-    }
-
-    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
-        (**self).attest_determinism()
-    }
-
-    fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
-        (**self).load_adapter(id, weights)
-    }
-
-    fn unload_adapter(&mut self, id: u16) -> Result<()> {
-        (**self).unload_adapter(id)
-    }
-
-    fn verify_adapter_buffers(&self, id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
-        (**self).verify_adapter_buffers(id)
-    }
-
-    fn store_gpu_fingerprint(
-        &mut self,
-        id: u16,
-        buffer_size: u64,
-        checkpoint_hash_hex: &str,
-    ) -> Result<()> {
-        (**self).store_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
-    }
-
-    fn verify_gpu_fingerprint(
-        &self,
-        id: u16,
-        buffer_size: u64,
-        checkpoint_hash_hex: &str,
-    ) -> Result<bool> {
-        (**self).verify_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
-    }
-
-    fn check_memory_footprint(
-        &self,
-        id: u16,
-        buffer_size: u64,
-    ) -> (bool, f64, Option<(f64, f64, usize)>) {
-        (**self).check_memory_footprint(id, buffer_size)
-    }
-
-    fn get_metrics(&self) -> BackendMetrics {
-        (**self).get_metrics()
-    }
-
-    fn health_check(&self) -> Result<BackendHealth> {
-        (**self).health_check()
-    }
-
-    fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
-        (**self).get_gpu_fingerprints()
-    }
-}
+// Apply macro for both Box variants
+impl_fused_kernels_for_box!();
+impl_fused_kernels_for_box!(+ Send + Sync);
 
 /// Trait for adapter lookup operations
 ///

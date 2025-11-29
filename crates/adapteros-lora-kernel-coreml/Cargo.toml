@@ -55,3 +55,4 @@ blake3 = { workspace = true }
 
 [dev-dependencies]
 adapteros-memory = { path = "../adapteros-memory" }
+adapteros-testing = { path = "../adapteros-testing" }

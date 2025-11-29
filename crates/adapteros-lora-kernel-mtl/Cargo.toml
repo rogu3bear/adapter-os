@@ -75,6 +75,7 @@ serde_json = { workspace = true }
 [dev-dependencies]
 bytemuck = { workspace = true }
 adapteros-memory = { path = "../adapteros-memory" }
+adapteros-testing = { path = "../adapteros-testing" }
 criterion = "0.5"
 
 # Metal kernel tests
