@@ -102,14 +102,6 @@ export type {
   QueryFn,
 } from "./types";
 
-// Main useDataTable hook with React Query integration
-export {
-  useDataTable,
-  useDataTableServer,
-  type UseDataTableOptions,
-  type UseDataTableServerOptions,
-} from "./useDataTable";
-
 // Legacy hooks for external use (backwards compatibility)
 export {
   usePagination,
@@ -117,41 +109,3 @@ export {
   useRowSelection,
   useSorting,
 } from "./hooks";
-
-// Supporting components
-export {
-  DataTableHeader,
-  type DataTableHeaderProps,
-} from "./DataTableHeader";
-
-export {
-  DataTableRow,
-  type DataTableRowProps,
-} from "./DataTableRow";
-
-export {
-  DataTableBody,
-  type DataTableBodyProps,
-} from "./DataTableBody";
-
-export {
-  DataTablePagination,
-  type DataTablePaginationProps,
-} from "./DataTablePagination";
-
-export {
-  DataTableToolbar,
-  type DataTableToolbarProps,
-  type FilterOption,
-  type BulkAction,
-  type ExportFormat,
-} from "./DataTableToolbar";
-
-export {
-  DataTableFilters,
-  FilterChip,
-  type DataTableFiltersProps,
-  type FilterDefinition,
-  type ActiveFilter,
-  type SavedFilterSet,
-} from "./DataTableFilters";

@@ -1,10 +1,11 @@
 import React from 'react';
-import { LucideIcon } from 'lucide-react';
+import { LucideIcon, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 import { cn } from '../../ui/utils';
 import { Breadcrumbs, BreadcrumbItemConfig } from './Breadcrumbs';
 import { ActionBar, ActionConfig } from './ActionBar';
-import { BackButton } from './BackButton';
+import { Button } from '../../ui/button';
 
 export interface PageHeaderProps {
   /** Page title */
@@ -77,8 +78,17 @@ export function PageHeader({
   children,
   sticky = false,
 }: PageHeaderProps) {
+  const navigate = useNavigate();
   const hasBreadcrumbs = showBreadcrumbs && breadcrumbs && breadcrumbs.length > 0;
   const hasActions = (actions && actions.length > 0) || (secondaryActions && secondaryActions.length > 0);
+
+  const handleBack = () => {
+    if (backPath) {
+      navigate(backPath);
+    } else {
+      navigate(-1);
+    }
+  };
 
   return (
     <header
@@ -98,11 +108,15 @@ export function PageHeader({
         {/* Left side: back button, icon, title, description */}
         <div className="flex items-start gap-3 min-w-0 flex-1">
           {showBackButton && (
-            <BackButton
-              path={backPath}
-              label={backLabel}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleBack}
               className="mt-1"
-            />
+            >
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              {backLabel ?? 'Back'}
+            </Button>
           )}
 
           <div className="min-w-0 flex-1">

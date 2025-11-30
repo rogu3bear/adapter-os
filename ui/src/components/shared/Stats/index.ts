@@ -43,70 +43,7 @@
  * <StatusBadge status="warning" label="High Load" />
  */
 
-// Stat Cards
-export {
-  StatCard,
-  CompactStatCard,
-  statCardVariants,
-  statValueVariants,
-  statLabelVariants,
-  type StatCardProps,
-  type CompactStatCardProps,
-} from "./StatCard";
-
-// Stat Grid Layouts
-export {
-  StatGrid,
-  StatRow,
-  StatSummary,
-  statGridVariants,
-  type StatItem,
-  type StatGridProps,
-  type StatRowProps,
-  type StatSummaryProps,
-} from "./StatGrid";
-
-// Progress Bars
-export {
-  ProgressBar,
-  SegmentedProgress,
-  progressBarVariants,
-  progressFillVariants,
-  type ProgressBarProps,
-  type SegmentedProgressProps,
-} from "./ProgressBar";
-
-// Trend Indicator
-export {
-  TrendIndicator,
-  trendIndicatorVariants,
-  type TrendIndicatorProps,
-} from "./TrendIndicator";
-
-// Charts
-export {
-  MetricChart,
-  BarChart,
-  AreaChart,
-  metricChartVariants,
-  type MetricChartProps,
-  type BarChartProps,
-  type AreaChartProps,
-} from "./MetricChart";
-
-// Usage Bars
-export {
-  UsageBar,
-  MultiUsageBar,
-  usageBarVariants,
-  usageBarTrackVariants,
-  usageFillVariants,
-  type UsageLevel,
-  type UsageBarProps,
-  type MultiUsageBarProps,
-} from "./UsageBar";
-
-// Status Indicators
+// Status Indicators (remaining after cleanup)
 export {
   StatusIndicator,
   StatusBadge,

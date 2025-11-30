@@ -29,21 +29,7 @@
  * </Button>
  */
 
-// Spinner components
-export {
-  LoadingSpinner,
-  spinnerVariants,
-  type LoadingSpinnerProps,
-} from "./LoadingSpinner";
-
-// Overlay components
-export {
-  LoadingOverlay,
-  overlayVariants,
-  type LoadingOverlayProps,
-} from "./LoadingOverlay";
-
-// Skeleton components
+// Skeleton components (primary loading patterns)
 export {
   Skeleton,
   SkeletonText,
@@ -58,32 +44,3 @@ export {
   CompactTableSkeleton,
   type TableSkeletonProps,
 } from "./TableSkeleton";
-
-// Card skeleton
-export {
-  CardSkeleton,
-  CardSkeletonGrid,
-  cardSkeletonVariants,
-  type CardSkeletonProps,
-  type CardSkeletonGridProps,
-} from "./CardSkeleton";
-
-// Page loader
-export {
-  PageLoader,
-  LogoLoader,
-  pageLoaderVariants,
-  type PageLoaderProps,
-  type LogoLoaderProps,
-} from "./PageLoader";
-
-// Inline loader
-export {
-  InlineLoader,
-  ButtonLoader,
-  DotsLoader,
-  inlineLoaderVariants,
-  type InlineLoaderProps,
-  type ButtonLoaderProps,
-  type DotsLoaderProps,
-} from "./InlineLoader";

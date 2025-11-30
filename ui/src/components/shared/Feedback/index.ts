@@ -20,12 +20,6 @@ export type { AlertBannerProps, AlertBannerVariant } from "./Alert";
 export { ErrorBoundary, withErrorBoundary } from "./ErrorBoundary";
 export type { ErrorBoundaryProps, ErrorBoundaryFallbackProps } from "./ErrorBoundary";
 
-export { ErrorDisplay, errorTemplates } from "./ErrorDisplay";
-export type { ErrorDisplayProps } from "./ErrorDisplay";
-
 // State display components
 export { EmptyState, emptyStateTemplates } from "./EmptyState";
 export type { EmptyStateProps, EmptyStateAction } from "./EmptyState";
-
-export { SuccessState, SuccessMessage, successTemplates } from "./SuccessState";
-export type { SuccessStateProps, SuccessMessageProps, SuccessAction } from "./SuccessState";

@@ -3,13 +3,25 @@
  *
  * Provides centralized exports for all utility functions.
  * Import pattern: import { logger, rbac } from '@/utils';
- *
- * NOTE: Some modules have naming collisions (e.g., formatDuration).
- * Import those directly from their source files when needed.
  */
 
 // Logging
 export { logger, toError } from './logger';
+
+// Formatting utilities (unified - replaces scattered implementations)
+export {
+  formatDuration,
+  formatDurationMs,
+  formatDurationSeconds,
+  formatBytes,
+  formatTimestamp,
+  formatRelativeTime,
+  formatPercent,
+  formatNumber,
+} from './format';
+
+// Adapter utilities
+export * from './adapters';
 
 // RBAC
 export * from './rbac';
@@ -29,10 +41,8 @@ export * from './doc-loader';
 // Error messages
 export * from './errorMessages';
 
-// History utilities - NOTE: formatDuration conflicts with trainingEta
-// Use import { formatDuration } from '@/utils/history-utils' for ms-based version
+// History utilities (formatTimestamp now from ./format)
 export {
-  formatTimestamp,
   getActionLabel,
   getResourceLabel,
   categorizeByTimePeriod,
@@ -63,11 +73,8 @@ export * from './visual-hierarchy';
 // Memory estimation
 export * from './memoryEstimation';
 
-// Training ETA - NOTE: formatDuration conflicts with history-utils
-export {
-  calculateTrainingETA,
-  formatDuration, // Using this version (seconds-based) as primary
-} from './trainingEta';
+// Training ETA (formatDuration now from ./format)
+export { calculateTrainingETA } from './trainingEta';
 
 // Peer sync
 export * from './peerSync';

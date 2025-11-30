@@ -95,32 +95,6 @@
 
 // Generic form field component (legacy, supports multiple types via `type` prop)
 export { FormField } from "./FormField";
-export { FormSection } from "./FormSection";
-export { FormActions } from "./FormActions";
-
-// Specialized form field components with react-hook-form integration
-export { SelectField } from "./SelectField";
-export type {
-  SelectFieldProps as SelectFieldComponentProps,
-  SelectOption as SelectFieldOption,
-  SelectOptionGroup,
-  SelectFieldOption as SelectFieldOptionType,
-} from "./SelectField";
-
-export { TextareaField } from "./TextareaField";
-export type { TextareaFieldProps as TextareaFieldComponentProps } from "./TextareaField";
-
-export { NumberField } from "./NumberField";
-export type { NumberFieldProps as NumberFieldComponentProps } from "./NumberField";
-
-export { SwitchField } from "./SwitchField";
-export type { SwitchFieldProps } from "./SwitchField";
-
-export { DateField } from "./DateField";
-export type { DateFieldProps } from "./DateField";
-
-export { FileField } from "./FileField";
-export type { FileFieldProps } from "./FileField";
 
 // Re-export types from types.ts (legacy types for FormField component)
 export type {
