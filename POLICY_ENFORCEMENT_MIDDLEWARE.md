@@ -369,8 +369,8 @@ fn test_determine_request_type() {
 
 #[test]
 fn test_is_blocking_severity() {
-    assert!(!is_blocking_severity(&ViolationSeverity::Info));
-    assert!(is_blocking_severity(&ViolationSeverity::Error));
+    assert!(!is_blocking_severity(&ViolationSeverity::Low));
+    assert!(is_blocking_severity(&ViolationSeverity::High));
 }
 ```
 

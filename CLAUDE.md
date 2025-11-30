@@ -116,7 +116,7 @@ See [docs/RBAC.md](docs/RBAC.md)
 
 | Category | Variables | Description |
 |----------|-----------|-------------|
-| MODEL | AOS_MODEL_PATH, AOS_MODEL_BACKEND | Base model configuration |
+| MODEL | AOS_MODEL_PATH, AOS_MODEL_BACKEND, AOS_MANIFEST_PATH, AOS_TOKENIZER_PATH | Base model configuration |
 | SERVER | AOS_SERVER_PORT, AOS_SERVER_HOST | Server binding |
 | DATABASE | AOS_DATABASE_URL, AOS_DATABASE_POOL_SIZE | SQLite/Postgres |
 | SECURITY | AOS_SECURITY_JWT_SECRET, AOS_SIGNING_KEY | Auth & signing |

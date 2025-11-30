@@ -21,9 +21,9 @@ pub struct Code2DbDatasetArgs {
     #[arg(long, default_value = "data/code_to_db_training.json")]
     pub output: PathBuf,
 
-    /// Qwen tokenizer path (tokenizer.json)
-    #[arg(long, default_value = "models/qwen2.5-7b-mlx/tokenizer.json")]
-    pub tokenizer: PathBuf,
+    /// Qwen tokenizer path (auto-discovered from AOS_TOKENIZER_PATH or model directory)
+    #[arg(long, env = "AOS_TOKENIZER_PATH")]
+    pub tokenizer: Option<PathBuf>,
 
     /// Context window for chunk pairs
     #[arg(long, default_value_t = 512)]
@@ -81,9 +81,10 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
         }
     }
 
-    // Load tokenizer
-    let tokenizer_path = &args.tokenizer;
-    let tokenizer = adapteros_lora_worker::tokenizer::QwenTokenizer::from_file(tokenizer_path)
+    // Resolve and load tokenizer
+    let tokenizer_path = adapteros_config::resolve_tokenizer_path(args.tokenizer.as_ref())
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let tokenizer = adapteros_lora_worker::tokenizer::QwenTokenizer::from_file(&tokenizer_path)
         .with_context(|| format!("Failed to load tokenizer at {}", tokenizer_path.display()))?;
 
     // Simple heuristics: build (input,target) from comments/instructions to code or migration content

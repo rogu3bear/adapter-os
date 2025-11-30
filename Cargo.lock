@@ -420,6 +420,7 @@ version = "0.1.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
+ "adapteros-storage",
  "adapteros-telemetry",
  "anyhow",
  "argon2",
@@ -1021,6 +1022,7 @@ name = "adapteros-orchestrator"
 version = "0.1.0"
 dependencies = [
  "adapteros-codegraph",
+ "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-db",
@@ -1405,6 +1407,28 @@ dependencies = [
  "tracing",
  "zip 0.6.6",
  "zstd 0.13.3",
+]
+
+[[package]]
+name = "adapteros-storage"
+version = "0.1.0"
+dependencies = [
+ "adapteros-core",
+ "adapteros-crypto",
+ "adapteros-telemetry",
+ "async-trait",
+ "bincode",
+ "chrono",
+ "glob",
+ "redb",
+ "regex",
+ "serde",
+ "serde_json",
+ "tantivy",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -7047,6 +7071,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "redb"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae323eb086579a3769daa2c753bb96deb95993c534711e0dbe881b5192906a06"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10449,6 +10482,7 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "adapteros-config",
  "adapteros-core",
  "adapteros-lora-worker",
  "adapteros-sbom",

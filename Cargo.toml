@@ -72,6 +72,7 @@ members = [
     "fuzz",
     "crates/adapteros-service-supervisor",
     "crates/adapteros-model-hub",  # Model discovery and download
+    "crates/adapteros-storage",  # Storage management and versioned records
 ]
 
 [workspace.package]

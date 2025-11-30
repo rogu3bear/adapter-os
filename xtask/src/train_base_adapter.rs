@@ -27,9 +27,9 @@ pub struct TrainBaseAdapterArgs {
     )]
     pub manifest: PathBuf,
 
-    /// Qwen tokenizer JSON file
-    #[arg(long, default_value = "models/qwen2.5-7b-mlx/tokenizer.json")]
-    pub tokenizer: PathBuf,
+    /// Qwen tokenizer JSON file (auto-discovered from AOS_TOKENIZER_PATH or model directory)
+    #[arg(long, env = "AOS_TOKENIZER_PATH")]
+    pub tokenizer: Option<PathBuf>,
 
     /// Output adapters directory
     #[arg(long, default_value = "adapters")]
@@ -113,9 +113,13 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         .try_init()
         .ok();
 
+    // Resolve tokenizer path
+    let tokenizer_path = adapteros_config::resolve_tokenizer_path(args.tokenizer.as_ref())
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
     info!("Starting base adapter training workflow");
     info!("  Manifest: {:?}", args.manifest);
-    info!("  Tokenizer: {:?}", args.tokenizer);
+    info!("  Tokenizer: {:?}", tokenizer_path);
     info!("  Output: {:?}/{}", args.output_dir, args.adapter_id);
     info!("  Format: {}", args.output_format);
     info!("  Rank: {}, Alpha: {}", args.rank, args.alpha);
@@ -132,9 +136,9 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
     );
 
     // Step 2: Initialize tokenizer
-    info!("Initializing QwenTokenizer from {:?}", args.tokenizer);
+    info!("Initializing QwenTokenizer from {:?}", tokenizer_path);
     let tokenizer =
-        QwenTokenizer::from_file(&args.tokenizer).context("Failed to initialize tokenizer")?;
+        QwenTokenizer::from_file(&tokenizer_path).context("Failed to initialize tokenizer")?;
     info!("Tokenizer initialized successfully");
 
     // Step 3: Load and tokenize training examples
