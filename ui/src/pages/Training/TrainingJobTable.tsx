@@ -27,6 +27,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { TrainingJob, TrainingStatus } from '@/api/training-types';
+import { formatDurationSeconds } from '@/utils/format';
 
 interface TrainingJobTableProps {
   jobs: TrainingJob[];
@@ -88,20 +89,7 @@ function StatusBadge({ status }: { status: TrainingStatus }) {
   );
 }
 
-function formatDuration(seconds?: number): string {
-  if (!seconds) return '-';
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  }
-  return `${secs}s`;
-}
+// formatDuration replaced by shared formatDurationSeconds from @/utils/format
 
 function formatDate(dateString?: string): string {
   if (!dateString) return '-';

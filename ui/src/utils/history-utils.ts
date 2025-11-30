@@ -9,32 +9,12 @@ import {
   ActionStats,
 } from '../types/history';
 
-/**
- * Format a timestamp to a human-readable string
- */
-export function formatTimestamp(timestamp: number, format: 'short' | 'long' = 'short'): string {
-  const date = new Date(timestamp);
+// Import and re-export formatting utilities from shared format module
+import { formatTimestamp as _formatTimestamp, formatDurationMs as _formatDurationMs } from './format';
 
-  if (format === 'short') {
-    return date.toLocaleTimeString();
-  }
-
-  return date.toLocaleString();
-}
-
-/**
- * Format duration in milliseconds to human-readable format
- */
-export function formatDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-  if (ms < 60000) {
-    return `${(ms / 1000).toFixed(2)}s`;
-  }
-  const minutes = ms / 60000;
-  return `${minutes.toFixed(2)}m`;
-}
+// Re-export with original names for backward compatibility
+export const formatTimestamp = _formatTimestamp;
+export const formatDuration = _formatDurationMs;
 
 /**
  * Get a readable label for action type

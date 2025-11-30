@@ -49,22 +49,7 @@ export function calculateTrainingETA(
   return Math.max(0, estimatedSeconds);
 }
 
-/**
- * Format duration in seconds to human-readable string
- */
-export function formatDuration(seconds: number | null | undefined): string {
-  if (!seconds || seconds <= 0) return '-';
-
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  }
-  return `${secs}s`;
-}
+// Re-export formatDurationSeconds as formatDuration for backward compatibility
+// Use formatDurationSeconds directly from @/utils/format for new code
+export { formatDurationSeconds as formatDuration } from './format';
 
