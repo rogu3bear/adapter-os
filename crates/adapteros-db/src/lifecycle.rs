@@ -398,7 +398,7 @@ mod tests {
             .create_if_missing(true);
         let pool = SqlitePool::connect_with(options).await.unwrap();
 
-        let db = Db { pool };
+        let db = Db::new(pool, None, crate::StorageMode::SqlOnly);
 
         assert_eq!(db.bump_version("1.0.0").unwrap(), "1.0.1");
         assert_eq!(db.bump_version("1.2.3").unwrap(), "1.2.4");

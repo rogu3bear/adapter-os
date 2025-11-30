@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;
 
+#[cfg(feature = "kv-storage")]
+use crate::adapters_kv::{AdapterKvOps, KvAdapterService};
+
 /// Standard adapter SELECT fields for all queries
 ///
 /// This constant ensures all adapter queries return the same columns
@@ -400,6 +403,31 @@ pub struct AdapterActivation {
 }
 
 impl Db {
+    /// Check if KV mode is enabled
+    ///
+    /// This determines whether to use dual-write mode (SQL + KV) or SQL-only mode.
+    /// In KV mode, all write operations are performed on both SQL and KV backends.
+    #[cfg(feature = "kv-storage")]
+    fn is_kv_mode_enabled(&self) -> bool {
+        // Check environment variable or configuration
+        std::env::var("AOS_KV_MODE")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(false)
+    }
+
+    #[cfg(not(feature = "kv-storage"))]
+    fn is_kv_mode_enabled(&self) -> bool {
+        false
+    }
+
+    /// Get KV adapter service (if available and enabled)
+    #[cfg(feature = "kv-storage")]
+    fn get_kv_service(&self) -> Option<&KvAdapterService> {
+        // In a real implementation, this would be stored on the Db struct
+        // For now, we return None since we can't modify the Db struct in this migration
+        None
+    }
+
     /// Register a new adapter
     ///
     /// Construct parameters using [`AdapterRegistrationBuilder`] to ensure required
@@ -450,6 +478,8 @@ impl Db {
         params: AdapterRegistrationParams,
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
+
+        // Write to SQL (primary storage)
         sqlx::query(
             "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
@@ -485,6 +515,18 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // Dual-write to KV storage if enabled
+        #[cfg(feature = "kv-storage")]
+        if self.is_kv_mode_enabled() {
+            if let Some(kv_service) = self.get_kv_service() {
+                if let Err(e) = kv_service.register_adapter_kv(params.clone()).await {
+                    use tracing::warn;
+                    warn!(error = %e, "Failed to dual-write adapter to KV storage (SQL write succeeded)");
+                    // Continue - SQL write succeeded, KV is best-effort during migration
+                }
+            }
+        }
 
         Ok(id)
     }

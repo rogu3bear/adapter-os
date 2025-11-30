@@ -16,6 +16,7 @@ use std::str::FromStr;
 pub mod postgres_backend;
 pub mod sqlite_backend;
 pub mod traits;
+pub mod kv_backend;
 
 // Re-export commonly used types
 pub use traits::{
@@ -23,21 +24,110 @@ pub use traits::{
     StackRecord,
 };
 
+// Re-export KV backend types
+pub use kv_backend::{KvBackend, KvDb, StorageError as KvStorageError};
+
 // PostgreSQL backend for production (legacy - to be deprecated)
 #[cfg(feature = "postgres")]
 pub mod postgres;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresDb;
 
+/// Storage mode for database operations
+///
+/// Defines how the database layer handles reads and writes when both
+/// SQL and KV backends are available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageMode {
+    /// Only use SQL backend (default, current behavior)
+    SqlOnly,
+    /// Write to both SQL and KV, read from SQL
+    /// Used during migration validation phase
+    DualWrite,
+    /// Write to both SQL and KV, read from KV
+    /// Used during migration cutover phase
+    KvPrimary,
+    /// Only use KV backend (full migration complete)
+    KvOnly,
+}
+
+impl Default for StorageMode {
+    fn default() -> Self {
+        StorageMode::SqlOnly
+    }
+}
+
+impl StorageMode {
+    /// Returns true if this mode reads from SQL backend
+    pub fn read_from_sql(self) -> bool {
+        matches!(self, StorageMode::SqlOnly | StorageMode::DualWrite)
+    }
+
+    /// Returns true if this mode reads from KV backend
+    pub fn read_from_kv(self) -> bool {
+        matches!(self, StorageMode::KvPrimary | StorageMode::KvOnly)
+    }
+
+    /// Returns true if this mode writes to SQL backend
+    pub fn write_to_sql(self) -> bool {
+        matches!(
+            self,
+            StorageMode::SqlOnly | StorageMode::DualWrite | StorageMode::KvPrimary
+        )
+    }
+
+    /// Returns true if this mode writes to KV backend
+    pub fn write_to_kv(self) -> bool {
+        matches!(
+            self,
+            StorageMode::DualWrite | StorageMode::KvPrimary | StorageMode::KvOnly
+        )
+    }
+
+    /// Returns true if this is the final KV-only mode (migration complete)
+    pub fn is_kv_only(self) -> bool {
+        matches!(self, StorageMode::KvOnly)
+    }
+
+    /// Returns true if dual-write is active (writing to both backends)
+    pub fn is_dual_write(self) -> bool {
+        matches!(self, StorageMode::DualWrite | StorageMode::KvPrimary)
+    }
+}
+
 /// Database connection pool and query methods (SQLite)
 ///
 /// For production deployments, use `PostgresDb` instead.
+/// Supports optional KV backend integration for migration scenarios.
 #[derive(Clone)]
 pub struct Db {
     pool: SqlitePool,
+    kv: Option<std::sync::Arc<KvDb>>,
+    storage_mode: StorageMode,
 }
 
 impl Db {
+    /// Create a new Db instance with the given components
+    ///
+    /// This is the primary constructor for creating a Db with custom configuration.
+    /// For simple SQLite connections, use `Db::connect()` or `Db::connect_env()` instead.
+    ///
+    /// # Arguments
+    /// * `pool` - SQLite connection pool
+    /// * `kv` - Optional KV backend for dual-write or KV-only modes
+    /// * `storage_mode` - Controls read/write behavior across backends
+    pub fn new(
+        pool: SqlitePool,
+        kv: Option<std::sync::Arc<KvDb>>,
+        storage_mode: StorageMode,
+    ) -> Self {
+        Self {
+            pool,
+            kv,
+            storage_mode,
+        }
+    }
+
     /// Connect to SQLite database with WAL mode
     ///
     /// Configuration:
@@ -62,7 +152,11 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;
 
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            kv: None,
+            storage_mode: StorageMode::SqlOnly,
+        })
     }
 
     /// Connect to SQLite database using DATABASE_URL environment variable
@@ -627,6 +721,54 @@ impl Db {
         &self.pool
     }
 
+    /// Get the current storage mode
+    pub fn storage_mode(&self) -> StorageMode {
+        self.storage_mode
+    }
+
+    /// Set the storage mode
+    ///
+    /// This allows transitioning between different storage modes during migration.
+    /// For example: SqlOnly -> DualWrite -> KvPrimary -> KvOnly
+    pub fn set_storage_mode(&mut self, mode: StorageMode) {
+        self.storage_mode = mode;
+    }
+
+    /// Attach a KV backend to this database instance
+    ///
+    /// This enables dual-write or KV-primary modes. The KV backend will be used
+    /// according to the current storage_mode setting.
+    pub fn attach_kv_backend(&mut self, kv: KvDb) {
+        self.kv = Some(std::sync::Arc::new(kv));
+    }
+
+    /// Initialize KV backend with redb at the given path
+    ///
+    /// This is a convenience method that creates a KvDb instance and attaches it.
+    pub fn init_kv_backend(&mut self, path: &std::path::Path) -> Result<()> {
+        let kv = KvDb::init_redb(path)?;
+        self.attach_kv_backend(kv);
+        Ok(())
+    }
+
+    /// Get a reference to the KV backend if attached
+    pub fn kv_backend(&self) -> Option<&std::sync::Arc<KvDb>> {
+        self.kv.as_ref()
+    }
+
+    /// Check if KV backend is available
+    pub fn has_kv_backend(&self) -> bool {
+        self.kv.is_some()
+    }
+
+    /// Detach the KV backend
+    ///
+    /// This removes the KV backend and resets storage mode to SqlOnly.
+    pub fn detach_kv_backend(&mut self) {
+        self.kv = None;
+        self.storage_mode = StorageMode::SqlOnly;
+    }
+
     /// Insert a new adapter stack
     pub async fn insert_stack(&self, req: &CreateStackRequest) -> Result<String> {
         let id = uuid::Uuid::new_v4().to_string();
@@ -915,7 +1057,10 @@ pub use adapter_record::{
     SchemaMetadata, SemanticNaming, TierConfig,
 };
 pub mod adapters;
+// TODO: Enable adapters_kv after fixing AdapterKv type mismatches with adapteros-storage
+// pub mod adapters_kv;
 pub use adapters::{Adapter, AdapterRegistrationBuilder, AdapterRegistrationParams};
+// pub use adapters_kv::AdapterKvOps;
 pub mod artifacts;
 pub mod audit;
 pub use audit::AuditLog;
@@ -979,7 +1124,13 @@ pub use promotions::{
     PromotionRequest, RecordApprovalParams, RecordGateParams,
 };
 pub mod tenants;
+// TODO: Enable tenants_kv after fixing TenantKv type issues (bincode dependency, impl outside crate)
+// pub mod tenants_kv;
+// TODO: Enable stacks_kv after fixing AdapterStackKv type mismatches
+// pub mod stacks_kv;
 pub use policy_hash::PolicyHashRecord;
+// pub use tenants_kv::TenantKvOps;
+// pub use stacks_kv::StackKvOps;
 pub mod process_monitoring;
 pub mod replay_sessions;
 pub mod repositories;
@@ -989,7 +1140,12 @@ pub mod routing_telemetry_bridge;
 pub use routing_telemetry_bridge::{event_to_decision, persist_router_decisions};
 pub mod telemetry_bundles;
 pub mod users;
+pub mod users_kv;
 pub use users::{Role, User};
+// Re-export users_kv types for dual-write operations
+pub use users_kv::{kv_to_user, user_to_kv, UserKeys, UserKvOps, UserKvStorage};
+// Re-export KV Role type with an alias to distinguish from SQL Role
+pub use users_kv::Role as KvRole;
 pub mod user_tenant_access;
 pub use user_tenant_access::{
     cleanup_expired_tenant_access, get_user_tenant_access, get_user_tenant_access_details,
