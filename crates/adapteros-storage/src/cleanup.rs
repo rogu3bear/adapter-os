@@ -19,6 +19,17 @@ pub struct CleanupManager {
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
+impl Clone for CleanupManager {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            root_path: self.root_path.clone(),
+            cleanup_task: None, // Cannot clone JoinHandle
+            shutdown_tx: None, // Cannot clone oneshot::Sender
+        }
+    }
+}
+
 impl CleanupManager {
     /// Create a new cleanup manager
     pub fn new(config: &StorageConfig, root_path: &Path) -> Result<Self> {
@@ -265,7 +276,7 @@ impl CleanupManager {
     ) -> Result<()> {
         Box::pin(async move {
             let mut entries = fs::read_dir(path).await.map_err(|e| {
-                AosError::Storage(format!(
+                AosError::Io(format!(
                     "Failed to read directory {}: {}",
                     path.display(),
                     e
@@ -275,13 +286,13 @@ impl CleanupManager {
             while let Some(entry) = entries
                 .next_entry()
                 .await
-                .map_err(|e| AosError::Storage(format!("Failed to read directory entry: {}", e)))?
+                .map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?
             {
                 let entry_path = entry.path();
 
                 if entry_path.is_file() {
                     let metadata = entry.metadata().await.map_err(|e| {
-                        AosError::Storage(format!(
+                        AosError::Io(format!(
                             "Failed to read file metadata {}: {}",
                             entry_path.display(),
                             e

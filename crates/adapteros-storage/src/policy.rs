@@ -96,7 +96,7 @@ pub enum StorageConditionType {
 }
 
 /// Storage operator
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StorageOperator {
     /// Equal to
     Equal,

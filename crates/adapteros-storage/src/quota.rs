@@ -13,6 +13,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
 /// Quota manager for enforcing disk space limits
+#[derive(Clone)]
 pub struct QuotaManager {
     config: StorageConfig,
     root_path: PathBuf,
@@ -55,7 +56,7 @@ impl QuotaManager {
         let total_needed = usage.used_bytes + reserved + file_size;
 
         if total_needed > self.config.max_disk_space_bytes {
-            return Err(AosError::Storage(format!(
+            return Err(AosError::Io(format!(
                 "Insufficient disk space: need {} bytes, available {} bytes (reserved: {} bytes)",
                 total_needed, self.config.max_disk_space_bytes, reserved
             )));
@@ -165,7 +166,7 @@ impl QuotaManager {
     /// Walk directory tree to calculate usage
     fn walk_directory(path: &Path, used_bytes: &mut u64, file_count: &mut u32) -> Result<()> {
         let entries = std::fs::read_dir(path).map_err(|e| {
-            AosError::Storage(format!(
+            AosError::Io(format!(
                 "Failed to read directory {}: {}",
                 path.display(),
                 e
@@ -174,12 +175,12 @@ impl QuotaManager {
 
         for entry in entries {
             let entry = entry
-                .map_err(|e| AosError::Storage(format!("Failed to read directory entry: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?;
             let entry_path = entry.path();
 
             if entry_path.is_file() {
                 let metadata = entry.metadata().map_err(|e| {
-                    AosError::Storage(format!(
+                    AosError::Io(format!(
                         "Failed to read file metadata {}: {}",
                         entry_path.display(),
                         e

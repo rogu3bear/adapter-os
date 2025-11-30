@@ -4,9 +4,31 @@
 //! for AdapterOS training and adapter storage.
 
 pub mod cleanup;
+pub mod entities;
+pub mod error;
+pub mod index;
+pub mod kv;
+pub mod migration;
+pub mod models;
 pub mod monitor;
 pub mod policy;
 pub mod quota;
+pub mod redb;
+pub mod repos;
+pub mod search;
+pub mod types;
+
+#[cfg(test)]
+mod tests;
+
+// Re-export commonly used types
+pub use error::StorageError;
+pub use index::{IndexDef, IndexManager as IndexMgr, KeyExtractor};
+pub use kv::{IndexManager as KvIndexManager, KvBackend};
+pub use migration::{MigrationError, MigrationReport, VerificationReport};
+pub use models::AdapterKv;
+pub use repos::{AdapterRepository, PaginatedResult};
+pub use types::{KeyBuilder, VersionedRecord, CURRENT_SCHEMA_VERSION};
 
 use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
@@ -124,6 +146,18 @@ pub struct StorageManager {
     cleanup_manager: cleanup::CleanupManager,
     monitor: monitor::StorageMonitor,
     key_provider: Option<Box<dyn adapteros_crypto::KeyProvider + Send + Sync>>,
+}
+
+impl Clone for StorageManager {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            quota_manager: self.quota_manager.clone(),
+            cleanup_manager: self.cleanup_manager.clone(),
+            monitor: self.monitor.clone(),
+            key_provider: None, // Cannot clone trait object
+        }
+    }
 }
 
 impl StorageManager {

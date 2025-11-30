@@ -1,0 +1,46 @@
+//! Quota management tests
+//!
+//! Tests for disk quota enforcement, space reservation, and usage calculation.
+
+use crate::quota::{QuotaManager, SpaceReservation};
+use crate::{StorageConfig, StorageUsage};
+use adapteros_core::Result;
+use std::fs;
+use std::time::{Duration, SystemTime};
+use tempfile::TempDir;
+
+#[tokio::test]
+async fn test_quota_manager_creation() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let config = StorageConfig {
+        max_disk_space_bytes: 1000,
+        max_files: 100,
+        ..Default::default()
+    };
+
+    let quota_manager = QuotaManager::new(&config, temp_dir.path())?;
+    assert!(
+        quota_manager.check_space(100).await.is_ok(),
+        "Should allow small allocation"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_space_reservation() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let config = StorageConfig {
+        max_disk_space_bytes: 1000,
+        max_files: 100,
+        ..Default::default()
+    };
+
+    let quota_manager = QuotaManager::new(&config, temp_dir.path())?;
+
+    // Test space reservation
+    let reservation = quota_manager.reserve_space(500).await?;
+    assert_eq!(reservation.size, 500);
+
+    Ok(())
+}

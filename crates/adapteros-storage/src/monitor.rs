@@ -22,6 +22,19 @@ pub struct StorageMonitor {
     last_alert_level: Arc<RwLock<Option<AlertLevel>>>,
 }
 
+impl Clone for StorageMonitor {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            root_path: self.root_path.clone(),
+            telemetry: self.telemetry.clone(),
+            monitoring_task: None, // Cannot clone JoinHandle
+            shutdown_tx: None, // Cannot clone oneshot::Sender
+            last_alert_level: Arc::clone(&self.last_alert_level),
+        }
+    }
+}
+
 /// Alert levels for storage monitoring
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlertLevel {
@@ -167,7 +180,7 @@ impl StorageMonitor {
 
         telemetry
             .log("storage_monitor", alert_data)
-            .map_err(|e| AosError::Storage(format!("Failed to send storage alert: {}", e)))?;
+            .map_err(|e| AosError::Telemetry(format!("Failed to send storage alert: {}", e)))?;
 
         match alert_level {
             AlertLevel::Warning => warn!("Storage usage warning: {:.1}%", usage.usage_pct),
@@ -192,7 +205,7 @@ impl StorageMonitor {
         telemetry
             .log("storage_monitor", recovery_data)
             .map_err(|e| {
-                AosError::Storage(format!("Failed to send storage recovery alert: {}", e))
+                AosError::Telemetry(format!("Failed to send storage recovery alert: {}", e))
             })?;
 
         info!("Storage usage recovered: {:.1}%", usage.usage_pct);
@@ -240,7 +253,7 @@ impl StorageMonitor {
     async fn walk_directory(path: &Path, used_bytes: &mut u64, file_count: &mut u32) -> Result<()> {
         Box::pin(async move {
             let mut entries = tokio::fs::read_dir(path).await.map_err(|e| {
-                AosError::Storage(format!(
+                AosError::Io(format!(
                     "Failed to read directory {}: {}",
                     path.display(),
                     e
@@ -250,13 +263,13 @@ impl StorageMonitor {
             while let Some(entry) = entries
                 .next_entry()
                 .await
-                .map_err(|e| AosError::Storage(format!("Failed to read directory entry: {}", e)))?
+                .map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?
             {
                 let entry_path = entry.path();
 
                 if entry_path.is_file() {
                     let metadata = entry.metadata().await.map_err(|e| {
-                        AosError::Storage(format!(
+                        AosError::Io(format!(
                             "Failed to read file metadata {}: {}",
                             entry_path.display(),
                             e
