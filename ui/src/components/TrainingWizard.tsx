@@ -22,6 +22,7 @@ import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle, File
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
+import { formatBytes } from '../utils/format';
 import { DensityProvider, useDensity } from '../contexts/DensityContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
@@ -43,16 +44,7 @@ const FILE_VALIDATION = {
   allowedExtensions: ['.pdf', '.txt', '.json', '.jsonl', '.csv', '.md', '.py', '.js', '.ts', '.tsx', '.jsx', '.rs', '.go', '.java'],
 };
 
-/**
- * Format bytes to human-readable string
- */
-function formatBytes(bytes?: number): string {
-  if (bytes === undefined || bytes === null) return '-';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
+// formatBytes imported from @/utils/format
 
 /**
  * Maps backend error codes to user-friendly messages
