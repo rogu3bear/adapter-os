@@ -99,29 +99,9 @@ impl KvAdapterService {
 // ============================================================================
 
 /// Convert SQL Adapter to KV AdapterKv
+/// Note: models::AdapterKv uses String timestamps and i32 for booleans
 impl From<Adapter> for AdapterKv {
     fn from(adapter: Adapter) -> Self {
-        // Parse JSON fields
-        let targets = serde_json::from_str::<Vec<String>>(&adapter.targets_json)
-            .unwrap_or_default();
-
-        let acl = adapter.acl_json
-            .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok());
-
-        let languages = adapter.languages_json
-            .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok());
-
-        // Parse timestamps
-        let parse_timestamp = |s: Option<String>| -> Option<DateTime<Utc>> {
-            s.and_then(|ts| DateTime::parse_from_rfc3339(&ts).ok())
-                .map(|dt| dt.with_timezone(&Utc))
-        };
-
-        let created_at = parse_timestamp(Some(adapter.created_at))
-            .unwrap_or_else(Utc::now);
-        let updated_at = parse_timestamp(Some(adapter.updated_at))
-            .unwrap_or_else(Utc::now);
-
         AdapterKv {
             id: adapter.id,
             tenant_id: adapter.tenant_id,
@@ -131,9 +111,9 @@ impl From<Adapter> for AdapterKv {
             rank: adapter.rank,
             alpha: adapter.alpha,
             tier: adapter.tier,
-            targets,
-            acl,
-            languages,
+            targets_json: adapter.targets_json,
+            acl_json: adapter.acl_json,
+            languages_json: adapter.languages_json,
             category: adapter.category,
             scope: adapter.scope,
             framework: adapter.framework,
@@ -143,7 +123,7 @@ impl From<Adapter> for AdapterKv {
             current_state: adapter.current_state,
             load_state: adapter.load_state,
             version: adapter.version,
-            active: adapter.active != 0,
+            active: adapter.active,
             adapter_name: adapter.adapter_name,
             tenant_namespace: adapter.tenant_namespace,
             domain: adapter.domain,
@@ -157,14 +137,14 @@ impl From<Adapter> for AdapterKv {
             intent: adapter.intent,
             memory_bytes: adapter.memory_bytes,
             activation_count: adapter.activation_count,
-            last_activated: parse_timestamp(adapter.last_activated),
-            last_loaded_at: parse_timestamp(adapter.last_loaded_at),
-            pinned: adapter.pinned != 0,
-            expires_at: parse_timestamp(adapter.expires_at),
+            last_activated: adapter.last_activated,
+            last_loaded_at: adapter.last_loaded_at,
+            pinned: adapter.pinned,
+            expires_at: adapter.expires_at,
             aos_file_path: adapter.aos_file_path,
             aos_file_hash: adapter.aos_file_hash,
-            created_at,
-            updated_at,
+            created_at: adapter.created_at,
+            updated_at: adapter.updated_at,
         }
     }
 }
@@ -172,21 +152,6 @@ impl From<Adapter> for AdapterKv {
 /// Convert KV AdapterKv to SQL Adapter
 impl From<AdapterKv> for Adapter {
     fn from(kv: AdapterKv) -> Self {
-        // Serialize JSON fields
-        let targets_json = serde_json::to_string(&kv.targets)
-            .unwrap_or_else(|_| "[]".to_string());
-
-        let acl_json = kv.acl
-            .and_then(|acl| serde_json::to_string(&acl).ok());
-
-        let languages_json = kv.languages
-            .and_then(|langs| serde_json::to_string(&langs).ok());
-
-        // Format timestamps as RFC3339
-        let format_timestamp = |dt: Option<DateTime<Utc>>| -> Option<String> {
-            dt.map(|t| t.to_rfc3339())
-        };
-
         Adapter {
             id: kv.id,
             tenant_id: kv.tenant_id,
@@ -195,12 +160,12 @@ impl From<AdapterKv> for Adapter {
             hash_b3: kv.hash_b3,
             rank: kv.rank,
             alpha: kv.alpha,
-            targets_json,
-            acl_json,
+            targets_json: kv.targets_json,
+            acl_json: kv.acl_json,
             adapter_id: kv.adapter_id,
-            languages_json,
+            languages_json: kv.languages_json,
             framework: kv.framework,
-            active: if kv.active { 1 } else { 0 },
+            active: kv.active,
             category: kv.category,
             scope: kv.scope,
             framework_id: kv.framework_id,
@@ -209,13 +174,13 @@ impl From<AdapterKv> for Adapter {
             commit_sha: kv.commit_sha,
             intent: kv.intent,
             current_state: kv.current_state,
-            pinned: if kv.pinned { 1 } else { 0 },
+            pinned: kv.pinned,
             memory_bytes: kv.memory_bytes,
-            last_activated: format_timestamp(kv.last_activated),
+            last_activated: kv.last_activated,
             activation_count: kv.activation_count,
-            expires_at: format_timestamp(kv.expires_at),
+            expires_at: kv.expires_at,
             load_state: kv.load_state,
-            last_loaded_at: format_timestamp(kv.last_loaded_at),
+            last_loaded_at: kv.last_loaded_at,
             aos_file_path: kv.aos_file_path,
             aos_file_hash: kv.aos_file_hash,
             adapter_name: kv.adapter_name,
@@ -226,8 +191,8 @@ impl From<AdapterKv> for Adapter {
             parent_id: kv.parent_id,
             fork_type: kv.fork_type,
             fork_reason: kv.fork_reason,
-            created_at: kv.created_at.to_rfc3339(),
-            updated_at: kv.updated_at.to_rfc3339(),
+            created_at: kv.created_at,
+            updated_at: kv.updated_at,
             version: kv.version,
             lifecycle_state: kv.lifecycle_state,
         }
@@ -242,8 +207,9 @@ impl From<AdapterKv> for Adapter {
 impl AdapterKvOps for KvAdapterService {
     async fn register_adapter_kv(&self, params: AdapterRegistrationParams) -> Result<String> {
         let id = uuid::Uuid::now_v7().to_string();
+        let now = Utc::now().to_rfc3339();
 
-        // Create KV adapter entity
+        // Create KV adapter entity (models::AdapterKv uses String timestamps and i32 for booleans)
         let adapter_kv = AdapterKv {
             id: id.clone(),
             tenant_id: params.tenant_id.clone(),
@@ -253,11 +219,9 @@ impl AdapterKvOps for KvAdapterService {
             rank: params.rank,
             alpha: params.alpha,
             tier: params.tier.clone(),
-            targets: serde_json::from_str(&params.targets_json).unwrap_or_default(),
-            acl: params.acl_json
-                .and_then(|json| serde_json::from_str(&json).ok()),
-            languages: params.languages_json
-                .and_then(|json| serde_json::from_str(&json).ok()),
+            targets_json: params.targets_json.clone(),
+            acl_json: params.acl_json.clone(),
+            languages_json: params.languages_json.clone(),
             category: params.category.clone(),
             scope: params.scope.clone(),
             framework: params.framework.clone(),
@@ -267,7 +231,7 @@ impl AdapterKvOps for KvAdapterService {
             current_state: "unloaded".to_string(),
             load_state: "cold".to_string(),
             version: "1.0.0".to_string(),
-            active: true,
+            active: 1,
             adapter_name: params.adapter_name.clone(),
             tenant_namespace: params.tenant_namespace.clone(),
             domain: params.domain.clone(),
@@ -283,14 +247,12 @@ impl AdapterKvOps for KvAdapterService {
             activation_count: 0,
             last_activated: None,
             last_loaded_at: None,
-            pinned: false,
-            expires_at: params.expires_at
-                .and_then(|ts| DateTime::parse_from_rfc3339(&ts).ok())
-                .map(|dt| dt.with_timezone(&Utc)),
+            pinned: 0,
+            expires_at: params.expires_at.clone(),
             aos_file_path: params.aos_file_path.clone(),
             aos_file_hash: params.aos_file_hash.clone(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: now.clone(),
+            updated_at: now,
         };
 
         self.repo.create(adapter_kv).await
@@ -344,7 +306,7 @@ impl AdapterKvOps for KvAdapterService {
 
         // Update state
         adapter_kv.current_state = state.to_string();
-        adapter_kv.updated_at = Utc::now();
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
 
         // Save
         self.repo.update(adapter_kv).await
@@ -364,7 +326,7 @@ impl AdapterKvOps for KvAdapterService {
 
         // Update memory
         adapter_kv.memory_bytes = memory_bytes;
-        adapter_kv.updated_at = Utc::now();
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
 
         // Save
         self.repo.update(adapter_kv).await
@@ -396,7 +358,7 @@ impl AdapterKvOps for KvAdapterService {
         // Update both fields
         adapter_kv.current_state = state.to_string();
         adapter_kv.memory_bytes = memory_bytes;
-        adapter_kv.updated_at = Utc::now();
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
 
         // Save atomically
         self.repo.update(adapter_kv).await
@@ -514,7 +476,7 @@ impl AdapterKvOps for KvAdapterService {
 
         // Update tier
         adapter_kv.tier = tier.to_string();
-        adapter_kv.updated_at = Utc::now();
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
 
         // Save
         self.repo.update(adapter_kv).await
@@ -575,16 +537,16 @@ mod tests {
             lifecycle_state: "active".to_string(),
         };
 
-        // Convert to KV
+        // Convert to KV (models::AdapterKv uses same types as SQL Adapter)
         let kv_adapter: AdapterKv = sql_adapter.clone().into();
 
-        // Verify key fields
+        // Verify key fields - models::AdapterKv uses i32 for active/pinned
         assert_eq!(kv_adapter.id, "adapter-1");
         assert_eq!(kv_adapter.name, "Test Adapter");
         assert_eq!(kv_adapter.tier, "warm");
-        assert_eq!(kv_adapter.targets, vec!["q_proj", "v_proj"]);
-        assert!(kv_adapter.active);
-        assert!(!kv_adapter.pinned);
+        assert_eq!(kv_adapter.targets_json, r#"["q_proj","v_proj"]"#);
+        assert_eq!(kv_adapter.active, 1);
+        assert_eq!(kv_adapter.pinned, 0);
 
         // Convert back to SQL
         let sql_adapter_2: Adapter = kv_adapter.into();
@@ -593,5 +555,6 @@ mod tests {
         assert_eq!(sql_adapter_2.id, sql_adapter.id);
         assert_eq!(sql_adapter_2.name, sql_adapter.name);
         assert_eq!(sql_adapter_2.tier, sql_adapter.tier);
+        assert_eq!(sql_adapter_2.targets_json, sql_adapter.targets_json);
     }
 }

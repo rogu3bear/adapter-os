@@ -305,11 +305,11 @@ impl StackKvOps for StackKvBackend {
             tenant_id: req.tenant_id.clone(),
             name: req.name.clone(),
             description: req.description.clone(),
-            version: old_stack.version,
+            version: old_stack.version.clone(),
             lifecycle_state: old_stack.lifecycle_state,
             adapter_ids: req.adapter_ids.clone(),
             workflow_type,
-            created_by: old_stack.created_by,
+            created_by: old_stack.created_by.clone(),
             created_at: old_stack.created_at,
             updated_at: Utc::now(),
         };

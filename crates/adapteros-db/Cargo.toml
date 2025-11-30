@@ -28,6 +28,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Additional
 tracing = { workspace = true }
 argon2 = "0.5"
+bincode = "1.3"
 rand = "0.8"
 rand_chacha = "0.3"  # For deterministic RNG per Determinism Policy
 async-trait = "0.1"

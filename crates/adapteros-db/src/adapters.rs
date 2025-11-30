@@ -11,13 +11,10 @@ use crate::adapters_kv::{AdapterKvOps, KvAdapterService};
 ///
 /// This constant ensures all adapter queries return the same columns
 /// in the same order, matching the Adapter struct field order.
-const ADAPTER_SELECT_FIELDS: &str =
-    "id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, \
-     languages_json, framework, category, scope, framework_id, framework_version, \
-     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, \
-     activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash, \
-     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, \
-     created_at, updated_at, active, version, lifecycle_state";
+use crate::constants::ADAPTER_COLUMNS;
+
+/// Alias for backwards compatibility
+const ADAPTER_SELECT_FIELDS: &str = ADAPTER_COLUMNS;
 
 /// Builder for creating adapter registration parameters
 #[derive(Debug, Default)]

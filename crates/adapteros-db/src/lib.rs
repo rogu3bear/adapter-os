@@ -11,6 +11,9 @@ use adapteros_core::{AosError, Result};
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
+// Query constants for SELECT column lists
+pub mod constants;
+
 // Database abstraction layer
 #[cfg(feature = "postgres")]
 pub mod postgres_backend;
@@ -1057,10 +1060,9 @@ pub use adapter_record::{
     SchemaMetadata, SemanticNaming, TierConfig,
 };
 pub mod adapters;
-// TODO: Enable adapters_kv after fixing AdapterKv type mismatches with adapteros-storage
-// pub mod adapters_kv;
+pub mod adapters_kv;
 pub use adapters::{Adapter, AdapterRegistrationBuilder, AdapterRegistrationParams};
-// pub use adapters_kv::AdapterKvOps;
+pub use adapters_kv::{AdapterKvOps, KvAdapterService};
 pub mod artifacts;
 pub mod audit;
 pub use audit::AuditLog;
@@ -1124,13 +1126,11 @@ pub use promotions::{
     PromotionRequest, RecordApprovalParams, RecordGateParams,
 };
 pub mod tenants;
-// TODO: Enable tenants_kv after fixing TenantKv type issues (bincode dependency, impl outside crate)
-// pub mod tenants_kv;
-// TODO: Enable stacks_kv after fixing AdapterStackKv type mismatches
-// pub mod stacks_kv;
+pub mod tenants_kv;
+pub mod stacks_kv;
 pub use policy_hash::PolicyHashRecord;
-// pub use tenants_kv::TenantKvOps;
-// pub use stacks_kv::StackKvOps;
+pub use tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
+pub use stacks_kv::{StackKvBackend, StackKvOps};
 pub mod process_monitoring;
 pub mod replay_sessions;
 pub mod repositories;

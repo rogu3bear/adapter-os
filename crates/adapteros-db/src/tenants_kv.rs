@@ -102,7 +102,7 @@ impl TenantKvRepository {
     async fn store_tenant(&self, tenant: &TenantKv) -> Result<()> {
         let key = Self::primary_key(&tenant.id);
         let value = bincode::serialize(tenant)
-            .map_err(|e| AosError::Serialization(e))?;
+            .map_err(|e| AosError::Database(format!("Failed to serialize tenant: {}", e)))?;
 
         self.backend
             .set(&key, value)
@@ -130,7 +130,7 @@ impl TenantKvRepository {
         };
 
         let tenant: TenantKv = bincode::deserialize(&bytes)
-            .map_err(|e| AosError::Serialization(e))?;
+            .map_err(|e| AosError::Database(format!("Failed to deserialize tenant: {}", e)))?;
 
         Ok(Some(tenant))
     }
@@ -510,23 +510,21 @@ impl From<TenantKv> for Tenant {
     }
 }
 
-impl TenantKv {
-    /// Create from CreateTenantParams with generated ID
-    pub fn from_params(params: &CreateTenantParams, id: &str) -> Self {
-        let now = Utc::now();
-        Self {
-            id: id.to_string(),
-            name: params.name.clone(),
-            itar_flag: params.itar_flag,
-            status: "active".to_string(),
-            default_stack_id: None,
-            max_adapters: None,
-            max_training_jobs: None,
-            max_storage_gb: None,
-            rate_limit_rpm: None,
-            created_at: now,
-            updated_at: now,
-        }
+/// Helper function to create TenantKv from CreateTenantParams
+fn tenant_kv_from_params(params: &CreateTenantParams, id: &str) -> TenantKv {
+    let now = Utc::now();
+    TenantKv {
+        id: id.to_string(),
+        name: params.name.clone(),
+        itar_flag: params.itar_flag,
+        status: "active".to_string(),
+        default_stack_id: None,
+        max_adapters: None,
+        max_training_jobs: None,
+        max_storage_gb: None,
+        rate_limit_rpm: None,
+        created_at: now,
+        updated_at: now,
     }
 }
 
@@ -592,7 +590,7 @@ mod tests {
             itar_flag: true,
         };
 
-        let tenant = TenantKv::from_params(&params, "test-id");
+        let tenant = tenant_kv_from_params(&params, "test-id");
 
         assert_eq!(tenant.id, "test-id");
         assert_eq!(tenant.name, "New Tenant");

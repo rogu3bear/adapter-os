@@ -1,5 +1,6 @@
 //! Training dataset database operations
 
+use crate::constants::TRAINING_DATASET_COLUMNS;
 use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::{AosError, Result};
@@ -137,12 +138,10 @@ impl Db {
     /// Get training dataset by ID
     pub async fn get_training_dataset(&self, dataset_id: &str) -> Result<Option<TrainingDataset>> {
         let dataset = sqlx::query_as::<_, TrainingDataset>(
-            "SELECT id, name, description, file_count, total_size_bytes, format, hash_b3,
-                    storage_path, validation_status, validation_errors, metadata_json,
-                    created_by, created_at, updated_at, dataset_type, purpose,
-                    source_location, collection_method, ownership, tenant_id
-             FROM training_datasets
-             WHERE id = ?",
+            &format!(
+                "SELECT {} FROM training_datasets WHERE id = ?",
+                TRAINING_DATASET_COLUMNS
+            ),
         )
         .bind(dataset_id)
         .fetch_optional(&*self.pool())
@@ -164,13 +163,10 @@ impl Db {
     )]
     pub async fn list_training_datasets(&self, limit: i64) -> Result<Vec<TrainingDataset>> {
         let datasets = sqlx::query_as::<_, TrainingDataset>(
-            "SELECT id, name, description, file_count, total_size_bytes, format, hash_b3,
-                    storage_path, validation_status, validation_errors, metadata_json,
-                    created_by, created_at, updated_at, dataset_type, purpose,
-                    source_location, collection_method, ownership, tenant_id
-             FROM training_datasets
-             ORDER BY created_at DESC
-             LIMIT ?",
+            &format!(
+                "SELECT {} FROM training_datasets ORDER BY created_at DESC LIMIT ?",
+                TRAINING_DATASET_COLUMNS
+            ),
         )
         .bind(limit)
         .fetch_all(&*self.pool())
@@ -196,14 +192,10 @@ impl Db {
         limit: i64,
     ) -> Result<Vec<TrainingDataset>> {
         let datasets = sqlx::query_as::<_, TrainingDataset>(
-            "SELECT id, name, description, file_count, total_size_bytes, format, hash_b3,
-                    storage_path, validation_status, validation_errors, metadata_json,
-                    created_by, created_at, updated_at, dataset_type, purpose,
-                    source_location, collection_method, ownership, tenant_id
-             FROM training_datasets
-             WHERE tenant_id = ?
-             ORDER BY created_at DESC
-             LIMIT ?",
+            &format!(
+                "SELECT {} FROM training_datasets WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ?",
+                TRAINING_DATASET_COLUMNS
+            ),
         )
         .bind(tenant_id)
         .bind(limit)
@@ -236,13 +228,10 @@ impl Db {
     /// Vector of all training datasets ordered by creation date (newest first)
     pub async fn list_all_training_datasets_system(&self, limit: i64) -> Result<Vec<TrainingDataset>> {
         let datasets = sqlx::query_as::<_, TrainingDataset>(
-            "SELECT id, name, description, file_count, total_size_bytes, format, hash_b3,
-                    storage_path, validation_status, validation_errors, metadata_json,
-                    created_by, created_at, updated_at, dataset_type, purpose,
-                    source_location, collection_method, ownership, tenant_id
-             FROM training_datasets
-             ORDER BY created_at DESC
-             LIMIT ?",
+            &format!(
+                "SELECT {} FROM training_datasets ORDER BY created_at DESC LIMIT ?",
+                TRAINING_DATASET_COLUMNS
+            ),
         )
         .bind(limit)
         .fetch_all(&*self.pool())
