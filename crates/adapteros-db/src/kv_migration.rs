@@ -1,7 +1,15 @@
 //! SQL-to-KV migration utilities
 //!
 //! This module provides tools for migrating adapter data from SQL to KV storage,
-//! including progress tracking, consistency verification, and discrepancy detection.
+//! including batch migration, progress tracking, consistency verification, and rollback.
+//!
+//! ## Features
+//!
+//! - **Batch Migration**: Migrate adapters in configurable batches for large datasets
+//! - **Tenant-Specific Migration**: Migrate adapters for a single tenant
+//! - **Progress Callbacks**: Track migration progress with custom callbacks
+//! - **Rollback Support**: Delete all KV data for re-migration scenarios
+//! - **Consistency Verification**: Compare SQL and KV data to detect discrepancies
 
 use crate::adapters::{Adapter, AdapterRegistrationParams};
 use crate::adapters_kv::{AdapterKvOps, AdapterKvRepository};
@@ -9,7 +17,7 @@ use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Migration progress statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +30,8 @@ pub struct MigrationStats {
     pub failed: usize,
     /// Number of adapters skipped (already in KV)
     pub skipped: usize,
+    /// List of adapter IDs that failed migration
+    pub failed_ids: Vec<String>,
 }
 
 impl Default for MigrationStats {
@@ -31,7 +41,50 @@ impl Default for MigrationStats {
             migrated: 0,
             failed: 0,
             skipped: 0,
+            failed_ids: Vec::new(),
         }
+    }
+}
+
+impl MigrationStats {
+    /// Check if migration was completely successful (no failures)
+    pub fn is_success(&self) -> bool {
+        self.failed == 0 && self.total > 0
+    }
+
+    /// Get success rate as percentage (migrated / total)
+    pub fn success_rate(&self) -> f64 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        (self.migrated as f64 / self.total as f64) * 100.0
+    }
+}
+
+/// Migration progress information for callbacks
+#[derive(Debug, Clone)]
+pub struct MigrationProgress {
+    /// Current adapter being migrated
+    pub current_adapter_id: String,
+    /// Number of adapters processed so far
+    pub processed: usize,
+    /// Total number of adapters to migrate
+    pub total: usize,
+    /// Current batch number (1-indexed)
+    pub batch: usize,
+    /// Whether this adapter succeeded
+    pub success: bool,
+    /// Error message if failed
+    pub error: Option<String>,
+}
+
+impl MigrationProgress {
+    /// Get progress percentage
+    pub fn percentage(&self) -> f64 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        (self.processed as f64 / self.total as f64) * 100.0
     }
 }
 

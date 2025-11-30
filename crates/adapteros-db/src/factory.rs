@@ -116,7 +116,7 @@ impl DbFactory {
     ) -> Result<KvDb> {
         // Get path or use default
         let kv_path = kv_path.ok_or_else(|| {
-            AosError::Configuration("KV path required for KV storage mode".to_string())
+            AosError::Config("KV path required for KV storage mode".to_string())
         })?;
 
         // Open redb backend using existing KvDb::init_redb
