@@ -10,8 +10,9 @@
 
 use adapteros_policy::policy_packs::{
     EnforcementLevel, PolicyContext, PolicyPackConfig, PolicyPackId, PolicyPackManager,
-    PolicyRequest, Priority, RequestType, ViolationSeverity,
+    PolicyRequest, Priority, RequestType,
 };
+use adapteros_policy::ViolationSeverity;
 use serde_json;
 
 /// Test all 20 policy packs integration
@@ -75,7 +76,7 @@ async fn test_egress_policy_pack(manager: &PolicyPackManager) {
             && v.message.contains("TCP/UDP connections are not allowed")
     });
     assert!(tcp_violation.is_some());
-    assert_eq!(tcp_violation.unwrap().severity, ViolationSeverity::Blocker);
+    assert_eq!(tcp_violation.unwrap().severity, ViolationSeverity::Critical);
 
     // Test DNS resolution attempt (should be blocked)
     let dns_request = PolicyRequest {
@@ -104,7 +105,7 @@ async fn test_egress_policy_pack(manager: &PolicyPackManager) {
                 .contains("DNS resolution requests are not allowed")
     });
     assert!(dns_violation.is_some());
-    assert_eq!(dns_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(dns_violation.unwrap().severity, ViolationSeverity::High);
 }
 
 /// Test Determinism Policy Pack (#2)
@@ -136,7 +137,7 @@ async fn test_determinism_policy_pack(manager: &PolicyPackManager) {
                 .contains("Runtime kernel compilation is not allowed")
     });
     assert!(kernel_violation.is_some());
-    assert_eq!(kernel_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(kernel_violation.unwrap().severity, ViolationSeverity::High);
 
     // Test non-HKDF RNG usage (should be blocked)
     let rng_request = PolicyRequest {
@@ -163,7 +164,7 @@ async fn test_determinism_policy_pack(manager: &PolicyPackManager) {
         v.policy_pack == "Determinism Ruleset" && v.message.contains("Non-HKDF RNG usage detected")
     });
     assert!(rng_violation.is_some());
-    assert_eq!(rng_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(rng_violation.unwrap().severity, ViolationSeverity::High);
 }
 
 /// Test Router Policy Pack (#3)
@@ -193,7 +194,7 @@ async fn test_router_policy_pack(manager: &PolicyPackManager) {
         v.policy_pack == "Router Ruleset" && v.message.contains("K-sparse value exceeds maximum")
     });
     assert!(k_violation.is_some());
-    assert_eq!(k_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(k_violation.unwrap().severity, ViolationSeverity::High);
 
     // Test non-Q15 gate quantization (should be blocked)
     let gate_request = PolicyRequest {
@@ -220,7 +221,7 @@ async fn test_router_policy_pack(manager: &PolicyPackManager) {
         v.policy_pack == "Router Ruleset" && v.message.contains("Gate quantization must be Q15")
     });
     assert!(gate_violation.is_some());
-    assert_eq!(gate_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(gate_violation.unwrap().severity, ViolationSeverity::High);
 }
 
 /// Test Evidence Policy Pack (#4)
@@ -254,7 +255,7 @@ async fn test_evidence_policy_pack(manager: &PolicyPackManager) {
     assert!(evidence_violation.is_some());
     assert_eq!(
         evidence_violation.unwrap().severity,
-        ViolationSeverity::Error
+        ViolationSeverity::High
     );
 }
 
@@ -290,7 +291,7 @@ async fn test_refusal_policy_pack(manager: &PolicyPackManager) {
     assert!(refusal_violation.is_some());
     assert_eq!(
         refusal_violation.unwrap().severity,
-        ViolationSeverity::Warning
+        ViolationSeverity::Medium
     );
 }
 
@@ -324,7 +325,7 @@ async fn test_numeric_units_policy_pack(manager: &PolicyPackManager) {
             && v.message.contains("Units are required for numeric values")
     });
     assert!(units_violation.is_some());
-    assert_eq!(units_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(units_violation.unwrap().severity, ViolationSeverity::High);
 }
 
 /// Test RAG Index Policy Pack (#7)
@@ -355,7 +356,7 @@ async fn test_rag_index_policy_pack(manager: &PolicyPackManager) {
         v.policy_pack == "RAG Index Ruleset" && v.message.contains("Cross-tenant access detected")
     });
     assert!(rag_violation.is_some());
-    assert_eq!(rag_violation.unwrap().severity, ViolationSeverity::Blocker);
+    assert_eq!(rag_violation.unwrap().severity, ViolationSeverity::Critical);
 }
 
 /// Test Isolation Policy Pack (#8)
@@ -388,7 +389,7 @@ async fn test_isolation_policy_pack(manager: &PolicyPackManager) {
     assert!(isolation_violation.is_some());
     assert_eq!(
         isolation_violation.unwrap().severity,
-        ViolationSeverity::Error
+        ViolationSeverity::High
     );
 }
 
@@ -422,7 +423,7 @@ async fn test_telemetry_policy_pack(manager: &PolicyPackManager) {
     assert!(telemetry_violation.is_some());
     assert_eq!(
         telemetry_violation.unwrap().severity,
-        ViolationSeverity::Warning
+        ViolationSeverity::Medium
     );
 }
 
@@ -485,7 +486,7 @@ async fn test_performance_policy_pack(manager: &PolicyPackManager) {
     assert!(performance_violation.is_some());
     assert_eq!(
         performance_violation.unwrap().severity,
-        ViolationSeverity::Error
+        ViolationSeverity::High
     );
 }
 
@@ -518,7 +519,7 @@ async fn test_memory_policy_pack(manager: &PolicyPackManager) {
                 .contains("Memory headroom below minimum threshold")
     });
     assert!(memory_violation.is_some());
-    assert_eq!(memory_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(memory_violation.unwrap().severity, ViolationSeverity::High);
 }
 
 /// Test Artifacts Policy Pack (#13)
@@ -553,7 +554,7 @@ async fn test_artifacts_policy_pack(manager: &PolicyPackManager) {
     assert!(artifacts_violation.is_some());
     assert_eq!(
         artifacts_violation.unwrap().severity,
-        ViolationSeverity::Blocker
+        ViolationSeverity::Critical
     );
 }
 
@@ -589,7 +590,7 @@ async fn test_secrets_policy_pack(manager: &PolicyPackManager) {
     assert!(secrets_violation.is_some());
     assert_eq!(
         secrets_violation.unwrap().severity,
-        ViolationSeverity::Blocker
+        ViolationSeverity::Critical
     );
 }
 
@@ -623,7 +624,7 @@ async fn test_build_release_policy_pack(manager: &PolicyPackManager) {
     assert!(build_violation.is_some());
     assert_eq!(
         build_violation.unwrap().severity,
-        ViolationSeverity::Blocker
+        ViolationSeverity::Critical
     );
 }
 
@@ -659,7 +660,7 @@ async fn test_compliance_policy_pack(manager: &PolicyPackManager) {
     assert!(compliance_violation.is_some());
     assert_eq!(
         compliance_violation.unwrap().severity,
-        ViolationSeverity::Error
+        ViolationSeverity::High
     );
 }
 
@@ -695,7 +696,7 @@ async fn test_incident_policy_pack(manager: &PolicyPackManager) {
     assert!(incident_violation.is_some());
     assert_eq!(
         incident_violation.unwrap().severity,
-        ViolationSeverity::Error
+        ViolationSeverity::High
     );
 }
 
@@ -726,7 +727,7 @@ async fn test_llm_output_policy_pack(manager: &PolicyPackManager) {
         v.policy_pack == "LLM Output Ruleset" && v.message.contains("Output format must be JSON")
     });
     assert!(output_violation.is_some());
-    assert_eq!(output_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(output_violation.unwrap().severity, ViolationSeverity::High);
 }
 
 /// Test Adapter Lifecycle Policy Pack (#19)
@@ -787,7 +788,7 @@ async fn test_full_pack_policy_pack(manager: &PolicyPackManager) {
         v.policy_pack == "Full Pack Example" && v.message.contains("Invalid policy schema version")
     });
     assert!(schema_violation.is_some());
-    assert_eq!(schema_violation.unwrap().severity, ViolationSeverity::Error);
+    assert_eq!(schema_violation.unwrap().severity, ViolationSeverity::High);
 }
 
 /// Test policy pack configuration management
@@ -933,7 +934,7 @@ async fn test_policy_pack_enforcement_levels() {
                         || result
                             .violations
                             .iter()
-                            .all(|v| matches!(v.severity, ViolationSeverity::Info))
+                            .all(|v| matches!(v.severity, ViolationSeverity::Low))
                 );
             }
             EnforcementLevel::Warning => {
@@ -946,7 +947,7 @@ async fn test_policy_pack_enforcement_levels() {
                         || result
                             .violations
                             .iter()
-                            .all(|v| matches!(v.severity, ViolationSeverity::Warning))
+                            .all(|v| matches!(v.severity, ViolationSeverity::Medium))
                 );
             }
             EnforcementLevel::Error => {
@@ -957,7 +958,7 @@ async fn test_policy_pack_enforcement_levels() {
                 let has_error_violations = result
                     .violations
                     .iter()
-                    .any(|v| matches!(v.severity, ViolationSeverity::Error));
+                    .any(|v| matches!(v.severity, ViolationSeverity::High));
                 let has_critical_violations = result
                     .violations
                     .iter()
@@ -965,7 +966,7 @@ async fn test_policy_pack_enforcement_levels() {
                 let has_blocker_violations = result
                     .violations
                     .iter()
-                    .any(|v| matches!(v.severity, ViolationSeverity::Blocker));
+                    .any(|v| matches!(v.severity, ViolationSeverity::Critical));
 
                 if has_error_violations || has_critical_violations || has_blocker_violations {
                     assert!(!result.valid);

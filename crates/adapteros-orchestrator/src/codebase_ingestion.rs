@@ -152,11 +152,7 @@ impl CodebaseIngestion {
         );
 
         // Load tokenizer and encode samples
-        let tokenizer_path = self
-            .config
-            .tokenizer_path
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json"));
+        let tokenizer_path = adapteros_config::resolve_tokenizer_path(self.config.tokenizer_path.as_ref())?;
         let tokenizer = QwenTokenizer::from_file(&tokenizer_path).map_err(|e| {
             AosError::Training(format!(
                 "Failed to load tokenizer {}: {}",

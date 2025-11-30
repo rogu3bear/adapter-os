@@ -69,6 +69,10 @@ pub mod training;
 pub mod tutorials;
 pub mod worker_detail;
 pub mod workspaces;
+pub mod utils;
+
+// Re-export utils for error handling
+use utils::aos_error_to_response;
 
 // Re-export adapter lifecycle and lineage handlers
 pub use adapters::*;
@@ -112,27 +116,6 @@ use serde::{Deserialize, Serialize};
 // use serde_json::json; // unused
 use std::collections::HashMap;
 use tracing::{error, info_span};
-
-/// Utility function to convert AosError to axum response format
-/// This ensures consistent error handling across all handlers
-fn aos_error_to_response(error: AosError) -> (StatusCode, Json<ErrorResponse>) {
-    let (status_code, error_code) = match &error {
-        AosError::Auth(_) => (StatusCode::UNAUTHORIZED, "AUTHENTICATION_ERROR"),
-        AosError::Authz(_) => (StatusCode::FORBIDDEN, "AUTHORIZATION_ERROR"),
-        AosError::Database(_) | AosError::Sqlx(_) | AosError::Sqlite(_) => {
-            (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR")
-        }
-        AosError::NotFound(_) => (StatusCode::NOT_FOUND, "NOT_FOUND"),
-        AosError::Validation(_) => (StatusCode::BAD_REQUEST, "VALIDATION_ERROR"),
-        AosError::PolicyViolation(_) => (StatusCode::FORBIDDEN, "POLICY_VIOLATION"),
-        _ => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
-    };
-
-    (
-        status_code,
-        Json(ErrorResponse::new(error.to_string()).with_code(error_code)),
-    )
-}
 
 /// Upsert a synthetic directory adapter and optionally activate it.
 ///

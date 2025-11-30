@@ -44,13 +44,13 @@ struct Args {
     #[arg(long, default_value = "manifests/qwen7b.yaml")]
     manifest: PathBuf,
 
-    /// Path to model directory (containing model.safetensors)
-    #[arg(long, default_value = "models/qwen2.5-7b-mlx")]
-    model_path: PathBuf,
+    /// Path to model directory (auto-discovered from AOS_MODEL_PATH)
+    #[arg(long, env = "AOS_MODEL_PATH")]
+    model_path: Option<PathBuf>,
 
-    /// Path to tokenizer JSON file
-    #[arg(long, default_value = "models/qwen2.5-7b-mlx/tokenizer.json")]
-    tokenizer: PathBuf,
+    /// Path to tokenizer JSON file (auto-discovered from AOS_TOKENIZER_PATH or model directory)
+    #[arg(long, env = "AOS_TOKENIZER_PATH")]
+    tokenizer: Option<PathBuf>,
 
     /// Backend choice (auto, metal, coreml, mlx)
     #[arg(long, default_value = "auto")]
@@ -99,13 +99,13 @@ async fn main() -> Result<()> {
         )));
     }
 
-    if !args.tokenizer.exists() {
-        error!(path = %args.tokenizer.display(), "Tokenizer file not found");
-        return Err(adapteros_core::AosError::Validation(format!(
-            "Tokenizer file not found: {}",
-            args.tokenizer.display()
-        )));
-    }
+    // Resolve model and tokenizer paths
+    let model_path = match &args.model_path {
+        Some(path) => path.clone(),
+        None => adapteros_config::get_model_path_with_fallback()?,
+    };
+
+    let tokenizer_path = adapteros_config::resolve_tokenizer_path(args.tokenizer.as_ref())?;
 
     // Load manifest
     info!(path = %args.manifest.display(), "Loading manifest");
@@ -136,7 +136,7 @@ async fn main() -> Result<()> {
 
     // Create kernel backend
     info!(backend = %args.backend, "Creating kernel backend");
-    let kernels = create_backend_with_model(backend_choice, &args.model_path)?;
+    let kernels = create_backend_with_model(backend_choice, &model_path)?;
 
     // Create telemetry writer - use env var or temp directory
     let telemetry_dir = std::env::var("AOS_TELEMETRY_DIR")
@@ -152,8 +152,8 @@ async fn main() -> Result<()> {
         manifest,
         kernels,
         None, // No RAG system for now
-        args.tokenizer.to_str().unwrap_or(""),
-        args.model_path.to_str().unwrap_or(""),
+        tokenizer_path.to_str().unwrap_or(""),
+        model_path.to_str().unwrap_or(""),
         telemetry,
     )
     .await?;

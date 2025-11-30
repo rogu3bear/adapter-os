@@ -129,7 +129,7 @@ struct Cli {
     #[arg(
         long,
         env = "AOS_MANIFEST_PATH",
-        default_value = "models/qwen2.5-7b-mlx/manifest.json"
+        default_value = "./models/qwen2.5-7b-mlx/manifest.json"
     )]
     manifest_path: PathBuf,
 }
@@ -1040,7 +1040,7 @@ async fn main() -> Result<()> {
         use std::path::Path;
 
         let embedding_model_path = std::env::var("AOS_EMBEDDING_MODEL_PATH")
-            .unwrap_or_else(|_| "models/bge-small-en-v1.5".to_string());
+            .unwrap_or_else(|_| "./models/bge-small-en-v1.5".to_string());
 
         let tokenizer_path = format!("{}/tokenizer.json", embedding_model_path);
 

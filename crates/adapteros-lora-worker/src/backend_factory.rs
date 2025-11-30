@@ -11,7 +11,10 @@ use tracing::{debug, info, warn};
 
 /// Backend choice for kernel creation
 ///
-/// This enum is simplified to not include model paths in variants.
+/// This enum mirrors `BackendPreference` from `adapteros-config` and provides
+/// bidirectional conversion. New code should prefer using `BackendPreference`
+/// directly when possible.
+///
 /// Use `create_backend_with_model` or `create_backend_from_config` when a model path is required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendChoice {
@@ -23,6 +26,28 @@ pub enum BackendChoice {
     Mlx,
     /// Automatic selection based on capabilities (CoreML -> Metal -> MLX fallback)
     Auto,
+}
+
+impl From<BackendPreference> for BackendChoice {
+    fn from(pref: BackendPreference) -> Self {
+        match pref {
+            BackendPreference::Auto => BackendChoice::Auto,
+            BackendPreference::CoreML => BackendChoice::CoreML,
+            BackendPreference::Metal => BackendChoice::Metal,
+            BackendPreference::Mlx => BackendChoice::Mlx,
+        }
+    }
+}
+
+impl From<BackendChoice> for BackendPreference {
+    fn from(choice: BackendChoice) -> Self {
+        match choice {
+            BackendChoice::Auto => BackendPreference::Auto,
+            BackendChoice::CoreML => BackendPreference::CoreML,
+            BackendChoice::Metal => BackendPreference::Metal,
+            BackendChoice::Mlx => BackendPreference::Mlx,
+        }
+    }
 }
 
 /// Backend strategy for automatic selection

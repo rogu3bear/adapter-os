@@ -22,9 +22,8 @@ use crate::auth::Claims;
 use crate::middleware::request_id::RequestId;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
-use adapteros_policy::policy_packs::{
-    PolicyContext, PolicyRequest, PolicyViolation, Priority, RequestType, ViolationSeverity,
-};
+use adapteros_policy::policy_packs::{PolicyContext, PolicyRequest, Priority, RequestType};
+use adapteros_policy::{PolicyViolation, ViolationSeverity};
 use axum::{
     extract::{Request, State},
     http::StatusCode,
@@ -252,34 +251,34 @@ fn determine_priority(request_type: &RequestType, claims: Option<&Claims>) -> Pr
 fn is_blocking_severity(severity: &ViolationSeverity) -> bool {
     matches!(
         severity,
-        ViolationSeverity::Error | ViolationSeverity::Critical | ViolationSeverity::Blocker
+        ViolationSeverity::High | ViolationSeverity::Critical
     )
 }
 
 /// Log a policy violation with appropriate severity
 fn log_violation(request_id: &str, operation: &str, violation: &PolicyViolation) {
     match violation.severity {
-        ViolationSeverity::Info => {
+        ViolationSeverity::Low => {
             info!(
                 request_id = %request_id,
                 operation = %operation,
                 policy_pack = %violation.policy_pack,
                 violation_id = %violation.violation_id,
                 message = %violation.message,
-                "Policy violation (Info)"
+                "Policy violation (Low)"
             );
         }
-        ViolationSeverity::Warning => {
+        ViolationSeverity::Medium => {
             warn!(
                 request_id = %request_id,
                 operation = %operation,
                 policy_pack = %violation.policy_pack,
                 violation_id = %violation.violation_id,
                 message = %violation.message,
-                "Policy violation (Warning)"
+                "Policy violation (Medium)"
             );
         }
-        ViolationSeverity::Error => {
+        ViolationSeverity::High => {
             error!(
                 request_id = %request_id,
                 operation = %operation,
@@ -287,7 +286,7 @@ fn log_violation(request_id: &str, operation: &str, violation: &PolicyViolation)
                 violation_id = %violation.violation_id,
                 message = %violation.message,
                 remediation = ?violation.remediation,
-                "Policy violation (Error)"
+                "Policy violation (High)"
             );
         }
         ViolationSeverity::Critical => {
@@ -299,17 +298,6 @@ fn log_violation(request_id: &str, operation: &str, violation: &PolicyViolation)
                 message = %violation.message,
                 remediation = ?violation.remediation,
                 "Policy violation (Critical)"
-            );
-        }
-        ViolationSeverity::Blocker => {
-            error!(
-                request_id = %request_id,
-                operation = %operation,
-                policy_pack = %violation.policy_pack,
-                violation_id = %violation.violation_id,
-                message = %violation.message,
-                remediation = ?violation.remediation,
-                "Policy violation (Blocker)"
             );
         }
     }
@@ -341,11 +329,10 @@ mod tests {
 
     #[test]
     fn test_is_blocking_severity() {
-        assert!(!is_blocking_severity(&ViolationSeverity::Info));
-        assert!(!is_blocking_severity(&ViolationSeverity::Warning));
-        assert!(is_blocking_severity(&ViolationSeverity::Error));
+        assert!(!is_blocking_severity(&ViolationSeverity::Low));
+        assert!(!is_blocking_severity(&ViolationSeverity::Medium));
+        assert!(is_blocking_severity(&ViolationSeverity::High));
         assert!(is_blocking_severity(&ViolationSeverity::Critical));
-        assert!(is_blocking_severity(&ViolationSeverity::Blocker));
     }
 
     #[test]
