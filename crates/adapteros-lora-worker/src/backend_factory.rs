@@ -299,8 +299,21 @@ pub fn create_backend_with_model(
         BackendChoice::Metal => {
             #[cfg(target_os = "macos")]
             {
-                use adapteros_lora_kernel_mtl::MetalKernels;
+                use adapteros_lora_kernel_mtl::{GqaConfig, MetalKernels};
                 info!(model_path = %model_path.display(), "Creating Metal kernel backend");
+
+                // Load model configuration from config.json if available
+                let model_config = ModelConfig::from_config_json(model_path).ok();
+                if let Some(ref cfg) = model_config {
+                    info!(
+                        architecture = %cfg.architecture,
+                        hidden_size = cfg.hidden_size,
+                        num_attention_heads = cfg.num_attention_heads,
+                        num_kv_heads = cfg.num_key_value_heads,
+                        rope_theta = cfg.rope_theta,
+                        "Loaded model configuration from config.json"
+                    );
+                }
 
                 // Find and load model weights
                 let model_bytes = load_model_bytes(model_path)?;
@@ -309,8 +322,21 @@ pub fn create_backend_with_model(
                     "Loaded model weights for Metal backend"
                 );
 
-                // Create and initialize Metal backend
+                // Create Metal backend
                 let mut kernels = MetalKernels::new()?;
+
+                // Set GQA config from model config if available
+                if let Some(cfg) = model_config {
+                    let gqa_config = GqaConfig::from_params(
+                        cfg.num_attention_heads,
+                        cfg.num_key_value_heads,
+                        cfg.hidden_size,
+                        cfg.rope_theta,
+                    );
+                    kernels.set_gqa_config(gqa_config);
+                }
+
+                // Initialize with model weights
                 kernels.load(&model_bytes)?;
                 info!("Metal kernel backend initialized successfully");
 

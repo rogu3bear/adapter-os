@@ -113,7 +113,7 @@ The dev server runs on http://localhost:3200 and proxies API requests to the bac
 - Build backend: `make build-mlx` (features: `multi-backend,real-mlx`).
 - Test/bench: `make test-mlx` / `make bench-mlx`.
 - Model: `./scripts/download_model.sh --format mlx --size 7b --quantized`; then `export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx`.
-- More detail: `MLX_INSTALLATION_GUIDE.md`, `MLX_INTEGRATION.md`.
+- More detail: `docs/MLX_INSTALLATION_GUIDE.md`, `docs/MLX_INTEGRATION.md`.
 
 ### Environment Variables
 

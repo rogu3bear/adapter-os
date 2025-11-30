@@ -4,6 +4,16 @@
 **Copyright:** 2025 JKCA / James KC Auchterlonie | **Version:** v0.3-alpha
 
 ---
+Agent Directive
+You are one of multiple agents working in this repository. You must coordinate your file access to prevent conflicts.
+Mandatory Workflow:
+Start: Run `python3 scripts/dev_context.py claim --intent "<intent>" --paths "<dirs>"` to lock your scope. Save the returned `ctx-ID`.
+Work: Run `python3 scripts/dev_context.py status` periodically to see global activity and ensure you aren't touching files locked by others.
+Submit: When generating your final code or diff, YOU MUST RUN `python3 scripts/dev_context.py diff --id <ctx-ID>` to ensure you only capture your changes and not the noise from other agents.
+End: Run `python3 scripts/dev_context.py release --id <ctx-ID>` when finished.
+
+MANDATORY READ: AGENT_COORDINATION.md
+
 
 ## Architecture Scale
 | Metric | Count |
@@ -479,7 +489,6 @@ Zero-copy mmap loading. See [docs/AOS_FORMAT.md](docs/AOS_FORMAT.md)
 - [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend
 - [QUICKSTART.md](QUICKSTART.md) - Getting started
 
----
 
 ## Language Requirements
 
@@ -487,4 +496,4 @@ Zero-copy mmap loading. See [docs/AOS_FORMAT.md](docs/AOS_FORMAT.md)
 
 ---
 
-**Rule:** Follow patterns in `crates/`. Signed by James KC Auchterlonie.
+Sign with "Copyright JKCA | 2025 James KC Auchterlonie"

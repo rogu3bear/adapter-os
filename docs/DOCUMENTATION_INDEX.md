@@ -341,7 +341,7 @@ Implementation reports, deliverables, and quick-start guides at project root.
 | **GPU Training Quick Start** | [../QUICKSTART_GPU_TRAINING.md](../QUICKSTART_GPU_TRAINING.md) | GPU training guide |
 | **K-Reduction Quick Start** | [../K_REDUCTION_QUICK_START.md](../K_REDUCTION_QUICK_START.md) | K-reduction guide |
 | **Token Sampling Quick Ref** | [../TOKEN_SAMPLING_QUICK_REFERENCE.md](../TOKEN_SAMPLING_QUICK_REFERENCE.md) | Token sampling |
-| **Training Metrics Quick Start** | [../TRAINING_METRICS_QUICK_START.md](../TRAINING_METRICS_QUICK_START.md) | Training metrics |
+| **Training Metrics Quick Start** | [TRAINING_METRICS_QUICK_START.md](TRAINING_METRICS_QUICK_START.md) | Training metrics |
 | **Azure KMS Quick Ref** | [../AZURE_KMS_QUICK_REFERENCE.md](../AZURE_KMS_QUICK_REFERENCE.md) | Azure KMS |
 
 ### Implementation Summaries

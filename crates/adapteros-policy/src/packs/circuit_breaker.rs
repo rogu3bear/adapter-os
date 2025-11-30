@@ -3,6 +3,7 @@
 //! Defines service-specific circuit breaker configurations and thresholds.
 //! Provides default configurations for critical services like database, network, and inference.
 
+use crate::registry::{Audit, Policy, PolicyContext, PolicyId, Severity};
 use adapteros_core::{CircuitBreakerConfig, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -150,6 +151,26 @@ impl CircuitBreakerPolicy {
         }
 
         Ok(())
+    }
+}
+
+impl Policy for CircuitBreakerPolicy {
+    fn id(&self) -> PolicyId {
+        PolicyId::CircuitBreaker
+    }
+
+    fn name(&self) -> &'static str {
+        "Circuit Breaker Policy"
+    }
+
+    fn severity(&self) -> Severity {
+        Severity::High
+    }
+
+    fn enforce(&self, _ctx: &dyn PolicyContext) -> Result<Audit> {
+        // Validate the circuit breaker configuration
+        self.validate()?;
+        Ok(Audit::passed(PolicyId::CircuitBreaker))
     }
 }
 

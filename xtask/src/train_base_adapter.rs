@@ -113,7 +113,7 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         .try_init()
         .ok();
 
-    // Resolve tokenizer path
+    // Resolve tokenizer via canonical discovery (CLI arg > AOS_TOKENIZER_PATH > AOS_MODEL_PATH/tokenizer.json)
     let tokenizer_path = adapteros_config::resolve_tokenizer_path(args.tokenizer.as_ref())
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 

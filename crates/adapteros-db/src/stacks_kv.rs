@@ -58,11 +58,11 @@ pub trait StackKvOps: Send + Sync {
 }
 
 /// KV backend implementation for stack operations
-pub struct StackKvBackend {
+pub struct StackKvRepository {
     backend: Arc<dyn KvBackend>,
 }
 
-impl StackKvBackend {
+impl StackKvRepository {
     /// Create a new stack KV backend
     pub fn new(backend: Arc<dyn KvBackend>) -> Self {
         Self { backend }
@@ -215,7 +215,7 @@ impl StackKvBackend {
 }
 
 #[async_trait]
-impl StackKvOps for StackKvBackend {
+impl StackKvOps for StackKvRepository {
     async fn create_stack(&self, req: &CreateStackRequest) -> Result<String> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
@@ -643,19 +643,19 @@ mod tests {
 
     #[test]
     fn test_primary_key_format() {
-        let key = StackKvBackend::primary_key("tenant-1", "stack-1");
+        let key = StackKvRepository::primary_key("tenant-1", "stack-1");
         assert_eq!(key, "tenant/tenant-1/stack/stack-1");
     }
 
     #[test]
     fn test_name_index_key_format() {
-        let key = StackKvBackend::name_index_key("tenant-1", "my-stack");
+        let key = StackKvRepository::name_index_key("tenant-1", "my-stack");
         assert_eq!(key, "tenant/tenant-1/stack-by-name/my-stack");
     }
 
     #[test]
     fn test_state_index_key_format() {
-        let key = StackKvBackend::state_index_key("tenant-1", "active");
+        let key = StackKvRepository::state_index_key("tenant-1", "active");
         assert_eq!(key, "tenant/tenant-1/stacks-by-state/active");
     }
 }

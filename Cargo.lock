@@ -731,6 +731,7 @@ dependencies = [
  "adapteros-deterministic-exec",
  "adapteros-lora-kernel-api",
  "anyhow",
+ "arc-swap",
  "bindgen",
  "cc",
  "core-foundation 0.9.4",

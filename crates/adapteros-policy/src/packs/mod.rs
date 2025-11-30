@@ -1,9 +1,10 @@
-//! Policy Packs - Complete implementation of all 22 policy packs
+//! Policy Packs - Complete implementation of all 25 policy packs
 //!
 //! This module contains the complete implementation of all policy packs
 //! for AdapterOS, including configuration, validation, and enforcement logic.
 
 pub mod adapters;
+pub mod circuit_breaker;
 pub mod artifacts;
 pub mod build_release;
 pub mod compliance;
@@ -102,6 +103,7 @@ pub use telemetry::{
     TelemetryPolicy,
 };
 pub use version_matcher::{CpeVersionMatcher, OsvVersionRange, Version, VersionRange};
+pub use circuit_breaker::CircuitBreakerPolicy;
 
 /// Policy pack factory for creating policy instances
 pub struct PolicyPackFactory;
@@ -220,6 +222,11 @@ impl PolicyPackFactory {
     /// Create a dependency security policy with default configuration
     pub fn create_dependency_security_policy() -> DependencySecurityPolicy {
         DependencySecurityPolicy::new(DependencySecurityConfig::default())
+    }
+
+    /// Create a circuit breaker policy with default configuration
+    pub fn create_circuit_breaker_policy() -> CircuitBreakerPolicy {
+        CircuitBreakerPolicy::default()
     }
 }
 

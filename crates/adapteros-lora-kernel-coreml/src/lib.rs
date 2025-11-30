@@ -23,7 +23,7 @@ pub mod fusion;
 pub use config::{ComputeUnits, CoreMLConfig};
 pub use ffi::{
     capabilities, AneCheckResult, ComputeUnitPreference, CoreMLAsyncCallback, MLTensorHandle,
-    MltensorApiVersion,
+    MltensorApiVersion, OperationType,
 };
 
 // TensorBridgeType is defined below in this module
@@ -1196,22 +1196,26 @@ impl CoreMLBackend {
         // Check for macOS 26+ enhanced APIs (Tahoe)
         let use_enhanced_api = has_enhanced_api();
 
-        // Select compute units based on production mode
-        // In production mode, prefer ANE for determinism; otherwise use all available units
-        let compute_units = if self.production_mode {
-            ComputeUnitPreference::CpuAndNeuralEngine
-        } else {
-            ComputeUnitPreference::All
-        };
+        // Per-operation compute unit scheduling:
+        // - Tensor creation: Use TensorOp preference (let CoreML decide in dev mode)
+        // - Element-wise ops (scale, add): Use ElementWise preference (GPU in dev mode)
+        // In production mode, all operations use ANE for determinism
+        let tensor_compute_units = OperationType::TensorOp.preferred_compute_units(self.production_mode);
+
+        tracing::trace!(
+            production_mode = self.production_mode,
+            tensor_compute_units = ?tensor_compute_units,
+            "Per-operation ANE scheduling active"
+        );
 
         // Create tensor from base logits using appropriate API
         let logits_shape = &[1, io.output_logits.len()];
         let mut base_logits = if use_enhanced_api {
-            // macOS 26+: Use v2 API with explicit compute unit preference
+            // macOS 26+: Use v2 API with per-operation compute unit preference
             MLTensor::from_floats_with_compute_units(
                 &io.output_logits,
                 logits_shape,
-                compute_units,
+                tensor_compute_units,
             )?
         } else {
             // macOS 15-25: Standard MLTensor creation
@@ -1236,11 +1240,12 @@ impl CoreMLBackend {
                         &adapter_weights[adapter_weights.len() - io.output_logits.len()..];
 
                     // Create adapter delta tensor using appropriate API
+                    // Use same compute units as base tensor for consistency in adapter fusion
                     let adapter_tensor = if use_enhanced_api {
                         MLTensor::from_floats_with_compute_units(
                             output_projection,
                             logits_shape,
-                            compute_units,
+                            tensor_compute_units,
                         )?
                     } else {
                         MLTensor::from_floats(output_projection, logits_shape)?
@@ -1284,8 +1289,8 @@ impl CoreMLBackend {
             num_adapters = indices.len(),
             use_mltensor = true,
             use_enhanced_api = use_enhanced_api,
-            compute_units = ?compute_units,
-            "Completed MLTensor inference step"
+            compute_units = ?tensor_compute_units,
+            "Completed MLTensor inference step with per-operation ANE scheduling"
         );
 
         Ok(0)

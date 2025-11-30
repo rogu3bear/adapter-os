@@ -106,12 +106,12 @@ pub trait UserKvOps {
 }
 
 /// Implementation of UserKvOps for any KvBackend
-pub struct UserKvStorage<B: KvBackend> {
+pub struct UserKvRepository<B: KvBackend> {
     backend: B,
 }
 
-impl<B: KvBackend> UserKvStorage<B> {
-    /// Create a new UserKvStorage instance
+impl<B: KvBackend> UserKvRepository<B> {
+    /// Create a new UserKvRepository instance
     pub fn new(backend: B) -> Self {
         Self { backend }
     }
@@ -211,7 +211,7 @@ impl<B: KvBackend> UserKvStorage<B> {
 }
 
 #[async_trait]
-impl<B: KvBackend> UserKvOps for UserKvStorage<B> {
+impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
     async fn create_user_kv(
         &self,
         email: &str,

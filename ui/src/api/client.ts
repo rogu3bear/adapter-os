@@ -21,6 +21,7 @@ import * as systemStateTypes from './system-state-types';
 import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 import { enhanceError, isTransientError } from '../utils/errorMessages';
+import { handleBlobResponse, getFilenameFromResponse } from './helpers';
 import { retryWithBackoff, RetryConfig, RetryResult, createRetryWrapper } from '../utils/retry';
 import { LoginResponseSchema } from '../schemas/common.schema';
 
@@ -638,12 +639,10 @@ class ApiClient {
   }
 
   async exportPlanManifest(planId: string): Promise<Blob> {
-    const url = `${this.baseUrl}/v1/plans/${planId}/manifest`;
+    const path = `/v1/plans/${planId}/manifest`;
+    const url = `${this.baseUrl}${path}`;
     const response = await fetch(url, { credentials: 'include' });
-    if (!response.ok) {
-      throw new Error(`Failed to export plan manifest: ${response.statusText}`);
-    }
-    return response.blob();
+    return handleBlobResponse(response, { method: 'GET', path });
   }
 
   // Control Plane
@@ -901,7 +900,8 @@ class ApiClient {
    * Returns the download URL or triggers a blob download for the artifact.
    */
   async downloadArtifact(jobId: string, artifactId: string, filename?: string): Promise<void> {
-    const url = this.buildUrl(`/v1/training/jobs/${jobId}/artifacts/${artifactId}/download`);
+    const path = `/v1/training/jobs/${jobId}/artifacts/${artifactId}/download`;
+    const url = this.buildUrl(path);
 
     try {
       const response = await fetch(url, {
@@ -909,22 +909,11 @@ class ApiClient {
         credentials: 'include',
       });
 
-      if (!response.ok) {
-        throw new Error(`Failed to download artifact: ${response.statusText}`);
-      }
+      // Use helper for blob response with error handling
+      const blob = await handleBlobResponse(response, { method: 'GET', path });
 
       // Get filename from Content-Disposition header or use provided filename
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let downloadFilename = filename || artifactId;
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-        if (filenameMatch && filenameMatch[1]) {
-          downloadFilename = filenameMatch[1].replace(/['"]/g, '');
-        }
-      }
-
-      // Create blob and trigger download
-      const blob = await response.blob();
+      const downloadFilename = getFilenameFromResponse(response, filename || artifactId);
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
@@ -2101,17 +2090,14 @@ class ApiClient {
     if (params?.level) queryParams.append('level', params.level);
 
     const queryString = queryParams.toString();
-    const url = `${this.baseUrl}/v1/audits/export${queryString ? `?${queryString}` : ''}`;
+    const path = `/v1/audits/export${queryString ? `?${queryString}` : ''}`;
+    const url = `${this.baseUrl}${path}`;
 
     const response = await fetch(url, {
       credentials: 'include',
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to export audit logs: ${response.statusText}`);
-    }
-
-    return response.blob();
+    return handleBlobResponse(response, { method: 'GET', path });
   }
 
   // Compliance audit API method
@@ -4706,18 +4692,14 @@ class ApiClient {
    * @returns Blob of the document file
    */
   async downloadDocument(documentId: string): Promise<Blob> {
-    const url = `${this.baseUrl}/v1/documents/${encodeURIComponent(documentId)}/download`;
+    const path = `/v1/documents/${encodeURIComponent(documentId)}/download`;
+    const url = `${this.baseUrl}${path}`;
     const response = await fetch(url, {
       method: 'GET',
       credentials: 'include',
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || 'Failed to download document');
-    }
-
-    return response.blob();
+    return handleBlobResponse(response, { method: 'GET', path });
   }
 
   // ============================================================================

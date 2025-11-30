@@ -16,7 +16,8 @@ use std::collections::HashSet;
 /// Helper to create an in-memory test database with all migrations applied
 async fn create_test_db() -> Result<Db> {
     let db = Db::new_in_memory().await?;
-    // Migrations are applied automatically by Db::new_in_memory()
+    // Seeding is required to satisfy foreign key constraints (e.g., tenants)
+    db.seed_dev_data().await?;
     Ok(db)
 }
 
@@ -26,15 +27,16 @@ async fn test_migration_application() -> Result<()> {
     let db = create_test_db().await?;
 
     // Query the migrations table to verify migrations were applied
-    let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM refinery_schema_history")
+    // Note: Switched from refinery to sqlx migrations
+    let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
         .fetch_one(db.pool())
         .await
         .unwrap_or(0);
 
-    // We should have at least 65 migrations (0001-0065)
+    // We should have at least 119 migrations (0001-0119)
     assert!(
-        migration_count >= 65,
-        "Expected at least 65 migrations, found {}",
+        migration_count >= 119,
+        "Expected at least 119 migrations, found {}",
         migration_count
     );
 
@@ -138,6 +140,7 @@ async fn test_adapter_insert_statement_valid() -> Result<()> {
 
     // Create a test adapter with all fields populated
     let params = AdapterRegistrationBuilder::new()
+        .tenant_id("default") // Must match seeded tenant
         .adapter_id("test-adapter-001")
         .name("Test Adapter")
         .hash_b3("b3:test123")
@@ -146,6 +149,8 @@ async fn test_adapter_insert_statement_valid() -> Result<()> {
         .alpha(16.0)
         .category("code")
         .scope("global")
+        .aos_file_path(Some("/tmp/test.aos")) // Set explicit path for validation
+        .adapter_name(Some("test/code/review/r001")) // Set explicit semantic name
         .build()?;
 
     // This will fail if INSERT statement references non-existent columns
@@ -179,6 +184,7 @@ async fn test_adapter_select_queries_valid() -> Result<()> {
 
     // Create a test adapter to ensure there's data to query
     let params = AdapterRegistrationBuilder::new()
+        .tenant_id("default") // Must match seeded tenant
         .adapter_id("test-adapter-002")
         .name("Test Adapter 2")
         .hash_b3("b3:test456")
@@ -216,6 +222,7 @@ async fn test_taxonomy_validation() -> Result<()> {
 
     // Test valid semantic name format: {tenant}/{domain}/{purpose}/{revision}
     let params = AdapterRegistrationBuilder::new()
+        .tenant_id("default") // Must match seeded tenant
         .adapter_id("test-adapter-003")
         .name("Test Adapter 3")
         .hash_b3("b3:test789")
@@ -260,10 +267,13 @@ async fn test_aos_file_metadata_storage() -> Result<()> {
     let db = create_test_db().await?;
 
     let params = AdapterRegistrationBuilder::new()
+        .tenant_id("default") // Must match seeded tenant
         .adapter_id("test-adapter-004")
         .name("Test Adapter 4")
         .hash_b3("b3:test012")
         .rank(16)
+        .aos_file_path(Some("/adapters/test.aos"))
+        .aos_file_hash(Some("b3:aosfilehash123"))
         .build()?;
 
     let id = db.register_adapter(params).await?;

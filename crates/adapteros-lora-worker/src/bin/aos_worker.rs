@@ -105,6 +105,7 @@ async fn main() -> Result<()> {
         None => adapteros_config::get_model_path_with_fallback()?,
     };
 
+    // Resolve tokenizer via canonical discovery (CLI arg > AOS_TOKENIZER_PATH > AOS_MODEL_PATH/tokenizer.json)
     let tokenizer_path = adapteros_config::resolve_tokenizer_path(args.tokenizer.as_ref())?;
 
     // Load manifest

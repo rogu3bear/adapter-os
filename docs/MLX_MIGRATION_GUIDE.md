@@ -34,5 +34,5 @@
 - Inference latency within target window; no circuit-breaker trips over 24h burn-in.
 
 ## Artifacts to Update
-- Docs: `MLX_INTEGRATION.md`, `MLX_INSTALLATION_GUIDE.md`, `MLX_TROUBLESHOOTING.md`
+- Docs: `docs/MLX_INTEGRATION.md`, `docs/MLX_INSTALLATION_GUIDE.md`, `docs/MLX_TROUBLESHOOTING.md`
 - CLI/UX: ensure backend selection guidance is visible (`aosctl backend status`).

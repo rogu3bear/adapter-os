@@ -2,6 +2,8 @@
 alwaysApply: true
 ---
 
+MANDATORY READ: AGENT_COORDINATION.md
+
 # Duplication Prevention Rules
 
 **CRITICAL:** Always prevent code duplication. This is a core codebase requirement.

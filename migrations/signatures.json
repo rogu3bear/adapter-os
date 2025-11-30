@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2025-11-28T21:38:52Z",
+  "signed_at": "2025-11-30T03:18:21Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQUhNaGpzRmRGb1R1OHRTS0QxSkRTR1VubiszeDJ6VG9yY1NISWtFTE0vV3c9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "c892c5f22f9907547c7dab915c8e473bc2108bc5e7b40b120a7ef68ddd5facc4", "signature": "tI/ve64nMzh0hW7dpEjhUsqJthRZx8i+w0aP1N4WIEKGio6AQvQ4VJ/apWAwFoN1GAllzPTQFSSXXxoSDcGrBQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -119,6 +119,8 @@
     "0114_chat_fts.sql": {"hash": "832229c4a7763cf33cad24f4713e7c64ab89b6a55bb90f452e0d0488848ad050", "signature": "adjUZ647Q5t7Fy3WJDNp5EfNa5XgFBvge4CG49Vu4rz/hPl7XpOrh+WM2cUfgAI7ZB0DCOgoNLTnCCdfrRFTBQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0115_chat_sharing.sql": {"hash": "cbd572c713f727978b17bdc6b3bde0d6b9bd58308d3a02172ba05010e1ab554a", "signature": "UAgQbbBp6OCJHumkIlXSR8Dlt8vabd2vXR8ZM/U70Q+eeUc7qRLbHfiEvXSDhf4mcXBREvafESRnysemgZG/Cw==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0116_admin_tenant_access.sql": {"hash": "ebc0de60529699fb5342e42b66f31fc65e9f740f3902112a002decff00714b8a", "signature": "1ZguqD2IUL2rHbuGlcqiendM9kBIHizlol8uwVrm8H94/reH0JBBLISPc0FbRcQDEH4dKyagJePicCLy4IFmCA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "0117_training_job_category_metadata.sql": {"hash": "216dd9f30df80767e2379da8815530316c1b1781d805d3c7c2a899614ccd338d", "signature": "NJ7MLR/xLVYAt7q/K8lAo1X/nO5UGaCpSqmjFblUdV8JAWDvu+N2SEJU9TRanDdldgIxF9xlp2HfbhlYj2ZJAA==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
+    "0117_training_job_category_metadata.sql": {"hash": "216dd9f30df80767e2379da8815530316c1b1781d805d3c7c2a899614ccd338d", "signature": "NJ7MLR/xLVYAt7q/K8lAo1X/nO5UGaCpSqmjFblUdV8JAWDvu+N2SEJU9TRanDdldgIxF9xlp2HfbhlYj2ZJAA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0118_training_jobs_denormalize.sql": {"hash": "d4f953248261f230ede548e08e67c5efd65d226c57d2693603d17bcf1b72cde3", "signature": "oQ8en77i6BaEKwn1DDS0Z2+TIoEyRliWPvu5Pwb77xQeQmBMlYOBdl4ZJVVSiCyCh07UIi2A0ANg7ZolhrhwDA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0119_registry_consolidation.sql": {"hash": "7d3a37b3d39710e5cf522d73cd63c7f17d1e989f27ece862d78e780c457ff5f6", "signature": "J+eZBV0XYq/3p3X5jk0pJSCx04xSi4zCXvJTmkKkiInsPib6/fzMD3GELaTB6YiKNnsgc0QHHE9cNRKM9C9pCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
   }
 }

@@ -21,6 +21,18 @@ This file provides guidance to AGENTS Code (AGENTS.ai/code) when working with co
 
 **🚨 SINGLE SOURCE OF TRUTH:** This AGENTS.md file contains ALL standards, protocols, and requirements for AI assistants. No external rule files exist. AI assistants must reference this file exclusively for all development work.
 
+### Agent Coordination Directive (MANDATORY)
+
+You are operating in a shared, multi-agent environment. You **must** coordinate your file access to prevent conflicts using the `scripts/dev_context.py` tool.
+
+**Protocol:**
+1. **Claim:** `python3 scripts/dev_context.py claim --intent "Task Name" --paths "crates/auth" "ui/src"` (Save the `ctx-ID`)
+2. **Status:** `python3 scripts/dev_context.py status` (Check for conflicts before editing)
+3. **Diff:** `python3 scripts/dev_context.py diff --id <ctx-ID>` (Generate clean commits)
+4. **Release:** `python3 scripts/dev_context.py release --id <ctx-ID>` (Cleanup)
+
+**Full Documentation:** See [docs/AGENT_COORDINATION.md](docs/AGENT_COORDINATION.md)
+
 ### Cursor AI Workflow Requirements
 
 **Pre-Conversation Checklist:**
@@ -1374,7 +1386,7 @@ Key cross-references for daily development:
 ---
 
 ## Language Requirements
-- **Rust only** - No Python should be used or created
+- **Rust only** - No Python should be used or created (Exception: `scripts/dev_context.py` for agent coordination)
 - All tools, utilities, and scripts must be written in Rust or shell scripts
 - For any code generation, testing, or benchmarking: use Rust exclusively
 - Build automation: Rust (build.rs) or shell scripts only

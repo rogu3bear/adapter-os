@@ -241,6 +241,86 @@ pub enum ComputeUnitPreference {
     All = 3,
 }
 
+/// Operation type for compute unit scheduling hints
+///
+/// Different operation types have different optimal compute unit assignments:
+/// - MatMul/Attention: Highly optimized on ANE for transformer inference
+/// - Softmax/ElementWise: Transcendental ops run better on GPU (no ANE support for exp())
+///
+/// Use `OperationType::preferred_compute_units()` to get the optimal compute units
+/// for each operation type based on hardware capabilities and production mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationType {
+    /// Matrix multiplication - ANE optimized
+    MatMul,
+    /// Softmax operation - GPU preferred (transcendental exp() not on ANE)
+    Softmax,
+    /// Attention computation - ANE optimized
+    Attention,
+    /// Element-wise operations (add, mul, scale) - GPU preferred
+    ElementWise,
+    /// Tensor creation/materialization - follows parent preference
+    TensorOp,
+}
+
+impl OperationType {
+    /// Get the preferred compute units for this operation type
+    ///
+    /// # Arguments
+    /// * `production_mode` - If true, prioritizes determinism (ANE) over performance
+    ///
+    /// # Returns
+    /// The recommended `ComputeUnitPreference` for this operation type.
+    ///
+    /// # Scheduling Strategy
+    ///
+    /// In **production mode** (determinism required):
+    /// - All operations use `CpuAndNeuralEngine` for guaranteed reproducibility
+    /// - ANE execution is deterministic across runs
+    ///
+    /// In **development mode** (maximum performance):
+    /// - MatMul/Attention → `CpuAndNeuralEngine` (ANE is 2-3x faster than GPU for these)
+    /// - Softmax/ElementWise → `CpuAndGpu` (transcendental ops have no ANE support)
+    /// - TensorOp → `All` (let CoreML decide based on data flow)
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use adapteros_lora_kernel_coreml::ffi::{OperationType, ComputeUnitPreference};
+    ///
+    /// let matmul_units = OperationType::MatMul.preferred_compute_units(false);
+    /// assert_eq!(matmul_units, ComputeUnitPreference::CpuAndNeuralEngine);
+    ///
+    /// let softmax_units = OperationType::Softmax.preferred_compute_units(false);
+    /// assert_eq!(softmax_units, ComputeUnitPreference::CpuAndGpu);
+    /// ```
+    pub fn preferred_compute_units(&self, production_mode: bool) -> ComputeUnitPreference {
+        if production_mode {
+            // Production: Always use ANE for determinism
+            ComputeUnitPreference::CpuAndNeuralEngine
+        } else {
+            // Development: Optimize per-operation
+            match self {
+                // Matrix operations are highly optimized on ANE
+                Self::MatMul | Self::Attention => ComputeUnitPreference::CpuAndNeuralEngine,
+                // Transcendental ops (exp, log) run on GPU, not ANE
+                Self::Softmax | Self::ElementWise => ComputeUnitPreference::CpuAndGpu,
+                // Let CoreML decide for tensor ops
+                Self::TensorOp => ComputeUnitPreference::All,
+            }
+        }
+    }
+
+    /// Check if this operation type is ANE-optimized
+    pub fn is_ane_optimized(&self) -> bool {
+        matches!(self, Self::MatMul | Self::Attention)
+    }
+
+    /// Check if this operation involves transcendental functions (not supported on ANE)
+    pub fn uses_transcendentals(&self) -> bool {
+        matches!(self, Self::Softmax)
+    }
+}
+
 /// MLTensor API version levels
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

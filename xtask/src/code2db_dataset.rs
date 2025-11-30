@@ -81,7 +81,7 @@ pub async fn run(args: Code2DbDatasetArgs) -> Result<()> {
         }
     }
 
-    // Resolve and load tokenizer
+    // Resolve tokenizer via canonical discovery (CLI arg > AOS_TOKENIZER_PATH > AOS_MODEL_PATH/tokenizer.json)
     let tokenizer_path = adapteros_config::resolve_tokenizer_path(args.tokenizer.as_ref())
         .map_err(|e| anyhow::anyhow!("{}", e))?;
     let tokenizer = adapteros_lora_worker::tokenizer::QwenTokenizer::from_file(&tokenizer_path)

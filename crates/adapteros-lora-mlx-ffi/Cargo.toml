@@ -25,6 +25,7 @@ core-foundation = "0.9"
 tracing.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
+arc-swap = "1.7"  # Lock-free atomic pointer swapping for adapter lookup
 zeroize = { version = "1.7", features = ["derive"] }
 tokenizers.workspace = true
 memmap2.workspace = true

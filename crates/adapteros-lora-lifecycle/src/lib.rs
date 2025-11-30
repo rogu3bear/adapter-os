@@ -2653,75 +2653,76 @@ mod tests {
         std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
-    /// Test deadlock detection: concurrent operations should complete without hanging
-    /// TODO: RwLockGuard held across await points in auto_promote_adapter/auto_demote_adapter
-    /// causes this test to fail to compile. Needs refactoring to release locks before await.
+    /// Test deadlock detection: concurrent operations should complete without hanging.
+    /// The auto_promote_adapter/auto_demote_adapter methods now properly release locks
+    /// before async operations, making them safe to use with tokio::spawn.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_no_deadlock_concurrent_operations() {
-        // This test is temporarily disabled due to RwLockGuard not being Send across await points.
-        // The methods auto_promote_adapter/auto_demote_adapter hold a RwLockReadGuard
-        // across await points in the async block spawned by tokio::spawn, which requires Send.
-        //
-        // To fix properly, these methods need to be refactored to:
-        // 1. Read values from the lock
-        // 2. Drop the lock
-        // 3. Then perform async operations
-        //
-        // For now, we skip this test to allow compilation.
-        eprintln!(
-            "NOTE: test_no_deadlock_concurrent_operations is disabled pending lock refactoring"
-        );
-        return;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc as StdArc;
 
-        // Original test code preserved for reference:
-        #[allow(unreachable_code)]
-        {
-            use std::sync::atomic::{AtomicUsize, Ordering};
-            use std::sync::Arc as StdArc;
+        let adapter_names = vec![
+            "adapter_0".to_string(),
+            "adapter_1".to_string(),
+            "adapter_2".to_string(),
+        ];
+        let temp_dir = std::env::temp_dir().join("mplora_test_deadlock_concurrent");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
 
-            let adapter_names = vec![
-                "adapter_0".to_string(),
-                "adapter_1".to_string(),
-                "adapter_2".to_string(),
-            ];
-            let temp_dir = std::env::temp_dir().join("mplora_test_deadlock_concurrent");
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            std::fs::create_dir_all(&temp_dir)
-                .expect("Test temp directory creation should succeed");
+        let adapter_hashes = build_adapter_hashes(&adapter_names);
+        let manager = Arc::new(LifecycleManager::new(
+            adapter_names.clone(),
+            adapter_hashes,
+            &test_policies(),
+            temp_dir.clone(),
+            None,
+            3,
+        ));
 
-            let adapter_hashes = build_adapter_hashes(&adapter_names);
-            let manager = Arc::new(LifecycleManager::new(
-                adapter_names.clone(),
-                adapter_hashes,
-                &test_policies(),
-                temp_dir.clone(),
-                None,
-                3,
-            ));
-
-            // Pre-promote adapters
-            for i in 0..3 {
-                manager
-                    .promote_adapter(i)
-                    .expect("promotion should succeed");
-            }
-
-            let completed = StdArc::new(AtomicUsize::new(0));
-            let _handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
-
-            // Test basic sequential operations instead of spawned concurrent ones
-            // (the spawned async blocks can't be Send because of the lock guards)
-            for i in 0..3 {
-                let _ = manager.promote_adapter(i);
-                let _ = manager.demote_adapter(i);
-            }
-
-            // Verify operations completed
-            assert!(
-                completed.load(Ordering::SeqCst) == 0,
-                "Sequential test path"
-            );
+        // Pre-promote adapters to warm state so they can be demoted
+        for i in 0..3 {
+            manager
+                .promote_adapter(i)
+                .expect("initial promotion should succeed");
         }
+
+        let completed = StdArc::new(AtomicUsize::new(0));
+        let mut handles = Vec::new();
+
+        // Spawn concurrent tasks that exercise async methods with proper lock scoping.
+        // These methods now correctly release locks before await points, making them Send.
+        for i in 0..3 {
+            let mgr = Arc::clone(&manager);
+            let done = StdArc::clone(&completed);
+
+            handles.push(tokio::spawn(async move {
+                // These async methods properly scope their locks
+                let _ = mgr.auto_promote_adapter(i).await;
+                let _ = mgr.auto_demote_adapter(i).await;
+                done.fetch_add(1, Ordering::SeqCst);
+            }));
+        }
+
+        // Wait with timeout to detect potential deadlocks
+        let timeout_result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            futures::future::join_all(handles),
+        )
+        .await;
+
+        assert!(
+            timeout_result.is_ok(),
+            "Timeout occurred - possible deadlock in concurrent operations"
+        );
+
+        assert_eq!(
+            completed.load(Ordering::SeqCst),
+            3,
+            "All concurrent operations should complete"
+        );
+
+        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
     /// Test that locks are properly scoped and released

@@ -34,11 +34,12 @@ pub enum PolicyId {
     Mplora = 22,
     Naming = 23,
     DependencySecurity = 24,
+    CircuitBreaker = 25,
 }
 
 impl PolicyId {
     /// Get all policy IDs in order
-    pub fn all() -> &'static [PolicyId; 24] {
+    pub fn all() -> &'static [PolicyId; 25] {
         &[
             PolicyId::Egress,
             PolicyId::Determinism,
@@ -64,6 +65,7 @@ impl PolicyId {
             PolicyId::Mplora,
             PolicyId::Naming,
             PolicyId::DependencySecurity,
+            PolicyId::CircuitBreaker,
         ]
     }
 
@@ -94,6 +96,7 @@ impl PolicyId {
             PolicyId::Mplora => "MPLoRA",
             PolicyId::Naming => "Naming",
             PolicyId::DependencySecurity => "Dependency Security",
+            PolicyId::CircuitBreaker => "Circuit Breaker",
         }
     }
 
@@ -124,6 +127,7 @@ impl PolicyId {
             PolicyId::Mplora => "Orthogonal multi-path LoRA constraints enforcement with shared downsample validation",
             PolicyId::Naming => "Adapter and stack naming conventions with reserved namespace and hierarchy enforcement",
             PolicyId::DependencySecurity => "CVE database integration, vulnerability scoring, caching, and supply chain validation",
+            PolicyId::CircuitBreaker => "Service-specific circuit breaker configurations and thresholds for fault tolerance",
         }
     }
 
@@ -156,6 +160,7 @@ impl PolicyId {
             PolicyId::DependencySecurity => {
                 "adapter registration, build pipeline, dependency validation"
             }
+            PolicyId::CircuitBreaker => "service calls, fault tolerance, recovery management",
         }
     }
 
@@ -186,6 +191,7 @@ impl PolicyId {
             PolicyId::Mplora => true,
             PolicyId::Naming => true,
             PolicyId::DependencySecurity => true,
+            PolicyId::CircuitBreaker => true,
         }
     }
 }
@@ -219,8 +225,8 @@ impl PolicySpec {
     }
 }
 
-/// The canonical registry of all 22 policy packs
-pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 22]> =
+/// The canonical registry of all 25 policy packs
+pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 25]> =
     once_cell::sync::Lazy::new(|| {
         [
             PolicySpec::from_id(PolicyId::Egress),
@@ -245,6 +251,9 @@ pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 22]> =
             PolicySpec::from_id(PolicyId::DeterministicIo),
             PolicySpec::from_id(PolicyId::Drift),
             PolicySpec::from_id(PolicyId::Mplora),
+            PolicySpec::from_id(PolicyId::Naming),
+            PolicySpec::from_id(PolicyId::DependencySecurity),
+            PolicySpec::from_id(PolicyId::CircuitBreaker),
         ]
     });
 
@@ -332,7 +341,7 @@ pub enum Severity {
 }
 
 /// List all policies
-pub fn list_policies() -> &'static [PolicySpec; 22] {
+pub fn list_policies() -> &'static [PolicySpec; 25] {
     &POLICY_INDEX
 }
 
@@ -367,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_policy_count() {
-        assert_eq!(POLICY_INDEX.len(), 22, "Must have exactly 22 policy packs");
+        assert_eq!(POLICY_INDEX.len(), 25, "Must have exactly 25 policy packs");
     }
 
     #[test]

@@ -1,4 +1,6 @@
 use crate::adapters::Adapter; // assume
+use crate::kv_backend::KvBackend;
+use crate::tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
 use crate::Db;
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::tenant_snapshot::{AdapterInfo, PolicyInfo, StackInfo, TenantStateSnapshot};
@@ -8,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -46,8 +50,22 @@ pub struct TenantUsage {
 }
 
 impl Db {
+    /// Get a TenantKvRepository if KV writes are enabled
+    fn get_tenant_kv_repo(&self) -> Option<TenantKvRepository> {
+        if self.storage_mode().write_to_kv() {
+            self.kv_backend().map(|kv| {
+                let kv_backend: Arc<dyn KvBackend> = kv.clone();
+                TenantKvRepository::new(kv_backend)
+            })
+        } else {
+            None
+        }
+    }
+
     pub async fn create_tenant(&self, name: &str, itar_flag: bool) -> Result<String> {
         let id = Uuid::now_v7().to_string();
+
+        // SQL write (always happens)
         sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)")
             .bind(&id)
             .bind(name)
@@ -55,6 +73,20 @@ impl Db {
             .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_tenant_kv_repo() {
+            let params = CreateTenantParams {
+                name: name.to_string(),
+                itar_flag,
+            };
+            if let Err(e) = repo.create_tenant_kv(&params).await {
+                warn!(error = %e, tenant_id = %id, "Failed to write tenant to KV backend (dual-write)");
+            } else {
+                debug!(tenant_id = %id, "Tenant written to both SQL and KV backends");
+            }
+        }
+
         Ok(id)
     }
 
@@ -115,6 +147,14 @@ impl Db {
             .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_tenant_kv_repo() {
+            if let Err(e) = repo.rename_tenant_kv(id, new_name).await {
+                warn!(error = %e, tenant_id = %id, "Failed to rename tenant in KV backend (dual-write)");
+            }
+        }
+
         Ok(())
     }
 
@@ -126,6 +166,14 @@ impl Db {
             .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_tenant_kv_repo() {
+            if let Err(e) = repo.update_tenant_itar_flag_kv(id, itar_flag).await {
+                warn!(error = %e, tenant_id = %id, "Failed to update tenant ITAR flag in KV backend (dual-write)");
+            }
+        }
+
         Ok(())
     }
 
@@ -138,6 +186,14 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_tenant_kv_repo() {
+            if let Err(e) = repo.pause_tenant_kv(id).await {
+                warn!(error = %e, tenant_id = %id, "Failed to pause tenant in KV backend (dual-write)");
+            }
+        }
+
         Ok(())
     }
 
@@ -150,6 +206,14 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_tenant_kv_repo() {
+            if let Err(e) = repo.archive_tenant_kv(id).await {
+                warn!(error = %e, tenant_id = %id, "Failed to archive tenant in KV backend (dual-write)");
+            }
+        }
+
         Ok(())
     }
 
@@ -162,6 +226,14 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_tenant_kv_repo() {
+            if let Err(e) = repo.activate_tenant_kv(id).await {
+                warn!(error = %e, tenant_id = %id, "Failed to activate tenant in KV backend (dual-write)");
+            }
+        }
+
         Ok(())
     }
 
@@ -188,6 +260,14 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update tenant limits: {}", e)))?;
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_tenant_kv_repo() {
+            if let Err(e) = repo.update_tenant_limits_kv(id, max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm).await {
+                warn!(error = %e, tenant_id = %id, "Failed to update tenant limits in KV backend (dual-write)");
+            }
+        }
+
         Ok(())
     }
 
@@ -400,6 +480,13 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(format!("Failed to set default stack: {}", e)))?;
 
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_tenant_kv_repo() {
+            if let Err(e) = repo.set_default_stack_kv(tenant_id, stack_id).await {
+                warn!(error = %e, tenant_id = %tenant_id, "Failed to set default stack in KV backend (dual-write)");
+            }
+        }
+
         Ok(())
     }
 
@@ -410,6 +497,13 @@ impl Db {
             .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to clear default stack: {}", e)))?;
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_tenant_kv_repo() {
+            if let Err(e) = repo.clear_default_stack_kv(tenant_id).await {
+                warn!(error = %e, tenant_id = %tenant_id, "Failed to clear default stack in KV backend (dual-write)");
+            }
+        }
 
         Ok(())
     }

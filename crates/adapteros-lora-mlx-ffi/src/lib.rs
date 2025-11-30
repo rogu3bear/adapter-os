@@ -1128,8 +1128,39 @@ impl Drop for MLXFFIModel {
     }
 }
 
-// Safety: MLX FFI model is thread-safe
+/// SAFETY: MLXFFIModel is Send because:
+///
+/// 1. The wrapped `mlx_model_t` raw pointer refers to a C++ object that is owned
+///    exclusively by this Rust wrapper - there are no external references to it.
+/// 2. The pointer is immutable after construction (`load()` or `load_from_buffer()`),
+///    and all inference operations (`forward()`, `forward_with_hidden_states()`) are
+///    read-only with respect to the model weights.
+/// 3. The model can safely be moved between threads because MLX's underlying
+///    implementation uses thread-local GPU command queues.
+/// 4. All other fields (config, model_path) are owned values that are trivially Send.
+/// 5. The `health` field uses `Arc<Mutex<>>` which is explicitly designed for
+///    cross-thread sharing.
+/// 6. The `tokenizer` field is Option<MLXTokenizer> which wraps a HuggingFace
+///    tokenizer that is Send-safe.
 unsafe impl Send for MLXFFIModel {}
+
+/// SAFETY: MLXFFIModel is Sync because:
+///
+/// 1. Concurrent inference calls are safe because MLX uses Metal command buffers
+///    which are synchronized at the GPU driver level. Each inference creates
+///    independent command buffers that are serialized by the GPU.
+/// 2. The raw pointer `model` is never mutated after construction - inference
+///    operations only read model weights and don't modify the model state.
+/// 3. All mutable state (health tracking) is protected by `Arc<Mutex<>>`,
+///    ensuring exclusive access and preventing data races.
+/// 4. Drop is safe from any thread: `mlx_model_free()` handles cleanup correctly
+///    regardless of which thread calls it, and the null-check prevents double-free.
+/// 5. No interior mutability exists in the model weights - the C++ object uses
+///    immutable weight tensors after model loading.
+///
+/// Reference: MLX C++ source confirms that `mlx::core::array` operations are
+/// thread-safe through Metal command buffer synchronization and atomic reference
+/// counting for shared array data.
 unsafe impl Sync for MLXFFIModel {}
 
 // FFI declarations for MLX operations

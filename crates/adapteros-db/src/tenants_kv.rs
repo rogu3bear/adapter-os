@@ -189,7 +189,8 @@ impl TenantKvRepository {
         Ok(())
     }
 
-    /// Remove from indexes
+    /// Remove from indexes (used when deleting tenants)
+    #[allow(dead_code)]
     async fn remove_from_indexes(&self, tenant: &TenantKv) -> Result<()> {
         // Remove name index
         let name_key = Self::name_index_key(&tenant.name);
@@ -287,7 +288,7 @@ impl TenantKvOps for TenantKvRepository {
         limit: usize,
         cursor: Option<&str>,
     ) -> Result<(Vec<TenantKv>, Option<String>)> {
-        let mut all_tenants = self.load_all_tenants().await?;
+        let all_tenants = self.load_all_tenants().await?;
 
         // Find cursor position
         let start_index = if let Some(cursor_id) = cursor {
@@ -510,7 +511,8 @@ impl From<TenantKv> for Tenant {
     }
 }
 
-/// Helper function to create TenantKv from CreateTenantParams
+/// Helper function to create TenantKv from CreateTenantParams (used in tests)
+#[allow(dead_code)]
 fn tenant_kv_from_params(params: &CreateTenantParams, id: &str) -> TenantKv {
     let now = Utc::now();
     TenantKv {

@@ -181,7 +181,7 @@ impl MLXMonitor {
                 .as_ref()
                 .map(|m| m.peak_memory_usage_mb)
                 .unwrap_or(0.0),
-            active_adapters: self.backend.adapters.read().len(),
+            active_adapters: self.backend.adapters.load().len(),
             cache_hit_rate: mlx_metrics
                 .as_ref()
                 .map(|m| m.cache_hit_rate)

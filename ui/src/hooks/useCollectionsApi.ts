@@ -16,21 +16,19 @@ import type {
 import { createResourceHooks } from './factories/createApiHooks';
 
 // Create standard CRUD hooks using the factory
+// Note: create returns Collection (not CollectionDetail), so we use 5th type param
 const collectionHooks = createResourceHooks<
   Collection,
   CollectionDetail,
   { name: string; description?: string },
-  { name?: string; description?: string }
+  { name?: string; description?: string },
+  Collection // TCreateResult - API returns Collection, not CollectionDetail
 >({
   resourceName: 'collections',
   api: {
     list: () => apiClient.listCollections(),
     get: (id: string) => apiClient.getCollection(id),
-    create: async ({ name, description }) => {
-      const collection = await apiClient.createCollection(name, description);
-      // Return with empty documents array as CollectionDetail
-      return { ...collection, documents: [] } as CollectionDetail;
-    },
+    create: ({ name, description }) => apiClient.createCollection(name, description),
     delete: (id: string) => apiClient.deleteCollection(id),
   },
   staleTime: 30000, // 30 seconds

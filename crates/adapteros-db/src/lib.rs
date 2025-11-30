@@ -10,6 +10,8 @@
 use adapteros_core::{AosError, Result};
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
+use std::sync::Arc;
+use tracing::{debug, warn};
 
 // Query constants for SELECT column lists
 pub mod constants;
@@ -603,14 +605,21 @@ impl Db {
         ];
 
         for (id, hostname, family, memory) in nodes {
+            // Store hardware specs in labels_json since columns don't exist
+            let labels = serde_json::json!({
+                "metal_family": family,
+                "memory_gb": memory
+            }).to_string();
+
+            // Note: nodes table does not have tenant_id (cluster resource)
             sqlx::query(
-                "INSERT INTO nodes (id, tenant_id, hostname, metal_family, memory_gb, status, last_heartbeat)
-                 VALUES (?, 'default', ?, ?, ?, 'online', datetime('now'))"
+                "INSERT INTO nodes (id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at)
+                 VALUES (?, ?, ?, 'active', datetime('now'), ?, datetime('now'))"
             )
             .bind(id)
             .bind(hostname)
-            .bind(family)
-            .bind(memory)
+            .bind(format!("https://{}:3000", hostname)) // Dummy agent endpoint
+            .bind(labels)
             .execute(&self.pool)
             .await?;
         }
@@ -679,6 +688,7 @@ impl Db {
 
     /// Delete a stack by ID and tenant
     pub async fn delete_stack(&self, tenant_id: &str, id: &str) -> Result<bool> {
+        // SQL delete (always happens)
         let result = sqlx::query(
             r#"
             DELETE FROM adapter_stacks
@@ -691,7 +701,21 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to delete stack: {}", e)))?;
 
-        Ok(result.rows_affected() > 0)
+        let deleted = result.rows_affected() > 0;
+
+        // KV delete (dual-write mode)
+        if deleted {
+            if let Some(kv_backend) = self.get_stack_kv_repo() {
+                use stacks_kv::StackKvOps;
+                if let Err(e) = kv_backend.delete_stack(tenant_id, id).await {
+                    warn!(error = %e, stack_id = %id, "Failed to delete stack from KV backend (dual-write)");
+                } else {
+                    debug!(stack_id = %id, "Stack deleted from both SQL and KV backends");
+                }
+            }
+        }
+
+        Ok(deleted)
     }
 
     /// Update a stack
@@ -700,6 +724,7 @@ impl Db {
             serde_json::to_string(&stack.adapter_ids).map_err(|e| AosError::Serialization(e))?;
         let workflow_type_str = stack.workflow_type.as_ref().map(|w| format!("{:?}", w));
 
+        // SQL update (always happens)
         let result = sqlx::query(
             r#"
             UPDATE adapter_stacks
@@ -716,7 +741,21 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?;
 
-        Ok(result.rows_affected() > 0)
+        let updated = result.rows_affected() > 0;
+
+        // KV update (dual-write mode)
+        if updated {
+            if let Some(kv_backend) = self.get_stack_kv_repo() {
+                use stacks_kv::StackKvOps;
+                if let Err(e) = kv_backend.update_stack(id, stack).await {
+                    warn!(error = %e, stack_id = %id, "Failed to update stack in KV backend (dual-write)");
+                } else {
+                    debug!(stack_id = %id, "Stack updated in both SQL and KV backends");
+                }
+            }
+        }
+
+        Ok(updated)
     }
 
     /// Get the underlying pool for custom queries
@@ -772,6 +811,18 @@ impl Db {
         self.storage_mode = StorageMode::SqlOnly;
     }
 
+    /// Get a StackKvRepository if KV writes are enabled
+    fn get_stack_kv_repo(&self) -> Option<stacks_kv::StackKvRepository> {
+        if self.storage_mode().write_to_kv() {
+            self.kv_backend().map(|kv| {
+                let kv_backend: Arc<dyn kv_backend::KvBackend> = kv.clone();
+                stacks_kv::StackKvRepository::new(kv_backend)
+            })
+        } else {
+            None
+        }
+    }
+
     /// Insert a new adapter stack
     pub async fn insert_stack(&self, req: &CreateStackRequest) -> Result<String> {
         let id = uuid::Uuid::new_v4().to_string();
@@ -780,6 +831,7 @@ impl Db {
         let workflow_type = req.workflow_type.as_deref().unwrap_or("parallel");
         let description = req.description.as_deref().unwrap_or("");
 
+        // SQL write (always happens)
         sqlx::query(
             r#"
             INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at)
@@ -795,6 +847,16 @@ impl Db {
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert stack: {}", e)))?;
+
+        // KV write (dual-write mode)
+        if let Some(kv_backend) = self.get_stack_kv_repo() {
+            use stacks_kv::StackKvOps;
+            if let Err(e) = kv_backend.create_stack(req).await {
+                warn!(error = %e, stack_id = %id, "Failed to write stack to KV backend (dual-write)");
+            } else {
+                debug!(stack_id = %id, "Stack written to both SQL and KV backends");
+            }
+        }
 
         Ok(id)
     }
@@ -1061,8 +1123,10 @@ pub use adapter_record::{
 };
 pub mod adapters;
 pub mod adapters_kv;
+pub mod kv_migration;
 pub use adapters::{Adapter, AdapterRegistrationBuilder, AdapterRegistrationParams};
-pub use adapters_kv::{AdapterKvOps, KvAdapterService};
+pub use adapters_kv::{AdapterKvOps, AdapterKvRepository};
+pub use kv_migration::{MigrationDiscrepancy, MigrationStats};
 pub mod artifacts;
 pub mod audit;
 pub use audit::AuditLog;
@@ -1130,7 +1194,7 @@ pub mod tenants_kv;
 pub mod stacks_kv;
 pub use policy_hash::PolicyHashRecord;
 pub use tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
-pub use stacks_kv::{StackKvBackend, StackKvOps};
+pub use stacks_kv::{StackKvRepository, StackKvOps};
 pub mod process_monitoring;
 pub mod replay_sessions;
 pub mod repositories;
@@ -1143,7 +1207,7 @@ pub mod users;
 pub mod users_kv;
 pub use users::{Role, User};
 // Re-export users_kv types for dual-write operations
-pub use users_kv::{kv_to_user, user_to_kv, UserKeys, UserKvOps, UserKvStorage};
+pub use users_kv::{kv_to_user, user_to_kv, UserKeys, UserKvOps, UserKvRepository};
 // Re-export KV Role type with an alias to distinguish from SQL Role
 pub use users_kv::Role as KvRole;
 pub mod user_tenant_access;

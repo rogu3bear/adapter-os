@@ -38,6 +38,7 @@ export interface ResourceHooksConfig<
   TDetail,
   TCreate = unknown,
   TUpdate = unknown,
+  TCreateResult = TDetail,
 > {
   /** Unique name for the resource (used as query key prefix) */
   resourceName: string;
@@ -48,8 +49,8 @@ export interface ResourceHooksConfig<
     list?: () => Promise<TList[]>;
     /** Fetch single resource by ID */
     get?: (id: string) => Promise<TDetail>;
-    /** Create new resource */
-    create?: (data: TCreate) => Promise<TDetail>;
+    /** Create new resource (can return different type than detail) */
+    create?: (data: TCreate) => Promise<TCreateResult>;
     /** Update existing resource */
     update?: (id: string, data: TUpdate) => Promise<TDetail>;
     /** Delete resource by ID */
@@ -90,7 +91,7 @@ export function createQueryKeys(resourceName: string): ResourceQueryKeys {
 /**
  * Return type for created resource hooks
  */
-export interface ResourceHooks<TList, TDetail, TCreate, TUpdate> {
+export interface ResourceHooks<TList, TDetail, TCreate, TUpdate, TCreateResult = TDetail> {
   /** Query keys for cache management */
   keys: ResourceQueryKeys;
 
@@ -105,8 +106,8 @@ export interface ResourceHooks<TList, TDetail, TCreate, TUpdate> {
 
   /** Hook for creating a resource */
   useCreate: (
-    options?: UseMutationOptions<TDetail, Error, TCreate>
-  ) => ReturnType<typeof useMutation<TDetail, Error, TCreate>>;
+    options?: UseMutationOptions<TCreateResult, Error, TCreate>
+  ) => ReturnType<typeof useMutation<TCreateResult, Error, TCreate>>;
 
   /** Hook for updating a resource */
   useUpdate: (
@@ -130,7 +131,8 @@ export function createResourceHooks<
   TDetail = TList,
   TCreate = Partial<TDetail>,
   TUpdate = Partial<TDetail>,
->(config: ResourceHooksConfig<TList, TDetail, TCreate, TUpdate>): ResourceHooks<TList, TDetail, TCreate, TUpdate> {
+  TCreateResult = TDetail,
+>(config: ResourceHooksConfig<TList, TDetail, TCreate, TUpdate, TCreateResult>): ResourceHooks<TList, TDetail, TCreate, TUpdate, TCreateResult> {
   const { resourceName, api, staleTime = 30000, invalidatesOnMutate = [] } = config;
   const keys = createQueryKeys(resourceName);
 
@@ -168,7 +170,7 @@ export function createResourceHooks<
     useCreate: (options = {}) => {
       const queryClient = useQueryClient();
       const { onSuccess, ...restOptions } = options;
-      return useMutation<TDetail, Error, TCreate>({
+      return useMutation<TCreateResult, Error, TCreate>({
         mutationFn: api.create ?? (() => Promise.reject(new Error('Create not implemented'))),
         ...restOptions,
         onSuccess: async (...args) => {

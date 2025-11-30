@@ -52,6 +52,43 @@ impl Default for GqaConfig {
     }
 }
 
+impl GqaConfig {
+    /// Create GqaConfig from raw model parameters
+    ///
+    /// Use this when loading model configuration from config.json.
+    /// This ensures GQA parameters match the actual model architecture
+    /// rather than using hardcoded defaults.
+    ///
+    /// # Arguments
+    /// * `num_attention_heads` - Number of attention heads (e.g., 28 for Qwen2.5-7B)
+    /// * `num_key_value_heads` - Number of KV heads for GQA (e.g., 4 for Qwen2.5-7B)
+    /// * `hidden_size` - Hidden dimension (e.g., 3584 for Qwen2.5-7B)
+    /// * `rope_theta` - RoPE base frequency (e.g., 1_000_000.0 for Qwen2.5)
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let gqa_config = GqaConfig::from_params(28, 4, 3584, 1_000_000.0);
+    /// ```
+    pub fn from_params(
+        num_attention_heads: usize,
+        num_key_value_heads: usize,
+        hidden_size: usize,
+        rope_theta: f32,
+    ) -> Self {
+        let head_dim = (hidden_size / num_attention_heads) as u32;
+        Self {
+            num_attention_heads: num_attention_heads as u32,
+            num_key_value_heads: num_key_value_heads as u32,
+            head_dim,
+            kv_width: num_key_value_heads as u32 * head_dim,
+            hidden_size: hidden_size as u32,
+            rope_theta,
+            attention_scale: 0.0,
+            dropout_rate: 0.0,
+        }
+    }
+}
+
 /// LoRA configuration
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LoraConfig {

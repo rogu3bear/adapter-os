@@ -220,6 +220,8 @@ pub struct MetalKernels {
     successful_operations: std::sync::atomic::AtomicU64,
     failed_operations: std::sync::atomic::AtomicU64,
     total_latency_us: std::sync::atomic::AtomicU64,
+    // Optional GQA configuration from ModelConfig (used in load() if set)
+    gqa_config_override: Option<GqaConfig>,
 }
 
 // Safety: Metal objects are thread-safe
@@ -287,6 +289,7 @@ impl MetalKernels {
             successful_operations: std::sync::atomic::AtomicU64::new(0),
             failed_operations: std::sync::atomic::AtomicU64::new(0),
             total_latency_us: std::sync::atomic::AtomicU64::new(0),
+            gqa_config_override: None,
         })
     }
 
@@ -363,6 +366,38 @@ impl MetalKernels {
     /// Get GPU memory pool reference
     pub fn memory_pool(&self) -> Option<&GpuMemoryPool> {
         self.memory_pool.as_ref()
+    }
+
+    /// Set GQA configuration for model-specific parameters
+    ///
+    /// Call this method before `load()` to use model-specific GQA configuration
+    /// instead of the hardcoded defaults. This ensures correct attention head
+    /// counts, hidden dimensions, and RoPE theta values for the model.
+    ///
+    /// # Arguments
+    /// * `config` - GQA configuration derived from ModelConfig
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let mut kernels = MetalKernels::new()?;
+    /// let gqa_config = GqaConfig::from_params(28, 4, 3584, 1_000_000.0);
+    /// kernels.set_gqa_config(gqa_config);
+    /// kernels.load(&model_bytes)?;
+    /// ```
+    pub fn set_gqa_config(&mut self, config: GqaConfig) {
+        tracing::debug!(
+            num_attention_heads = config.num_attention_heads,
+            num_kv_heads = config.num_key_value_heads,
+            hidden_size = config.hidden_size,
+            rope_theta = config.rope_theta,
+            "Setting custom GQA configuration"
+        );
+        self.gqa_config_override = Some(config);
+    }
+
+    /// Get the current GQA configuration (override or default)
+    pub fn gqa_config(&self) -> GqaConfig {
+        self.gqa_config_override.clone().unwrap_or_default()
     }
 
     /// Get GPU memory pool stats
@@ -1340,8 +1375,22 @@ impl FusedKernels for MetalKernels {
         // Initialize kernels
         self.mlp_kernel = Some(FusedMlpKernel::new(self.device.clone())?);
 
-        // Create GQA config - note: this may still need parameterization for non-Qwen models
-        let gqa_config = GqaConfig::default();
+        // Use GQA config override if set via set_gqa_config(), otherwise use defaults
+        let gqa_config = self.gqa_config_override.clone().unwrap_or_else(|| {
+            tracing::warn!(
+                "Using default GqaConfig (32 heads, 4096 hidden). \
+                 For model-specific config, call set_gqa_config() before load()"
+            );
+            GqaConfig::default()
+        });
+
+        tracing::info!(
+            num_attention_heads = gqa_config.num_attention_heads,
+            num_kv_heads = gqa_config.num_key_value_heads,
+            hidden_size = gqa_config.hidden_size,
+            rope_theta = gqa_config.rope_theta,
+            "Initializing Metal kernels with GQA configuration"
+        );
 
         self.qkv_kernel = Some(FusedQkvKernel::new(
             self.device.clone(),

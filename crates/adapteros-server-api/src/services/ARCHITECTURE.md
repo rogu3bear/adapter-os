@@ -420,4 +420,4 @@ impl<S: AdapterService> AdapterService for CachingService<S> {
 - [README.md](README.md) - Service layer guide
 - [CLAUDE.md](../../../../CLAUDE.md) - Architecture patterns
 - [docs/ARCHITECTURE_PATTERNS.md](../../../../docs/ARCHITECTURE_PATTERNS.md) - Design patterns
-- [docs/ERROR_HANDLING_PATTERNS.md](../../../../ERROR_HANDLING_PATTERNS.md) - Error handling
+- [docs/ERROR_HANDLING_PATTERNS.md](../../../../docs/ERROR_HANDLING_PATTERNS.md) - Error handling

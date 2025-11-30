@@ -3,6 +3,7 @@
 use crate::{LoRAAdapter, MLXFFIModel, MLXMemoryPool, MLXMemoryPoolConfig};
 use adapteros_core::{derive_seed, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+use arc_swap::ArcSwap;
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -41,8 +42,12 @@ impl Default for MLXResilienceConfig {
 pub struct MLXFFIBackend {
     /// Base model
     model: Arc<MLXFFIModel>,
-    /// Loaded LoRA adapters by ID
-    pub adapters: Arc<RwLock<HashMap<u16, Arc<LoRAAdapter>>>>,
+    /// Loaded LoRA adapters by ID (lock-free for fast inference lookups)
+    ///
+    /// Uses `ArcSwap` for lock-free reads during inference, with copy-on-write
+    /// semantics for adapter registration/unregistration. This eliminates
+    /// contention on the hot path (inference) while keeping writes atomic.
+    pub adapters: ArcSwap<HashMap<u16, Arc<LoRAAdapter>>>,
     /// Device name
     device: String,
     /// Resilience configuration
@@ -118,7 +123,7 @@ impl MLXFFIBackend {
 
         Self {
             model: Arc::new(model),
-            adapters: Arc::new(RwLock::new(HashMap::new())),
+            adapters: ArcSwap::from_pointee(HashMap::new()),
             device: "MLX FFI (Apple Silicon)".to_string(),
             resilience_config: config,
             health_status: Arc::new(RwLock::new(BackendHealth {
@@ -176,7 +181,7 @@ impl MLXFFIBackend {
 
         Ok(Self {
             model: Arc::new(model),
-            adapters: Arc::new(RwLock::new(HashMap::new())),
+            adapters: ArcSwap::from_pointee(HashMap::new()),
             device: "MLX FFI (Apple Silicon)".to_string(),
             resilience_config: config,
             health_status: Arc::new(RwLock::new(BackendHealth {
@@ -220,7 +225,7 @@ impl MLXFFIBackend {
     fn clone_without_monitor(&self) -> MLXFFIBackend {
         MLXFFIBackend {
             model: self.model.clone(),
-            adapters: self.adapters.clone(),
+            adapters: ArcSwap::from_pointee((**self.adapters.load()).clone()),
             device: self.device.clone(),
             resilience_config: self.resilience_config.clone(),
             health_status: self.health_status.clone(),
@@ -296,8 +301,11 @@ impl MLXFFIBackend {
         // Track adapter memory in pool
         self.memory_pool.track_adapter(adapter_id, estimated_bytes);
 
-        let mut adapters = self.adapters.write();
-        adapters.insert(adapter_id, Arc::new(adapter));
+        // Copy-on-write: clone current map, insert, then atomically swap
+        // This ensures lock-free reads during inference while keeping writes atomic
+        let mut new_adapters = (**self.adapters.load()).clone();
+        new_adapters.insert(adapter_id, Arc::new(adapter));
+        self.adapters.store(Arc::new(new_adapters));
 
         // Update memory pool size tracking
         let current_size = *self.memory_pool_size.read();
@@ -314,7 +322,7 @@ impl MLXFFIBackend {
 
     /// Get registered adapter count
     pub fn adapter_count(&self) -> usize {
-        self.adapters.read().len()
+        self.adapters.load().len()
     }
 
     /// Load adapter at runtime (hot-swap)
@@ -329,8 +337,11 @@ impl MLXFFIBackend {
         // Track adapter memory in pool
         self.memory_pool.track_adapter(adapter_id, estimated_bytes);
 
-        let mut adapters = self.adapters.write();
-        adapters.insert(adapter_id, Arc::new(adapter));
+        // Copy-on-write: clone current map, insert, then atomically swap
+        // This ensures lock-free reads during inference while keeping writes atomic
+        let mut new_adapters = (**self.adapters.load()).clone();
+        new_adapters.insert(adapter_id, Arc::new(adapter));
+        self.adapters.store(Arc::new(new_adapters));
 
         // Update memory pool size tracking
         let current_size = *self.memory_pool_size.read();
@@ -347,35 +358,49 @@ impl MLXFFIBackend {
 
     /// Unload adapter at runtime (hot-swap)
     pub fn unload_adapter_runtime(&self, adapter_id: u16) -> Result<()> {
-        let mut adapters = self.adapters.write();
-        if let Some(adapter) = adapters.remove(&adapter_id) {
-            // Get the memory usage before removal for proper cleanup
-            if let Ok(memory_usage) = self.get_adapter_memory_usage(adapter_id) {
-                // Update memory pool size tracking
-                let current_size = *self.memory_pool_size.read();
-                *self.memory_pool_size.write() = current_size.saturating_sub(memory_usage);
-            }
+        // Check if adapter exists and get info before removal
+        let current_adapters = self.adapters.load();
+        let adapter = current_adapters
+            .get(&adapter_id)
+            .cloned()
+            .ok_or_else(|| {
+                adapteros_core::AosError::Lifecycle(format!("Adapter {} not found", adapter_id))
+            })?;
 
-            // Stop tracking adapter in memory pool
-            self.memory_pool.untrack_adapter(adapter_id);
+        // Copy-on-write: clone current map, remove adapter, then atomically swap
+        let mut new_adapters = (**current_adapters).clone();
+        new_adapters.remove(&adapter_id);
+        self.adapters.store(Arc::new(new_adapters));
 
-            tracing::info!(
-                adapter_id = adapter_id,
-                adapter_name = %adapter.id(),
-                "Unloaded LoRA adapter and freed memory"
-            );
-            Ok(())
-        } else {
-            Err(adapteros_core::AosError::Lifecycle(format!(
-                "Adapter {} not found",
-                adapter_id
-            )))
+        // Get the memory usage for cleanup (use stored estimate)
+        if let Ok(memory_usage) = self.get_adapter_memory_usage_estimate(adapter.as_ref()) {
+            // Update memory pool size tracking
+            let current_size = *self.memory_pool_size.read();
+            *self.memory_pool_size.write() = current_size.saturating_sub(memory_usage);
         }
+
+        // Stop tracking adapter in memory pool
+        self.memory_pool.untrack_adapter(adapter_id);
+
+        tracing::info!(
+            adapter_id = adapter_id,
+            adapter_name = %adapter.id(),
+            "Unloaded LoRA adapter and freed memory"
+        );
+        Ok(())
+    }
+
+    /// Estimate memory usage for an adapter (helper for unload)
+    fn get_adapter_memory_usage_estimate(&self, adapter: &LoRAAdapter) -> Result<usize> {
+        let rank = adapter.config().rank;
+        let num_modules = adapter.config().target_modules.len();
+        let estimated_bytes = rank * 4096 * 2 * num_modules * 4; // f32 = 4 bytes
+        Ok(estimated_bytes)
     }
 
     /// Get adapter memory usage (estimated)
     pub fn get_adapter_memory_usage(&self, adapter_id: u16) -> Result<usize> {
-        let adapters = self.adapters.read();
+        let adapters = self.adapters.load();
         if let Some(adapter) = adapters.get(&adapter_id) {
             // Estimate memory usage based on LoRA parameters
             // rank * (dim_in + dim_out) * sizeof(f32) per target module
@@ -402,7 +427,7 @@ impl MLXFFIBackend {
         input: &[f32],
         module_name: &str,
     ) -> Result<Vec<f32>> {
-        let adapters = self.adapters.read();
+        let adapters = self.adapters.load();
 
         // Collect active adapters
         let mut active_adapters = Vec::new();
@@ -760,7 +785,7 @@ impl Clone for MLXFFIBackend {
     fn clone(&self) -> Self {
         Self {
             model: self.model.clone(),
-            adapters: self.adapters.clone(),
+            adapters: ArcSwap::from_pointee((**self.adapters.load()).clone()),
             device: self.device.clone(),
             resilience_config: self.resilience_config.clone(),
             health_status: self.health_status.clone(),
@@ -813,7 +838,7 @@ impl MLXFFIBackend {
         }
 
         // Apply LoRA adapters using RouterRing decisions
-        let final_logits = if ring.k > 0 && !self.adapters.read().is_empty() {
+        let final_logits = if ring.k > 0 && !self.adapters.load().is_empty() {
             self.apply_router_ring_loras(ring, &base_logits, &hidden_states)?
         } else {
             if ring.k > 0 {
@@ -900,7 +925,7 @@ impl MLXFFIBackend {
         base_logits: &[f32],
         hidden_states: &std::collections::HashMap<String, Vec<f32>>,
     ) -> Result<Vec<f32>> {
-        let adapters = self.adapters.read();
+        let adapters = self.adapters.load();
 
         // Collect active adapters and their gates from RouterRing
         let mut active_adapters: Vec<&LoRAAdapter> = Vec::with_capacity(ring.k);
@@ -1045,7 +1070,7 @@ impl MLXFFIBackend {
 
         // Apply minimal LoRA effect if adapters are loaded
         if ring.k > 0 {
-            let adapters = self.adapters.read();
+            let adapters = self.adapters.load();
             for i in 0..ring.k {
                 let adapter_id = ring.indices[i];
                 let gate_q15 = ring.gates_q15[i];

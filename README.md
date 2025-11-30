@@ -19,7 +19,7 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
-- **Policy Enforcement**: 28 canonical policy packs for compliance, security, and quality
+- **Policy Enforcement**: 24 canonical policy packs for compliance, security, and quality
 - **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
 - **Zero Network Egress**: Air-gapped serving with Unix domain sockets only
@@ -96,7 +96,7 @@ graph TB
 ```
 
 **Key Components:**
-- **Policy Registry**: 28 canonical policy packs (egress, determinism, router, evidence, etc.)
+- **Policy Registry**: 24 canonical policy packs (egress, determinism, router, evidence, etc.)
 - **K-Sparse Router**: Top-K adapter selection with Q15 quantized gates
 - **Modular Kernels**: Precompiled `.metallib` kernels for deterministic execution
 - **Adapter Registry**: Content-addressed LoRA adapter storage
@@ -291,7 +291,7 @@ kernel void fused_attention_lora(
 
 ### 3. **Policy Enforcement**
 
-28 canonical policy packs ensure compliance:
+24 canonical policy packs ensure compliance:
 - **Egress Ruleset**: Zero network during serving, PF enforcement
 - **Determinism Ruleset**: Precompiled kernels, HKDF seeding
 - **Router Ruleset**: K bounds, entropy floor, Q15 gates
@@ -332,7 +332,7 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 - **Multi-Backend Support**: CoreML (ANE), MLX (GPU), Metal (fallback) backends
 - **K-Sparse LoRA Routing**: Dynamic adapter selection with Q15 quantization
 - **Deterministic Execution**: HKDF seeding, reproducible results
-- **Policy Enforcement**: 28 canonical policy packs with runtime validation
+- **Policy Enforcement**: 24 canonical policy packs with runtime validation
 - **Adapter Lifecycle**: Hot-swap, pinning, TTL management, memory optimization
 - **REST API**: Complete inference endpoints with streaming support
 - **Database**: SQLite with migrations, adapter registry, telemetry
@@ -358,7 +358,7 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 AdapterOS includes comprehensive visual documentation. Here are key diagrams:
 
 ### **System Architecture**
-- **[High-Level Architecture](docs/architecture.md)**: Mermaid diagram of core components
+- **[High-Level Architecture](docs/ARCHITECTURE_INDEX.md)**: Architecture documentation hub
 - **[Precision Diagrams](docs/architecture/precision-diagrams.md)**: Code-verified architecture diagrams
 - **[Multi-Backend Strategy](docs/ADR_MULTI_BACKEND_STRATEGY.md)**: Backend selection rationale
 
@@ -382,7 +382,7 @@ AdapterOS includes comprehensive visual documentation. Here are key diagrams:
 
 | Component | Diagram | Location |
 |-----------|---------|----------|
-| **System Overview** | Architecture Flow | [docs/architecture.md](docs/architecture.md) |
+| **System Overview** | Architecture Flow | [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md) |
 | **Inference Pipeline** | Token Processing | [docs/INFERENCE_FLOW.md](docs/INFERENCE_FLOW.md) |
 | **Database Schema** | Entity Relationships | [docs/database-schema.md](docs/database-schema.md) |
 | **Adapter Lifecycle** | State Machine | [docs/LIFECYCLE.md](docs/LIFECYCLE.md) |
@@ -477,7 +477,7 @@ AdapterOS v0.3-alpha includes:
 
 ### Completed Features
 - ✅ **Naming Unification**: All crates renamed to `adapteros-*` with compatibility shims
-- ✅ **Policy Registry**: 28 canonical policy packs with CLI commands
+- ✅ **Policy Registry**: 24 canonical policy packs with CLI commands
 - ✅ **Adapter Taxonomy**: Semantic naming with lineage tracking and fork semantics
 - ✅ **Metal Kernel Refactor**: Modular kernels with parameter structs
 - ✅ **Deterministic Config**: Precedence rules with freeze mechanism
@@ -500,8 +500,8 @@ AdapterOS v0.3-alpha includes:
 ### Quick Links
 - **[Quick Start Guide](docs/QUICKSTART.md)** - Get running in 10 minutes
 - **[Documentation Index](docs/README.md)** - Complete documentation navigation
-- **[System Architecture](docs/architecture.md)** - High-level design and components
-- **[Policy Registry](docs/POLICIES.md)** - 28 canonical policy packs
+- **[System Architecture](docs/ARCHITECTURE_INDEX.md)** - High-level design and components
+- **[Policy Registry](docs/POLICIES.md)** - 24 canonical policy packs
 - **[Adapter Taxonomy](docs/ADAPTER_TAXONOMY.md)** - Semantic naming and lineage tracking
 - **[Completion PRD](docs/PRD-COMPLETION-V03-ALPHA.md)** - 12-week plan to finish v0.3-alpha (70 tasks, 6-7 teams)
 

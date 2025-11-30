@@ -564,12 +564,35 @@ pub fn get_tokenizer_path() -> Result<PathBuf> {
     )))
 }
 
-/// Resolve tokenizer path from CLI override or discovery
+/// Resolve tokenizer path from CLI override or automatic discovery
 ///
-/// Use this in CLI commands for consistent resolution:
+/// This is the **canonical function** for resolving tokenizer paths across the codebase.
+/// All CLI commands, workers, and xtask utilities should use this function to ensure
+/// consistent behavior.
+///
+/// # Resolution Order
+///
+/// 1. **CLI override**: If `cli_override` is `Some(path)`, validates the path exists
+/// 2. **AOS_TOKENIZER_PATH**: Environment variable for explicit configuration
+/// 3. **Model directory**: Looks for `tokenizer.json` in `AOS_MODEL_PATH`
+/// 4. **Error**: Returns actionable error message with remediation steps
+///
+/// # Example
+///
 /// ```rust,ignore
-/// let tokenizer_path = resolve_tokenizer_path(args.tokenizer.as_ref())?;
+/// // In CLI commands with TokenizerArg:
+/// let path = resolve_tokenizer_path(self.tokenizer_arg.tokenizer.as_ref())?;
+///
+/// // In non-CLI code with Option<PathBuf>:
+/// let path = resolve_tokenizer_path(config.tokenizer_path.as_ref())?;
 /// ```
+///
+/// # Errors
+///
+/// Returns `AosError::Config` if:
+/// - CLI override path doesn't exist
+/// - `AOS_TOKENIZER_PATH` is set but file doesn't exist
+/// - No tokenizer found via discovery
 pub fn resolve_tokenizer_path(cli_override: Option<&PathBuf>) -> Result<PathBuf> {
     match cli_override {
         Some(path) => {
@@ -763,5 +786,179 @@ mod tests {
         assert_eq!(config.max_seq_len, deserialized.max_seq_len);
         assert_eq!(config.rope_theta, deserialized.rope_theta);
         assert_eq!(config.backend, deserialized.backend);
+    }
+
+    // ========================================================================
+    // Tokenizer Discovery Tests
+    // ========================================================================
+
+    mod tokenizer_tests {
+        use super::*;
+        use std::fs;
+        use tempfile::TempDir;
+
+        /// Helper to create a temporary directory with a tokenizer.json file
+        fn create_temp_tokenizer() -> (TempDir, PathBuf) {
+            let temp_dir = TempDir::new().unwrap();
+            let tokenizer_path = temp_dir.path().join("tokenizer.json");
+            fs::write(&tokenizer_path, r#"{"version": "1.0"}"#).unwrap();
+            (temp_dir, tokenizer_path)
+        }
+
+        /// Helper to create a temp model directory with tokenizer.json
+        fn create_temp_model_dir() -> (TempDir, PathBuf) {
+            let temp_dir = TempDir::new().unwrap();
+            let model_dir = temp_dir.path().join("model");
+            fs::create_dir(&model_dir).unwrap();
+            let tokenizer_path = model_dir.join("tokenizer.json");
+            fs::write(&tokenizer_path, r#"{"version": "1.0"}"#).unwrap();
+            (temp_dir, model_dir)
+        }
+
+        #[test]
+        fn test_resolve_tokenizer_path_with_valid_override() {
+            let (_temp_dir, tokenizer_path) = create_temp_tokenizer();
+
+            let result = resolve_tokenizer_path(Some(&tokenizer_path));
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), tokenizer_path);
+        }
+
+        #[test]
+        fn test_resolve_tokenizer_path_with_invalid_override() {
+            let nonexistent = PathBuf::from("/nonexistent/path/tokenizer.json");
+
+            let result = resolve_tokenizer_path(Some(&nonexistent));
+            assert!(result.is_err());
+
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("not found at specified path"));
+            assert!(err.contains("/nonexistent/path/tokenizer.json"));
+        }
+
+        #[test]
+        fn test_resolve_tokenizer_path_none_without_env() {
+            // Clear relevant env vars for this test
+            std::env::remove_var("AOS_TOKENIZER_PATH");
+            std::env::remove_var("AOS_MODEL_PATH");
+            std::env::remove_var("AOS_MLX_FFI_MODEL");
+
+            let result = resolve_tokenizer_path(None);
+
+            // Should fail with helpful error since no discovery source is available
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("Tokenizer not found"));
+            assert!(err.contains("AOS_TOKENIZER_PATH"));
+        }
+
+        #[test]
+        fn test_get_tokenizer_path_with_explicit_env() {
+            let (_temp_dir, tokenizer_path) = create_temp_tokenizer();
+
+            // Set explicit tokenizer path
+            std::env::set_var("AOS_TOKENIZER_PATH", tokenizer_path.to_str().unwrap());
+
+            let result = get_tokenizer_path();
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), tokenizer_path);
+
+            // Cleanup
+            std::env::remove_var("AOS_TOKENIZER_PATH");
+        }
+
+        #[test]
+        fn test_get_tokenizer_path_explicit_env_nonexistent_errors() {
+            // Set explicit path to nonexistent file - should ERROR, not fallback
+            std::env::set_var("AOS_TOKENIZER_PATH", "/nonexistent/tokenizer.json");
+
+            let result = get_tokenizer_path();
+            assert!(result.is_err());
+
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("AOS_TOKENIZER_PATH is set"));
+            assert!(err.contains("does not exist"));
+
+            // Cleanup
+            std::env::remove_var("AOS_TOKENIZER_PATH");
+        }
+
+        #[test]
+        fn test_get_tokenizer_path_discovers_from_model_path() {
+            let (_temp_dir, model_dir) = create_temp_model_dir();
+
+            // Clear explicit tokenizer path, set model path
+            std::env::remove_var("AOS_TOKENIZER_PATH");
+            std::env::set_var("AOS_MODEL_PATH", model_dir.to_str().unwrap());
+
+            let result = get_tokenizer_path();
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), model_dir.join("tokenizer.json"));
+
+            // Cleanup
+            std::env::remove_var("AOS_MODEL_PATH");
+        }
+
+        #[test]
+        fn test_get_tokenizer_path_error_message_includes_model_path() {
+            // Set model path but no tokenizer in it
+            let temp_dir = TempDir::new().unwrap();
+            let empty_model_dir = temp_dir.path().join("empty-model");
+            fs::create_dir(&empty_model_dir).unwrap();
+
+            std::env::remove_var("AOS_TOKENIZER_PATH");
+            std::env::set_var("AOS_MODEL_PATH", empty_model_dir.to_str().unwrap());
+
+            let result = get_tokenizer_path();
+            assert!(result.is_err());
+
+            let err = result.unwrap_err().to_string();
+            // Should mention the model path in the error
+            assert!(err.contains("AOS_MODEL_PATH"));
+
+            // Cleanup
+            std::env::remove_var("AOS_MODEL_PATH");
+        }
+
+        #[test]
+        fn test_get_tokenizer_path_optional_returns_some() {
+            let (_temp_dir, tokenizer_path) = create_temp_tokenizer();
+            std::env::set_var("AOS_TOKENIZER_PATH", tokenizer_path.to_str().unwrap());
+
+            let result = get_tokenizer_path_optional();
+            assert!(result.is_some());
+            assert_eq!(result.unwrap(), tokenizer_path);
+
+            std::env::remove_var("AOS_TOKENIZER_PATH");
+        }
+
+        #[test]
+        fn test_get_tokenizer_path_optional_returns_none() {
+            std::env::remove_var("AOS_TOKENIZER_PATH");
+            std::env::remove_var("AOS_MODEL_PATH");
+            std::env::remove_var("AOS_MLX_FFI_MODEL");
+
+            let result = get_tokenizer_path_optional();
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn test_is_tokenizer_available_true() {
+            let (_temp_dir, tokenizer_path) = create_temp_tokenizer();
+            std::env::set_var("AOS_TOKENIZER_PATH", tokenizer_path.to_str().unwrap());
+
+            assert!(is_tokenizer_available());
+
+            std::env::remove_var("AOS_TOKENIZER_PATH");
+        }
+
+        #[test]
+        fn test_is_tokenizer_available_false() {
+            std::env::remove_var("AOS_TOKENIZER_PATH");
+            std::env::remove_var("AOS_MODEL_PATH");
+            std::env::remove_var("AOS_MLX_FFI_MODEL");
+
+            assert!(!is_tokenizer_available());
+        }
     }
 }

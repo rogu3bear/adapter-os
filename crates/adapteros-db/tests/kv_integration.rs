@@ -9,8 +9,6 @@
 
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::Db;
-use chrono::Utc;
-use std::collections::HashSet;
 use tempfile::TempDir;
 
 // NOTE: StorageMode is assumed to be defined in adapteros_db or adapteros_core
@@ -115,7 +113,7 @@ async fn test_dual_write_adapter() {
 
     // Verify it exists in SQL
     let adapter_sql = db
-        .get_adapter_by_id("default-tenant", "dual-write-test-1")
+        .get_adapter("dual-write-test-1")
         .await
         .unwrap();
     assert!(adapter_sql.is_some());
@@ -136,7 +134,7 @@ async fn test_dual_write_adapter() {
 
     // Verify both SQL and KV are updated
     let adapter_after = db
-        .get_adapter_by_id("default-tenant", "dual-write-test-1")
+        .get_adapter("dual-write-test-1")
         .await
         .unwrap()
         .unwrap();
@@ -175,7 +173,7 @@ async fn test_kv_primary_read() {
     // Read should come from KV (once KV implementation exists)
     // For now, this tests the SQL path still works
     let adapter = db
-        .get_adapter_by_id("default-tenant", "kv-primary-test-1")
+        .get_adapter("kv-primary-test-1")
         .await
         .unwrap();
     assert!(adapter.is_some());
@@ -208,7 +206,7 @@ async fn test_storage_mode_switch() {
 
     // Verify it exists in SQL
     let adapter_sql_only = db
-        .get_adapter_by_id("default-tenant", "mode-switch-test-1")
+        .get_adapter("mode-switch-test-1")
         .await
         .unwrap();
     assert!(adapter_sql_only.is_some());
@@ -232,7 +230,7 @@ async fn test_storage_mode_switch() {
 
     // Verify writes go to both
     let adapter_dual = db
-        .get_adapter_by_id("default-tenant", "mode-switch-test-2")
+        .get_adapter("mode-switch-test-2")
         .await
         .unwrap();
     assert!(adapter_dual.is_some());
@@ -390,7 +388,7 @@ async fn test_migration_data_integrity() {
     // Verify each adapter's data integrity
     for (adapter_id, name, hash, rank, tier) in &test_adapters {
         let adapter_sql = db
-            .get_adapter_by_id("default-tenant", adapter_id)
+            .get_adapter(adapter_id)
             .await
             .unwrap()
             .unwrap();
@@ -435,7 +433,7 @@ async fn test_dual_write_atomicity() {
 
     // Verify in SQL
     let adapter_sql = db
-        .get_adapter_by_id("default-tenant", "atomic-test-1")
+        .get_adapter("atomic-test-1")
         .await
         .unwrap();
     assert!(adapter_sql.is_some());
@@ -483,7 +481,7 @@ async fn test_kv_fallback_to_sql() {
 
     // Read should still succeed by falling back to SQL
     let adapter = db
-        .get_adapter_by_id("default-tenant", "fallback-test-1")
+        .get_adapter("fallback-test-1")
         .await
         .unwrap();
     assert!(adapter.is_some());
@@ -534,7 +532,7 @@ async fn test_concurrent_dual_writes() {
 
     // Verify final count is correct in SQL
     let adapter = db
-        .get_adapter_by_id("default-tenant", "concurrent-test-base")
+        .get_adapter("concurrent-test-base")
         .await
         .unwrap()
         .unwrap();
@@ -625,7 +623,7 @@ async fn test_storage_mode_read_performance() {
     // Warm up
     for _ in 0..10 {
         let _ = db
-            .get_adapter_by_id("default-tenant", "perf-test-1")
+            .get_adapter("perf-test-1")
             .await
             .unwrap();
     }
@@ -634,7 +632,7 @@ async fn test_storage_mode_read_performance() {
     let start = std::time::Instant::now();
     for _ in 0..100 {
         let _ = db
-            .get_adapter_by_id("default-tenant", "perf-test-1")
+            .get_adapter("perf-test-1")
             .await
             .unwrap();
     }

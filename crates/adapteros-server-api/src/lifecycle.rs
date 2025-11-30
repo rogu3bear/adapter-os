@@ -732,7 +732,7 @@ impl Default for ShutdownCoordinator {
 mod tests {
     use super::*;
     use adapteros_core::B3Hash;
-    use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig};
+    use adapteros_deterministic_exec::{init_global_executor, EnforcementMode, ExecutorConfig};
     use tokio::time::timeout;
 
     fn init_test_executor() {
@@ -746,6 +746,7 @@ mod tests {
             agent_id: None,
             enable_thread_pinning: false,
             worker_threads: Some(2),
+            enforcement_mode: EnforcementMode::default(),
         };
         let _ = init_global_executor(executor_config);
     }

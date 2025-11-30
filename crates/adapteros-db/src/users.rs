@@ -1,4 +1,4 @@
-use crate::users_kv::{Role as KvRole, UserKvOps, UserKvStorage};
+use crate::users_kv::{Role as KvRole, UserKvOps, UserKvRepository};
 use crate::{Db, StorageMode};
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
@@ -81,6 +81,15 @@ fn to_kv_role(role: &Role) -> KvRole {
 }
 
 impl Db {
+    /// Get a UserKvRepository if KV writes are enabled
+    fn get_user_kv_repo(&self) -> Option<UserKvRepository<crate::kv_backend::KvDb>> {
+        if self.storage_mode().write_to_kv() {
+            self.kv_backend().map(|kv| UserKvRepository::new((**kv).clone()))
+        } else {
+            None
+        }
+    }
+
     /// Create a new user with dual-write support
     ///
     /// Writes to SQL backend, and also to KV backend if dual-write mode is enabled.
@@ -110,20 +119,12 @@ impl Db {
         .await?;
 
         // KV write (dual-write mode)
-        if self.storage_mode().write_to_kv() {
-            if let Some(kv) = self.kv_backend() {
-                let kv_role = to_kv_role(&role);
-                // Clone the KvDb from the Arc for the storage operation
-                let kv_storage = UserKvStorage::new((**kv).clone());
-                if let Err(e) = kv_storage
-                    .create_user_kv(email, display_name, pw_hash, kv_role, tenant_id)
-                    .await
-                {
-                    warn!(error = %e, user_id = %id, "Failed to write user to KV backend (dual-write)");
-                    // Don't fail the operation - SQL write succeeded
-                } else {
-                    debug!(user_id = %id, "User written to both SQL and KV backends");
-                }
+        if let Some(repo) = self.get_user_kv_repo() {
+            let kv_role = to_kv_role(&role);
+            if let Err(e) = repo.create_user_kv(email, display_name, pw_hash, kv_role, tenant_id).await {
+                warn!(error = %e, user_id = %id, "Failed to write user to KV backend (dual-write)");
+            } else {
+                debug!(user_id = %id, "User written to both SQL and KV backends");
             }
         }
 
@@ -183,20 +184,12 @@ impl Db {
         .await?;
 
         // KV write (dual-write mode)
-        if self.storage_mode().write_to_kv() {
-            if let Some(kv) = self.kv_backend() {
-                let kv_role = to_kv_role(&role);
-                // Clone the KvDb from the Arc for the storage operation
-                let kv_storage = UserKvStorage::new((**kv).clone());
-                if let Err(e) = kv_storage
-                    .ensure_user_kv(id, email, display_name, pw_hash, kv_role, tenant_id)
-                    .await
-                {
-                    warn!(error = %e, user_id = %id, "Failed to ensure user in KV backend (dual-write)");
-                    // Don't fail the operation - SQL write succeeded
-                } else {
-                    debug!(user_id = %id, "User ensured in both SQL and KV backends");
-                }
+        if let Some(repo) = self.get_user_kv_repo() {
+            let kv_role = to_kv_role(&role);
+            if let Err(e) = repo.ensure_user_kv(id, email, display_name, pw_hash, kv_role, tenant_id).await {
+                warn!(error = %e, user_id = %id, "Failed to ensure user in KV backend (dual-write)");
+            } else {
+                debug!(user_id = %id, "User ensured in both SQL and KV backends");
             }
         }
 

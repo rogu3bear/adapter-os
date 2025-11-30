@@ -77,14 +77,14 @@ pub trait AdapterKvOps {
 }
 
 /// KV adapter service that wraps the repository
-pub struct KvAdapterService {
+pub struct AdapterKvRepository {
     repo: Arc<AdapterRepository>,
     // We need to track the tenant_id for multi-tenant operations
     // In practice, this might come from request context
     default_tenant: String,
 }
 
-impl KvAdapterService {
+impl AdapterKvRepository {
     /// Create a new KV adapter service
     pub fn new(repo: Arc<AdapterRepository>, default_tenant: String) -> Self {
         Self {
@@ -200,11 +200,11 @@ impl From<AdapterKv> for Adapter {
 }
 
 // ============================================================================
-// KvAdapterService Implementation
+// AdapterKvRepository Implementation
 // ============================================================================
 
 #[async_trait::async_trait]
-impl AdapterKvOps for KvAdapterService {
+impl AdapterKvOps for AdapterKvRepository {
     async fn register_adapter_kv(&self, params: AdapterRegistrationParams) -> Result<String> {
         let id = uuid::Uuid::now_v7().to_string();
         let now = Utc::now().to_rfc3339();

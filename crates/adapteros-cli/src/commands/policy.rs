@@ -201,9 +201,9 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
 fn explain_policy_pack(policy_ref: &str) -> Result<()> {
     // Try to parse as ID number first, then as name
     let policy_id = if let Ok(id) = policy_ref.parse::<usize>() {
-        if id < 1 || id > 20 {
+        if id < 1 || id > 25 {
             return Err(adapteros_core::AosError::Validation(
-                "Policy ID must be between 1 and 20".to_string(),
+                "Policy ID must be between 1 and 25".to_string(),
             ));
         }
         // Convert to PolicyId enum (casting is safe since we validated range)
@@ -284,9 +284,9 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
 fn parse_policy_id(policy_ref: &str) -> Result<PolicyId> {
     // Try to parse as ID number first, then as name
     if let Ok(id) = policy_ref.parse::<usize>() {
-        if id < 1 || id > 20 {
+        if id < 1 || id > 25 {
             return Err(adapteros_core::AosError::Validation(
-                "Policy ID must be between 1 and 20".to_string(),
+                "Policy ID must be between 1 and 25".to_string(),
             ));
         }
         Ok(unsafe { std::mem::transmute::<u8, PolicyId>(id as u8) })

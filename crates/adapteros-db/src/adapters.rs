@@ -2,10 +2,12 @@ use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use std::sync::Arc;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
-#[cfg(feature = "kv-storage")]
-use crate::adapters_kv::{AdapterKvOps, KvAdapterService};
+use crate::adapters_kv::{AdapterKvOps, AdapterKvRepository};
+use adapteros_storage::repos::AdapterRepository;
 
 /// Standard adapter SELECT fields for all queries
 ///
@@ -400,29 +402,29 @@ pub struct AdapterActivation {
 }
 
 impl Db {
-    /// Check if KV mode is enabled
+    /// Get an AdapterKvRepository if KV writes are enabled
+    fn get_adapter_kv_repo(&self, tenant_id: &str) -> Option<AdapterKvRepository> {
+        if self.storage_mode().write_to_kv() {
+            self.kv_backend().map(|kv| {
+                let repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
+                AdapterKvRepository::new(Arc::new(repo), tenant_id.to_string())
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Get tenant_id for an adapter by adapter_id (external ID)
     ///
-    /// This determines whether to use dual-write mode (SQL + KV) or SQL-only mode.
-    /// In KV mode, all write operations are performed on both SQL and KV backends.
-    #[cfg(feature = "kv-storage")]
-    fn is_kv_mode_enabled(&self) -> bool {
-        // Check environment variable or configuration
-        std::env::var("AOS_KV_MODE")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(false)
-    }
-
-    #[cfg(not(feature = "kv-storage"))]
-    fn is_kv_mode_enabled(&self) -> bool {
-        false
-    }
-
-    /// Get KV adapter service (if available and enabled)
-    #[cfg(feature = "kv-storage")]
-    fn get_kv_service(&self) -> Option<&KvAdapterService> {
-        // In a real implementation, this would be stored on the Db struct
-        // For now, we return None since we can't modify the Db struct in this migration
-        None
+    /// Returns None if adapter doesn't exist
+    async fn get_adapter_tenant_id(&self, adapter_id: &str) -> Result<Option<String>> {
+        let tenant_id: Option<String> =
+            sqlx::query_scalar("SELECT tenant_id FROM adapters WHERE adapter_id = ?")
+                .bind(adapter_id)
+                .fetch_optional(&*self.pool())
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(tenant_id)
     }
 
     /// Register a new adapter
@@ -478,8 +480,8 @@ impl Db {
 
         // Write to SQL (primary storage)
         sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
+            "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
         )
         .bind(&id)
         .bind(&params.tenant_id)
@@ -509,19 +511,18 @@ impl Db {
         .bind(&params.parent_id)
         .bind(&params.fork_type)
         .bind(&params.fork_reason)
+        .bind(&params.aos_file_path)
+        .bind(&params.aos_file_hash)
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
-        // Dual-write to KV storage if enabled
-        #[cfg(feature = "kv-storage")]
-        if self.is_kv_mode_enabled() {
-            if let Some(kv_service) = self.get_kv_service() {
-                if let Err(e) = kv_service.register_adapter_kv(params.clone()).await {
-                    use tracing::warn;
-                    warn!(error = %e, "Failed to dual-write adapter to KV storage (SQL write succeeded)");
-                    // Continue - SQL write succeeded, KV is best-effort during migration
-                }
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
+            if let Err(e) = repo.register_adapter_kv(params.clone()).await {
+                warn!(error = %e, adapter_id = %id, "Failed to write adapter to KV backend (dual-write)");
+            } else {
+                debug!(adapter_id = %id, "Adapter written to both SQL and KV backends");
             }
         }
 
@@ -614,6 +615,31 @@ impl Db {
     /// # }
     /// ```
     pub async fn list_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
+        // Try KV first if enabled
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+                match repo.list_adapters_for_tenant_kv(tenant_id).await {
+                    Ok(adapters) if !adapters.is_empty() => {
+                        debug!(tenant_id = %tenant_id, count = adapters.len(), "Retrieved adapters from KV");
+                        return Ok(adapters);
+                    }
+                    Ok(_) if self.storage_mode().read_from_sql() => {
+                        debug!(tenant_id = %tenant_id, "KV returned empty list, falling back to SQL");
+                    }
+                    Ok(adapters) => {
+                        return Ok(adapters);
+                    }
+                    Err(e) if self.storage_mode().read_from_sql() => {
+                        warn!(error = %e, tenant_id = %tenant_id, "KV read failed, falling back to SQL");
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        // SQL fallback or primary read
         let query = format!(
             "SELECT {} FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC",
             ADAPTER_SELECT_FIELDS
@@ -638,39 +664,43 @@ impl Db {
     ///
     /// Citation: Agent G Stability Reinforcement Plan - Patch 1.3
     pub async fn delete_adapter(&self, id: &str) -> Result<()> {
-        use tracing::warn;
-
-        // Get adapter_id for pinning check
-        let adapter_id: Option<String> =
-            sqlx::query_scalar("SELECT adapter_id FROM adapters WHERE id = ?")
+        // Get adapter_id and tenant_id for pinning check and KV dual-write
+        let adapter_data: Option<(String, String)> =
+            sqlx::query_as("SELECT adapter_id, tenant_id FROM adapters WHERE id = ?")
                 .bind(id)
                 .fetch_optional(&*self.pool())
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
-        if let Some(adapter_id) = adapter_id {
-            // Check active_pinned_adapters view (single source of truth)
-            // View automatically filters expired pins (pinned_until > now())
-            let active_pin_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?",
-            )
-            .bind(&adapter_id)
-            .fetch_one(&*self.pool())
-            .await
-            .unwrap_or(0);
-
-            if active_pin_count > 0 {
-                warn!(
-                    id = %id,
-                    adapter_id = %adapter_id,
-                    pin_count = active_pin_count,
-                    "Attempted to delete adapter with active pins"
-                );
-                return Err(AosError::PolicyViolation(format!(
-                    "Cannot delete adapter '{}': adapter has {} active pin(s). Unpin first.",
-                    adapter_id, active_pin_count
-                )));
+        let (adapter_id, tenant_id) = match adapter_data {
+            Some((aid, tid)) => (aid, tid),
+            None => {
+                // Adapter doesn't exist - nothing to delete
+                return Ok(());
             }
+        };
+
+        // Check active_pinned_adapters view (single source of truth)
+        // View automatically filters expired pins (pinned_until > now())
+        let active_pin_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?",
+        )
+        .bind(&adapter_id)
+        .fetch_one(&*self.pool())
+        .await
+        .unwrap_or(0);
+
+        if active_pin_count > 0 {
+            warn!(
+                id = %id,
+                adapter_id = %adapter_id,
+                pin_count = active_pin_count,
+                "Attempted to delete adapter with active pins"
+            );
+            return Err(AosError::PolicyViolation(format!(
+                "Cannot delete adapter '{}': adapter has {} active pin(s). Unpin first.",
+                adapter_id, active_pin_count
+            )));
         }
 
         // Not pinned - safe to delete
@@ -679,6 +709,16 @@ impl Db {
             .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+            if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
+                warn!(error = %e, adapter_id = %adapter_id, "Failed to delete adapter from KV backend (dual-write)");
+            } else {
+                debug!(adapter_id = %adapter_id, "Adapter deleted from both SQL and KV backends");
+            }
+        }
+
         Ok(())
     }
 
@@ -691,7 +731,7 @@ impl Db {
     ///
     /// Citation: Agent G Stability Reinforcement Plan - Patch 4.1
     pub async fn delete_adapter_cascade(&self, id: &str) -> Result<()> {
-        use tracing::{info, warn};
+        use tracing::info;
 
         let mut tx = self
             .pool()
@@ -699,69 +739,108 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-        // Get adapter_id for pinning check
-        let adapter_id: Option<String> =
-            sqlx::query_scalar("SELECT adapter_id FROM adapters WHERE id = ?")
+        // Get adapter_id and tenant_id for pinning check and KV dual-write
+        let adapter_data: Option<(String, String)> =
+            sqlx::query_as("SELECT adapter_id, tenant_id FROM adapters WHERE id = ?")
                 .bind(id)
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
-        if let Some(adapter_id) = adapter_id {
-            // Check active_pinned_adapters view (single source of truth)
-            let active_pin_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?",
-            )
-            .bind(&adapter_id)
-            .fetch_one(&mut *tx)
-            .await
-            .unwrap_or(0);
-
-            if active_pin_count > 0 {
-                warn!(
-                    id = %id,
-                    adapter_id = %adapter_id,
-                    pin_count = active_pin_count,
-                    "Attempted to cascade delete adapter with active pins"
-                );
-                return Err(AosError::PolicyViolation(format!(
-                    "Cannot delete adapter '{}': adapter has {} active pin(s)",
-                    adapter_id, active_pin_count
-                )));
+        let (adapter_id, tenant_id) = match adapter_data {
+            Some((aid, tid)) => (aid, tid),
+            None => {
+                return Err(AosError::NotFound(format!("Adapter not found: {}", id)));
             }
+        };
 
-            // Delete from pinned_adapters (expired pins)
-            // Use subquery to find adapter_pk from adapters.id where adapter_id matches
-            sqlx::query(
-                "DELETE FROM pinned_adapters WHERE adapter_pk IN
-                 (SELECT id FROM adapters WHERE adapter_id = ?)",
-            )
-            .bind(&adapter_id)
+        // Check active_pinned_adapters view (single source of truth)
+        let active_pin_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?",
+        )
+        .bind(&adapter_id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap_or(0);
+
+        if active_pin_count > 0 {
+            warn!(
+                id = %id,
+                adapter_id = %adapter_id,
+                pin_count = active_pin_count,
+                "Attempted to cascade delete adapter with active pins"
+            );
+            return Err(AosError::PolicyViolation(format!(
+                "Cannot delete adapter '{}': adapter has {} active pin(s)",
+                adapter_id, active_pin_count
+            )));
+        }
+
+        // Delete from pinned_adapters (expired pins)
+        // Use subquery to find adapter_pk from adapters.id where adapter_id matches
+        sqlx::query(
+            "DELETE FROM pinned_adapters WHERE adapter_pk IN
+             (SELECT id FROM adapters WHERE adapter_id = ?)",
+        )
+        .bind(&adapter_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        info!(id = %id, adapter_id = %adapter_id, "Deleting adapter with cascade");
+
+        // Delete the adapter itself
+        sqlx::query("DELETE FROM adapters WHERE id = ?")
+            .bind(id)
             .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-            info!(id = %id, adapter_id = %adapter_id, "Deleting adapter with cascade");
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
-            // Delete the adapter itself
-            sqlx::query("DELETE FROM adapters WHERE id = ?")
-                .bind(id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
-
-            tx.commit()
-                .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
-            Ok(())
-        } else {
-            // Adapter not found
-            Err(AosError::NotFound(format!("Adapter not found: {}", id)))
+        // KV write (dual-write mode) - after transaction commit
+        if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+            if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
+                warn!(error = %e, adapter_id = %adapter_id, "Failed to delete adapter from KV backend (dual-write, cascade)");
+            } else {
+                debug!(adapter_id = %adapter_id, "Adapter deleted from both SQL and KV backends (cascade)");
+            }
         }
+
+        Ok(())
     }
 
     /// Get adapter by ID
     pub async fn get_adapter(&self, adapter_id: &str) -> Result<Option<Adapter>> {
+        // Try KV first if enabled
+        if self.storage_mode().read_from_kv() {
+            if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+                if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+                    match repo.get_adapter_kv(adapter_id).await {
+                        Ok(Some(adapter)) => {
+                            debug!(adapter_id = %adapter_id, "Retrieved adapter from KV");
+                            return Ok(Some(adapter));
+                        }
+                        Ok(None) if self.storage_mode().read_from_sql() => {
+                            debug!(adapter_id = %adapter_id, "KV returned None, falling back to SQL");
+                        }
+                        Ok(None) => {
+                            return Ok(None);
+                        }
+                        Err(e) if self.storage_mode().read_from_sql() => {
+                            warn!(error = %e, adapter_id = %adapter_id, "KV read failed, falling back to SQL");
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // SQL fallback or primary read
         let query = format!(
             "SELECT {} FROM adapters WHERE adapter_id = ?",
             ADAPTER_SELECT_FIELDS
@@ -779,6 +858,17 @@ impl Db {
     /// Returns an existing active adapter with the same hash_b3, enabling
     /// content-addressed deduplication during import.
     pub async fn find_adapter_by_hash(&self, hash_b3: &str) -> Result<Option<Adapter>> {
+        // Try KV first if enabled
+        if self.storage_mode().read_from_kv() {
+            // Note: We need to check across all tenants for hash lookup, so we'll try SQL
+            // or we'd need to iterate through tenants. For now, fall through to SQL.
+            // TODO: Add multi-tenant hash index to KV backend
+            if self.storage_mode().read_from_sql() {
+                debug!(hash_b3 = %hash_b3, "Hash lookup requires cross-tenant search, using SQL");
+            }
+        }
+
+        // SQL fallback or primary read (needed for cross-tenant hash lookup)
         let query = format!(
             "SELECT {} FROM adapters WHERE hash_b3 = ? AND active = 1 LIMIT 1",
             ADAPTER_SELECT_FIELDS
@@ -865,7 +955,7 @@ impl Db {
         &self,
         adapter_id: &str,
         state: &str,
-        _reason: &str,
+        reason: &str,
     ) -> Result<()> {
         sqlx::query(
             "UPDATE adapters SET current_state = ?, updated_at = datetime('now') WHERE adapter_id = ?"
@@ -875,6 +965,18 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode)
+        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+                if let Err(e) = repo.update_adapter_state_kv(adapter_id, state, reason).await {
+                    warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state in KV backend (dual-write)");
+                } else {
+                    debug!(adapter_id = %adapter_id, state = %state, "Adapter state updated in both SQL and KV backends");
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -890,6 +992,18 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode)
+        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+                if let Err(e) = repo.update_adapter_memory_kv(adapter_id, memory_bytes).await {
+                    warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter memory in KV backend (dual-write)");
+                } else {
+                    debug!(adapter_id = %adapter_id, memory_bytes = %memory_bytes, "Adapter memory updated in both SQL and KV backends");
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -908,29 +1022,30 @@ impl Db {
         state: &str,
         reason: &str,
     ) -> Result<()> {
-        use tracing::{debug, warn};
-
         let mut tx = self
             .pool()
             .begin()
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-        // Lock the row to prevent concurrent updates
-        let row_exists: Option<(String,)> =
-            sqlx::query_as("SELECT adapter_id FROM adapters WHERE adapter_id = ?")
+        // Lock the row and get tenant_id for KV dual-write
+        let row_data: Option<(String, String)> =
+            sqlx::query_as("SELECT adapter_id, tenant_id FROM adapters WHERE adapter_id = ?")
                 .bind(adapter_id)
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
-        if row_exists.is_none() {
-            warn!(adapter_id = %adapter_id, "Adapter not found for state update");
-            return Err(AosError::NotFound(format!(
-                "Adapter not found: {}",
-                adapter_id
-            )));
-        }
+        let tenant_id = match row_data {
+            Some((_, tid)) => tid,
+            None => {
+                warn!(adapter_id = %adapter_id, "Adapter not found for state update");
+                return Err(AosError::NotFound(format!(
+                    "Adapter not found: {}",
+                    adapter_id
+                )));
+            }
+        };
 
         // Update state with reason logged
         debug!(adapter_id = %adapter_id, state = %state, reason = %reason,
@@ -948,6 +1063,16 @@ impl Db {
         tx.commit()
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode) - after transaction commit
+        if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+            if let Err(e) = repo.update_adapter_state_kv(adapter_id, state, reason).await {
+                warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state in KV backend (dual-write)");
+            } else {
+                debug!(adapter_id = %adapter_id, state = %state, "Adapter state updated in both SQL and KV backends (tx)");
+            }
+        }
+
         Ok(())
     }
 
@@ -964,28 +1089,29 @@ impl Db {
         adapter_id: &str,
         memory_bytes: i64,
     ) -> Result<()> {
-        use tracing::debug;
-
         let mut tx = self
             .pool()
             .begin()
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-        // Verify adapter exists
-        let row_exists: Option<(String,)> =
-            sqlx::query_as("SELECT adapter_id FROM adapters WHERE adapter_id = ?")
+        // Verify adapter exists and get tenant_id for KV dual-write
+        let row_data: Option<(String, String)> =
+            sqlx::query_as("SELECT adapter_id, tenant_id FROM adapters WHERE adapter_id = ?")
                 .bind(adapter_id)
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
-        if row_exists.is_none() {
-            return Err(AosError::NotFound(format!(
-                "Adapter not found: {}",
-                adapter_id
-            )));
-        }
+        let tenant_id = match row_data {
+            Some((_, tid)) => tid,
+            None => {
+                return Err(AosError::NotFound(format!(
+                    "Adapter not found: {}",
+                    adapter_id
+                )));
+            }
+        };
 
         debug!(adapter_id = %adapter_id, memory_bytes = %memory_bytes,
                "Updating adapter memory (transactional)");
@@ -1002,6 +1128,16 @@ impl Db {
         tx.commit()
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode) - after transaction commit
+        if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+            if let Err(e) = repo.update_adapter_memory_kv(adapter_id, memory_bytes).await {
+                warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter memory in KV backend (dual-write)");
+            } else {
+                debug!(adapter_id = %adapter_id, memory_bytes = %memory_bytes, "Adapter memory updated in both SQL and KV backends (tx)");
+            }
+        }
+
         Ok(())
     }
 
@@ -1018,28 +1154,29 @@ impl Db {
         memory_bytes: i64,
         reason: &str,
     ) -> Result<()> {
-        use tracing::debug;
-
         let mut tx = self
             .pool()
             .begin()
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-        // Verify adapter exists
-        let row_exists: Option<(String,)> =
-            sqlx::query_as("SELECT adapter_id FROM adapters WHERE adapter_id = ?")
+        // Verify adapter exists and get tenant_id for KV dual-write
+        let row_data: Option<(String, String)> =
+            sqlx::query_as("SELECT adapter_id, tenant_id FROM adapters WHERE adapter_id = ?")
                 .bind(adapter_id)
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
-        if row_exists.is_none() {
-            return Err(AosError::NotFound(format!(
-                "Adapter not found: {}",
-                adapter_id
-            )));
-        }
+        let tenant_id = match row_data {
+            Some((_, tid)) => tid,
+            None => {
+                return Err(AosError::NotFound(format!(
+                    "Adapter not found: {}",
+                    adapter_id
+                )));
+            }
+        };
 
         debug!(
             adapter_id = %adapter_id,
@@ -1065,11 +1202,32 @@ impl Db {
         tx.commit()
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode) - after transaction commit
+        if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+            if let Err(e) = repo.update_adapter_state_and_memory_kv(adapter_id, state, memory_bytes, reason).await {
+                warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state/memory in KV backend (dual-write)");
+            } else {
+                debug!(adapter_id = %adapter_id, state = %state, memory_bytes = %memory_bytes, "Adapter state/memory updated in both SQL and KV backends");
+            }
+        }
+
         Ok(())
     }
 
     /// List adapters by category
     pub async fn list_adapters_by_category(&self, category: &str) -> Result<Vec<Adapter>> {
+        // Try KV first if enabled
+        // Note: This is a cross-tenant query, so we need to aggregate across all tenants
+        // For now, we'll use SQL for simplicity. KV optimization would require a global index.
+        if self.storage_mode().read_from_kv() {
+            if self.storage_mode().read_from_sql() {
+                debug!(category = %category, "Category lookup requires cross-tenant search, using SQL");
+            }
+            // TODO: Add category index to KV backend for cross-tenant queries
+        }
+
+        // SQL fallback or primary read
         let query = format!(
             "SELECT {} FROM adapters WHERE active = 1 AND category = ? ORDER BY activation_count DESC, created_at DESC",
             ADAPTER_SELECT_FIELDS
@@ -1084,6 +1242,17 @@ impl Db {
 
     /// List adapters by scope
     pub async fn list_adapters_by_scope(&self, scope: &str) -> Result<Vec<Adapter>> {
+        // Try KV first if enabled
+        // Note: This is a cross-tenant query, so we need to aggregate across all tenants
+        // For now, we'll use SQL for simplicity. KV optimization would require a global index.
+        if self.storage_mode().read_from_kv() {
+            if self.storage_mode().read_from_sql() {
+                debug!(scope = %scope, "Scope lookup requires cross-tenant search, using SQL");
+            }
+            // TODO: Add scope index to KV backend for cross-tenant queries
+        }
+
+        // SQL fallback or primary read
         let query = format!(
             "SELECT {} FROM adapters WHERE active = 1 AND scope = ? ORDER BY activation_count DESC, created_at DESC",
             ADAPTER_SELECT_FIELDS
@@ -1098,6 +1267,17 @@ impl Db {
 
     /// List adapters by state
     pub async fn list_adapters_by_state(&self, state: &str) -> Result<Vec<Adapter>> {
+        // Try KV first if enabled
+        // Note: This is a cross-tenant query, so we need to aggregate across all tenants
+        // For now, we'll use SQL for simplicity. KV optimization would require a global index.
+        if self.storage_mode().read_from_kv() {
+            if self.storage_mode().read_from_sql() {
+                debug!(state = %state, "State lookup requires cross-tenant search, using SQL");
+            }
+            // TODO: Add state index to KV backend for cross-tenant queries
+        }
+
+        // SQL fallback or primary read
         let query = format!(
             "SELECT {} FROM adapters WHERE active = 1 AND current_state = ? ORDER BY activation_count DESC, created_at DESC",
             ADAPTER_SELECT_FIELDS
@@ -1173,6 +1353,33 @@ impl Db {
     ///
     /// Uses recursive CTEs to traverse parent_id relationships.
     pub async fn get_adapter_lineage(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
+        // Try KV first if enabled
+        if self.storage_mode().read_from_kv() {
+            if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+                if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+                    match repo.get_adapter_lineage_kv(adapter_id).await {
+                        Ok(adapters) if !adapters.is_empty() => {
+                            debug!(adapter_id = %adapter_id, count = adapters.len(), "Retrieved lineage from KV");
+                            return Ok(adapters);
+                        }
+                        Ok(_) if self.storage_mode().read_from_sql() => {
+                            debug!(adapter_id = %adapter_id, "KV returned empty lineage, falling back to SQL");
+                        }
+                        Ok(adapters) => {
+                            return Ok(adapters);
+                        }
+                        Err(e) if self.storage_mode().read_from_sql() => {
+                            warn!(error = %e, adapter_id = %adapter_id, "KV lineage read failed, falling back to SQL");
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // SQL fallback or primary read
         let query = format!(
             "WITH RECURSIVE
              -- Get ancestors (walk up parent_id chain)
@@ -1229,6 +1436,33 @@ impl Db {
     ///
     /// Returns all adapters that have this adapter as their parent_id.
     pub async fn get_adapter_children(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
+        // Try KV first if enabled
+        if self.storage_mode().read_from_kv() {
+            if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+                if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+                    match repo.get_adapter_children_kv(adapter_id).await {
+                        Ok(adapters) if !adapters.is_empty() => {
+                            debug!(adapter_id = %adapter_id, count = adapters.len(), "Retrieved children from KV");
+                            return Ok(adapters);
+                        }
+                        Ok(_) if self.storage_mode().read_from_sql() => {
+                            debug!(adapter_id = %adapter_id, "KV returned empty children list, falling back to SQL");
+                        }
+                        Ok(adapters) => {
+                            return Ok(adapters);
+                        }
+                        Err(e) if self.storage_mode().read_from_sql() => {
+                            warn!(error = %e, adapter_id = %adapter_id, "KV children read failed, falling back to SQL");
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // SQL fallback or primary read
         let query = format!(
             "SELECT {} FROM adapters WHERE parent_id = ? AND active = 1 ORDER BY revision ASC, created_at ASC",
             ADAPTER_SELECT_FIELDS
@@ -1378,6 +1612,18 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update adapter tier: {}", e)))?;
+
+        // KV write (dual-write mode)
+        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+                if let Err(e) = repo.update_adapter_tier_kv(adapter_id, tier).await {
+                    warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter tier in KV backend (dual-write)");
+                } else {
+                    debug!(adapter_id = %adapter_id, tier = %tier, "Adapter tier updated in both SQL and KV backends");
+                }
+            }
+        }
+
         Ok(())
     }
 }
