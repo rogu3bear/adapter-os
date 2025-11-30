@@ -3,6 +3,9 @@
 //! Provides consistent output formatting across all CLI commands,
 //! with automatic quiet mode when running in CI environments.
 
+// Re-export Table for use by commands
+pub use comfy_table::Table;
+use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
 use std::env;
 use tracing::{error, warn};
 
@@ -241,6 +244,28 @@ impl OutputWriter {
         }
         Ok(())
     }
+}
+
+/// Create a new table with standard AdapterOS CLI styling.
+///
+/// This function creates a comfy-table with UTF-8 borders and rounded corners,
+/// which is the standard style used throughout the CLI.
+///
+/// # Example
+///
+/// ```ignore
+/// use adapteros_cli::output::create_styled_table;
+///
+/// let mut table = create_styled_table();
+/// table.set_header(vec!["Name", "Status", "Version"]);
+/// table.add_row(vec!["adapter-1", "active", "1.0.0"]);
+/// println!("{}", table);
+/// ```
+pub fn create_styled_table() -> Table {
+    let mut table = Table::new();
+    table.load_preset(UTF8_FULL);
+    table.apply_modifier(UTF8_ROUND_CORNERS);
+    table
 }
 
 /// Detect if running in CI environment

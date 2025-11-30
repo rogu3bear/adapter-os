@@ -3,6 +3,7 @@
 //! Full end-to-end pipeline: ingest docs -> generate training data -> train LoRA -> register adapter
 //! The trained adapter is automatically registered and set for owner chat.
 
+use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use adapteros_core::{AosError, Result};
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::Db;
@@ -24,10 +25,6 @@ pub struct TrainDocsArgs {
     /// Docs directory to scan for markdown files
     #[arg(long, default_value = "./docs")]
     docs_dir: PathBuf,
-
-    /// Tokenizer path (required for processing)
-    #[arg(long, default_value = "models/qwen2.5-7b-mlx/tokenizer.json")]
-    tokenizer: PathBuf,
 
     /// Output directory for trained adapter
     #[arg(long, default_value = "./adapters/docs-assistant")]
@@ -53,30 +50,6 @@ pub struct TrainDocsArgs {
     #[arg(long, default_value = "128")]
     overlap_tokens: usize,
 
-    /// LoRA rank
-    #[arg(long, default_value = "8")]
-    rank: usize,
-
-    /// LoRA alpha scaling factor
-    #[arg(long, default_value = "16.0")]
-    alpha: f32,
-
-    /// Learning rate
-    #[arg(long, default_value = "0.0001")]
-    learning_rate: f32,
-
-    /// Batch size
-    #[arg(long, default_value = "4")]
-    batch_size: usize,
-
-    /// Number of epochs
-    #[arg(long, default_value = "3")]
-    epochs: usize,
-
-    /// Hidden dimension
-    #[arg(long, default_value = "768")]
-    hidden_dim: usize,
-
     /// Dry run - show what would be done without executing
     #[arg(long)]
     dry_run: bool,
@@ -88,6 +61,14 @@ pub struct TrainDocsArgs {
     /// Skip training (only generate data)
     #[arg(long)]
     skip_training: bool,
+
+    /// Tokenizer configuration
+    #[command(flatten)]
+    tokenizer_arg: TokenizerArg,
+
+    /// Common training hyperparameters
+    #[command(flatten)]
+    common: CommonTrainingArgs,
 }
 
 impl TrainDocsArgs {
@@ -133,22 +114,18 @@ impl TrainDocsArgs {
             info!("Output: {}", self.output.display());
             info!(
                 "Training config: rank={}, alpha={}, epochs={}",
-                self.rank, self.alpha, self.epochs
+                self.common.rank, self.common.alpha, self.common.epochs
             );
             return Ok(());
         }
 
-        // Verify tokenizer
-        if !self.tokenizer.exists() {
-            return Err(AosError::Validation(format!(
-                "Tokenizer not found: {}. Run 'aosctl import-model' first.",
-                self.tokenizer.display()
-            )));
-        }
+        // Resolve tokenizer path (validates existence)
+        let tokenizer_path =
+            adapteros_config::resolve_tokenizer_path(self.tokenizer_arg.tokenizer.as_ref())?;
 
         // === Step 1: Ingest Documents ===
         info!("Step 1/4: Ingesting documents...");
-        let tokenizer = load_tokenizer(&self.tokenizer)?;
+        let tokenizer = load_tokenizer(&tokenizer_path)?;
         let chunking_options = ChunkingOptions {
             chunk_tokens: self.chunk_tokens,
             overlap_tokens: self.overlap_tokens,
@@ -249,12 +226,12 @@ impl TrainDocsArgs {
         // === Step 3: Train LoRA Adapter ===
         info!("Step 3/4: Training LoRA adapter...");
         let train_config = TrainingConfig {
-            rank: self.rank,
-            alpha: self.alpha,
-            learning_rate: self.learning_rate,
-            batch_size: self.batch_size,
-            epochs: self.epochs,
-            hidden_dim: self.hidden_dim,
+            rank: self.common.rank,
+            alpha: self.common.alpha,
+            learning_rate: self.common.learning_rate,
+            batch_size: self.common.batch_size,
+            epochs: self.common.epochs,
+            hidden_dim: self.common.hidden_dim,
             ..TrainingConfig::default()
         };
 
@@ -281,11 +258,11 @@ impl TrainDocsArgs {
             "doc_count": ingested_docs.len(),
             "example_count": examples.len(),
             "config": {
-                "rank": self.rank,
-                "alpha": self.alpha,
-                "learning_rate": self.learning_rate,
-                "epochs": self.epochs,
-                "hidden_dim": self.hidden_dim,
+                "rank": self.common.rank,
+                "alpha": self.common.alpha,
+                "learning_rate": self.common.learning_rate,
+                "epochs": self.common.epochs,
+                "hidden_dim": self.common.hidden_dim,
             },
             "created_at": chrono::Utc::now().to_rfc3339(),
         });
@@ -309,7 +286,7 @@ impl TrainDocsArgs {
             .adapter_id(&adapter_id)
             .name("Documentation Assistant")
             .hash_b3(&weights_hash)
-            .rank(self.rank as i32)
+            .rank(self.common.rank as i32)
             .tier("warm")
             .category("codebase")
             .scope("global")

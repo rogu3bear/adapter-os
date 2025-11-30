@@ -77,6 +77,7 @@ pub mod telemetry_show;
 pub mod trace;
 pub mod train;
 pub mod train_docs;
+pub mod training_common;
 pub mod tutorial;
 pub mod verify;
 pub mod verify_adapter;

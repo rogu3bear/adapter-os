@@ -5,6 +5,7 @@
 //!
 //! Automatically extracts knowledge from a repository and trains a LoRA adapter
 
+use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use adapteros_core::{AosError, Result};
 // Removed: use adapteros_db::Db;
 // Removed: use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
@@ -28,34 +29,6 @@ pub struct TrainFromCodeArgs {
     /// Output directory for packaged adapter
     #[arg(short, long, default_value = "./adapters")]
     pub output: PathBuf,
-
-    /// Tokenizer path (defaults to models/qwen2.5-7b-mlx/tokenizer.json)
-    #[arg(long)]
-    pub tokenizer: Option<PathBuf>,
-
-    /// LoRA rank
-    #[arg(long, default_value = "16")]
-    pub rank: usize,
-
-    /// LoRA alpha scaling factor
-    #[arg(long, default_value = "32.0")]
-    pub alpha: f32,
-
-    /// Learning rate
-    #[arg(long, default_value = "0.0001")]
-    pub learning_rate: f32,
-
-    /// Batch size
-    #[arg(long, default_value = "8")]
-    pub batch_size: usize,
-
-    /// Number of epochs
-    #[arg(long, default_value = "3")]
-    pub epochs: usize,
-
-    /// Hidden dimension size
-    #[arg(long, default_value = "768")]
-    pub hidden_dim: usize,
 
     /// Maximum Q&A pairs to generate per symbol
     #[arg(long, default_value = "3")]
@@ -100,6 +73,14 @@ pub struct TrainFromCodeArgs {
     /// Adapter scope for registration
     #[arg(long, default_value = "codebase")]
     pub scope: String,
+
+    /// Tokenizer configuration
+    #[command(flatten)]
+    pub tokenizer_arg: TokenizerArg,
+
+    /// Common training hyperparameters
+    #[command(flatten)]
+    pub common: CommonTrainingArgs,
 }
 
 impl TrainFromCodeArgs {
@@ -142,23 +123,8 @@ impl TrainFromCodeArgs {
             ));
         }
 
-        if self.rank == 0 {
-            return Err(AosError::Validation(
-                "Rank must be greater than zero".to_string(),
-            ));
-        }
-
-        if self.epochs == 0 {
-            return Err(AosError::Validation(
-                "Epochs must be greater than zero".to_string(),
-            ));
-        }
-
-        if self.learning_rate <= 0.0 {
-            return Err(AosError::Validation(
-                "Learning rate must be greater than zero".to_string(),
-            ));
-        }
+        // Validate common training args
+        self.common.validate()?;
 
         Ok(())
     }
@@ -178,13 +144,6 @@ mod tests {
             repo: temp_dir.path().to_path_buf(),
             adapter_id: "test".to_string(),
             output: PathBuf::from("./adapters"),
-            tokenizer: None,
-            rank: 4,
-            alpha: 16.0,
-            learning_rate: 0.0001,
-            batch_size: 8,
-            epochs: 3,
-            hidden_dim: 768,
             max_pairs_per_symbol: 3,
             include_private: false,
             min_doc_length: 20,
@@ -196,6 +155,15 @@ mod tests {
             tier: 2,
             category: "code".to_string(),
             scope: "codebase".to_string(),
+            tokenizer_arg: TokenizerArg { tokenizer: None },
+            common: CommonTrainingArgs {
+                rank: 4,
+                alpha: 16.0,
+                learning_rate: 0.0001,
+                batch_size: 8,
+                epochs: 3,
+                hidden_dim: 768,
+            },
         };
 
         assert!(args.validate().is_ok());
@@ -218,13 +186,6 @@ mod tests {
             repo: temp_dir.path().to_path_buf(),
             adapter_id: "test".to_string(),
             output: PathBuf::from("./adapters"),
-            tokenizer: None,
-            rank: 0,
-            alpha: 16.0,
-            learning_rate: 0.0001,
-            batch_size: 8,
-            epochs: 3,
-            hidden_dim: 768,
             max_pairs_per_symbol: 3,
             include_private: false,
             min_doc_length: 20,
@@ -236,9 +197,18 @@ mod tests {
             tier: 2,
             category: "code".to_string(),
             scope: "codebase".to_string(),
+            tokenizer_arg: TokenizerArg { tokenizer: None },
+            common: CommonTrainingArgs {
+                rank: 0,
+                alpha: 16.0,
+                learning_rate: 0.0001,
+                batch_size: 8,
+                epochs: 3,
+                hidden_dim: 768,
+            },
         };
 
         let err = args.validate().unwrap_err();
-        assert!(err.to_string().contains("Rank must be greater than zero"));
+        assert!(err.to_string().contains("rank must be greater than zero"));
     }
 }

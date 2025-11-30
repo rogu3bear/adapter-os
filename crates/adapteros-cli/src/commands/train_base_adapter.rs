@@ -5,6 +5,7 @@
 //! Loads the curated dataset manifest, runs the deterministic Micro-LoRA trainer,
 //! and packages quantized weights into `adapters/<adapter_id>/`.
 
+use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use adapteros_core::{AosError, Result};
 // Removed: use adapteros_lora_worker::tokenizer::QwenTokenizer;
 // Removed: use adapteros_lora_worker::training::{...};
@@ -23,10 +24,6 @@ pub struct TrainBaseAdapterArgs {
     )]
     pub manifest: PathBuf,
 
-    /// Qwen tokenizer JSON file
-    #[arg(long, default_value = "models/qwen2.5-7b-mlx/tokenizer.json")]
-    pub tokenizer: PathBuf,
-
     /// Output adapters directory
     #[arg(long, default_value = "adapters")]
     pub output_dir: PathBuf,
@@ -39,29 +36,13 @@ pub struct TrainBaseAdapterArgs {
     #[arg(long, default_value = "code_lang_v1")]
     pub adapter_id: String,
 
-    /// LoRA rank (MasterPlan Layer 2 default = 16)
-    #[arg(long, default_value_t = 16)]
-    pub rank: usize,
+    /// Tokenizer configuration
+    #[command(flatten)]
+    pub tokenizer_arg: TokenizerArg,
 
-    /// LoRA alpha scaling factor (MasterPlan Layer 2 default = 32.0)
-    #[arg(long, default_value_t = 32.0)]
-    pub alpha: f32,
-
-    /// Learning rate for deterministic trainer
-    #[arg(long, default_value_t = 5e-4)]
-    pub learning_rate: f32,
-
-    /// Batch size for training
-    #[arg(long, default_value_t = 8)]
-    pub batch_size: usize,
-
-    /// Number of epochs
-    #[arg(long, default_value_t = 4)]
-    pub epochs: usize,
-
-    /// Hidden dimension (Qwen2.5-7B = 3584)
-    #[arg(long, default_value_t = 3584)]
-    pub hidden_dim: usize,
+    /// Common training hyperparameters
+    #[command(flatten)]
+    pub common: CommonTrainingArgs,
 }
 
 impl TrainBaseAdapterArgs {

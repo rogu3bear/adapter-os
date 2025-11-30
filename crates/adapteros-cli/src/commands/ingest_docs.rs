@@ -2,6 +2,7 @@
 //!
 //! Ingests PDF and Markdown documents for RAG indexing and/or adapter training.
 
+use crate::commands::training_common::TokenizerArg;
 use adapteros_core::{AosError, Result};
 use adapteros_ingest_docs::{
     generate_revision, generate_training_data_from_documents, load_tokenizer,
@@ -38,10 +39,6 @@ pub struct IngestDocsArgs {
     #[arg(long)]
     training_output: Option<PathBuf>,
 
-    /// Tokenizer path (required for processing)
-    #[arg(long, default_value = "models/qwen2.5-7b-mlx/tokenizer.json")]
-    tokenizer: PathBuf,
-
     /// Training strategy: identity, qa, or mlm
     #[arg(long, default_value = "identity")]
     training_strategy: String,
@@ -70,6 +67,10 @@ pub struct IngestDocsArgs {
     /// If not provided, falls back to simple feature-based embeddings
     #[arg(long, env = "AOS_EMBEDDING_MODEL_PATH")]
     embedding_model: Option<PathBuf>,
+
+    /// Tokenizer configuration
+    #[command(flatten)]
+    tokenizer_arg: TokenizerArg,
 }
 
 impl IngestDocsArgs {
@@ -95,9 +96,11 @@ impl IngestDocsArgs {
             ));
         }
 
-        // Load tokenizer
-        info!("Loading tokenizer from {}", self.tokenizer.display());
-        let tokenizer = load_tokenizer(&self.tokenizer)?;
+        // Resolve and load tokenizer
+        let tokenizer_path =
+            adapteros_config::resolve_tokenizer_path(self.tokenizer_arg.tokenizer.as_ref())?;
+        info!("Loading tokenizer from {}", tokenizer_path.display());
+        let tokenizer = load_tokenizer(&tokenizer_path)?;
 
         // Create document ingestor
         let chunking_options = ChunkingOptions {

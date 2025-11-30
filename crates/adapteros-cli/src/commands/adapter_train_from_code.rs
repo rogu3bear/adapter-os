@@ -4,6 +4,7 @@
 //! adapteros-single-file-adapter crate.
 
 use crate::commands::adapter::validate_adapter_id;
+use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 // Removed: use adapteros_lora_worker::training::TrainingConfig;
@@ -32,10 +33,6 @@ pub struct TrainFromCodeArgs {
     #[arg(long)]
     pub repo_id: Option<String>,
 
-    /// Tokenizer JSON path
-    #[arg(long, default_value = "models/qwen2.5-7b-mlx/tokenizer.json")]
-    pub tokenizer: PathBuf,
-
     /// Output directory for `.aos` artifacts
     #[arg(long, default_value = "./adapters")]
     pub output_dir: PathBuf,
@@ -43,30 +40,6 @@ pub struct TrainFromCodeArgs {
     /// Base model name for metadata
     #[arg(long, default_value = "qwen2.5-7b")]
     pub base_model: String,
-
-    /// LoRA rank
-    #[arg(long, default_value_t = 16)]
-    pub rank: usize,
-
-    /// LoRA alpha
-    #[arg(long, default_value_t = 32.0)]
-    pub alpha: f32,
-
-    /// Learning rate
-    #[arg(long, default_value_t = 1e-4)]
-    pub learning_rate: f32,
-
-    /// Batch size
-    #[arg(long, default_value_t = 8)]
-    pub batch_size: usize,
-
-    /// Epochs
-    #[arg(long, default_value_t = 3)]
-    pub epochs: usize,
-
-    /// Hidden dimension
-    #[arg(long, default_value_t = 3584)]
-    pub hidden_dim: usize,
 
     /// Maximum number of symbols to sample per repo
     #[arg(long, default_value_t = 64)]
@@ -95,6 +68,14 @@ pub struct TrainFromCodeArgs {
     /// Deterministic seed override
     #[arg(long)]
     pub seed: Option<u64>,
+
+    /// Tokenizer configuration
+    #[command(flatten)]
+    pub tokenizer_arg: TokenizerArg,
+
+    /// Common training hyperparameters
+    #[command(flatten)]
+    pub common: CommonTrainingArgs,
 }
 
 pub async fn run(args: &TrainFromCodeArgs, output: &OutputWriter) -> Result<()> {

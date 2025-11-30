@@ -1,5 +1,6 @@
 //! Training command implementation
 
+use crate::commands::training_common::CommonTrainingArgs;
 use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::{MicroLoRATrainer, TrainingConfig, TrainingExample};
 use clap::Args;
@@ -27,30 +28,6 @@ pub struct TrainArgs {
     #[arg(long)]
     plan: Option<PathBuf>,
 
-    /// LoRA rank
-    #[arg(long, default_value = "4")]
-    rank: usize,
-
-    /// LoRA alpha scaling factor
-    #[arg(long, default_value = "16.0")]
-    alpha: f32,
-
-    /// Learning rate
-    #[arg(long, default_value = "0.0001")]
-    learning_rate: f32,
-
-    /// Batch size
-    #[arg(long, default_value = "8")]
-    batch_size: usize,
-
-    /// Number of epochs
-    #[arg(long, default_value = "3")]
-    epochs: usize,
-
-    /// Hidden dimension size
-    #[arg(long, default_value = "768")]
-    hidden_dim: usize,
-
     /// Enable deterministic training
     #[arg(long)]
     deterministic: bool,
@@ -58,6 +35,10 @@ pub struct TrainArgs {
     /// Training seed (for deterministic training)
     #[arg(long)]
     seed: Option<u64>,
+
+    /// Common training hyperparameters
+    #[command(flatten)]
+    common: CommonTrainingArgs,
 }
 
 /// Training data format
@@ -134,14 +115,14 @@ impl TrainArgs {
             );
             Ok(config)
         } else {
-            // Use command-line arguments
+            // Use command-line arguments from common struct
             let config = TrainingConfig {
-                rank: self.rank,
-                alpha: self.alpha,
-                learning_rate: self.learning_rate,
-                batch_size: self.batch_size,
-                epochs: self.epochs,
-                hidden_dim: self.hidden_dim,
+                rank: self.common.rank,
+                alpha: self.common.alpha,
+                learning_rate: self.common.learning_rate,
+                batch_size: self.common.batch_size,
+                epochs: self.common.epochs,
+                hidden_dim: self.common.hidden_dim,
                 ..TrainingConfig::default()
             };
 
@@ -244,14 +225,16 @@ mod tests {
             data: PathBuf::from("dummy"),
             output: PathBuf::from("dummy"),
             plan: None,
-            rank: 4,
-            alpha: 16.0,
-            learning_rate: 0.0001,
-            batch_size: 8,
-            epochs: 3,
-            hidden_dim: 768,
             deterministic: false,
             seed: None,
+            common: CommonTrainingArgs {
+                rank: 4,
+                alpha: 16.0,
+                learning_rate: 0.0001,
+                batch_size: 8,
+                epochs: 3,
+                hidden_dim: 768,
+            },
         };
 
         let loaded_config = args.load_config().unwrap();
@@ -287,14 +270,16 @@ mod tests {
             data: data_path,
             output: PathBuf::from("dummy"),
             plan: None,
-            rank: 4,
-            alpha: 16.0,
-            learning_rate: 0.0001,
-            batch_size: 8,
-            epochs: 3,
-            hidden_dim: 768,
             deterministic: false,
             seed: None,
+            common: CommonTrainingArgs {
+                rank: 4,
+                alpha: 16.0,
+                learning_rate: 0.0001,
+                batch_size: 8,
+                epochs: 3,
+                hidden_dim: 768,
+            },
         };
 
         let examples = args.load_training_data().unwrap();
