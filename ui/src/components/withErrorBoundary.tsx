@@ -1,4 +1,4 @@
-import { ErrorBoundary } from './ErrorBoundary';
+import { ErrorBoundary } from './shared/Feedback';
 import { ComponentType } from 'react';
 
 export function withErrorBoundary<P extends object>(

@@ -5,7 +5,7 @@ import RootLayout from "./layout/RootLayout";
 import { useAuth } from "./providers/CoreProviders";
 import { AppProviders } from "./providers/AppProviders";
 import { LoginForm } from "./components/LoginForm";
-import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ErrorBoundary } from "./components/shared/Feedback";
 import { routes } from "./config/routes";
 import { RouteGuard } from "./components/route-guard";
 import { logger, toError } from "./utils/logger";

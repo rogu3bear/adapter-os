@@ -60,7 +60,7 @@ const AuditPage = lazy(() => import('@/pages/AuditPage'));
 const CompliancePage = lazy(() => import('@/pages/Security/ComplianceTab').then(m => ({ default: m.ComplianceTab })));
 const BaseModelsPage = lazy(() => import('@/pages/BaseModelsPage'));
 const WorkflowPage = lazy(() => import('@/pages/WorkflowPage'));
-const TrainingPage = lazy(() => import('@/pages/TrainingPage'));
+const TrainingPage = lazy(() => import('@/pages/Training/TrainingPage'));
 const TrainingJobsPage = lazy(() => import('@/pages/Training/TrainingJobsPage'));
 const TrainingJobDetailPage = lazy(() => import('@/pages/Training/TrainingJobDetail'));
 const TrainingDatasetsPage = lazy(() => import('@/pages/Training/DatasetsTab').then(m => ({ default: m.DatasetsTab })));
