@@ -12,6 +12,65 @@ use adapteros_core::{AosError, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Storage backend selection for database abstraction layer
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageBackend {
+    /// SQL only (current default, uses SQLite)
+    Sql,
+    /// Write to both SQL and KV, read from SQL (migration phase 1)
+    Dual,
+    /// Write to both SQL and KV, read from KV (migration phase 2)
+    KvPrimary,
+    /// KV only (future target, uses redb)
+    KvOnly,
+}
+
+impl StorageBackend {
+    /// Parse from string
+    pub fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "sql" => Ok(Self::Sql),
+            "dual" => Ok(Self::Dual),
+            "kv-primary" => Ok(Self::KvPrimary),
+            "kv-only" => Ok(Self::KvOnly),
+            _ => Err(AosError::Config(format!(
+                "Invalid storage backend: '{}'. Must be one of: sql, dual, kv-primary, kv-only",
+                s
+            ))),
+        }
+    }
+
+    /// Convert to string
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Sql => "sql",
+            Self::Dual => "dual",
+            Self::KvPrimary => "kv-primary",
+            Self::KvOnly => "kv-only",
+        }
+    }
+
+    /// Check if KV store is used for reads
+    pub fn reads_from_kv(&self) -> bool {
+        matches!(self, Self::KvPrimary | Self::KvOnly)
+    }
+
+    /// Check if KV store is used for writes
+    pub fn writes_to_kv(&self) -> bool {
+        matches!(self, Self::Dual | Self::KvPrimary | Self::KvOnly)
+    }
+
+    /// Check if SQL is used for reads
+    pub fn reads_from_sql(&self) -> bool {
+        matches!(self, Self::Sql | Self::Dual)
+    }
+
+    /// Check if SQL is used for writes
+    pub fn writes_to_sql(&self) -> bool {
+        matches!(self, Self::Sql | Self::Dual | Self::KvPrimary)
+    }
+}
+
 /// Source of a configuration value
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigSource {
@@ -347,6 +406,27 @@ impl RuntimeConfig {
     /// Get router k-sparse value
     pub fn router_k_sparse(&self) -> usize {
         self.get_i64("AOS_ROUTER_K_SPARSE").unwrap_or(4) as usize
+    }
+
+    /// Get storage backend mode
+    pub fn storage_backend(&self) -> StorageBackend {
+        self.get_string("AOS_STORAGE_BACKEND")
+            .and_then(|s| StorageBackend::from_str(s).ok())
+            .unwrap_or(StorageBackend::Sql)
+    }
+
+    /// Get KV database path
+    pub fn kv_path(&self) -> PathBuf {
+        self.get_path("AOS_KV_PATH")
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("var/aos-kv.redb"))
+    }
+
+    /// Get Tantivy search index path
+    pub fn tantivy_path(&self) -> PathBuf {
+        self.get_path("AOS_TANTIVY_PATH")
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("var/aos-search"))
     }
 
     // =========================================================================

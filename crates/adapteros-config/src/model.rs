@@ -502,6 +502,102 @@ pub fn is_model_path_configured() -> bool {
     false
 }
 
+// ============================================================================
+// Tokenizer Discovery
+// ============================================================================
+
+/// Get tokenizer path with dynamic discovery
+///
+/// This function discovers the tokenizer path using the following precedence:
+/// 1. `AOS_TOKENIZER_PATH` environment variable (explicit override)
+/// 2. `tokenizer.json` within the model directory from `AOS_MODEL_PATH`
+/// 3. Default fallback to `./models/qwen2.5-7b-mlx/tokenizer.json`
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use adapteros_config::get_tokenizer_path;
+///
+/// let path = get_tokenizer_path()?;
+/// println!("Using tokenizer at: {}", path.display());
+/// ```
+pub fn get_tokenizer_path() -> Result<PathBuf> {
+    load_dotenv();
+
+    // 1. Check explicit tokenizer path (AOS_TOKENIZER_PATH)
+    if let Ok(path) = std::env::var("AOS_TOKENIZER_PATH") {
+        if !path.is_empty() {
+            let path = PathBuf::from(&path);
+            if path.exists() {
+                tracing::debug!(path = %path.display(), "Using tokenizer from AOS_TOKENIZER_PATH");
+                return Ok(path);
+            }
+            // Explicit path set but doesn't exist - this is an error, not a fallback
+            return Err(AosError::Config(format!(
+                "AOS_TOKENIZER_PATH is set to '{}' but the file does not exist",
+                path.display()
+            )));
+        }
+    }
+
+    // 2. Discover from model path (AOS_MODEL_PATH/tokenizer.json)
+    if let Ok(model_path) = get_model_path_with_fallback() {
+        let tokenizer_path = model_path.join("tokenizer.json");
+        if tokenizer_path.exists() {
+            tracing::debug!(path = %tokenizer_path.display(), "Discovered tokenizer in model directory");
+            return Ok(tokenizer_path);
+        }
+    }
+
+    // No magic fallback - provide clear error with remediation steps
+    let model_path_hint = std::env::var("AOS_MODEL_PATH")
+        .map(|p| format!(" (AOS_MODEL_PATH='{}')", p))
+        .unwrap_or_default();
+
+    Err(AosError::Config(format!(
+        "Tokenizer not found. To fix:\n\
+         1. Set AOS_TOKENIZER_PATH to the path of your tokenizer.json file, or\n\
+         2. Ensure tokenizer.json exists in your model directory{}\n\
+         \n\
+         Example: export AOS_TOKENIZER_PATH=./models/qwen2.5-7b-mlx/tokenizer.json",
+        model_path_hint
+    )))
+}
+
+/// Resolve tokenizer path from CLI override or discovery
+///
+/// Use this in CLI commands for consistent resolution:
+/// ```rust,ignore
+/// let tokenizer_path = resolve_tokenizer_path(args.tokenizer.as_ref())?;
+/// ```
+pub fn resolve_tokenizer_path(cli_override: Option<&PathBuf>) -> Result<PathBuf> {
+    match cli_override {
+        Some(path) => {
+            if path.exists() {
+                Ok(path.clone())
+            } else {
+                Err(AosError::Config(format!(
+                    "Tokenizer file not found at specified path: {}",
+                    path.display()
+                )))
+            }
+        }
+        None => get_tokenizer_path(),
+    }
+}
+
+/// Get tokenizer path, returning None instead of error if not found
+///
+/// Useful when tokenizer is optional or has a CLI override.
+pub fn get_tokenizer_path_optional() -> Option<PathBuf> {
+    get_tokenizer_path().ok()
+}
+
+/// Check if tokenizer exists at standard locations
+pub fn is_tokenizer_available() -> bool {
+    get_tokenizer_path().is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

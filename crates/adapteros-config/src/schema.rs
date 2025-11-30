@@ -681,6 +681,23 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    schema.add_variable(
+        ConfigVariable::new("AOS_MANIFEST_PATH")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("./models/qwen2.5-7b-mlx/manifest.json")
+            .description("Path to the base model manifest file for executor seeding")
+            .category("MODEL")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_TOKENIZER_PATH")
+            .config_type(ConfigType::Path { must_exist: false })
+            .description("Path to tokenizer.json file. If not set, discovered from AOS_MODEL_PATH")
+            .category("MODEL")
+            .build(),
+    );
+
     // ========================================================================
     // SERVER Configuration
     // ========================================================================
@@ -1273,6 +1290,44 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    // =========================================================================
+    // STORAGE - Storage backend configuration
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_STORAGE_BACKEND")
+            .config_type(ConfigType::Enum {
+                values: vec![
+                    "sql".to_string(),
+                    "dual".to_string(),
+                    "kv-primary".to_string(),
+                    "kv-only".to_string(),
+                ],
+            })
+            .default_value("sql")
+            .description("Storage backend selection: sql (current default), dual (write both/read SQL), kv-primary (write both/read KV), kv-only (future target)")
+            .category("STORAGE")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_KV_PATH")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var/aos-kv.redb")
+            .description("Path to KV database file (redb)")
+            .category("STORAGE")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_TANTIVY_PATH")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var/aos-search")
+            .description("Path to Tantivy search index directory")
+            .category("STORAGE")
+            .build(),
+    );
+
     schema
 }
 
@@ -1301,6 +1356,7 @@ mod tests {
         assert!(categories.contains(&"PATHS"));
         assert!(categories.contains(&"WORKER"));
         assert!(categories.contains(&"DEBUG"));
+        assert!(categories.contains(&"STORAGE"));
     }
 
     #[test]

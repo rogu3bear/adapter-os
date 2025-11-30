@@ -28,11 +28,12 @@ pub use global::{config, config_or_default, init_runtime_config, is_initialized,
 pub use guards::{ConfigGuards, FeatureFlags};
 pub use loader::ConfigLoader;
 pub use model::{
-    get_model_path_optional, get_model_path_with_fallback, is_model_path_configured, load_dotenv,
-    BackendPreference, ModelConfig,
+    get_model_path_optional, get_model_path_with_fallback, get_tokenizer_path,
+    get_tokenizer_path_optional, is_model_path_configured, is_tokenizer_available, load_dotenv,
+    resolve_tokenizer_path, BackendPreference, ModelConfig,
 };
 pub use precedence::DeterministicConfig;
-pub use runtime::{ConfigSource, ParsedValue, RuntimeConfig};
+pub use runtime::{ConfigSource, ParsedValue, RuntimeConfig, StorageBackend};
 pub use schema::{
     default_schema, parse_bool, validate_value, ConfigSchema, ConfigType, ConfigVariable,
     DeprecationInfo, ValidationError,
