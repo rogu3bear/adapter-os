@@ -51,6 +51,8 @@ use logging::init_logging;
 use output::{OutputMode, OutputWriter};
 
 /// Backend type selection for inference
+///
+/// This is a CLI-specific wrapper that converts to `BackendPreference` from `adapteros-config`.
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum BackendType {
     /// Metal backend (macOS GPU)
@@ -59,6 +61,16 @@ pub enum BackendType {
     Mlx,
     /// CoreML backend (macOS Neural Engine)
     CoreML,
+}
+
+impl From<BackendType> for adapteros_config::BackendPreference {
+    fn from(bt: BackendType) -> Self {
+        match bt {
+            BackendType::Metal => adapteros_config::BackendPreference::Metal,
+            BackendType::Mlx => adapteros_config::BackendPreference::Mlx,
+            BackendType::CoreML => adapteros_config::BackendPreference::CoreML,
+        }
+    }
 }
 
 #[derive(Parser)]

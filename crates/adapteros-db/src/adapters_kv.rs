@@ -5,7 +5,8 @@
 
 use crate::adapters::{Adapter, AdapterRegistrationParams};
 use adapteros_core::{AosError, Result};
-use adapteros_storage::entities::AdapterKv;
+// Use models::AdapterKv which matches what AdapterRepository uses
+use adapteros_storage::AdapterKv;
 use adapteros_storage::repos::adapter::AdapterRepository;
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
