@@ -1,73 +1,64 @@
 /**
  * React Query hooks for Collection API
  * 【2025-11-25†prd-ux-01†collections_api_hook】
+ * 【2025-11-29†migration/sql†migrated_to_factory】
  *
  * Provides hooks for CRUD operations on collections with cache invalidation.
+ * Migrated to use createResourceHooks factory for standardized CRUD operations.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import type {
   Collection,
   CollectionDetail,
 } from '../api/document-types';
+import { createResourceHooks } from './factories/createApiHooks';
 
-// Query keys for cache management
-export const collectionKeys = {
-  all: ['collections'] as const,
-  lists: () => [...collectionKeys.all, 'list'] as const,
-  list: () => [...collectionKeys.lists()] as const,
-  details: () => [...collectionKeys.all, 'detail'] as const,
-  detail: (id: string) => [...collectionKeys.details(), id] as const,
-};
+// Create standard CRUD hooks using the factory
+const collectionHooks = createResourceHooks<
+  Collection,
+  CollectionDetail,
+  { name: string; description?: string },
+  { name?: string; description?: string }
+>({
+  resourceName: 'collections',
+  api: {
+    list: () => apiClient.listCollections(),
+    get: (id: string) => apiClient.getCollection(id),
+    create: async ({ name, description }) => {
+      const collection = await apiClient.createCollection(name, description);
+      // Return with empty documents array as CollectionDetail
+      return { ...collection, documents: [] } as CollectionDetail;
+    },
+    delete: (id: string) => apiClient.deleteCollection(id),
+  },
+  staleTime: 30000, // 30 seconds
+});
+
+// Export query keys for external cache management
+export const collectionKeys = collectionHooks.keys;
 
 /**
  * Hook for listing all collections
+ * @deprecated Use collectionHooks.useList() directly or destructure from useCollectionsApi()
  */
-export function useCollections() {
-  return useQuery({
-    queryKey: collectionKeys.list(),
-    queryFn: () => apiClient.listCollections(),
-    staleTime: 30000, // 30 seconds
-    refetchOnWindowFocus: true,
-  });
-}
+export const useCollections = collectionHooks.useList;
 
 /**
  * Hook for getting a single collection with documents
+ * @deprecated Use collectionHooks.useDetail(id) directly or destructure from useCollectionsApi()
  */
-export function useCollection(collectionId: string | undefined) {
-  return useQuery({
-    queryKey: collectionKeys.detail(collectionId ?? ''),
-    queryFn: () => apiClient.getCollection(collectionId!),
-    enabled: !!collectionId,
-    staleTime: 30000, // 30 seconds
-  });
-}
+export const useCollection = collectionHooks.useDetail;
 
 /**
- * Hook providing all collection CRUD operations with cache invalidation
+ * Hook for adding a document to a collection
+ * Custom operation not covered by standard CRUD
  */
-export function useCollectionsApi() {
+export function useAddDocumentToCollection() {
   const queryClient = useQueryClient();
 
-  const createMutation = useMutation({
-    mutationFn: ({ name, description }: { name: string; description?: string }) =>
-      apiClient.createCollection(name, description),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: collectionKeys.lists() });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (collectionId: string) => apiClient.deleteCollection(collectionId),
-    onSuccess: (_data, collectionId) => {
-      queryClient.invalidateQueries({ queryKey: collectionKeys.lists() });
-      queryClient.removeQueries({ queryKey: collectionKeys.detail(collectionId) });
-    },
-  });
-
-  const addDocumentMutation = useMutation({
+  return useMutation({
     mutationFn: ({
       collectionId,
       documentId,
@@ -80,8 +71,16 @@ export function useCollectionsApi() {
       queryClient.invalidateQueries({ queryKey: collectionKeys.lists() });
     },
   });
+}
 
-  const removeDocumentMutation = useMutation({
+/**
+ * Hook for removing a document from a collection
+ * Custom operation not covered by standard CRUD
+ */
+export function useRemoveDocumentFromCollection() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
     mutationFn: ({
       collectionId,
       documentId,
@@ -94,12 +93,24 @@ export function useCollectionsApi() {
       queryClient.invalidateQueries({ queryKey: collectionKeys.lists() });
     },
   });
+}
+
+/**
+ * Hook providing all collection CRUD operations with cache invalidation
+ * Now uses factory-generated hooks with custom document operations
+ */
+export function useCollectionsApi() {
+  const queryClient = useQueryClient();
+  const createMutation = collectionHooks.useCreate();
+  const deleteMutation = collectionHooks.useDelete();
+  const addDocumentMutation = useAddDocumentToCollection();
+  const removeDocumentMutation = useRemoveDocumentFromCollection();
 
   return {
-    // Queries
-    collections: useCollections(),
+    // Queries - using factory-generated hooks
+    collections: collectionHooks.useList(),
 
-    // Mutations
+    // Standard CRUD mutations
     createCollection: createMutation.mutateAsync,
     isCreating: createMutation.isPending,
     createError: createMutation.error,
@@ -108,6 +119,7 @@ export function useCollectionsApi() {
     isDeleting: deleteMutation.isPending,
     deleteError: deleteMutation.error,
 
+    // Custom document management mutations
     addDocumentToCollection: addDocumentMutation.mutateAsync,
     isAddingDocument: addDocumentMutation.isPending,
     addDocumentError: addDocumentMutation.error,

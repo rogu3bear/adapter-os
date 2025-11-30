@@ -1,4 +1,4 @@
-import { useQuery, useMutation, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
 import apiClient from '@/api/client';
 import type {
   ChatTag,
@@ -34,9 +34,14 @@ export function useChatTags(
 export function useCreateTag(
   options?: UseMutationOptions<ChatTag, Error, CreateTagRequest>
 ) {
+  const queryClient = useQueryClient();
   return useMutation<ChatTag, Error, CreateTagRequest>({
-    mutationFn: (request) => apiClient.createChatTag(request),
     ...options,
+    mutationFn: (request) => apiClient.createChatTag(request),
+    onSuccess: (data, variables, context, mutation) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chatTags });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
   });
 }
 
@@ -46,9 +51,15 @@ export function useCreateTag(
 export function useUpdateTag(
   options?: UseMutationOptions<ChatTag, Error, { tagId: string; request: UpdateTagRequest }>
 ) {
+  const queryClient = useQueryClient();
   return useMutation<ChatTag, Error, { tagId: string; request: UpdateTagRequest }>({
-    mutationFn: ({ tagId, request }) => apiClient.updateChatTag(tagId, request),
     ...options,
+    mutationFn: ({ tagId, request }) => apiClient.updateChatTag(tagId, request),
+    onSuccess: (data, variables, context, mutation) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chatTags });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chatTag(variables.tagId) });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
   });
 }
 
@@ -58,9 +69,14 @@ export function useUpdateTag(
 export function useDeleteTag(
   options?: UseMutationOptions<void, Error, string>
 ) {
+  const queryClient = useQueryClient();
   return useMutation<void, Error, string>({
-    mutationFn: (tagId) => apiClient.deleteChatTag(tagId),
     ...options,
+    mutationFn: (tagId) => apiClient.deleteChatTag(tagId),
+    onSuccess: (data, variables, context, mutation) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chatTags });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
   });
 }
 
@@ -85,9 +101,14 @@ export function useSessionTags(
 export function useAssignTagsToSession(
   options?: UseMutationOptions<ChatTag[], Error, { sessionId: string; tagIds: string[] }>
 ) {
+  const queryClient = useQueryClient();
   return useMutation<ChatTag[], Error, { sessionId: string; tagIds: string[] }>({
-    mutationFn: ({ sessionId, tagIds }) => apiClient.assignTagsToSession(sessionId, tagIds),
     ...options,
+    mutationFn: ({ sessionId, tagIds }) => apiClient.assignTagsToSession(sessionId, tagIds),
+    onSuccess: (data, variables, context, mutation) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sessionTags(variables.sessionId) });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
   });
 }
 
@@ -97,9 +118,14 @@ export function useAssignTagsToSession(
 export function useRemoveTagFromSession(
   options?: UseMutationOptions<void, Error, { sessionId: string; tagId: string }>
 ) {
+  const queryClient = useQueryClient();
   return useMutation<void, Error, { sessionId: string; tagId: string }>({
-    mutationFn: ({ sessionId, tagId }) => apiClient.removeTagFromSession(sessionId, tagId),
     ...options,
+    mutationFn: ({ sessionId, tagId }) => apiClient.removeTagFromSession(sessionId, tagId),
+    onSuccess: (data, variables, context, mutation) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sessionTags(variables.sessionId) });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
   });
 }
 

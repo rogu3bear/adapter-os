@@ -15,6 +15,7 @@ import { useMemo } from 'react';
 import apiClient from '@/api/client';
 import type { ChatSearchResult, SearchSessionsQuery } from '@/api/chat-types';
 import { useDebounce } from './useDebouncedValue';
+import { logger } from '@/utils/logger';
 
 const QUERY_KEYS = {
   search: (query: string, options?: Omit<SearchSessionsQuery, 'q'>) =>
@@ -32,6 +33,11 @@ export interface UseChatSearchOptions extends Omit<SearchSessionsQuery, 'q'> {
    * @default 2
    */
   minLength?: number;
+  /**
+   * Maximum query length to prevent URL length issues
+   * @default 500
+   */
+  maxLength?: number;
   /**
    * Enable the query (overrides minLength check)
    * @default undefined
@@ -97,6 +103,7 @@ export interface UseChatSearchReturn {
  * const { results, isPending } = useChatSearch(userInput, {
  *   debounceDelay: 500,
  *   minLength: 3,
+ *   maxLength: 1000,
  *   include_archived: true,
  * });
  * ```
@@ -108,6 +115,7 @@ export function useChatSearch(
   const {
     debounceDelay = 300,
     minLength = 2,
+    maxLength = 500,
     enabled,
     scope,
     category_id,
@@ -116,8 +124,21 @@ export function useChatSearch(
     limit,
   } = options;
 
+  // Truncate query to prevent URL length issues
+  const trimmedQuery = query.trim();
+  const truncatedQuery = trimmedQuery.slice(0, maxLength);
+
+  // Log warning if query was truncated
+  if (trimmedQuery.length > maxLength) {
+    logger.warn('Search query truncated', {
+      originalLength: trimmedQuery.length,
+      maxLength,
+      component: 'useChatSearch',
+    });
+  }
+
   // Debounce the search query to avoid excessive API calls
-  const debouncedQuery = useDebounce(query.trim(), debounceDelay);
+  const debouncedQuery = useDebounce(truncatedQuery, debounceDelay);
 
   // Check if query meets minimum length requirement
   const isValidQuery = debouncedQuery.length >= minLength;
@@ -166,8 +187,8 @@ export function useChatSearch(
     refetchOnWindowFocus: true,
   });
 
-  // Determine if debounce is pending
-  const isPending = query.trim() !== debouncedQuery;
+  // Determine if debounce is pending (compare truncated versions)
+  const isPending = truncatedQuery !== debouncedQuery;
 
   return {
     results: data || [],
@@ -186,6 +207,7 @@ export function useChatSearch(
  * @param query - The search query string
  * @param searchOptions - Search parameters (scope, filters, etc.)
  * @param queryOptions - React Query options
+ * @param maxLength - Maximum query length (default: 500)
  * @returns React Query result
  *
  * @example
@@ -193,16 +215,31 @@ export function useChatSearch(
  * const { data, isLoading } = useChatSearchQuery(
  *   'project ideas',
  *   { scope: 'all', limit: 50 },
- *   { staleTime: 60000, refetchInterval: 30000 }
+ *   { staleTime: 60000, refetchInterval: 30000 },
+ *   1000  // Custom max length
  * );
  * ```
  */
 export function useChatSearchQuery(
   query: string,
   searchOptions?: Omit<SearchSessionsQuery, 'q'>,
-  queryOptions?: Omit<UseQueryOptions<ChatSearchResult[], Error>, 'queryKey' | 'queryFn'>
+  queryOptions?: Omit<UseQueryOptions<ChatSearchResult[], Error>, 'queryKey' | 'queryFn'>,
+  maxLength: number = 500
 ) {
-  const debouncedQuery = useDebounce(query.trim(), 300);
+  // Truncate query to prevent URL length issues
+  const trimmedQuery = query.trim();
+  const truncatedQuery = trimmedQuery.slice(0, maxLength);
+
+  // Log warning if query was truncated
+  if (trimmedQuery.length > maxLength) {
+    logger.warn('Search query truncated', {
+      originalLength: trimmedQuery.length,
+      maxLength,
+      component: 'useChatSearchQuery',
+    });
+  }
+
+  const debouncedQuery = useDebounce(truncatedQuery, 300);
 
   return useQuery<ChatSearchResult[], Error>({
     queryKey: QUERY_KEYS.search(debouncedQuery, searchOptions),

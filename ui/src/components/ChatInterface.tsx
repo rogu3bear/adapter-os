@@ -6,11 +6,12 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChatMessageComponent, type ChatMessage, type EvidenceItem } from './chat/ChatMessage';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
-import { Send, Loader2, Layers, History, X, ChevronLeft, ChevronRight, Plus, Trash2, Edit2, Activity, Database } from 'lucide-react';
+import { Send, Loader2, Layers, History, X, ChevronLeft, ChevronRight, Plus, Trash2, Edit2, Activity, Database, Archive } from 'lucide-react';
 import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
 import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
 import { useCollections } from '@/hooks/useCollectionsApi';
@@ -24,6 +25,11 @@ import { PreChatAdapterPrompt } from './chat/PreChatAdapterPrompt';
 import { AdapterLoadingProgress, type AdapterLoadingItem } from './chat/AdapterLoadingProgress';
 import { useSSE } from '@/hooks/useSSE';
 import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
+import { ChatSearchBar } from './chat/ChatSearchBar';
+import { ChatSessionActions } from './chat/ChatSessionActions';
+import { ChatTagsManager } from './chat/ChatTagsManager';
+import { ChatShareDialog } from './chat/ChatShareDialog';
+import { ChatArchivePanel } from './chat/ChatArchivePanel';
 
 interface ChatInterfaceProps {
   selectedTenant: string;
@@ -55,6 +61,12 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   const [showContext, setShowContext] = useState(true);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // New state for chat features
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isArchivePanelOpen, setIsArchivePanelOpen] = useState(false);
+  const [shareDialogSessionId, setShareDialogSessionId] = useState<string | null>(null);
+  const [tagsDialogSessionId, setTagsDialogSessionId] = useState<string | null>(null);
 
   // Adapter loading state
   const [adapterStates, setAdapterStates] = useState<Map<string, AdapterState>>(new Map());
@@ -571,12 +583,23 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   const stackDetails = selectedStack?.lifecycle_state ?? selectedStack?.description ?? null;
   const baseModelLabel = 'Not provided';
 
-  // Get recent sessions (last 10, sorted by updatedAt)
+  // Get recent sessions (last 10, sorted by updatedAt), filtered by search query
   const recentSessions = useMemo(() => {
-    return sessions
+    let filtered = sessions;
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = sessions.filter(session =>
+        session.name.toLowerCase().includes(query) ||
+        session.messages.some(msg => msg.content.toLowerCase().includes(query))
+      );
+    }
+
+    return filtered
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
       .slice(0, 10);
-  }, [sessions]);
+  }, [sessions, searchQuery]);
 
   // Get preview text from first user message
   const getSessionPreview = (session: typeof sessions[0]) => {
@@ -711,14 +734,41 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
               <History className="h-4 w-4" />
               Conversation History
             </h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsHistoryOpen(false)}
-              aria-label="Close history"
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsArchivePanelOpen(true)}
+                aria-label="Open archive"
+                title="View archived sessions"
+              >
+                <Archive className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsHistoryOpen(false)}
+                aria-label="Close history"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Search Bar */}
+          <div className="px-4 py-2 border-b">
+            <ChatSearchBar
+              onSelectSession={(sessionId) => handleLoadSession(sessionId)}
+              onSelectMessage={(sessionId, messageId) => {
+                handleLoadSession(sessionId);
+                // TODO: After loading, scroll to the specific message
+                // For now, just load the session - message scrolling can be added later
+                if (messageId) {
+                  logger.info('Search navigated to message', { sessionId, messageId });
+                }
+              }}
+              placeholder="Search sessions..."
+            />
           </div>
           
           {/* Create New Session */}
@@ -782,27 +832,21 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
                           <>
                             <div className="flex items-center justify-between">
                               <p className="text-sm font-medium truncate">{session.name}</p>
-                              <div className="flex items-center gap-1 ml-2">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 w-6 p-0"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
+                              <div className="flex items-center gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
+                                <ChatSessionActions
+                                  sessionId={session.id}
+                                  tenantId={tenantId}
+                                  onRename={() => {
                                     setEditingSessionId(session.id);
                                     setNewSessionName(session.name);
                                   }}
-                                >
-                                  <Edit2 className="h-3 w-3" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                                  onClick={(e) => handleDeleteSession(session.id, e)}
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
+                                  onManageTags={() => setTagsDialogSessionId(session.id)}
+                                  onSetCategory={() => {
+                                    // TODO: Implement category dialog
+                                    toast.info('Category management coming soon');
+                                  }}
+                                  onShare={() => setShareDialogSessionId(session.id)}
+                                />
                               </div>
                             </div>
                             <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
@@ -887,8 +931,9 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
       </div>
 
       {/* Header with stack selector */}
-      <div className={`border-b px-4 py-3 flex items-center justify-between transition-all ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
-        <div className="flex items-center gap-3">
+      <div className={`border-b px-4 py-3 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
           <Button
             variant="ghost"
             size="sm"
@@ -981,7 +1026,15 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
           >
             <Activity className="h-4 w-4" />
           </Button>
+          </div>
         </div>
+
+        {/* Session Tags */}
+        {currentSessionId && (
+          <div className="mt-2">
+            <ChatTagsManager sessionId={currentSessionId} />
+          </div>
+        )}
       </div>
 
       {/* Messages area */}
@@ -1067,6 +1120,50 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
           </p>
         )}
       </div>
+
+      {/* Share Dialog */}
+      {shareDialogSessionId && (
+        <ChatShareDialog
+          sessionId={shareDialogSessionId}
+          open={!!shareDialogSessionId}
+          onOpenChange={(open) => {
+            if (!open) setShareDialogSessionId(null);
+          }}
+        />
+      )}
+
+      {/* Tags Manager Dialog */}
+      {tagsDialogSessionId && (
+        <Dialog open={!!tagsDialogSessionId} onOpenChange={(open) => {
+          if (!open) setTagsDialogSessionId(null);
+        }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Manage Tags</DialogTitle>
+            </DialogHeader>
+            <ChatTagsManager sessionId={tagsDialogSessionId} />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Archive Panel Dialog */}
+      {isArchivePanelOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-background border rounded-lg shadow-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Archive & Trash</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsArchivePanelOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <ChatArchivePanel />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

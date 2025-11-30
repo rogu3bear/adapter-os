@@ -1674,50 +1674,8 @@ class ApiClient {
   }
 
   // Domain Adapter API
-  // NOTE: listDomainAdapters and testDomainAdapter are used by DomainAdapterManager.tsx
-  // The other methods in this section are currently unused and may be candidates for removal.
   async listDomainAdapters(): Promise<types.DomainAdapter[]> {
     return this.request<types.DomainAdapter[]>('/v1/domain-adapters');
-  }
-
-  /**
-   * @deprecated Currently unused - candidate for removal
-   * Last checked: 2025-11-22
-   */
-  async getDomainAdapter(adapterId: string): Promise<types.DomainAdapter> {
-    return this.request<types.DomainAdapter>(`/v1/domain-adapters/${adapterId}`);
-  }
-
-  /**
-   * @deprecated Currently unused - candidate for removal
-   * Last checked: 2025-11-22
-   */
-  async createDomainAdapter(data: types.CreateDomainAdapterRequest): Promise<types.DomainAdapter> {
-    return this.request<types.DomainAdapter>('/v1/domain-adapters', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  /**
-   * @deprecated Currently unused - candidate for removal
-   * Last checked: 2025-11-22
-   */
-  async loadDomainAdapter(adapterId: string, config?: Record<string, any>): Promise<types.DomainAdapter> {
-    return this.request<types.DomainAdapter>(`/v1/domain-adapters/${adapterId}/load`, {
-      method: 'POST',
-      body: JSON.stringify({ adapter_id: adapterId, executor_config: config }),
-    });
-  }
-
-  /**
-   * @deprecated Currently unused - candidate for removal
-   * Last checked: 2025-11-22
-   */
-  async unloadDomainAdapter(adapterId: string): Promise<types.DomainAdapter> {
-    return this.request<types.DomainAdapter>(`/v1/domain-adapters/${adapterId}/unload`, {
-      method: 'POST',
-    });
   }
 
   async testDomainAdapter(adapterId: string, inputData: string, expectedOutput?: string, iterations?: number): Promise<types.TestDomainAdapterResponse> {
@@ -1729,35 +1687,6 @@ class ApiClient {
         expected_output: expectedOutput,
         iterations: iterations || 100,
       }),
-    });
-  }
-
-  /**
-   * @deprecated Currently unused - candidate for removal
-   * Last checked: 2025-11-22
-   */
-  async getDomainAdapterManifest(adapterId: string): Promise<types.DomainAdapterManifest> {
-    return this.request<types.DomainAdapterManifest>(`/v1/domain-adapters/${adapterId}/manifest`);
-  }
-
-  /**
-   * @deprecated Currently unused - candidate for removal
-   * Last checked: 2025-11-22
-   */
-  async executeDomainAdapter(adapterId: string, inputData: any): Promise<types.DomainAdapterExecutionResponse> {
-    return this.request<types.DomainAdapterExecutionResponse>(`/v1/domain-adapters/${adapterId}/execute`, {
-      method: 'POST',
-      body: JSON.stringify(inputData),
-    });
-  }
-
-  /**
-   * @deprecated Currently unused - candidate for removal
-   * Last checked: 2025-11-22
-   */
-  async deleteDomainAdapter(adapterId: string): Promise<void> {
-    return this.request<void>(`/v1/domain-adapters/${adapterId}`, {
-      method: 'DELETE',
     });
   }
 
@@ -4226,7 +4155,7 @@ class ApiClient {
     });
 
     return this.request<void>(
-      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/hard`,
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/permanent`,
       {
         method: 'DELETE',
       }
@@ -4690,3 +4619,328 @@ class ApiClient {
   // ============================================================================
   // Document API Methods
   // ============================================================================
+
+  /**
+   * Upload a document for RAG indexing
+   *
+   * POST /v1/documents (multipart/form-data)
+   *
+   * @param file - File to upload
+   * @param name - Optional document name (defaults to filename)
+   * @returns Uploaded document metadata
+   */
+  async uploadDocument(
+    file: File,
+    name?: string
+  ): Promise<documentTypes.Document> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (name) formData.append('name', name);
+
+    return this.request<documentTypes.Document>('/v1/documents/upload', {
+      method: 'POST',
+      body: formData,
+      headers: {}, // Let browser set Content-Type for FormData
+    });
+  }
+
+  /**
+   * List all documents for the current tenant
+   *
+   * GET /v1/documents
+   *
+   * @returns Array of documents
+   */
+  async listDocuments(): Promise<documentTypes.Document[]> {
+    return this.request<documentTypes.Document[]>('/v1/documents');
+  }
+
+  /**
+   * Get a specific document by ID
+   *
+   * GET /v1/documents/:id
+   *
+   * @param documentId - Document ID
+   * @returns Document metadata
+   */
+  async getDocument(documentId: string): Promise<documentTypes.Document> {
+    return this.request<documentTypes.Document>(
+      `/v1/documents/${encodeURIComponent(documentId)}`
+    );
+  }
+
+  /**
+   * Delete a document
+   *
+   * DELETE /v1/documents/:id
+   *
+   * @param documentId - Document ID
+   */
+  async deleteDocument(documentId: string): Promise<void> {
+    await this.request<void>(
+      `/v1/documents/${encodeURIComponent(documentId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  /**
+   * List chunks for a document
+   *
+   * GET /v1/documents/:id/chunks
+   *
+   * @param documentId - Document ID
+   * @returns Array of document chunks
+   */
+  async listDocumentChunks(documentId: string): Promise<documentTypes.DocumentChunk[]> {
+    return this.request<documentTypes.DocumentChunk[]>(
+      `/v1/documents/${encodeURIComponent(documentId)}/chunks`
+    );
+  }
+
+  /**
+   * Download a document file
+   *
+   * GET /v1/documents/:id/download
+   *
+   * @param documentId - Document ID
+   * @returns Blob of the document file
+   */
+  async downloadDocument(documentId: string): Promise<Blob> {
+    const url = `${this.baseUrl}/v1/documents/${encodeURIComponent(documentId)}/download`;
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.error || 'Failed to download document');
+    }
+
+    return response.blob();
+  }
+
+  // ============================================================================
+  // Collection API Methods
+  // ============================================================================
+
+  /**
+   * Create a new collection
+   *
+   * POST /v1/collections
+   *
+   * @param name - Collection name
+   * @param description - Optional description
+   * @returns Created collection
+   */
+  async createCollection(
+    name: string,
+    description?: string
+  ): Promise<documentTypes.Collection> {
+    const request: documentTypes.CreateCollectionRequest = { name, description };
+    return this.request<documentTypes.Collection>('/v1/collections', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * List all collections for the current tenant
+   *
+   * GET /v1/collections
+   *
+   * @returns Array of collections
+   */
+  async listCollections(): Promise<documentTypes.Collection[]> {
+    return this.request<documentTypes.Collection[]>('/v1/collections');
+  }
+
+  /**
+   * Get a specific collection with documents
+   *
+   * GET /v1/collections/:id
+   *
+   * @param collectionId - Collection ID
+   * @returns Collection detail with documents
+   */
+  async getCollection(collectionId: string): Promise<documentTypes.CollectionDetail> {
+    return this.request<documentTypes.CollectionDetail>(
+      `/v1/collections/${encodeURIComponent(collectionId)}`
+    );
+  }
+
+  /**
+   * Delete a collection
+   *
+   * DELETE /v1/collections/:id
+   *
+   * @param collectionId - Collection ID
+   */
+  async deleteCollection(collectionId: string): Promise<void> {
+    await this.request<void>(
+      `/v1/collections/${encodeURIComponent(collectionId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  /**
+   * Add a document to a collection
+   *
+   * POST /v1/collections/:id/documents
+   *
+   * @param collectionId - Collection ID
+   * @param documentId - Document ID to add
+   */
+  async addDocumentToCollection(
+    collectionId: string,
+    documentId: string
+  ): Promise<void> {
+    const request: documentTypes.AddDocumentRequest = { document_id: documentId };
+    await this.request<void>(
+      `/v1/collections/${encodeURIComponent(collectionId)}/documents`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
+
+  /**
+   * Remove a document from a collection
+   *
+   * DELETE /v1/collections/:id/documents/:doc_id
+   *
+   * @param collectionId - Collection ID
+   * @param documentId - Document ID to remove
+   */
+  async removeDocumentFromCollection(
+    collectionId: string,
+    documentId: string
+  ): Promise<void> {
+    await this.request<void>(
+      `/v1/collections/${encodeURIComponent(collectionId)}/documents/${encodeURIComponent(documentId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // ============================================================================
+  // Evidence API Methods
+  // ============================================================================
+
+  /**
+   * List evidence entries with optional filters
+   *
+   * GET /v1/evidence
+   *
+   * @param query - Optional filter parameters
+   * @returns Array of evidence entries
+   */
+  async listEvidence(query?: documentTypes.ListEvidenceQuery): Promise<documentTypes.Evidence[]> {
+    const params = new URLSearchParams();
+    if (query?.dataset_id) params.append('dataset_id', query.dataset_id);
+    if (query?.adapter_id) params.append('adapter_id', query.adapter_id);
+    if (query?.evidence_type) params.append('evidence_type', query.evidence_type);
+    if (query?.confidence) params.append('confidence', query.confidence);
+    if (query?.limit) params.append('limit', query.limit.toString());
+
+    const queryString = params.toString();
+    return this.request<documentTypes.Evidence[]>(
+      `/v1/evidence${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  /**
+   * Create a new evidence entry
+   *
+   * POST /v1/evidence
+   *
+   * @param request - Evidence creation request
+   * @returns Created evidence entry
+   */
+  async createEvidence(
+    request: documentTypes.CreateEvidenceRequest
+  ): Promise<documentTypes.Evidence> {
+    return this.request<documentTypes.Evidence>('/v1/evidence', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Get a specific evidence entry
+   *
+   * GET /v1/evidence/:id
+   *
+   * @param evidenceId - Evidence entry ID
+   * @returns Evidence entry
+   */
+  async getEvidence(evidenceId: string): Promise<documentTypes.Evidence> {
+    return this.request<documentTypes.Evidence>(
+      `/v1/evidence/${encodeURIComponent(evidenceId)}`
+    );
+  }
+
+  /**
+   * Delete an evidence entry
+   *
+   * DELETE /v1/evidence/:id
+   *
+   * @param evidenceId - Evidence entry ID
+   */
+  async deleteEvidence(evidenceId: string): Promise<void> {
+    await this.request<void>(
+      `/v1/evidence/${encodeURIComponent(evidenceId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  /**
+   * Get evidence entries for a specific dataset
+   *
+   * GET /v1/datasets/:dataset_id/evidence
+   *
+   * @param datasetId - Dataset ID
+   * @returns Array of evidence entries
+   */
+  async getDatasetEvidence(datasetId: string): Promise<documentTypes.Evidence[]> {
+    return this.request<documentTypes.Evidence[]>(
+      `/v1/datasets/${encodeURIComponent(datasetId)}/evidence`
+    );
+  }
+
+  /**
+   * Get evidence entries for a specific adapter
+   *
+   * GET /v1/adapters/:adapter_id/evidence
+   *
+   * @param adapterId - Adapter ID
+   * @returns Array of evidence entries
+   */
+  async getAdapterEvidence(adapterId: string): Promise<documentTypes.Evidence[]> {
+    return this.request<documentTypes.Evidence[]>(
+      `/v1/adapters/${encodeURIComponent(adapterId)}/evidence`
+    );
+  }
+
+  /**
+   * Run an owner CLI command
+   *
+   * POST /v1/cli/owner-run
+   *
+   * @param command - CLI command to execute
+   * @param sessionId - Optional session ID for command execution
+   * @returns Command execution result with stdout, stderr, exit code, and duration
+   */
+  async runOwnerCli(command: string, sessionId?: string): Promise<ownerTypes.CliRunResponse> {
+    const request: ownerTypes.CliRunRequest = { command, session_id: sessionId };
+    return this.request('/v1/cli/owner-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+  }
+}
+
+// Export singleton instance
+export const apiClient = new ApiClient();
+export default apiClient;

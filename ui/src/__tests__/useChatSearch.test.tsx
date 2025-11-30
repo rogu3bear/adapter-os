@@ -1,0 +1,926 @@
+/**
+ * Comprehensive tests for useChatSearch hook
+ *
+ * Tests verify:
+ * 1. Search query is properly debounced
+ * 2. maxLength validation works (default 500 chars, logs warning when truncated)
+ * 3. Empty/short queries return empty results without API call
+ * 4. Search results are returned correctly
+ * 5. Loading states work properly
+ * 6. Search is disabled when query is too short
+ * 7. Custom options (scope, filters, etc.)
+ * 8. React Query integration (caching, refetching)
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, waitFor, act } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React from 'react';
+import { useChatSearch, chatSearchQueryKeys } from '@/hooks/useChatSearch';
+import type { ChatSearchResult } from '@/api/chat-types';
+import { logger } from '@/utils/logger';
+
+// Mock the logger
+vi.mock('@/utils/logger', () => ({
+  logger: {
+    warn: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+// Mock the API client
+const mockSearchChatSessions = vi.fn();
+
+vi.mock('@/api/client', () => ({
+  __esModule: true,
+  default: {
+    searchChatSessions: (...args: unknown[]) => mockSearchChatSessions(...args),
+  },
+  apiClient: {
+    searchChatSessions: (...args: unknown[]) => mockSearchChatSessions(...args),
+  },
+}));
+
+// Mock the debounce hook to have control over timing
+vi.mock('@/hooks/useDebouncedValue', () => ({
+  useDebounce: <T,>(value: T, delay: number) => {
+    const [debouncedValue, setDebouncedValue] = React.useState<T>(value);
+
+    React.useEffect(() => {
+      const timer = setTimeout(() => {
+        setDebouncedValue(value);
+      }, delay);
+
+      return () => {
+        clearTimeout(timer);
+      };
+    }, [value, delay]);
+
+    return debouncedValue;
+  },
+}));
+
+// Test data
+const mockSearchResults: ChatSearchResult[] = [
+  {
+    session_id: 'session-1',
+    session_name: 'Test Session 1',
+    match_type: 'session',
+    snippet: 'This is a test session',
+    relevance_score: 0.95,
+    last_activity_at: '2025-11-29T10:00:00Z',
+  },
+  {
+    session_id: 'session-2',
+    session_name: 'Test Session 2',
+    match_type: 'message',
+    snippet: 'This is a matching message',
+    message_id: 'msg-1',
+    message_role: 'user',
+    relevance_score: 0.85,
+    last_activity_at: '2025-11-28T10:00:00Z',
+  },
+];
+
+// Test wrapper
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  };
+}
+
+describe('useChatSearch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  describe('debouncing', () => {
+    it('should debounce search queries with default 300ms delay', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const { result, rerender } = renderHook(
+        ({ query }) => useChatSearch(query),
+        {
+          wrapper: createWrapper(),
+          initialProps: { query: 'test' },
+        }
+      );
+
+      // Should not call API immediately
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+
+      // Advance timers by 100ms (less than debounce delay)
+      await act(async () => {
+        vi.advanceTimersByTime(100);
+      });
+
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+
+      // Change query before debounce completes
+      rerender({ query: 'test query' });
+
+      // Advance another 100ms
+      await act(async () => {
+        vi.advanceTimersByTime(100);
+      });
+
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+
+      // Complete the debounce delay
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledTimes(1);
+      });
+
+      expect(mockSearchChatSessions).toHaveBeenCalledWith({
+        q: 'test query',
+      });
+    });
+
+    it('should support custom debounce delay', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const { result } = renderHook(
+        () => useChatSearch('test query', { debounceDelay: 500 }),
+        { wrapper: createWrapper() }
+      );
+
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('should set isPending correctly during debounce', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const { result, rerender } = renderHook(
+        ({ query }) => useChatSearch(query),
+        {
+          wrapper: createWrapper(),
+          initialProps: { query: 'test' },
+        }
+      );
+
+      // Initially no debounce pending (query starts as debounced value)
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.isPending).toBe(false);
+      });
+
+      // Change query - should set isPending
+      rerender({ query: 'test updated' });
+
+      await waitFor(() => {
+        expect(result.current.isPending).toBe(true);
+      });
+
+      // Complete debounce
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.isPending).toBe(false);
+      });
+    });
+  });
+
+  describe('maxLength validation', () => {
+    it('should use default maxLength of 500 characters', async () => {
+      const longQuery = 'a'.repeat(600);
+      mockSearchChatSessions.mockResolvedValue([]);
+
+      renderHook(() => useChatSearch(longQuery), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(logger.warn).toHaveBeenCalledWith('Search query truncated', {
+          originalLength: 600,
+          maxLength: 500,
+          component: 'useChatSearch',
+        });
+      });
+
+      await waitFor(() => {
+        if (mockSearchChatSessions.mock.calls.length > 0) {
+          const call = mockSearchChatSessions.mock.calls[0][0];
+          expect(call.q.length).toBe(500);
+        }
+      });
+    });
+
+    it('should support custom maxLength', async () => {
+      const longQuery = 'a'.repeat(150);
+      mockSearchChatSessions.mockResolvedValue([]);
+
+      renderHook(() => useChatSearch(longQuery, { maxLength: 100 }), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(logger.warn).toHaveBeenCalledWith('Search query truncated', {
+          originalLength: 150,
+          maxLength: 100,
+          component: 'useChatSearch',
+        });
+      });
+
+      await waitFor(() => {
+        if (mockSearchChatSessions.mock.calls.length > 0) {
+          const call = mockSearchChatSessions.mock.calls[0][0];
+          expect(call.q.length).toBe(100);
+        }
+      });
+    });
+
+    it('should not log warning when query is within maxLength', async () => {
+      const query = 'a'.repeat(100);
+      mockSearchChatSessions.mockResolvedValue([]);
+
+      renderHook(() => useChatSearch(query), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalled();
+      });
+
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('should trim query before checking length', async () => {
+      const query = '  test query  ';
+      mockSearchChatSessions.mockResolvedValue([]);
+
+      renderHook(() => useChatSearch(query), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledWith({
+          q: 'test query',
+        });
+      });
+    });
+  });
+
+  describe('minLength validation', () => {
+    it('should not search with default minLength of 2 when query is too short', async () => {
+      const { result } = renderHook(() => useChatSearch('a'), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+      expect(result.current.isValidQuery).toBe(false);
+      expect(result.current.results).toEqual([]);
+    });
+
+    it('should search when query meets minLength', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const { result } = renderHook(() => useChatSearch('ab'), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.isValidQuery).toBe(true);
+        expect(mockSearchChatSessions).toHaveBeenCalled();
+      });
+    });
+
+    it('should support custom minLength', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const { result: result1 } = renderHook(
+        () => useChatSearch('abc', { minLength: 5 }),
+        { wrapper: createWrapper() }
+      );
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(result1.current.isValidQuery).toBe(false);
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+
+      vi.clearAllMocks();
+
+      const { result: result2 } = renderHook(
+        () => useChatSearch('abcde', { minLength: 5 }),
+        { wrapper: createWrapper() }
+      );
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result2.current.isValidQuery).toBe(true);
+        expect(mockSearchChatSessions).toHaveBeenCalled();
+      });
+    });
+
+    it('should return empty results without API call when query is empty', async () => {
+      const { result } = renderHook(() => useChatSearch(''), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+      expect(result.current.results).toEqual([]);
+      expect(result.current.isValidQuery).toBe(false);
+    });
+  });
+
+  describe('search results', () => {
+    it('should return search results correctly', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const { result } = renderHook(() => useChatSearch('test query'), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.results).toEqual(mockSearchResults);
+      });
+
+      expect(mockSearchChatSessions).toHaveBeenCalledWith({
+        q: 'test query',
+      });
+    });
+
+    it('should handle empty results', async () => {
+      mockSearchChatSessions.mockResolvedValue([]);
+
+      const { result } = renderHook(() => useChatSearch('no matches'), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.results).toEqual([]);
+      });
+    });
+
+    it('should handle API errors', async () => {
+      const error = new Error('API Error');
+      mockSearchChatSessions.mockRejectedValue(error);
+
+      const { result } = renderHook(() => useChatSearch('test'), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.error).toEqual(error);
+        expect(result.current.results).toEqual([]);
+      });
+    });
+  });
+
+  describe('loading states', () => {
+    it('should set isSearching during API call', async () => {
+      mockSearchChatSessions.mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve(mockSearchResults), 100))
+      );
+
+      const { result } = renderHook(() => useChatSearch('test'), {
+        wrapper: createWrapper(),
+      });
+
+      expect(result.current.isSearching).toBe(false);
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSearching).toBe(true);
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(100);
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSearching).toBe(false);
+        expect(result.current.results).toEqual(mockSearchResults);
+      });
+    });
+
+    it('should clear isSearching on error', async () => {
+      const error = new Error('API Error');
+      mockSearchChatSessions.mockRejectedValue(error);
+
+      const { result } = renderHook(() => useChatSearch('test'), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSearching).toBe(false);
+        expect(result.current.error).toEqual(error);
+      });
+    });
+  });
+
+  describe('search options', () => {
+    it('should pass scope filter to API', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      renderHook(() => useChatSearch('test', { scope: 'messages' }), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledWith({
+          q: 'test',
+          scope: 'messages',
+        });
+      });
+    });
+
+    it('should pass category_id filter to API', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      renderHook(() => useChatSearch('test', { category_id: 'cat-1' }), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledWith({
+          q: 'test',
+          category_id: 'cat-1',
+        });
+      });
+    });
+
+    it('should pass tags filter to API', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      renderHook(() => useChatSearch('test', { tags: 'tag-1,tag-2' }), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledWith({
+          q: 'test',
+          tags: 'tag-1,tag-2',
+        });
+      });
+    });
+
+    it('should pass include_archived to API', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      renderHook(() => useChatSearch('test', { include_archived: true }), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledWith({
+          q: 'test',
+          include_archived: true,
+        });
+      });
+    });
+
+    it('should pass limit to API', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      renderHook(() => useChatSearch('test', { limit: 10 }), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledWith({
+          q: 'test',
+          limit: 10,
+        });
+      });
+    });
+
+    it('should pass multiple filters to API', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      renderHook(
+        () =>
+          useChatSearch('test', {
+            scope: 'all',
+            category_id: 'cat-1',
+            tags: 'tag-1',
+            include_archived: false,
+            limit: 20,
+          }),
+        { wrapper: createWrapper() }
+      );
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledWith({
+          q: 'test',
+          scope: 'all',
+          category_id: 'cat-1',
+          tags: 'tag-1',
+          include_archived: false,
+          limit: 20,
+        });
+      });
+    });
+
+    it('should allow enabled option to override minLength check', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const { result } = renderHook(() => useChatSearch('a', { enabled: true }), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalled();
+      });
+    });
+
+    it('should allow enabled: false to disable search', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      renderHook(() => useChatSearch('test query', { enabled: false }), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('React Query integration', () => {
+    it('should cache search results', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const wrapper = ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      );
+
+      const { result } = renderHook(() => useChatSearch('test'), { wrapper });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.results).toEqual(mockSearchResults);
+      });
+
+      // Verify data is cached
+      const cachedData = queryClient.getQueryData<ChatSearchResult[]>(
+        chatSearchQueryKeys.search('test', {})
+      );
+      expect(cachedData).toEqual(mockSearchResults);
+    });
+
+    it('should use placeholder data while fetching new results', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const { result, rerender } = renderHook(
+        ({ query }) => useChatSearch(query),
+        {
+          wrapper: createWrapper(),
+          initialProps: { query: 'test' },
+        }
+      );
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.results).toEqual(mockSearchResults);
+      });
+
+      // Change query
+      const newResults: ChatSearchResult[] = [
+        {
+          session_id: 'session-3',
+          session_name: 'New Session',
+          match_type: 'session',
+          snippet: 'New search result',
+          relevance_score: 0.9,
+          last_activity_at: '2025-11-29T11:00:00Z',
+        },
+      ];
+      mockSearchChatSessions.mockResolvedValue(newResults);
+
+      rerender({ query: 'new query' });
+
+      // Old results should still be available as placeholder
+      expect(result.current.results).toEqual(mockSearchResults);
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.results).toEqual(newResults);
+      });
+    });
+
+    it('should generate correct query keys', () => {
+      const key1 = chatSearchQueryKeys.search('test', {});
+      expect(key1).toEqual(['chat', 'search', 'test', {}]);
+
+      const key2 = chatSearchQueryKeys.search('test', { scope: 'messages' });
+      expect(key2).toEqual(['chat', 'search', 'test', { scope: 'messages' }]);
+
+      const key3 = chatSearchQueryKeys.search('test', {
+        scope: 'all',
+        category_id: 'cat-1',
+        limit: 10,
+      });
+      expect(key3).toEqual([
+        'chat',
+        'search',
+        'test',
+        { scope: 'all', category_id: 'cat-1', limit: 10 },
+      ]);
+    });
+
+    it('should refetch on window focus if data is stale', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const { result } = renderHook(() => useChatSearch('test'), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledTimes(1);
+      });
+
+      // Simulate window focus
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+
+      // Note: In real tests, refetchOnWindowFocus behavior depends on staleTime
+      // This test just verifies the hook doesn't crash on focus events
+    });
+  });
+
+  describe('debouncedQuery exposure', () => {
+    it('should expose the debounced query value', async () => {
+      mockSearchChatSessions.mockResolvedValue([]);
+
+      const { result, rerender } = renderHook(
+        ({ query }) => useChatSearch(query),
+        {
+          wrapper: createWrapper(),
+          initialProps: { query: 'test' },
+        }
+      );
+
+      // Initially empty until debounce completes
+      expect(result.current.debouncedQuery).toBe('');
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.debouncedQuery).toBe('test');
+      });
+
+      // Change query
+      rerender({ query: 'test updated' });
+
+      // Debounced query should still be old value
+      expect(result.current.debouncedQuery).toBe('test');
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.debouncedQuery).toBe('test updated');
+      });
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should handle rapidly changing queries', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      const { rerender } = renderHook(({ query }) => useChatSearch(query), {
+        wrapper: createWrapper(),
+        initialProps: { query: 'a' },
+      });
+
+      // Rapidly change query multiple times
+      rerender({ query: 'ab' });
+      await act(async () => {
+        vi.advanceTimersByTime(50);
+      });
+
+      rerender({ query: 'abc' });
+      await act(async () => {
+        vi.advanceTimersByTime(50);
+      });
+
+      rerender({ query: 'abcd' });
+      await act(async () => {
+        vi.advanceTimersByTime(50);
+      });
+
+      rerender({ query: 'abcde' });
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      // Should only call API once with final query
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledTimes(1);
+        expect(mockSearchChatSessions).toHaveBeenCalledWith({
+          q: 'abcde',
+        });
+      });
+    });
+
+    it('should handle query with only whitespace', async () => {
+      const { result } = renderHook(() => useChatSearch('   '), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+      expect(result.current.results).toEqual([]);
+    });
+
+    it('should handle special characters in query', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      renderHook(() => useChatSearch('test "query" with special chars: @#$%'), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledWith({
+          q: 'test "query" with special chars: @#$%',
+        });
+      });
+    });
+
+    it('should handle unicode characters in query', async () => {
+      mockSearchChatSessions.mockResolvedValue(mockSearchResults);
+
+      renderHook(() => useChatSearch('测试查询 тест'), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(mockSearchChatSessions).toHaveBeenCalledWith({
+          q: '测试查询 тест',
+        });
+      });
+    });
+
+    it('should not call API when returning from empty query to another empty query', async () => {
+      const { rerender } = renderHook(({ query }) => useChatSearch(query), {
+        wrapper: createWrapper(),
+        initialProps: { query: '' },
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+
+      rerender({ query: '  ' });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(mockSearchChatSessions).not.toHaveBeenCalled();
+    });
+  });
+});

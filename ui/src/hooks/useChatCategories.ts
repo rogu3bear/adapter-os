@@ -1,4 +1,4 @@
-import { useQuery, useMutation, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
 import apiClient from '@/api/client';
 import type {
   ChatCategory,
@@ -37,8 +37,14 @@ export function useChatCategories(
 export function useCreateCategory(
   options?: UseMutationOptions<ChatCategory, Error, CreateCategoryRequest>
 ) {
+  const queryClient = useQueryClient();
+
   return useMutation<ChatCategory, Error, CreateCategoryRequest>({
     mutationFn: (request) => apiClient.createChatCategory(request),
+    onSuccess: (data, variables, context, mutation) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.categories });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
     ...options,
   });
 }
@@ -52,8 +58,14 @@ export function useCreateCategory(
 export function useUpdateCategory(
   options?: UseMutationOptions<ChatCategory, Error, { categoryId: string; request: UpdateCategoryRequest }>
 ) {
+  const queryClient = useQueryClient();
+
   return useMutation<ChatCategory, Error, { categoryId: string; request: UpdateCategoryRequest }>({
     mutationFn: ({ categoryId, request }) => apiClient.updateChatCategory(categoryId, request),
+    onSuccess: (data, variables, context, mutation) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.categories });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
     ...options,
   });
 }
@@ -67,8 +79,15 @@ export function useUpdateCategory(
 export function useDeleteCategory(
   options?: UseMutationOptions<void, Error, string>
 ) {
+  const queryClient = useQueryClient();
+
   return useMutation<void, Error, string>({
     mutationFn: (categoryId) => apiClient.deleteChatCategory(categoryId),
+    onSuccess: (data, variables, context, mutation) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.categories });
+      queryClient.invalidateQueries({ queryKey: ['chat-sessions'] });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
     ...options,
   });
 }
@@ -82,8 +101,15 @@ export function useDeleteCategory(
 export function useSetSessionCategory(
   options?: UseMutationOptions<void, Error, { sessionId: string; categoryId: string | null }>
 ) {
+  const queryClient = useQueryClient();
+
   return useMutation<void, Error, { sessionId: string; categoryId: string | null }>({
     mutationFn: ({ sessionId, categoryId }) => apiClient.setSessionCategory(sessionId, categoryId),
+    onSuccess: (data, variables, context, mutation) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.categories });
+      queryClient.invalidateQueries({ queryKey: ['chat-sessions'] });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
     ...options,
   });
 }

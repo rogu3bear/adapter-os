@@ -17,6 +17,7 @@ export * from './useProgressiveHints';
 export * from './useViewTransition';
 
 // API Integration Hooks
+export * from './useAdaptersApi';
 export * from './useChatSessionsApi';
 export * from './useChatSearch';
 export * from './useChatCategories';

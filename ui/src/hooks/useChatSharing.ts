@@ -5,6 +5,7 @@ import type {
   ShareSessionRequest,
   ShareSessionResponse,
   ChatSession,
+  ChatSessionWithStatus,
 } from '@/api/chat-types';
 
 const QUERY_KEYS = {
@@ -40,9 +41,9 @@ export function useSessionShares(
  * @returns Query result with array of shared sessions
  */
 export function useSessionsSharedWithMe(
-  options?: Omit<UseQueryOptions<ChatSession[], Error>, 'queryKey' | 'queryFn'>
+  options?: Omit<UseQueryOptions<ChatSessionWithStatus[], Error>, 'queryKey' | 'queryFn'>
 ) {
-  return useQuery<ChatSession[], Error>({
+  return useQuery<ChatSessionWithStatus[], Error>({
     queryKey: QUERY_KEYS.sessionsSharedWithMe,
     queryFn: () => apiClient.getSessionsSharedWithMe(),
     ...options,
