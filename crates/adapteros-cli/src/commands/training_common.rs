@@ -184,7 +184,8 @@ pub struct TokenizerArg {
     /// If not provided, will attempt to resolve from:
     /// 1. AOS_TOKENIZER_PATH environment variable
     /// 2. AOS_MODEL_PATH/tokenizer.json
-    /// 3. Default model path (models/qwen2.5-7b-mlx/tokenizer.json)
+    ///
+    /// If neither is set or found, an error is returned with remediation steps.
     #[arg(long, env = "AOS_TOKENIZER_PATH")]
     pub tokenizer: Option<PathBuf>,
 }

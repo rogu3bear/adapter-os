@@ -606,12 +606,13 @@ describe('useChatSharing - Mutations', () => {
       });
 
       await waitFor(() => {
-        expect(onSuccess).toHaveBeenCalledWith(
-          mockShareResponse,
-          { sessionId: 'session-123', request: shareRequest },
-          undefined
-        );
+        expect(onSuccess).toHaveBeenCalledTimes(1);
       });
+
+      // TanStack Query v5 onSuccess receives 4 params: data, variables, context, mutation
+      const [dataArg, variablesArg] = onSuccess.mock.calls[0];
+      expect(dataArg).toEqual(mockShareResponse);
+      expect(variablesArg).toEqual({ sessionId: 'session-123', request: shareRequest });
     });
 
     it('calls onError callback', async () => {
@@ -643,12 +644,13 @@ describe('useChatSharing - Mutations', () => {
       ).rejects.toThrow();
 
       await waitFor(() => {
-        expect(onError).toHaveBeenCalledWith(
-          error,
-          { sessionId: 'session-123', request: shareRequest },
-          undefined
-        );
+        expect(onError).toHaveBeenCalledTimes(1);
       });
+
+      // TanStack Query v5 onError receives 4 params: error, variables, context, mutation
+      const [errorArg, variablesArg] = onError.mock.calls[0];
+      expect(errorArg).toEqual(error);
+      expect(variablesArg).toEqual({ sessionId: 'session-123', request: shareRequest });
     });
   });
 
@@ -710,12 +712,13 @@ describe('useChatSharing - Mutations', () => {
       });
 
       await waitFor(() => {
-        expect(onSuccess).toHaveBeenCalledWith(
-          undefined,
-          { sessionId: 'session-123', shareId: 'share-1' },
-          undefined
-        );
+        expect(onSuccess).toHaveBeenCalledTimes(1);
       });
+
+      // TanStack Query v5 onSuccess receives 4 params: data, variables, context, mutation
+      const [dataArg, variablesArg] = onSuccess.mock.calls[0];
+      expect(dataArg).toBeUndefined();
+      expect(variablesArg).toEqual({ sessionId: 'session-123', shareId: 'share-1' });
     });
 
     it('calls onError callback', async () => {
@@ -742,12 +745,13 @@ describe('useChatSharing - Mutations', () => {
       ).rejects.toThrow();
 
       await waitFor(() => {
-        expect(onError).toHaveBeenCalledWith(
-          error,
-          { sessionId: 'session-123', shareId: 'share-1' },
-          undefined
-        );
+        expect(onError).toHaveBeenCalledTimes(1);
       });
+
+      // TanStack Query v5 onError receives 4 params: error, variables, context, mutation
+      const [errorArg, variablesArg] = onError.mock.calls[0];
+      expect(errorArg).toEqual(error);
+      expect(variablesArg).toEqual({ sessionId: 'session-123', shareId: 'share-1' });
     });
 
     it('passes correct parameters to API', async () => {
