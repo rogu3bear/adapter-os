@@ -212,6 +212,87 @@ impl StackKvRepository {
 
         Ok(stacks)
     }
+
+    /// Update stack lifecycle state
+    pub async fn update_lifecycle_state(
+        &self,
+        tenant_id: &str,
+        stack_id: &str,
+        new_state: LifecycleState,
+    ) -> Result<()> {
+        // Get existing stack
+        let key = Self::primary_key(tenant_id, stack_id);
+        let bytes = match self.backend.get(&key).await
+            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))? {
+            Some(b) => b,
+            None => return Err(AosError::NotFound(format!("Stack not found: {}", stack_id)).into()),
+        };
+
+        let mut stack = Self::deserialize(&bytes)?;
+        let old_state = stack.lifecycle_state;
+
+        // Update lifecycle state
+        stack.lifecycle_state = new_state;
+        stack.updated_at = Utc::now();
+
+        // Store updated stack
+        let bytes = Self::serialize(&stack)?;
+        self.backend.set(&key, bytes).await
+            .map_err(|e| AosError::Database(format!("Failed to update stack lifecycle state: {}", e)))?;
+
+        // Update state index if state changed
+        if old_state != new_state {
+            let old_state_key = Self::state_index_key(tenant_id, old_state.as_str());
+            self.remove_from_set(&old_state_key, stack_id).await?;
+
+            let new_state_key = Self::state_index_key(tenant_id, new_state.as_str());
+            self.add_to_set(&new_state_key, stack_id).await?;
+        }
+
+        debug!(
+            stack_id = %stack_id,
+            old_state = ?old_state,
+            new_state = ?new_state,
+            "Stack lifecycle state updated in KV store"
+        );
+
+        Ok(())
+    }
+
+    /// Update stack version
+    pub async fn update_version(
+        &self,
+        tenant_id: &str,
+        stack_id: &str,
+        new_version: &str,
+    ) -> Result<()> {
+        // Get existing stack
+        let key = Self::primary_key(tenant_id, stack_id);
+        let bytes = match self.backend.get(&key).await
+            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))? {
+            Some(b) => b,
+            None => return Err(AosError::NotFound(format!("Stack not found: {}", stack_id)).into()),
+        };
+
+        let mut stack = Self::deserialize(&bytes)?;
+
+        // Update version
+        stack.version = new_version.to_string();
+        stack.updated_at = Utc::now();
+
+        // Store updated stack
+        let bytes = Self::serialize(&stack)?;
+        self.backend.set(&key, bytes).await
+            .map_err(|e| AosError::Database(format!("Failed to update stack version: {}", e)))?;
+
+        debug!(
+            stack_id = %stack_id,
+            new_version = %new_version,
+            "Stack version updated in KV store"
+        );
+
+        Ok(())
+    }
 }
 
 #[async_trait]

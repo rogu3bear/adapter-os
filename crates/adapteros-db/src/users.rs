@@ -204,4 +204,91 @@ impl Db {
             .db_err("count users")?;
         Ok(count)
     }
+
+    /// Update user role with dual-write support
+    ///
+    /// Updates the user's role in SQL, and also in KV backend if dual-write mode is enabled.
+    pub async fn update_user_role(&self, id: &str, role: Role) -> Result<()> {
+        let role_str = role.to_string();
+
+        // SQL write (always happens)
+        let result = sqlx::query(
+            "UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?"
+        )
+        .bind(&role_str)
+        .bind(id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AosError::NotFound(format!("User not found: {}", id)));
+        }
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_user_kv_repo() {
+            let kv_role = to_kv_role(&role);
+            if let Err(e) = repo.update_user_role_kv(id, kv_role).await {
+                warn!(error = %e, user_id = %id, "Failed to update user role in KV backend (dual-write)");
+            } else {
+                debug!(user_id = %id, role = %role, "User role updated in both SQL and KV backends");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Update user disabled status with dual-write support
+    ///
+    /// Updates the user's disabled status in SQL, and also in KV backend if dual-write mode is enabled.
+    pub async fn update_user_disabled(&self, id: &str, disabled: bool) -> Result<()> {
+        // SQL write (always happens)
+        let result = sqlx::query(
+            "UPDATE users SET disabled = ?, updated_at = datetime('now') WHERE id = ?"
+        )
+        .bind(disabled)
+        .bind(id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AosError::NotFound(format!("User not found: {}", id)));
+        }
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_user_kv_repo() {
+            if let Err(e) = repo.update_user_disabled_kv(id, disabled).await {
+                warn!(error = %e, user_id = %id, "Failed to update user disabled status in KV backend (dual-write)");
+            } else {
+                debug!(user_id = %id, disabled = %disabled, "User disabled status updated in both SQL and KV backends");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Delete user with dual-write support
+    ///
+    /// Deletes the user from SQL, and also from KV backend if dual-write mode is enabled.
+    /// Returns Ok(()) if user was deleted or didn't exist.
+    pub async fn delete_user(&self, id: &str) -> Result<()> {
+        // SQL write (always happens)
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_user_kv_repo() {
+            if let Err(e) = repo.delete_user_kv(id).await {
+                warn!(error = %e, user_id = %id, "Failed to delete user from KV backend (dual-write)");
+            } else {
+                debug!(user_id = %id, "User deleted from both SQL and KV backends");
+            }
+        }
+
+        Ok(())
+    }
 }

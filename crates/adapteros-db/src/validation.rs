@@ -8,6 +8,7 @@ use crate::metadata::{validate_state_transition, validate_version, LifecycleStat
 use crate::Db;
 use adapteros_core::Result;
 use std::str::FromStr;
+use tracing::{debug, warn};
 
 impl Db {
     /// Validate and update adapter lifecycle state
@@ -178,6 +179,7 @@ impl Db {
             "Updating stack lifecycle state"
         );
 
+        // SQL update (always happens)
         sqlx::query(
             "UPDATE adapter_stacks SET lifecycle_state = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?",
         )
@@ -187,6 +189,20 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update lifecycle state: {}", e)))?;
+
+        // KV update (dual-write mode)
+        if let Some(kv_backend) = self.get_stack_kv_repo() {
+            // Convert adapteros_core::LifecycleState to adapteros_storage::entities::stack::LifecycleState
+            use adapteros_storage::entities::stack::LifecycleState as KvLifecycleState;
+            let kv_state = KvLifecycleState::from_str(new_state.as_str())
+                .ok_or_else(|| adapteros_core::AosError::Database(format!("Invalid lifecycle state: {}", new_state.as_str())))?;
+
+            if let Err(e) = kv_backend.update_lifecycle_state(tenant_id, stack_id, kv_state).await {
+                warn!(error = %e, stack_id = %stack_id, "Failed to update stack lifecycle state in KV backend (dual-write)");
+            } else {
+                debug!(stack_id = %stack_id, state = ?new_state, "Stack lifecycle state updated in both SQL and KV backends");
+            }
+        }
 
         Ok(())
     }
@@ -216,6 +232,7 @@ impl Db {
             "Updating stack version"
         );
 
+        // SQL update (always happens)
         sqlx::query(
             "UPDATE adapter_stacks SET version = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?",
         )
@@ -225,6 +242,15 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update version: {}", e)))?;
+
+        // KV update (dual-write mode)
+        if let Some(kv_backend) = self.get_stack_kv_repo() {
+            if let Err(e) = kv_backend.update_version(tenant_id, stack_id, new_version).await {
+                warn!(error = %e, stack_id = %stack_id, "Failed to update stack version in KV backend (dual-write)");
+            } else {
+                debug!(stack_id = %stack_id, version = %new_version, "Stack version updated in both SQL and KV backends");
+            }
+        }
 
         Ok(())
     }

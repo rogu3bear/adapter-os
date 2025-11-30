@@ -42,23 +42,310 @@ pub use postgres::PostgresDb;
 ///
 /// Defines how the database layer handles reads and writes when both
 /// SQL and KV backends are available.
+///
+/// # Configuration
+///
+/// Storage mode can be configured via the `AOS_STORAGE_BACKEND` environment variable:
+/// - `sql_only` or `sql` - SQL backend only (default, current production mode)
+/// - `dual_write` or `dual` - Write to both backends, read from SQL (migration validation phase)
+/// - `kv_primary` - Write to both backends, read from KV (migration cutover phase)
+/// - `kv_only` - KV backend only (future production target)
+///
+/// # Migration Path
+///
+/// The storage mode supports a gradual migration from SQL to KV storage:
+/// 1. **SqlOnly** (current): Production default, all operations use SQL backend
+/// 2. **DualWrite** (validation): Write to both backends, read from SQL for validation
+/// 3. **KvPrimary** (cutover): Write to both backends, read from KV to test KV read path
+/// 4. **KvOnly** (future): Full migration complete, SQL backend can be deprecated
+///
+/// # When to Use Each Mode
+///
+/// - **SqlOnly**: Current production default, use when KV backend is not yet available
+/// - **DualWrite**: Use during migration validation to ensure KV writes match SQL writes
+/// - **KvPrimary**: Use during migration cutover to test KV read path while keeping SQL as backup
+/// - **KvOnly**: Final migration state, use when confident KV backend is production-ready
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageMode {
-    /// Only use SQL backend (default, current behavior)
+    /// SQL backend only (default, current production mode)
+    ///
+    /// All read and write operations use the SQL backend exclusively.
+    /// The KV backend is ignored even if attached.
+    ///
+    /// # Purpose
+    ///
+    /// This is the default mode representing the current production state.
+    /// It provides backward compatibility and is the fallback when KV backend
+    /// is not available or not yet ready for production use.
+    ///
+    /// # Behavior
+    ///
+    /// - **Reads**: SQL backend only
+    /// - **Writes**: SQL backend only
+    /// - **KV Backend**: Ignored (not accessed)
+    ///
+    /// # When to Use
+    ///
+    /// - Current production deployments (default)
+    /// - Testing SQL backend in isolation
+    /// - When KV backend is not available
+    /// - Initial state before migration begins
+    ///
+    /// # Migration Path
+    ///
+    /// Start here. Progress to [`DualWrite`] when ready to validate KV writes.
+    ///
+    /// [`DualWrite`]: StorageMode::DualWrite
     SqlOnly,
-    /// Write to both SQL and KV, read from SQL
-    /// Used during migration validation phase
+
+    /// Write to both SQL and KV backends, read from SQL (migration validation phase)
+    ///
+    /// This mode enables dual-write functionality to validate that KV writes
+    /// match SQL writes before committing to the migration.
+    ///
+    /// # Purpose
+    ///
+    /// Validation phase of the migration path. Ensures KV backend can correctly
+    /// store and retrieve data by comparing it against the authoritative SQL backend.
+    ///
+    /// # Behavior
+    ///
+    /// - **Reads**: SQL backend (authoritative source)
+    /// - **Writes**: Both SQL and KV backends
+    /// - **Write Failures**: KV write failures are logged but don't block the operation
+    /// - **Consistency**: SQL remains the source of truth
+    ///
+    /// # When to Use
+    ///
+    /// - Validating KV backend implementation
+    /// - Testing KV write path in production with zero risk
+    /// - Building up KV data in parallel with SQL
+    /// - Detecting KV write issues before cutover
+    ///
+    /// # Important Notes
+    ///
+    /// - SQL is still the authoritative source for reads
+    /// - KV write failures are logged as warnings, not errors
+    /// - Allows safe testing of KV writes in production
+    /// - No performance impact on reads (still SQL-only)
+    /// - Can run indefinitely until confidence is established
+    ///
+    /// # Migration Path
+    ///
+    /// Progress from [`SqlOnly`] → **DualWrite** → [`KvPrimary`]
+    ///
+    /// [`SqlOnly`]: StorageMode::SqlOnly
+    /// [`KvPrimary`]: StorageMode::KvPrimary
     DualWrite,
-    /// Write to both SQL and KV, read from KV
-    /// Used during migration cutover phase
+
+    /// Write to both SQL and KV backends, read from KV (migration cutover phase)
+    ///
+    /// This mode switches reads to the KV backend while maintaining SQL writes
+    /// as a backup and consistency check.
+    ///
+    /// # Purpose
+    ///
+    /// Cutover phase of the migration path. Tests the KV read path in production
+    /// while keeping SQL as a safety net for rollback and verification.
+    ///
+    /// # Behavior
+    ///
+    /// - **Reads**: KV backend (primary source)
+    /// - **Writes**: Both SQL and KV backends
+    /// - **Fallback**: SQL backend available for emergency rollback
+    /// - **Consistency**: KV is now the source of truth for reads
+    ///
+    /// # When to Use
+    ///
+    /// - Testing KV read performance in production
+    /// - Final validation before removing SQL dependency
+    /// - Establishing confidence in KV read path
+    /// - Monitoring for KV read issues before full cutover
+    ///
+    /// # Important Notes
+    ///
+    /// - KV read failures will cause operation failures (unlike DualWrite)
+    /// - SQL writes continue to provide rollback path
+    /// - Can revert to [`DualWrite`] by changing environment variable
+    /// - Performance depends on KV backend read performance
+    /// - Should monitor for consistency between SQL and KV
+    ///
+    /// # Migration Path
+    ///
+    /// Progress from [`DualWrite`] → **KvPrimary** → [`KvOnly`]
+    ///
+    /// Rollback path: **KvPrimary** → [`DualWrite`] (if issues detected)
+    ///
+    /// [`DualWrite`]: StorageMode::DualWrite
+    /// [`KvOnly`]: StorageMode::KvOnly
     KvPrimary,
-    /// Only use KV backend (full migration complete)
+
+    /// KV backend only (full migration complete)
+    ///
+    /// All operations use the KV backend exclusively. SQL backend is ignored
+    /// and can be deprecated or removed.
+    ///
+    /// # Purpose
+    ///
+    /// Final state of the migration path. Represents full commitment to KV backend
+    /// as the single source of truth.
+    ///
+    /// # Behavior
+    ///
+    /// - **Reads**: KV backend only
+    /// - **Writes**: KV backend only
+    /// - **SQL Backend**: Ignored (not accessed)
+    ///
+    /// # When to Use
+    ///
+    /// - After successful validation in [`KvPrimary`] mode
+    /// - When confident in KV backend stability and performance
+    /// - To reduce write amplification from dual-write
+    /// - Final production target for new deployments
+    ///
+    /// # Important Notes
+    ///
+    /// - No SQL fallback available (point of no return)
+    /// - SQL data becomes stale immediately
+    /// - Cannot rollback without data migration
+    /// - Best performance (no dual-write overhead)
+    /// - Requires high confidence in KV backend
+    ///
+    /// # Migration Path
+    ///
+    /// Final state: [`KvPrimary`] → **KvOnly**
+    ///
+    /// Rollback: Requires full data migration from KV back to SQL
+    ///
+    /// # Configuration Example
+    ///
+    /// ```bash
+    /// export AOS_STORAGE_BACKEND=kv_only
+    /// ```
+    ///
+    /// [`KvPrimary`]: StorageMode::KvPrimary
     KvOnly,
 }
 
 impl Default for StorageMode {
     fn default() -> Self {
         StorageMode::SqlOnly
+    }
+}
+
+impl std::str::FromStr for StorageMode {
+    type Err = AosError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "sql_only" | "sql" => Ok(StorageMode::SqlOnly),
+            "dual_write" | "dual" => Ok(StorageMode::DualWrite),
+            "kv_primary" | "kv-primary" => Ok(StorageMode::KvPrimary),
+            "kv_only" | "kv-only" => Ok(StorageMode::KvOnly),
+            _ => Err(AosError::Config(format!(
+                "Invalid storage mode '{}'. Valid options: sql_only, dual_write, kv_primary, kv_only",
+                s
+            ))),
+        }
+    }
+}
+
+impl std::fmt::Display for StorageMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorageMode::SqlOnly => write!(f, "sql_only"),
+            StorageMode::DualWrite => write!(f, "dual_write"),
+            StorageMode::KvPrimary => write!(f, "kv_primary"),
+            StorageMode::KvOnly => write!(f, "kv_only"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod storage_mode_tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_storage_mode_from_str() {
+        // Test canonical names
+        assert_eq!(StorageMode::from_str("sql_only").unwrap(), StorageMode::SqlOnly);
+        assert_eq!(StorageMode::from_str("dual_write").unwrap(), StorageMode::DualWrite);
+        assert_eq!(StorageMode::from_str("kv_primary").unwrap(), StorageMode::KvPrimary);
+        assert_eq!(StorageMode::from_str("kv_only").unwrap(), StorageMode::KvOnly);
+
+        // Test short aliases
+        assert_eq!(StorageMode::from_str("sql").unwrap(), StorageMode::SqlOnly);
+        assert_eq!(StorageMode::from_str("dual").unwrap(), StorageMode::DualWrite);
+
+        // Test hyphenated variants (from config schema)
+        assert_eq!(StorageMode::from_str("kv-primary").unwrap(), StorageMode::KvPrimary);
+        assert_eq!(StorageMode::from_str("kv-only").unwrap(), StorageMode::KvOnly);
+
+        // Test case insensitivity
+        assert_eq!(StorageMode::from_str("SQL_ONLY").unwrap(), StorageMode::SqlOnly);
+        assert_eq!(StorageMode::from_str("Dual_Write").unwrap(), StorageMode::DualWrite);
+        assert_eq!(StorageMode::from_str("KV-PRIMARY").unwrap(), StorageMode::KvPrimary);
+
+        // Test invalid values
+        assert!(StorageMode::from_str("invalid").is_err());
+        assert!(StorageMode::from_str("").is_err());
+        assert!(StorageMode::from_str("kv").is_err());
+    }
+
+    #[test]
+    fn test_storage_mode_display() {
+        assert_eq!(StorageMode::SqlOnly.to_string(), "sql_only");
+        assert_eq!(StorageMode::DualWrite.to_string(), "dual_write");
+        assert_eq!(StorageMode::KvPrimary.to_string(), "kv_primary");
+        assert_eq!(StorageMode::KvOnly.to_string(), "kv_only");
+    }
+
+    #[test]
+    fn test_storage_mode_default() {
+        assert_eq!(StorageMode::default(), StorageMode::SqlOnly);
+    }
+
+    #[test]
+    fn test_storage_mode_read_write_predicates() {
+        // SqlOnly: read SQL, write SQL
+        assert!(StorageMode::SqlOnly.read_from_sql());
+        assert!(!StorageMode::SqlOnly.read_from_kv());
+        assert!(StorageMode::SqlOnly.write_to_sql());
+        assert!(!StorageMode::SqlOnly.write_to_kv());
+
+        // DualWrite: read SQL, write both
+        assert!(StorageMode::DualWrite.read_from_sql());
+        assert!(!StorageMode::DualWrite.read_from_kv());
+        assert!(StorageMode::DualWrite.write_to_sql());
+        assert!(StorageMode::DualWrite.write_to_kv());
+
+        // KvPrimary: read KV, write both
+        assert!(!StorageMode::KvPrimary.read_from_sql());
+        assert!(StorageMode::KvPrimary.read_from_kv());
+        assert!(StorageMode::KvPrimary.write_to_sql());
+        assert!(StorageMode::KvPrimary.write_to_kv());
+
+        // KvOnly: read KV, write KV
+        assert!(!StorageMode::KvOnly.read_from_sql());
+        assert!(StorageMode::KvOnly.read_from_kv());
+        assert!(!StorageMode::KvOnly.write_to_sql());
+        assert!(StorageMode::KvOnly.write_to_kv());
+    }
+
+    #[test]
+    fn test_storage_mode_helper_predicates() {
+        // is_kv_only
+        assert!(!StorageMode::SqlOnly.is_kv_only());
+        assert!(!StorageMode::DualWrite.is_kv_only());
+        assert!(!StorageMode::KvPrimary.is_kv_only());
+        assert!(StorageMode::KvOnly.is_kv_only());
+
+        // is_dual_write
+        assert!(!StorageMode::SqlOnly.is_dual_write());
+        assert!(StorageMode::DualWrite.is_dual_write());
+        assert!(StorageMode::KvPrimary.is_dual_write());
+        assert!(!StorageMode::KvOnly.is_dual_write());
     }
 }
 
@@ -169,6 +456,72 @@ impl Db {
         let database_url =
             std::env::var("DATABASE_URL").unwrap_or_else(|_| "./var/cp.db".to_string());
         Self::connect(&database_url).await
+    }
+
+    /// Create a new Db instance with configuration from environment variables
+    ///
+    /// This constructor reads configuration from the following environment variables:
+    /// - `AOS_DATABASE_URL` or `DATABASE_URL` - Database connection URL (default: "./var/cp.db")
+    /// - `AOS_STORAGE_BACKEND` or `AOS_STORAGE_MODE` - Storage mode (default: "sql_only")
+    /// - `AOS_KV_PATH` - Path to KV database file (default: "var/aos-kv.redb")
+    ///
+    /// If `AOS_STORAGE_BACKEND` is set to a mode that requires KV backend (dual_write, kv_primary, kv_only),
+    /// the KV backend will be automatically initialized at `AOS_KV_PATH`.
+    ///
+    /// # Example
+    ///
+    /// ```bash
+    /// export AOS_DATABASE_URL=var/aos-cp.sqlite3
+    /// export AOS_STORAGE_BACKEND=dual_write
+    /// export AOS_KV_PATH=var/aos-kv.redb
+    /// ```
+    ///
+    /// ```rust,no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let db = Db::from_config().await?;
+    /// // Database is now configured with dual-write mode
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn from_config() -> Result<Self> {
+        use std::str::FromStr;
+        use tracing::info;
+
+        // Read database URL from environment
+        let database_url = std::env::var("AOS_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| "./var/cp.db".to_string());
+
+        // Read storage mode from environment
+        let storage_mode_str = std::env::var("AOS_STORAGE_BACKEND")
+            .or_else(|_| std::env::var("AOS_STORAGE_MODE"))
+            .unwrap_or_else(|_| "sql_only".to_string());
+
+        let storage_mode = StorageMode::from_str(&storage_mode_str)?;
+
+        info!(
+            database_url = %database_url,
+            storage_mode = %storage_mode,
+            "Initializing database from configuration"
+        );
+
+        // Create base database connection
+        let mut db = Self::connect(&database_url).await?;
+
+        // Set storage mode
+        db.set_storage_mode(storage_mode);
+
+        // Initialize KV backend if required by storage mode
+        if storage_mode.write_to_kv() || storage_mode.read_from_kv() {
+            let kv_path = std::env::var("AOS_KV_PATH")
+                .unwrap_or_else(|_| "var/aos-kv.redb".to_string());
+
+            info!(kv_path = %kv_path, "Initializing KV backend");
+            db.init_kv_backend(std::path::Path::new(&kv_path))?;
+        }
+
+        Ok(db)
     }
 
     /// Create in-memory database for testing
@@ -770,9 +1123,70 @@ impl Db {
 
     /// Set the storage mode
     ///
-    /// This allows transitioning between different storage modes during migration.
-    /// For example: SqlOnly -> DualWrite -> KvPrimary -> KvOnly
+    /// This allows runtime control of storage mode behavior, enabling gradual migration
+    /// from SQL to KV backend. The mode can be changed at any time, but changing the
+    /// mode does not migrate existing data - use migration utilities for that.
+    ///
+    /// # Migration Path
+    ///
+    /// The recommended migration sequence is:
+    /// 1. **SqlOnly** -> **DualWrite**: Start writing to both backends for validation
+    /// 2. **DualWrite** -> **KvPrimary**: Switch reads to KV while keeping SQL writes as backup
+    /// 3. **KvPrimary** -> **KvOnly**: Complete migration, disable SQL writes
+    ///
+    /// # Important Notes
+    ///
+    /// - **KV Backend Required**: If setting a mode that uses KV (DualWrite, KvPrimary, KvOnly),
+    ///   ensure the KV backend is attached via `attach_kv_backend()` or `init_kv_backend()` first.
+    /// - **Data Migration**: Changing mode does not migrate data. Use `kv_migration` utilities
+    ///   to copy data from SQL to KV before switching to KV read modes.
+    /// - **Thread Safety**: This method requires `&mut self`, so mode changes must be
+    ///   coordinated at the application level in multi-threaded environments.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use adapteros_db::{Db, StorageMode};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut db = Db::connect("var/aos-cp.sqlite3").await?;
+    ///
+    /// // Initialize KV backend
+    /// db.init_kv_backend(std::path::Path::new("var/aos-kv.redb"))?;
+    ///
+    /// // Enable dual-write mode for migration validation
+    /// db.set_storage_mode(StorageMode::DualWrite);
+    ///
+    /// // After validation, switch to KV-primary mode
+    /// db.set_storage_mode(StorageMode::KvPrimary);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Does not panic, but operations may fail if:
+    /// - KV backend is not attached when using KV-dependent modes
+    /// - Data has not been migrated to KV before switching to KV read modes
     pub fn set_storage_mode(&mut self, mode: StorageMode) {
+        use tracing::info;
+
+        if self.storage_mode != mode {
+            info!(
+                old_mode = %self.storage_mode,
+                new_mode = %mode,
+                "Storage mode changed"
+            );
+
+            // Warn if setting KV mode without KV backend
+            if (mode.read_from_kv() || mode.write_to_kv()) && !self.has_kv_backend() {
+                warn!(
+                    mode = %mode,
+                    "Storage mode requires KV backend but none is attached. \
+                     Attach KV backend with attach_kv_backend() or init_kv_backend()"
+                );
+            }
+        }
+
         self.storage_mode = mode;
     }
 
@@ -1126,7 +1540,7 @@ pub mod adapters_kv;
 pub mod kv_migration;
 pub use adapters::{Adapter, AdapterRegistrationBuilder, AdapterRegistrationParams};
 pub use adapters_kv::{AdapterKvOps, AdapterKvRepository};
-pub use kv_migration::{MigrationDiscrepancy, MigrationStats};
+pub use kv_migration::{MigrationDiscrepancy, MigrationProgress, MigrationStats};
 pub mod artifacts;
 pub mod audit;
 pub use audit::AuditLog;

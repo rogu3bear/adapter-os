@@ -259,9 +259,10 @@ async fn test_lineage_kv_vs_sql() {
         .build()
         .unwrap();
 
-    db.register_adapter(parent_params).await.unwrap();
+    let parent_uuid = db.register_adapter(parent_params).await.unwrap();
 
     // Create child adapters
+    let mut child_uuids = Vec::new();
     for i in 1..=3 {
         let child_params = AdapterRegistrationBuilder::new()
             .adapter_id(&format!("lineage-child-{}", i))
@@ -271,16 +272,17 @@ async fn test_lineage_kv_vs_sql() {
             .tier("warm")
             .category("code")
             .scope("tenant")
-            .parent_id(Some("lineage-parent".to_string()))
-            .fork_type(Some("derivative".to_string()))
+            .parent_id(Some(parent_uuid.clone()))
+            .fork_type(Some("extension".to_string()))
             .fork_reason(Some(format!("Test fork {}", i)))
             .build()
             .unwrap();
 
-        db.register_adapter(child_params).await.unwrap();
+        let child_uuid = db.register_adapter(child_params).await.unwrap();
+        child_uuids.push(child_uuid);
     }
 
-    // Create grandchild adapter
+    // Create grandchild adapter (child of first child)
     let grandchild_params = AdapterRegistrationBuilder::new()
         .adapter_id("lineage-grandchild-1")
         .name("Grandchild Adapter")
@@ -289,8 +291,8 @@ async fn test_lineage_kv_vs_sql() {
         .tier("ephemeral")
         .category("code")
         .scope("session")
-        .parent_id(Some("lineage-child-1".to_string()))
-        .fork_type(Some("experiment".to_string()))
+        .parent_id(Some(child_uuids[0].clone()))
+        .fork_type(Some("independent".to_string()))
         .fork_reason(Some("Testing lineage".to_string()))
         .build()
         .unwrap();

@@ -20,6 +20,10 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 /// Migration progress statistics
+///
+/// Tracks the outcome of a migration operation including successful migrations,
+/// failures, and skipped adapters. Also maintains a list of failed adapter IDs
+/// for troubleshooting.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationStats {
     /// Total number of adapters to migrate
@@ -184,6 +188,7 @@ impl Db {
                     }
                     Err(e) => {
                         stats.failed += 1;
+                        stats.failed_ids.push(adapter_id.clone());
                         warn!(
                             adapter_id = %adapter_id,
                             error = %e,
@@ -497,6 +502,302 @@ impl Db {
             });
         }
     }
+
+    /// Migrate adapters in batches with configurable batch size
+    ///
+    /// This method processes adapters in batches to handle large datasets efficiently.
+    /// It handles errors gracefully by logging failures and continuing with the next batch.
+    ///
+    /// # Arguments
+    /// * `batch_size` - Number of adapters to process in each batch (recommended: 50-200)
+    ///
+    /// # Returns
+    /// Migration statistics including successful/failed counts
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: &Db) -> anyhow::Result<()> {
+    /// let stats = db.migrate_adapters_batch(100).await?;
+    /// println!("Migrated {}/{} adapters ({:.1}% success)",
+    ///     stats.migrated, stats.total, stats.success_rate());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn migrate_adapters_batch(&self, batch_size: usize) -> Result<MigrationStats> {
+        self.migrate_with_progress_internal(None, batch_size, |_| {}).await
+    }
+
+    /// Migrate adapters for a specific tenant
+    ///
+    /// This method migrates only adapters belonging to the specified tenant.
+    /// Useful for incremental tenant-by-tenant migration.
+    ///
+    /// # Arguments
+    /// * `tenant_id` - ID of the tenant whose adapters should be migrated
+    ///
+    /// # Returns
+    /// Migration statistics for this tenant's adapters
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: &Db) -> anyhow::Result<()> {
+    /// let stats = db.migrate_tenant_adapters("tenant-123").await?;
+    /// println!("Migrated {} adapters for tenant-123", stats.migrated);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn migrate_tenant_adapters(&self, tenant_id: &str) -> Result<MigrationStats> {
+        self.migrate_with_progress_internal(Some(tenant_id), 100, |_| {}).await
+    }
+
+    /// Migrate adapters with progress callback
+    ///
+    /// This method allows you to track migration progress via a callback function.
+    /// The callback is invoked after each adapter is processed (success or failure).
+    ///
+    /// # Arguments
+    /// * `callback` - Function called after each adapter with progress information
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: &Db) -> anyhow::Result<()> {
+    /// let stats = db.migrate_with_progress(|progress| {
+    ///     println!("Progress: {:.1}% ({}/{})",
+    ///         progress.percentage(), progress.processed, progress.total);
+    /// }).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn migrate_with_progress<F>(&self, callback: F) -> Result<MigrationStats>
+    where
+        F: Fn(MigrationProgress),
+    {
+        self.migrate_with_progress_internal(None, 100, callback).await
+    }
+
+    /// Internal migration implementation with all options
+    ///
+    /// # Arguments
+    /// * `tenant_id` - Optional tenant filter (None = all tenants)
+    /// * `batch_size` - Number of adapters per batch
+    /// * `callback` - Progress callback function
+    async fn migrate_with_progress_internal<F>(
+        &self,
+        tenant_id: Option<&str>,
+        batch_size: usize,
+        callback: F,
+    ) -> Result<MigrationStats>
+    where
+        F: Fn(MigrationProgress),
+    {
+        // Check if KV backend is available
+        let kv_backend = self.kv_backend()
+            .ok_or_else(|| AosError::Config(
+                "KV backend not initialized. Call init_kv_backend() first.".to_string()
+            ))?;
+
+        info!("Starting adapter migration to KV storage (batch_size: {})", batch_size);
+
+        // Fetch adapters from SQL
+        let adapters = if let Some(tid) = tenant_id {
+            info!("Fetching adapters for tenant: {}", tid);
+            self.list_adapters_for_tenant(tid).await?
+        } else {
+            info!("Fetching all adapters across all tenants");
+            #[allow(deprecated)]
+            self.list_all_adapters_system().await?
+        };
+
+        let total_count = adapters.len();
+        info!("Found {} adapters to migrate", total_count);
+
+        if total_count == 0 {
+            warn!("No adapters found to migrate");
+            return Ok(MigrationStats::default());
+        }
+
+        let mut stats = MigrationStats::default();
+        stats.total = total_count;
+
+        // Group adapters by tenant for efficient migration
+        let mut adapters_by_tenant: std::collections::HashMap<String, Vec<Adapter>> =
+            std::collections::HashMap::new();
+        for adapter in adapters {
+            adapters_by_tenant
+                .entry(adapter.tenant_id.clone())
+                .or_default()
+                .push(adapter);
+        }
+
+        // Process adapters in batches
+        let mut batch_num = 0;
+        for (tid, tenant_adapters) in adapters_by_tenant {
+            // Create repository for this tenant
+            let repo = crate::adapters_kv::AdapterKvRepository::new(
+                Arc::new(adapteros_storage::repos::AdapterRepository::new(
+                    kv_backend.backend().clone(),
+                    kv_backend.index_manager().clone(),
+                )),
+                tid.clone(),
+            );
+
+            for chunk in tenant_adapters.chunks(batch_size) {
+                batch_num += 1;
+                let batch_count = chunk.len();
+
+                info!(
+                    "Processing batch {} ({} adapters) for tenant {}",
+                    batch_num,
+                    batch_count,
+                    tid
+                );
+
+                for adapter in chunk {
+                    let adapter_id = adapter.adapter_id.clone()
+                        .unwrap_or_else(|| adapter.id.clone());
+
+                    debug!("Migrating adapter: {} ({})", adapter.name, adapter_id);
+
+                    // Attempt to migrate this adapter
+                    let migration_result = self.migrate_single_adapter(&repo, adapter.clone()).await;
+
+                    let (success, error, skip) = match migration_result {
+                        Ok(true) => {
+                            stats.migrated += 1;
+                            (true, None, false)
+                        }
+                        Ok(false) => {
+                            stats.skipped += 1;
+                            (true, None, true)
+                        }
+                        Err(e) => {
+                            stats.failed += 1;
+                            stats.failed_ids.push(adapter_id.clone());
+                            let err_msg = e.to_string();
+                            error!(
+                                adapter_id = %adapter_id,
+                                error = %err_msg,
+                                "Failed to migrate adapter"
+                            );
+                            (false, Some(err_msg), false)
+                        }
+                    };
+
+                    if !skip {
+                        // Invoke progress callback (don't call for skipped adapters)
+                        callback(MigrationProgress {
+                            current_adapter_id: adapter_id,
+                            processed: stats.migrated + stats.failed,
+                            total: total_count,
+                            batch: batch_num,
+                            success,
+                            error,
+                        });
+                    }
+                }
+
+                debug!(
+                    "Batch {} complete: {}/{} successful",
+                    batch_num, stats.migrated, stats.migrated + stats.failed
+                );
+            }
+        }
+
+        info!(
+            "Migration complete: {}/{} migrated ({:.1}% success), {} failed, {} skipped",
+            stats.migrated,
+            stats.total,
+            stats.success_rate(),
+            stats.failed,
+            stats.skipped
+        );
+
+        if !stats.failed_ids.is_empty() {
+            warn!(
+                "Failed adapter IDs (first 10): {:?}",
+                stats.failed_ids.iter().take(10).collect::<Vec<_>>()
+            );
+        }
+
+        Ok(stats)
+    }
+
+    /// Rollback KV data by deleting all adapter entries
+    ///
+    /// **WARNING:** This is a destructive operation that deletes ALL adapter data
+    /// from KV storage. Use only for re-migration scenarios or testing.
+    ///
+    /// This operation:
+    /// 1. Scans all adapter keys in KV storage
+    /// 2. Deletes each adapter entry
+    /// 3. Clears related indexes
+    ///
+    /// SQL data is NOT affected.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: &Db) -> anyhow::Result<()> {
+    /// // Delete all KV adapter data to re-run migration
+    /// db.rollback_kv_data().await?;
+    /// println!("KV data rolled back, SQL data intact");
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn rollback_kv_data(&self) -> Result<()> {
+        let kv_backend = self.kv_backend()
+            .ok_or_else(|| AosError::Config(
+                "KV backend not initialized. Cannot rollback.".to_string()
+            ))?;
+
+        warn!("Starting KV data rollback - this will delete ALL adapter data from KV storage");
+
+        // Scan all adapter keys (adapters are stored with prefix "adapter:")
+        let adapter_keys = kv_backend.scan_prefix("adapter:").await
+            .map_err(|e| AosError::Database(format!("Failed to scan adapter keys: {}", e)))?;
+
+        let total_keys = adapter_keys.len();
+        info!("Found {} adapter keys to delete", total_keys);
+
+        if total_keys == 0 {
+            info!("No adapter data in KV storage, rollback not needed");
+            return Ok(());
+        }
+
+        let mut deleted = 0;
+        let mut errors = 0;
+
+        // Delete each adapter key
+        for key in &adapter_keys {
+            match kv_backend.delete(key).await {
+                Ok(true) => {
+                    deleted += 1;
+                    debug!("Deleted KV key: {}", key);
+                }
+                Ok(false) => {
+                    warn!("Key not found during delete: {}", key);
+                }
+                Err(e) => {
+                    errors += 1;
+                    error!("Failed to delete key {}: {}", key, e);
+                }
+            }
+        }
+
+        info!(
+            "KV rollback complete: {} deleted, {} errors out of {} total keys",
+            deleted, errors, total_keys
+        );
+
+        if errors > 0 {
+            warn!("Rollback completed with {} errors - some keys may remain", errors);
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -510,6 +811,49 @@ mod tests {
         assert_eq!(stats.migrated, 0);
         assert_eq!(stats.failed, 0);
         assert_eq!(stats.skipped, 0);
+        assert_eq!(stats.failed_ids.len(), 0);
+    }
+
+    #[test]
+    fn test_migration_stats_success_rate() {
+        let stats = MigrationStats {
+            total: 100,
+            migrated: 95,
+            failed: 5,
+            skipped: 0,
+            failed_ids: vec!["a".to_string(), "b".to_string()],
+        };
+
+        assert_eq!(stats.success_rate(), 95.0);
+        assert!(!stats.is_success());
+    }
+
+    #[test]
+    fn test_migration_stats_is_success() {
+        let stats = MigrationStats {
+            total: 100,
+            migrated: 100,
+            failed: 0,
+            skipped: 0,
+            failed_ids: vec![],
+        };
+
+        assert!(stats.is_success());
+        assert_eq!(stats.success_rate(), 100.0);
+    }
+
+    #[test]
+    fn test_migration_progress_percentage() {
+        let progress = MigrationProgress {
+            current_adapter_id: "test".to_string(),
+            processed: 50,
+            total: 200,
+            batch: 1,
+            success: true,
+            error: None,
+        };
+
+        assert_eq!(progress.percentage(), 25.0);
     }
 
     #[test]
