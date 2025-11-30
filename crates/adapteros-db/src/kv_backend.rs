@@ -5,8 +5,10 @@
 
 use adapteros_core::{AosError, Result};
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 // Re-export KV types from adapteros-storage
 pub use adapteros_storage::kv::KvBackend;
@@ -24,6 +26,8 @@ pub struct KvDb {
     backend: Arc<dyn KvBackend>,
     /// Index manager for secondary indexes
     index_manager: Arc<IndexManager>,
+    /// Shared locks for adapter activation increments (adapter_id -> lock)
+    increment_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl KvDb {
@@ -32,6 +36,7 @@ impl KvDb {
         Self {
             backend,
             index_manager,
+            increment_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -50,6 +55,7 @@ impl KvDb {
         Ok(Self {
             backend,
             index_manager,
+            increment_locks: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -65,6 +71,7 @@ impl KvDb {
         Ok(Self {
             backend,
             index_manager,
+            increment_locks: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -76,6 +83,11 @@ impl KvDb {
     /// Get the index manager
     pub fn index_manager(&self) -> &Arc<IndexManager> {
         &self.index_manager
+    }
+
+    /// Get the shared increment locks
+    pub fn increment_locks(&self) -> &Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>> {
+        &self.increment_locks
     }
 
     /// Get a value by key

@@ -58,6 +58,7 @@ pub mod replay;
 pub mod routing_decisions;
 pub mod services;
 pub mod settings;
+pub mod storage;
 pub mod streaming;
 pub mod streaming_infer;
 pub mod system_info;

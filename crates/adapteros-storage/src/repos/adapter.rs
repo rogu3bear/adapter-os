@@ -69,13 +69,28 @@ impl AdapterRepository {
         Ok(id)
     }
 
-    /// Get an adapter by ID
+    /// Get an adapter by external adapter_id
+    ///
+    /// Uses the adapter_id index to find the internal UUID, then fetches the adapter.
     pub async fn get(
         &self,
         tenant_id: &str,
         adapter_id: &str,
     ) -> Result<Option<AdapterKv>, StorageError> {
-        let key = format!("adapter:{}", adapter_id);
+        // Look up internal ID via adapter_id index
+        let ids = self
+            .index_manager
+            .query_index(adapter_indexes::BY_ADAPTER_ID, adapter_id)
+            .await?;
+
+        // adapter_id should be unique, so take the first match
+        let internal_id = match ids.first() {
+            Some(id) => id,
+            None => return Ok(None),
+        };
+
+        // Fetch by internal UUID
+        let key = format!("adapter:{}", internal_id);
 
         let bytes = match self.backend.get(&key).await? {
             Some(b) => b,
@@ -284,12 +299,20 @@ impl AdapterRepository {
         let mut visited = HashSet::new();
         let mut queue = VecDeque::new();
 
-        queue.push_back(adapter_id.to_string());
-        visited.insert(adapter_id.to_string());
+        // First, resolve the external adapter_id to internal UUID
+        // The BY_PARENT index stores parent_id as internal UUID, not external adapter_id
+        let start_adapter = match self.get(tenant_id, adapter_id).await? {
+            Some(a) => a,
+            None => return Ok(descendants), // Adapter not found
+        };
+        let start_internal_id = start_adapter.id.clone();
+
+        queue.push_back(start_internal_id.clone());
+        visited.insert(start_internal_id);
 
         // Breadth-first search for all descendants
         while let Some(current_id) = queue.pop_front() {
-            // Find all adapters that have current_id as their parent
+            // Find all adapters that have current_id as their parent (using internal UUID)
             let children_ids = self
                 .index_manager
                 .query_index(adapter_indexes::BY_PARENT, &current_id)
@@ -308,10 +331,22 @@ impl AdapterRepository {
 
                 visited.insert(child_id.clone());
 
-                // Load child adapter
-                if let Some(child) = self.get(tenant_id, &child_id).await? {
-                    descendants.push(child);
-                    queue.push_back(child_id);
+                // Load child adapter by internal UUID directly
+                let key = format!("adapter:{}", child_id);
+                if let Some(bytes) = self.backend.get(&key).await? {
+                    match bincode::deserialize::<AdapterKv>(&bytes) {
+                        Ok(child) => {
+                            // Verify tenant ownership
+                            if child.tenant_id == tenant_id {
+                                let child_internal_id = child.id.clone();
+                                descendants.push(child);
+                                queue.push_back(child_internal_id);
+                            }
+                        }
+                        Err(e) => {
+                            error!(child_id = %child_id, error = %e, "Failed to deserialize child adapter");
+                        }
+                    }
                 }
 
                 // Safety limit
@@ -458,6 +493,15 @@ impl AdapterRepository {
                 .await?;
         }
 
+        // Adapter ID index (external adapter_id -> internal id mapping)
+        if old_adapter.is_none() {
+            if let Some(adapter_id) = &adapter.adapter_id {
+                self.index_manager
+                    .add_to_index(adapter_indexes::BY_ADAPTER_ID, adapter_id, id)
+                    .await?;
+            }
+        }
+
         // Lifecycle state index
         let old_lifecycle = old_adapter.map(|a| a.lifecycle_state.as_str());
         self.index_manager
@@ -523,6 +567,13 @@ impl AdapterRepository {
         self.index_manager
             .remove_from_index(adapter_indexes::BY_HASH, &adapter.hash_b3, id)
             .await?;
+
+        // Remove adapter_id index
+        if let Some(adapter_id) = &adapter.adapter_id {
+            self.index_manager
+                .remove_from_index(adapter_indexes::BY_ADAPTER_ID, adapter_id, id)
+                .await?;
+        }
 
         self.index_manager
             .remove_from_index(adapter_indexes::BY_LIFECYCLE_STATE, &adapter.lifecycle_state, id)

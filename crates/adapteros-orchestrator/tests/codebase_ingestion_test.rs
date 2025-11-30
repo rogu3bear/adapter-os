@@ -15,7 +15,7 @@ use tempfile::TempDir;
 #[ignore = "Requires tokenizer and model files not available in CI"]
 async fn test_codebase_ingestion_end_to_end() {
     // Skip if tokenizer is not available
-    let tokenizer_path = PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json");
+    let tokenizer_path = PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json");
     if !tokenizer_path.exists() {
         eprintln!("Skipping test: tokenizer not found at {:?}", tokenizer_path);
         return;
@@ -131,7 +131,7 @@ It contains basic math utilities.
 #[ignore = "Requires tokenizer and model files not available in CI"]
 async fn test_determinism() {
     // Skip if tokenizer is not available
-    let tokenizer_path = PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json");
+    let tokenizer_path = PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json");
     if !tokenizer_path.exists() {
         eprintln!("Skipping test: tokenizer not found at {:?}", tokenizer_path);
         return;
@@ -219,7 +219,7 @@ pub fn square(n: i32) -> i32 {{
 #[tokio::test]
 #[ignore = "Requires tokenizer and model files not available in CI"]
 async fn test_no_documentation() {
-    let tokenizer_path = PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json");
+    let tokenizer_path = PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json");
     if !tokenizer_path.exists() {
         eprintln!("Skipping test: tokenizer not found");
         return;

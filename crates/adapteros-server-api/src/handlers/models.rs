@@ -709,7 +709,7 @@ pub async fn validate_model(
 /// POST /v1/models/import
 /// {
 ///   "model_name": "qwen-7b",
-///   "model_path": "/models/qwen2.5-7b-mlx",
+///   "model_path": "/var/model-cache/models/qwen2.5-7b-instruct-bf16",
 ///   "format": "mlx",
 ///   "backend": "mlx-ffi",
 ///   "capabilities": ["chat", "completion"]

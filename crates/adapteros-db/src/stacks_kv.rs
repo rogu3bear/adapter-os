@@ -91,13 +91,13 @@ impl StackKvRepository {
     /// Serialize a stack to bytes
     fn serialize(stack: &AdapterStackKv) -> Result<Vec<u8>> {
         serde_json::to_vec(stack)
-            .map_err(|e| AosError::Serialization(e).into())
+            .map_err(AosError::Serialization)
     }
 
     /// Deserialize a stack from bytes
     fn deserialize(bytes: &[u8]) -> Result<AdapterStackKv> {
         serde_json::from_slice(bytes)
-            .map_err(|e| AosError::Database(format!("Failed to deserialize stack: {}", e)).into())
+            .map_err(|e| AosError::Database(format!("Failed to deserialize stack: {}", e)))
     }
 
     /// Update secondary indexes for a stack
@@ -225,7 +225,7 @@ impl StackKvRepository {
         let bytes = match self.backend.get(&key).await
             .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))? {
             Some(b) => b,
-            None => return Err(AosError::NotFound(format!("Stack not found: {}", stack_id)).into()),
+            None => return Err(AosError::NotFound(format!("Stack not found: {}", stack_id))),
         };
 
         let mut stack = Self::deserialize(&bytes)?;
@@ -271,7 +271,7 @@ impl StackKvRepository {
         let bytes = match self.backend.get(&key).await
             .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))? {
             Some(b) => b,
-            None => return Err(AosError::NotFound(format!("Stack not found: {}", stack_id)).into()),
+            None => return Err(AosError::NotFound(format!("Stack not found: {}", stack_id))),
         };
 
         let mut stack = Self::deserialize(&bytes)?;

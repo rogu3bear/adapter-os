@@ -11,6 +11,30 @@
 - **Circuit breaker trips**: raise `circuit_breaker_timeout_secs` gradually; check GPU/ANE telemetry.
 - **OOM / memory pressure**: lower `max_memory_mb` or use quantized model; ensure swap not used heavily.
 - **Latency regression**: compare against Metal baseline; enable HKDF-seeded determinism in configs.
+- **Metal device not found** (`NSRangeException` crash): see [MLX_METAL_DEVICE_ACCESS.md](./MLX_METAL_DEVICE_ACCESS.md) for environmental fixes.
+
+## Metal Device Access Issues
+
+**Symptom:** Tests crash with `NSRangeException` or `MTLCreateSystemDefaultDevice()` returns nil
+
+**Diagnosis:**
+```bash
+# Quick test
+swift -e 'import Metal; print(MTLCreateSystemDefaultDevice() != nil ? "✅ Metal OK" : "❌ No Metal")'
+
+# Full verification
+./scripts/verify_metal_access.sh
+```
+
+**Common Causes:**
+1. Running in SSH session (Metal requires GUI session)
+2. Running in tmux/screen (may not inherit entitlements)
+3. Running in restricted IDE terminal (check permissions)
+4. Running in Docker/VM (no Metal passthrough)
+
+**Fix:** Run tests from native Terminal.app or properly-configured IDE terminal
+
+**Complete guide:** [MLX_METAL_DEVICE_ACCESS.md](./MLX_METAL_DEVICE_ACCESS.md)
 
 ## Validation Commands
 - Backend list: `curl -s /v1/backends | jq`

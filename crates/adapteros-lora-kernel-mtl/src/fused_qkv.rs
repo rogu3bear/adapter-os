@@ -53,7 +53,7 @@ impl Default for GqaConfig {
 }
 
 impl GqaConfig {
-    /// Create GqaConfig from raw model parameters
+    /// Create GqaConfig from raw model parameters with validation
     ///
     /// Use this when loading model configuration from config.json.
     /// This ensures GQA parameters match the actual model architecture
@@ -65,6 +65,82 @@ impl GqaConfig {
     /// * `hidden_size` - Hidden dimension (e.g., 3584 for Qwen2.5-7B)
     /// * `rope_theta` - RoPE base frequency (e.g., 1_000_000.0 for Qwen2.5)
     ///
+    /// # Errors
+    /// Returns `AosError::Validation` if:
+    /// - `num_attention_heads` is 0
+    /// - `num_key_value_heads` is 0
+    /// - `hidden_size` is 0
+    /// - `hidden_size` is not divisible by `num_attention_heads`
+    /// - `num_attention_heads` is not divisible by `num_key_value_heads` (GQA requirement)
+    /// - `rope_theta` is not positive and finite
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let gqa_config = GqaConfig::try_from_params(28, 4, 3584, 1_000_000.0)?;
+    /// ```
+    pub fn try_from_params(
+        num_attention_heads: usize,
+        num_key_value_heads: usize,
+        hidden_size: usize,
+        rope_theta: f32,
+    ) -> Result<Self> {
+        // Validate non-zero values
+        if num_attention_heads == 0 {
+            return Err(AosError::Validation(
+                "num_attention_heads must be > 0".to_string(),
+            ));
+        }
+        if num_key_value_heads == 0 {
+            return Err(AosError::Validation(
+                "num_key_value_heads must be > 0".to_string(),
+            ));
+        }
+        if hidden_size == 0 {
+            return Err(AosError::Validation(
+                "hidden_size must be > 0".to_string(),
+            ));
+        }
+
+        // Validate divisibility
+        if hidden_size % num_attention_heads != 0 {
+            return Err(AosError::Validation(
+                "hidden_size must be divisible by num_attention_heads".to_string(),
+            ));
+        }
+        if num_attention_heads % num_key_value_heads != 0 {
+            return Err(AosError::Validation(
+                "num_attention_heads must be divisible by num_key_value_heads (GQA)".to_string(),
+            ));
+        }
+
+        // Validate rope_theta
+        if !rope_theta.is_finite() || rope_theta <= 0.0 {
+            return Err(AosError::Validation(
+                "rope_theta must be positive and finite".to_string(),
+            ));
+        }
+
+        let head_dim = (hidden_size / num_attention_heads) as u32;
+        Ok(Self {
+            num_attention_heads: num_attention_heads as u32,
+            num_key_value_heads: num_key_value_heads as u32,
+            head_dim,
+            kv_width: num_key_value_heads as u32 * head_dim,
+            hidden_size: hidden_size as u32,
+            rope_theta,
+            attention_scale: 0.0,
+            dropout_rate: 0.0,
+        })
+    }
+
+    /// Create GqaConfig from raw model parameters (panics on invalid input)
+    ///
+    /// For a non-panicking version, use [`try_from_params`](Self::try_from_params).
+    ///
+    /// # Panics
+    /// Panics if any validation fails. See [`try_from_params`](Self::try_from_params)
+    /// for the list of validations performed.
+    ///
     /// # Example
     /// ```rust,ignore
     /// let gqa_config = GqaConfig::from_params(28, 4, 3584, 1_000_000.0);
@@ -75,17 +151,8 @@ impl GqaConfig {
         hidden_size: usize,
         rope_theta: f32,
     ) -> Self {
-        let head_dim = (hidden_size / num_attention_heads) as u32;
-        Self {
-            num_attention_heads: num_attention_heads as u32,
-            num_key_value_heads: num_key_value_heads as u32,
-            head_dim,
-            kv_width: num_key_value_heads as u32 * head_dim,
-            hidden_size: hidden_size as u32,
-            rope_theta,
-            attention_scale: 0.0,
-            dropout_rate: 0.0,
-        }
+        Self::try_from_params(num_attention_heads, num_key_value_heads, hidden_size, rope_theta)
+            .expect("GqaConfig::from_params called with invalid parameters")
     }
 }
 
@@ -453,5 +520,96 @@ mod tests {
         let kernel = FlashAttentionKernel::new(Arc::new(device), gqa_config)
             .expect("FlashAttentionKernel creation should succeed");
         assert!(!kernel.device_name().is_empty());
+    }
+
+    // =========================================================================
+    // GqaConfig::from_params validation tests
+    // =========================================================================
+
+    #[test]
+    fn test_gqa_config_from_params_valid() {
+        // Qwen2.5-7B parameters
+        let config = GqaConfig::try_from_params(28, 4, 3584, 1_000_000.0);
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.num_attention_heads, 28);
+        assert_eq!(config.num_key_value_heads, 4);
+        assert_eq!(config.head_dim, 128); // 3584 / 28 = 128
+        assert_eq!(config.hidden_size, 3584);
+        assert_eq!(config.rope_theta, 1_000_000.0);
+    }
+
+    #[test]
+    fn test_gqa_config_from_params_llama() {
+        // Llama-like parameters (no GQA, all heads equal)
+        let config = GqaConfig::try_from_params(32, 32, 4096, 10_000.0);
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.num_attention_heads, 32);
+        assert_eq!(config.num_key_value_heads, 32);
+        assert_eq!(config.head_dim, 128); // 4096 / 32 = 128
+    }
+
+    #[test]
+    fn test_gqa_config_zero_heads() {
+        let result = GqaConfig::try_from_params(0, 4, 3584, 1_000_000.0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("num_attention_heads must be > 0"));
+    }
+
+    #[test]
+    fn test_gqa_config_zero_kv_heads() {
+        let result = GqaConfig::try_from_params(28, 0, 3584, 1_000_000.0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("num_key_value_heads must be > 0"));
+    }
+
+    #[test]
+    fn test_gqa_config_zero_hidden() {
+        let result = GqaConfig::try_from_params(28, 4, 0, 1_000_000.0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("hidden_size must be > 0"));
+    }
+
+    #[test]
+    fn test_gqa_config_hidden_not_divisible() {
+        // 3583 is not divisible by 28
+        let result = GqaConfig::try_from_params(28, 4, 3583, 1_000_000.0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("hidden_size must be divisible"));
+    }
+
+    #[test]
+    fn test_gqa_config_heads_not_divisible_by_kv() {
+        // 28 is not divisible by 5
+        let result = GqaConfig::try_from_params(28, 5, 3584, 1_000_000.0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("num_attention_heads must be divisible by num_key_value_heads"));
+    }
+
+    #[test]
+    fn test_gqa_config_invalid_rope_theta() {
+        // Zero theta
+        let result = GqaConfig::try_from_params(28, 4, 3584, 0.0);
+        assert!(result.is_err());
+
+        // Negative theta
+        let result = GqaConfig::try_from_params(28, 4, 3584, -1.0);
+        assert!(result.is_err());
+
+        // NaN theta
+        let result = GqaConfig::try_from_params(28, 4, 3584, f32::NAN);
+        assert!(result.is_err());
+
+        // Infinity theta
+        let result = GqaConfig::try_from_params(28, 4, 3584, f32::INFINITY);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "GqaConfig::from_params called with invalid parameters")]
+    fn test_gqa_config_from_params_panics_on_invalid() {
+        // This should panic due to invalid parameters
+        let _ = GqaConfig::from_params(0, 4, 3584, 1_000_000.0);
     }
 }

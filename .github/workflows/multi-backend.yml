@@ -85,6 +85,11 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-metal-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Verify Metal device access
+        run: |
+          chmod +x scripts/verify_metal_access.sh
+          scripts/verify_metal_access.sh || (echo "Metal verification failed - skipping GPU tests" && exit 0)
+
       - name: Check Xcode version
         run: |
           xcodebuild -version
@@ -129,6 +134,11 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-coreml-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Verify Metal device access
+        run: |
+          chmod +x scripts/verify_metal_access.sh
+          scripts/verify_metal_access.sh || (echo "Metal verification failed - skipping GPU tests" && exit 0)
+
       - name: Check CoreML availability
         run: |
           system_profiler SPSoftwareDataType
@@ -167,6 +177,11 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-all-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Verify Metal device access
+        run: |
+          chmod +x scripts/verify_metal_access.sh
+          scripts/verify_metal_access.sh || (echo "Metal verification failed - skipping GPU tests" && exit 0)
 
       - name: Build all backends
         run: |

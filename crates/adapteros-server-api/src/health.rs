@@ -262,6 +262,7 @@ pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResp
 /// Verifies:
 /// - Latest migration applied
 /// - Connection pool healthy
+/// - KV backend health (if attached)
 pub async fn check_db_health(State(state): State<AppState>) -> impl IntoResponse {
     // Test database connectivity
     match state.db.pool().acquire().await {
@@ -277,12 +278,61 @@ pub async fn check_db_health(State(state): State<AppState>) -> impl IntoResponse
                             .fetch_one(&mut *conn)
                             .await;
 
+                    // Check KV backend health
+                    let kv_health = state.db.kv_health_check().await.ok();
+
+                    // Build details with KV health info
+                    let mut details = serde_json::json!({
+                        "sql_connected": true,
+                    });
+
+                    if let Ok(count) = migration_count {
+                        details["migrations_applied"] = serde_json::json!(count);
+                    }
+
+                    if let Some(ref kv) = kv_health {
+                        details["kv_attached"] = serde_json::json!(kv.attached);
+                        details["kv_status"] = serde_json::json!(kv.status.to_string());
+                        details["storage_mode"] = serde_json::json!(kv.storage_mode);
+                        if let Some(read_latency) = kv.read_latency_ms {
+                            details["kv_read_latency_ms"] = serde_json::json!(read_latency);
+                        }
+                        if let Some(write_latency) = kv.write_latency_ms {
+                            details["kv_write_latency_ms"] = serde_json::json!(write_latency);
+                        }
+                    }
+
+                    // Determine overall status based on SQL and KV health
+                    let overall_status = if let Some(ref kv) = kv_health {
+                        if kv.attached {
+                            match kv.status {
+                                adapteros_db::HealthStatus::Unhealthy => ComponentStatus::Degraded,
+                                adapteros_db::HealthStatus::Degraded => ComponentStatus::Degraded,
+                                _ => ComponentStatus::Healthy,
+                            }
+                        } else {
+                            ComponentStatus::Healthy
+                        }
+                    } else {
+                        ComponentStatus::Healthy
+                    };
+
                     match migration_count {
-                        Ok(count) => ComponentHealth::new(
-                            "db",
-                            ComponentStatus::Healthy,
-                            format!("Database healthy, {} migrations applied", count),
-                        ),
+                        Ok(count) => {
+                            let message = if let Some(ref kv) = kv_health {
+                                if kv.attached {
+                                    format!("Database healthy, {} migrations applied, KV backend: {}",
+                                           count, kv.status)
+                                } else {
+                                    format!("Database healthy, {} migrations applied", count)
+                                }
+                            } else {
+                                format!("Database healthy, {} migrations applied", count)
+                            };
+
+                            ComponentHealth::new("db", overall_status, message)
+                                .with_details(details)
+                        },
                         Err(_) => {
                             // Migrations table might not exist yet
                             ComponentHealth::new(
@@ -290,6 +340,7 @@ pub async fn check_db_health(State(state): State<AppState>) -> impl IntoResponse
                                 ComponentStatus::Healthy,
                                 "Database connected",
                             )
+                            .with_details(details)
                         }
                     }
                 }
@@ -356,6 +407,67 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
             "total_requests": metrics_snapshot.total_requests,
             "avg_latency_ms": metrics_snapshot.avg_latency_ms
         }))
+    }
+}
+
+/// Check KV backend component health
+///
+/// Verifies:
+/// - KV backend attached and accessible
+/// - Read/write connectivity
+/// - Performance metrics (latency)
+pub async fn check_kv_health(State(state): State<AppState>) -> impl IntoResponse {
+    match state.db.kv_health_check().await {
+        Ok(kv_health) => {
+            let status = match kv_health.status {
+                adapteros_db::HealthStatus::Healthy => ComponentStatus::Healthy,
+                adapteros_db::HealthStatus::Degraded => ComponentStatus::Degraded,
+                adapteros_db::HealthStatus::Unhealthy => ComponentStatus::Unhealthy,
+                adapteros_db::HealthStatus::Unknown => ComponentStatus::Degraded,
+            };
+
+            let message = if !kv_health.attached {
+                "KV backend not attached".to_string()
+            } else if kv_health.connectivity_ok {
+                let latency_info = match (kv_health.read_latency_ms, kv_health.write_latency_ms) {
+                    (Some(read), Some(write)) => {
+                        format!(" (read: {:.1}ms, write: {:.1}ms)", read, write)
+                    }
+                    (Some(read), None) => format!(" (read: {:.1}ms)", read),
+                    (None, Some(write)) => format!(" (write: {:.1}ms)", write),
+                    (None, None) => String::new(),
+                };
+                format!("KV backend operational{}", latency_info)
+            } else {
+                kv_health.error.clone().unwrap_or_else(|| "KV backend connectivity check failed".to_string())
+            };
+
+            let mut details = serde_json::json!({
+                "attached": kv_health.attached,
+                "storage_mode": kv_health.storage_mode,
+                "connectivity_ok": kv_health.connectivity_ok,
+            });
+
+            if let Some(read_latency) = kv_health.read_latency_ms {
+                details["read_latency_ms"] = serde_json::json!(read_latency);
+            }
+            if let Some(write_latency) = kv_health.write_latency_ms {
+                details["write_latency_ms"] = serde_json::json!(write_latency);
+            }
+            if let Some(key_count) = kv_health.key_count {
+                details["key_count"] = serde_json::json!(key_count);
+            }
+            if let Some(ref error) = kv_health.error {
+                details["error"] = serde_json::json!(error);
+            }
+
+            ComponentHealth::new("kv", status, message).with_details(details)
+        }
+        Err(e) => ComponentHealth::new(
+            "kv",
+            ComponentStatus::Unhealthy,
+            format!("KV health check failed: {}", e),
+        ),
     }
 }
 
@@ -485,6 +597,7 @@ pub async fn check_all_health(State(state): State<AppState>) -> impl IntoRespons
     )
     .await;
     let db = extract_health(check_db_health(State(state.clone())).await.into_response()).await;
+    let kv = extract_health(check_kv_health(State(state.clone())).await.into_response()).await;
     let telemetry = extract_health(
         check_telemetry_health(State(state.clone()))
             .await
@@ -498,7 +611,7 @@ pub async fn check_all_health(State(state): State<AppState>) -> impl IntoRespons
     )
     .await;
 
-    health_checks.extend(vec![router, loader, kernel, db, telemetry, system_metrics]);
+    health_checks.extend(vec![router, loader, kernel, db, kv, telemetry, system_metrics]);
 
     // Determine overall status (worst status wins)
     let overall_status = health_checks
@@ -554,7 +667,7 @@ async fn extract_health(response: Response) -> ComponentHealth {
     get,
     path = "/healthz/{component}",
     params(
-        ("component" = String, Path, description = "Component name (router, loader, kernel, db, telemetry, system-metrics)")
+        ("component" = String, Path, description = "Component name (router, loader, kernel, db, kv, telemetry, system-metrics)")
     ),
     responses(
         (status = 200, description = "Component health status", body = ComponentHealth),
@@ -571,13 +684,14 @@ pub async fn check_component_health(
         "loader" => check_loader_health(State(state)).await.into_response(),
         "kernel" => check_kernel_health(State(state)).await.into_response(),
         "db" => check_db_health(State(state)).await.into_response(),
+        "kv" => check_kv_health(State(state)).await.into_response(),
         "telemetry" => check_telemetry_health(State(state)).await.into_response(),
         "system-metrics" => check_system_metrics_health(State(state)).await.into_response(),
         _ => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({
                 "error": format!("Unknown component: {}", component),
-                "valid_components": ["router", "loader", "kernel", "db", "telemetry", "system-metrics"]
+                "valid_components": ["router", "loader", "kernel", "db", "kv", "telemetry", "system-metrics"]
             }))
         ).into_response(),
     }

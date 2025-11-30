@@ -13,7 +13,8 @@ use tempfile::TempDir;
 async fn test_aos_complete_workflow() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let manifest_path = "training/datasets/base/code/adapteros/manifest.json";
-    let tokenizer_path = "models/qwen2.5-7b-mlx/tokenizer.json";
+    let tokenizer_path = std::env::var("AOS_TOKENIZER_PATH")
+        .unwrap_or_else(|_| "var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json".to_string());
     let output_dir = temp_dir.path().join("adapters");
     
     // 1. Train and package as .aos

@@ -505,7 +505,9 @@ fn scalar_softmax_inplace_impl(data: &mut [f32]) {
 /// Formula: exp(x) = 2^(x * log2(e)) = 2^n * 2^f where n = floor(x*log2(e)), f = frac
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-fn simd_exp_approx_neon_safe(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
+fn simd_exp_approx_neon_safe(
+    x: std::arch::aarch64::float32x4_t,
+) -> std::arch::aarch64::float32x4_t {
     use std::arch::aarch64::*;
 
     // Constants
@@ -721,15 +723,60 @@ mod tests {
 
     #[test]
     fn test_rope_application() {
-        let rope_freq = RoPEFrequencies::new(4, 10000.0);
+        // RoPE dimension must match tensor's last dimension
+        let rope_freq = RoPEFrequencies::new(2, 10000.0);
         let tensor = MLXFFITensor::from_data(&[1.0, 0.0, 0.0, 1.0], vec![2, 2]).unwrap();
 
         let result = mlx_rope(&tensor, 0, &rope_freq, "cpu").unwrap();
         let data = result.to_float_vec().unwrap();
 
-        // At position 0, rotation should be identity
+        // At position 0, theta = 0 * inv_freq = 0, so cos(0)=1, sin(0)=0
+        // Rotation is identity: [x0, x1] -> [x0*1 - x1*0, x0*0 + x1*1] = [x0, x1]
         assert!((data[0] - 1.0).abs() < 1e-5);
         assert!((data[1] - 0.0).abs() < 1e-5);
+        assert!((data[2] - 0.0).abs() < 1e-5);
+        assert!((data[3] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_rope_nonzero_position() {
+        // Test RoPE at position 1 to verify actual rotation occurs
+        // For dim=2, theta=10000.0: inv_freq[0] = 1.0 / 10000^(0/2) = 1.0
+        // At position 1: theta = 1.0 radian
+        // cos(1.0) ≈ 0.5403, sin(1.0) ≈ 0.8415
+        let rope_freq = RoPEFrequencies::new(2, 10000.0);
+        let tensor = MLXFFITensor::from_data(&[1.0, 0.0, 0.0, 1.0], vec![2, 2]).unwrap();
+
+        let result = mlx_rope(&tensor, 1, &rope_freq, "cpu").unwrap();
+        let data = result.to_float_vec().unwrap();
+
+        let cos_1 = 1.0_f32.cos();
+        let sin_1 = 1.0_f32.sin();
+
+        // First pair [1.0, 0.0] -> [1*cos - 0*sin, 1*sin + 0*cos] = [cos, sin]
+        assert!((data[0] - cos_1).abs() < 1e-5, "data[0]={} expected {}", data[0], cos_1);
+        assert!((data[1] - sin_1).abs() < 1e-5, "data[1]={} expected {}", data[1], sin_1);
+
+        // Second pair [0.0, 1.0] -> [0*cos - 1*sin, 0*sin + 1*cos] = [-sin, cos]
+        assert!((data[2] - (-sin_1)).abs() < 1e-5, "data[2]={} expected {}", data[2], -sin_1);
+        assert!((data[3] - cos_1).abs() < 1e-5, "data[3]={} expected {}", data[3], cos_1);
+    }
+
+    #[test]
+    fn test_rope_higher_position() {
+        // Test at position 5 to verify rotation accumulates correctly
+        let rope_freq = RoPEFrequencies::new(2, 10000.0);
+        let tensor = MLXFFITensor::from_data(&[1.0, 0.0], vec![2]).unwrap();
+
+        let result = mlx_rope(&tensor, 5, &rope_freq, "cpu").unwrap();
+        let data = result.to_float_vec().unwrap();
+
+        // theta = 5 * 1.0 = 5.0 radians
+        let cos_5 = 5.0_f32.cos();
+        let sin_5 = 5.0_f32.sin();
+
+        assert!((data[0] - cos_5).abs() < 1e-5, "data[0]={} expected {}", data[0], cos_5);
+        assert!((data[1] - sin_5).abs() < 1e-5, "data[1]={} expected {}", data[1], sin_5);
     }
 
     #[test]
@@ -804,8 +851,8 @@ mod tests {
     fn test_fast_exp_accuracy() {
         // Test across the valid range for softmax (typically -87 to ~10 after max subtraction)
         let test_values = [
-            0.0, 0.5, 1.0, -0.5, -1.0, -5.0, -10.0, -20.0, -50.0, -80.0, -87.0,
-            2.0, 3.0, 5.0, 10.0, // Some positive values
+            0.0, 0.5, 1.0, -0.5, -1.0, -5.0, -10.0, -20.0, -50.0, -80.0, -87.0, 2.0, 3.0, 5.0,
+            10.0, // Some positive values
         ];
 
         for &x in &test_values {
@@ -859,7 +906,10 @@ mod tests {
         let logits1 = MLXFFITensor::from_data(&[5.0], vec![1]).unwrap();
         let result1 = apply_softmax(&logits1).unwrap();
         let data1 = result1.to_float_vec().unwrap();
-        assert!((data1[0] - 1.0).abs() < 1e-6, "Single element softmax should be 1.0");
+        assert!(
+            (data1[0] - 1.0).abs() < 1e-6,
+            "Single element softmax should be 1.0"
+        );
 
         // len = 2
         let logits2 = MLXFFITensor::from_data(&[1.0, 2.0], vec![2]).unwrap();
@@ -896,7 +946,8 @@ mod tests {
         );
 
         // Not a multiple of 4 (tests remainder handling)
-        let logits7 = MLXFFITensor::from_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], vec![7]).unwrap();
+        let logits7 =
+            MLXFFITensor::from_data(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], vec![7]).unwrap();
         let result7 = apply_softmax(&logits7).unwrap();
         let data7 = result7.to_float_vec().unwrap();
         let sum7: f32 = data7.iter().sum();
@@ -1004,11 +1055,9 @@ mod tests {
     #[test]
     fn test_softmax_no_nan() {
         // Mixed inf and regular values
-        let logits = MLXFFITensor::from_data(
-            &[f32::NEG_INFINITY, 0.0, 1.0, f32::NEG_INFINITY],
-            vec![4],
-        )
-        .unwrap();
+        let logits =
+            MLXFFITensor::from_data(&[f32::NEG_INFINITY, 0.0, 1.0, f32::NEG_INFINITY], vec![4])
+                .unwrap();
         let result = apply_softmax(&logits).unwrap();
         let data = result.to_float_vec().unwrap();
 
@@ -1030,9 +1079,7 @@ mod tests {
     #[test]
     fn test_softmax_large_array() {
         let size = 1024;
-        let input: Vec<f32> = (0..size)
-            .map(|i| ((i % 100) as f32 - 50.0) * 0.1)
-            .collect();
+        let input: Vec<f32> = (0..size).map(|i| ((i % 100) as f32 - 50.0) * 0.1).collect();
 
         let logits = MLXFFITensor::from_data(&input, vec![size]).unwrap();
         let result = apply_softmax(&logits).unwrap();

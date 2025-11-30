@@ -261,7 +261,7 @@ async fn attempt_fixes(
                     .map(PathBuf::from)
                     .or_else(|| std::env::var("AOS_MODEL_PATH").ok().map(PathBuf::from))
                     .or_else(|| std::env::var("AOS_MLX_FFI_MODEL").ok().map(PathBuf::from))
-                    .unwrap_or_else(|| PathBuf::from("./models/qwen2.5-7b-mlx"));
+                    .unwrap_or_else(|| PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"));
 
                 Some(download_model(model_path))
             }
@@ -315,7 +315,7 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
         .map(PathBuf::from)
         .or_else(|| std::env::var("AOS_MODEL_PATH").ok().map(PathBuf::from))
         .or_else(|| std::env::var("AOS_MLX_FFI_MODEL").ok().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("./models/qwen2.5-7b-mlx"));
+        .unwrap_or_else(|| PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"));
 
     // Check if model directory exists
     if !model_path.exists() {
@@ -489,8 +489,8 @@ async fn check_environment_variables() -> Vec<CheckResult> {
     } else {
         results.push(CheckResult::warning(
             "Env: MODEL_PATH",
-            "No model path set (will use default: ./models/qwen2.5-7b-mlx)",
-            Some("export AOS_MODEL_PATH=./models/qwen2.5-7b-mlx".to_string()),
+            "No model path set (will use default: ./var/model-cache/models/qwen2.5-7b-instruct-bf16)",
+            Some("export AOS_MODEL_PATH=./var/model-cache/models/qwen2.5-7b-instruct-bf16".to_string()),
         ));
     }
 

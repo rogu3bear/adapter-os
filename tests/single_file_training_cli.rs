@@ -21,8 +21,15 @@ use tempfile::TempDir;
 /// Check if tokenizer file exists
 /// Returns true if tokenizer file exists, false otherwise
 fn check_tokenizer_available() -> bool {
-    let tokenizer_path = PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json");
-    tokenizer_path.exists()
+    // Check AOS_TOKENIZER_PATH first, then fall back to model path discovery
+    if let Ok(path) = std::env::var("AOS_TOKENIZER_PATH") {
+        return PathBuf::from(path).exists();
+    }
+    if let Ok(model_path) = std::env::var("AOS_MODEL_PATH") {
+        return PathBuf::from(model_path).join("tokenizer.json").exists();
+    }
+    // Default path
+    PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json").exists()
 }
 
 /// Helper function to run the aos train command
@@ -326,7 +333,7 @@ async fn test_train_single_txt_file() -> Result<(), Box<dyn std::error::Error>> 
     // Skip test if tokenizer file is not available
     if !check_tokenizer_available() {
         eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at models/qwen2.5-7b-mlx/tokenizer.json"
+            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
         );
         return Ok(());
     }
@@ -411,7 +418,7 @@ async fn test_train_single_md_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
     if !check_tokenizer_available() {
         eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at models/qwen2.5-7b-mlx/tokenizer.json"
+            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
         );
         return Ok(());
     }
@@ -502,7 +509,7 @@ async fn test_train_single_rs_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
     if !check_tokenizer_available() {
         eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at models/qwen2.5-7b-mlx/tokenizer.json"
+            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
         );
         return Ok(());
     }
@@ -599,7 +606,7 @@ async fn test_train_single_py_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
     if !check_tokenizer_available() {
         eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at models/qwen2.5-7b-mlx/tokenizer.json"
+            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
         );
         return Ok(());
     }
@@ -692,7 +699,7 @@ async fn test_train_single_js_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
     if !check_tokenizer_available() {
         eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at models/qwen2.5-7b-mlx/tokenizer.json"
+            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
         );
         return Ok(());
     }
@@ -789,7 +796,7 @@ async fn test_train_single_ts_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
     if !check_tokenizer_available() {
         eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at models/qwen2.5-7b-mlx/tokenizer.json"
+            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
         );
         return Ok(());
     }
@@ -890,7 +897,7 @@ async fn test_train_single_json_file() -> Result<(), Box<dyn std::error::Error>>
     // Skip test if tokenizer file is not available
     if !check_tokenizer_available() {
         eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at models/qwen2.5-7b-mlx/tokenizer.json"
+            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
         );
         return Ok(());
     }
@@ -988,7 +995,7 @@ async fn test_train_empty_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
     if !check_tokenizer_available() {
         eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at models/qwen2.5-7b-mlx/tokenizer.json"
+            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
         );
         return Ok(());
     }
@@ -1082,7 +1089,7 @@ async fn test_packaging_workflow() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
     if !check_tokenizer_available() {
         eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at models/qwen2.5-7b-mlx/tokenizer.json"
+            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
         );
         return Ok(());
     }

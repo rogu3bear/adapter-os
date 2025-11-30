@@ -22,6 +22,7 @@ pub mod postgres_backend;
 pub mod sqlite_backend;
 pub mod traits;
 pub mod kv_backend;
+pub mod kv_metrics;
 
 // Re-export commonly used types
 pub use traits::{
@@ -31,6 +32,12 @@ pub use traits::{
 
 // Re-export KV backend types
 pub use kv_backend::{KvBackend, KvDb, StorageError as KvStorageError};
+
+// Re-export KV metrics types
+pub use kv_metrics::{
+    global_kv_metrics, KvErrorType, KvMetrics, KvMetricsSnapshot, KvOperationTimer,
+    KvOperationType,
+};
 
 // PostgreSQL backend for production (legacy - to be deprecated)
 #[cfg(feature = "postgres")]
@@ -385,6 +392,17 @@ impl StorageMode {
     pub fn is_dual_write(self) -> bool {
         matches!(self, StorageMode::DualWrite | StorageMode::KvPrimary)
     }
+
+    /// Returns true if SQL fallback is available for read operations
+    ///
+    /// In KvPrimary mode, if KV returns None or errors, we can fall back to SQL.
+    /// This is useful during migration when data may not yet be in KV.
+    pub fn sql_fallback_enabled(self) -> bool {
+        matches!(
+            self,
+            StorageMode::SqlOnly | StorageMode::DualWrite | StorageMode::KvPrimary
+        )
+    }
 }
 
 /// Database connection pool and query methods (SQLite)
@@ -396,6 +414,8 @@ pub struct Db {
     pool: SqlitePool,
     kv: Option<std::sync::Arc<KvDb>>,
     storage_mode: StorageMode,
+    /// Degradation state: if Some, contains the reason for degradation
+    degraded_reason: std::sync::Arc<std::sync::RwLock<Option<String>>>,
 }
 
 impl Db {
@@ -417,6 +437,7 @@ impl Db {
             pool,
             kv,
             storage_mode,
+            degraded_reason: std::sync::Arc::new(std::sync::RwLock::new(None)),
         }
     }
 
@@ -448,6 +469,7 @@ impl Db {
             pool,
             kv: None,
             storage_mode: StorageMode::SqlOnly,
+            degraded_reason: std::sync::Arc::new(std::sync::RwLock::new(None)),
         })
     }
 
@@ -468,6 +490,12 @@ impl Db {
     /// If `AOS_STORAGE_BACKEND` is set to a mode that requires KV backend (dual_write, kv_primary, kv_only),
     /// the KV backend will be automatically initialized at `AOS_KV_PATH`.
     ///
+    /// # Graceful Degradation
+    ///
+    /// If KV backend initialization fails, the system will automatically fall back to `SqlOnly` mode
+    /// and log a warning. This ensures the system remains operational even if KV backend is unavailable.
+    /// The degradation reason is tracked and can be queried via `is_degraded()` and `degradation_reason()`.
+    ///
     /// # Example
     ///
     /// ```bash
@@ -480,7 +508,10 @@ impl Db {
     /// # use adapteros_db::Db;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let db = Db::from_config().await?;
-    /// // Database is now configured with dual-write mode
+    /// // Database is now configured with dual-write mode (or SqlOnly if KV failed)
+    /// if db.is_degraded() {
+    ///     println!("Warning: Running in degraded mode: {}", db.degradation_reason().unwrap());
+    /// }
     /// # Ok(())
     /// # }
     /// ```
@@ -498,27 +529,49 @@ impl Db {
             .or_else(|_| std::env::var("AOS_STORAGE_MODE"))
             .unwrap_or_else(|_| "sql_only".to_string());
 
-        let storage_mode = StorageMode::from_str(&storage_mode_str)?;
+        let requested_mode = StorageMode::from_str(&storage_mode_str)?;
 
         info!(
             database_url = %database_url,
-            storage_mode = %storage_mode,
+            storage_mode = %requested_mode,
             "Initializing database from configuration"
         );
 
         // Create base database connection
         let mut db = Self::connect(&database_url).await?;
 
-        // Set storage mode
-        db.set_storage_mode(storage_mode);
-
         // Initialize KV backend if required by storage mode
-        if storage_mode.write_to_kv() || storage_mode.read_from_kv() {
+        if requested_mode.write_to_kv() || requested_mode.read_from_kv() {
             let kv_path = std::env::var("AOS_KV_PATH")
                 .unwrap_or_else(|_| "var/aos-kv.redb".to_string());
 
             info!(kv_path = %kv_path, "Initializing KV backend");
-            db.init_kv_backend(std::path::Path::new(&kv_path))?;
+
+            match db.init_kv_backend(std::path::Path::new(&kv_path)) {
+                Ok(()) => {
+                    // KV backend initialized successfully, set requested mode
+                    db.set_storage_mode(requested_mode);
+                    info!(
+                        mode = %requested_mode,
+                        "KV backend initialized successfully"
+                    );
+                }
+                Err(e) => {
+                    // KV backend failed - gracefully degrade to SqlOnly
+                    warn!(
+                        event = crate::constants::DEGRADATION_EVENT_INIT_FAILED,
+                        error = %e,
+                        requested_mode = %requested_mode,
+                        fallback_mode = "sql_only",
+                        "KV backend initialization failed - falling back to SqlOnly mode"
+                    );
+                    db.set_storage_mode(StorageMode::SqlOnly);
+                    db.mark_degraded(format!("KV backend init failed: {}", e));
+                }
+            }
+        } else {
+            // No KV backend needed for SqlOnly mode
+            db.set_storage_mode(requested_mode);
         }
 
         Ok(db)
@@ -1293,6 +1346,21 @@ impl Db {
             AosError::Database(format!("Failed to increment adapter activation: {}", e))
         })?;
 
+        // KV write (dual-write mode)
+        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+                if let Err(e) = repo.increment_adapter_activation_kv(adapter_id).await {
+                    warn!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write",
+                        "Failed to increment adapter activation in KV backend"
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1669,6 +1737,30 @@ pub use unified_access::{
 // Re-export canonical health types from adapteros-core
 pub use adapteros_core::{HealthCheckResult, HealthStatus};
 
+/// KV backend health status
+///
+/// Provides detailed health information about the KV backend including
+/// connectivity, performance, and storage metrics.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct KvHealthStatus {
+    /// Overall health status
+    pub status: HealthStatus,
+    /// Whether KV backend is attached
+    pub attached: bool,
+    /// Current storage mode
+    pub storage_mode: String,
+    /// Error message if unhealthy
+    pub error: Option<String>,
+    /// KV backend connectivity check result
+    pub connectivity_ok: bool,
+    /// Read latency in milliseconds (if available)
+    pub read_latency_ms: Option<f64>,
+    /// Write latency in milliseconds (if available)
+    pub write_latency_ms: Option<f64>,
+    /// Approximate number of keys (if available)
+    pub key_count: Option<usize>,
+}
+
 // Add update_anomaly_status method to Db impl
 impl Db {
     /// Update anomaly status with investigation details
@@ -1724,5 +1816,275 @@ impl Db {
         .map_err(|e| AosError::Database(format!("Failed to set system setting: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Perform KV backend health check
+    ///
+    /// This checks the health of the KV backend (if attached) by:
+    /// 1. Verifying KV backend is attached
+    /// 2. Testing read connectivity with a health check key
+    /// 3. Testing write connectivity with a timestamped value
+    /// 4. Measuring read and write latencies
+    /// 5. Estimating storage size (if supported)
+    ///
+    /// Returns:
+    /// - Healthy: KV backend is accessible and responsive
+    /// - Degraded: KV backend is accessible but slow or having issues
+    /// - Unhealthy: KV backend is not accessible or failing operations
+    /// - Unknown: KV backend is not attached
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: Db) -> Result<(), Box<dyn std::error::Error>> {
+    /// let kv_health = db.kv_health_check().await?;
+    /// println!("KV backend status: {:?}", kv_health.status);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn kv_health_check(&self) -> Result<KvHealthStatus> {
+        use std::time::Instant;
+        use tracing::debug;
+
+        // Check if KV backend is attached
+        let Some(kv) = self.kv_backend() else {
+            return Ok(KvHealthStatus {
+                status: HealthStatus::Unknown,
+                attached: false,
+                storage_mode: self.storage_mode.to_string(),
+                error: Some("KV backend not attached".to_string()),
+                connectivity_ok: false,
+                read_latency_ms: None,
+                write_latency_ms: None,
+                key_count: None,
+            });
+        };
+
+        let mut error_message = None;
+        let mut connectivity_ok = false;
+        let mut read_latency_ms = None;
+        let mut write_latency_ms = None;
+        let mut key_count = None;
+
+        // Test read connectivity and measure latency
+        let health_check_key = "aos:health:kv_check";
+        let start = Instant::now();
+        match kv.get(health_check_key).await {
+            Ok(_) => {
+                let latency = start.elapsed().as_secs_f64() * 1000.0;
+                read_latency_ms = Some(latency);
+                connectivity_ok = true;
+                debug!(latency_ms = latency, "KV backend read check successful");
+            }
+            Err(e) => {
+                error_message = Some(format!("KV backend read failed: {}", e));
+                debug!(error = %e, "KV backend read check failed");
+            }
+        }
+
+        // Test write connectivity and measure latency
+        if connectivity_ok {
+            let test_value = format!("health_check:{}", chrono::Utc::now().timestamp());
+            let start = Instant::now();
+            match kv.set(health_check_key, test_value.into_bytes()).await {
+                Ok(_) => {
+                    let latency = start.elapsed().as_secs_f64() * 1000.0;
+                    write_latency_ms = Some(latency);
+                    debug!(latency_ms = latency, "KV backend write check successful");
+                }
+                Err(e) => {
+                    error_message = Some(format!("KV backend write failed: {}", e));
+                    connectivity_ok = false;
+                    debug!(error = %e, "KV backend write check failed");
+                }
+            }
+        }
+
+        // Estimate key count by scanning common prefixes
+        if connectivity_ok {
+            let mut total_keys = 0;
+            let prefixes = vec!["adapter:", "tenant:", "user:", "stack:"];
+            for prefix in prefixes {
+                match kv.scan_prefix(prefix).await {
+                    Ok(keys) => {
+                        total_keys += keys.len();
+                    }
+                    Err(e) => {
+                        debug!(prefix = prefix, error = %e, "Failed to scan prefix for key count");
+                    }
+                }
+            }
+            if total_keys > 0 {
+                key_count = Some(total_keys);
+            }
+        }
+
+        // Determine overall health status
+        let status = if !connectivity_ok {
+            HealthStatus::Unhealthy
+        } else {
+            // Consider degraded if latencies are high (>100ms for read, >200ms for write)
+            let read_slow = read_latency_ms.map_or(false, |lat| lat > 100.0);
+            let write_slow = write_latency_ms.map_or(false, |lat| lat > 200.0);
+
+            if read_slow || write_slow {
+                HealthStatus::Degraded
+            } else {
+                HealthStatus::Healthy
+            }
+        };
+
+        Ok(KvHealthStatus {
+            status,
+            attached: true,
+            storage_mode: self.storage_mode.to_string(),
+            error: error_message,
+            connectivity_ok,
+            read_latency_ms,
+            write_latency_ms,
+            key_count,
+        })
+    }
+
+    /// Mark the database as degraded with a reason
+    ///
+    /// This is called internally when KV backend operations fail and the system
+    /// falls back to SQL-only mode. The degradation reason is tracked for monitoring
+    /// and debugging purposes.
+    ///
+    /// # Arguments
+    /// * `reason` - Human-readable description of why the system degraded
+    pub fn mark_degraded(&self, reason: String) {
+        use tracing::warn;
+
+        if let Ok(mut degraded) = self.degraded_reason.write() {
+            *degraded = Some(reason.clone());
+            warn!(
+                event = crate::constants::DEGRADATION_EVENT_RUNTIME_FAILED,
+                reason = %reason,
+                storage_mode = %self.storage_mode,
+                "Database marked as degraded - falling back to SqlOnly mode"
+            );
+        }
+    }
+
+    /// Clear the degradation marker
+    ///
+    /// This should be called when the system recovers from degraded state,
+    /// for example after successfully reconnecting to KV backend.
+    pub fn clear_degraded(&self) {
+        use tracing::info;
+
+        if let Ok(mut degraded) = self.degraded_reason.write() {
+            if degraded.is_some() {
+                info!(
+                    event = crate::constants::DEGRADATION_EVENT_RECOVERED,
+                    storage_mode = %self.storage_mode,
+                    "Degraded state cleared - KV backend recovered"
+                );
+                *degraded = None;
+            }
+        }
+    }
+
+    /// Check if the database is in degraded mode
+    ///
+    /// Returns true if the database has degraded from its configured mode
+    /// (e.g., fell back from KV to SQL due to KV backend failure).
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: Db) {
+    /// if db.is_degraded() {
+    ///     println!("Warning: Database is running in degraded mode");
+    /// }
+    /// # }
+    /// ```
+    pub fn is_degraded(&self) -> bool {
+        self.degraded_reason
+            .read()
+            .map(|d| d.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Get the degradation reason if degraded
+    ///
+    /// Returns the human-readable reason for degradation if the database
+    /// is in degraded mode, or None if operating normally.
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: Db) {
+    /// if let Some(reason) = db.degradation_reason() {
+    ///     println!("Degraded: {}", reason);
+    /// }
+    /// # }
+    /// ```
+    pub fn degradation_reason(&self) -> Option<String> {
+        self.degraded_reason
+            .read()
+            .ok()
+            .and_then(|d| d.clone())
+    }
+
+    /// Attempt to recover from degraded state by reinitializing KV backend
+    ///
+    /// This method attempts to reinitialize the KV backend and restore the
+    /// originally requested storage mode. If successful, clears the degradation
+    /// marker. If it fails, returns an error but leaves the system in degraded
+    /// SQL-only mode.
+    ///
+    /// # Arguments
+    /// * `kv_path` - Path to the KV database file
+    /// * `target_mode` - The storage mode to restore to
+    ///
+    /// # Returns
+    /// Ok(true) if recovery succeeded, Ok(false) if still degraded, Err if unrecoverable
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use adapteros_db::{Db, StorageMode};
+    /// # async fn example(db: &mut Db) -> Result<(), Box<dyn std::error::Error>> {
+    /// if db.is_degraded() {
+    ///     match db.attempt_recovery(std::path::Path::new("var/aos-kv.redb"), StorageMode::DualWrite) {
+    ///         Ok(true) => println!("Recovery successful"),
+    ///         Ok(false) => println!("Recovery failed, still degraded"),
+    ///         Err(e) => println!("Recovery error: {}", e),
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn attempt_recovery(
+        &mut self,
+        kv_path: &std::path::Path,
+        target_mode: StorageMode,
+    ) -> Result<bool> {
+        use tracing::info;
+
+        if !self.is_degraded() {
+            return Ok(true); // Already healthy
+        }
+
+        info!(
+            kv_path = %kv_path.display(),
+            target_mode = %target_mode,
+            "Attempting recovery from degraded state"
+        );
+
+        match self.init_kv_backend(kv_path) {
+            Ok(()) => {
+                self.set_storage_mode(target_mode);
+                self.clear_degraded();
+                info!(mode = %target_mode, "Recovery successful");
+                Ok(true)
+            }
+            Err(e) => {
+                warn!(error = %e, "Recovery attempt failed");
+                Ok(false)
+            }
+        }
     }
 }

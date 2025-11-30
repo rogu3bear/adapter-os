@@ -391,11 +391,11 @@ pub enum Commands {
   # Import Qwen2.5-7B model
   aosctl import-model \
     --name qwen2.5-7b \
-    --weights models/qwen2.5-7b-mlx/weights.safetensors \
-    --config models/qwen2.5-7b-mlx/config.json \
-    --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \
-    --tokenizer-cfg models/qwen2.5-7b-mlx/tokenizer_config.json \
-    --license models/qwen2.5-7b-mlx/LICENSE
+    --weights var/model-cache/models/qwen2.5-7b-instruct-bf16/weights.safetensors \
+    --config var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json \
+    --tokenizer var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json \
+    --tokenizer-cfg var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer_config.json \
+    --license var/model-cache/models/qwen2.5-7b-instruct-bf16/LICENSE
 "#)]
     ModelImport {
         /// Model name
@@ -697,7 +697,7 @@ pub enum Commands {
   aosctl audit-determinism --format json
 
   # Audit MLX backend (requires --features mlx-ffi-backend)
-  aosctl audit-determinism --backend mlx --model-path ./models/qwen2.5-7b-mlx
+  aosctl audit-determinism --backend mlx --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16
 "#)]
     AuditDeterminism {
         #[command(flatten)]
@@ -1078,7 +1078,7 @@ pub enum Commands {
     #[command(after_help = r#"Examples:
   # Quantize a directory of .safetensors into artifacts/qwen2_5_7b_int4
   aosctl quantize-qwen \
-    --input ./models/qwen2.5-7b-fp16 \
+    --input ./var/model-cache/models/qwen2.5-7b-instruct-bf16 \
     --output ./artifacts/qwen2_5_7b_int4 \
     --model-name qwen2.5-7b-instruct
 
@@ -1136,7 +1136,7 @@ pub enum Commands {
 
   # Train with custom manifest and tokenizer
   aosctl train-base-adapter --manifest training/datasets/my_manifest.json \
-    --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
+    --tokenizer var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json
 
   # Train and output as .aos file
   aosctl train-base-adapter --output-format aos --adapter-id my_adapter

@@ -9,7 +9,7 @@
 //!
 //! ```env
 //! # .env file in project root
-//! AOS_MODEL_PATH=./models/qwen2.5-7b-mlx
+//! AOS_MODEL_PATH=./var/model-cache/models/qwen2.5-7b-instruct-bf16
 //! AOS_MODEL_BACKEND=auto
 //! ```
 
@@ -133,7 +133,7 @@ impl Default for ModelConfig {
     /// Default configuration for Qwen2.5-7B model
     fn default() -> Self {
         Self {
-            path: PathBuf::from("./models/qwen2.5-7b"),
+            path: PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"),
             architecture: "qwen2.5".to_string(),
             vocab_size: 152064,
             hidden_size: 3584,
@@ -310,7 +310,7 @@ impl ModelConfig {
     /// - Head dimension is consistent
     pub fn validate(&self) -> Result<()> {
         // Validate path exists (skip for default placeholder path)
-        let default_placeholder: PathBuf = "./models/qwen2.5-7b".into();
+        let default_placeholder: PathBuf = "./var/model-cache/models/qwen2.5-7b-instruct-bf16".into();
         if self.path != default_placeholder && !self.path.exists() {
             return Err(AosError::Config(format!(
                 "Model path does not exist: '{}'",
@@ -511,7 +511,7 @@ pub fn is_model_path_configured() -> bool {
 /// This function discovers the tokenizer path using the following precedence:
 /// 1. `AOS_TOKENIZER_PATH` environment variable (explicit override)
 /// 2. `tokenizer.json` within the model directory from `AOS_MODEL_PATH`
-/// 3. Default fallback to `./models/qwen2.5-7b-mlx/tokenizer.json`
+/// 3. Error with remediation steps (no magic fallback)
 ///
 /// # Example
 ///
@@ -559,7 +559,7 @@ pub fn get_tokenizer_path() -> Result<PathBuf> {
          1. Set AOS_TOKENIZER_PATH to the path of your tokenizer.json file, or\n\
          2. Ensure tokenizer.json exists in your model directory{}\n\
          \n\
-         Example: export AOS_TOKENIZER_PATH=./models/qwen2.5-7b-mlx/tokenizer.json",
+         Example: export AOS_TOKENIZER_PATH=./var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json",
         model_path_hint
     )))
 }
@@ -742,7 +742,7 @@ mod tests {
         std::env::remove_var("AOS_MODEL_BACKEND");
 
         let config = ModelConfig::from_env().unwrap();
-        assert_eq!(config.path, PathBuf::from("./models/qwen2.5-7b"));
+        assert_eq!(config.path, PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"));
         assert_eq!(config.backend, BackendPreference::Auto);
     }
 

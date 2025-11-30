@@ -55,6 +55,13 @@ pub const CHAT_TAG_COLUMNS: &str =
 pub const COLLECTION_COLUMNS: &str =
     "id, tenant_id, name, description, created_at, updated_at, metadata_json";
 
+/// KV backend degradation event types
+///
+/// Used for logging and monitoring degradation events in the KV backend.
+pub const DEGRADATION_EVENT_INIT_FAILED: &str = "kv_init_failed";
+pub const DEGRADATION_EVENT_RUNTIME_FAILED: &str = "kv_runtime_failed";
+pub const DEGRADATION_EVENT_RECOVERED: &str = "kv_recovered";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -68,6 +75,9 @@ mod tests {
         assert!(!DATASET_ADAPTER_LINK_COLUMNS.is_empty());
         assert!(!CHAT_TAG_COLUMNS.is_empty());
         assert!(!COLLECTION_COLUMNS.is_empty());
+        assert!(!DEGRADATION_EVENT_INIT_FAILED.is_empty());
+        assert!(!DEGRADATION_EVENT_RUNTIME_FAILED.is_empty());
+        assert!(!DEGRADATION_EVENT_RECOVERED.is_empty());
     }
 
     #[test]

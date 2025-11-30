@@ -152,6 +152,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::diagnostics::get_determinism_status,
         handlers::diagnostics::get_quarantine_status,
         handlers::capacity::get_capacity,
+        // Storage handlers
+        handlers::storage::get_storage_mode,
+        handlers::storage::get_storage_stats,
         // Trace handlers
         handlers::telemetry::search_traces,
         handlers::telemetry::get_trace,
@@ -483,6 +486,11 @@ use utoipa_swagger_ui::SwaggerUi;
         adapteros_api_types::system_state::MemoryPressureLevel,
         adapteros_api_types::system_state::AneMemoryState,
         adapteros_api_types::system_state::AdapterMemorySummary,
+        // Storage types
+        handlers::storage::StorageModeResponse,
+        handlers::storage::StorageStatsResponse,
+        handlers::storage::TableCounts,
+        handlers::storage::KvCounts,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -511,6 +519,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "dashboard", description = "Dashboard configuration and widgets"),
         (name = "tutorials", description = "Tutorial management and progress tracking"),
         (name = "cli", description = "Owner CLI command execution"),
+        (name = "storage", description = "Storage mode and statistics visibility"),
     )
 )]
 pub struct ApiDoc;
@@ -1570,6 +1579,15 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/dashboard/config/reset",
             post(handlers::dashboard::reset_dashboard_config),
+        )
+        // Storage visibility routes (admin only)
+        .route(
+            "/v1/storage/mode",
+            get(handlers::storage::get_storage_mode),
+        )
+        .route(
+            "/v1/storage/stats",
+            get(handlers::storage::get_storage_stats),
         )
         .layer(
             ServiceBuilder::new()

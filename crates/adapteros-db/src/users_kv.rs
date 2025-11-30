@@ -179,7 +179,10 @@ impl<B: KvBackend> UserKvRepository<B> {
             if old.role != user.role {
                 // Remove from old role set
                 let old_role_key = format!("{}::{}", UserKeys::role_users_set(&old.role.to_string()), user.id);
-                let _ = self.backend.delete(&old_role_key).await;
+                if let Err(e) = self.backend.delete(&old_role_key).await {
+                    warn!(user_id = %user.id, old_role = %old.role, error = %e,
+                          "Failed to remove user from old role index");
+                }
             }
         }
 
@@ -196,15 +199,24 @@ impl<B: KvBackend> UserKvRepository<B> {
     async fn cleanup_indexes(&self, user: &UserKv) -> Result<()> {
         // Email index
         let email_key = UserKeys::email_index(&user.email);
-        let _ = self.backend.delete(&email_key).await;
+        if let Err(e) = self.backend.delete(&email_key).await {
+            warn!(user_id = %user.id, email = %user.email, error = %e,
+                  "Failed to delete email index during cleanup");
+        }
 
         // Tenant users set
         let tenant_key = format!("{}::{}", UserKeys::tenant_users_set(&user.tenant_id), user.id);
-        let _ = self.backend.delete(&tenant_key).await;
+        if let Err(e) = self.backend.delete(&tenant_key).await {
+            warn!(user_id = %user.id, tenant_id = %user.tenant_id, error = %e,
+                  "Failed to delete tenant index during cleanup");
+        }
 
         // Role users set
         let role_key = format!("{}::{}", UserKeys::role_users_set(&user.role.to_string()), user.id);
-        let _ = self.backend.delete(&role_key).await;
+        if let Err(e) = self.backend.delete(&role_key).await {
+            warn!(user_id = %user.id, role = %user.role, error = %e,
+                  "Failed to delete role index during cleanup");
+        }
 
         Ok(())
     }

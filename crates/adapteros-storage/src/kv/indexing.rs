@@ -138,4 +138,7 @@ pub mod adapter_indexes {
 
     /// Index name for parent-child relationships (lineage)
     pub const BY_PARENT: &str = "adapters_by_parent";
+
+    /// Index name for querying adapters by external adapter_id
+    pub const BY_ADAPTER_ID: &str = "adapters_by_adapter_id";
 }

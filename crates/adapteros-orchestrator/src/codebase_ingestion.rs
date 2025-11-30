@@ -32,7 +32,7 @@ pub struct IngestionConfig {
     /// Training configuration for the adapter
     pub training_config: TrainingConfig,
 
-    /// Tokenizer path (defaults to models/qwen2.5-7b-mlx/tokenizer.json)
+    /// Tokenizer path (auto-discovered from AOS_MODEL_PATH if not set)
     pub tokenizer_path: Option<PathBuf>,
 
     /// Maximum number of Q&A pairs to generate per symbol

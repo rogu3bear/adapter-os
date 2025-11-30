@@ -455,13 +455,13 @@ impl MLXFFITensor {
     /// Returns a raw dtype code that can be used for validation.
     ///
     /// # Returns
-    /// MLX dtype code (1 = Float32, 2 = Int32, etc.)
+    /// MLX dtype code (0 = Float32, 1 = Float16, 2 = Int32, 3 = UInt32, etc.)
     ///
     /// # Example
     /// ```ignore
     /// let tensor = MLXFFITensor::from_data(&[1.0, 2.0], vec![2])?;
     /// let dtype_code = tensor.get_mlx_dtype()?;
-    /// assert_eq!(dtype_code, 1); // Float32
+    /// assert_eq!(dtype_code, 0); // Float32
     /// ```
     pub fn get_mlx_dtype(&self) -> Result<i32> {
         unsafe {
@@ -665,13 +665,12 @@ mod tests {
         let float_data = vec![1.0, 2.0];
         let float_tensor = MLXFFITensor::from_data(&float_data, vec![2]).unwrap();
         let dtype = float_tensor.get_mlx_dtype().unwrap();
-        assert_eq!(dtype, 1); // Float32
+        assert_eq!(dtype, 0); // Float32
 
         let int_data = vec![1, 2, 3, 4];
         let int_tensor = MLXFFITensor::from_ints(&int_data, vec![4]).unwrap();
         let int_dtype = int_tensor.get_mlx_dtype().unwrap();
-        // The stub returns 1 for all types, so we just verify it works
-        assert!(int_dtype >= 0);
+        assert_eq!(int_dtype, 2); // Int32
     }
 
     #[test]

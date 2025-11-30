@@ -18,14 +18,11 @@ use adapteros_db::{Db, KvDb, StorageMode};
 use adapteros_storage::repos::adapter::AdapterRepository;
 use std::sync::Arc;
 use tempfile::TempDir;
-use tracing_subscriber;
 
 /// Initialize tracing for tests (call once per test)
 fn init_tracing() {
-    let _ = tracing_subscriber::fmt()
-        .with_test_writer()
-        .with_max_level(tracing::Level::DEBUG)
-        .try_init();
+    // Tracing initialization is optional for tests
+    // Tests will run without it if tracing_subscriber is not available
 }
 
 /// Helper to create a test database in KvPrimary mode
@@ -49,7 +46,7 @@ async fn create_kv_primary_db() -> (Db, TempDir) {
 
     // Create Db in KvPrimary mode
     let pool = db_sql.pool().clone();
-    let mut db = Db::new(pool, Some(Arc::new(kv_db)), StorageMode::KvPrimary);
+    let db = Db::new(pool, Some(Arc::new(kv_db)), StorageMode::KvPrimary);
 
     // Ensure storage mode is correctly set
     assert_eq!(db.storage_mode(), StorageMode::KvPrimary);
@@ -111,12 +108,12 @@ async fn insert_adapter_to_kv(
 
     let adapter_kv = AdapterKv {
         id: uuid::Uuid::now_v7().to_string(),
-        adapter_id: adapter_id.to_string(),
+        adapter_id: Some(adapter_id.to_string()),
         tenant_id: tenant_id.to_string(),
         name: name.to_string(),
         hash_b3: hash_b3.to_string(),
         rank,
-        alpha: rank * 2,
+        alpha: (rank * 2) as f64,
         tier: "warm".to_string(),
         category: "code".to_string(),
         scope: "global".to_string(),
@@ -129,11 +126,29 @@ async fn insert_adapter_to_kv(
         fork_type: None,
         fork_reason: None,
         framework: None,
-        language: None,
-        description: None,
-        tags: None,
-        active: true,
-        pinned: false,
+        targets_json: "[]".to_string(),
+        acl_json: None,
+        languages_json: None,
+        framework_id: None,
+        framework_version: None,
+        repo_id: None,
+        commit_sha: None,
+        intent: None,
+        last_activated: None,
+        last_loaded_at: None,
+        active: 1,
+        pinned: 0,
+        expires_at: None,
+        aos_file_path: None,
+        aos_file_hash: None,
+        adapter_name: None,
+        tenant_namespace: None,
+        domain: None,
+        purpose: None,
+        revision: None,
+        lifecycle_state: "active".to_string(),
+        load_state: "unloaded".to_string(),
+        version: "1.0".to_string(),
     };
 
     let repo = AdapterRepository::new(
@@ -150,7 +165,7 @@ async fn insert_adapter_to_kv(
 
 #[tokio::test]
 async fn test_kv_primary_reads_from_kv_first() {
-    let (db, _temp_dir) = create_dual_write_db().await;
+    let (mut db, _temp_dir) = create_dual_write_db().await;
 
     // Register an adapter in DualWrite mode (writes to both SQL and KV)
     let params = AdapterRegistrationBuilder::new()
@@ -168,18 +183,16 @@ async fn test_kv_primary_reads_from_kv_first() {
     db.register_adapter(params).await.unwrap();
 
     // Switch to KvPrimary mode
-    let pool = db.pool().clone();
-    let kv = db.kv_backend().unwrap().clone();
-    let db_kv_primary = Db::new(pool, Some(kv), StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary);
 
-    // Read adapter - should come from KV
-    let adapter = db_kv_primary
+    // Read adapter - should come from KV or fall back to SQL
+    let adapter = db
         .get_adapter("kv-read-test-1")
         .await
         .unwrap()
         .expect("Adapter should exist");
 
-    assert_eq!(adapter.adapter_id.unwrap(), "kv-read-test-1");
+    assert_eq!(adapter.adapter_id.as_deref(), Some("kv-read-test-1"));
     assert_eq!(adapter.name, "KV Read Test Adapter");
     assert_eq!(adapter.hash_b3, "b3:kv_read_hash_1");
     assert_eq!(adapter.rank, 16);
@@ -211,8 +224,8 @@ async fn test_kv_primary_fallback_on_kv_none() {
     sqlx::query(
         "INSERT INTO adapters (
             id, adapter_id, tenant_id, name, hash_b3, rank, alpha, tier, category, scope,
-            current_state, memory_bytes, activation_count, created_at, updated_at, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unloaded', 0, 0, datetime('now'), datetime('now'), 1)"
+            current_state, memory_bytes, activation_count, created_at, updated_at, active, targets_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unloaded', 0, 0, datetime('now'), datetime('now'), 1, '[]')"
     )
     .bind(&id)
     .bind(&params.adapter_id)
@@ -257,7 +270,7 @@ async fn test_kv_primary_fallback_on_kv_error() {
         .rank(8)
         .tier("ephemeral")
         .category("code")
-        .scope("session")
+        .scope("global")
         .tenant_id("default-tenant")
         .build()
         .unwrap();
@@ -267,8 +280,8 @@ async fn test_kv_primary_fallback_on_kv_error() {
     sqlx::query(
         "INSERT INTO adapters (
             id, adapter_id, tenant_id, name, hash_b3, rank, alpha, tier, category, scope,
-            current_state, memory_bytes, activation_count, created_at, updated_at, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unloaded', 0, 0, datetime('now'), datetime('now'), 1)"
+            current_state, memory_bytes, activation_count, created_at, updated_at, active, targets_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unloaded', 0, 0, datetime('now'), datetime('now'), 1, '[]')"
     )
     .bind(&id)
     .bind(&params.adapter_id)
@@ -301,7 +314,7 @@ async fn test_kv_primary_fallback_on_kv_error() {
 
 #[tokio::test]
 async fn test_kv_primary_data_consistency() {
-    let (db, _temp_dir) = create_dual_write_db().await;
+    let (mut db, _temp_dir) = create_dual_write_db().await;
 
     // Create adapters with varying configurations
     let test_cases = vec![
@@ -321,8 +334,6 @@ async fn test_kv_primary_data_consistency() {
             .scope("global")
             .tenant_id("default-tenant")
             .framework(Some("rust".to_string()))
-            .language(Some("rust".to_string()))
-            .description(Some(format!("Test adapter {}", adapter_id)))
             .build()
             .unwrap();
 
@@ -330,13 +341,11 @@ async fn test_kv_primary_data_consistency() {
     }
 
     // Switch to KvPrimary mode
-    let pool = db.pool().clone();
-    let kv = db.kv_backend().unwrap().clone();
-    let db_kv_primary = Db::new(pool, Some(kv), StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary);
 
     // Verify each adapter can be read with correct data
     for (adapter_id, name, hash_b3, rank, tier) in &test_cases {
-        let adapter = db_kv_primary
+        let adapter = db
             .get_adapter(adapter_id)
             .await
             .unwrap()
@@ -348,8 +357,6 @@ async fn test_kv_primary_data_consistency() {
         assert_eq!(adapter.rank, *rank);
         assert_eq!(adapter.tier, *tier);
         assert_eq!(adapter.framework.as_deref(), Some("rust"));
-        assert_eq!(adapter.language.as_deref(), Some("rust"));
-        assert!(adapter.description.is_some());
     }
 }
 
@@ -359,7 +366,7 @@ async fn test_kv_primary_data_consistency() {
 
 #[tokio::test]
 async fn test_kv_primary_list_adapters() {
-    let (db, _temp_dir) = create_dual_write_db().await;
+    let (mut db, _temp_dir) = create_dual_write_db().await;
 
     // Create multiple adapters
     for i in 1..=5 {
@@ -379,12 +386,10 @@ async fn test_kv_primary_list_adapters() {
     }
 
     // Switch to KvPrimary mode
-    let pool = db.pool().clone();
-    let kv = db.kv_backend().unwrap().clone();
-    let db_kv_primary = Db::new(pool, Some(kv), StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary);
 
     // List adapters - should use KV
-    let adapters = db_kv_primary
+    let adapters = db
         .list_adapters_by_tenant("default-tenant")
         .await
         .unwrap();
@@ -416,8 +421,8 @@ async fn test_kv_primary_list_fallback() {
         sqlx::query(
             "INSERT INTO adapters (
                 id, adapter_id, tenant_id, name, hash_b3, rank, alpha, tier, category, scope,
-                current_state, memory_bytes, activation_count, created_at, updated_at, active
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unloaded', 0, 0, datetime('now'), datetime('now'), 1)"
+                current_state, memory_bytes, activation_count, created_at, updated_at, active, targets_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unloaded', 0, 0, datetime('now'), datetime('now'), 1, '[]')"
         )
         .bind(&id)
         .bind(&format!("sql-only-{}", i))
@@ -449,7 +454,7 @@ async fn test_kv_primary_list_fallback() {
 
 #[tokio::test]
 async fn test_kv_primary_find_by_hash() {
-    let (db, _temp_dir) = create_dual_write_db().await;
+    let (mut db, _temp_dir) = create_dual_write_db().await;
 
     let params = AdapterRegistrationBuilder::new()
         .adapter_id("hash-test-1")
@@ -466,13 +471,11 @@ async fn test_kv_primary_find_by_hash() {
     db.register_adapter(params).await.unwrap();
 
     // Switch to KvPrimary mode
-    let pool = db.pool().clone();
-    let kv = db.kv_backend().unwrap().clone();
-    let db_kv_primary = Db::new(pool, Some(kv), StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary);
 
     // Find by hash - currently falls back to SQL for cross-tenant hash lookup
     // This is expected behavior (see TODO in adapters.rs)
-    let adapter = db_kv_primary
+    let adapter = db
         .find_adapter_by_hash("b3:unique_hash_12345")
         .await
         .unwrap()
@@ -488,7 +491,7 @@ async fn test_kv_primary_find_by_hash() {
 
 #[tokio::test]
 async fn test_kv_primary_state_updates() {
-    let (db, _temp_dir) = create_dual_write_db().await;
+    let (mut db, _temp_dir) = create_dual_write_db().await;
 
     let params = AdapterRegistrationBuilder::new()
         .adapter_id("state-test-1")
@@ -505,24 +508,22 @@ async fn test_kv_primary_state_updates() {
     db.register_adapter(params).await.unwrap();
 
     // Switch to KvPrimary mode
-    let pool = db.pool().clone();
-    let kv = db.kv_backend().unwrap().clone();
-    let db_kv_primary = Db::new(pool, Some(kv), StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary);
 
     // Update state (dual-write in KvPrimary mode)
-    db_kv_primary
+    db
         .update_adapter_state_tx("state-test-1", "warm", "Test state transition")
         .await
         .unwrap();
 
     // Read back - should show updated state
-    let adapter = db_kv_primary
+    let adapter = db
         .get_adapter("state-test-1")
         .await
         .unwrap()
         .expect("Adapter should exist");
 
-    assert_eq!(adapter.current_state.as_deref(), Some("warm"));
+    assert_eq!(adapter.current_state, "warm");
 }
 
 // ============================================================================
@@ -531,7 +532,7 @@ async fn test_kv_primary_state_updates() {
 
 #[tokio::test]
 async fn test_kv_primary_memory_updates() {
-    let (db, _temp_dir) = create_dual_write_db().await;
+    let (mut db, _temp_dir) = create_dual_write_db().await;
 
     let params = AdapterRegistrationBuilder::new()
         .adapter_id("memory-test-1")
@@ -548,24 +549,22 @@ async fn test_kv_primary_memory_updates() {
     db.register_adapter(params).await.unwrap();
 
     // Switch to KvPrimary mode
-    let pool = db.pool().clone();
-    let kv = db.kv_backend().unwrap().clone();
-    let db_kv_primary = Db::new(pool, Some(kv), StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary);
 
     // Update memory
-    db_kv_primary
+    db
         .update_adapter_memory_tx("memory-test-1", 1024 * 1024 * 500) // 500MB
         .await
         .unwrap();
 
     // Read back
-    let adapter = db_kv_primary
+    let adapter = db
         .get_adapter("memory-test-1")
         .await
         .unwrap()
         .expect("Adapter should exist");
 
-    assert_eq!(adapter.memory_bytes, Some(1024 * 1024 * 500));
+    assert_eq!(adapter.memory_bytes, 1024 * 1024 * 500);
 }
 
 // ============================================================================
@@ -574,7 +573,7 @@ async fn test_kv_primary_memory_updates() {
 
 #[tokio::test]
 async fn test_kv_primary_lineage() {
-    let (db, _temp_dir) = create_dual_write_db().await;
+    let (mut db, _temp_dir) = create_dual_write_db().await;
 
     // Create parent adapter
     let parent_params = AdapterRegistrationBuilder::new()
@@ -610,12 +609,10 @@ async fn test_kv_primary_lineage() {
     db.register_adapter(child_params).await.unwrap();
 
     // Switch to KvPrimary mode
-    let pool = db.pool().clone();
-    let kv = db.kv_backend().unwrap().clone();
-    let db_kv_primary = Db::new(pool, Some(kv), StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary);
 
     // Query lineage
-    let lineage = db_kv_primary
+    let lineage = db
         .get_adapter_lineage("lineage-parent")
         .await
         .unwrap();
@@ -658,8 +655,8 @@ async fn test_kv_primary_mixed_data_sources() {
     sqlx::query(
         "INSERT INTO adapters (
             id, adapter_id, tenant_id, name, hash_b3, rank, alpha, tier, category, scope,
-            current_state, memory_bytes, activation_count, created_at, updated_at, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unloaded', 0, 0, datetime('now'), datetime('now'), 1)"
+            current_state, memory_bytes, activation_count, created_at, updated_at, active, targets_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unloaded', 0, 0, datetime('now'), datetime('now'), 1, '[]')"
     )
     .bind(&sql_id)
     .bind("sql-adapter")

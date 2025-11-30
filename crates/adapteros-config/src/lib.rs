@@ -11,7 +11,7 @@
 //! Create a `.env` file in your project root:
 //!
 //! ```env
-//! AOS_MODEL_PATH=./models/qwen2.5-7b-mlx
+//! AOS_MODEL_PATH=./var/model-cache/models/qwen2.5-7b-instruct-bf16
 //! AOS_MODEL_BACKEND=auto
 //! ```
 

@@ -131,6 +131,25 @@ mod tests {
             .await
             .expect("Failed to create test database");
 
+        // Create the table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS user_tenant_access (
+                id TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                granted_by TEXT NOT NULL,
+                granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+                reason TEXT,
+                expires_at TEXT,
+                UNIQUE(user_id, tenant_id)
+            )
+            "#,
+        )
+        .execute(db.pool())
+        .await
+        .expect("Failed to create table");
+
         // Grant access
         grant_user_tenant_access(
             &db,

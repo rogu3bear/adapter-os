@@ -204,29 +204,35 @@ impl MLXKVCache {
         }
 
         let mut caches = self.caches.write();
-        let cache = caches
-            .entry(layer_idx)
-            .or_insert_with(|| CacheLayer::new(self.config.max_seq_length));
 
-        let old_positions = cache.cached_positions;
-        cache.add_position(key, value);
+        // Update the cache and collect stats in a scope to release the mutable borrow
+        let (new_positions, positions_increased) = {
+            let cache = caches
+                .entry(layer_idx)
+                .or_insert_with(|| CacheLayer::new(self.config.max_seq_length));
+
+            let old_positions = cache.cached_positions;
+            cache.add_position(key, value);
+            (cache.cached_positions, cache.cached_positions > old_positions)
+        };
 
         // Track statistics
-        if cache.cached_positions > old_positions {
+        if positions_increased {
             let mut total = self.total_cached_positions.write();
             *total += 1;
         }
 
-        // Update peak memory
+        // Update peak memory - compute directly from locked guard to avoid deadlock
+        // (get_memory_usage would try to acquire a read lock while we hold a write lock)
+        let current_memory: usize = caches.values().map(|c| c.memory_bytes()).sum();
         let mut stats = self.stats.write();
-        let current_memory = self.get_memory_usage();
         if current_memory > stats.peak_memory_bytes {
             stats.peak_memory_bytes = current_memory;
         }
 
         tracing::trace!(
             layer_idx = layer_idx,
-            cached_positions = cache.cached_positions,
+            cached_positions = new_positions,
             "Updated KV cache for layer"
         );
 

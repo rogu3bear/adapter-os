@@ -64,3 +64,76 @@ impl Default for CoreMLConfig {
         }
     }
 }
+
+/// Model-specific parameters for CoreML inference
+///
+/// These parameters configure the attention mechanism and model architecture.
+/// They should be loaded from the model's config.json file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoreMLModelParams {
+    /// Hidden layer dimension
+    pub hidden_size: usize,
+    /// Number of attention heads
+    pub num_attention_heads: usize,
+    /// Number of key-value heads (for GQA - Grouped Query Attention)
+    pub num_key_value_heads: usize,
+    /// FFN intermediate size
+    pub intermediate_size: usize,
+    /// RoPE (Rotary Position Embedding) theta parameter
+    pub rope_theta: f32,
+    /// Maximum sequence length
+    pub max_seq_len: usize,
+}
+
+impl CoreMLModelParams {
+    /// Create model params from individual values
+    ///
+    /// # Arguments
+    /// * `hidden_size` - Hidden layer dimension
+    /// * `num_attention_heads` - Number of attention heads
+    /// * `num_key_value_heads` - Number of KV heads (for GQA)
+    /// * `intermediate_size` - FFN intermediate size
+    /// * `rope_theta` - RoPE theta parameter
+    /// * `max_seq_len` - Maximum sequence length
+    pub fn new(
+        hidden_size: usize,
+        num_attention_heads: usize,
+        num_key_value_heads: usize,
+        intermediate_size: usize,
+        rope_theta: f32,
+        max_seq_len: usize,
+    ) -> Self {
+        Self {
+            hidden_size,
+            num_attention_heads,
+            num_key_value_heads,
+            intermediate_size,
+            rope_theta,
+            max_seq_len,
+        }
+    }
+
+    /// Compute head dimension
+    pub fn head_dim(&self) -> usize {
+        self.hidden_size / self.num_attention_heads
+    }
+
+    /// Compute number of KV groups (for GQA)
+    pub fn kv_groups(&self) -> usize {
+        self.num_attention_heads / self.num_key_value_heads
+    }
+}
+
+impl Default for CoreMLModelParams {
+    /// Default parameters for Qwen2.5-7B model
+    fn default() -> Self {
+        Self {
+            hidden_size: 3584,
+            num_attention_heads: 28,
+            num_key_value_heads: 4,
+            intermediate_size: 18944,
+            rope_theta: 1000000.0,
+            max_seq_len: 32768,
+        }
+    }
+}

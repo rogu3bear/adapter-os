@@ -261,6 +261,13 @@ Examples:
     Registry(registry::RegistryCommand),
 
     // ============================================================
+    // Storage Management
+    // ============================================================
+    /// Storage backend management commands (mode, migrate, verify)
+    #[command(subcommand)]
+    Storage(storage::StorageCommand),
+
+    // ============================================================
     // Plan Management
     // ============================================================
     /// Build a plan from manifest
@@ -294,11 +301,11 @@ Examples:
   # Import Qwen2.5-7B model
   aosctl import-model \\
     --name qwen2.5-7b \\
-    --weights models/qwen2.5-7b-mlx/weights.safetensors \\
-    --config models/qwen2.5-7b-mlx/config.json \\
-    --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \\
-    --tokenizer-cfg models/qwen2.5-7b-mlx/tokenizer_config.json \\
-    --license models/qwen2.5-7b-mlx/LICENSE
+    --weights var/model-cache/models/qwen2.5-7b-instruct-bf16/weights.safetensors \\
+    --config var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json \\
+    --tokenizer var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json \\
+    --tokenizer-cfg var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer_config.json \\
+    --license var/model-cache/models/qwen2.5-7b-instruct-bf16/LICENSE
 ")]
     ModelImport {
         /// Model name
@@ -531,7 +538,7 @@ Examples:
   aosctl audit-determinism --format json
 
   # Audit MLX backend (requires --features multi-backend)
-  aosctl audit-determinism --backend mlx --model-path ./models/qwen2.5-7b-mlx
+  aosctl audit-determinism --backend mlx --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16
 ")]
     AuditDeterminism {
         #[command(flatten)]
@@ -1362,6 +1369,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             registry::handle_registry_command(cmd.clone(), &output).await?;
         }
 
+        // Storage Management
+        Commands::Storage(cmd) => {
+            storage::handle_storage_command(cmd.clone(), &output).await?;
+        }
+
         // Plan Management
         Commands::PlanBuild {
             manifest,
@@ -1945,6 +1957,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Maintenance { .. } => "maintenance",
         Commands::Deploy { .. } => "deploy",
         Commands::Registry(_) => "registry",
+        Commands::Storage(_) => "storage",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
         Commands::Telemetry(_) => "telemetry",

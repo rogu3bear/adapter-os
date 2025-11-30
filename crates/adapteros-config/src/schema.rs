@@ -659,7 +659,7 @@ pub fn default_schema() -> ConfigSchema {
     schema.add_variable(
         ConfigVariable::new("AOS_MODEL_PATH")
             .config_type(ConfigType::Path { must_exist: false })
-            .default_value("./models/qwen2.5-7b")
+            .default_value("./var/model-cache/models/qwen2.5-7b-instruct-bf16")
             .description("Path to the model directory or model weights file")
             .category("MODEL")
             .build(),
@@ -684,7 +684,7 @@ pub fn default_schema() -> ConfigSchema {
     schema.add_variable(
         ConfigVariable::new("AOS_MANIFEST_PATH")
             .config_type(ConfigType::Path { must_exist: false })
-            .default_value("./models/qwen2.5-7b-mlx/manifest.json")
+            .default_value("./var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json")
             .description("Path to the base model manifest file for executor seeding")
             .category("MODEL")
             .build(),
@@ -1105,7 +1105,7 @@ pub fn default_schema() -> ConfigSchema {
     schema.add_variable(
         ConfigVariable::new("AOS_EMBEDDING_MODEL_PATH")
             .config_type(ConfigType::Path { must_exist: false })
-            .default_value("./models/bge-small-en-v1.5")
+            .default_value("./var/model-cache/models/bge-small-en-v1.5")
             .description("Path to sentence-transformer embedding model for RAG")
             .category("EMBEDDINGS")
             .build(),

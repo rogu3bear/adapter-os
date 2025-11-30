@@ -10,9 +10,11 @@ use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_registry::Registry;
 use adapteros_sbom::SpdxDocument;
 use clap::{Parser, Subcommand};
+use indicatif::{ProgressBar, ProgressStyle};
 use rusqlite::{Connection, Row};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use tracing::{error, info, warn};
 
 /// Registry migrate arguments (re-exported for external use)
@@ -442,8 +444,24 @@ async fn migrate_data(
     tenants: &[OldTenantRecord],
     registry: &Registry,
     dry_run: bool,
+    output: &OutputWriter,
 ) -> Result<MigrationStats> {
     let mut stats = MigrationStats::default();
+
+    // Create progress bar for tenants
+    let tenant_pb = if !output.is_json() && !tenants.is_empty() {
+        let pb = ProgressBar::new(tenants.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} tenants ({msg})")
+                .expect("valid template")
+                .progress_chars("=>-"),
+        );
+        pb.set_message("processing");
+        Some(pb)
+    } else {
+        None
+    };
 
     // Migrate tenants first
     for tenant in tenants {
@@ -468,7 +486,34 @@ async fn migrate_data(
                 }
             }
         }
+
+        if let Some(ref pb) = tenant_pb {
+            pb.inc(1);
+            pb.set_message(format!(
+                "success: {}, skipped: {}, failed: {}",
+                stats.tenants_migrated, stats.tenants_skipped, stats.tenants_failed
+            ));
+        }
     }
+
+    if let Some(pb) = tenant_pb {
+        pb.finish_with_message("complete");
+    }
+
+    // Create progress bar for adapters
+    let adapter_pb = if !output.is_json() && !adapters.is_empty() {
+        let pb = ProgressBar::new(adapters.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] {bar:40.green/blue} {pos}/{len} adapters ({msg})")
+                .expect("valid template")
+                .progress_chars("=>-"),
+        );
+        pb.set_message("processing");
+        Some(pb)
+    } else {
+        None
+    };
 
     // Migrate adapters
     for adapter in adapters {
@@ -517,6 +562,18 @@ async fn migrate_data(
                 }
             }
         }
+
+        if let Some(ref pb) = adapter_pb {
+            pb.inc(1);
+            pb.set_message(format!(
+                "success: {}, skipped: {}, failed: {}",
+                stats.adapters_migrated, stats.adapters_skipped, stats.adapters_failed
+            ));
+        }
+    }
+
+    if let Some(pb) = adapter_pb {
+        pb.finish_with_message("complete");
     }
 
     Ok(stats)
@@ -524,6 +581,8 @@ async fn migrate_data(
 
 /// Run registry migration
 pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Result<()> {
+    let start_time = Instant::now();
+
     output.info("AdapterOS Registry Migration Tool");
     output.info("==================================");
 
@@ -543,12 +602,19 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
     }
 
     // Extract data from old database
+    output.progress("Extracting data from old database...");
     let (adapters, tenants) = extract_old_data(&args.from_db)?;
 
     if adapters.is_empty() && tenants.is_empty() {
         output.info("No data found in old database. Nothing to migrate.");
         return Ok(());
     }
+
+    output.info(&format!(
+        "Found {} tenants and {} adapters to migrate",
+        tenants.len(),
+        adapters.len()
+    ));
 
     // Create new registry (unless dry run)
     let registry = if args.dry_run {
@@ -573,8 +639,10 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
     };
 
     // Perform migration
+    output.info("");
+    output.info("Starting migration...");
     let stats = if let Some(ref reg) = registry {
-        migrate_data(&adapters, &tenants, reg, args.dry_run).await?
+        migrate_data(&adapters, &tenants, reg, args.dry_run, output).await?
     } else {
         // Dry run stats
         MigrationStats {
@@ -586,10 +654,14 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
         }
     };
 
+    let elapsed = start_time.elapsed();
+
     // Report results
     output.info("");
     output.info("Migration Complete");
     output.info("==================");
+    output.info(&format!("Elapsed time: {:.2}s", elapsed.as_secs_f64()));
+    output.info("");
     output.info(&format!("Tenants:"));
     output.info(&format!("  Processed: {}", stats.tenants_processed));
     output.info(&format!("  Migrated:  {}", stats.tenants_migrated));
@@ -600,6 +672,17 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
     output.info(&format!("  Migrated:  {}", stats.adapters_migrated));
     output.info(&format!("  Skipped:   {}", stats.adapters_skipped));
     output.info(&format!("  Failed:    {}", stats.adapters_failed));
+    output.info("");
+
+    // Summary line
+    let total_success = stats.tenants_migrated + stats.adapters_migrated;
+    let total_failed = stats.tenants_failed + stats.adapters_failed;
+    let total_skipped = stats.tenants_skipped + stats.adapters_skipped;
+
+    output.info(&format!(
+        "Summary: {} succeeded, {} skipped, {} failed",
+        total_success, total_skipped, total_failed
+    ));
 
     if stats.adapters_failed > 0 || stats.tenants_failed > 0 {
         output.warning("Some records failed to migrate. Check logs above for details.");

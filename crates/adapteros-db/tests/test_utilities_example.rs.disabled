@@ -1,0 +1,241 @@
+//! Example test demonstrating usage of the common test utilities
+//!
+//! This test serves as both documentation and verification that the
+//! test utilities work correctly.
+
+mod common;
+
+use adapteros_core::Result;
+use common::{
+    TestDb, TestAdapterFactory, TestTenantFactory, TestStackFactory,
+    assert_adapters_equal, assert_adapter_fields_match,
+    create_test_db, cleanup_test_db,
+};
+use adapteros_db::StorageMode;
+
+#[tokio::test]
+async fn test_utilities_basic_usage() -> Result<()> {
+    // Create in-memory test database
+    let db = create_test_db().await?;
+
+    // Use factory to create test adapter
+    let params = TestAdapterFactory::new("test-adapter-1")
+        .rank(16)
+        .tier("warm")
+        .category("code")
+        .framework("rust")
+        .build()?;
+
+    // Register adapter
+    let adapter_id = db.register_adapter(params).await?;
+    assert!(!adapter_id.is_empty());
+
+    // Verify adapter exists
+    let adapter = db.get_adapter(&adapter_id).await?;
+    assert!(adapter.is_some());
+
+    // Cleanup
+    cleanup_test_db(&db).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_utilities_with_test_db_wrapper() {
+    // TestDb provides automatic cleanup
+    let test_db = TestDb::new().await;
+    let db = test_db.db();
+
+    // Create adapter with random ID
+    let params = TestAdapterFactory::random()
+        .rank(8)
+        .tier("ephemeral")
+        .build()
+        .unwrap();
+
+    let adapter_id = db.register_adapter(params).await.unwrap();
+
+    // Verify
+    let adapter = db.get_adapter(&adapter_id).await.unwrap();
+    assert!(adapter.is_some());
+
+    // Cleanup happens automatically when test_db goes out of scope
+}
+
+#[tokio::test]
+async fn test_utilities_storage_mode() {
+    // Create database with specific storage mode
+    let test_db = TestDb::with_mode(StorageMode::DualWrite).await;
+    assert_eq!(test_db.storage_mode(), StorageMode::DualWrite);
+
+    let db = test_db.db();
+
+    // Use database...
+    let params = TestAdapterFactory::new("dual-write-test")
+        .rank(12)
+        .build()
+        .unwrap();
+
+    db.register_adapter(params).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_utilities_factories() {
+    let db = create_test_db().await.unwrap();
+
+    // Create tenant using factory
+    let tenant_factory = TestTenantFactory::new("test-tenant-1")
+        .name("Test Tenant 1");
+
+    let tenant_id = db.create_tenant(
+        &tenant_factory.tenant_name(),
+        tenant_factory.is_system()
+    ).await.unwrap();
+
+    assert!(!tenant_id.is_empty());
+
+    // Create multiple adapters using factory
+    for i in 1..=3 {
+        let params = TestAdapterFactory::new(&format!("adapter-{}", i))
+            .tenant_id(&tenant_id)
+            .rank(8)
+            .tier("warm")
+            .build()
+            .unwrap();
+
+        db.register_adapter(params).await.unwrap();
+    }
+
+    // Verify adapters were created
+    let adapters = db.list_adapters_by_tenant(&tenant_id).await.unwrap();
+    assert_eq!(adapters.len(), 3);
+
+    cleanup_test_db(&db).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_utilities_assertions() {
+    let db = create_test_db().await.unwrap();
+
+    // Create adapter
+    let params = TestAdapterFactory::new("test-adapter")
+        .name("Test Adapter")
+        .rank(16)
+        .tier("persistent")
+        .category("framework")
+        .build()
+        .unwrap();
+
+    let adapter_id = db.register_adapter(params).await.unwrap();
+
+    // Get adapter twice to test equality
+    let adapter1 = db.get_adapter(&adapter_id).await.unwrap().unwrap();
+    let adapter2 = db.get_adapter(&adapter_id).await.unwrap().unwrap();
+
+    // Assert they are equal
+    assert_adapters_equal(&adapter1, &adapter2);
+
+    // Assert specific fields match
+    assert_adapter_fields_match(
+        &adapter1,
+        &adapter2,
+        &["name", "rank", "tier", "hash_b3", "category"]
+    );
+
+    cleanup_test_db(&db).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_utilities_adapter_lineage() -> Result<()> {
+    let db = create_test_db().await?;
+
+    // Create parent adapter
+    let parent_params = TestAdapterFactory::new("parent-adapter")
+        .rank(16)
+        .tier("persistent")
+        .build()?;
+
+    let parent_id = db.register_adapter(parent_params).await?;
+
+    // Create child adapters
+    let mut child_ids = Vec::new();
+    for i in 1..=3 {
+        let child_params = TestAdapterFactory::new(&format!("child-{}", i))
+            .rank(8)
+            .parent_id(parent_id.clone())
+            .fork_type("extension")
+            .fork_reason(format!("Test fork {}", i))
+            .build()?;
+
+        let child_id = db.register_adapter(child_params).await?;
+        child_ids.push(child_id);
+    }
+
+    // Query lineage
+    let lineage = db.get_adapter_lineage(&parent_id).await?;
+
+    // Verify lineage contains parent and all children
+    assert_eq!(lineage.len(), 4, "Should have parent + 3 children");
+
+    cleanup_test_db(&db).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_utilities_semantic_naming() -> Result<()> {
+    let db = create_test_db().await?;
+
+    // Create adapter with semantic naming
+    let params = TestAdapterFactory::new("semantic-test")
+        .adapter_name("acme/backend/api-gateway/v1")
+        .tenant_namespace("acme")
+        .domain("backend")
+        .purpose("api-gateway")
+        .revision("v1")
+        .build()?;
+
+    let adapter_id = db.register_adapter(params).await?;
+
+    // Verify semantic naming fields
+    let adapter = db.get_adapter(&adapter_id).await?.unwrap();
+    assert_eq!(adapter.adapter_name, Some("acme/backend/api-gateway/v1".to_string()));
+    assert_eq!(adapter.tenant_namespace, Some("acme".to_string()));
+    assert_eq!(adapter.domain, Some("backend".to_string()));
+    assert_eq!(adapter.purpose, Some("api-gateway".to_string()));
+    assert_eq!(adapter.revision, Some("v1".to_string()));
+
+    cleanup_test_db(&db).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_utilities_stack_factory() {
+    let db = create_test_db().await.unwrap();
+
+    // Create adapters first
+    let adapter_ids: Vec<String> = (1..=3)
+        .map(|i| {
+            let params = TestAdapterFactory::new(&format!("adapter-{}", i))
+                .rank(8)
+                .build()
+                .unwrap();
+            db.register_adapter(params)
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|fut| futures::executor::block_on(fut).unwrap())
+        .collect();
+
+    // Create stack using factory
+    let stack_factory = TestStackFactory::new("test-stack")
+        .add_adapters(adapter_ids.clone())
+        .description("Test stack for utilities demo");
+
+    assert_eq!(stack_factory.name(), "test-stack");
+    assert_eq!(stack_factory.adapter_ids().len(), 3);
+    assert_eq!(stack_factory.adapter_ids(), &adapter_ids);
+
+    cleanup_test_db(&db).await.unwrap();
+}

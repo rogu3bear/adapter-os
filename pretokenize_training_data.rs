@@ -35,8 +35,10 @@ struct TokenizedExample {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load tokenizer
-    let tokenizer = Tokenizer::from_file("models/qwen2.5-7b-mlx/tokenizer.json")?;
+    // Load tokenizer from AOS_TOKENIZER_PATH or default location
+    let tokenizer_path = std::env::var("AOS_TOKENIZER_PATH")
+        .unwrap_or_else(|_| "var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json".to_string());
+    let tokenizer = Tokenizer::from_file(&tokenizer_path)?;
 
     // Load my training data
     let data: Vec<MyTrainingExample> = serde_json::from_str(&std::fs::read_to_string("training/datasets/codebase/adapteros_docs/training_data.json")?)?;

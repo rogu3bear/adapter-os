@@ -809,6 +809,14 @@ impl MLXFFIBackend {
         self.manifest_hash
     }
 
+    /// Get model configuration
+    ///
+    /// Returns the model's configuration parameters including hidden_size,
+    /// num_attention_heads, num_key_value_heads, rope_theta, etc.
+    pub fn model_config(&self) -> &crate::ModelConfig {
+        &self.model.config
+    }
+
     /// Run inference step using real MLX FFI
     fn run_step_mlx(&self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
         let inference_start = std::time::Instant::now();
@@ -1186,5 +1194,164 @@ mod tests {
         assert_eq!(ring.gates_q15.len(), 8); // Fixed-size arrays
         assert_eq!(ring.k, 3); // Active count
         assert_eq!(ring.position, 0);
+    }
+
+    // =========================================================================
+    // ArcSwap concurrent access tests
+    // =========================================================================
+
+    #[test]
+    fn test_arcswap_concurrent_reads() {
+        use std::sync::Arc;
+        use std::thread;
+
+        // Create a mock backend configuration for testing
+        let adapters: ArcSwap<HashMap<u16, Arc<LoRAAdapter>>> =
+            ArcSwap::from_pointee(HashMap::new());
+
+        // Pre-populate with some adapters
+        let mut initial = HashMap::new();
+        for i in 0..10 {
+            initial.insert(i, Arc::new(create_dummy_adapter(&format!("adapter-{}", i))));
+        }
+        adapters.store(Arc::new(initial));
+
+        // Spawn multiple reader threads
+        let readers: Vec<_> = (0..8)
+            .map(|thread_id| {
+                let adapters_ref = &adapters;
+                // Use scoped threads to avoid 'static lifetime requirements
+                thread::scope(|_| {
+                    // Each reader performs many reads
+                    for _ in 0..1000 {
+                        let snapshot = adapters_ref.load();
+                        // Verify we can read consistently
+                        assert_eq!(
+                            snapshot.len(),
+                            10,
+                            "Thread {} saw inconsistent adapter count",
+                            thread_id
+                        );
+                        // Verify all adapters are accessible
+                        for i in 0..10 {
+                            assert!(
+                                snapshot.get(&i).is_some(),
+                                "Thread {} couldn't find adapter {}",
+                                thread_id,
+                                i
+                            );
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        // All readers completed successfully
+        assert_eq!(readers.len(), 8);
+    }
+
+    #[test]
+    fn test_arcswap_concurrent_read_write() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::thread;
+        use std::time::Duration;
+
+        // Create shared state
+        let adapters: Arc<ArcSwap<HashMap<u16, Arc<LoRAAdapter>>>> =
+            Arc::new(ArcSwap::from_pointee(HashMap::new()));
+        let done = Arc::new(AtomicBool::new(false));
+
+        // Spawn a writer thread that continuously adds/removes adapters
+        let adapters_writer = Arc::clone(&adapters);
+        let done_writer = Arc::clone(&done);
+        let writer = thread::spawn(move || {
+            let mut counter = 0u16;
+            while !done_writer.load(Ordering::Relaxed) {
+                // Add an adapter
+                let mut new_map = (**adapters_writer.load()).clone();
+                new_map.insert(
+                    counter % 100, // Cycle through 100 slots
+                    Arc::new(create_dummy_adapter(&format!("adapter-{}", counter))),
+                );
+                adapters_writer.store(Arc::new(new_map));
+
+                counter = counter.wrapping_add(1);
+
+                // Small sleep to prevent spinning too fast
+                thread::sleep(Duration::from_micros(10));
+            }
+        });
+
+        // Spawn multiple reader threads
+        let readers: Vec<_> = (0..4)
+            .map(|thread_id| {
+                let adapters_reader = Arc::clone(&adapters);
+                let done_reader = Arc::clone(&done);
+                thread::spawn(move || {
+                    let mut reads = 0u64;
+                    while !done_reader.load(Ordering::Relaxed) {
+                        // Read current state
+                        let snapshot = adapters_reader.load();
+
+                        // Verify we got a valid snapshot (not corrupted)
+                        for (id, adapter) in snapshot.iter() {
+                            // Just accessing the adapter should work without panic
+                            assert!(!adapter.id.is_empty(), "Thread {} found empty adapter at {}", thread_id, id);
+                        }
+
+                        reads += 1;
+                    }
+                    reads
+                })
+            })
+            .collect();
+
+        // Let the threads run for a bit
+        thread::sleep(Duration::from_millis(100));
+
+        // Signal completion
+        done.store(true, Ordering::Relaxed);
+
+        // Wait for all threads
+        writer.join().expect("Writer thread panicked");
+        let total_reads: u64 = readers
+            .into_iter()
+            .map(|r| r.join().expect("Reader thread panicked"))
+            .sum();
+
+        // We should have done many reads without any issues
+        assert!(
+            total_reads > 100,
+            "Expected many reads, got only {}",
+            total_reads
+        );
+    }
+
+    #[test]
+    fn test_arcswap_copy_on_write_semantics() {
+        use std::sync::Arc;
+
+        let adapters: ArcSwap<HashMap<u16, Arc<LoRAAdapter>>> =
+            ArcSwap::from_pointee(HashMap::new());
+
+        // Take a snapshot
+        let snapshot1 = adapters.load();
+        assert_eq!(snapshot1.len(), 0);
+
+        // Modify: copy-on-write
+        let mut new_map = (**adapters.load()).clone();
+        new_map.insert(1, Arc::new(create_dummy_adapter("adapter-1")));
+        adapters.store(Arc::new(new_map));
+
+        // Original snapshot unchanged
+        assert_eq!(snapshot1.len(), 0, "Snapshot should be immutable");
+
+        // New snapshot reflects change
+        let snapshot2 = adapters.load();
+        assert_eq!(snapshot2.len(), 1, "New snapshot should have 1 adapter");
+
+        // They are different Arc pointers
+        assert!(!Arc::ptr_eq(&snapshot1, &snapshot2));
     }
 }

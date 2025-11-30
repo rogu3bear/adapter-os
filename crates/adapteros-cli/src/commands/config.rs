@@ -1552,7 +1552,7 @@ fn collect_effective_config(args: &ShowArgs, should_redact: bool) -> Result<Vec<
     let env_vars: HashMap<String, String> = std::env::vars().collect();
 
     let var_definitions: Vec<(&str, &str, &str)> = vec![
-        ("AOS_MODEL_PATH", "model", "./models/qwen2.5-7b-mlx"),
+        ("AOS_MODEL_PATH", "model", "./var/model-cache/models/qwen2.5-7b-instruct-bf16"),
         ("AOS_MODEL_BACKEND", "model", "auto"),
         ("AOS_MODEL_ARCHITECTURE", "model", ""),
         ("AOS_SERVER_HOST", "server", "127.0.0.1"),

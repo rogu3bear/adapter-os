@@ -9,7 +9,9 @@ use adapteros_core::{AosError, Result};
 use adapteros_storage::AdapterKv;
 use adapteros_storage::repos::adapter::AdapterRepository;
 use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 /// Trait for adapter operations in KV mode
@@ -21,6 +23,13 @@ use tracing::{debug, info, warn};
 pub trait AdapterKvOps {
     /// Register a new adapter
     async fn register_adapter_kv(&self, params: AdapterRegistrationParams) -> Result<String>;
+
+    /// Register a new adapter with a specific ID (for dual-write consistency with SQL)
+    async fn register_adapter_kv_with_id(
+        &self,
+        id: &str,
+        params: AdapterRegistrationParams,
+    ) -> Result<String>;
 
     /// Get adapter by ID
     async fn get_adapter_kv(&self, adapter_id: &str) -> Result<Option<Adapter>>;
@@ -74,6 +83,9 @@ pub trait AdapterKvOps {
 
     /// Update adapter tier
     async fn update_adapter_tier_kv(&self, adapter_id: &str, tier: &str) -> Result<()>;
+
+    /// Increment adapter activation count
+    async fn increment_adapter_activation_kv(&self, adapter_id: &str) -> Result<()>;
 }
 
 /// KV adapter service that wraps the repository
@@ -82,6 +94,8 @@ pub struct AdapterKvRepository {
     // We need to track the tenant_id for multi-tenant operations
     // In practice, this might come from request context
     default_tenant: String,
+    // Mutex to serialize concurrent increments for each adapter
+    increment_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl AdapterKvRepository {
@@ -90,6 +104,20 @@ impl AdapterKvRepository {
         Self {
             repo,
             default_tenant,
+            increment_locks: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Create a new KV adapter service with shared locks
+    pub fn new_with_locks(
+        repo: Arc<AdapterRepository>,
+        default_tenant: String,
+        increment_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    ) -> Self {
+        Self {
+            repo,
+            default_tenant,
+            increment_locks,
         }
     }
 }
@@ -207,11 +235,19 @@ impl From<AdapterKv> for Adapter {
 impl AdapterKvOps for AdapterKvRepository {
     async fn register_adapter_kv(&self, params: AdapterRegistrationParams) -> Result<String> {
         let id = uuid::Uuid::now_v7().to_string();
+        self.register_adapter_kv_with_id(&id, params).await
+    }
+
+    async fn register_adapter_kv_with_id(
+        &self,
+        id: &str,
+        params: AdapterRegistrationParams,
+    ) -> Result<String> {
         let now = Utc::now().to_rfc3339();
 
         // Create KV adapter entity (models::AdapterKv uses String timestamps and i32 for booleans)
         let adapter_kv = AdapterKv {
-            id: id.clone(),
+            id: id.to_string(),
             tenant_id: params.tenant_id.clone(),
             adapter_id: Some(params.adapter_id.clone()),
             name: params.name.clone(),
@@ -258,8 +294,8 @@ impl AdapterKvOps for AdapterKvRepository {
         self.repo.create(adapter_kv).await
             .map_err(|e| AosError::Database(format!("Failed to create adapter: {}", e)))?;
 
-        info!(adapter_id = %params.adapter_id, "Adapter registered in KV storage");
-        Ok(id)
+        debug!(adapter_id = %params.adapter_id, tenant_id = %params.tenant_id, id = %id, "Adapter registered in KV storage");
+        Ok(id.to_string())
     }
 
     async fn get_adapter_kv(&self, adapter_id: &str) -> Result<Option<Adapter>> {
@@ -286,7 +322,7 @@ impl AdapterKvOps for AdapterKvRepository {
             return Err(AosError::NotFound(format!("Adapter not found: {}", id)));
         }
 
-        info!(adapter_id = %id, "Adapter deleted from KV storage");
+        debug!(adapter_id = %id, tenant_id = %self.default_tenant, "Adapter deleted from KV storage");
         Ok(())
     }
 
@@ -481,6 +517,38 @@ impl AdapterKvOps for AdapterKvRepository {
         // Save
         self.repo.update(adapter_kv).await
             .map_err(|e| AosError::Database(format!("Failed to update adapter tier: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn increment_adapter_activation_kv(&self, adapter_id: &str) -> Result<()> {
+        debug!(adapter_id = %adapter_id, "Incrementing adapter activation (KV)");
+
+        // Get or create a per-adapter lock to serialize concurrent increments
+        let lock = {
+            let mut locks = self.increment_locks.lock().await;
+            locks
+                .entry(adapter_id.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+
+        // Hold the lock while doing read-modify-write
+        let _guard = lock.lock().await;
+
+        // Get current adapter
+        let mut adapter_kv = self.repo.get(&self.default_tenant, adapter_id).await
+            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        // Increment activation count
+        adapter_kv.activation_count += 1;
+        adapter_kv.last_activated = Some(Utc::now().to_rfc3339());
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
+
+        // Save
+        self.repo.update(adapter_kv).await
+            .map_err(|e| AosError::Database(format!("Failed to increment adapter activation: {}", e)))?;
 
         Ok(())
     }

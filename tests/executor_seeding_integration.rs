@@ -12,12 +12,14 @@ use std::path::PathBuf;
 
 #[test]
 fn test_manifest_based_executor_seeding() {
-    // Load test manifest
-    let manifest_path = PathBuf::from("models/qwen2.5-7b-mlx/manifest.json");
+    // Load test manifest from env or default path
+    let manifest_path = std::env::var("AOS_MANIFEST_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json"));
 
     if !manifest_path.exists() {
         eprintln!(
-            "Manifest not found at {}, skipping test",
+            "Manifest not found at {}, skipping test. Set AOS_MANIFEST_PATH to run this test.",
             manifest_path.display()
         );
         return;
@@ -66,11 +68,13 @@ fn test_fallback_seed_determinism() {
 #[test]
 fn test_manifest_vs_default_seed_differ() {
     // Verify that manifest-based and default seeds are different
-    let manifest_path = PathBuf::from("models/qwen2.5-7b-mlx/manifest.json");
+    let manifest_path = std::env::var("AOS_MANIFEST_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json"));
 
     if !manifest_path.exists() {
         eprintln!(
-            "Manifest not found at {}, skipping test",
+            "Manifest not found at {}, skipping test. Set AOS_MANIFEST_PATH to run this test.",
             manifest_path.display()
         );
         return;

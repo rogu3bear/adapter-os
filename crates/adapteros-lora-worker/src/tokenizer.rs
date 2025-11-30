@@ -98,7 +98,10 @@ mod tests {
     #[test]
     #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored"]
     fn test_tokenizer_round_trip() {
-        let tokenizer = QwenTokenizer::from_file("models/qwen2.5-7b-mlx/tokenizer.json")
+        let tokenizer_path = std::env::var("AOS_TOKENIZER_PATH")
+            .or_else(|_| std::env::var("AOS_MODEL_PATH").map(|p| format!("{}/tokenizer.json", p)))
+            .unwrap_or_else(|_| "var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json".to_string());
+        let tokenizer = QwenTokenizer::from_file(&tokenizer_path)
             .expect("Test tokenizer loading should succeed");
         let text = "Hello, world!";
         let ids = tokenizer

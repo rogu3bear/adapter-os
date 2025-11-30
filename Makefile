@@ -201,12 +201,14 @@ build-mlx: ## Build with real MLX backend (CoreML/Metal + MLX)
 	$(MAKE) verify-mlx-env
 	cargo build -p $(MLX_PACKAGE) --features $(MLX_FEATURES) --profile $(MLX_PROFILE)
 
-test-mlx: ## Run MLX unit and integration tests with real backend
+test-mlx: verify-mlx-metal
 	$(MAKE) verify-mlx-env
 	cargo test -p $(MLX_PACKAGE) --features $(MLX_FEATURES)
 
 bench-mlx: ## Run MLX benchmarks with real backend
 	$(MAKE) verify-mlx-env
 	cargo bench -p $(MLX_PACKAGE) --features $(MLX_FEATURES)
+
+verify-mlx-metal: verify-mlx-env scripts/verify_metal_access.sh ## Verify MLX environment and Metal device access (required for GPU tests)
 
 .DEFAULT_GOAL := help

@@ -5,7 +5,7 @@
 //!
 //! Usage:
 //!   aos-worker --uds-path /tmp/worker.sock --manifest manifests/qwen7b.yaml \
-//!              --model-path models/qwen2.5-7b-mlx --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
+//!              --model-path var/model-cache/models/qwen2.5-7b-instruct-bf16
 
 use adapteros_core::Result;
 use adapteros_lora_worker::{

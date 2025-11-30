@@ -67,6 +67,7 @@ pub mod secd_audit;
 #[cfg(feature = "secd-support")]
 pub mod secd_status;
 pub mod serve;
+pub mod storage;
 pub mod telemetry;
 #[cfg(feature = "tui")]
 pub mod tui;

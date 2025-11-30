@@ -1,99 +1,39 @@
 import React, { useCallback, useEffect, useState, useMemo, memo } from 'react';
 import { toast } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Textarea } from './ui/textarea';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { VirtualizedTableRows } from './ui/virtualized-table';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Switch } from './ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
-import { EmptyState } from './ui/empty-state';
-
 import { LoadingState } from './ui/loading-state';
-import { Checkbox } from './ui/checkbox';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
 import { ExportDialog, ExportOptions, ExportScope } from './ui/export-dialog';
-import { SuccessFeedback, successTemplates } from './ui/success-feedback';
-import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
+import { successTemplates } from './ui/success-feedback';
+import { ErrorRecovery } from './ui/error-recovery';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { TrainingWizard } from './TrainingWizard';
 import { AdapterImportWizard } from './AdapterImportWizard';
 import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
+import { AdapterRegistryTab } from './components/AdapterRegistryTab';
+import { DeleteConfirmDialog } from './components/DeleteConfirmDialog';
 import { useViewTransition } from '../hooks/useViewTransition';
 import { useUndoRedoContext } from '../contexts/UndoRedoContext';
 import { useProgressOperation } from '../hooks/useProgressOperation';
-import { 
-  Plus, 
-  Code, 
-  Settings, 
-  Play, 
-  Pause, 
-  Square, 
-  Download, 
-  Upload,
-  Eye,
-  Edit,
-  Trash2,
-  Clock,
-  Zap,
-  Target,
-  BarChart3,
-  Activity,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Brain,
-  Database,
-  GitBranch,
-  Layers,
-  Cpu,
-  MemoryStick,
-  HardDrive,
-  Snowflake,
-  Thermometer,
-  Flame,
-  Anchor,
-  Pin,
-  MoreHorizontal,
-  ArrowUp,
-  FileText,
-  AlertCircle
-} from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
+import { Plus, Upload, Brain, Database, Target, GitBranch, CheckCircle, AlertCircle } from 'lucide-react';
 import apiClient from '../api/client';
 import { User, Adapter } from '../api/types';
 import { useSSE } from '../hooks/useSSE';
-import { TrainingMonitor } from './TrainingMonitor';
 import { useNavigate } from 'react-router-dom';
-import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';
-import { TrainingTemplates } from './TrainingTemplates';
-import { ResourceMonitor } from './ResourceMonitor';
-import { AdapterStateVisualization } from './AdapterStateVisualization';
-import { AdapterLifecycleManager } from './AdapterLifecycleManager';
-import { AdapterMemoryMonitor } from './AdapterMemoryMonitor';
-import { ContentSection, ContentGrid, ContentList } from './ui/content-section';
+import { logger, toError } from '../utils/logger';
 import { getVisualHierarchyClasses } from '../utils/visual-hierarchy';
+import { ContentSection } from './ui/content-section';
 import { CodeIntelligence } from './CodeIntelligence';
 import { RouterConfigPage } from './RouterConfigPage';
 import { TrainingStreamPage } from './TrainingStreamPage';
-import { DomainAdapterManager } from './DomainAdapterManager';
-import { logger, toError } from '../utils/logger';
-import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
-import { BookmarkButton } from './ui/bookmark-button';
-import { getLifecycleVariant } from '../utils/lifecycle';
 import { SectionErrorBoundary } from './ui/section-error-boundary';
+import { useAdapterFilters } from './hooks/useAdapterFilters';
 
 interface AdaptersProps {
   user: User;
@@ -1014,129 +954,8 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
 
   const [showHealthModal, setShowHealthModal] = useState(false);
   const [healthData, setHealthData] = useState<any | null>(null);
-  
-  // Filtering state
-  const [filterValues, setFilterValues] = useState<FilterValues>({});
-  
-  // Filter configurations for adapters
-  const adapterFilterConfigs: FilterConfig[] = useMemo(() => [
-    {
-      id: 'search',
-      label: 'Search',
-      type: 'text',
-      placeholder: 'Search by name or adapter ID...',
-    },
-    {
-      id: 'category',
-      label: 'Category',
-      type: 'select',
-      options: [
-        { value: 'code', label: 'Code' },
-        { value: 'framework', label: 'Framework' },
-        { value: 'codebase', label: 'Codebase' },
-        { value: 'ephemeral', label: 'Ephemeral' },
-      ],
-    },
-    {
-      id: 'framework',
-      label: 'Framework',
-      type: 'select',
-      options: Array.from(new Set(adapters.map(a => a.framework).filter(Boolean)))
-        .map(f => ({ value: f!, label: f! })),
-    },
-    {
-      id: 'state',
-      label: 'State',
-      type: 'multiSelect',
-      options: [
-        { value: 'unloaded', label: 'Unloaded' },
-        { value: 'cold', label: 'Cold' },
-        { value: 'warm', label: 'Warm' },
-        { value: 'hot', label: 'Hot' },
-        { value: 'resident', label: 'Resident' },
-      ],
-    },
-    {
-      id: 'tier',
-      label: 'Tier',
-      type: 'multiSelect',
-      options: [
-        { value: '1', label: 'Tier 1' },
-        { value: '2', label: 'Tier 2' },
-        { value: '3', label: 'Tier 3' },
-        { value: '4', label: 'Tier 4' },
-      ],
-    },
-    {
-      id: 'scope',
-      label: 'Scope',
-      type: 'multiSelect',
-      options: [
-        { value: 'global', label: 'Global' },
-        { value: 'tenant', label: 'Organization' },
-        { value: 'repo', label: 'Repo' },
-        { value: 'commit', label: 'Commit' },
-      ],
-    },
-    {
-      id: 'pinned',
-      label: 'Protected Only',
-      type: 'toggle',
-    },
-  ], [adapters]);
-  
-  // Filter adapters based on filter values - memoized for performance
-  const filteredAdapters = useMemo(() => adapters.filter(adapter => {
-    // Search filter
-    if (filterValues.search) {
-      const searchLower = String(filterValues.search).toLowerCase();
-      if (
-        !adapter.name.toLowerCase().includes(searchLower) &&
-        !adapter.adapter_id.toLowerCase().includes(searchLower) &&
-        !(adapter.framework?.toLowerCase().includes(searchLower))
-      ) {
-        return false;
-      }
-    }
 
-    // Category filter
-    if (filterValues.category && adapter.category !== filterValues.category) {
-      return false;
-    }
-
-    // Framework filter
-    if (filterValues.framework && adapter.framework !== filterValues.framework) {
-      return false;
-    }
-
-    // State filter (multi-select)
-    if (filterValues.state && Array.isArray(filterValues.state) && filterValues.state.length > 0) {
-      if (!filterValues.state.includes(adapter.current_state)) {
-        return false;
-      }
-    }
-
-    // Tier filter (multi-select)
-    if (filterValues.tier && Array.isArray(filterValues.tier) && filterValues.tier.length > 0) {
-      if (!filterValues.tier.includes(String(adapter.tier))) {
-        return false;
-      }
-    }
-
-    // Scope filter (multi-select)
-    if (filterValues.scope && Array.isArray(filterValues.scope) && filterValues.scope.length > 0) {
-      if (!filterValues.scope.includes(adapter.scope)) {
-        return false;
-      }
-    }
-
-    // Pinned filter
-    if (filterValues.pinned === true && !adapter.pinned) {
-      return false;
-    }
-
-    return true;
-  }), [adapters, filterValues]);
+  const { adapterFilterConfigs, filteredAdapters, filterValues, setFilterValues } = useAdapterFilters(adapters);
 
   const handleViewHealth = useCallback(async (adapterId: string) => {
     try {
@@ -1158,37 +977,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
     }
   }, [adapters]);
 
-  const getStateIcon = (state: string) => {
-    switch (state) {
-      case 'unloaded': return <Square className="h-4 w-4 text-gray-500" />;
-      case 'cold': return <Snowflake className="h-4 w-4 text-gray-400" />;
-      case 'warm': return <Thermometer className="h-4 w-4 text-gray-500" />;
-      case 'hot': return <Flame className="h-4 w-4 text-gray-600" />;
-      case 'resident': return <Anchor className="h-4 w-4 text-gray-600" />;
-      default: return <Activity className="h-4 w-4 text-gray-500" />;
-    }
-  };
 
-  const getStateBadge = (state: string) => {
-    const variants = {
-      unloaded: 'bg-gray-100 text-gray-800',
-      cold: 'bg-gray-100 text-gray-600',
-      warm: 'bg-gray-100 text-gray-700',
-      hot: 'bg-gray-200 text-gray-800',
-      resident: 'bg-gray-200 text-gray-800'
-    };
-    return variants[state as keyof typeof variants] || 'bg-gray-100 text-gray-800';
-  };
-
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'code': return <Code className="h-4 w-4" />;
-      case 'framework': return <Layers className="h-4 w-4" />;
-      case 'codebase': return <GitBranch className="h-4 w-4" />;
-      case 'ephemeral': return <Clock className="h-4 w-4" />;
-      default: return <Code className="h-4 w-4" />;
-    }
-  };
 
   if (loading) {
     return (
@@ -1309,233 +1098,24 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
         {/* Registry Tab */}
 
         <TabsContent value="registry" className="mb-4">
-          <AdvancedFilter
-            configs={adapterFilterConfigs}
-            values={filterValues}
-            onChange={setFilterValues}
-            className="mb-4"
-            title="Filter Adapters"
+          <AdapterRegistryTab
+            adapters={adapters}
+            filteredAdapters={filteredAdapters}
+            selectedAdapters={selectedAdapters}
+            setSelectedAdapters={setSelectedAdapters}
+            adapterFilterConfigs={adapterFilterConfigs}
+            filterValues={filterValues}
+            setFilterValues={setFilterValues}
+            setExportDialogScope={setExportDialogScope}
+            setShowExportDialog={setShowExportDialog}
+            handleLoadAdapter={handleLoadAdapter}
+            handleUnloadAdapter={handleUnloadAdapter}
+            handlePinToggle={handlePinToggle}
+            handlePromoteState={handlePromoteState}
+            handleViewHealth={handleViewHealth}
+            handleDownloadManifest={handleDownloadManifest}
+            setDeleteConfirmId={setDeleteConfirmId}
           />
-          <Card className="card-standard">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center justify-center">
-                  <Code className="h-6 w-6 mr-2" />
-                  Registered Adapters
-                  {filteredAdapters.length !== adapters.length && (
-                    <span className="ml-2 text-sm font-normal text-muted-foreground">
-                      ({filteredAdapters.length} of {adapters.length})
-                    </span>
-                  )}
-                </CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setExportDialogScope(selectedAdapters.length > 0 ? 'selected' : 'all');
-                    setShowExportDialog(true);
-                  }}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Export
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <SectionErrorBoundary sectionName="Adapter List">
-              <div className="max-h-[600px] overflow-auto" data-virtual-container>
-              <Table className="border-collapse w-full" role="table" aria-label="Registered adapters">
-                <TableHeader>
-                  <TableRow role="row">
-                    <TableHead className="p-4 border-b border-border w-12" role="columnheader" scope="col">
-                      <Checkbox
-                        checked={
-                          filteredAdapters.length === 0
-                            ? false
-                            : selectedAdapters.length === filteredAdapters.length && filteredAdapters.length > 0
-                              ? true
-                              : selectedAdapters.length > 0 && selectedAdapters.some(id => filteredAdapters.some(a => a.adapter_id === id))
-                                ? 'indeterminate'
-                                : false
-                          }
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setSelectedAdapters(filteredAdapters.map(a => a.adapter_id));
-                            } else {
-                              setSelectedAdapters([]);
-                            }
-                          }}
-                          aria-label="Select all adapters"
-                        />
-                      </TableHead>
-                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Name</TableHead>
-                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Category</TableHead>
-                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Version</TableHead>
-                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Lifecycle</TableHead>
-                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">State</TableHead>
-                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Memory</TableHead>
-                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Activations</TableHead>
-                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Last Used</TableHead>
-                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Actions</TableHead>
-                    </TableRow>
-
-                  </TableHeader>
-                  <TableBody>
-                    {filteredAdapters.length === 0 ? (
-                      <TableRow role="row">
-                        <TableCell colSpan={10} className="h-32" role="gridcell" aria-live="polite">
-                          <EmptyState
-                            icon={Code}
-                            title={adapters.length === 0 ? "No Adapters Registered" : "No Adapters Match Filters"}
-                            description={adapters.length === 0
-                              ? "Get started by registering your first adapter or training a new one from your codebase. Use the Register or Train buttons above to begin."
-                              : "Try adjusting your filters to see more results."}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      <VirtualizedTableRows items={filteredAdapters} estimateSize={60}>
-                        {(adapter) => {
-                          const adapterTyped = adapter as typeof adapters[0];
-                          return (
-                                    <TableRow key={adapterTyped.id} role="row">
-                              <TableCell className="p-4 border-b border-border" role="gridcell">
-                                <Checkbox
-                                  checked={selectedAdapters.includes(adapterTyped.adapter_id)}
-                                  onCheckedChange={(checked) => {
-                                    if (checked) {
-                                      setSelectedAdapters(prev => [...prev, adapterTyped.adapter_id]);
-                                    } else {
-                                      setSelectedAdapters(prev => prev.filter(id => id !== adapterTyped.adapter_id));
-                                    }
-                                  }}
-                                  aria-label={`Select ${adapterTyped.name}`}
-                                />
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center justify-center">
-                                  {getCategoryIcon(adapterTyped.category)}
-                                  <div>
-                                    <div className="font-medium">{adapterTyped.name}</div>
-                                    <div className="text-sm text-muted-foreground">
-                                      Tier {adapterTyped.tier} • Rank {adapterTyped.rank}
-                                    </div>
-                                  </div>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border" role="gridcell">
-                                <div className="status-indicator status-neutral flex items-center justify-center">
-                                  {getCategoryIcon(adapterTyped.category)}
-                                  <span>{adapterTyped.category}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">
-                                {adapterTyped.version || '1.0.0'}
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <Badge variant={getLifecycleVariant(adapterTyped.lifecycle_state)}>
-                                  {adapterTyped.lifecycle_state || 'active'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center justify-center">
-                                  {getStateIcon(adapterTyped.current_state)}
-                                  <div className={`status-indicator ${
-                                    adapterTyped.current_state === 'hot' ? 'status-error' :
-                                    adapterTyped.current_state === 'warm' ? 'status-warning' :
-                                    adapterTyped.current_state === 'cold' ? 'status-info' :
-                                    adapterTyped.current_state === 'resident' ? 'status-success' :
-                                    'status-neutral'
-                                  }`}>
-                                    {adapterTyped.current_state}
-                                  </div>
-                                  {adapterTyped.pinned && (
-                                    <Pin className="h-4 w-4 text-gray-600" />
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center justify-center">
-                                  <MemoryStick className="h-4 w-4" />
-                                  <span>{Math.round(adapterTyped.memory_bytes / 1024 / 1024)} MB</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center justify-center">
-                                  <Target className="h-4 w-4" />
-                                  <span>{adapterTyped.activation_count}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center justify-center">
-                                  <Clock className="h-4 w-4" />
-                                  <span>{adapterTyped.last_activated ? new Date(adapterTyped.last_activated).toLocaleString() : 'Never'}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center gap-1">
-                                  <BookmarkButton
-                                    type="adapter"
-                                    title={adapterTyped.name}
-                                    url={`/adapters?adapter=${encodeURIComponent(adapterTyped.adapter_id)}`}
-                                    entityId={adapterTyped.adapter_id}
-                                    description={`${adapterTyped.framework || 'Unknown'} • ${adapterTyped.category || 'Unknown category'}`}
-                                    variant="ghost"
-                                    size="icon"
-                                  />
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm" aria-label={`Actions for ${adapterTyped.name}`}>
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                    {adapterTyped.current_state === 'warm' || adapterTyped.current_state === 'hot' || adapterTyped.current_state === 'resident' ? (
-                                      <DropdownMenuItem onClick={() => handleUnloadAdapter(adapterTyped.adapter_id)}>
-                                        <Pause className="mr-2 h-4 w-4" />
-                                        Unload
-                                      </DropdownMenuItem>
-                                    ) : (
-                                      <DropdownMenuItem onClick={() => handleLoadAdapter(adapterTyped.adapter_id)}>
-                                        <Play className="mr-2 h-4 w-4" />
-                                        Load
-                                      </DropdownMenuItem>
-                                    )}
-                                    <DropdownMenuItem onClick={() => handlePinToggle(adapterTyped)}>
-                                      <Pin className="mr-2 h-4 w-4" />
-                                      {adapterTyped.pinned ? 'Unpin' : 'Pin'}
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handlePromoteState(adapterTyped.adapter_id)}>
-                                      <ArrowUp className="mr-2 h-4 w-4" />
-                                      Promote State
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleViewHealth(adapterTyped.adapter_id)}>
-                                      <Activity className="mr-2 h-4 w-4" />
-                                      View Health
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleDownloadManifest(adapterTyped.adapter_id)}>
-                                      <Download className="mr-2 h-4 w-4" />
-                                      Download Manifest
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => setDeleteConfirmId(adapterTyped.adapter_id)}>
-                                      <Trash2 className="mr-2 h-4 w-4 text-gray-700" />
-                                      Delete
-                                    </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    }}
-                  </VirtualizedTableRows>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-              </SectionErrorBoundary>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         {/* Training Tab */}
@@ -1868,201 +1448,3 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
     </div>
   );
 });
-
-// Helper function to get category icon
-function getCategoryIcon(category: string) {
-  switch (category) {
-    case 'code':
-      return <Code className="h-4 w-4 text-blue-500" />;
-    case 'framework':
-      return <Layers className="h-4 w-4 text-green-500" />;
-    case 'codebase':
-      return <GitBranch className="h-4 w-4 text-purple-500" />;
-    case 'ephemeral':
-      return <Clock className="h-4 w-4 text-orange-500" />;
-    default:
-      return <Code className="h-4 w-4" />;
-  }
-}
-
-// Helper function to get state badge variant
-function getStateBadgeVariant(state: string): "default" | "secondary" | "outline" | "destructive" {
-  switch (state) {
-    case 'resident':
-      return 'default';
-    case 'hot':
-      return 'default';
-    case 'warm':
-      return 'secondary';
-    case 'cold':
-      return 'outline';
-    case 'unloaded':
-      return 'outline';
-    default:
-      return 'secondary';
-  }
-}
-
-// Helper function to get state icon
-function getStateIcon(state: string) {
-  switch (state) {
-    case 'resident':
-      return <Anchor className="h-3 w-3" />;
-    case 'hot':
-      return <Flame className="h-3 w-3" />;
-    case 'warm':
-      return <Thermometer className="h-3 w-3" />;
-    case 'cold':
-      return <Snowflake className="h-3 w-3" />;
-    case 'unloaded':
-      return <Square className="h-3 w-3" />;
-    default:
-      return null;
-  }
-}
-
-// Register Adapter Form Component
-function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
-  const [formData, setFormData] = useState({
-    name: '',
-    adapter_hash: '',
-    capability_tags: '',
-    tier: 'persistent',
-    rank: 16,
-    framework: '',
-    framework_version: ''
-  });
-
-  return (
-    <SectionErrorBoundary sectionName="Register Form">
-    <div className="space-y-4">
-      <div>
-        <Label htmlFor="name">Adapter Name</Label>
-        <Input 
-          id="name" 
-          value={formData.name}
-          onChange={(e) => setFormData({...formData, name: e.target.value})}
-          placeholder="my-adapter-v1"
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="adapter_hash">Adapter Hash</Label>
-        <Input 
-          id="adapter_hash" 
-          value={formData.adapter_hash}
-          onChange={(e) => setFormData({...formData, adapter_hash: e.target.value})}
-          placeholder="b3:abc123..."
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="capability_tags">Capability Tags</Label>
-        <Input 
-          id="capability_tags" 
-          value={formData.capability_tags}
-          onChange={(e) => setFormData({...formData, capability_tags: e.target.value})}
-          placeholder="python,django,web"
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="tier">Tier</Label>
-          <Select>
-            <SelectTrigger>
-              <SelectValue placeholder="Select tier" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="persistent">Persistent</SelectItem>
-              <SelectItem value="ephemeral">Ephemeral</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="rank">Rank</Label>
-          <Input
-            id="rank"
-            type="number"
-            value={formData.rank}
-            onChange={(e) => setFormData({...formData, rank: parseInt(e.target.value)})}
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="framework">Framework</Label>
-          <Input
-            id="framework"
-            value={formData.framework}
-            onChange={(e) => setFormData({...formData, framework: e.target.value})}
-            placeholder="django"
-          />
-        </div>
-        <div>
-          <Label htmlFor="framework_version">Framework Version</Label>
-          <Input
-            id="framework_version"
-            value={formData.framework_version}
-            onChange={(e) => setFormData({...formData, framework_version: e.target.value})}
-            placeholder="4.2"
-          />
-        </div>
-      </div>
-
-      <div className="flex justify-end space-x-2">
-        <Button variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button onClick={() => {
-          // Register adapter - placeholder implementation
-          toast.info('Adapter registration coming soon');
-          onClose();
-        }}>
-          Register Adapter
-        </Button>
-      </div>
-    </div>
-    </SectionErrorBoundary>
-  );
-}
-
-// Delete Confirmation Dialog
-function DeleteConfirmDialog({ 
-  open, 
-  adapterId, 
-  onConfirm, 
-  onCancel 
-}: { 
-  open: boolean; 
-  adapterId: string | null; 
-  onConfirm: (id: string) => void; 
-  onCancel: () => void;
-}) {
-  if (!open || !adapterId) return null;
-
-  return (
-    <Dialog open={open} onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Confirm Delete</DialogTitle>
-        </DialogHeader>
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            Are you sure you want to delete adapter <code className="font-mono">{adapterId}</code>? This action cannot be undone.
-          </AlertDescription>
-        </Alert>
-        <div className="flex items-center justify-end">
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button variant="destructive" onClick={() => onConfirm(adapterId)}>
-            Delete Adapter
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}

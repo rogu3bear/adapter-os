@@ -20,7 +20,7 @@ pub mod config;
 pub mod ffi;
 pub mod fusion;
 
-pub use config::{ComputeUnits, CoreMLConfig};
+pub use config::{ComputeUnits, CoreMLConfig, CoreMLModelParams};
 pub use ffi::{
     capabilities, AneCheckResult, ComputeUnitPreference, CoreMLAsyncCallback, MLTensorHandle,
     MltensorApiVersion, OperationType,
@@ -349,6 +349,61 @@ impl MLTensor {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = dim;
+            Err(AosError::Kernel(
+                "MLTensor only available on macOS".to_string(),
+            ))
+        }
+    }
+
+    /// Apply softmax with compute unit preference (macOS 26+ optimized)
+    ///
+    /// On macOS 26+ (Tahoe), this method allows explicit selection of compute units.
+    /// Softmax benefits from GPU execution due to its transcendental operations.
+    /// On earlier versions, falls back to default softmax.
+    ///
+    /// # Arguments
+    /// * `dim` - Dimension for softmax (-1 for last dimension)
+    /// * `compute_units` - Preferred compute units (e.g., CpuAndGpu for softmax)
+    ///
+    /// # Errors
+    /// Returns `AosError::Kernel` if the operation fails
+    pub fn softmax_with_compute_units(
+        &self,
+        dim: i32,
+        compute_units: ComputeUnitPreference,
+    ) -> Result<Self> {
+        #[cfg(target_os = "macos")]
+        {
+            match self.bridge_type {
+                TensorBridgeType::Swift => {
+                    // Use v2 API with compute unit preference (macOS 26+ optimized)
+                    let result = unsafe {
+                        ffi::swift_coreml_tensor_softmax_v2(
+                            self.swift_handle,
+                            dim,
+                            compute_units as i32,
+                        )
+                    };
+                    if result.is_null() {
+                        return Err(AosError::Kernel("Softmax operation failed".to_string()));
+                    }
+                    // Softmax preserves shape
+                    Ok(Self {
+                        swift_handle: result,
+                        objc_handle: self.objc_handle,
+                        bridge_type: TensorBridgeType::Swift,
+                    })
+                }
+                TensorBridgeType::ObjCpp => {
+                    // ObjC++ doesn't have v2 API, fall back to regular softmax
+                    self.softmax(dim)
+                }
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (dim, compute_units);
             Err(AosError::Kernel(
                 "MLTensor only available on macOS".to_string(),
             ))
@@ -835,6 +890,9 @@ pub struct CoreMLBackend {
     use_mltensor: bool,
     /// Which tensor bridge implementation is being used
     tensor_bridge: TensorBridgeType,
+    /// Model-specific parameters (optional override from config.json)
+    /// If None, defaults to Qwen2.5-7B parameters
+    model_params: Option<CoreMLModelParams>,
 }
 
 unsafe impl Send for CoreMLBackend {}
@@ -887,6 +945,7 @@ impl CoreMLBackend {
             production_mode: false,
             use_mltensor: false,
             tensor_bridge: TensorBridgeType::ObjCpp,
+            model_params: None,
         })
     }
 
@@ -989,6 +1048,7 @@ impl CoreMLBackend {
                 production_mode,
                 use_mltensor,
                 tensor_bridge,
+                model_params: None,
             })
         }
     }
@@ -998,6 +1058,44 @@ impl CoreMLBackend {
     /// This is a convenience constructor for development/testing.
     pub fn new_default(compute_units: ComputeUnits) -> Result<Self> {
         Self::new(compute_units, false)
+    }
+
+    /// Set model-specific parameters for inference
+    ///
+    /// This allows configuring the backend with parameters from the model's config.json
+    /// file, enabling correct attention head dimensions, GQA group sizes, etc.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use adapteros_lora_kernel_coreml::{CoreMLBackend, CoreMLModelParams, ComputeUnits};
+    ///
+    /// let mut backend = CoreMLBackend::new(ComputeUnits::CpuAndNeuralEngine, true)?;
+    /// backend.set_model_params(CoreMLModelParams::new(
+    ///     3584,      // hidden_size
+    ///     28,        // num_attention_heads
+    ///     4,         // num_key_value_heads
+    ///     18944,     // intermediate_size
+    ///     1000000.0, // rope_theta
+    ///     32768,     // max_seq_len
+    /// ));
+    /// ```
+    pub fn set_model_params(&mut self, params: CoreMLModelParams) {
+        tracing::info!(
+            hidden_size = params.hidden_size,
+            num_attention_heads = params.num_attention_heads,
+            num_key_value_heads = params.num_key_value_heads,
+            head_dim = params.head_dim(),
+            kv_groups = params.kv_groups(),
+            "Setting CoreML model parameters"
+        );
+        self.model_params = Some(params);
+    }
+
+    /// Get current model parameters
+    ///
+    /// Returns the configured model parameters, or defaults if not set.
+    pub fn model_params(&self) -> CoreMLModelParams {
+        self.model_params.clone().unwrap_or_default()
     }
 
     #[cfg(target_os = "macos")]
@@ -1196,16 +1294,28 @@ impl CoreMLBackend {
         // Check for macOS 26+ enhanced APIs (Tahoe)
         let use_enhanced_api = has_enhanced_api();
 
-        // Per-operation compute unit scheduling:
-        // - Tensor creation: Use TensorOp preference (let CoreML decide in dev mode)
-        // - Element-wise ops (scale, add): Use ElementWise preference (GPU in dev mode)
+        // Per-operation compute unit scheduling based on operation characteristics:
+        // - TensorOp (data movement): Let CoreML decide optimal placement
+        // - MatMul: ANE-optimized (high throughput matrix operations)
+        // - Softmax: GPU-preferred (transcendental functions more efficient on GPU)
+        // - ElementWise (scale, add): GPU-preferred in dev mode
         // In production mode, all operations use ANE for determinism
-        let tensor_compute_units = OperationType::TensorOp.preferred_compute_units(self.production_mode);
+        let tensor_compute_units =
+            OperationType::TensorOp.preferred_compute_units(self.production_mode);
+        // Ready for use when element-wise ops with compute unit selection are added
+        let _elementwise_compute_units =
+            OperationType::ElementWise.preferred_compute_units(self.production_mode);
+        // Ready for use when matmul ops in adapter fusion are added
+        let _matmul_compute_units =
+            OperationType::MatMul.preferred_compute_units(self.production_mode);
 
         tracing::trace!(
             production_mode = self.production_mode,
             tensor_compute_units = ?tensor_compute_units,
-            "Per-operation ANE scheduling active"
+            elementwise_compute_units = ?_elementwise_compute_units,
+            matmul_compute_units = ?_matmul_compute_units,
+            "Per-operation ANE scheduling: {} mode",
+            if self.production_mode { "production (ANE-only)" } else { "development (mixed)" }
         );
 
         // Create tensor from base logits using appropriate API

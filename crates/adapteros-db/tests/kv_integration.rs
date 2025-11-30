@@ -290,7 +290,7 @@ async fn test_lineage_kv_vs_sql() {
         .rank(4)
         .tier("ephemeral")
         .category("code")
-        .scope("session")
+        .scope("global")
         .parent_id(Some(child_uuids[0].clone()))
         .fork_type(Some("independent".to_string()))
         .fork_reason(Some("Testing lineage".to_string()))

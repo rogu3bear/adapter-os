@@ -33,6 +33,7 @@ rand = "0.8"
 rand_chacha = "0.3"  # For deterministic RNG per Determinism Policy
 async-trait = "0.1"
 walkdir = "2.4"  # For directory traversal in model import
+once_cell = "1.19"  # For global KV metrics singleton
 
 # Cryptography for migration verification
 blake3 = { workspace = true }
@@ -49,3 +50,8 @@ utoipa = ["dep:utoipa"]
 
 [dev-dependencies]
 tempfile = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "kv_vs_sql"
+harness = false

@@ -253,7 +253,7 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
 /// use std::path::PathBuf;
 ///
 /// # fn main() -> Result<(), adapteros_core::AosError> {
-/// let mut config = ModelConfig::new(PathBuf::from("./models/qwen2.5-7b"));
+/// let mut config = ModelConfig::new(PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"));
 /// config.backend = BackendPreference::CoreML;
 /// let backend = create_backend_from_config(&config)?;
 /// # Ok(())
@@ -283,7 +283,7 @@ pub fn create_backend_from_config(config: &ModelConfig) -> Result<Box<dyn FusedK
 /// use std::path::Path;
 /// use adapteros_lora_worker::backend_factory::{BackendChoice, create_backend_with_model};
 ///
-/// let backend = create_backend_with_model(BackendChoice::Mlx, Path::new("./models/qwen2.5-7b"))?;
+/// let backend = create_backend_with_model(BackendChoice::Mlx, Path::new("./var/model-cache/models/qwen2.5-7b-instruct-bf16"))?;
 /// # Ok::<(), adapteros_core::AosError>(())
 /// ```
 pub fn create_backend_with_model(
@@ -351,10 +351,25 @@ pub fn create_backend_with_model(
         BackendChoice::CoreML => {
             #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
             {
-                use adapteros_lora_kernel_coreml::{init_coreml, ComputeUnits, CoreMLBackend};
+                use adapteros_lora_kernel_coreml::{
+                    init_coreml, ComputeUnits, CoreMLBackend, CoreMLModelParams,
+                };
 
                 // Initialize CoreML runtime
                 init_coreml()?;
+
+                // Load model configuration from config.json if available
+                let model_config = ModelConfig::from_config_json(model_path).ok();
+                if let Some(ref cfg) = model_config {
+                    info!(
+                        architecture = %cfg.architecture,
+                        hidden_size = cfg.hidden_size,
+                        num_attention_heads = cfg.num_attention_heads,
+                        num_kv_heads = cfg.num_key_value_heads,
+                        rope_theta = cfg.rope_theta,
+                        "Loaded model configuration for CoreML backend"
+                    );
+                }
 
                 // Use CpuAndNeuralEngine for optimal ANE utilization
                 let compute_units = ComputeUnits::CpuAndNeuralEngine;
@@ -366,7 +381,20 @@ pub fn create_backend_with_model(
                     production_mode = production_mode,
                     "Creating CoreML kernel backend"
                 );
-                let backend = CoreMLBackend::new(compute_units, production_mode)?;
+                let mut backend = CoreMLBackend::new(compute_units, production_mode)?;
+
+                // Set model parameters from config.json if available
+                if let Some(cfg) = model_config {
+                    backend.set_model_params(CoreMLModelParams::new(
+                        cfg.hidden_size,
+                        cfg.num_attention_heads,
+                        cfg.num_key_value_heads,
+                        cfg.intermediate_size,
+                        cfg.rope_theta,
+                        cfg.max_seq_len,
+                    ));
+                }
+
                 Ok(Box::new(backend))
             }
             #[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
@@ -409,7 +437,7 @@ pub fn create_backend_with_model(
 /// let hash = B3Hash::hash(b"model-manifest");
 /// let backend = create_backend_with_model_and_hash(
 ///     BackendChoice::Mlx,
-///     Path::new("./models/qwen2.5-7b"),
+///     Path::new("./var/model-cache/models/qwen2.5-7b-instruct-bf16"),
 ///     Some(&hash)
 /// )?;
 /// ```

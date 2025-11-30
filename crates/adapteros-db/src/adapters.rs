@@ -403,11 +403,15 @@ pub struct AdapterActivation {
 
 impl Db {
     /// Get an AdapterKvRepository if KV writes are enabled
-    fn get_adapter_kv_repo(&self, tenant_id: &str) -> Option<AdapterKvRepository> {
+    pub(crate) fn get_adapter_kv_repo(&self, tenant_id: &str) -> Option<AdapterKvRepository> {
         if self.storage_mode().write_to_kv() {
             self.kv_backend().map(|kv| {
                 let repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
-                AdapterKvRepository::new(Arc::new(repo), tenant_id.to_string())
+                AdapterKvRepository::new_with_locks(
+                    Arc::new(repo),
+                    tenant_id.to_string(),
+                    kv.increment_locks().clone(),
+                )
             })
         } else {
             None
@@ -417,7 +421,7 @@ impl Db {
     /// Get tenant_id for an adapter by adapter_id (external ID)
     ///
     /// Returns None if adapter doesn't exist
-    async fn get_adapter_tenant_id(&self, adapter_id: &str) -> Result<Option<String>> {
+    pub(crate) async fn get_adapter_tenant_id(&self, adapter_id: &str) -> Result<Option<String>> {
         let tenant_id: Option<String> =
             sqlx::query_scalar("SELECT tenant_id FROM adapters WHERE adapter_id = ?")
                 .bind(adapter_id)
@@ -425,6 +429,49 @@ impl Db {
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(tenant_id)
+    }
+
+    /// Get adapter directly from KV without SQL tenant lookup
+    ///
+    /// This is used for KV-only adapters that don't exist in SQL.
+    /// It queries the BY_ADAPTER_ID index to find the adapter.
+    async fn get_adapter_from_kv_direct(&self, adapter_id: &str) -> Result<Option<Adapter>> {
+        use adapteros_storage::kv::indexing::adapter_indexes;
+
+        let kv = match self.kv_backend() {
+            Some(kv) => kv,
+            None => return Ok(None),
+        };
+
+        // Query BY_ADAPTER_ID index to find the internal UUID
+        let internal_ids = kv
+            .index_manager()
+            .query_index(adapter_indexes::BY_ADAPTER_ID, adapter_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to query adapter index: {}", e)))?;
+
+        let internal_id = match internal_ids.first() {
+            Some(id) => id,
+            None => return Ok(None),
+        };
+
+        // Load adapter by internal UUID
+        let key = format!("adapter:{}", internal_id);
+        let bytes = match kv
+            .backend()
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+        {
+            Some(b) => b,
+            None => return Ok(None),
+        };
+
+        // Deserialize and convert to Adapter
+        let adapter_kv: adapteros_storage::AdapterKv = bincode::deserialize(&bytes)
+            .map_err(|e| AosError::Database(format!("Failed to deserialize adapter: {}", e)))?;
+
+        Ok(Some(adapter_kv.into()))
     }
 
     /// Register a new adapter
@@ -517,12 +564,12 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
-        // KV write (dual-write mode)
+        // KV write (dual-write mode) - use same ID as SQL for consistency
         if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
-            if let Err(e) = repo.register_adapter_kv(params.clone()).await {
-                warn!(error = %e, adapter_id = %id, "Failed to write adapter to KV backend (dual-write)");
+            if let Err(e) = repo.register_adapter_kv_with_id(&id, params.clone()).await {
+                warn!(error = %e, adapter_id = %id, mode = "dual-write", "Failed to write adapter to KV backend");
             } else {
-                debug!(adapter_id = %id, "Adapter written to both SQL and KV backends");
+                debug!(adapter_id = %id, tenant_id = %params.tenant_id, mode = "dual-write", "Adapter registered in both SQL and KV backends");
             }
         }
 
@@ -620,17 +667,17 @@ impl Db {
             if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
                 match repo.list_adapters_for_tenant_kv(tenant_id).await {
                     Ok(adapters) if !adapters.is_empty() => {
-                        debug!(tenant_id = %tenant_id, count = adapters.len(), "Retrieved adapters from KV");
+                        debug!(tenant_id = %tenant_id, count = adapters.len(), mode = "kv-primary", "Retrieved adapters from KV");
                         return Ok(adapters);
                     }
-                    Ok(_) if self.storage_mode().read_from_sql() => {
-                        debug!(tenant_id = %tenant_id, "KV returned empty list, falling back to SQL");
+                    Ok(_) if self.storage_mode().sql_fallback_enabled() => {
+                        debug!(tenant_id = %tenant_id, mode = "kv-fallback", "KV returned empty list, falling back to SQL");
                     }
                     Ok(adapters) => {
                         return Ok(adapters);
                     }
-                    Err(e) if self.storage_mode().read_from_sql() => {
-                        warn!(error = %e, tenant_id = %tenant_id, "KV read failed, falling back to SQL");
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        warn!(error = %e, tenant_id = %tenant_id, mode = "kv-fallback", "KV read failed, falling back to SQL");
                     }
                     Err(e) => {
                         return Err(e);
@@ -713,9 +760,9 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
             if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
-                warn!(error = %e, adapter_id = %adapter_id, "Failed to delete adapter from KV backend (dual-write)");
+                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to delete adapter from KV backend");
             } else {
-                debug!(adapter_id = %adapter_id, "Adapter deleted from both SQL and KV backends");
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter deleted from both SQL and KV backends");
             }
         }
 
@@ -803,9 +850,9 @@ impl Db {
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
             if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
-                warn!(error = %e, adapter_id = %adapter_id, "Failed to delete adapter from KV backend (dual-write, cascade)");
+                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to cascade delete adapter from KV backend");
             } else {
-                debug!(adapter_id = %adapter_id, "Adapter deleted from both SQL and KV backends (cascade)");
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter cascade deleted from both SQL and KV backends");
             }
         }
 
@@ -816,26 +863,34 @@ impl Db {
     pub async fn get_adapter(&self, adapter_id: &str) -> Result<Option<Adapter>> {
         // Try KV first if enabled
         if self.storage_mode().read_from_kv() {
+            // First try to get tenant_id from SQL for tenant-scoped KV lookup
             if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
                 if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
                     match repo.get_adapter_kv(adapter_id).await {
                         Ok(Some(adapter)) => {
-                            debug!(adapter_id = %adapter_id, "Retrieved adapter from KV");
+                            debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-primary", "Retrieved adapter from KV");
                             return Ok(Some(adapter));
                         }
-                        Ok(None) if self.storage_mode().read_from_sql() => {
-                            debug!(adapter_id = %adapter_id, "KV returned None, falling back to SQL");
+                        Ok(None) if self.storage_mode().sql_fallback_enabled() => {
+                            debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV returned None, falling back to SQL");
                         }
                         Ok(None) => {
                             return Ok(None);
                         }
-                        Err(e) if self.storage_mode().read_from_sql() => {
-                            warn!(error = %e, adapter_id = %adapter_id, "KV read failed, falling back to SQL");
+                        Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                            warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV read failed, falling back to SQL");
                         }
                         Err(e) => {
                             return Err(e);
                         }
                     }
+                }
+            } else {
+                // SQL doesn't have this adapter - try direct KV lookup for KV-only data
+                // This handles the case where data exists only in KV (e.g., during migration)
+                if let Some(adapter) = self.get_adapter_from_kv_direct(adapter_id).await? {
+                    debug!(adapter_id = %adapter_id, mode = "kv-direct", "Retrieved KV-only adapter");
+                    return Ok(Some(adapter));
                 }
             }
         }
@@ -863,8 +918,8 @@ impl Db {
             // Note: We need to check across all tenants for hash lookup, so we'll try SQL
             // or we'd need to iterate through tenants. For now, fall through to SQL.
             // TODO: Add multi-tenant hash index to KV backend
-            if self.storage_mode().read_from_sql() {
-                debug!(hash_b3 = %hash_b3, "Hash lookup requires cross-tenant search, using SQL");
+            if self.storage_mode().sql_fallback_enabled() {
+                debug!(hash_b3 = %hash_b3, mode = "sql-required", "Hash lookup requires cross-tenant search, using SQL");
             }
         }
 
@@ -970,9 +1025,9 @@ impl Db {
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
             if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
                 if let Err(e) = repo.update_adapter_state_kv(adapter_id, state, reason).await {
-                    warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state in KV backend (dual-write)");
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend");
                 } else {
-                    debug!(adapter_id = %adapter_id, state = %state, "Adapter state updated in both SQL and KV backends");
+                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, mode = "dual-write", "Adapter state updated in both SQL and KV backends");
                 }
             }
         }
@@ -997,9 +1052,9 @@ impl Db {
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
             if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
                 if let Err(e) = repo.update_adapter_memory_kv(adapter_id, memory_bytes).await {
-                    warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter memory in KV backend (dual-write)");
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter memory in KV backend");
                 } else {
-                    debug!(adapter_id = %adapter_id, memory_bytes = %memory_bytes, "Adapter memory updated in both SQL and KV backends");
+                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter memory updated in both SQL and KV backends");
                 }
             }
         }
@@ -1067,9 +1122,9 @@ impl Db {
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
             if let Err(e) = repo.update_adapter_state_kv(adapter_id, state, reason).await {
-                warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state in KV backend (dual-write)");
+                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend");
             } else {
-                debug!(adapter_id = %adapter_id, state = %state, "Adapter state updated in both SQL and KV backends (tx)");
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, mode = "dual-write", "Adapter state updated in both SQL and KV backends (tx)");
             }
         }
 
@@ -1132,9 +1187,9 @@ impl Db {
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
             if let Err(e) = repo.update_adapter_memory_kv(adapter_id, memory_bytes).await {
-                warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter memory in KV backend (dual-write)");
+                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter memory in KV backend");
             } else {
-                debug!(adapter_id = %adapter_id, memory_bytes = %memory_bytes, "Adapter memory updated in both SQL and KV backends (tx)");
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter memory updated in both SQL and KV backends (tx)");
             }
         }
 
@@ -1206,9 +1261,9 @@ impl Db {
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
             if let Err(e) = repo.update_adapter_state_and_memory_kv(adapter_id, state, memory_bytes, reason).await {
-                warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state/memory in KV backend (dual-write)");
+                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state/memory in KV backend");
             } else {
-                debug!(adapter_id = %adapter_id, state = %state, memory_bytes = %memory_bytes, "Adapter state/memory updated in both SQL and KV backends");
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter state/memory updated in both SQL and KV backends");
             }
         }
 
@@ -1221,8 +1276,8 @@ impl Db {
         // Note: This is a cross-tenant query, so we need to aggregate across all tenants
         // For now, we'll use SQL for simplicity. KV optimization would require a global index.
         if self.storage_mode().read_from_kv() {
-            if self.storage_mode().read_from_sql() {
-                debug!(category = %category, "Category lookup requires cross-tenant search, using SQL");
+            if self.storage_mode().sql_fallback_enabled() {
+                debug!(category = %category, mode = "sql-required", "Category lookup requires cross-tenant search, using SQL");
             }
             // TODO: Add category index to KV backend for cross-tenant queries
         }
@@ -1246,8 +1301,8 @@ impl Db {
         // Note: This is a cross-tenant query, so we need to aggregate across all tenants
         // For now, we'll use SQL for simplicity. KV optimization would require a global index.
         if self.storage_mode().read_from_kv() {
-            if self.storage_mode().read_from_sql() {
-                debug!(scope = %scope, "Scope lookup requires cross-tenant search, using SQL");
+            if self.storage_mode().sql_fallback_enabled() {
+                debug!(scope = %scope, mode = "sql-required", "Scope lookup requires cross-tenant search, using SQL");
             }
             // TODO: Add scope index to KV backend for cross-tenant queries
         }
@@ -1271,8 +1326,8 @@ impl Db {
         // Note: This is a cross-tenant query, so we need to aggregate across all tenants
         // For now, we'll use SQL for simplicity. KV optimization would require a global index.
         if self.storage_mode().read_from_kv() {
-            if self.storage_mode().read_from_sql() {
-                debug!(state = %state, "State lookup requires cross-tenant search, using SQL");
+            if self.storage_mode().sql_fallback_enabled() {
+                debug!(state = %state, mode = "sql-required", "State lookup requires cross-tenant search, using SQL");
             }
             // TODO: Add state index to KV backend for cross-tenant queries
         }
@@ -1359,17 +1414,17 @@ impl Db {
                 if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
                     match repo.get_adapter_lineage_kv(adapter_id).await {
                         Ok(adapters) if !adapters.is_empty() => {
-                            debug!(adapter_id = %adapter_id, count = adapters.len(), "Retrieved lineage from KV");
+                            debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, count = adapters.len(), mode = "kv-primary", "Retrieved lineage from KV");
                             return Ok(adapters);
                         }
-                        Ok(_) if self.storage_mode().read_from_sql() => {
-                            debug!(adapter_id = %adapter_id, "KV returned empty lineage, falling back to SQL");
+                        Ok(_) if self.storage_mode().sql_fallback_enabled() => {
+                            debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV returned empty lineage, falling back to SQL");
                         }
                         Ok(adapters) => {
                             return Ok(adapters);
                         }
-                        Err(e) if self.storage_mode().read_from_sql() => {
-                            warn!(error = %e, adapter_id = %adapter_id, "KV lineage read failed, falling back to SQL");
+                        Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                            warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV lineage read failed, falling back to SQL");
                         }
                         Err(e) => {
                             return Err(e);
@@ -1395,7 +1450,7 @@ impl Db {
                         a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, a.fork_type, a.fork_reason,
                         a.created_at, a.updated_at, a.active, a.version, a.lifecycle_state, anc.depth + 1
                  FROM adapters a
-                 JOIN ancestors anc ON a.adapter_id = anc.parent_id
+                 JOIN ancestors anc ON a.id = anc.parent_id
                  WHERE anc.depth < 10  -- Prevent infinite loops
              ),
              -- Get descendants (walk down parent_id references)
@@ -1410,8 +1465,8 @@ impl Db {
                         a.activation_count, a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash,
                         a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, a.fork_type, a.fork_reason,
                         a.created_at, a.updated_at, a.active, a.version, a.lifecycle_state, desc.depth + 1
-                 FROM adapters a
-                 JOIN descendants desc ON a.parent_id = desc.adapter_id
+                FROM adapters a
+                JOIN descendants desc ON a.parent_id = desc.id
                  WHERE desc.depth < 10  -- Prevent infinite loops
              )
              SELECT DISTINCT {}
@@ -1442,17 +1497,17 @@ impl Db {
                 if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
                     match repo.get_adapter_children_kv(adapter_id).await {
                         Ok(adapters) if !adapters.is_empty() => {
-                            debug!(adapter_id = %adapter_id, count = adapters.len(), "Retrieved children from KV");
+                            debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, count = adapters.len(), mode = "kv-primary", "Retrieved children from KV");
                             return Ok(adapters);
                         }
-                        Ok(_) if self.storage_mode().read_from_sql() => {
-                            debug!(adapter_id = %adapter_id, "KV returned empty children list, falling back to SQL");
+                        Ok(_) if self.storage_mode().sql_fallback_enabled() => {
+                            debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV returned empty children list, falling back to SQL");
                         }
                         Ok(adapters) => {
                             return Ok(adapters);
                         }
-                        Err(e) if self.storage_mode().read_from_sql() => {
-                            warn!(error = %e, adapter_id = %adapter_id, "KV children read failed, falling back to SQL");
+                        Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                            warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV children read failed, falling back to SQL");
                         }
                         Err(e) => {
                             return Err(e);
@@ -1617,9 +1672,9 @@ impl Db {
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
             if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
                 if let Err(e) = repo.update_adapter_tier_kv(adapter_id, tier).await {
-                    warn!(error = %e, adapter_id = %adapter_id, "Failed to update adapter tier in KV backend (dual-write)");
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter tier in KV backend");
                 } else {
-                    debug!(adapter_id = %adapter_id, tier = %tier, "Adapter tier updated in both SQL and KV backends");
+                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, tier = %tier, mode = "dual-write", "Adapter tier updated in both SQL and KV backends");
                 }
             }
         }

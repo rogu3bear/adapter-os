@@ -63,19 +63,14 @@ async fn adapter_exists_in_kv(db: &Db, tenant_id: &str, adapter_id: &str) -> boo
         .is_some()
 }
 
-/// Helper to delete adapter from KV directly
-async fn delete_adapter_from_kv(db: &Db, tenant_id: &str, adapter_id: &str) -> bool {
-    if let Some(kv) = db.kv_backend() {
-        let repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
-        repo.delete(tenant_id, adapter_id).await.is_ok()
-    } else {
-        false
-    }
-}
-
 #[tokio::test]
 async fn test_register_adapter_writes_to_both_sql_and_kv() {
     let (db, _sql_temp, _kv_temp) = create_dual_write_db().await;
+
+    // Verify mode and KV backend
+    eprintln!("Storage mode: {:?}", db.storage_mode());
+    eprintln!("Has KV backend: {}", db.has_kv_backend());
+    eprintln!("Write to KV: {}", db.storage_mode().write_to_kv());
 
     // Register an adapter
     let params = AdapterRegistrationBuilder::new()
@@ -100,6 +95,11 @@ async fn test_register_adapter_writes_to_both_sql_and_kv() {
     assert_eq!(adapter.hash_b3, "b3:dual_write_hash_1");
     assert_eq!(adapter.rank, 16);
     assert_eq!(adapter.tier, "warm");
+
+    // Debug: Check if adapter exists in KV
+    eprintln!("Checking KV for adapter...");
+    let kv_result = get_adapter_from_kv(&db, "default-tenant", "dual-write-test-1").await;
+    eprintln!("KV result: {:?}", kv_result.is_some());
 
     // Verify in KV
     let kv_exists = adapter_exists_in_kv(&db, "default-tenant", "dual-write-test-1").await;
@@ -285,7 +285,7 @@ async fn test_delete_adapter_removes_from_both() {
         .rank(8)
         .tier("ephemeral")
         .category("code")
-        .scope("session")
+        .scope("global")
         .build()
         .unwrap();
 
@@ -556,11 +556,12 @@ async fn test_adapter_with_extended_fields() {
         .repo_id(Some("github.com/test/repo".to_string()))
         .commit_sha(Some("abc123def456".to_string()))
         .intent(Some("code analysis".to_string()))
-        .adapter_name(Some("code-analyzer".to_string()))
-        .tenant_namespace(Some("default-tenant".to_string()))
+        // Use valid semantic naming format: {tenant}/{domain}/{purpose}/r{NNN}
+        .adapter_name(Some("testns/code/analysis/r001".to_string()))
+        .tenant_namespace(Some("testns".to_string()))
         .domain(Some("code".to_string()))
         .purpose(Some("analysis".to_string()))
-        .revision(Some("v1".to_string()))
+        .revision(Some("r001".to_string()))
         .build()
         .unwrap();
 
