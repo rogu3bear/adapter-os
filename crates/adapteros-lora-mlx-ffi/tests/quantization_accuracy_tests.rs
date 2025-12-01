@@ -3,7 +3,7 @@
 //! Tests to verify that quantization maintains acceptable model quality,
 //! including round-trip accuracy, error distributions, and SNR metrics.
 
-use adapteros_lora_mlx_ffi::quantization::{MLXQuantizer, QuantizationConfig, QuantizationStats};
+use adapteros_lora_mlx_ffi::quantization::MLXQuantizer;
 
 /// Test data generator for reproducible tests
 fn generate_test_tensor(size: usize, seed: u32) -> Vec<f32> {

@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { adapterNameSchema } from './adapter.schema';
 
 /**
  * Training configuration schema
@@ -92,14 +93,8 @@ export type TrainingConfig = z.infer<typeof TrainingConfigSchema>;
  */
 export const StartTrainingRequestSchema = z.object({
   // Adapter name (semantic naming format)
-  adapter_name: z.string()
-    .min(3, 'Adapter name must be at least 3 characters')
-    .max(200, 'Adapter name must not exceed 200 characters')
-    .regex(
-      /^[a-z0-9_-]+\/[a-z0-9_-]+\/[a-z0-9_-]+\/r\d{3,}$/,
-      'Use format: tenant/domain/purpose/rXXX (e.g., tenant-a/engineering/code-review/r001)'
-    )
-    .describe('Semantic adapter name'),
+  // Uses canonical schema from adapter.schema.ts for consistency
+  adapter_name: adapterNameSchema,
 
   // Training configuration
   config: TrainingConfigSchema,

@@ -1,11 +1,5 @@
 import { useState, useEffect } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
+import { Modal } from '@/components/shared/Modal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -204,49 +198,59 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
     }
   }, [open, stack.id]);
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <DialogTitle>Adapter Stack: {stack.name}</DialogTitle>
-              <DialogDescription>
-                Stack ID: <span className="font-mono">{stack.id}</span>
-              </DialogDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              {isActive ? (
-                <Button
-                  variant="outline"
-                  onClick={handleDeactivate}
-                  disabled={isDeactivating}
-                >
-                  <PowerOff className="h-4 w-4 mr-2" />
-                  {isDeactivating ? 'Deactivating...' : 'Deactivate'}
-                </Button>
-              ) : (
-                <Button
-                  onClick={handleActivate}
-                  disabled={isActivating}
-                >
-                  <Power className="h-4 w-4 mr-2" />
-                  {isActivating ? 'Activating...' : 'Activate'}
-                </Button>
-              )}
-              <Button
-                onClick={() => {
-                  onClose();
-                  navigate(`/chat?stack=${stack.id}`);
-                }}
-              >
-                <MessageSquare className="h-4 w-4 mr-2" />
-                Use in Chat
-              </Button>
-            </div>
+    <>
+    <Modal
+      open={open}
+      onOpenChange={onClose}
+      title={`Adapter Stack: ${stack.name}`}
+      description={
+        <>
+          Stack ID: <span className="font-mono">{stack.id}</span>
+        </>
+      }
+      header={
+        <div className="flex items-center justify-between w-full">
+          <div>
+            <h2 className="text-lg leading-none font-semibold">Adapter Stack: {stack.name}</h2>
+            <p className="text-muted-foreground text-sm mt-2">
+              Stack ID: <span className="font-mono">{stack.id}</span>
+            </p>
           </div>
-        </DialogHeader>
-
-        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            {isActive ? (
+              <Button
+                variant="outline"
+                onClick={handleDeactivate}
+                disabled={isDeactivating}
+              >
+                <PowerOff className="h-4 w-4 mr-2" />
+                {isDeactivating ? 'Deactivating...' : 'Deactivate'}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleActivate}
+                disabled={isActivating}
+              >
+                <Power className="h-4 w-4 mr-2" />
+                {isActivating ? 'Activating...' : 'Activate'}
+              </Button>
+            )}
+            <Button
+              onClick={() => {
+                onClose();
+                navigate(`/chat?stack=${stack.id}`);
+              }}
+            >
+              <MessageSquare className="h-4 w-4 mr-2" />
+              Use in Chat
+            </Button>
+          </div>
+        </div>
+      }
+      size="xl"
+      className="max-w-2xl max-h-[80vh] overflow-y-auto"
+    >
+      <div className="space-y-4">
           {/* Memory Warnings */}
           {memoryWarnings.length > 0 && (
             <Alert variant="destructive">
@@ -286,10 +290,10 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                     {(() => {
                       const state = stack.lifecycle_state || 'active';
                       const stateConfig: Record<string, { variant: 'default' | 'secondary' | 'outline'; className: string }> = {
-                        active: { variant: 'default', className: 'bg-green-500 text-white hover:bg-green-600' },
-                        deprecated: { variant: 'secondary', className: 'bg-yellow-500 text-white hover:bg-yellow-600' },
-                        retired: { variant: 'outline', className: 'bg-gray-500 text-white hover:bg-gray-600' },
-                        draft: { variant: 'secondary', className: 'bg-blue-500 text-white hover:bg-blue-600' },
+                        active: { variant: 'default', className: 'bg-success text-white hover:bg-success/90' },
+                        deprecated: { variant: 'secondary', className: 'bg-warning text-white hover:bg-warning/90' },
+                        retired: { variant: 'outline', className: 'bg-muted text-white hover:bg-muted/90' },
+                        draft: { variant: 'secondary', className: 'bg-info text-white hover:bg-info/90' },
                       };
                       const config = stateConfig[state.toLowerCase()] || stateConfig.active;
                       return (
@@ -347,7 +351,7 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                       </div>
                       {gate !== undefined && (
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-muted-foreground">Gate:</span>
+                          <span className="text-sm text-muted-foreground">Confidence:</span>
                           <Badge variant="secondary">{gate}</Badge>
                         </div>
                       )}
@@ -388,7 +392,7 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Usage</span>
-                        <span className={`text-sm font-medium ${memoryUsagePercent > 85 ? 'text-destructive' : memoryUsagePercent > 70 ? 'text-yellow-600' : ''}`}>
+                        <span className={`text-sm font-medium ${memoryUsagePercent > 85 ? 'text-destructive' : memoryUsagePercent > 70 ? 'text-warning' : ''}`}>
                           {memoryUsagePercent.toFixed(1)}%
                         </span>
                       </div>
@@ -422,22 +426,22 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                       <span className="text-sm font-medium">Overall Compliance</span>
                       <div className="flex items-center gap-2">
                         {stackPolicies.compliance.status === 'compliant' && (
-                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                          <CheckCircle2 className="h-4 w-4 text-success" />
                         )}
                         {stackPolicies.compliance.status === 'warning' && (
-                          <AlertCircle className="h-4 w-4 text-yellow-500" />
+                          <AlertCircle className="h-4 w-4 text-warning" />
                         )}
                         {stackPolicies.compliance.status === 'non_compliant' && (
-                          <XCircle className="h-4 w-4 text-red-500" />
+                          <XCircle className="h-4 w-4 text-destructive" />
                         )}
                         <Badge
                           variant="outline"
                           className={
                             stackPolicies.compliance.status === 'compliant'
-                              ? 'border-green-500 text-green-700'
+                              ? 'border-success text-success'
                               : stackPolicies.compliance.status === 'warning'
-                              ? 'border-yellow-500 text-yellow-700'
-                              : 'border-red-500 text-red-700'
+                              ? 'border-warning text-warning'
+                              : 'border-destructive text-destructive'
                           }
                         >
                           {getComplianceStatusLabel(stackPolicies.compliance.status)}
@@ -455,10 +459,10 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                         value={stackPolicies.compliance.overall_score}
                         className={`h-2 ${
                           stackPolicies.compliance.overall_score >= 90
-                            ? '[&>div]:bg-green-500'
+                            ? '[&>div]:bg-success'
                             : stackPolicies.compliance.overall_score >= 70
-                            ? '[&>div]:bg-yellow-500'
-                            : '[&>div]:bg-red-500'
+                            ? '[&>div]:bg-warning'
+                            : '[&>div]:bg-destructive'
                         }`}
                       />
                     </div>
@@ -480,10 +484,10 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                                 <span
                                   className={`font-mono text-xs ${
                                     score.score >= 90
-                                      ? 'text-green-600'
+                                      ? 'text-success'
                                       : score.score >= 70
-                                      ? 'text-yellow-600'
-                                      : 'text-red-600'
+                                      ? 'text-warning'
+                                      : 'text-destructive'
                                   }`}
                                 >
                                   {Math.round(score.score)}%
@@ -523,8 +527,8 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                                 variant="outline"
                                 className={
                                   assignment.status === 'active'
-                                    ? 'border-green-500 text-green-700'
-                                    : 'border-gray-500 text-gray-700'
+                                    ? 'border-success text-success'
+                                    : 'border-muted text-muted-foreground'
                                 }
                               >
                                 {assignment.status}
@@ -540,7 +544,7 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                   {stackPolicies.recent_violations.length > 0 && (
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-red-600">
+                        <span className="text-sm font-medium text-destructive">
                           Recent Violations
                         </span>
                         <Badge variant="destructive">
@@ -567,12 +571,12 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                                   variant="outline"
                                   className={`text-xs ${
                                     violation.severity === 'critical'
-                                      ? 'border-red-600 text-red-600'
+                                      ? 'border-destructive text-destructive'
                                       : violation.severity === 'high'
-                                      ? 'border-orange-500 text-orange-600'
+                                      ? 'border-destructive text-destructive'
                                       : violation.severity === 'medium'
-                                      ? 'border-yellow-500 text-yellow-600'
-                                      : 'border-gray-500 text-gray-600'
+                                      ? 'border-warning text-warning'
+                                      : 'border-muted text-muted-foreground'
                                   }`}
                                 >
                                   {violation.severity}
@@ -696,10 +700,10 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                 <div className="space-y-3">
                   {history.map((event, index) => {
                     const stateConfig: Record<string, { variant: 'default' | 'secondary' | 'outline'; className: string }> = {
-                      active: { variant: 'default', className: 'bg-green-500 text-white hover:bg-green-600' },
-                      deprecated: { variant: 'secondary', className: 'bg-yellow-500 text-white hover:bg-yellow-600' },
-                      retired: { variant: 'outline', className: 'bg-gray-500 text-white hover:bg-gray-600' },
-                      draft: { variant: 'secondary', className: 'bg-blue-500 text-white hover:bg-blue-600' },
+                      active: { variant: 'default', className: 'bg-success text-white hover:bg-success/90' },
+                      deprecated: { variant: 'secondary', className: 'bg-warning text-white hover:bg-warning/90' },
+                      retired: { variant: 'outline', className: 'bg-muted text-white hover:bg-muted/90' },
+                      draft: { variant: 'secondary', className: 'bg-info text-white hover:bg-info/90' },
                     };
                     const config = stateConfig[event.lifecycle_state.toLowerCase()] || stateConfig.active;
                     const prevConfig = event.previous_lifecycle_state
@@ -746,29 +750,29 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
             </CardContent>
           </Card>
         </div>
-      </DialogContent>
+    </Modal>
 
-      {/* Policy Preflight Dialog */}
-      {preflightData && (
-        <PolicyPreflightDialog
-          open={showPreflightDialog}
-          onOpenChange={setShowPreflightDialog}
-          title="Policy Validation - Activate Stack"
-          description={`Review policy checks before activating stack "${stack.name}"`}
-          checks={preflightData.checks}
-          canProceed={preflightData.can_proceed}
-          onProceed={async () => {
-            setShowPreflightDialog(false);
-            await doActivateStack();
-          }}
-          onCancel={() => {
-            setShowPreflightDialog(false);
-            setIsActivating(false);
-          }}
-          isAdmin={false} // TODO: Get from user context
-          isLoading={isActivating}
-        />
-      )}
-    </Dialog>
+    {/* Policy Preflight Dialog */}
+    {preflightData && (
+      <PolicyPreflightDialog
+        open={showPreflightDialog}
+        onOpenChange={setShowPreflightDialog}
+        title="Policy Validation - Activate Stack"
+        description={`Review policy checks before activating stack "${stack.name}"`}
+        checks={preflightData.checks}
+        canProceed={preflightData.can_proceed}
+        onProceed={async () => {
+          setShowPreflightDialog(false);
+          await doActivateStack();
+        }}
+        onCancel={() => {
+          setShowPreflightDialog(false);
+          setIsActivating(false);
+        }}
+        isAdmin={false} // TODO: Get from user context
+        isLoading={isActivating}
+      />
+    )}
+    </>
   );
 }

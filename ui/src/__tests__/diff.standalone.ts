@@ -14,7 +14,7 @@ import {
   isIdentical,
   clearDiffCache,
   getCacheStats,
-} from '../utils/diff';
+} from '@/utils/diff';
 
 // Simple test runner
 function assert(condition: boolean, message: string) {

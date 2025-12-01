@@ -1,3 +1,4 @@
+pub mod api_error;
 pub mod audit_helper;
 pub mod auth;
 pub mod auth_common;

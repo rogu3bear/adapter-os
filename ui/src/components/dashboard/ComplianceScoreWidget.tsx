@@ -1,12 +1,12 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Progress } from '../ui/progress';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { Shield, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
-import { Button } from '../ui/button';
+import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
-import { Skeleton } from '../ui/skeleton';
-import { ErrorRecovery } from '../ui/error-recovery';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { usePolicies, useComplianceAudit } from '@/hooks/useSecurity';
 
 interface PolicyPackStatus {

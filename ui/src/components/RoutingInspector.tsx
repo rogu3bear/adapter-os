@@ -8,17 +8,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Slider } from './ui/slider';
 import { Button } from './ui/button';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { ExportMenu } from './ui/export-menu';
-import { TransformedRoutingDecision, RouterCandidateInfo, RoutingDecisionFilters } from '../api/types';
-import apiClient from '../api/client';
-import { useTenant } from '../providers/FeatureProviders';
+import { TransformedRoutingDecision, RouterCandidateInfo, RoutingDecisionFilters } from '@/api/types';
+import apiClient from '@/api/client';
+import { useTenant } from '@/providers/FeatureProviders';
 import { useRBAC } from '@/hooks/useRBAC';
 import { Calendar } from './ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { CalendarIcon } from 'lucide-react';
 import { format as formatDate } from 'date-fns';
+import { formatTimestamp as formatTimestampUtil } from '@/utils/format';
 
 interface RoutingInspectorProps {
   className?: string;
@@ -119,15 +120,6 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
       )
     : decisions;
 
-  const formatTimestamp = (ts: string) => {
-    try {
-      const date = new Date(ts);
-      return date.toLocaleTimeString();
-    } catch {
-      return ts;
-    }
-  };
-
   const formatGates = (candidates: RouterCandidateInfo[] = []) => {
     return candidates
       .filter(c => c.selected)
@@ -220,23 +212,23 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
               </Select>
             </div>
             <div className="flex flex-col sm:flex-row gap-4">
-              <Select value={stackId} onValueChange={setStackId}>
+              <Select value={stackId || "__all__"} onValueChange={(v) => setStackId(v === "__all__" ? "" : v)}>
                 <SelectTrigger className="w-48">
                   <SelectValue placeholder="Filter by Stack" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Stacks</SelectItem>
+                  <SelectItem value="__all__">All Stacks</SelectItem>
                   {stacks?.map(stack => (
                     <SelectItem key={stack.id} value={stack.id}>{stack.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={adapterId} onValueChange={setAdapterId}>
+              <Select value={adapterId || "__all__"} onValueChange={(v) => setAdapterId(v === "__all__" ? "" : v)}>
                 <SelectTrigger className="w-48">
                   <SelectValue placeholder="Filter by Adapter" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Adapters</SelectItem>
+                  <SelectItem value="__all__">All Adapters</SelectItem>
                   {adapters?.map(adapter => (
                     <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>{adapter.name || adapter.adapter_id}</SelectItem>
                   ))}
@@ -293,7 +285,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
                   <TableHead>
                     <span className="flex items-center gap-1">
                       K
-                      <HelpTooltip content="Number of adapters selected by K-sparse routing. Higher K increases expressiveness but adds compute overhead." />
+                      <GlossaryTooltip brief="Number of adapters selected by K-sparse routing. Higher K increases expressiveness but adds compute overhead." />
                     </span>
                   </TableHead>
                   <TableHead>Adapters</TableHead>
@@ -301,19 +293,19 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
                   <TableHead>
                     <span className="flex items-center gap-1">
                       Entropy
-                      <HelpTooltip content="Shannon entropy of gate distribution. Higher entropy indicates more uniform adapter selection. Low entropy may indicate collapsed routing." />
+                      <GlossaryTooltip brief="Shannon entropy of gate distribution. Higher entropy indicates more uniform adapter selection. Low entropy may indicate collapsed routing." />
                     </span>
                   </TableHead>
                   <TableHead>
                     <span className="flex items-center gap-1">
                       Overhead
-                      <HelpTooltip content="Routing overhead as percentage of inference time. Budget limit is 8%. Values above indicate performance issues." />
+                      <GlossaryTooltip brief="Routing overhead as percentage of inference time. Budget limit is 8%. Values above indicate performance issues." />
                     </span>
                   </TableHead>
                   <TableHead>
                     <span className="flex items-center gap-1">
                       Latency
-                      <HelpTooltip content="Router decision latency in microseconds. Lower values indicate faster adapter selection." />
+                      <GlossaryTooltip brief="Router decision latency in microseconds. Lower values indicate faster adapter selection." />
                     </span>
                   </TableHead>
                 </TableRow>
@@ -344,7 +336,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
                         }}
                       >
                         <TableCell className="font-mono text-sm">
-                          {formatTimestamp(decision.timestamp)}
+                          {formatTimestampUtil(decision.timestamp, 'short')}
                         </TableCell>
                         <TableCell className="font-mono text-sm">
                           {decision.step}

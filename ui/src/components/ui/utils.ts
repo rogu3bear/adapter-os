@@ -26,8 +26,9 @@ export function stableSort<T>(
 /**
  * Generate canonical key for React list items
  */
-export function canonicalKey(obj: any): string {
-  return obj.hash || obj.id || obj.hash_b3 || JSON.stringify(obj);
+export function canonicalKey(obj: { hash?: string; id?: string; hash_b3?: string } | Record<string, unknown>): string {
+  const o = obj as { hash?: string; id?: string; hash_b3?: string };
+  return o.hash || o.id || o.hash_b3 || JSON.stringify(obj);
 }
 
 
@@ -54,6 +55,11 @@ export const FROST_BACKGROUND = "bg-background/95 backdrop-blur-md";
  * Frost glass styling for overlay backdrops
  */
 export const FROST_OVERLAY = "bg-black/50 backdrop-blur-sm";
+
+/**
+ * Frost glass styling for tooltips
+ */
+export const FROST_TOOLTIP = "bg-popover/90 backdrop-blur-md border border-border/40 text-popover-foreground shadow-lg";
 
 /**
  * Base classes for menu items (dropdown, context menu, menubar)

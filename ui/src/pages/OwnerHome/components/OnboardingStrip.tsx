@@ -1,8 +1,31 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * OnboardingStrip - User onboarding and quick start guidance
+ *
+ * Shows contextual onboarding based on user state:
+ * - New users: Full 3-step onboarding guide
+ * - Early users (1-3 adapters): Simplified "Create Adapter" CTA
+ * - Experienced users: Hidden (use system normally)
+ *
+ * Dismissible with localStorage persistence.
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Rocket, Upload, Box, Play, X, ChevronRight } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import {
+  Rocket,
+  Upload,
+  Box,
+  Play,
+  X,
+  ChevronRight,
+  CheckCircle,
+  PlusCircle,
+  Sparkles,
+} from 'lucide-react';
+import { cn } from '@/components/ui/utils';
 
 const ONBOARDING_STORAGE_KEY = 'aos-onboarding-dismissed';
 
@@ -25,12 +48,12 @@ const onboardingSteps: OnboardingStep[] = [
     path: '/base-models',
   },
   {
-    id: 'register-adapter',
-    title: 'Register your first adapter',
-    description: 'Upload or create a custom LoRA adapter to enhance your model',
+    id: 'train-adapter',
+    title: 'Train your first adapter',
+    description: 'Create a custom LoRA adapter to enhance your model with specialized knowledge',
     icon: Box,
-    action: 'Add Adapter',
-    path: '/adapters/new',
+    action: 'Create Adapter',
+    path: '/create-adapter',
   },
   {
     id: 'run-inference',
@@ -42,10 +65,32 @@ const onboardingSteps: OnboardingStep[] = [
   },
 ];
 
-export const OnboardingStrip: React.FC = () => {
+type UserState = 'new' | 'early' | 'experienced';
+
+interface OnboardingStripProps {
+  /** Number of adapters the user has */
+  adapterCount?: number;
+  /** Whether a model is currently loaded */
+  hasModel?: boolean;
+  /** Optional className */
+  className?: string;
+}
+
+export const OnboardingStrip: React.FC<OnboardingStripProps> = ({
+  adapterCount = 0,
+  hasModel = false,
+  className,
+}) => {
   const navigate = useNavigate();
   const [dismissed, setDismissed] = useState<boolean>(false);
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
+
+  // Determine user state based on adapter count
+  const userState = useMemo<UserState>(() => {
+    if (adapterCount === 0) return 'new';
+    if (adapterCount <= 3) return 'early';
+    return 'experienced';
+  }, [adapterCount]);
 
   useEffect(() => {
     const isDismissed = localStorage.getItem(ONBOARDING_STORAGE_KEY);
@@ -55,7 +100,7 @@ export const OnboardingStrip: React.FC = () => {
 
     // Check localStorage for completed steps
     const completed = new Set<string>();
-    onboardingSteps.forEach(step => {
+    onboardingSteps.forEach((step) => {
       const stepCompleted = localStorage.getItem(`aos-onboarding-${step.id}`);
       if (stepCompleted === 'true') {
         completed.add(step.id);
@@ -85,20 +130,91 @@ export const OnboardingStrip: React.FC = () => {
     navigate(path);
   };
 
-  if (dismissed) {
+  // Don't show for experienced users or if dismissed
+  if (dismissed || userState === 'experienced') {
     return null;
   }
 
-  const allStepsCompleted = onboardingSteps.every(step => completedSteps.has(step.id));
+  const allStepsCompleted = onboardingSteps.every((step) =>
+    completedSteps.has(step.id)
+  );
 
+  // Early user view - simplified "Create Adapter" CTA (replaces Hero Card)
+  if (userState === 'early') {
+    return (
+      <Card
+        className={cn(
+          'border-2 border-info/20 bg-gradient-to-br from-info-surface to-primary-surface',
+          className
+        )}
+      >
+        <CardContent className="p-5">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3 flex-1">
+              <div className="p-2 bg-info-surface rounded-lg flex-shrink-0">
+                <Sparkles className="h-5 w-5 text-info" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-900 mb-1">
+                  Create Your Custom Adapter
+                </h3>
+                <p className="text-sm text-slate-600">
+                  Train a specialized LoRA adapter in 3 simple steps
+                </p>
+                <div className="flex flex-wrap gap-3 mt-2 text-xs text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3 text-success" />
+                    Upload data
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3 text-success" />
+                    Configure parameters
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3 text-success" />
+                    Start training
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Button
+                onClick={() => navigate('/create-adapter')}
+                className="flex-1 sm:flex-none bg-primary hover:bg-primary/90"
+              >
+                <PlusCircle className="h-4 w-4 mr-1.5" />
+                Create Adapter
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDismiss}
+                className="h-9 w-9 p-0"
+                aria-label="Dismiss"
+              >
+                <X className="h-4 w-4 text-slate-500" />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // New user view - full onboarding steps
   return (
-    <Card className="border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm">
+    <Card
+      className={cn(
+        'border-info/20 bg-gradient-to-r from-info-surface to-primary-surface shadow-sm',
+        className
+      )}
+    >
       <CardContent className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Rocket className="h-6 w-6 text-blue-600" />
+              <div className="p-2 bg-info-surface rounded-lg">
+                <Rocket className="h-6 w-6 text-info" />
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">
@@ -118,16 +234,17 @@ export const OnboardingStrip: React.FC = () => {
                 return (
                   <div
                     key={step.id}
-                    className="flex items-start gap-3 p-4 bg-white rounded-lg border border-slate-200 hover:border-blue-300 transition-colors"
+                    className="flex items-start gap-3 p-4 bg-white rounded-lg border border-slate-200 hover:border-primary/30 transition-colors"
                   >
                     <div className="flex-shrink-0 mt-1">
                       <button
                         onClick={() => handleStepToggle(step.id)}
-                        className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                        className={cn(
+                          'w-5 h-5 rounded border-2 flex items-center justify-center transition-all',
                           isCompleted
-                            ? 'bg-blue-600 border-blue-600'
-                            : 'border-slate-300 hover:border-blue-400'
-                        }`}
+                            ? 'bg-primary border-primary'
+                            : 'border-slate-300 hover:border-primary/40'
+                        )}
                         aria-label={`Mark "${step.title}" as ${isCompleted ? 'incomplete' : 'complete'}`}
                       >
                         {isCompleted && (
@@ -148,17 +265,18 @@ export const OnboardingStrip: React.FC = () => {
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <div className="p-1.5 bg-blue-50 rounded">
-                          <StepIcon className="h-4 w-4 text-blue-600" />
+                        <div className="p-1.5 bg-info-surface rounded">
+                          <StepIcon className="h-4 w-4 text-info" />
                         </div>
                         <span className="text-xs font-medium text-slate-500">
                           Step {index + 1}
                         </span>
                       </div>
                       <h4
-                        className={`text-sm font-semibold mb-1 ${
+                        className={cn(
+                          'text-sm font-semibold mb-1',
                           isCompleted ? 'text-slate-500 line-through' : 'text-slate-900'
-                        }`}
+                        )}
                       >
                         {step.title}
                       </h4>
@@ -181,8 +299,8 @@ export const OnboardingStrip: React.FC = () => {
             </div>
 
             {allStepsCompleted && (
-              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-800 font-medium">
+              <div className="mt-4 p-3 bg-success-surface border border-success/20 rounded-lg">
+                <p className="text-sm text-success font-medium">
                   Great job! You've completed all the onboarding steps.
                 </p>
               </div>

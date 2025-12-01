@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useTrainingWizardContext } from '../context';
+import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
 import { Database, GitBranch, FileText, Code, Folder, CheckCircle, AlertTriangle } from 'lucide-react';
 
 export function DataSourceStep() {
@@ -213,7 +213,7 @@ export function DataSourceStep() {
             </SelectTrigger>
             <SelectContent>
               {datasets.length === 0 ? (
-                <SelectItem value="" disabled>No datasets available</SelectItem>
+                <SelectItem value="__empty__" disabled>No datasets available</SelectItem>
               ) : (
                 datasets.map((dataset) => (
                   <SelectItem key={dataset.id} value={dataset.id}>

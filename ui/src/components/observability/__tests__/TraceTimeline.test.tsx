@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { TraceTimeline } from '../TraceTimeline';
-import apiClient from '../../../api/client';
+import { TraceTimeline } from '@/components/observability/TraceTimeline';
+import apiClient from '@/api/client';
 
 // Mock apiClient
-vi.mock('../../../api/client', () => ({
+vi.mock('@/api/client', () => ({
   default: {
     searchTraces: vi.fn(),
     getTrace: vi.fn(),
@@ -13,7 +13,7 @@ vi.mock('../../../api/client', () => ({
 
 // Mock usePolling hook
 const mockRefetch = vi.fn();
-vi.mock('../../../hooks/usePolling', () => ({
+vi.mock('@/hooks/usePolling', () => ({
   usePolling: vi.fn(() => ({
     data: [],
     isLoading: false,
@@ -47,32 +47,32 @@ describe('TraceTimeline', () => {
 
   it('displays loading state', async () => {
     // Dynamically mock usePolling for this test
-    const usePollingModule = await import('../../../hooks/usePolling');
+    const usePollingModule = await import('@/hooks/usePolling');
     vi.mocked(usePollingModule.usePolling).mockReturnValue({
       data: [],
       isLoading: true,
       refetch: mockRefetch,
     });
-    
+
     render(<TraceTimeline />);
-    
+
     // Should show loading indicator when searching
     expect(screen.getByText('Searching traces...')).toBeInTheDocument();
   });
 
   it('displays trace list when traces are available', async () => {
     const traceIds = ['trace-1', 'trace-2', 'trace-3'];
-    
+
     // Dynamically mock usePolling
-    const usePollingModule = await import('../../../hooks/usePolling');
+    const usePollingModule = await import('@/hooks/usePolling');
     vi.mocked(usePollingModule.usePolling).mockReturnValue({
       data: traceIds,
       isLoading: false,
       refetch: mockRefetch,
     });
-    
+
     render(<TraceTimeline />);
-    
+
     await waitFor(() => {
       traceIds.forEach(id => {
         expect(screen.getByText(id)).toBeInTheDocument();
@@ -98,28 +98,28 @@ describe('TraceTimeline', () => {
       ],
       root_span_id: 'span-1',
     };
-    
+
     // Dynamically mock usePolling
-    const usePollingModule = await import('../../../hooks/usePolling');
+    const usePollingModule = await import('@/hooks/usePolling');
     vi.mocked(usePollingModule.usePolling).mockReturnValue({
       data: traceIds,
       isLoading: false,
       refetch: mockRefetch,
     });
-    
+
     (apiClient.getTrace as any).mockResolvedValue(trace);
-    
+
     render(<TraceTimeline />);
-    
+
     await waitFor(() => {
       expect(screen.getByText('trace-1')).toBeInTheDocument();
     });
-    
+
     // Click on trace
     const traceButton = screen.getByText('trace-1').closest('button');
     if (traceButton) {
       traceButton.click();
-      
+
       await waitFor(() => {
         expect(screen.getByText('test-span')).toBeInTheDocument();
       });

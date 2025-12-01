@@ -11,6 +11,7 @@ import { ChatMessageComponent, type ChatMessage, type EvidenceItem } from './cha
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { Send, Loader2, Layers, History, X, ChevronLeft, ChevronRight, Plus, Trash2, Edit2, Activity, Database, Archive } from 'lucide-react';
 import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
 import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
@@ -30,6 +31,11 @@ import { ChatSessionActions } from './chat/ChatSessionActions';
 import { ChatTagsManager } from './chat/ChatTagsManager';
 import { ChatShareDialog } from './chat/ChatShareDialog';
 import { ChatArchivePanel } from './chat/ChatArchivePanel';
+import {
+  useChatStreaming,
+  useChatAdapterState,
+  useChatRouterDecisions
+} from '@/hooks/chat';
 
 interface ChatInterfaceProps {
   selectedTenant: string;
@@ -51,16 +57,12 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   const [selectedStackId, setSelectedStackId] = useState<string>(initialStackId || '');
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId || null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingRouterDecision, setIsLoadingRouterDecision] = useState(false);
-  const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isRouterActivityOpen, setIsRouterActivityOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [newSessionName, setNewSessionName] = useState('');
   const [showContext, setShowContext] = useState(true);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   // New state for chat features
   const [searchQuery, setSearchQuery] = useState('');
@@ -68,15 +70,11 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   const [shareDialogSessionId, setShareDialogSessionId] = useState<string | null>(null);
   const [tagsDialogSessionId, setTagsDialogSessionId] = useState<string | null>(null);
 
-  // Adapter loading state
-  const [adapterStates, setAdapterStates] = useState<Map<string, AdapterState>>(new Map());
-  const [showAdapterPrompt, setShowAdapterPrompt] = useState(false);
-  const [isLoadingAdapters, setIsLoadingAdapters] = useState(false);
-  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
-
+  // Use selectedTenant for API hooks that support undefined (default stack)
+  // Keep tenantId fallback for other hooks that require a string
   const tenantId = selectedTenant || 'default';
   const { data: stacks = [] } = useAdapterStacks();
-  const { data: defaultStack } = useGetDefaultStack(tenantId);
+  const { data: defaultStack } = useGetDefaultStack(selectedTenant);
   const { data: collections = [] } = useCollections();
   const queryClient = useQueryClient();
   const {
@@ -90,6 +88,117 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     getSession,
     updateSessionCollection,
   } = useChatSessionsApi(tenantId);
+
+  // Memoize selected stack (needed before hooks)
+  const selectedStack = useMemo(
+    () => stacks.find(s => s.id === selectedStackId),
+    [stacks, selectedStackId]
+  );
+
+  // Streaming message state (for in-progress messages)
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+
+  // Chat streaming hook
+  const {
+    isStreaming,
+    streamedText,
+    currentRequestId,
+    sendMessage,
+    cancelStream,
+    resetStream,
+    tokensReceived,
+    streamDuration
+  } = useChatStreaming({
+    sessionId: currentSessionId,
+    stackId: selectedStackId,
+    collectionId: selectedCollectionId || undefined,
+    onMessageSent: (message) => {
+      // Add user message to messages
+      setMessages(prev => [...prev, message]);
+      if (currentSessionId) {
+        addMessage(currentSessionId, message);
+      }
+
+      // Create placeholder streaming message
+      const assistantId = `assistant-${Date.now()}`;
+      setStreamingMessageId(assistantId);
+      setMessages(prev => [...prev, {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        isStreaming: true,
+      }]);
+    },
+    onStreamComplete: async (response) => {
+      // Fetch router decision and evidence
+      let routerDecision = null;
+      if (currentRequestId) {
+        const decision = await fetchDecision(response.id, currentRequestId);
+        routerDecision = decision;
+      }
+
+      // Fetch evidence
+      const evidence = await fetchMessageEvidence(response.id);
+      const completedMessage = {
+        ...response,
+        routerDecision: routerDecision as ExtendedRouterDecision | null,
+        evidence,
+        isVerified: evidence.length > 0,
+        verifiedAt: evidence.length > 0 ? new Date().toISOString() : undefined,
+        isStreaming: false,
+      };
+
+      // Replace streaming message with completed message
+      setMessages(prev => prev.map(msg =>
+        msg.id === streamingMessageId ? completedMessage : msg
+      ));
+
+      setStreamingMessageId(null);
+
+      if (currentSessionId) {
+        debouncedUpdateSession.debouncedFn(currentSessionId, {
+          messages: messages.map(m => m.id === streamingMessageId ? completedMessage : m),
+        });
+      }
+    },
+    onError: (error) => {
+      logger.error('Chat streaming error', { component: 'ChatInterface' }, error);
+      // Remove streaming message on error
+      if (streamingMessageId) {
+        setMessages(prev => prev.filter(m => m.id !== streamingMessageId));
+        setStreamingMessageId(null);
+      }
+    },
+  });
+
+  // Adapter state tracking hook
+  const {
+    adapterStates,
+    isCheckingAdapters,
+    allAdaptersReady,
+    unreadyAdapters,
+    loadAllAdapters,
+    checkAdapterReadiness,
+    showAdapterPrompt,
+    dismissAdapterPrompt,
+    continueWithUnready
+  } = useChatAdapterState({
+    stackId: selectedStackId,
+    enabled: true,
+  });
+
+  // Router decisions hook
+  const {
+    decisions,
+    isLoadingDecision,
+    lastDecision,
+    fetchDecision,
+    clearDecisions,
+    decisionHistory
+  } = useChatRouterDecisions({
+    stackId: selectedStackId,
+  });
 
   // Set default stack on mount
   useEffect(() => {
@@ -160,153 +269,6 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     }
   }, [messages]);
 
-  // Subscribe to adapter state transitions via SSE
-  useSSE<AdapterStreamEvent>('/v1/stream/adapters', {
-    enabled: !!selectedStackId,
-    onMessage: (event) => {
-      if (event && 'current_state' in event) {
-        const transition = event as AdapterStateTransitionEvent;
-        setAdapterStates((prev) => {
-          const updated = new Map(prev);
-          const existing = updated.get(transition.adapter_id);
-          if (existing) {
-            updated.set(transition.adapter_id, {
-              ...existing,
-              state: transition.current_state,
-              isLoading: false,
-            });
-          }
-          return updated;
-        });
-      }
-    },
-  });
-
-  // Memoize selected stack
-  const selectedStack = useMemo(
-    () => stacks.find(s => s.id === selectedStackId),
-    [stacks, selectedStackId]
-  );
-
-  // Build adapter states from stack when stack changes
-  useEffect(() => {
-    if (selectedStack?.adapters) {
-      const states = new Map<string, AdapterState>();
-      selectedStack.adapters.forEach((adapter) => {
-        states.set(adapter.id || adapter.adapter_id || '', {
-          id: adapter.id || adapter.adapter_id || '',
-          name: adapter.name || adapter.adapter_id || 'Unknown',
-          state: (adapter.lifecycle_state as AdapterLifecycleState) || 'unloaded',
-        });
-      });
-      setAdapterStates(states);
-    } else if (selectedStack?.adapter_ids) {
-      // Fallback: create basic states from IDs
-      const states = new Map<string, AdapterState>();
-      selectedStack.adapter_ids.forEach((id) => {
-        states.set(id, {
-          id,
-          name: id,
-          state: 'unloaded', // Unknown - will update via SSE
-        });
-      });
-      setAdapterStates(states);
-    }
-  }, [selectedStack]);
-
-  // Check if all adapters are ready for inference
-  const allAdaptersReady = useMemo(() => {
-    if (adapterStates.size === 0) return true; // No adapters = ok
-    const states = Array.from(adapterStates.values());
-    return states.every((a) =>
-      a.state === 'hot' || a.state === 'warm' || a.state === 'resident'
-    );
-  }, [adapterStates]);
-
-  // Handle loading all adapters
-  const handleLoadAllAdapters = useCallback(async () => {
-    setIsLoadingAdapters(true);
-    try {
-      const adapterIds = Array.from(adapterStates.keys());
-      // Load each adapter that isn't ready
-      for (const adapterId of adapterIds) {
-        const adapter = adapterStates.get(adapterId);
-        if (adapter && adapter.state !== 'hot' && adapter.state !== 'warm' && adapter.state !== 'resident') {
-          // Update state to loading
-          setAdapterStates((prev) => {
-            const updated = new Map(prev);
-            const existing = updated.get(adapterId);
-            if (existing) {
-              updated.set(adapterId, { ...existing, isLoading: true });
-            }
-            return updated;
-          });
-          // Trigger load via API
-          try {
-            await apiClient.loadAdapter(adapterId);
-          } catch (err) {
-            logger.error('Failed to load adapter', { adapterId }, toError(err));
-            setAdapterStates((prev) => {
-              const updated = new Map(prev);
-              const existing = updated.get(adapterId);
-              if (existing) {
-                updated.set(adapterId, { ...existing, isLoading: false, error: 'Failed to load' });
-              }
-              return updated;
-            });
-          }
-        }
-      }
-      // Close prompt and send pending message if any
-      setShowAdapterPrompt(false);
-      if (pendingMessage) {
-        setInput(pendingMessage);
-        setPendingMessage(null);
-        // Wait a moment for states to update, then send
-        setTimeout(() => {
-          // The handleSend will be triggered by the user or we can auto-send
-        }, 1000);
-      }
-    } finally {
-      setIsLoadingAdapters(false);
-    }
-  }, [adapterStates, pendingMessage]);
-
-  // Handle continuing without loading adapters
-  const handleContinueAnyway = useCallback(() => {
-    setShowAdapterPrompt(false);
-    if (pendingMessage) {
-      setInput(pendingMessage);
-      setPendingMessage(null);
-    }
-  }, [pendingMessage]);
-
-  // Use React Query to cache stack fetches with retry
-  const fetchStackWithRetry = useCallback(async (stackId: string): Promise<AdapterStack | null> => {
-    // Use React Query for caching, with retry built-in
-    try {
-      const stack = await queryClient.fetchQuery({
-        queryKey: ['adapter-stack', stackId],
-        queryFn: async () => {
-          const result = await apiClient.getAdapterStack(stackId);
-          if (!result.adapter_ids || result.adapter_ids.length === 0) {
-            throw new Error('Stack has no adapter IDs');
-          }
-          return result;
-        },
-        staleTime: 60000, // Cache for 1 minute
-        retry: 3,
-        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 4000),
-      });
-      return stack;
-    } catch (err) {
-      logger.error('Failed to fetch stack after retries', {
-        component: 'ChatInterface',
-        stackId,
-      }, toError(err));
-      return null;
-    }
-  }, [queryClient]);
 
   // Fetch evidence data for a message
   const fetchMessageEvidence = useCallback(async (messageId: string): Promise<EvidenceItem[]> => {
@@ -325,247 +287,33 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     }
   }, []);
 
-  // Use React Query to cache router decisions
-  const fetchRouterDecision = useCallback(async (requestId: string): Promise<ExtendedRouterDecision | null> => {
-    setIsLoadingRouterDecision(true);
-    try {
-      // Use React Query to cache router decisions
-      const routerView = await queryClient.fetchQuery({
-        queryKey: ['router-decision', requestId],
-        queryFn: () => apiClient.getSessionRouterView(requestId),
-        staleTime: 30000, // Cache for 30 seconds
-        retry: 1, // Only retry once for router decisions
-      });
-
-      // Convert SessionRouterViewResponse to RouterDecision format
-      if (!routerView.steps || routerView.steps.length === 0) {
-        return null;
-      }
-
-      const firstStep = routerView.steps[0];
-
-      // Map adapter_idx to actual adapter IDs using cached stack fetch
-      let adapterIdMap = new Map<number, string>();
-      let stackFetchFailed = false;
-
-      if (routerView.stack_id) {
-        const stack = await fetchStackWithRetry(routerView.stack_id);
-        if (stack && stack.adapter_ids && stack.adapter_ids.length > 0) {
-          stack.adapter_ids.forEach((adapterId, idx) => {
-            adapterIdMap.set(idx, adapterId);
-          });
-        } else {
-          stackFetchFailed = true;
-          logger.warn('Stack fetch returned empty or null', {
-            component: 'ChatInterface',
-            requestId,
-            stackId: routerView.stack_id,
-          });
-          toast.error('Unable to resolve adapter IDs. Showing adapter indices instead.', {
-            description: 'Stack information could not be loaded. Router decision may show adapter indices instead of names.',
-          });
-        }
-      }
-
-      // Map adapter indices to adapter IDs
-      const selectedAdapters: string[] = [];
-      const scores: Record<string, number> = {};
-
-      firstStep.adapters_fired.forEach(a => {
-        if (a.selected) {
-          const adapterId = adapterIdMap.get(a.adapter_idx) || `adapter-${a.adapter_idx}`;
-          selectedAdapters.push(adapterId);
-          scores[adapterId] = a.gate_value;
-        }
-      });
-
-      // Build candidates array with proper mapping
-      const candidates: RouterCandidateInfo[] = firstStep.adapters_fired.map(a => {
-        const adapterId = adapterIdMap.get(a.adapter_idx) || `adapter-${a.adapter_idx}`;
-        return {
-          adapter_idx: a.adapter_idx,
-          adapter_id: adapterId,
-          raw_score: a.gate_value,
-          gate_q15: Math.round(a.gate_value * 32767),
-          gate_float: a.gate_value,
-          selected: a.selected,
-        };
-      });
-
-      // Create extended router decision with proper types
-      const mappedDecision: ExtendedRouterDecision = {
-        request_id: routerView.request_id,
-        selected_adapters: selectedAdapters,
-        scores,
-        timestamp: firstStep.timestamp,
-        latency_ms: 0,
-        entropy: firstStep.entropy,
-        tau: firstStep.tau,
-        step: firstStep.step,
-        k_value: selectedAdapters.length,
-        candidates,
-        adapter_map: adapterIdMap, // Store map for debugging
-      };
-
-      return mappedDecision;
-    } catch (err) {
-      logger.error('Failed to fetch router decision', {
-        component: 'ChatInterface',
-        requestId,
-      }, toError(err));
-      return null;
-    }
-  }, []);
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isStreaming) return;
 
     // Check if adapters are ready before sending
     if (!allAdaptersReady && adapterStates.size > 0) {
-      setPendingMessage(input.trim());
-      setShowAdapterPrompt(true);
+      // Show adapter prompt if not ready
+      // The PreChatAdapterPrompt component will handle showing the prompt
+      toast.warning('Some adapters are not ready. Please load them first.');
       return;
     }
 
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: input.trim(),
-      timestamp: new Date(),
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    
-    // Save user message to session
-    if (currentSessionId) {
-      addMessage(currentSessionId, userMessage);
-    }
-    
-    setInput('');
-    setIsLoading(true);
-
-    // Create placeholder assistant message
-    const assistantMessageId = `assistant-${Date.now()}`;
-    const assistantMessage: ChatMessage = {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: new Date(),
-      isStreaming: true,
-    };
-    setMessages(prev => [...prev, assistantMessage]);
-
-    // Resolve stack to adapter IDs (use memoized selectedStack)
-    const adapterIds = selectedStack?.adapter_ids || undefined;
+    // Resolve stack to adapter IDs
+    const adapterIds = selectedStack?.adapter_ids || [];
 
     if (!adapterIds || adapterIds.length === 0) {
       toast.error('Please select a stack with adapters');
-      setIsLoading(false);
-      setMessages(prev => prev.filter(m => m.id !== assistantMessageId));
       return;
     }
 
-    // Create abort controller for cancellation
-    abortControllerRef.current = new AbortController();
-    const requestId = `chat-${Date.now()}`;
-    setCurrentRequestId(requestId);
+    // Clear input immediately
+    const messageContent = input.trim();
+    setInput('');
 
-    try {
-      let fullText = '';
-      let tokenCount = 0;
-
-      await apiClient.streamInfer(
-        {
-          prompt: userMessage.content,
-          max_tokens: 500,
-          temperature: 0.7,
-          adapter_stack: adapterIds,
-          ...(selectedCollectionId && {
-            collection_id: selectedCollectionId,
-          }),
-          ...(documentContext && {
-            document_id: documentContext.documentId,
-            collection_id: documentContext.collectionId,
-          }),
-        },
-        {
-          onToken: (token: string) => {
-            tokenCount++;
-            fullText += token;
-            setMessages(prev =>
-              prev.map(msg =>
-                msg.id === assistantMessageId
-                  ? { ...msg, content: fullText }
-                  : msg
-              )
-            );
-          },
-          onComplete: async (fullText: string, finishReason: string | null) => {
-            // Fetch router decision and evidence (with loading state)
-            const routerDecision = await fetchRouterDecision(requestId);
-
-            // Fetch evidence data if session has collection_id
-            // Note: This assumes the session has a collection_id property
-            // If not available, evidence will be empty array
-            const evidence = await fetchMessageEvidence(assistantMessageId);
-
-            const completedMessage: ChatMessage = {
-              id: assistantMessageId,
-              role: 'assistant',
-              content: fullText,
-              timestamp: new Date(),
-              requestId,
-              routerDecision,
-              evidence,
-              isVerified: evidence.length > 0, // Mark as verified if evidence exists
-              verifiedAt: evidence.length > 0 ? new Date().toISOString() : undefined,
-              isStreaming: false,
-            };
-
-            setMessages(prev =>
-              prev.map(msg =>
-                msg.id === assistantMessageId ? completedMessage : msg
-              )
-            );
-
-            // Save to session (debounced)
-            if (currentSessionId) {
-              debouncedUpdateSession.debouncedFn(currentSessionId, {
-                messages: [...messages.filter(m => m.id !== assistantMessageId), completedMessage],
-              });
-            }
-
-            setIsLoading(false);
-            setCurrentRequestId(null);
-          },
-          onError: (error: Error) => {
-            logger.error('Chat inference error', {
-              component: 'ChatInterface',
-              requestId,
-              error: error.message,
-            }, error);
-            toast.error(`Inference failed: ${error.message}`);
-            setMessages(prev => prev.filter(m => m.id !== assistantMessageId));
-            setIsLoading(false);
-            setCurrentRequestId(null);
-          },
-        },
-        abortControllerRef.current.signal
-      );
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Inference failed');
-      if (error.name !== 'AbortError') {
-        toast.error(`Inference failed: ${error.message}`);
-        logger.error('Chat inference failed', {
-          component: 'ChatInterface',
-          stackId: selectedStackId,
-        }, toError(err));
-      }
-      setMessages(prev => prev.filter(m => m.id !== assistantMessageId));
-      setIsLoading(false);
-      setCurrentRequestId(null);
-    }
-  }, [input, isLoading, selectedStackId, stacks, fetchRouterDecision, allAdaptersReady, adapterStates]);
+    // Send message using the streaming hook
+    await sendMessage(messageContent, adapterIds);
+  }, [input, isStreaming, selectedStack, allAdaptersReady, adapterStates, sendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -719,166 +467,176 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
       {/* Pre-Chat Adapter Loading Prompt */}
       <PreChatAdapterPrompt
         open={showAdapterPrompt}
-        onOpenChange={setShowAdapterPrompt}
-        adapters={Array.from(adapterStates.values())}
-        onLoadAll={handleLoadAllAdapters}
-        onContinueAnyway={handleContinueAnyway}
-        isLoading={isLoadingAdapters}
+        onOpenChange={dismissAdapterPrompt}
+        adapters={Array.from(adapterStates.values()).map(state => ({
+          id: state.adapterId,
+          name: state.name,
+          state: state.state,
+          isLoading: state.isLoading,
+          error: state.error,
+        }))}
+        onLoadAll={loadAllAdapters}
+        onContinueAnyway={continueWithUnready}
+        isLoading={isCheckingAdapters}
       />
 
       {/* History Sidebar */}
       {isHistoryOpen && (
-        <div className="absolute left-0 top-0 bottom-0 w-80 bg-background border-r z-10 flex flex-col">
-          <div className="border-b px-4 py-3 flex items-center justify-between">
-            <h3 className="font-semibold text-sm flex items-center gap-2">
-              <History className="h-4 w-4" />
-              Conversation History
-            </h3>
-            <div className="flex items-center gap-2">
+        <SectionErrorBoundary sectionName="Session History">
+          <div className="absolute left-0 top-0 bottom-0 w-80 bg-background border-r z-10 flex flex-col">
+            <div className="border-b px-4 py-3 flex items-center justify-between">
+              <h3 className="font-semibold text-sm flex items-center gap-2">
+                <History className="h-4 w-4" />
+                Conversation History
+              </h3>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsArchivePanelOpen(true)}
+                  aria-label="Open archive"
+                  title="View archived sessions"
+                >
+                  <Archive className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsHistoryOpen(false)}
+                  aria-label="Close history"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Search Bar */}
+            <div className="px-4 py-2 border-b">
+              <ChatSearchBar
+                onSelectSession={(sessionId) => handleLoadSession(sessionId)}
+                onSelectMessage={(sessionId, messageId) => {
+                  handleLoadSession(sessionId);
+                  // TODO: After loading, scroll to the specific message
+                  // For now, just load the session - message scrolling can be added later
+                  if (messageId) {
+                    logger.info('Search navigated to message', { sessionId, messageId });
+                  }
+                }}
+                placeholder="Search sessions..."
+              />
+            </div>
+
+            {/* Create New Session */}
+            <div className="border-b px-4 py-2">
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                onClick={() => setIsArchivePanelOpen(true)}
-                aria-label="Open archive"
-                title="View archived sessions"
+                className="w-full"
+                onClick={handleCreateSession}
+                disabled={!selectedStackId}
               >
-                <Archive className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsHistoryOpen(false)}
-                aria-label="Close history"
-              >
-                <X className="h-4 w-4" />
+                <Plus className="h-4 w-4 mr-2" />
+                New Session
               </Button>
             </div>
-          </div>
 
-          {/* Search Bar */}
-          <div className="px-4 py-2 border-b">
-            <ChatSearchBar
-              onSelectSession={(sessionId) => handleLoadSession(sessionId)}
-              onSelectMessage={(sessionId, messageId) => {
-                handleLoadSession(sessionId);
-                // TODO: After loading, scroll to the specific message
-                // For now, just load the session - message scrolling can be added later
-                if (messageId) {
-                  logger.info('Search navigated to message', { sessionId, messageId });
-                }
-              }}
-              placeholder="Search sessions..."
-            />
-          </div>
-          
-          {/* Create New Session */}
-          <div className="border-b px-4 py-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={handleCreateSession}
-              disabled={!selectedStackId}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Session
-            </Button>
-          </div>
-
-          <ScrollArea className="flex-1">
-            <div className="p-2 space-y-1">
-              {isLoadingSessions ? (
-                <div className="text-center py-8 text-sm text-muted-foreground">
-                  Loading sessions...
-                </div>
-              ) : recentSessions.length === 0 ? (
-                <div className="text-center py-8 text-sm text-muted-foreground">
-                  No conversation history
-                </div>
-              ) : (
-                recentSessions.map(session => (
-                  <div
-                    key={session.id}
-                    className={`p-3 rounded-lg border cursor-pointer transition-colors hover:bg-muted ${
-                      currentSessionId === session.id ? 'bg-muted border-primary' : ''
-                    }`}
-                    onClick={() => handleLoadSession(session.id)}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        {editingSessionId === session.id ? (
-                          <Input
-                            value={newSessionName}
-                            onChange={(e) => setNewSessionName(e.target.value)}
-                            onBlur={() => {
-                              if (newSessionName.trim()) {
-                                handleRenameSession(session.id, newSessionName.trim());
-                              } else {
-                                setEditingSessionId(null);
-                              }
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && newSessionName.trim()) {
-                                handleRenameSession(session.id, newSessionName.trim());
-                              } else if (e.key === 'Escape') {
-                                setEditingSessionId(null);
-                              }
-                            }}
-                            className="h-7 text-sm mb-1"
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          <>
-                            <div className="flex items-center justify-between">
-                              <p className="text-sm font-medium truncate">{session.name}</p>
-                              <div className="flex items-center gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
-                                <ChatSessionActions
-                                  sessionId={session.id}
-                                  tenantId={tenantId}
-                                  onRename={() => {
-                                    setEditingSessionId(session.id);
-                                    setNewSessionName(session.name);
-                                  }}
-                                  onManageTags={() => setTagsDialogSessionId(session.id)}
-                                  onSetCategory={() => {
-                                    // TODO: Implement category dialog
-                                    toast.info('Category management coming soon');
-                                  }}
-                                  onShare={() => setShareDialogSessionId(session.id)}
-                                />
+            <ScrollArea className="flex-1">
+              <div className="p-2 space-y-1">
+                {isLoadingSessions ? (
+                  <div className="text-center py-8 text-sm text-muted-foreground">
+                    Loading sessions...
+                  </div>
+                ) : recentSessions.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-muted-foreground">
+                    No conversation history
+                  </div>
+                ) : (
+                  recentSessions.map(session => (
+                    <div
+                      key={session.id}
+                      className={`p-3 rounded-lg border cursor-pointer transition-colors hover:bg-muted ${
+                        currentSessionId === session.id ? 'bg-muted border-primary' : ''
+                      }`}
+                      onClick={() => handleLoadSession(session.id)}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          {editingSessionId === session.id ? (
+                            <Input
+                              value={newSessionName}
+                              onChange={(e) => setNewSessionName(e.target.value)}
+                              onBlur={() => {
+                                if (newSessionName.trim()) {
+                                  handleRenameSession(session.id, newSessionName.trim());
+                                } else {
+                                  setEditingSessionId(null);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && newSessionName.trim()) {
+                                  handleRenameSession(session.id, newSessionName.trim());
+                                } else if (e.key === 'Escape') {
+                                  setEditingSessionId(null);
+                                }
+                              }}
+                              className="h-7 text-sm mb-1"
+                              autoFocus
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ) : (
+                            <>
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium truncate">{session.name}</p>
+                                <div className="flex items-center gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
+                                  <ChatSessionActions
+                                    sessionId={session.id}
+                                    tenantId={tenantId}
+                                    onRename={() => {
+                                      setEditingSessionId(session.id);
+                                      setNewSessionName(session.name);
+                                    }}
+                                    onManageTags={() => setTagsDialogSessionId(session.id)}
+                                    onSetCategory={() => {
+                                      // TODO: Implement category dialog
+                                      toast.info('Category management coming soon');
+                                    }}
+                                    onShare={() => setShareDialogSessionId(session.id)}
+                                  />
+                                </div>
                               </div>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                              {getSessionPreview(session)}
-                            </p>
-                            <div className="flex items-center gap-2 mt-2">
-                              <span className="text-xs text-muted-foreground">
-                                {session.messages.length} message{session.messages.length !== 1 ? 's' : ''}
-                              </span>
-                              <span className="text-xs text-muted-foreground">•</span>
-                              <span className="text-xs text-muted-foreground">
-                                {new Date(session.updatedAt).toLocaleDateString()}
-                              </span>
-                            </div>
-                          </>
-                        )}
+                              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                {getSessionPreview(session)}
+                              </p>
+                              <div className="flex items-center gap-2 mt-2">
+                                <span className="text-xs text-muted-foreground">
+                                  {session.messages.length} message{session.messages.length !== 1 ? 's' : ''}
+                                </span>
+                                <span className="text-xs text-muted-foreground">•</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {new Date(session.updatedAt).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </ScrollArea>
-        </div>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </SectionErrorBoundary>
       )}
 
       {/* Router Activity Sidebar */}
-      <RouterActivitySidebar
-        open={isRouterActivityOpen}
-        onClose={() => setIsRouterActivityOpen(false)}
-        stackId={selectedStackId}
-      />
+      <SectionErrorBoundary sectionName="Router Activity">
+        <RouterActivitySidebar
+          open={isRouterActivityOpen}
+          onClose={() => setIsRouterActivityOpen(false)}
+          stackId={selectedStackId}
+        />
+      </SectionErrorBoundary>
 
       {/* Currently Loaded Panel */}
       <div className={`px-4 mt-2 ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
@@ -987,7 +745,13 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
           {adapterStates.size > 0 && (
             <AdapterLoadingStatus
               stackId={selectedStackId}
-              adapters={Array.from(adapterStates.values())}
+              adapters={Array.from(adapterStates.values()).map(state => ({
+                id: state.adapterId,
+                name: state.name,
+                state: state.state,
+                isLoading: state.isLoading,
+                error: state.error,
+              }))}
               compact
             />
           )}
@@ -1038,7 +802,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
       </div>
 
       {/* Messages area */}
-      <ScrollArea 
+      <ScrollArea
         className={`flex-1 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}
         ref={scrollAreaRef}
         aria-label="Chat messages"
@@ -1046,36 +810,43 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
         aria-live="polite"
         aria-atomic="false"
       >
-        <div className="py-4">
-          {messages.length === 0 ? (
-            <div 
-              className="flex items-center justify-center h-full text-muted-foreground"
-              role="status"
-              aria-live="polite"
-            >
-              <div className="text-center">
-                <Layers className="h-12 w-12 mx-auto mb-4 opacity-50" aria-hidden="true" />
-                <p className="text-lg font-medium">Start a conversation</p>
-                <p className="text-sm mt-1">
-                  Select a stack and send a message to begin
-                </p>
+        <SectionErrorBoundary sectionName="Chat Messages">
+          <div className="py-4">
+            {messages.length === 0 ? (
+              <div
+                className="flex items-center justify-center h-full text-muted-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                <div className="text-center">
+                  <Layers className="h-12 w-12 mx-auto mb-4 opacity-50" aria-hidden="true" />
+                  <p className="text-lg font-medium">Start a conversation</p>
+                  <p className="text-sm mt-1">
+                    Select a stack and send a message to begin
+                  </p>
+                </div>
               </div>
-            </div>
-          ) : (
-            messages.map(message => (
-              <ChatMessageComponent
-                key={message.id}
-                message={message}
-                onViewDocument={handleViewDocumentClick}
-              />
-            ))
-          )}
-          {isLoadingRouterDecision && (
-            <div className="text-xs text-muted-foreground px-4" role="status" aria-live="polite">
-              Loading router decision details...
-            </div>
-          )}
-        </div>
+            ) : (
+              messages.map(message => (
+                <ChatMessageComponent
+                  key={message.id}
+                  message={
+                    // Update streaming message with current streamed text
+                    message.id === streamingMessageId
+                      ? { ...message, content: streamedText }
+                      : message
+                  }
+                  onViewDocument={handleViewDocumentClick}
+                />
+              ))
+            )}
+            {isLoadingDecision && (
+              <div className="text-xs text-muted-foreground px-4" role="status" aria-live="polite">
+                Loading router decision details...
+              </div>
+            )}
+          </div>
+        </SectionErrorBoundary>
       </ScrollArea>
 
       {/* Input area */}
@@ -1091,7 +862,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
             onKeyDown={handleKeyDown}
             placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
             className="min-h-[60px] resize-none"
-            disabled={isLoading || !selectedStackId}
+            disabled={isStreaming || !selectedStackId}
             aria-label="Message input"
             aria-describedby={!selectedStackId ? "stack-required-hint" : undefined}
           />
@@ -1103,11 +874,11 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
           <Button
             type="submit"
             onClick={handleSend}
-            disabled={isLoading || !input.trim() || !selectedStackId}
+            disabled={isStreaming || !input.trim() || !selectedStackId}
             size="lg"
-            aria-label={isLoading ? "Sending message..." : "Send message"}
+            aria-label={isStreaming ? "Sending message..." : "Send message"}
           >
-            {isLoading ? (
+            {isStreaming ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Send className="h-4 w-4" />
@@ -1160,7 +931,9 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <ChatArchivePanel />
+            <SectionErrorBoundary sectionName="Archive Panel">
+              <ChatArchivePanel />
+            </SectionErrorBoundary>
           </div>
         </div>
       )}

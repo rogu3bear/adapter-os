@@ -172,6 +172,7 @@ function Sidebar({
         className={cn(
           "text-sidebar-foreground h-svh w-(--sidebar-width) shrink-0",
           "bg-sidebar border-r border-border/40 shadow-sm",
+          "flex flex-col overflow-x-hidden",
           side === "right" && "order-last border-r-0 border-l",
           className,
         )}
@@ -192,7 +193,7 @@ function Sidebar({
       className={cn(
         "text-sidebar-foreground h-svh shrink-0",
         "bg-sidebar border-r border-border/40 shadow-sm",
-        "transition-[width] duration-200 ease-linear overflow-hidden",
+        "transition-[width] duration-200 ease-linear overflow-x-hidden flex flex-col",
         state === "expanded" ? "w-(--sidebar-width)" : "w-(--sidebar-width-icon)",
         side === "right" && "order-last border-r-0 border-l",
         className,
@@ -361,7 +362,7 @@ function SidebarGroupLabel({
       data-sidebar="group-label"
       className={cn(
         "text-sidebar-foreground/70 ring-sidebar-ring flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium outline-hidden transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
-        "group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0",
+        "group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0 group-data-[collapsible=icon]:pointer-events-none",
         className,
       )}
       {...props}
@@ -494,6 +495,7 @@ function SidebarMenuButton({
         side="right"
         align="center"
         hidden={state !== "collapsed" || isMobile}
+        className="max-w-none"
         {...tooltip}
       />
     </Tooltip>

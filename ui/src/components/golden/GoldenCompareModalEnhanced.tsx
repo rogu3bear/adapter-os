@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Alert, AlertDescription } from '../ui/alert';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import apiClient from '../../api/client';
-import { GoldenCompareRequest, Strictness, VerificationReport, LayerDivergence } from '../../api/types';
-import { errorRecoveryTemplates } from '../ui/error-recovery';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import apiClient from '@/api/client';
+import { GoldenCompareRequest, Strictness, VerificationReport, LayerDivergence } from '@/api/types';
+import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { EpsilonHeatmap } from './EpsilonHeatmap';
 import { StatisticalSummary } from './StatisticalSummary';
 import { LayerDetailModal } from './LayerDetailModal';
@@ -322,12 +322,12 @@ export function GoldenCompareModalEnhanced({ open, onOpenChange, bundleId }: Gol
                           </span>
                           <div className="flex items-center gap-2 text-sm">
                             <span className="text-muted-foreground">Sort</span>
-                            <select className="border rounded px-2 py-1" value={sortKey} onChange={e => setSortKey(e.target.value as any)}>
+                            <select className="border rounded px-2 py-1" value={sortKey} onChange={e => setSortKey(e.target.value as 'rel' | 'g_l2' | 'c_l2')}>
                               <option value="rel">Rel Error</option>
                               <option value="g_l2">Golden L2</option>
                               <option value="c_l2">Current L2</option>
                             </select>
-                            <select className="border rounded px-2 py-1" value={sortDir} onChange={e => setSortDir(e.target.value as any)}>
+                            <select className="border rounded px-2 py-1" value={sortDir} onChange={e => setSortDir(e.target.value as 'desc' | 'asc')}>
                               <option value="desc">Desc</option>
                               <option value="asc">Asc</option>
                             </select>

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
-export interface ActionHistoryItem<T = any> {
+export interface ActionHistoryItem<T = unknown> {
   id: string;
   action: string;
   timestamp: number;

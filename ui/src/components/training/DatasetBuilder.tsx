@@ -2,15 +2,15 @@
 // Citation: CLAUDE.md - Follow density-aware patterns, use structured error handling
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
-import { Progress } from '../ui/progress';
-import { Badge } from '../ui/badge';
-import { Alert, AlertDescription } from '../ui/alert';
-import { Textarea } from '../ui/textarea';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Upload,
   File,
@@ -30,11 +30,12 @@ import {
   Trash2
 } from 'lucide-react';
 import { logger, toError } from '@/utils/logger';
-import { ErrorRecovery } from '../ui/error-recovery';
+import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { useInformationDensity } from '@/hooks/useInformationDensity';
 import { DatasetConfigSchema, formatValidationError } from '@/schemas';
 import { apiClient } from '@/api/client';
 import { CreateDatasetRequest, DatasetValidationResult } from '@/api/training-types';
+import { ZodError } from 'zod';
 
 // File upload state
 interface UploadedFile {
@@ -103,6 +104,7 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
         logger.error('Failed to restore draft', { component: 'DatasetBuilder' }, toError(error));
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on mount
   }, []);
 
   useEffect(() => {
@@ -326,8 +328,8 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
     try {
       await DatasetConfigSchema.parseAsync(config);
     } catch (error) {
-      if (error instanceof Error && error.name === 'ZodError') {
-        const validationResult = formatValidationError(error as any);
+      if (error instanceof ZodError) {
+        const validationResult = formatValidationError(error);
         const errorMessages = validationResult.errors.map(e => e.message);
         setUploadError(new Error(errorMessages.join('\n')));
         return;
@@ -387,7 +389,7 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
         <p className="text-muted-foreground">Upload documents and configure training dataset</p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)}>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'upload' | 'configure' | 'preview' | 'validate')}>
         <TabsList>
           <TabsTrigger value="upload">
             <Upload className="w-4 h-4" />
@@ -463,8 +465,7 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
                     ref={directoryInputRef}
                     type="file"
                     multiple
-                    // @ts-ignore - webkitdirectory is not in types but works in modern browsers
-                    webkitdirectory="true"
+                    {...({ webkitdirectory: "true" } as React.InputHTMLAttributes<HTMLInputElement>)}
                     onChange={handleDirectorySelect}
                     className="hidden"
                   />
@@ -621,7 +622,7 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
                 <select
                   id="training-strategy"
                   value={config.strategy}
-                  onChange={(e) => setConfig({ ...config, strategy: e.target.value as any })}
+                  onChange={(e) => setConfig({ ...config, strategy: e.target.value as 'identity' | 'question_answer' | 'masked_lm' })}
                   className="w-full rounded-md border border-input bg-background px-3 py-2"
                 >
                   <option value="identity">Identity (Unsupervised)</option>

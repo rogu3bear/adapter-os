@@ -10,9 +10,9 @@
 //! - Structured logging via logger utility
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { logger, toError } from '../utils/logger';
-import apiClient from '../api/client';
-import { Notification, NotificationSummary } from '../api/types';
+import { logger, toError } from '@/utils/logger';
+import apiClient from '@/api/client';
+import { Notification, NotificationSummary } from '@/api/types';
 
 export interface UseNotificationsOptions {
   enabled?: boolean;
@@ -98,13 +98,17 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
       setNotifications(notificationsResponse);
       setSummary(summaryResponse);
 
-      logger.info('Notifications updated', {
-        component: 'useNotifications',
-        operation: 'fetchNotifications',
-        notificationCount: notificationsResponse.length,
-        unreadCount: summaryResponse.unread_count,
-        workspaceId: workspaceIdRef.current,
-      });
+      // Use debug level for routine updates to avoid console spam
+      // Only log at info level when there are unread notifications
+      if (summaryResponse.unread_count > 0) {
+        logger.debug('Notifications updated', {
+          component: 'useNotifications',
+          operation: 'fetchNotifications',
+          notificationCount: notificationsResponse.length,
+          unreadCount: summaryResponse.unread_count,
+          workspaceId: workspaceIdRef.current,
+        });
+      }
     } catch (err) {
       if (!isMountedRef.current) return;
       
@@ -288,7 +292,13 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
       // quick polling while disconnected
       fallbackIntervalRef.current = setInterval(() => {
         if (isMountedRef.current && enabledRef.current) {
-          fetchNotifications();
+          // Properly handle async errors instead of fire-and-forget
+          fetchNotifications().catch((error) => {
+            logger.warn('Fallback polling failed', {
+              component: 'useNotifications',
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
         }
       }, 500);
     }
@@ -305,6 +315,14 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
     }
 
     function connectSSE() {
+      // Always cleanup previous connection first
+      if (sseRef.current) {
+        try {
+          sseRef.current();
+        } catch {}
+        sseRef.current = null;
+      }
+
       if (!useSSE || !isMountedRef.current) return;
 
       try {

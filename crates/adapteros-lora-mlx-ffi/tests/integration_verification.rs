@@ -22,7 +22,7 @@ fn verify_runtime_initialization() {
     let is_init = mlx_runtime_is_initialized();
     println!("mlx_runtime_is_initialized(): {}", is_init);
 
-    assert!(result.is_ok(), "Runtime init should succeed");
+    result.expect("Runtime init should succeed");
     assert!(is_init, "Runtime should be initialized");
 
     println!("\n[PASS] Runtime initialization verified\n");
@@ -45,7 +45,7 @@ fn verify_adapter_cache_operations() {
     for i in 0..5u16 {
         let weights = vec![i as u8; 1024 * 1024]; // 1MB each
         let start = Instant::now();
-        cache.cache_adapter(i, weights);
+        let _ = cache.cache_adapter(i, weights);
         println!("Cached adapter {} (1MB) in {:?}", i, start.elapsed());
     }
 
@@ -159,7 +159,7 @@ fn verify_complete_workflow() {
 
     // Step 2: Create adapter cache
     let adapter_cache = MLXAdapterCache::new(MLXAdapterCacheConfig::default());
-    adapter_cache.cache_adapter(1, vec![0u8; 512 * 1024]); // 512KB
+    let _ = adapter_cache.cache_adapter(1, vec![0u8; 512 * 1024]); // 512KB
     println!("[2/4] Adapter cache created and populated");
 
     // Step 3: Create KV cache

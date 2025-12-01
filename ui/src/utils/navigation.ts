@@ -60,7 +60,7 @@ export function generateNavigationGroups(userRole?: string, userPermissions?: st
   const groups = Array.from(groupsMap.values());
 
   // Sort groups by predefined order (Home first, then alphabetical)
-  const groupOrder = ['Home', 'ML Pipeline', 'Monitoring', 'Operations', 'Communication', 'Compliance', 'Administration'];
+  const groupOrder = ['Home', 'Build', 'Monitor', 'Run', 'Secure', 'Admin'];
   groups.sort((a, b) => {
     const aIndex = groupOrder.indexOf(a.title);
     const bIndex = groupOrder.indexOf(b.title);

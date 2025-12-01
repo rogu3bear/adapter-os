@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { KpiGrid, ContentGrid } from '@/components/ui/grid';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import {
   MessageSquare,
   Layers,
@@ -34,7 +34,7 @@ import {
 import apiClient from '@/api/client';
 import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
 import { logger } from '@/utils/logger';
-import DashboardLayout from '../DashboardLayout';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
 
 export default function ViewerDashboard() {
   const navigate = useNavigate();
@@ -95,7 +95,7 @@ export default function ViewerDashboard() {
           {quickActions.map((action) => {
             const Icon = action.icon;
             return (
-              <HelpTooltip key={action.label} content={action.description}>
+              <GlossaryTooltip key={action.label} brief={action.description}>
                 <Button
                   variant="outline"
                   size="sm"
@@ -104,7 +104,7 @@ export default function ViewerDashboard() {
                   <Icon className="h-4 w-4 mr-2" />
                   <span className="hidden sm:inline">{action.label}</span>
                 </Button>
-              </HelpTooltip>
+              </GlossaryTooltip>
             );
           })}
         </div>
@@ -119,12 +119,12 @@ export default function ViewerDashboard() {
             {/* System Status */}
             <Card>
               <CardHeader className="pb-2">
-                <HelpTooltip helpId="system-status">
+                <GlossaryTooltip termId="system-status">
                   <CardTitle className="text-sm font-medium cursor-help flex items-center gap-2">
                     <CheckCircle className="h-4 w-4 text-green-600" />
                     System Status
                   </CardTitle>
-                </HelpTooltip>
+                </GlossaryTooltip>
               </CardHeader>
               <CardContent>
                 {metricsLoading ? (
@@ -143,12 +143,12 @@ export default function ViewerDashboard() {
             {/* Available Adapters */}
             <Card>
               <CardHeader className="pb-2">
-                <HelpTooltip helpId="adapter-count">
+                <GlossaryTooltip termId="adapter-count">
                   <CardTitle className="text-sm font-medium cursor-help flex items-center gap-2">
                     <Layers className="h-4 w-4 text-purple-600" />
                     Available Adapters
                   </CardTitle>
-                </HelpTooltip>
+                </GlossaryTooltip>
               </CardHeader>
               <CardContent>
                 {adaptersLoading ? (
@@ -167,12 +167,12 @@ export default function ViewerDashboard() {
             {/* Active Sessions */}
             <Card>
               <CardHeader className="pb-2">
-                <HelpTooltip helpId="active-sessions">
+                <GlossaryTooltip termId="active-sessions">
                   <CardTitle className="text-sm font-medium cursor-help flex items-center gap-2">
                     <Activity className="h-4 w-4 text-blue-600" />
                     Active Sessions
                   </CardTitle>
-                </HelpTooltip>
+                </GlossaryTooltip>
               </CardHeader>
               <CardContent>
                 {metricsLoading ? (
@@ -193,12 +193,12 @@ export default function ViewerDashboard() {
             {/* Performance */}
             <Card>
               <CardHeader className="pb-2">
-                <HelpTooltip helpId="tokens-per-second">
+                <GlossaryTooltip termId="tokens-per-second">
                   <CardTitle className="text-sm font-medium cursor-help flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-green-600" />
                     Performance
                   </CardTitle>
-                </HelpTooltip>
+                </GlossaryTooltip>
               </CardHeader>
               <CardContent>
                 {metricsLoading ? (

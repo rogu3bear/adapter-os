@@ -1,15 +1,15 @@
 // 【ui/src/components/dashboard/ReportingSummaryWidget.tsx§23-48】 - Replace manual polling with standardized hook
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { FileText, TrendingUp, Activity, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Button } from '../ui/button';
-import apiClient from '../../api/client';
-import { logger, toError } from '../../utils/logger';
-import { usePolling } from '../../hooks/usePolling';
-import { LastUpdated } from '../ui/last-updated';
-import { ErrorRecovery, errorRecoveryTemplates } from '../ui/error-recovery';
+import { Button } from '@/components/ui/button';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
+import { LastUpdated } from '@/components/ui/last-updated';
+import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
 
 interface ReportingSummaryWidgetProps {
   selectedTenant?: string;
@@ -36,7 +36,7 @@ export function ReportingSummaryWidget({ selectedTenant }: ReportingSummaryWidge
     return {
       totalInferences: systemMetrics?.active_sessions || 0,
       totalTrainingJobs: trainingJobs.length,
-      activeAdapters: adapters.filter((a: any) => ['hot', 'warm'].includes(a.current_state)).length,
+      activeAdapters: adapters.filter((a: { current_state?: string }) => ['hot', 'warm'].includes(a.current_state || '')).length,
       systemHealth: systemMetrics?.memory_usage_pct || 0,
     };
   };

@@ -29,6 +29,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { logger } from '@/utils/logger';
+import { formatTimestamp } from '@/utils/format';
 
 interface WorkspaceCardProps {
   workspace: Workspace;
@@ -186,14 +187,6 @@ export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete }: Workspa
     };
   }, [workspace.id, listWorkspaceMembers, listWorkspaceResources]);
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
   return (
     <>
       <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => onSelect(workspace.id)}>
@@ -260,7 +253,7 @@ export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete }: Workspa
             {/* Created date */}
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <Calendar className="h-3 w-3" />
-              <span>Created {formatDate(workspace.created_at)}</span>
+              <span>Created {formatTimestamp(workspace.created_at, 'long')}</span>
             </div>
 
             {/* Quick actions */}

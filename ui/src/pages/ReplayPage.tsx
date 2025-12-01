@@ -4,6 +4,7 @@ import { ReplayPanel } from '@/components/ReplayPanel';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 export default function ReplayPage() {
   const { selectedTenant } = useTenant();
@@ -14,10 +15,12 @@ export default function ReplayPage() {
       <FeatureLayout
         title="Replay"
         description="Deterministic verification"
-        helpContent="Replay and verify deterministic execution sessions"
+        brief="Replay and verify deterministic execution sessions"
       >
         <div className="space-y-6">
-          <ReplayPanel tenantId={selectedTenant} onSessionSelect={() => {}} />
+          <SectionErrorBoundary sectionName="Replay">
+            <ReplayPanel tenantId={selectedTenant} onSessionSelect={() => {}} />
+          </SectionErrorBoundary>
         </div>
       </FeatureLayout>
     </DensityProvider>

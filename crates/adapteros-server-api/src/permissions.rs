@@ -3,10 +3,9 @@
 //! Defines fine-grained permissions and maps them to user roles.
 //! Used by handlers to enforce access control before executing operations.
 
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::types::ErrorResponse;
 pub use adapteros_db::users::Role;
-use axum::{http::StatusCode, Json};
 use std::{fmt, str::FromStr};
 use tracing::{debug, warn};
 
@@ -374,21 +373,23 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
 /// use adapteros_server_api::permissions::{Permission, require_permission};
 /// use crate::auth::Claims;
 ///
-/// pub async fn my_handler(claims: Claims) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+/// pub async fn my_handler(claims: Claims) -> ApiResult<Response> {
 ///     require_permission(&claims, Permission::AdapterRegister)?;
 ///     // ... proceed with operation
-///     Ok(())
+///     Ok(Json(response))
 /// }
 /// ```
-pub fn require_permission(
-    claims: &Claims,
-    permission: Permission,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+pub fn require_permission(claims: &Claims, permission: Permission) -> Result<(), ApiError> {
     let role = Role::from_str(&claims.role).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("invalid role").with_code("INTERNAL_ERROR")),
-        )
+        warn!(
+            user_id = %claims.sub,
+            role = %claims.role,
+            "Invalid role in JWT claims - valid roles are: admin, operator, sre, compliance, viewer"
+        );
+        ApiError::bad_request("invalid role in authentication token").with_details(format!(
+            "role '{}' is not valid, expected one of: admin, operator, sre, compliance, viewer",
+            claims.role
+        ))
     })?;
 
     debug!(
@@ -408,17 +409,10 @@ pub fn require_permission(
             required_permission = ?permission,
             "Permission denied"
         );
-        Err((
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("insufficient permissions")
-                    .with_code("FORBIDDEN")
-                    .with_string_details(format!(
-                        "required permission: {:?}, user role: {}",
-                        permission, claims.role
-                    )),
-            ),
-        ))
+        Err(ApiError::forbidden("insufficient permissions").with_details(format!(
+            "required permission: {:?}, user role: {}",
+            permission, claims.role
+        )))
     }
 }
 
@@ -437,12 +431,17 @@ pub fn permissions_for_role(role: &Role) -> Vec<Permission> {
 pub fn require_any_permission(
     claims: &Claims,
     permissions: &[Permission],
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(), ApiError> {
     let role = Role::from_str(&claims.role).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("invalid role").with_code("INTERNAL_ERROR")),
-        )
+        warn!(
+            user_id = %claims.sub,
+            role = %claims.role,
+            "Invalid role in JWT claims - valid roles are: admin, operator, sre, compliance, viewer"
+        );
+        ApiError::bad_request("invalid role in authentication token").with_details(format!(
+            "role '{}' is not valid, expected one of: admin, operator, sre, compliance, viewer",
+            claims.role
+        ))
     })?;
 
     for permission in permissions {
@@ -451,48 +450,36 @@ pub fn require_any_permission(
         }
     }
 
-    Err((
-        StatusCode::FORBIDDEN,
-        Json(
-            ErrorResponse::new("insufficient permissions")
-                .with_code("FORBIDDEN")
-                .with_string_details(format!(
-                    "required one of: {:?}, user role: {}",
-                    permissions, claims.role
-                )),
-        ),
-    ))
+    Err(ApiError::forbidden("insufficient permissions").with_details(format!(
+        "required one of: {:?}, user role: {}",
+        permissions, claims.role
+    )))
 }
 
 /// Require any of the specified roles
 ///
 /// Returns `Ok(())` if the user has any of the required roles (Admin always passes)
-pub fn require_any_role(
-    claims: &Claims,
-    roles: &[Role],
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+pub fn require_any_role(claims: &Claims, roles: &[Role]) -> Result<(), ApiError> {
     let user_role = Role::from_str(&claims.role).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("invalid role").with_code("INTERNAL_ERROR")),
-        )
+        warn!(
+            user_id = %claims.sub,
+            role = %claims.role,
+            "Invalid role in JWT claims - valid roles are: admin, operator, sre, compliance, viewer"
+        );
+        ApiError::bad_request("invalid role in authentication token").with_details(format!(
+            "role '{}' is not valid, expected one of: admin, operator, sre, compliance, viewer",
+            claims.role
+        ))
     })?;
 
     if user_role == Role::Admin || roles.contains(&user_role) {
         return Ok(());
     }
 
-    Err((
-        StatusCode::FORBIDDEN,
-        Json(
-            ErrorResponse::new("insufficient permissions")
-                .with_code("FORBIDDEN")
-                .with_string_details(format!(
-                    "required one of: {:?}, user role: {}",
-                    roles, claims.role
-                )),
-        ),
-    ))
+    Err(ApiError::forbidden("insufficient permissions").with_details(format!(
+        "required one of: {:?}, user role: {}",
+        roles, claims.role
+    )))
 }
 
 #[cfg(test)]

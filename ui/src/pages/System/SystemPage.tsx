@@ -2,6 +2,7 @@ import { useState } from 'react';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import SystemOverviewTab from './SystemOverviewTab';
 import NodesTab from './NodesTab';
 import WorkersTab from './WorkersTab';
@@ -28,23 +29,33 @@ export default function SystemPage() {
           </TabsList>
 
           <TabsContent value="overview" className="mt-6">
-            <SystemOverviewTab />
+            <SectionErrorBoundary sectionName="System Overview">
+              <SystemOverviewTab />
+            </SectionErrorBoundary>
           </TabsContent>
 
           <TabsContent value="nodes" className="mt-6">
-            <NodesTab />
+            <SectionErrorBoundary sectionName="Nodes">
+              <NodesTab />
+            </SectionErrorBoundary>
           </TabsContent>
 
           <TabsContent value="workers" className="mt-6">
-            <WorkersTab />
+            <SectionErrorBoundary sectionName="Workers">
+              <WorkersTab />
+            </SectionErrorBoundary>
           </TabsContent>
 
           <TabsContent value="memory" className="mt-6">
-            <MemoryTab />
+            <SectionErrorBoundary sectionName="Memory">
+              <MemoryTab />
+            </SectionErrorBoundary>
           </TabsContent>
 
           <TabsContent value="metrics" className="mt-6">
-            <MetricsTab />
+            <SectionErrorBoundary sectionName="Metrics">
+              <MetricsTab />
+            </SectionErrorBoundary>
           </TabsContent>
         </Tabs>
       </FeatureLayout>

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { LoadingState } from '@/components/ui/loading-state';
 import apiClient from '@/api/client';
+import { formatBytes, formatTimestamp } from '@/utils/format';
 
 interface DatasetFilesProps {
   datasetId: string;
@@ -31,20 +32,6 @@ export default function DatasetFiles({ datasetId, isLoading }: DatasetFilesProps
     enabled: !!datasetId,
   });
 
-  const formatBytes = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  };
-
-  const formatDate = (dateString: string): string => {
-    try {
-      return new Date(dateString).toLocaleString();
-    } catch {
-      return dateString;
-    }
-  };
 
   if (isLoading || isLoadingFiles) {
     return <LoadingState message="Loading files..." />;
@@ -83,7 +70,7 @@ export default function DatasetFiles({ datasetId, isLoading }: DatasetFilesProps
                 <TableCell>{formatBytes(file.size_bytes)}</TableCell>
                 <TableCell className="font-mono text-xs">{file.hash.slice(0, 16)}...</TableCell>
                 <TableCell>{file.mime_type || '-'}</TableCell>
-                <TableCell className="text-sm">{formatDate(file.created_at)}</TableCell>
+                <TableCell className="text-sm">{formatTimestamp(file.created_at, 'long')}</TableCell>
               </TableRow>
             ))}
           </TableBody>

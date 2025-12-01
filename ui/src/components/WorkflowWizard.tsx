@@ -25,7 +25,7 @@ interface WorkflowStep {
   id: string;
   title: string;
   description: string;
-  icon: any;
+  icon: React.ComponentType<{ className?: string }>;
   route: string;
   completed: boolean;
 }
@@ -33,7 +33,7 @@ interface WorkflowStep {
 interface RoleWorkflow {
   title: string;
   description: string;
-  icon: any;
+  icon: React.ComponentType<{ className?: string }>;
   steps: Omit<WorkflowStep, 'completed'>[];
 }
 

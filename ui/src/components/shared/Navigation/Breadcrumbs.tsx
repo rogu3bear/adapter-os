@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronRight, Home } from 'lucide-react';
 
-import { cn } from '../../ui/utils';
+import { cn } from '@/components/ui/utils';
 import {
   Breadcrumb,
   BreadcrumbList,
@@ -11,7 +11,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
   BreadcrumbEllipsis,
-} from '../../ui/breadcrumb';
+} from '@/components/ui/breadcrumb';
 
 export interface BreadcrumbItemConfig {
   /** Unique identifier for the breadcrumb item */

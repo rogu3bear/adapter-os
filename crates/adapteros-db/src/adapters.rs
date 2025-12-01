@@ -3,7 +3,7 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::adapters_kv::{AdapterKvOps, AdapterKvRepository};
@@ -1129,6 +1129,124 @@ impl Db {
         }
 
         Ok(())
+    }
+
+    /// Compare-and-swap (CAS) update of adapter state
+    ///
+    /// Atomically updates the adapter state only if the current state matches the expected state.
+    /// This prevents TOCTOU (Time-of-Check-to-Time-of-Use) race conditions where two concurrent
+    /// requests might both read the same state and try to transition, causing invalid state sequences.
+    ///
+    /// # Arguments
+    /// * `adapter_id` - The adapter to update
+    /// * `expected_state` - The state we expect the adapter to be in
+    /// * `new_state` - The state to transition to
+    /// * `reason` - Human-readable reason for the transition (audit trail)
+    ///
+    /// # Returns
+    /// * `Ok(true)` - State was updated successfully
+    /// * `Ok(false)` - State was not updated because current state != expected_state
+    /// * `Err(AosError::NotFound)` - Adapter doesn't exist
+    /// * `Err(AosError::Database)` - Database error
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Only promote from cold to warm if still in cold state
+    /// let updated = db.update_adapter_state_cas(
+    ///     "adapter-123", "cold", "warm", "promoting for inference"
+    /// ).await?;
+    /// if !updated {
+    ///     // Another request already changed the state - retry or handle conflict
+    /// }
+    /// ```
+    pub async fn update_adapter_state_cas(
+        &self,
+        adapter_id: &str,
+        expected_state: &str,
+        new_state: &str,
+        reason: &str,
+    ) -> Result<bool> {
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // Lock the row and verify current state
+        let row_data: Option<(String, String, String)> = sqlx::query_as(
+            "SELECT adapter_id, tenant_id, current_state FROM adapters WHERE adapter_id = ?",
+        )
+        .bind(adapter_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        let (tenant_id, current_state) = match row_data {
+            Some((_, tid, state)) => (tid, state),
+            None => {
+                warn!(adapter_id = %adapter_id, "Adapter not found for CAS state update");
+                return Err(AosError::NotFound(format!(
+                    "Adapter not found: {}",
+                    adapter_id
+                )));
+            }
+        };
+
+        // CAS check: only update if current state matches expected
+        if current_state != expected_state {
+            debug!(
+                adapter_id = %adapter_id,
+                expected = %expected_state,
+                actual = %current_state,
+                "CAS state update rejected: state mismatch"
+            );
+            return Ok(false);
+        }
+
+        // State matches, proceed with update
+        debug!(
+            adapter_id = %adapter_id,
+            old_state = %expected_state,
+            new_state = %new_state,
+            reason = %reason,
+            "CAS state update: transitioning"
+        );
+
+        sqlx::query(
+            "UPDATE adapters SET current_state = ?, updated_at = datetime('now') WHERE adapter_id = ? AND current_state = ?",
+        )
+        .bind(new_state)
+        .bind(adapter_id)
+        .bind(expected_state) // Double-check in WHERE clause for atomicity
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // KV write (dual-write mode) - after transaction commit
+        if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+            if let Err(e) = repo
+                .update_adapter_state_kv(adapter_id, new_state, reason)
+                .await
+            {
+                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend (CAS)");
+            } else {
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, new_state = %new_state, mode = "dual-write", "Adapter state updated in both SQL and KV backends (CAS)");
+            }
+        }
+
+        info!(
+            adapter_id = %adapter_id,
+            old_state = %expected_state,
+            new_state = %new_state,
+            reason = %reason,
+            "Adapter state CAS update successful"
+        );
+
+        Ok(true)
     }
 
     /// Update adapter memory usage with transaction protection

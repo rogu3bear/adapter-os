@@ -6,16 +6,16 @@ import {
   CircuitBreaker,
   CircuitState,
   DEFAULT_RETRY_CONFIG,
-} from '../utils/retry';
+} from '@/utils/retry';
 
 // Mock dependencies
-vi.mock('../utils/errorMessages', () => ({
+vi.mock('@/utils/errorMessages', () => ({
   isTransientError: (error: any) => {
     return error?.message?.includes('transient') || error?.status === 503;
   },
 }));
 
-vi.mock('../utils/logger', () => ({
+vi.mock('@/utils/logger', () => ({
   logger: {
     info: vi.fn(),
     warn: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock('sonner', () => ({
 }));
 
 // Mock the retry notification manager
-vi.mock('../components/ui/retry-notification', () => ({
+vi.mock('@/components/ui/retry-notification', () => ({
   retryNotificationManager: {
     show: vi.fn(),
   },

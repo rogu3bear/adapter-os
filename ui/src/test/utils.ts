@@ -120,7 +120,7 @@ export function createMockApiClient(): typeof apiClient {
     buildUrl: vi.fn((path: string) => `/api${path}`),
     request: vi.fn(),
     getRequestLog: vi.fn().mockReturnValue([]),
-  } as any;
+  } as unknown as typeof apiClient;
 }
 
 /**

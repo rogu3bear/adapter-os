@@ -7,7 +7,7 @@ import type { StatusV2 } from '@/api/status';
  */
 
 declare module 'vitest' {
-  interface Assertion<T = any> {
+  interface Assertion<T = unknown> {
     /**
      * Asserts that a string is a valid tenant ID.
      * Tenant IDs should be lowercase alphanumeric with hyphens.

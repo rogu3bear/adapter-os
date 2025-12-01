@@ -2,10 +2,10 @@ import React from 'react';
 import { LucideIcon, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-import { cn } from '../../ui/utils';
+import { cn } from '@/components/ui/utils';
 import { Breadcrumbs, BreadcrumbItemConfig } from './Breadcrumbs';
 import { ActionBar, ActionConfig } from './ActionBar';
-import { Button } from '../../ui/button';
+import { Button } from '@/components/ui/button';
 
 export interface PageHeaderProps {
   /** Page title */

@@ -6,18 +6,23 @@ import { useNavigate } from 'react-router-dom';
 import { Wizard, WizardStep } from './ui/wizard';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
+import { ErrorRecovery } from './ui/error-recovery';
+import { Label } from './ui/label';
 import { Switch } from './ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { RotateCcw, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '../api/client';
-import { logger, toError } from '../utils/logger';
-import { DensityProvider, useDensity } from '../contexts/DensityContext';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import { DensityProvider, useDensity } from '@/contexts/DensityContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
-import { useWizardPersistence } from '../hooks/useWizardPersistence';
-import { TrainingConfigSchema, formatValidationError } from '../schemas';
-import { TERMS } from '../constants/terminology';
-import { TrainingConfig, TrainingTemplate, Repository } from '../api/types';
+import { useWizardPersistence } from '@/hooks/useWizardPersistence';
+import { TrainingConfigSchema, formatValidationError } from '@/schemas';
+import { TERMS } from '@/constants/terminology';
+import { TrainingConfig, TrainingTemplate, Repository } from '@/api/types';
+import { StartTrainingRequest } from '@/api/training-types';
+import { ZodError } from 'zod';
+import { FILE_VALIDATION } from './TrainingWizard/constants';
 import { TrainingWizardProvider } from './TrainingWizard/context';
 import { CategoryStep } from './TrainingWizard/steps/CategoryStep';
 import { BasicInfoStep } from './TrainingWizard/steps/BasicInfoStep';
@@ -55,10 +60,14 @@ interface TrainingWizardProps {
   initialDatasetId?: string;
   /** When true, keep data source locked to the provided dataset */
   lockDatasetId?: boolean;
+  /** When true, adjusts styling for standalone page rendering (not in dialog) */
+  isStandalonePage?: boolean;
+  /** When true, hides the simple/advanced mode toggle (defaults to simple) */
+  hideSimpleModeToggle?: boolean;
 }
 
 // Inner component that uses density context
-function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatasetId }: TrainingWizardProps): JSX.Element {
+function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatasetId, hideSimpleModeToggle = false }: TrainingWizardProps & { hideSimpleModeToggle?: boolean }): JSX.Element {
   const { spacing, textSizes } = useDensity();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
@@ -105,11 +114,11 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     clearState: clearPersistedState,
     hasSavedState,
     loadSavedState,
-  } = useWizardPersistence<WizardState>({
+  } = useWizardPersistence<WizardState & Record<string, unknown>>({
     storageKey: 'training-wizard',
-    initialState,
+    initialState: initialState as WizardState & Record<string, unknown>,
     onSavedStateDetected: (saved) => {
-      setSavedState(saved);
+      setSavedState(saved as WizardState);
       setShowResumeDialog(true);
     },
   });
@@ -135,24 +144,26 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         ]);
         setRepositories(reposData);
         setTemplates(templatesData);
-        setDatasets(datasetsData.datasets?.map((d: any) => ({
+        const mappedDatasets: DatasetSummary[] = (datasetsData.datasets || []).map((d) => ({
           id: d.id,
           name: d.name,
           validation_status: d.validation_status || 'draft',
           file_count: d.file_count || 0,
           total_size_bytes: d.total_size_bytes || 0,
-          validation_errors: d.validation_errors
-        })) || []);
+          validation_errors: d.validation_errors?.join('; '),
+        }));
+        setDatasets(mappedDatasets);
       } catch (error) {
 
         const err = error instanceof Error ? error : new Error('Failed to load repositories and templates');
         setWizardError(err);
-        logger.error('Failed to preload training wizard data', {
+        logger.error('Failed to preload training wizard data: repositories and templates could not be loaded', {
           component: 'TrainingWizard',
           operation: 'loadData',
+          errorType: 'data_loading_failure',
+          details: 'Failed to fetch repositories list and training templates'
         }, toError(error));
 
-        console.error('Failed to load data:', error);
         toast.error('Failed to load repositories and templates');
       }
     };
@@ -172,7 +183,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
   const handleStartFresh = () => {
     clearPersistedState();
     // Reset to initial state
-    setPersistedState(initialState);
+    setPersistedState(initialState as WizardState & Record<string, unknown>);
     setCurrentStep(0);
     setSimpleDatasetMode('existing');
     setUploadFiles([]);
@@ -185,7 +196,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     setPersistedState(updates);
   }, [setPersistedState]);
 
-  const validateUploadFile = (file: File): string | null => {
+  const validateUploadFile = useCallback((file: File): string | null => {
     if (file.size > FILE_VALIDATION.maxSize) {
       return `File ${file.name} exceeds ${FILE_VALIDATION.maxSize / (1024 * 1024)}MB`;
     }
@@ -194,9 +205,9 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
       return `Unsupported type ${extension}`;
     }
     return null;
-  };
+  }, []);
 
-  const handleUploadFilesSelect = (files: FileList | null) => {
+  const handleUploadFilesSelect = useCallback((files: FileList | null) => {
     if (!files) return;
     const valid: File[] = [];
     const errors: string[] = [];
@@ -219,9 +230,9 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     if (valid.length > 0) {
       setUploadFiles(prev => [...prev, ...valid]);
     }
-  };
+  }, [uploadFiles, validateUploadFile]);
 
-  const handleCreateAndValidateDataset = async () => {
+  const handleCreateAndValidateDataset = useCallback(async () => {
     if (uploadFiles.length === 0) {
       setUploadError('Add at least one file to continue');
       return;
@@ -272,12 +283,12 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     } finally {
       setCreateStatus('idle');
     }
-  };
+  }, [uploadFiles, datasetName, state.name, updateState]);
 
-  const handleOpenDatasetTools = (datasetId?: string | null) => {
+  const handleOpenDatasetTools = useCallback((datasetId?: string | null) => {
     if (!datasetId) return;
     navigate(`/training/datasets/${datasetId}`, { state: { focus: 'validation' } });
-  };
+  }, [navigate]);
 
   const trainingWizardContextValue = useMemo(() => ({
     state,
@@ -446,6 +457,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
       };
 
       // Start training - build request matching backend StartTrainingRequest
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const trainingRequest: any = {
         adapter_name: stateToValidate.name,
         config: trainingConfig,
@@ -528,9 +540,9 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
       });
       onComplete(job.id);
     } catch (error) {
-      if (error instanceof Error && error.name === 'ZodError') {
+      if (error instanceof ZodError) {
         // Format Zod validation errors
-        const validationResult = formatValidationError(error as any);
+        const validationResult = formatValidationError(error);
         const firstError = validationResult.errors[0];
         setValidationError(firstError?.message || 'Validation failed');
         logger.warn('Training wizard validation failed', {
@@ -540,7 +552,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         });
       } else {
         // Extract error code from API response if available
-        const apiError = error as any;
+        const apiError = error as { code?: string; response?: { data?: { code?: string } }; message?: string };
         const errorCode = apiError?.code || apiError?.response?.data?.code || 'UNKNOWN_ERROR';
         const errorMessage = getTrainingErrorMessage(errorCode, apiError?.message || 'Failed to start training');
 
@@ -787,32 +799,34 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
       <div className="flex justify-between items-center mb-4">
         <h2 className={textSizes.title}>Training Wizard</h2>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Switch
-              id="simple-mode"
-              checked={simpleMode}
-              onCheckedChange={(checked) => {
-                setSimpleMode(checked);
-                // Reset to first step when switching modes
-                setCurrentStep(0);
-                // Reset state defaults for simple mode
-                if (checked) {
-                  updateState({
-                    dataSourceType: 'dataset',
-                    packageAfter: true,
-                    registerAfter: true,
-                    adaptersRoot: './adapters',
-                    tier: 'warm',
-                    targets: ['q_proj', 'v_proj'], // Default targets for simple mode
-                  });
-                }
-              }}
-            />
-            <Label htmlFor="simple-mode" className="flex items-center gap-2 cursor-pointer">
-              <Sparkles className="h-4 w-4" />
-              <span className="text-sm">Simple Mode</span>
-            </Label>
-          </div>
+          {!hideSimpleModeToggle && (
+            <div className="flex items-center gap-2">
+              <Switch
+                id="simple-mode"
+                checked={simpleMode}
+                onCheckedChange={(checked) => {
+                  setSimpleMode(checked);
+                  // Reset to first step when switching modes
+                  setCurrentStep(0);
+                  // Reset state defaults for simple mode
+                  if (checked) {
+                    updateState({
+                      dataSourceType: 'dataset',
+                      packageAfter: true,
+                      registerAfter: true,
+                      adaptersRoot: './adapters',
+                      tier: 'warm',
+                      targets: ['q_proj', 'v_proj'], // Default targets for simple mode
+                    });
+                  }
+                }}
+              />
+              <Label htmlFor="simple-mode" className="flex items-center gap-2 cursor-pointer">
+                <Sparkles className="h-4 w-4" />
+                <span className="text-sm">Simple Mode</span>
+              </Label>
+            </div>
+          )}
           {hasSavedState && !showResumeDialog && (
             <Button
               variant="outline"
@@ -831,7 +845,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
           )}
         </div>
       </div>
-      {simpleMode && (
+      {simpleMode && !hideSimpleModeToggle && (
         <Alert className="mb-4">
           <Sparkles className="h-4 w-4" />
           <AlertDescription>
@@ -874,7 +888,21 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
 }
 
 // Outer component with DensityProvider
-export function TrainingWizard({ onComplete, onCancel, initialDatasetId, lockDatasetId = false }: TrainingWizardProps) {
+export function TrainingWizard({ onComplete, onCancel, initialDatasetId, lockDatasetId = false, isStandalonePage = false, hideSimpleModeToggle = false }: TrainingWizardProps) {
+  // When rendered as a standalone page, the page component provides DensityProvider
+  // When rendered in a dialog, we need to provide it here
+  if (isStandalonePage) {
+    return (
+      <TrainingWizardInner
+        onComplete={onComplete}
+        onCancel={onCancel}
+        initialDatasetId={initialDatasetId}
+        lockDatasetId={lockDatasetId}
+        hideSimpleModeToggle={hideSimpleModeToggle}
+      />
+    );
+  }
+
   return (
     <DensityProvider pageKey="training-wizard">
       <TrainingWizardInner
@@ -882,6 +910,7 @@ export function TrainingWizard({ onComplete, onCancel, initialDatasetId, lockDat
         onCancel={onCancel}
         initialDatasetId={initialDatasetId}
         lockDatasetId={lockDatasetId}
+        hideSimpleModeToggle={hideSimpleModeToggle}
       />
     </DensityProvider>
   );

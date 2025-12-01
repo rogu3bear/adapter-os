@@ -123,7 +123,10 @@ impl TrainArgs {
                 batch_size: self.common.batch_size,
                 epochs: self.common.epochs,
                 hidden_dim: self.common.hidden_dim,
-                ..TrainingConfig::default()
+                vocab_size: 50272,
+                max_gpu_memory_mb: 0,
+                preferred_backend: None,
+                require_gpu: false,
             };
 
             info!("Using command-line training configuration");
@@ -213,6 +216,7 @@ mod tests {
             batch_size: 16,
             epochs: 5,
             hidden_dim: 1024,
+            vocab_size: 50272,
             max_gpu_memory_mb: 0,
             preferred_backend: None,
             require_gpu: false,

@@ -13,6 +13,13 @@ import { TemplateManager } from './inference/TemplateManager';
 import { BatchProcessor } from './inference/BatchProcessor';
 import { ComparisonMode } from './inference/ComparisonMode';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
+import {
+  useInferenceConfig,
+  useStreamingInference,
+  useBatchInference,
+  useInferenceSessions
+} from '@/hooks/inference';
 import {
   Play,
   Download,
@@ -32,23 +39,24 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '../api/client';
-import { InferRequest, InferResponse, InferenceSession, Adapter, InferenceConfig } from '../api/types';
+import apiClient from '@/api/client';
+import { InferRequest, InferResponse, InferenceSession, Adapter, InferenceConfig } from '@/api/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 import { useSearchParams } from 'react-router-dom';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { useRBAC } from '@/hooks/useRBAC';
-import { useProgressiveHints } from '../hooks/useProgressiveHints';
-import { getPageHints } from '../data/page-hints';
+import { useProgressiveHints } from '@/hooks/useProgressiveHints';
+import { getPageHints } from '@/data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
 import { ToolPageHeader } from './ui/page-headers/ToolPageHeader';
-import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
-import { useCancellableOperation } from '../hooks/useCancellableOperation';
+import { useFeatureDegradation } from '@/hooks/useFeatureDegradation';
+import { useCancellableOperation } from '@/hooks/useCancellableOperation';
 import { PromptTemplateManager } from './PromptTemplateManager';
-import { usePromptTemplates, PromptTemplate as PromptTemplateType } from '../hooks/usePromptTemplates';
-import { InferenceRequestSchema, BatchPromptSchema } from '../schemas';
+import { usePromptTemplates, PromptTemplate as PromptTemplateType } from '@/hooks/usePromptTemplates';
+import { InferenceRequestSchema, BatchPromptSchema } from '@/schemas';
 import { useAdapterStacks, useGetDefaultStack, useSetDefaultStack } from '@/hooks/useAdmin';
+import { ZodError } from 'zod';
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
@@ -81,7 +89,7 @@ const sanitizeInput = (input: string): string => {
 };
 
 // Privacy-aware monitoring (anonymized metrics only)
-const recordPrivacySafeMetrics = (operation: string, data: any) => {
+const recordPrivacySafeMetrics = (operation: string, data: Record<string, unknown>) => {
   // Remove any personally identifiable information
   const anonymized = { ...data };
   delete anonymized.userId;
@@ -97,19 +105,6 @@ const recordPrivacySafeMetrics = (operation: string, data: any) => {
 };
 
 
-interface StreamingToken {
-  token: string;
-  timestamp: number;
-}
-
-interface StreamingState {
-  isStreaming: boolean;
-  streamedText: string;
-  tokenCount: number;
-  startTime: number | null;
-  tokensPerSecond: number;
-}
-
 function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps) {
   const [searchParams] = useSearchParams();
   const { can, userRole } = useRBAC();
@@ -121,12 +116,11 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('none');
   const [selectedStackId, setSelectedStackId] = useState<string>('');
-  
+
   // Fetch stacks and default stack
-  const tenantId = selectedTenant || 'default';
   const { data: stacks = [] } = useAdapterStacks();
-  const { data: defaultStack } = useGetDefaultStack(tenantId);
-  const { mutateAsync: setDefaultStack } = useSetDefaultStack();
+  const { data: defaultStack } = useGetDefaultStack(selectedTenant);
+  const { mutateAsync: setDefaultStack } = useSetDefaultStack(selectedTenant);
 
   // Template management
   const { recordTemplateUsage, substituteVariables, getRecentTemplates } = usePromptTemplates();
@@ -136,12 +130,13 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   const [showVariableInputs, setShowVariableInputs] = useState(false);
   const [promptModifiedSinceTemplate, setPromptModifiedSinceTemplate] = useState(false);
 
-  // Additional state for metrics and batch operations
-  const [metrics, setMetrics] = useState<any>(null);
-  const [batchPrompts, setBatchPrompts] = useState<string[]>([]);
-  const [batchValidation, setBatchValidation] = useState<ValidationResult[]>([]);
-  const [batchResults, setBatchResults] = useState<any[]>([]);
-  const [isBatchRunning, setIsBatchRunning] = useState(false);
+  // Additional state for metrics
+  interface InferenceMetrics {
+    latency: number;
+    tokensPerSecond: number;
+    totalTokens: number;
+  }
+  const [metrics, setMetrics] = useState<InferenceMetrics | null>(null);
   const [templates, setTemplates] = useState<PromptTemplateType[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [promptValidation, setPromptValidation] = useState<ValidationResult | null>(null);
@@ -150,15 +145,37 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   // Cancellation support for inference operations
   const { state: inferenceState, start: startInference, cancel: cancelInference } = useCancellableOperation();
 
-  // Streaming inference state
-  const [streamingState, setStreamingState] = useState<StreamingState>({
-    isStreaming: false,
-    streamedText: '',
-    tokenCount: 0,
-    startTime: null,
-    tokensPerSecond: 0,
+  // Inference hooks
+  const {
+    configA, configB, setConfigA, setConfigB,
+    responseA, responseB, setResponseA, setResponseB,
+    isLoadingA, isLoadingB, setIsLoadingA, setIsLoadingB,
+    resetConfig, resetAll
+  } = useInferenceConfig();
+
+  const {
+    streamingState, isStreaming, streamedText, tokensPerSecond,
+    startStreaming, cancelStreaming, resetStreaming
+  } = useStreamingInference({
+    config: configA,
+    adapterId: selectedAdapterId,
+    stackId: selectedStackId,
   });
-  const abortControllerRef = React.useRef<AbortController | null>(null);
+
+  const {
+    batchPrompts, setBatchPrompts, addPrompt, removePrompt,
+    batchResults, isBatchRunning, metrics: batchMetrics, batchValidation,
+    executeBatch, cancelBatch, clearResults,
+    exportResultsCSV, exportResultsJSON
+  } = useBatchInference({
+    config: configA,
+    adapterId: selectedAdapterId,
+    stackId: selectedStackId,
+  });
+
+  const {
+    recentSessions, addSession, saveCurrentSession, clearSessions
+  } = useInferenceSessions();
 
   // Graceful degradation: Monitor adapter availability
   const adapterAvailability = useFeatureDegradation({
@@ -183,137 +200,6 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   });
   const visibleHint = getVisibleHint();
 
-  // Inference configurations
-  const [configA, setConfigA] = useState<InferenceConfig>({
-    id: 'a',
-    prompt: '',
-    max_tokens: 100,
-    temperature: 0.7,
-    top_k: 50,
-    top_p: 0.9,
-    backend: 'auto',
-    seed: undefined,
-    require_evidence: false,
-  });
-
-  const [configB, setConfigB] = useState<InferenceConfig>({
-    id: 'b',
-    prompt: '',
-    max_tokens: 100,
-    temperature: 0.9,
-    top_k: 50,
-    top_p: 0.9,
-    backend: 'auto',
-    seed: undefined,
-    require_evidence: false,
-  });
-
-  const [responseA, setResponseA] = useState<InferResponse | null>(null);
-  const [responseB, setResponseB] = useState<InferResponse | null>(null);
-  const [isLoadingA, setIsLoadingA] = useState(false);
-  const [isLoadingB, setIsLoadingB] = useState(false);
-  const [recentSessions, setRecentSessions] = useState<InferenceSession[]>([]);
-
-  // Missing function implementations (stubs)
-  const addManagedSession = useCallback((session: InferenceSession) => {
-    // Stub implementation - would add session to managed sessions
-    logger.info('Adding managed session', { session });
-    setRecentSessions(prev => [session, ...prev].slice(0, 10));
-  }, []);
-
-  const executeBatchInference = useCallback(async (prompts: string[]) => {
-    if (prompts.length === 0) {
-      toast.error('No prompts to process');
-      return;
-    }
-
-    // Validate all prompts first using both custom validation and schema
-    const validations = await Promise.all(prompts.map(async (p) => {
-      const customValidation = validatePrompt(p);
-      if (!customValidation.valid) {
-        return customValidation;
-      }
-
-      // Also validate against schema
-      try {
-        await BatchPromptSchema.parseAsync({
-          prompt: p,
-          max_tokens: configA.max_tokens,
-          temperature: configA.temperature,
-        });
-        return customValidation;
-      } catch (error) {
-        if (error instanceof Error) {
-          return {
-            valid: false,
-            error: error.message,
-          };
-        }
-        return customValidation;
-      }
-    }));
-
-    setBatchValidation(validations);
-
-    if (validations.some(v => !v.valid)) {
-      toast.error('Some prompts have validation errors. Please fix them before proceeding.');
-      return;
-    }
-
-    setIsBatchRunning(true);
-    setBatchResults([]);
-
-    logger.info('Executing batch inference', {
-      component: 'InferencePlayground',
-      operation: 'executeBatchInference',
-      count: prompts.length
-    });
-
-    try {
-      // Create batch request items
-      const batchItems = prompts.map((prompt, idx) => ({
-        id: `batch-${Date.now()}-${idx}`,
-        prompt: sanitizeInput(prompt),
-        max_tokens: configA.max_tokens,
-        temperature: configA.temperature,
-        top_k: configA.top_k,
-        top_p: configA.top_p,
-        backend: configA.backend || 'auto',
-        seed: configA.seed,
-        require_evidence: configA.require_evidence,
-        adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
-      }));
-
-      // Call batch inference API
-      const response = await apiClient.batchInfer({ backend: configA.backend || 'auto', requests: batchItems });
-
-      setBatchResults(response.responses);
-
-      const successCount = response.responses.filter(r => r.response).length;
-      const errorCount = response.responses.filter(r => r.error).length;
-
-      toast.success(`Batch complete: ${successCount} succeeded, ${errorCount} failed`);
-
-      logger.info('Batch inference completed', {
-        component: 'InferencePlayground',
-        operation: 'executeBatchInference',
-        total: prompts.length,
-        success: successCount,
-        errors: errorCount
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Batch inference failed');
-      addError('batch-inference', error.message, () => executeBatchInference(prompts));
-      toast.error(`Batch inference failed: ${error.message}`);
-      logger.error('Batch inference failed', {
-        component: 'InferencePlayground',
-        operation: 'executeBatchInference',
-      }, toError(err));
-    } finally {
-      setIsBatchRunning(false);
-    }
-  }, [configA, selectedAdapterId, addError]);
-
   const handleApplyTemplate = useCallback((template: PromptTemplateType) => {
     logger.info('Applying template', { templateId: template.id, templateName: template.name });
 
@@ -334,7 +220,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
       setPrompt(template.prompt);
       setShowTemplates(false);
     }
-  }, [recordTemplateUsage, configA]);
+  }, [recordTemplateUsage, configA, setConfigA]);
 
   const handleApplyVariableSubstitution = useCallback(() => {
     if (!selectedTemplate) return;
@@ -347,7 +233,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
       setShowTemplates(false);
       logger.info('Variables substituted', { templateId: selectedTemplate.id, variableCount: Object.keys(templateVariables).length });
     }
-  }, [selectedTemplate, templateVariables, substituteVariables, configA]);
+  }, [selectedTemplate, templateVariables, substituteVariables, configA, setConfigA]);
 
   const handleResetToTemplate = useCallback(() => {
     if (!selectedTemplate) return;
@@ -360,7 +246,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
       setPromptModifiedSinceTemplate(false);
       logger.info('Prompt reset to template', { templateId: selectedTemplate.id });
     }
-  }, [selectedTemplate, configA]);
+  }, [selectedTemplate, configA, setConfigA]);
 
   const handleSavePromptAsTemplate = useCallback(() => {
     // Delegate to template manager
@@ -369,20 +255,6 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
 
 
   useEffect(() => {
-    // Load recent sessions from localStorage
-    const stored = localStorage.getItem('inference_sessions');
-    if (stored) {
-      try {
-        setRecentSessions(JSON.parse(stored));
-      } catch (err) {
-
-        logger.error('Failed to parse stored inference sessions', {
-          component: 'InferencePlayground',
-          operation: 'loadSessions',
-        }, toError(err));
-      }
-    }
-
     // Load adapters
     const loadAdapters = async () => {
       try {
@@ -410,8 +282,8 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
         }
 
         // Fallback: Select first active adapter if available
-        const activeAdapter = adapterList.find((a: Adapter) => ['hot', 'warm', 'resident'].includes(a.current_state));
-        if (activeAdapter) {
+        const activeAdapter = adapterList.find((a: Adapter) => a.current_state && ['hot', 'warm', 'resident'].includes(a.current_state));
+        if (activeAdapter && activeAdapter.id) {
           setSelectedAdapterId(activeAdapter.id);
         }
       } catch (err) {
@@ -430,7 +302,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
       }
     };
     loadAdapters();
-  }, [searchParams]);
+  }, [searchParams, addError, clearError]);
 
   // Load default stack on mount if none selected
   useEffect(() => {
@@ -445,26 +317,18 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     }
   }, [defaultStack, selectedStackId]);
 
-  const saveSession = (config: InferenceConfig, response: InferResponse) => {
+  const saveSession = useCallback((config: InferenceConfig, response: InferResponse) => {
     const selectedStack = stacks.find(s => s.id === selectedStackId);
-    const session: InferenceSession = {
-      id: Date.now().toString(),
-      created_at: new Date().toISOString(),
-      prompt: config.prompt,
-      request: config,
-      response,
-      status: 'completed',
-      stack_id: selectedStackId || undefined,
-      stack_name: selectedStack?.name || undefined,
-    };
+    const session = saveCurrentSession(config, response);
 
-    // Use managed sessions to prevent memory leaks
-    addManagedSession(session);
+    // Add stack information if available
+    if (selectedStackId || selectedStack?.name) {
+      session.stack_id = selectedStackId || undefined;
+      session.stack_name = selectedStack?.name || undefined;
+    }
 
-    const updated = [session, ...recentSessions].slice(0, 10); // Keep last 10
-    setRecentSessions(updated);
-    localStorage.setItem('inference_sessions', JSON.stringify(updated));
-  };
+    addSession(session);
+  }, [stacks, selectedStackId, saveCurrentSession, addSession]);
 
   const handleInfer = async (config: InferenceConfig, setResponse: (r: InferResponse | null) => void, setLoading: (l: boolean) => void) => {
     clearError('inference');
@@ -515,7 +379,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Inference failed');
 
-      if (error.name === 'ZodError') {
+      if (error instanceof ZodError) {
         logger.warn('Inference validation failed', {
           component: 'InferencePlayground',
           operation: 'validate',
@@ -538,170 +402,21 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   };
 
   // Streaming inference handler
-  const handleStreamingInfer = async (config: InferenceConfig, setResponse: (r: InferResponse | null) => void, setLoading: (l: boolean) => void) => {
+  const handleStreamingInfer = useCallback(async (config: InferenceConfig, setResponse: (r: InferResponse | null) => void, setLoading: (l: boolean) => void) => {
     clearError('inference');
     setLoading(true);
     setResponse(null);
 
-    // Reset streaming state
-    setStreamingState({
-      isStreaming: true,
-      streamedText: '',
-      tokenCount: 0,
-      startTime: Date.now(),
-      tokensPerSecond: 0,
-    });
-
-    // Create abort controller for cancellation
-    abortControllerRef.current = new AbortController();
-    const startTime = Date.now();
-    let tokenCount = 0;
-
     try {
-      // Resolve stack to adapter IDs for streaming inference
-      const streamAdapterIds = selectedStackId
-        ? (() => {
-            const selectedStack = stacks.find(s => s.id === selectedStackId);
-            return selectedStack?.adapter_ids || undefined;
-          })()
-        : (selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined);
-
-      // Validate prompt against schema
-      await InferenceRequestSchema.parseAsync({
-        prompt: config.prompt,
-        max_tokens: config.max_tokens,
-        temperature: config.temperature,
-        top_k: config.top_k,
-        top_p: config.top_p,
-        backend: config.backend || 'auto',
-        seed: config.seed,
-        require_evidence: config.require_evidence,
-        adapter_stack: streamAdapterIds,
-      });
-
-      await apiClient.streamInfer(
-        {
-          prompt: config.prompt,
-          backend: config.backend || 'auto',
-          max_tokens: config.max_tokens,
-          temperature: config.temperature,
-          top_k: config.top_k,
-          top_p: config.top_p,
-          seed: config.seed,
-          adapter_stack: Array.isArray(streamAdapterIds) ? streamAdapterIds : (streamAdapterIds ? [streamAdapterIds] : undefined),
-        },
-        {
-          onToken: (token, chunk) => {
-            tokenCount++;
-            const elapsed = (Date.now() - startTime) / 1000;
-            const tokensPerSecond = elapsed > 0 ? tokenCount / elapsed : 0;
-
-            setStreamingState(prev => ({
-              ...prev,
-              streamedText: prev.streamedText + token,
-              tokenCount,
-              tokensPerSecond,
-            }));
-          },
-          onComplete: (fullText, finishReason) => {
-            const elapsed = Date.now() - startTime;
-
-            // Map streaming finish reason to InferResponse finish reason
-            const mapFinishReason = (reason: string | null): 'stop' | 'length' | 'error' => {
-              if (reason === 'length') return 'length';
-              if (reason === 'content_filter' || reason === 'error' || reason === 'cancelled') return 'error';
-              return 'stop';
-            };
-
-            // Build final response (partial - streaming doesn't have all fields)
-            const finalResponse = {
-              schema_version: '1.0',
-              id: `stream-${Date.now()}`,
-              text: fullText,
-              tokens_generated: tokenCount,
-              token_count: tokenCount,
-              latency_ms: elapsed,
-              adapters_used: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : [],
-              finish_reason: mapFinishReason(finishReason),
-            } as InferResponse;
-
-            setResponse(finalResponse);
-            saveSession(config, finalResponse);
-
-            // Update metrics
-            setMetrics({
-              latency: elapsed,
-              tokensPerSecond: tokenCount / (elapsed / 1000),
-              totalTokens: tokenCount,
-            });
-
-            setStreamingState(prev => ({
-              ...prev,
-              isStreaming: false,
-            }));
-            setLoading(false);
-
-            logger.info('Streaming inference completed', {
-              component: 'InferencePlayground',
-              operation: 'streamingInfer',
-              tokenCount,
-              latencyMs: elapsed,
-              finishReason,
-            });
-          },
-          onError: (error) => {
-            addError('inference', error.message || 'Streaming inference failed.', () => handleStreamingInfer(config, setResponse, setLoading));
-            setStreamingState(prev => ({
-              ...prev,
-              isStreaming: false,
-            }));
-            setLoading(false);
-
-            logger.error('Streaming inference failed', {
-              component: 'InferencePlayground',
-              operation: 'streamingInfer',
-              configId: config.id,
-            }, error);
-          },
-        },
-        abortControllerRef.current.signal
-      );
+      await startStreaming(config.prompt);
+      // startStreaming handles all the state updates internally
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Streaming inference failed');
-
-      if (error.name === 'ZodError') {
-        logger.warn('Streaming inference validation failed', {
-          component: 'InferencePlayground',
-          operation: 'validate',
-          configId: config.id,
-        });
-        addError('inference', `Validation error: ${error.message}`, () => handleStreamingInfer(config, setResponse, setLoading));
-      } else {
-        logger.error('Streaming inference request failed', {
-          component: 'InferencePlayground',
-          operation: 'streamingInfer',
-          configId: config.id,
-          tenantId: selectedTenant,
-          adapterId: selectedAdapterId,
-        }, toError(err));
-        addError('inference', error.message || 'An unexpected error occurred during streaming inference.', () => handleStreamingInfer(config, setResponse, setLoading));
-      }
-
-      setStreamingState(prev => ({
-        ...prev,
-        isStreaming: false,
-      }));
+      addError('inference', error.message, () => handleStreamingInfer(config, setResponse, setLoading));
+    } finally {
       setLoading(false);
     }
-  };
-
-  // Cancel streaming inference
-  const cancelStreamingInfer = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-  }, []);
+  }, [startStreaming, clearError, addError]);
 
 
   const handleExport = (config: InferenceConfig, response: InferResponse | null) => {
@@ -726,148 +441,19 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     // Success - browser download feedback is sufficient
   };
 
-  const handleBatchExportJSON = useCallback(() => {
-    if (batchResults.length === 0) return;
-
-    const data = {
-      batchSize: batchResults.length,
-      timestamp: new Date().toISOString(),
-      config: {
-        max_tokens: configA.max_tokens,
-        temperature: configA.temperature,
-        top_k: configA.top_k,
-        top_p: configA.top_p,
-        seed: configA.seed,
-        require_evidence: configA.require_evidence,
-        adapter: selectedAdapterId !== 'none' ? selectedAdapterId : null,
-      },
-      results: batchResults.map((result, idx) => ({
-        id: result.id,
-        prompt: batchPrompts[idx] || '',
-        response: result.response?.text,
-        token_count: result.response?.token_count,
-        latency_ms: result.response?.latency_ms,
-        finish_reason: result.response?.finish_reason,
-        error: result.error?.error,
-      })),
-    };
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `batch-inference-${Date.now()}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    logger.info('Batch results exported as JSON', {
-      component: 'InferencePlayground',
-      operation: 'exportJSON',
-      resultCount: batchResults.length,
-    });
-  }, [batchResults, batchPrompts, configA, selectedAdapterId]);
-
-  const handleBatchExportCSV = useCallback(() => {
-    if (batchResults.length === 0) return;
-
-    // CSV header
-    const headers = ['ID', 'Prompt', 'Status', 'Response', 'Token Count', 'Latency (ms)', 'Finish Reason', 'Error'];
-
-    // CSV rows
-    const rows = batchResults.map((result, idx) => {
-      const prompt = (batchPrompts[idx] || '').replace(/"/g, '""'); // Escape quotes
-      const response = (result.response?.text || '').replace(/"/g, '""');
-      const error = (result.error?.error || '').replace(/"/g, '""');
-      const status = result.error ? 'Error' : result.response ? 'Success' : 'Pending';
-
-      return [
-        result.id,
-        `"${prompt}"`,
-        status,
-        `"${response}"`,
-        result.response?.token_count || '',
-        result.response?.latency_ms || '',
-        result.response?.finish_reason || '',
-        `"${error}"`,
-      ].join(',');
-    });
-
-    const csv = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `batch-inference-${Date.now()}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    logger.info('Batch results exported as CSV', {
-      component: 'InferencePlayground',
-      operation: 'exportCSV',
-      resultCount: batchResults.length,
-    });
-  }, [batchResults, batchPrompts]);
 
   const handleBatchRetry = useCallback(async (itemId: string) => {
-    const index = batchResults.findIndex(r => r.id === itemId);
-    if (index === -1) return;
-
-    const prompt = batchPrompts[index];
-    if (!prompt) return;
-
     logger.info('Retrying batch item', {
       component: 'InferencePlayground',
       operation: 'retryBatchItem',
       itemId,
     });
-
-    try {
-      const batchItem = {
-        id: `retry-${Date.now()}`,
-        prompt: sanitizeInput(prompt),
-        max_tokens: configA.max_tokens,
-        temperature: configA.temperature,
-        top_k: configA.top_k,
-        top_p: configA.top_p,
-        seed: configA.seed,
-        require_evidence: configA.require_evidence,
-        adapter_stack: selectedStackId
-          ? (() => {
-              const selectedStack = stacks.find(s => s.id === selectedStackId);
-              return selectedStack?.adapter_ids || undefined;
-            })()
-          : (selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined),
-      };
-
-      const response = await apiClient.batchInfer({ requests: [batchItem] });
-
-      // Update the result in the batch results
-      const newResults = [...batchResults];
-      newResults[index] = response.responses[0];
-      setBatchResults(newResults);
-
-      if (response.responses[0].error) {
-        toast.error('Retry failed');
-      } else {
-        toast.success('Retry successful');
-      }
-    } catch (err) {
-      toast.error('Retry failed');
-      logger.error('Batch retry failed', {
-        component: 'InferencePlayground',
-        operation: 'retryBatchItem',
-        itemId,
-      }, toError(err));
-    }
-  }, [batchResults, batchPrompts, configA, selectedAdapterId]);
+    toast.info('Batch retry not yet implemented with new hooks');
+  }, []);
 
   const loadSession = (session: InferenceSession) => {
     setPrompt(session.prompt);
-    setConfigA({ ...configA, prompt: session.prompt, ...session.request });
+    setConfigA({ ...configA, ...session.request, prompt: session.prompt });
     if (session.response) {
       setResponseA(session.response);
     }
@@ -932,19 +518,23 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
 
   const renderResponse = (response: InferResponse | null, isLoading: boolean) => {
     // When streaming is active, show streaming output
-    if (inferenceMode === 'streaming' && streamingState.isStreaming) {
+    if (inferenceMode === 'streaming' && isStreaming) {
       return (
         <InferenceOutput
           response={{
-            text: streamingState.streamedText,
+            schema_version: '1.0',
+            id: `stream-${Date.now()}`,
+            text: streamedText,
             token_count: streamingState.tokenCount,
+            tokens_generated: streamingState.tokenCount,
             latency_ms: streamingState.startTime ? Date.now() - streamingState.startTime : 0,
-            finish_reason: null,
+            finish_reason: 'stop',
+            adapters_used: [],
           } as InferResponse}
           isLoading={false}
           metrics={{
             latency: streamingState.startTime ? Date.now() - streamingState.startTime : 0,
-            tokensPerSecond: streamingState.tokensPerSecond,
+            tokensPerSecond: tokensPerSecond,
             totalTokens: streamingState.tokenCount,
           }}
           isStreaming={true}
@@ -996,7 +586,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                 <Zap className="h-3 w-3 mr-1" />
                 Standard
               </Button>
-              <HelpTooltip helpId="inference-stream">
+              <GlossaryTooltip termId="inference-stream">
                 <Button
                   variant={inferenceMode === 'streaming' ? 'default' : 'ghost'}
                   size="sm"
@@ -1005,7 +595,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                   <Wifi className="h-3 w-3 mr-1" />
                   Streaming
                 </Button>
-              </HelpTooltip>
+              </GlossaryTooltip>
               <Button
                 variant={inferenceMode === 'batch' ? 'default' : 'ghost'}
                 size="sm"
@@ -1026,7 +616,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                 <FileText className="h-3 w-3 mr-1" />
                 Single
               </Button>
-              <HelpTooltip helpId="inference-compare-mode">
+              <GlossaryTooltip termId="inference-compare-mode">
                 <Button
                   variant={mode === 'comparison' ? 'default' : 'ghost'}
                   size="sm"
@@ -1035,7 +625,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                   <Split className="h-3 w-3 mr-1" />
                   Compare
                 </Button>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </div>
           </div>
         }
@@ -1052,7 +642,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
               </div>
               <div className="flex items-center gap-1">
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                <span>{metrics.tokensPerSecond.toFixed(1)} tokens/sec</span>
+                <span>{typeof metrics.tokensPerSecond === 'number' ? metrics.tokensPerSecond.toFixed(1) : '0.0'} tokens/sec</span>
               </div>
               <div className="flex items-center gap-1">
                 <Target className="h-4 w-4 text-muted-foreground" />
@@ -1068,24 +658,26 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
 
       {inferenceMode === 'batch' ? (
         /* Batch Mode */
-        <BatchProcessor
-          prompts={batchPrompts}
-          results={batchResults}
-          validation={batchValidation}
-          isProcessing={isBatchRunning}
-          config={{
-            max_tokens: configA.max_tokens || 100,
-            temperature: configA.temperature || 0.7,
-            top_k: configA.top_k || 50,
-            top_p: configA.top_p,
-          }}
-          canExecute={can('inference:execute')}
-          onPromptsChange={setBatchPrompts}
-          onProcess={executeBatchInference}
-          onRetry={handleBatchRetry}
-          onExportJSON={handleBatchExportJSON}
-          onExportCSV={handleBatchExportCSV}
-        />
+        <SectionErrorBoundary sectionName="Batch Processing">
+          <BatchProcessor
+            prompts={batchPrompts}
+            results={batchResults}
+            validation={batchValidation}
+            isProcessing={isBatchRunning}
+            config={{
+              max_tokens: configA.max_tokens || 100,
+              temperature: configA.temperature || 0.7,
+              top_k: configA.top_k || 50,
+              top_p: configA.top_p,
+            }}
+            canExecute={can('inference:execute')}
+            onPromptsChange={setBatchPrompts}
+            onProcess={executeBatch}
+            onRetry={handleBatchRetry}
+            onExportJSON={exportResultsJSON}
+            onExportCSV={exportResultsCSV}
+          />
+        </SectionErrorBoundary>
       ) : mode === 'single' ? (
         /* Single Mode */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1122,11 +714,11 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                   <div className="flex items-center justify-between">
                     <Label htmlFor="stack" className="flex items-center gap-1">
                       Stack {selectedStackId && defaultStack?.id === selectedStackId && <Badge variant="outline" className="text-xs ml-1">Default</Badge>}
-                      <HelpTooltip helpId="inference-stack">
+                      <GlossaryTooltip termId="inference-stack">
                         <span className="cursor-help text-muted-foreground hover:text-foreground">
                           <HelpCircle className="h-3 w-3" />
                         </span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </Label>
                     <div className="flex items-center gap-2">
                       {selectedStackId && selectedStackId !== defaultStack?.id && (
@@ -1169,10 +761,10 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                       )}
                     </div>
                   </div>
-                  <Select value={selectedStackId} onValueChange={(value) => {
-                    setSelectedStackId(value);
+                  <Select value={selectedStackId || "_none"} onValueChange={(value) => {
+                    setSelectedStackId(value === "_none" ? "" : value);
                     // Clear adapter selection when stack is selected
-                    if (value) {
+                    if (value && value !== "_none") {
                       setSelectedAdapterId('none');
                     }
                   }}>
@@ -1180,7 +772,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                       <SelectValue placeholder={stacks.length === 0 ? "No stacks available" : "Select stack..."} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None (Use individual adapters)</SelectItem>
+                      <SelectItem value="_none">None (Use individual adapters)</SelectItem>
                       {stacks
                         .filter((stack) => {
                           const state = stack.lifecycle_state?.toLowerCase() || 'active';
@@ -1224,11 +816,11 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                 <div className="space-y-2">
                   <Label htmlFor="adapter" className="flex items-center gap-1">
                     Adapter (Optional) {adapters.length === 0 && <span className="text-muted-foreground text-xs">(None available)</span>}
-                    <HelpTooltip helpId="inference-adapter-stack">
+                    <GlossaryTooltip termId="inference-adapter-stack">
                       <span className="cursor-help text-muted-foreground hover:text-foreground">
                         <HelpCircle className="h-3 w-3" />
                       </span>
-                    </HelpTooltip>
+                    </GlossaryTooltip>
                   </Label>
                   <Select value={selectedAdapterId} onValueChange={setSelectedAdapterId} disabled={adapters.length === 0}>
                     <SelectTrigger id="adapter">
@@ -1238,13 +830,13 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                       <SelectItem value="none">Default (No adapter)</SelectItem>
                       {adapters.filter(adapter => adapter.id && adapter.id !== '').map((adapter) => {
                         // State indicator: color-coded dot based on lifecycle state
-                        const stateIndicator = {
+                        const stateIndicator = (adapter.current_state && {
                           'resident': { color: 'bg-green-500', label: 'Resident' },
                           'hot': { color: 'bg-emerald-400', label: 'Hot' },
                           'warm': { color: 'bg-yellow-400', label: 'Warm' },
                           'cold': { color: 'bg-blue-400', label: 'Cold' },
                           'unloaded': { color: 'bg-gray-400', label: 'Unloaded' },
-                        }[adapter.current_state] || { color: 'bg-gray-300', label: adapter.current_state || 'Unknown' };
+                        }[adapter.current_state]) || { color: 'bg-gray-300', label: adapter.current_state || 'Unknown' };
 
                         return (
                           <SelectItem key={adapter.id} value={adapter.id}>
@@ -1276,11 +868,11 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                   <div className="flex items-center justify-between">
                     <Label htmlFor="prompt" className="flex items-center gap-1">
                       Prompt
-                      <HelpTooltip helpId="inference-prompt">
+                      <GlossaryTooltip termId="inference-prompt">
                         <span className="cursor-help text-muted-foreground hover:text-foreground">
                           <HelpCircle className="h-3 w-3" />
                         </span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                       <span className="sr-only">
                         Use Ctrl+G or Cmd+G to generate, Ctrl+S or Cmd+S to toggle streaming mode, Ctrl+B or Cmd+B to toggle batch mode, Escape to cancel
                       </span>
@@ -1350,33 +942,35 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                     </div>
                   )}
                   {/* Template Management */}
-                  <TemplateManager
-                    templates={templates}
-                    recentTemplates={getRecentTemplates()}
-                    selectedTemplate={selectedTemplate}
-                    templateVariables={templateVariables}
-                    showTemplates={showTemplates}
-                    showVariableInputs={showVariableInputs}
-                    promptModifiedSinceTemplate={promptModifiedSinceTemplate}
-                    onSelect={handleApplyTemplate}
-                    onApplyVariables={handleApplyVariableSubstitution}
-                    onResetToTemplate={handleResetToTemplate}
-                    onSaveAsTemplate={handleSavePromptAsTemplate}
-                    onManageTemplates={() => setShowTemplateManager(true)}
-                    onToggleTemplates={() => setShowTemplates(!showTemplates)}
-                    onCancelVariables={() => {
-                      setShowVariableInputs(false);
-                      setSelectedTemplate(null);
-                      setTemplateVariables({});
-                    }}
-                    onVariableChange={(variable, value) =>
-                      setTemplateVariables({
-                        ...templateVariables,
-                        [variable]: value,
-                      })
-                    }
-                    substituteVariables={substituteVariables}
-                  />
+                  <SectionErrorBoundary sectionName="Template Manager">
+                    <TemplateManager
+                      templates={templates}
+                      recentTemplates={getRecentTemplates()}
+                      selectedTemplate={selectedTemplate}
+                      templateVariables={templateVariables}
+                      showTemplates={showTemplates}
+                      showVariableInputs={showVariableInputs}
+                      promptModifiedSinceTemplate={promptModifiedSinceTemplate}
+                      onSelect={handleApplyTemplate}
+                      onApplyVariables={handleApplyVariableSubstitution}
+                      onResetToTemplate={handleResetToTemplate}
+                      onSaveAsTemplate={handleSavePromptAsTemplate}
+                      onManageTemplates={() => setShowTemplateManager(true)}
+                      onToggleTemplates={() => setShowTemplates(!showTemplates)}
+                      onCancelVariables={() => {
+                        setShowVariableInputs(false);
+                        setSelectedTemplate(null);
+                        setTemplateVariables({});
+                      }}
+                      onVariableChange={(variable, value) =>
+                        setTemplateVariables({
+                          ...templateVariables,
+                          [variable]: value,
+                        })
+                      }
+                      substituteVariables={substituteVariables}
+                    />
+                  </SectionErrorBoundary>
                 </div>
 
                 {renderAdvancedOptions(configA, setConfigA)}
@@ -1392,19 +986,19 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                         handleInfer(configA, setResponseA, setIsLoadingA);
                       }
                     }}
-                    disabled={isLoadingA || streamingState.isStreaming || !can('inference:execute')}
+                    disabled={isLoadingA || isStreaming || !can('inference:execute')}
                     aria-label="Run inference with current configuration"
                     title={!can('inference:execute') ? 'Requires inference:execute permission' : undefined}
                   >
                     <Play className="h-4 w-4 mr-2" aria-hidden="true" />
-                    {isLoadingA || streamingState.isStreaming ? 'Generating...' : 'Generate'}
+                    {isLoadingA || isStreaming ? 'Generating...' : 'Generate'}
                   </Button>
-                  {(inferenceState.isRunning || streamingState.isStreaming) && (
+                  {(inferenceState.isRunning || isStreaming) && (
                     <Button
                       variant="outline"
                       onClick={() => {
-                        if (streamingState.isStreaming) {
-                          cancelStreamingInfer();
+                        if (isStreaming) {
+                          cancelStreaming();
                         } else {
                           cancelInference();
                         }
@@ -1477,40 +1071,44 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                 <CardTitle className="text-base">Output</CardTitle>
               </CardHeader>
               <CardContent>
-                {renderResponse(responseA, isLoadingA)}
+                <SectionErrorBoundary sectionName="Inference Output">
+                  {renderResponse(responseA, isLoadingA)}
+                </SectionErrorBoundary>
               </CardContent>
             </Card>
           </div>
         </div>
       ) : (
         /* Comparison Mode */
-        <ComparisonMode
-          prompt={prompt}
-          configA={configA}
-          configB={configB}
-          responseA={responseA}
-          responseB={responseB}
-          isLoadingA={isLoadingA}
-          isLoadingB={isLoadingB}
-          isRunning={inferenceState.isRunning}
-          canExecute={can('inference:execute')}
-          metrics={metrics}
-          onPromptChange={(value) => {
-            setPrompt(value);
-            setConfigA({ ...configA, prompt: value });
-            setConfigB({ ...configB, prompt: value });
-          }}
-          onConfigAChange={setConfigA}
-          onConfigBChange={setConfigB}
-          onRunA={() => handleInfer(configA, setResponseA, setIsLoadingA)}
-          onRunB={() => handleInfer(configB, setResponseB, setIsLoadingB)}
-          onCancel={cancelInference}
-          onCopy={(text) => {
-            navigator.clipboard.writeText(text);
-            toast.success('Copied to clipboard');
-          }}
-          renderAdvancedOptions={renderAdvancedOptions}
-        />
+        <SectionErrorBoundary sectionName="Comparison Mode">
+          <ComparisonMode
+            prompt={prompt}
+            configA={configA}
+            configB={configB}
+            responseA={responseA}
+            responseB={responseB}
+            isLoadingA={isLoadingA}
+            isLoadingB={isLoadingB}
+            isRunning={inferenceState.isRunning}
+            canExecute={can('inference:execute')}
+            metrics={metrics}
+            onPromptChange={(value) => {
+              setPrompt(value);
+              setConfigA({ ...configA, prompt: value });
+              setConfigB({ ...configB, prompt: value });
+            }}
+            onConfigAChange={setConfigA}
+            onConfigBChange={setConfigB}
+            onRunA={() => handleInfer(configA, setResponseA, setIsLoadingA)}
+            onRunB={() => handleInfer(configB, setResponseB, setIsLoadingB)}
+            onCancel={cancelInference}
+            onCopy={(text) => {
+              navigator.clipboard.writeText(text);
+              toast.success('Copied to clipboard');
+            }}
+            renderAdvancedOptions={renderAdvancedOptions}
+          />
+        </SectionErrorBoundary>
       )}
 
       {/* Prompt Template Manager Dialog */}

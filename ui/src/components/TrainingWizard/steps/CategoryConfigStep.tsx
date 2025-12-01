@@ -2,9 +2,9 @@ import React from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
-import { useTrainingWizardContext } from '../context';
-import { LANGUAGES } from '../constants';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
+import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
+import { LANGUAGES } from '@/components/TrainingWizard/constants';
 
 export function CategoryConfigStep() {
   const { state, updateState } = useTrainingWizardContext();
@@ -155,7 +155,7 @@ export function CategoryConfigStep() {
         <div className="space-y-2">
           <div className="flex items-center gap-1">
             <Label htmlFor="contextWindow">Context Window (tokens)</Label>
-            <HelpTooltip content="Maximum input length. 4096 tokens = ~3000 words. Longer = more context but more memory." />
+            <GlossaryTooltip brief="Maximum input length. 4096 tokens = ~3000 words. Longer = more context but more memory." />
           </div>
           <Input
             id="contextWindow"

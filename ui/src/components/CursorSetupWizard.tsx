@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Wizard, WizardStep } from '@/components/ui/wizard';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -8,6 +8,7 @@ import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { CheckCircle, XCircle, Copy, ExternalLink } from 'lucide-react';
 import apiClient from '@/api/client';
 import { CursorConfigResponse } from '@/api/types';
+import { useDataLoader } from '@/hooks/useDataLoader';
 
 interface CursorSetupWizardProps {
   onComplete: () => void;
@@ -16,29 +17,18 @@ interface CursorSetupWizardProps {
 
 export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [config, setConfig] = useState<CursorConfigResponse | null>(null);
-  const [wizardError, setWizardError] = useState<Error | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<'endpoint' | 'model' | null>(null);
 
-  useEffect(() => {
-    loadConfig();
-  }, []);
-
-  const loadConfig = async () => {
-    setIsLoading(true);
-    setWizardError(null);
-    try {
-      const configData = await apiClient.getCursorConfig();
-      setConfig(configData);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to load Cursor configuration');
-      setWizardError(error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const {
+    data: config,
+    isLoading,
+    error: wizardError,
+    refetch: loadConfig,
+  } = useDataLoader<CursorConfigResponse>({
+    fetchFn: () => apiClient.getCursorConfig(),
+    operationName: 'loadCursorConfig',
+  });
 
   const copyToClipboard = (text: string, field: 'endpoint' | 'model') => {
     if (!text) return;
@@ -155,7 +145,6 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
   );
 
   const handleComplete = async () => {
-    setWizardError(null);
     onComplete();
   };
 
@@ -198,10 +187,7 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
     <div className="space-y-4">
       {wizardError && errorRecoveryTemplates.genericError(
         wizardError,
-        () => {
-          setWizardError(null);
-          loadConfig();
-        }
+        loadConfig
       )}
 
       {validationError && (

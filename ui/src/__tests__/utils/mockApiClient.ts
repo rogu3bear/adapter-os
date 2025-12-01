@@ -18,7 +18,7 @@ import type {
   UpdateChatSessionRequest,
   DocumentSearchParams,
   CollectionSearchParams,
-} from '../../api/chat-types';
+} from '@/api/chat-types';
 
 import {
   createMockDocument,

@@ -4,15 +4,15 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Adapters } from '../components/Adapters';
-import apiClient from '../api/client';
-import { UndoRedoProvider } from '../contexts/UndoRedoContext';
-import { CoreProviders } from '../providers/CoreProviders';
-import { FeatureProviders } from '../providers/FeatureProviders';
-import { DensityProvider } from '../contexts/DensityContext';
+import { Adapters } from '@/components/Adapters';
+import apiClient from '@/api/client';
+import { UndoRedoProvider } from '@/contexts/UndoRedoContext';
+import { CoreProviders } from '@/providers/CoreProviders';
+import { FeatureProviders } from '@/providers/FeatureProviders';
+import { DensityProvider } from '@/contexts/DensityContext';
 
 // Mock virtualized table for JSDOM (must be before component imports use it)
-vi.mock('../components/ui/virtualized-table', () => ({
+vi.mock('@/components/ui/virtualized-table', () => ({
   VirtualizedTableRows: ({ items, children }: { items: unknown[]; children: (item: unknown, index: number) => React.ReactNode }) => (
     <>{items.map((item, i) => <React.Fragment key={i}>{children(item, i)}</React.Fragment>)}</>
   )
@@ -74,23 +74,13 @@ const {
 });
 
 // Mock the API client for all import paths
-vi.mock('../api/client', () => {
-  const mockApiClient = createMockApiClient();
-  return { default: mockApiClient, apiClient: mockApiClient };
-});
-
 vi.mock('@/api/client', () => {
   const mockApiClient = createMockApiClient();
   return { default: mockApiClient, apiClient: mockApiClient };
 });
 
-vi.mock('src/api/client', () => {
-  const mockApiClient = createMockApiClient();
-  return { default: mockApiClient, apiClient: mockApiClient };
-});
-
 // Mock SSE hook
-vi.mock('../hooks/useSSE', () => ({
+vi.mock('@/hooks/useSSE', () => ({
   useSSE: () => ({ data: null, error: null, connected: false }),
 }));
 

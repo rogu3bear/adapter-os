@@ -295,14 +295,14 @@ opt-level = 1
 name = "determinism"
 path = "tests/determinism.rs"
 
-[[test]]
-name = "integration"
-path = "tests/integration_tests.rs"
+# NOTE: integration_tests.rs and integration_qwen.rs removed - files don't exist
+# [[test]]
+# name = "integration"
+# path = "tests/integration_tests.rs"
 
-
-[[test]]
-name = "integration_qwen"
-path = "tests/integration_qwen.rs"
+# [[test]]
+# name = "integration_qwen"
+# path = "tests/integration_qwen.rs"
 
 [[test]]
 name = "deterministic_exec"
@@ -316,17 +316,19 @@ path = "tests/replay_identical.rs"
 name = "cross_platform_determinism"
 path = "tests/cross_platform_determinism.rs"
 
-[[test]]
-name = "directory_adapter_performance"
-path = "tests/directory_adapter_performance.rs"
+# NOTE: directory_adapter_performance.rs removed - file doesn't exist
+# [[test]]
+# name = "directory_adapter_performance"
+# path = "tests/directory_adapter_performance.rs"
 
 [[test]]
 name = "kernel_buffer_layout"
 path = "tests/kernel_buffer_layout.rs"
 
-[[test]]
-name = "kernel_lora_validation"
-path = "tests/kernel_lora_validation.rs"
+# NOTE: kernel_lora_validation.rs removed - file doesn't exist
+# [[test]]
+# name = "kernel_lora_validation"
+# path = "tests/kernel_lora_validation.rs"
 
 # Test dependencies
 [dev-dependencies]

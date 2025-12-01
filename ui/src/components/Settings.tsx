@@ -29,8 +29,8 @@ import {
 import { Tenants } from './Tenants';
 import { GitIntegrationPage } from './GitIntegrationPage';
 import { Nodes } from './Nodes';
-import apiClient from '../api/client';
-import { User } from '../api/types';
+import apiClient from '@/api/client';
+import { User } from '@/api/types';
 import { toast } from 'sonner';
 
 interface SettingsProps {

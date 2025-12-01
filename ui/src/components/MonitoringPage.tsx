@@ -5,12 +5,12 @@ import { ResourceMonitor } from './ResourceMonitor';
 import { RealtimeMetrics } from './RealtimeMetrics';
 import { AlertsPage } from './AlertsPage';
 import { DensityControls } from './ui/density-controls';
-import { useDensity } from '../contexts/DensityContext';
-import { useAuth } from '../providers/CoreProviders';
-import { useTenant } from '../layout/LayoutProvider';
+import { useDensity } from '@/contexts/DensityContext';
+import { useAuth } from '@/providers/CoreProviders';
+import { useTenant } from '@/layout/LayoutProvider';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 
 interface ComponentError {
   component: string;
@@ -74,18 +74,18 @@ export function MonitoringPage() {
 
       <Tabs defaultValue="overview">
         <TabsList>
-          <HelpTooltip helpId="monitoring-overview">
+          <GlossaryTooltip termId="monitoring-overview">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-          </HelpTooltip>
-          <HelpTooltip helpId="monitoring-resources">
+          </GlossaryTooltip>
+          <GlossaryTooltip termId="monitoring-resources">
             <TabsTrigger value="resources">Resources</TabsTrigger>
-          </HelpTooltip>
-          <HelpTooltip helpId="monitoring-alerts">
+          </GlossaryTooltip>
+          <GlossaryTooltip termId="monitoring-alerts">
             <TabsTrigger value="alerts">Alerts</TabsTrigger>
-          </HelpTooltip>
-          <HelpTooltip helpId="monitoring-metrics">
+          </GlossaryTooltip>
+          <GlossaryTooltip termId="monitoring-metrics">
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
-          </HelpTooltip>
+          </GlossaryTooltip>
         </TabsList>
 
         <TabsContent value="overview">
@@ -114,9 +114,9 @@ export function MonitoringPage() {
           )}
           {user && !canViewMetrics && (
             <div className="p-4 text-center text-muted-foreground">
-              <HelpTooltip helpId="requires-admin">
+              <GlossaryTooltip termId="requires-admin">
                 <span>You do not have permission to view real-time metrics.</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </div>
           )}
           {!user && errorRecoveryTemplates.genericError(

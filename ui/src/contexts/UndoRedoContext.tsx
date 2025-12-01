@@ -7,10 +7,10 @@
 //! - Plan: Data Operations Productivity Features - Global undo/redo with keyboard shortcuts
 
 import React, { createContext, useContext, useEffect, useCallback } from 'react';
-import { useUndoRedo, UndoableAction } from '../hooks/useUndoRedo';
+import { useUndoRedo, UndoableAction } from '@/hooks/useUndoRedo';
 
 interface UndoRedoContextType {
-  addAction: <T = any>(action: Omit<UndoableAction<T>, 'id' | 'timestamp'>) => void;
+  addAction: <T = unknown>(action: Omit<UndoableAction<T>, 'id' | 'timestamp'>) => void;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
   canUndo: boolean;

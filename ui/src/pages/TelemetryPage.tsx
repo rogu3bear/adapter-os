@@ -3,6 +3,7 @@ import { useRBAC } from '@/hooks/useRBAC';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Telemetry } from '@/components/Telemetry';
 import { DensityProvider } from '@/contexts/DensityContext';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 export default function TelemetryPage() {
   const { user } = useAuth();
@@ -17,10 +18,12 @@ export default function TelemetryPage() {
         maxWidth="full"
         contentPadding="default"
       >
-        <Telemetry
-          user={user}
-          selectedTenant={selectedTenant}
-        />
+        <SectionErrorBoundary sectionName="Telemetry">
+          <Telemetry
+            user={user}
+            selectedTenant={selectedTenant}
+          />
+        </SectionErrorBoundary>
       </FeatureLayout>
     </DensityProvider>
   );

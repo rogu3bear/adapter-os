@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { vi } from 'vitest';
-import { usePolling } from '../hooks/usePolling';
+import { usePolling } from '@/hooks/usePolling';
 
 // Mock React to track renders
 let renderCount = 0;

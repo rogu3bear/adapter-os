@@ -12,26 +12,15 @@
 
 mod fixtures;
 
-#[allow(unused_imports)]
 use adapteros_db::Db;
-#[allow(unused_imports)]
 use adapteros_lora_lifecycle::{AdapterState, LifecycleManager};
-#[allow(unused_imports)]
 use adapteros_manifest::Policies;
-#[allow(unused_imports)]
 use fixtures::{fixtures as test_fixtures, utils, TestDbFixture};
-#[allow(unused_imports)]
 use std::path::PathBuf;
-
-#[allow(dead_code)]
-fn test_policies() -> Policies {
-    Policies::default()
-}
 
 // TODO: Refactor TestAdapterBuilder to match AdapterRegistrationBuilder API
 // The builder types are mismatched (u16 vs i32 for rank, u16 vs String for tier, etc.)
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 #[ignore = "Pending fixture API refactoring"]
 async fn test_update_adapter_state_persists_to_db() {
     let fixture = TestDbFixture::new().await;
@@ -51,7 +40,7 @@ async fn test_update_adapter_state_persists_to_db() {
     let manager = LifecycleManager::new_with_db(
         vec![adapter_id.clone()],
         adapter_hashes,
-        &test_policies(),
+        &Policies::default(),
         PathBuf::from(&temp_dir),
         None,
         3,
@@ -104,7 +93,7 @@ async fn test_record_adapter_activation_updates_db() {
     let manager = LifecycleManager::new_with_db(
         vec![adapter_id.clone()],
         adapter_hashes,
-        &test_policies(),
+        &Policies::default(),
         PathBuf::from(&temp_dir),
         None,
         3,
@@ -173,7 +162,7 @@ async fn test_evict_adapter_updates_state_and_memory() {
     let manager = LifecycleManager::new_with_db(
         vec![adapter_id.clone()],
         adapter_hashes,
-        &test_policies(),
+        &Policies::default(),
         PathBuf::from(&temp_dir),
         None,
         3,
@@ -240,7 +229,7 @@ async fn test_multiple_activations_increment_count() {
     let manager = LifecycleManager::new_with_db(
         vec![adapter_id.clone()],
         adapter_hashes,
-        &test_policies(),
+        &Policies::default(),
         PathBuf::from(&temp_dir),
         None,
         3,

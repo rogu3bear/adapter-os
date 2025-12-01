@@ -128,7 +128,7 @@ use aos_worker::{Worker, InferenceRequest};
 use aos_telemetry::TelemetryWriter;
 
 // Create telemetry writer
-let telemetry = TelemetryWriter::new("/tmp/telemetry", 1000, 1024 * 1024)?;
+let telemetry = TelemetryWriter::new("./var/telemetry", 1000, 1024 * 1024)?;
 
 // Create worker with safety mechanisms
 let mut worker = Worker::new(manifest, kernels, rag, "tokenizer.json", "model.bin", telemetry)?;

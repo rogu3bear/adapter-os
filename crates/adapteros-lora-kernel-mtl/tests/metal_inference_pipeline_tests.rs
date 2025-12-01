@@ -105,12 +105,10 @@ pub fn compare_floats(expected: &[f32], actual: &[f32], tolerance: f32) -> Resul
     }
 
     let mut max_diff = 0.0f32;
-    let mut diff_idx = 0;
     for (i, (e, a)) in expected.iter().zip(actual.iter()).enumerate() {
         let diff = (e - a).abs();
         if diff > max_diff {
             max_diff = diff;
-            diff_idx = i;
         }
         if diff > tolerance {
             return Err(format!(

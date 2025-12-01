@@ -137,7 +137,7 @@ Comprehensive telemetry and monitoring:
 use adapteros_lora_worker::patch_telemetry::{PatchTelemetry, EvidenceMetrics};
 use adapteros_telemetry::TelemetryWriter;
 
-let telemetry_writer = TelemetryWriter::new("/tmp/telemetry", 1000, 1024*1024)?;
+let telemetry_writer = TelemetryWriter::new("./var/telemetry", 1000, 1024*1024)?;
 let mut telemetry = PatchTelemetry::new_with_writer(telemetry_writer);
 
 let metrics = EvidenceMetrics {

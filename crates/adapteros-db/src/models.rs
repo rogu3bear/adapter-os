@@ -503,6 +503,32 @@ impl Db {
         Ok(())
     }
 
+    /// Update model path after download
+    ///
+    /// Updates the file path for a model after it has been downloaded.
+    /// This is used by the download handler to set the correct path.
+    pub async fn update_model_path(&self, model_id: &str, path: &str) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let result = sqlx::query(
+            "UPDATE models
+             SET model_path = ?, updated_at = ?
+             WHERE id = ? OR name = ?",
+        )
+        .bind(path)
+        .bind(&now)
+        .bind(model_id)
+        .bind(model_id)
+        .execute(&*self.pool())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(anyhow::anyhow!("Model not found: {}", model_id));
+        }
+
+        Ok(())
+    }
+
     /// Get count of adapters using a model
     ///
     /// Note: Current schema doesn't have a direct base_model_id foreign key in adapters table.

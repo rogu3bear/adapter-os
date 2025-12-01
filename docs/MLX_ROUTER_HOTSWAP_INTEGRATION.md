@@ -380,7 +380,7 @@ async fn test_lifecycle_with_mlx() -> Result<()> {
 ### Backend Factory Integration
 - [x] MLX backend selectable via `BackendChoice::Mlx`
 - [x] Auto-detection of MLX availability
-- [x] Fallback chain: CoreML → Metal → MLX
+- [x] Fallback chain: CoreML → MLX → Metal
 - [x] Feature flag gating (`multi-backend`)
 
 ### Router Integration

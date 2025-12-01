@@ -20,10 +20,10 @@ import {
   Code,
   AlertCircle
 } from 'lucide-react';
-import apiClient from '../api/client';
-import { Repository, Commit, CommitDiff } from '../api/types';
+import apiClient from '@/api/client';
+import { Repository, Commit, CommitDiff } from '@/api/types';
 
-import { logger } from '../utils/logger';
+import { logger } from '@/utils/logger';
 import { Alert, AlertDescription } from './ui/alert';
 import { errorRecoveryTemplates } from './ui/error-recovery';
 import { toast } from 'sonner';
@@ -116,7 +116,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
     } finally {
       setIsLoading(false);
     }
-  }, [selectedTenant]);
+  }, [selectedTenant, selectedRepo]);
 
   useEffect(() => {
     loadRepositories();

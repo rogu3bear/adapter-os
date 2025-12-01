@@ -4,12 +4,11 @@
 //! Demonstrates how the dependency security policy handles missing network connectivity.
 
 use adapteros_policy::packs::{
-    CveDataSource, CveEntry, CveProvider, DependencySecurityConfig, DependencySecurityPolicy,
+    CveDataSource, CveEntry, DependencySecurityConfig, DependencySecurityPolicy,
     VulnerabilitySeverity,
 };
 use adapteros_policy::{Policy, PolicyId, Severity};
 use chrono::Utc;
-use std::path::Path;
 
 /// Helper function to get test fixtures path
 fn get_fixtures_path() -> std::path::PathBuf {
@@ -193,8 +192,8 @@ async fn test_offline_database_assessment() {
 
 #[tokio::test]
 async fn test_cve_entry_structure_from_offline_database() {
-    let policy = DependencySecurityPolicy::new(DependencySecurityConfig::default());
-    let fixtures_path = get_fixtures_path();
+    let _policy = DependencySecurityPolicy::new(DependencySecurityConfig::default());
+    let _fixtures_path = get_fixtures_path();
 
     // Create test CVE entry manually
     let test_cve = CveEntry {
@@ -268,7 +267,7 @@ async fn test_offline_database_cache_integration() {
 
     // First call - cache miss
     let _ = policy.check_dependency("log4j", "2.14.1").await;
-    let stats1 = policy.get_cache_stats().await;
+    let _stats1 = policy.get_cache_stats().await;
 
     // Second call - cache hit
     let _ = policy.check_dependency("log4j", "2.14.1").await;
@@ -295,7 +294,7 @@ async fn test_offline_database_nvd_responses_format() {
     let fixtures_path = get_fixtures_path();
 
     // Load NVD responses which have different schema
-    let result = policy.load_offline_database(Some(&fixtures_path)).await;
+    let _result = policy.load_offline_database(Some(&fixtures_path)).await;
 
     // Should complete without panicking, regardless of whether fixtures exist
     // The database should be initialized (empty or populated)
@@ -309,7 +308,7 @@ async fn test_offline_database_osv_responses_format() {
     let fixtures_path = get_fixtures_path();
 
     // Load OSV responses which have different schema
-    let result = policy.load_offline_database(Some(&fixtures_path)).await;
+    let _result = policy.load_offline_database(Some(&fixtures_path)).await;
 
     // Should complete without panicking, regardless of whether fixtures exist
     // The database should be initialized (empty or populated)
@@ -357,7 +356,7 @@ async fn test_offline_database_concurrent_access() {
     let mut set = JoinSet::new();
 
     // Spawn concurrent offline database queries
-    for i in 0..5 {
+    for _i in 0..5 {
         let p = policy.clone();
         set.spawn(async move {
             let packages = vec!["log4j", "lodash", "express"];

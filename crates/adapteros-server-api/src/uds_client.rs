@@ -13,6 +13,7 @@ use std::path::Path;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
+use tracing::warn;
 
 /// Error types for UDS client operations
 #[derive(Debug, thiserror::Error)]
@@ -98,9 +99,24 @@ impl UdsClient {
             )));
         }
 
-        // Find JSON body (after double CRLF)
-        let body_start = response_str.find("\r\n\r\n").unwrap_or(0) + 4;
-        let json_str = &response_str[body_start..];
+        // Find JSON body (after double CRLF) - safe slicing to prevent panic
+        let json_str = match response_str.find("\r\n\r\n") {
+            Some(pos) => response_str.get(pos + 4..).unwrap_or_else(|| {
+                warn!(
+                    response_len = response_str.len(),
+                    header_end_pos = pos,
+                    "Malformed HTTP response: body offset exceeds response length"
+                );
+                ""
+            }),
+            None => {
+                warn!(
+                    response_preview = %response_str.chars().take(100).collect::<String>(),
+                    "Malformed HTTP response: missing header/body separator (\\r\\n\\r\\n)"
+                );
+                ""
+            }
+        };
 
         // Parse JSON response
         let response: crate::types::WorkerInferResponse = serde_json::from_str(json_str)
@@ -195,9 +211,24 @@ impl UdsClient {
             )));
         }
 
-        // Find JSON body (after double CRLF)
-        let body_start = response_str.find("\r\n\r\n").unwrap_or(0) + 4;
-        let json_str = &response_str[body_start..];
+        // Find JSON body (after double CRLF) - safe slicing to prevent panic
+        let json_str = match response_str.find("\r\n\r\n") {
+            Some(pos) => response_str.get(pos + 4..).unwrap_or_else(|| {
+                warn!(
+                    response_len = response_str.len(),
+                    header_end_pos = pos,
+                    "Malformed patch proposal response: body offset exceeds response length"
+                );
+                ""
+            }),
+            None => {
+                warn!(
+                    response_preview = %response_str.chars().take(100).collect::<String>(),
+                    "Malformed patch proposal response: missing header/body separator (\\r\\n\\r\\n)"
+                );
+                ""
+            }
+        };
 
         // Parse JSON response
         let response: crate::types::PatchProposalInferResponse = serde_json::from_str(json_str)
@@ -252,77 +283,93 @@ impl UdsClient {
             .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
             .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
 
-        // Read SSE stream
+        // Read SSE stream with timeout protection
         let mut reader = BufReader::new(read_half);
         let mut response: Option<crate::types::WorkerInferResponse> = None;
         let mut line = String::new();
 
-        // Parse SSE headers
+        // Overall SSE stream timeout (5 minutes max)
+        let sse_timeout = Duration::from_secs(300);
+        let per_line_timeout = Duration::from_secs(60);
+
+        // Parse SSE headers with timeout
         let mut in_body = false;
         while !in_body {
             line.clear();
-            reader
-                .read_line(&mut line)
-                .await
-                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
-
-            if line.trim().is_empty() {
-                in_body = true;
+            match tokio::time::timeout(per_line_timeout, reader.read_line(&mut line)).await {
+                Ok(Ok(_)) => {
+                    if line.trim().is_empty() {
+                        in_body = true;
+                    }
+                }
+                Ok(Err(e)) => return Err(UdsClientError::RequestFailed(e.to_string())),
+                Err(_) => return Err(UdsClientError::Timeout("SSE header read timeout".to_string())),
             }
         }
 
-        // Process SSE events
+        // Process SSE events with overall timeout
         let mut event_type = String::new();
         let mut event_data = String::new();
 
-        loop {
-            line.clear();
-            let n = reader
-                .read_line(&mut line)
-                .await
-                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        let sse_result = tokio::time::timeout(sse_timeout, async {
+            loop {
+                line.clear();
+                let n = match tokio::time::timeout(per_line_timeout, reader.read_line(&mut line)).await {
+                    Ok(Ok(n)) => n,
+                    Ok(Err(e)) => return Err(UdsClientError::RequestFailed(e.to_string())),
+                    Err(_) => return Err(UdsClientError::Timeout("SSE line read timeout".to_string())),
+                };
 
-            if n == 0 {
-                break; // End of stream
-            }
+                if n == 0 {
+                    break; // End of stream
+                }
 
-            let line_trimmed = line.trim();
+                let line_trimmed = line.trim();
 
-            if line_trimmed.is_empty() {
-                // Event boundary - process accumulated event
-                if !event_type.is_empty() && !event_data.is_empty() {
-                    match event_type.as_str() {
-                        "signal" => {
-                            // Parse and emit signal
-                            if let Ok(signal) = serde_json::from_str::<Signal>(&event_data) {
-                                signal_callback(signal);
+                if line_trimmed.is_empty() {
+                    // Event boundary - process accumulated event
+                    if !event_type.is_empty() && !event_data.is_empty() {
+                        match event_type.as_str() {
+                            "signal" => {
+                                // Parse and emit signal
+                                if let Ok(signal) = serde_json::from_str::<Signal>(&event_data) {
+                                    signal_callback(signal);
+                                }
                             }
-                        }
-                        "complete" => {
-                            // Inference complete - response should be in final data
-                            if let Ok(resp) = serde_json::from_str::<
-                                crate::types::WorkerInferResponse,
-                            >(&event_data)
-                            {
-                                response = Some(resp);
+                            "complete" => {
+                                // Inference complete - response should be in final data
+                                if let Ok(resp) = serde_json::from_str::<
+                                    crate::types::WorkerInferResponse,
+                                >(&event_data)
+                                {
+                                    response = Some(resp);
+                                }
+                                break;
                             }
-                            break;
+                            _ => {}
                         }
-                        _ => {}
                     }
-                }
 
-                // Reset for next event
-                event_type.clear();
-                event_data.clear();
-            } else if let Some(stripped) = line_trimmed.strip_prefix("event:") {
-                event_type = stripped.trim().to_string();
-            } else if let Some(stripped) = line_trimmed.strip_prefix("data:") {
-                if !event_data.is_empty() {
-                    event_data.push('\n');
+                    // Reset for next event
+                    event_type.clear();
+                    event_data.clear();
+                } else if let Some(stripped) = line_trimmed.strip_prefix("event:") {
+                    event_type = stripped.trim().to_string();
+                } else if let Some(stripped) = line_trimmed.strip_prefix("data:") {
+                    if !event_data.is_empty() {
+                        event_data.push('\n');
+                    }
+                    event_data.push_str(stripped.trim());
                 }
-                event_data.push_str(stripped.trim());
             }
+            Ok(())
+        }).await;
+
+        // Handle overall timeout
+        match sse_result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err(UdsClientError::Timeout("SSE stream timeout (5 minutes)".to_string())),
         }
 
         response.ok_or_else(|| UdsClientError::RequestFailed("No response received".to_string()))
@@ -382,8 +429,24 @@ impl UdsClient {
             )));
         }
 
-        let body_start = response_str.find("\r\n\r\n").unwrap_or(0) + 4;
-        let json_str = &response_str[body_start..];
+        // Safe slicing to prevent panic on malformed response
+        let json_str = match response_str.find("\r\n\r\n") {
+            Some(pos) => response_str.get(pos + 4..).unwrap_or_else(|| {
+                warn!(
+                    response_len = response_str.len(),
+                    header_end_pos = pos,
+                    "Malformed HTTP response in send_http_request: body offset exceeds response length"
+                );
+                ""
+            }),
+            None => {
+                warn!(
+                    response_preview = %response_str.chars().take(100).collect::<String>(),
+                    "Malformed HTTP response in send_http_request: missing header/body separator (\\r\\n\\r\\n)"
+                );
+                ""
+            }
+        };
 
         serde_json::from_str(json_str)
             .map_err(|e| UdsClientError::SerializationError(e.to_string()))
@@ -492,5 +555,99 @@ mod tests {
         assert_eq!(request.prompt, deserialized.prompt);
         assert_eq!(request.max_tokens, deserialized.max_tokens);
         assert_eq!(request.cpid, deserialized.cpid);
+    }
+
+    // ========================================================================
+    // Safe String Slicing Tests
+    // ========================================================================
+
+    /// Helper function to extract JSON body from HTTP response (mirrors production logic)
+    fn extract_json_body(response_str: &str) -> &str {
+        match response_str.find("\r\n\r\n") {
+            Some(pos) => response_str.get(pos + 4..).unwrap_or(""),
+            None => "",
+        }
+    }
+
+    #[test]
+    fn test_safe_slicing_normal_response() {
+        let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\"}";
+        let json = extract_json_body(response);
+        assert_eq!(json, "{\"status\":\"ok\"}");
+    }
+
+    #[test]
+    fn test_safe_slicing_empty_body() {
+        let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n";
+        let json = extract_json_body(response);
+        assert_eq!(json, "");
+    }
+
+    #[test]
+    fn test_safe_slicing_missing_separator() {
+        // No \r\n\r\n separator - should return empty string, not panic
+        let response = "HTTP/1.1 200 OK\nContent-Type: application/json\n{\"status\":\"ok\"}";
+        let json = extract_json_body(response);
+        assert_eq!(json, "");
+    }
+
+    #[test]
+    fn test_safe_slicing_truncated_response() {
+        // Response ends right at separator - no body
+        let response = "HTTP/1.1 200 OK\r\n\r\n";
+        let json = extract_json_body(response);
+        assert_eq!(json, "");
+    }
+
+    #[test]
+    fn test_safe_slicing_only_headers() {
+        // Headers only, no separator at all
+        let response = "HTTP/1.1 200 OK";
+        let json = extract_json_body(response);
+        assert_eq!(json, "");
+    }
+
+    #[test]
+    fn test_safe_slicing_empty_string() {
+        let response = "";
+        let json = extract_json_body(response);
+        assert_eq!(json, "");
+    }
+
+    #[test]
+    fn test_safe_slicing_unicode_body() {
+        let response = "HTTP/1.1 200 OK\r\n\r\n{\"message\":\"你好世界\"}";
+        let json = extract_json_body(response);
+        assert_eq!(json, "{\"message\":\"你好世界\"}");
+    }
+
+    #[test]
+    fn test_safe_slicing_multiline_body() {
+        let response = "HTTP/1.1 200 OK\r\n\r\n{\n  \"status\": \"ok\",\n  \"data\": [1,2,3]\n}";
+        let json = extract_json_body(response);
+        assert_eq!(json, "{\n  \"status\": \"ok\",\n  \"data\": [1,2,3]\n}");
+    }
+
+    #[test]
+    fn test_safe_slicing_partial_separator() {
+        // Only \r\n once, not twice
+        let response = "HTTP/1.1 200 OK\r\n{\"status\":\"ok\"}";
+        let json = extract_json_body(response);
+        assert_eq!(json, "");
+    }
+
+    #[test]
+    fn test_safe_slicing_separator_at_end() {
+        // Edge case: separator is the last 4 bytes
+        let response = "X\r\n\r\n";
+        let json = extract_json_body(response);
+        assert_eq!(json, "");
+    }
+
+    #[test]
+    fn test_safe_slicing_single_char_body() {
+        let response = "HTTP/1.1 200 OK\r\n\r\nX";
+        let json = extract_json_body(response);
+        assert_eq!(json, "X");
     }
 }

@@ -60,9 +60,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import apiClient from '../api/client';
-import { User, DomainAdapter as ApiDomainAdapter } from '../api/types';
-import { logger, toError } from '../utils/logger';
+import apiClient from '@/api/client';
+import { User, DomainAdapter as ApiDomainAdapter } from '@/api/types';
+import { logger, toError } from '@/utils/logger';
 
 interface DomainAdapterManagerProps {
   user: User;
@@ -81,7 +81,7 @@ interface DomainAdapter {
   hash: string;
   input_format: string;
   output_format: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   status: 'loaded' | 'unloaded' | 'error';
   epsilon_stats?: EpsilonStats;
   last_execution?: string;

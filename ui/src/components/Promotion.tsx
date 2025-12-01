@@ -6,14 +6,14 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Alert, AlertDescription } from './ui/alert';
-import apiClient from '../api/client';
-import { User } from '../api/types';
-import { logger, toError } from '../utils/logger';
+import apiClient from '@/api/client';
+import { User, PromotionGate, DryRunPromotionResponse, PromotionHistoryEntry } from '@/api/types';
+import { logger, toError } from '@/utils/logger';
 import { ArrowUp, History, Undo2, Play, CheckCircle } from 'lucide-react';
 import { errorRecoveryTemplates } from './ui/error-recovery';
 import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { useRBAC } from '@/hooks/useRBAC';
 
 interface PromotionProps {
@@ -25,9 +25,9 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
   const { can } = useRBAC();
   const [cpid, setCpid] = useState('');
   const [planId, setPlanId] = useState('');
-  const [gates, setGates] = useState<any[]>([]);
-  const [dryRunResult, setDryRunResult] = useState<any | null>(null);
-  const [history, setHistory] = useState<any[]>([]);
+  const [gates, setGates] = useState<PromotionGate[]>([]);
+  const [dryRunResult, setDryRunResult] = useState<DryRunPromotionResponse | null>(null);
+  const [history, setHistory] = useState<PromotionHistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
@@ -269,33 +269,33 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
           <div>
             <Label className="flex items-center gap-1">
               Policy ID
-              <HelpTooltip helpId="promotion-cpid" />
+              <GlossaryTooltip termId="promotion-cpid" />
             </Label>
             <Input value={cpid} onChange={(e) => setCpid(e.target.value)} />
           </div>
           <div>
             <Label className="flex items-center gap-1">
               Plan ID
-              <HelpTooltip helpId="promotion-plan-id" />
+              <GlossaryTooltip termId="promotion-plan-id" />
             </Label>
             <Input value={planId} onChange={(e) => setPlanId(e.target.value)} />
           </div>
           <div className="flex gap-2 flex-wrap">
             <Button onClick={handleDryRun} disabled={loading || !canView}>
               <Play className="mr-2 h-4 w-4" /> Dry Run
-              <HelpTooltip helpId="promotion-dry-run" />
+              <GlossaryTooltip termId="promotion-dry-run" />
             </Button>
             <Button onClick={handleCheckGates} disabled={loading || !canView}>
               <CheckCircle className="mr-2 h-4 w-4" /> Check Gates
-              <HelpTooltip helpId="promotion-gates" />
+              <GlossaryTooltip termId="promotion-gates" />
             </Button>
             <Button onClick={handlePromote} disabled={loading || !allGatesPassed || !canExecute}>
               <ArrowUp className="mr-2 h-4 w-4" /> Promote
-              <HelpTooltip helpId="promotion-execute" />
+              <GlossaryTooltip termId="promotion-execute" />
             </Button>
             <Button variant="destructive" onClick={handleRollback} disabled={loading || !canExecute}>
               <Undo2 className="mr-2 h-4 w-4" /> Rollback
-              <HelpTooltip helpId="promotion-rollback" />
+              <GlossaryTooltip termId="promotion-rollback" />
             </Button>
           </div>
           {!canExecute && (
@@ -314,7 +314,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
         <CardHeader>
           <CardTitle className="flex items-center gap-1">
             Gate Status
-            <HelpTooltip helpId="promotion-gates" />
+            <GlossaryTooltip termId="promotion-gates" />
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -354,7 +354,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
         <CardHeader>
           <CardTitle className="flex items-center gap-1">
             Promotion History
-            <HelpTooltip helpId="promotion-history" />
+            <GlossaryTooltip termId="promotion-history" />
           </CardTitle>
         </CardHeader>
         <CardContent>

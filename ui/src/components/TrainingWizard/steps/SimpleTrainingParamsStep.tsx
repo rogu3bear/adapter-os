@@ -1,8 +1,8 @@
 import React from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
-import { useTrainingWizardContext } from '../context';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
+import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
 
 export function SimpleTrainingParamsStep() {
   const { state, updateState } = useTrainingWizardContext();
@@ -20,7 +20,7 @@ export function SimpleTrainingParamsStep() {
         <div className="space-y-2">
           <div className="flex items-center gap-1">
             <Label htmlFor="rank">Rank (r)</Label>
-            <HelpTooltip content="Controls capacity of learned patterns. Higher = more expressive but slower. Start with 8-16 for most tasks." />
+            <GlossaryTooltip brief="Controls capacity of learned patterns. Higher = more expressive but slower. Start with 8-16 for most tasks." />
           </div>
           <Input
             id="rank"
@@ -34,7 +34,7 @@ export function SimpleTrainingParamsStep() {
         <div className="space-y-2">
           <div className="flex items-center gap-1">
             <Label htmlFor="alpha">Alpha</Label>
-            <HelpTooltip content="Controls how strongly adapter influences model. Usually keep at 2x your Rank value." />
+            <GlossaryTooltip brief="Controls how strongly adapter influences model. Usually keep at 2x your Rank value." />
           </div>
           <Input
             id="alpha"
@@ -48,7 +48,7 @@ export function SimpleTrainingParamsStep() {
         <div className="space-y-2">
           <div className="flex items-center gap-1">
             <Label htmlFor="epochs">Epochs</Label>
-            <HelpTooltip content="Number of times to repeat training data. More = better learning but risk of overfitting. Start with 3-5." />
+            <GlossaryTooltip brief="Number of times to repeat training data. More = better learning but risk of overfitting. Start with 3-5." />
           </div>
           <Input
             id="epochs"

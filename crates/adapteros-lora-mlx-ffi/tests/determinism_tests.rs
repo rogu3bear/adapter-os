@@ -12,7 +12,7 @@ mod determinism_tests {
     use adapteros_core::{derive_seed, B3Hash};
     use adapteros_lora_mlx_ffi::backend::MLXFFIBackend;
     use adapteros_lora_mlx_ffi::mock::{create_mock_adapter, create_mock_config};
-    use adapteros_lora_mlx_ffi::{mlx_set_seed_from_bytes, MLXFFIModel, ModelConfig};
+    use adapteros_lora_mlx_ffi::{mlx_set_seed_from_bytes, MLXFFIModel};
     use std::collections::HashMap;
 
     // =============================================================================
@@ -97,20 +97,6 @@ mod determinism_tests {
 
                 backend
             }
-        }
-    }
-
-    /// Create test model config
-    fn create_test_config() -> ModelConfig {
-        ModelConfig {
-            hidden_size: 4096,
-            num_hidden_layers: 32,
-            num_attention_heads: 32,
-            num_key_value_heads: 8,
-            intermediate_size: 11008,
-            vocab_size: 32000,
-            max_position_embeddings: 32768,
-            rope_theta: 10000.0,
         }
     }
 

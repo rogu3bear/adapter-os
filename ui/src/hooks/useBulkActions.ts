@@ -25,7 +25,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
 export type BulkActionStatus = 'idle' | 'pending' | 'executing' | 'completed' | 'failed' | 'cancelled';
 

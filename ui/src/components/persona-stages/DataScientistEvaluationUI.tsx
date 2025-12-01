@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTrainingJobs, useJobMetrics } from '@/hooks/useTraining';
 import {
   BarChart3,
@@ -15,7 +15,7 @@ import {
   Minus,
   Grid3X3,
 } from 'lucide-react';
-import { logger } from '../../utils/logger';
+import { logger } from '@/utils/logger';
 
 // Model evaluation metrics interface
 interface EvaluationMetrics {
@@ -119,10 +119,11 @@ export default function DataScientistEvaluationUI() {
   );
 
   // Transform API metrics to evaluation metrics format
-  const transformMetrics = (apiMetrics: any): EvaluationMetrics => {
+  const transformMetrics = (apiMetrics: Record<string, unknown>): EvaluationMetrics => {
     // Extract validation metrics from API response
     // The API returns training metrics, we'll compute evaluation metrics from available data
-    const loss = apiMetrics?.validation_loss || apiMetrics?.loss || 0;
+    const rawLoss = apiMetrics?.validation_loss || apiMetrics?.loss || 0;
+    const loss = typeof rawLoss === 'number' ? rawLoss : 0;
 
     // For demonstration, derive metrics from loss (in real implementation, these should come from validation endpoint)
     const accuracy = Math.max(0, 1 - loss * 2);

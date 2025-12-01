@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { type Node } from '@/api/api-types';
 import { DataTable } from '@/components/shared/DataTable/DataTable';
 import { type Column } from '@/components/shared/DataTable/types';
@@ -25,7 +25,7 @@ export default function NodeTable({ nodes, isLoading, onNodeSelect, onRefresh }:
   const { pingNode, markOffline, evictNode } = useNodeOperations();
   const { toast } = useToast();
 
-  const handlePing = async (nodeId: string) => {
+  const handlePing = useCallback(async (nodeId: string) => {
     try {
       const result = await pingNode.execute(nodeId);
       toast({
@@ -40,9 +40,9 @@ export default function NodeTable({ nodes, isLoading, onNodeSelect, onRefresh }:
         variant: 'destructive',
       });
     }
-  };
+  }, [pingNode, toast, onRefresh]);
 
-  const handleMarkOffline = async (nodeId: string) => {
+  const handleMarkOffline = useCallback(async (nodeId: string) => {
     try {
       await markOffline.execute(nodeId);
       toast({
@@ -57,9 +57,9 @@ export default function NodeTable({ nodes, isLoading, onNodeSelect, onRefresh }:
         variant: 'destructive',
       });
     }
-  };
+  }, [markOffline, toast, onRefresh]);
 
-  const handleEvict = async (nodeId: string) => {
+  const handleEvict = useCallback(async (nodeId: string) => {
     if (!confirm(`Are you sure you want to remove node ${nodeId}? This action cannot be undone.`)) {
       return;
     }
@@ -78,7 +78,7 @@ export default function NodeTable({ nodes, isLoading, onNodeSelect, onRefresh }:
         variant: 'destructive',
       });
     }
-  };
+  }, [evictNode, toast, onRefresh]);
 
   const columns = useMemo<Column<Node>[]>(
     () => [
@@ -195,7 +195,7 @@ export default function NodeTable({ nodes, isLoading, onNodeSelect, onRefresh }:
         },
       },
     ],
-    [onNodeSelect, pingNode.isLoading, markOffline.isLoading, evictNode.isLoading]
+    [onNodeSelect, pingNode.isLoading, markOffline.isLoading, evictNode.isLoading, handleEvict, handleMarkOffline, handlePing]
   );
 
   return (

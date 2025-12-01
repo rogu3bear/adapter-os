@@ -56,10 +56,10 @@ interface PageWrapperProps {
   secondaryActions?: PageHeaderAction[];
   /** Badges to display in the page header */
   badges?: PageHeaderBadge[];
-  /** Help tooltip ID for the page header */
-  helpId?: string;
-  /** Help tooltip content for the page header */
-  helpContent?: string;
+  /** Glossary term ID for the page header tooltip */
+  termId?: string;
+  /** Brief tooltip content for the page header */
+  brief?: string;
   /** Adjust outer padding tokens (defaults to 'default' spacing) */
   contentPadding?: ContentPadding;
   /** Set the max width for the content area */
@@ -94,8 +94,8 @@ export function PageWrapper({
   primaryAction,
   secondaryActions,
   badges,
-  helpId,
-  helpContent,
+  termId,
+  brief,
   contentPadding = 'default',
   maxWidth = 'xl',
   resizable,
@@ -117,8 +117,8 @@ export function PageWrapper({
         primaryAction={primaryAction}
         secondaryActions={secondaryActions}
         badges={badges}
-        helpId={helpId}
-        helpContent={helpContent}
+        termId={termId}
+        brief={brief}
         contentPadding={contentPadding}
         maxWidth={maxWidth}
         resizable={resizable}

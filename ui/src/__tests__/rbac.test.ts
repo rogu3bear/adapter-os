@@ -22,7 +22,7 @@ import {
   PERMISSIONS,
   ROLE_PERMISSIONS,
   type User,
-} from '../utils/rbac';
+} from '@/utils/rbac';
 
 describe('hasPermission', () => {
   it('returns true for valid role/permission', () => {

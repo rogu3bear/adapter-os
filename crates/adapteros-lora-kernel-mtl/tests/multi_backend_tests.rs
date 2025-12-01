@@ -2,14 +2,14 @@
 //!
 //! Test suite for multi-backend operations including:
 //! - Backend selection logic
-//! - Fallback chain (Metal → CoreML → MLX)
+//! - Fallback chain (CoreML → MLX → Metal)
 //! - Hybrid execution
 //! - Cross-backend tensor conversion
 
 #[cfg(target_os = "macos")]
 mod multi_backend_integration {
     use adapteros_core::Result;
-    use adapteros_lora_kernel_api::attestation::{BackendType, DeterminismReport};
+    use adapteros_lora_kernel_api::attestation::BackendType;
     use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, MockKernels, RouterRing};
 
     /// Mock backend selector for testing
@@ -313,7 +313,7 @@ mod multi_backend_integration {
             }
 
             fn verify_compatible(&self, other: &Tensor) -> bool {
-                self.shape == other.shape
+                self.shape == other.shape && self.data.len() == other.data.len()
             }
         }
 
@@ -323,6 +323,7 @@ mod multi_backend_integration {
 
         assert!(tensor_f32.verify_compatible(&tensor_f16));
         assert!(tensor_f32.verify_compatible(&tensor_i8));
+        assert_eq!(tensor_f32.data.len(), 4); // Verify data is accessible
 
         println!("Tensor conversions: F32 -> F16, F32 -> I8 compatible");
     }

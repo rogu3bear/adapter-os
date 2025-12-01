@@ -40,7 +40,7 @@ impl ToolchainMetadata {
     fn compute_kernel_hash() -> B3Hash {
         // In a real implementation, would hash the .metallib files
         // For now, return a placeholder
-        B3Hash::from_hex("b3:0000000000000000000000000000000000000000000000000000000000000000")
+        B3Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
             .unwrap()
     }
 
@@ -567,7 +567,7 @@ mod tests {
             rustc_version: "1.75.0".to_string(),
             metal_version: "3.1".to_string(),
             kernel_hash: B3Hash::from_hex(
-                "b3:0000000000000000000000000000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000000000000000000000000000",
             )
             .unwrap(),
         };
@@ -613,7 +613,7 @@ mod tests {
             "test-plan".to_string(),
             "1.75.0".to_string(),
             vec!["adapter-001".to_string()],
-            B3Hash::from_hex("b3:1111111111111111111111111111111111111111111111111111111111111111")
+            B3Hash::from_hex("1111111111111111111111111111111111111111111111111111111111111111")
                 .unwrap(),
         );
 

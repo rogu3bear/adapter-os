@@ -192,12 +192,10 @@ mod memory_lifecycle_scenario_tests {
 
         // Define thresholds
         let critical_threshold_mb = 4096.0; // 4GB
-        let warning_threshold_mb = 2048.0; // 2GB
         let normal_threshold_mb = 1024.0; // 1GB
 
         // Check thresholds at current (empty) state
         let is_normal = !memory::exceeds_threshold(normal_threshold_mb);
-        let is_warning = memory::exceeds_threshold(warning_threshold_mb / 2.0);
         let is_critical = memory::exceeds_threshold(critical_threshold_mb);
 
         // Should be safe at all thresholds when empty

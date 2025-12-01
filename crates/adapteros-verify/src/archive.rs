@@ -3,6 +3,7 @@
 use crate::{epsilon::EpsilonStatistics, metadata::GoldenRunMetadata, VerifyError, VerifyResult};
 use adapteros_core::B3Hash;
 use adapteros_crypto::{sign_bytes, Keypair};
+use adapteros_telemetry::events::RouterDecisionEvent;
 use adapteros_telemetry::replay::load_replay_bundle;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -21,6 +22,9 @@ pub struct GoldenRunArchive {
     /// Signature over the archive (optional, for audit trail)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
+    /// Per-step routing decisions for deterministic replay verification
+    #[serde(default)]
+    pub routing_decisions: Vec<RouterDecisionEvent>,
 }
 
 impl GoldenRunArchive {
@@ -35,6 +39,23 @@ impl GoldenRunArchive {
             epsilon_stats,
             bundle_hash,
             signature: None,
+            routing_decisions: Vec::new(),
+        }
+    }
+
+    /// Create a new golden run archive with routing decisions
+    pub fn with_routing_decisions(
+        metadata: GoldenRunMetadata,
+        epsilon_stats: EpsilonStatistics,
+        bundle_hash: B3Hash,
+        routing_decisions: Vec<RouterDecisionEvent>,
+    ) -> Self {
+        Self {
+            metadata,
+            epsilon_stats,
+            bundle_hash,
+            signature: None,
+            routing_decisions,
         }
     }
 
@@ -72,8 +93,17 @@ impl GoldenRunArchive {
 
         // Write bundle hash
         let hash_path = dir_path.join("bundle_hash.txt");
-        fs::write(&hash_path, self.bundle_hash.to_string())?;
+        fs::write(&hash_path, self.bundle_hash.to_hex())?;
         debug!("Wrote bundle hash: {}", hash_path.display());
+
+        // Write routing decisions
+        let routing_path = dir_path.join("routing_decisions.json");
+        let routing_json = serde_json::to_string_pretty(&self.routing_decisions)?;
+        fs::write(&routing_path, routing_json)?;
+        info!(
+            "Wrote routing decisions: {} decisions",
+            self.routing_decisions.len()
+        );
 
         // Write signature if present
         if let Some(ref sig) = self.signature {
@@ -119,6 +149,19 @@ impl GoldenRunArchive {
             })?;
         let bundle_hash = hash_str.trim().to_string();
 
+        // Load routing decisions (backwards compatible - optional)
+        let routing_path = dir_path.join("routing_decisions.json");
+        let routing_decisions = if routing_path.exists() {
+            let routing_json = fs::read_to_string(&routing_path)?;
+            serde_json::from_str(&routing_json).unwrap_or_else(|e| {
+                debug!("Failed to parse routing decisions: {}", e);
+                Vec::new()
+            })
+        } else {
+            debug!("No routing_decisions.json found (backwards compatibility)");
+            Vec::new()
+        };
+
         // Load signature if present
         let sig_path = dir_path.join("signature.sig");
         let signature = if sig_path.exists() {
@@ -130,6 +173,7 @@ impl GoldenRunArchive {
         Ok(Self {
             metadata,
             epsilon_stats,
+            routing_decisions,
             bundle_hash: B3Hash::from_hex(&bundle_hash).map_err(|_| {
                 VerifyError::ArchiveCorrupted {
                     reason: format!("Invalid bundle hash: {}", bundle_hash),
@@ -200,7 +244,7 @@ mod tests {
                 rustc_version: "1.75.0".to_string(),
                 metal_version: "3.1".to_string(),
                 kernel_hash: B3Hash::from_hex(
-                    "b3:0000000000000000000000000000000000000000000000000000000000000000",
+                    "0000000000000000000000000000000000000000000000000000000000000000",
                 )
                 .unwrap(),
             },
@@ -215,11 +259,11 @@ mod tests {
                 metal_family: "Apple9".to_string(),
                 gpu_driver_version: "3.1.0".to_string(),
                 path_hash: B3Hash::from_hex(
-                    "b3:0000000000000000000000000000000000000000000000000000000000000000",
+                    "0000000000000000000000000000000000000000000000000000000000000000",
                 )
                 .unwrap(),
                 env_hash: B3Hash::from_hex(
-                    "b3:0000000000000000000000000000000000000000000000000000000000000000",
+                    "0000000000000000000000000000000000000000000000000000000000000000",
                 )
                 .unwrap(),
                 cpu_features: vec!["neon".to_string(), "fp".to_string()],
@@ -227,7 +271,7 @@ mod tests {
                 boot_version_hash: None,
             },
             global_seed: B3Hash::from_hex(
-                "b3:1111111111111111111111111111111111111111111111111111111111111111",
+                "1111111111111111111111111111111111111111111111111111111111111111",
             )
             .unwrap(),
         };
@@ -246,10 +290,15 @@ mod tests {
         let epsilon_stats = EpsilonStatistics { layer_stats };
 
         let bundle_hash =
-            B3Hash::from_hex("b3:2222222222222222222222222222222222222222222222222222222222222222")
+            B3Hash::from_hex("2222222222222222222222222222222222222222222222222222222222222222")
                 .unwrap();
 
-        GoldenRunArchive::new(metadata, epsilon_stats, bundle_hash)
+        GoldenRunArchive::with_routing_decisions(
+            metadata,
+            epsilon_stats,
+            bundle_hash,
+            Vec::new(),
+        )
     }
 
     #[test]
@@ -283,5 +332,55 @@ mod tests {
             result.unwrap_err(),
             VerifyError::GoldenRunNotFound { .. }
         ));
+    }
+
+    #[test]
+    fn test_archive_backwards_compatibility() {
+        // Test loading archive without routing_decisions.json
+        let temp_dir = TempDir::new().unwrap();
+        let archive_dir = temp_dir.path().join("test-archive");
+
+        let mut archive = create_test_archive();
+        archive.routing_decisions = Vec::new(); // Clear for compatibility test
+        archive.save(&archive_dir).unwrap();
+
+        // Remove routing_decisions.json to simulate old archive
+        let routing_path = archive_dir.join("routing_decisions.json");
+        if routing_path.exists() {
+            std::fs::remove_file(&routing_path).unwrap();
+        }
+
+        // Load should succeed with empty routing_decisions
+        let loaded = GoldenRunArchive::load(&archive_dir).unwrap();
+        assert_eq!(loaded.routing_decisions.len(), 0);
+    }
+
+    #[test]
+    fn test_archive_with_routing_decisions() {
+        use crate::routing::create_test_decision;
+
+        let temp_dir = TempDir::new().unwrap();
+        let archive_dir = temp_dir.path().join("test-archive");
+
+        let mut archive = create_test_archive();
+
+        // Add test routing decisions
+        archive.routing_decisions = vec![
+            create_test_decision(0, vec![(0, 16384), (1, 16383)], 0.5),
+            create_test_decision(1, vec![(2, 32767)], 0.3),
+        ];
+
+        archive.save(&archive_dir).unwrap();
+
+        // Verify routing_decisions.json exists
+        let routing_path = archive_dir.join("routing_decisions.json");
+        assert!(routing_path.exists());
+
+        // Load and verify
+        let loaded = GoldenRunArchive::load(&archive_dir).unwrap();
+        assert_eq!(loaded.routing_decisions.len(), 2);
+        assert_eq!(loaded.routing_decisions[0].step, 0);
+        assert_eq!(loaded.routing_decisions[1].step, 1);
+        assert_eq!(loaded.routing_decisions[0].entropy, 0.5);
     }
 }

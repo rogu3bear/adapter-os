@@ -1,6 +1,6 @@
-import { Service, ServiceManagerConfig } from '../types/service-lifecycle';
-import { ServiceLifecycleManager } from './ServiceLifecycleManager';
-import { logger } from '../utils/logger';
+import { Service, ServiceManagerConfig } from '@/types/service-lifecycle';
+import { ServiceLifecycleManager } from '@/services/ServiceLifecycleManager';
+import { logger } from '@/utils/logger';
 
 // Service Registry - Factory for creating predefined AdapterOS services
 export class ServiceRegistry {

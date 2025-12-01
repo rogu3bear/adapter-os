@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import { logger, toError } from '@/utils/logger';
 
 // Set worker path for pdf.js
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -31,7 +32,14 @@ export function PDFViewer({ documentId, documentName, initialPage = 1, isOpen, o
   };
 
   const onDocumentLoadError = (error: Error) => {
-    console.error('PDF load error:', error);
+    logger.error('PDF document load failed', {
+      component: 'PDFViewer',
+      operation: 'loadDocument',
+      errorType: 'pdf_load_failure',
+      details: 'Failed to load and render PDF document',
+      documentId: documentId,
+      documentName: documentName
+    }, toError(error));
     setError('Failed to load PDF document');
     setIsLoading(false);
   };
@@ -50,6 +58,7 @@ export function PDFViewer({ documentId, documentName, initialPage = 1, isOpen, o
                 size="icon"
                 onClick={() => setScale(s => Math.max(0.5, s - 0.1))}
                 disabled={scale <= 0.5}
+                aria-label="Zoom out"
               >
                 <ZoomOut className="h-4 w-4" />
               </Button>
@@ -59,11 +68,12 @@ export function PDFViewer({ documentId, documentName, initialPage = 1, isOpen, o
                 size="icon"
                 onClick={() => setScale(s => Math.min(2, s + 0.1))}
                 disabled={scale >= 2}
+                aria-label="Zoom in"
               >
                 <ZoomIn className="h-4 w-4" />
               </Button>
               <a href={pdfUrl} download>
-                <Button variant="outline" size="icon">
+                <Button variant="outline" size="icon" aria-label="Download PDF">
                   <Download className="h-4 w-4" />
                 </Button>
               </a>
@@ -106,6 +116,7 @@ export function PDFViewer({ documentId, documentName, initialPage = 1, isOpen, o
               size="icon"
               disabled={currentPage <= 1}
               onClick={() => setCurrentPage(p => p - 1)}
+              aria-label="Previous page"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -117,6 +128,7 @@ export function PDFViewer({ documentId, documentName, initialPage = 1, isOpen, o
               size="icon"
               disabled={currentPage >= numPages}
               onClick={() => setCurrentPage(p => p + 1)}
+              aria-label="Next page"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>

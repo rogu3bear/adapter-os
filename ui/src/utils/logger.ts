@@ -16,6 +16,30 @@ export interface LogContext {
   userId?: string;
   tenantId?: string;
   requestId?: string;
+  errorType?: string;
+  details?: string;
+  // Enhanced specificity fields
+  recoverySuggestion?: string;
+  userJourney?: string; // e.g., 'login_flow', 'document_upload', 'inference_request'
+  validationFailures?: string[]; // For validation errors
+  timing?: {
+    operationStart?: number;
+    operationDuration?: number;
+    networkLatency?: number;
+  };
+  resourceState?: Record<string, unknown>; // Current state of relevant resources
+  environment?: {
+    userAgent?: string;
+    viewport?: string;
+    online?: boolean;
+    memoryUsage?: number;
+  };
+  featureFlags?: Record<string, boolean>; // Active feature flags
+  rateLimit?: {
+    remaining?: number;
+    resetTime?: number;
+    limit?: number;
+  };
   [key: string]: unknown;
 }
 
@@ -55,6 +79,10 @@ class Logger {
   private errorToastHistory = new Map<string, number>();
   private readonly ERROR_TOAST_THROTTLE_MS = 10000; // 10 seconds
 
+  // Track recent request IDs for error correlation
+  private recentRequestIds: string[] = [];
+  private readonly MAX_RECENT_REQUEST_IDS = 10;
+
   // Allow tests to override development mode detection
   private _isDevelopmentOverride: boolean | null = null;
 
@@ -70,6 +98,118 @@ class Logger {
     this._isDevelopmentOverride = isDev;
   }
 
+  /** Track a request ID for error correlation */
+  trackRequestId(requestId: string): void {
+    this.recentRequestIds.unshift(requestId);
+    if (this.recentRequestIds.length > this.MAX_RECENT_REQUEST_IDS) {
+      this.recentRequestIds.pop();
+    }
+  }
+
+  /** Get the most recent request ID for error correlation */
+  private getRecentRequestId(): string | undefined {
+    return this.recentRequestIds[0];
+  }
+
+  /** Collect current environment context for error reporting */
+  private collectEnvironmentContext(): LogContext['environment'] {
+    if (typeof window === 'undefined') return {};
+
+    return {
+      userAgent: navigator.userAgent,
+      viewport: `${window.innerWidth}x${window.innerHeight}`,
+      online: navigator.onLine,
+      memoryUsage: (performance as { memory?: { usedJSHeapSize?: number } }).memory?.usedJSHeapSize,
+    };
+  }
+
+  /** Create enhanced error context with automatic environment collection */
+  createErrorContext(baseContext: LogContext, options?: {
+    includeEnvironment?: boolean;
+    includeTiming?: boolean;
+    operationStart?: number;
+  }): LogContext {
+    const enhanced: LogContext = { ...baseContext };
+
+    // Auto-include environment context if requested
+    if (options?.includeEnvironment !== false) {
+      enhanced.environment = this.collectEnvironmentContext();
+    }
+
+    // Add timing information if requested
+    if (options?.includeTiming && options.operationStart) {
+      enhanced.timing = {
+        operationStart: options.operationStart,
+        operationDuration: Date.now() - options.operationStart,
+      };
+    }
+
+    return enhanced;
+  }
+
+  /** Enhanced error logging with recovery suggestions and categorization */
+  errorWithRecovery(
+    message: string,
+    context: LogContext,
+    error?: Error,
+    recoverySuggestion?: string
+  ): void {
+    const enhancedContext = this.createErrorContext({
+      ...context,
+      recoverySuggestion,
+    });
+    this.log(LogLevel.ERROR, message, enhancedContext, error);
+  }
+
+  /** Validation error with detailed failure information */
+  validationError(
+    message: string,
+    context: LogContext,
+    validationFailures: string[],
+    error?: Error
+  ): void {
+    const enhancedContext = this.createErrorContext({
+      ...context,
+      errorType: context.errorType || 'validation_failure',
+      validationFailures,
+      recoverySuggestion: 'Please check the highlighted fields and correct the validation errors.',
+    });
+    this.log(LogLevel.ERROR, message, enhancedContext, error);
+  }
+
+  /** Network error with specific categorization */
+  networkError(
+    message: string,
+    context: LogContext,
+    networkDetails: {
+      status?: number;
+      statusText?: string;
+      url?: string;
+      method?: string;
+      timeout?: boolean;
+      connectionError?: boolean;
+    },
+    error?: Error
+  ): void {
+    const recoverySuggestion = networkDetails.timeout
+      ? 'The request timed out. Please check your connection and try again.'
+      : networkDetails.connectionError
+      ? 'Network connection failed. Please check your internet connection.'
+      : networkDetails.status === 429
+      ? 'Rate limit exceeded. Please wait before retrying.'
+      : networkDetails.status && networkDetails.status >= 500
+      ? 'Server error occurred. Please try again later or contact support.'
+      : 'Network request failed. Please try again.';
+
+    const enhancedContext = this.createErrorContext({
+      ...context,
+      errorType: 'network_failure',
+      recoverySuggestion,
+      networkDetails,
+    });
+    this.log(LogLevel.ERROR, message, enhancedContext, error);
+  }
+
   /** Log a message with structured context. */
   log(level: LogLevel, message: string, context?: LogContext, error?: Error) {
     const logEntry: LogEntry = {
@@ -83,6 +223,14 @@ class Logger {
         stack: error.stack,
       } : undefined,
     };
+
+    // Try to extract request ID from recent API calls for correlation
+    if (!logEntry.context.requestId) {
+      const recentRequestId = this.getRecentRequestId();
+      if (recentRequestId) {
+        logEntry.context.requestId = recentRequestId;
+      }
+    }
 
     // Development: Console logging with structured format
     if (this.isDevelopment) {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,11 +6,12 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ContentGrid, KpiGrid } from '@/components/ui/grid';
-import { PageHeader } from '@/components/ui/page-header';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTraining } from '@/hooks/useTraining';
 import { useAdapters } from '@/pages/Adapters/useAdapters';
+import { OperatorChatLayout } from '@/components/operator';
 import {
   Upload,
   Play,
@@ -24,15 +25,63 @@ import {
   Clock,
   XCircle,
   AlertCircle,
+  MessageSquare,
+  Zap,
 } from 'lucide-react';
 
 interface OperatorDashboardProps {
   selectedTenant?: string;
 }
 
-export default function OperatorDashboard({
-  selectedTenant = 'default',
-}: OperatorDashboardProps) {
+// Helper functions
+const getStatusIcon = (status: string) => {
+  switch (status) {
+    case 'completed':
+      return <CheckCircle className="h-4 w-4 text-green-600" />;
+    case 'running':
+      return <Activity className="h-4 w-4 text-blue-600 animate-pulse" />;
+    case 'pending':
+      return <Clock className="h-4 w-4 text-yellow-600" />;
+    case 'failed':
+      return <XCircle className="h-4 w-4 text-red-600" />;
+    case 'cancelled':
+      return <AlertCircle className="h-4 w-4 text-gray-600" />;
+    default:
+      return <Clock className="h-4 w-4 text-gray-600" />;
+  }
+};
+
+const getStatusVariant = (status: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
+  switch (status) {
+    case 'completed':
+      return 'default';
+    case 'running':
+      return 'secondary';
+    case 'failed':
+      return 'destructive';
+    default:
+      return 'outline';
+  }
+};
+
+const formatTimeAgo = (timestamp: string): string => {
+  const now = new Date();
+  const time = new Date(timestamp);
+  const diffMs = now.getTime() - time.getTime();
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${diffDays}d ago`;
+};
+
+/**
+ * Training dashboard content - the original operator dashboard view
+ */
+function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }) {
   // Fetch training jobs
   const {
     data: trainingJobsData,
@@ -92,62 +141,8 @@ export default function OperatorDashboard({
     progress: job.progress_pct || 0,
   }));
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-600" />;
-      case 'running':
-        return <Activity className="h-4 w-4 text-blue-600 animate-pulse" />;
-      case 'pending':
-        return <Clock className="h-4 w-4 text-yellow-600" />;
-      case 'failed':
-        return <XCircle className="h-4 w-4 text-red-600" />;
-      case 'cancelled':
-        return <AlertCircle className="h-4 w-4 text-gray-600" />;
-      default:
-        return <Clock className="h-4 w-4 text-gray-600" />;
-    }
-  };
-
-  const getStatusVariant = (status: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
-    switch (status) {
-      case 'completed':
-        return 'default';
-      case 'running':
-        return 'secondary';
-      case 'failed':
-        return 'destructive';
-      default:
-        return 'outline';
-    }
-  };
-
-  const formatTimeAgo = (timestamp: string): string => {
-    const now = new Date();
-    const time = new Date(timestamp);
-    const diffMs = now.getTime() - time.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
-  };
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <PageHeader
-        title="Operator Dashboard"
-        description={`Training & runtime operations for tenant: ${selectedTenant}`}
-        badges={[
-          { label: `Tenant: ${selectedTenant}`, variant: 'outline' },
-          { label: 'Operator', variant: 'secondary' },
-        ]}
-      />
-
+    <div className="space-y-6 p-6 overflow-auto">
       {/* Quick Actions */}
       <Card>
         <CardHeader>
@@ -413,6 +408,53 @@ export default function OperatorDashboard({
           </Card>
         </SectionErrorBoundary>
       </ContentGrid>
+    </div>
+  );
+}
+
+/**
+ * OperatorDashboard - Chat-first dashboard for operators
+ *
+ * Features tabbed interface with Chat (default) and Training views.
+ * Chat tab includes auto-model-loading and full ChatInterface.
+ */
+export default function OperatorDashboard({
+  selectedTenant = 'default',
+}: OperatorDashboardProps) {
+  const [activeTab, setActiveTab] = useState<'chat' | 'training'>('chat');
+
+  return (
+    <div className="h-full flex flex-col">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as 'chat' | 'training')}
+        className="h-full flex flex-col"
+      >
+        <div className="border-b px-4 py-2 flex items-center justify-between">
+          <TabsList>
+            <TabsTrigger value="chat" className="gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Chat
+            </TabsTrigger>
+            <TabsTrigger value="training" className="gap-2">
+              <Zap className="h-4 w-4" />
+              Training
+            </TabsTrigger>
+          </TabsList>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Badge variant="outline">{selectedTenant}</Badge>
+            <Badge variant="secondary">Operator</Badge>
+          </div>
+        </div>
+
+        <TabsContent value="chat" className="flex-1 mt-0 overflow-hidden">
+          <OperatorChatLayout tenantId={selectedTenant} />
+        </TabsContent>
+
+        <TabsContent value="training" className="flex-1 mt-0 overflow-auto">
+          <TrainingDashboardContent selectedTenant={selectedTenant} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

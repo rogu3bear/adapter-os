@@ -56,7 +56,7 @@ export function AppHeader({
             <TooltipTrigger asChild>
               <div className="h-1.5 w-1.5 rounded-full bg-green-500 flex-shrink-0 hidden sm:block" />
             </TooltipTrigger>
-            <TooltipContent>Zero Egress</TooltipContent>
+            <TooltipContent className="max-w-xs">Zero Egress</TooltipContent>
           </Tooltip>
 
           {isDevBypass && (

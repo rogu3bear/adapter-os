@@ -1,6 +1,6 @@
 import { render, screen, act } from '@testing-library/react';
 import { vi } from 'vitest';
-import { RetryNotification } from '../components/ui/retry-notification';
+import { RetryNotification } from '@/components/ui/retry-notification';
 
 // Mock timers
 beforeEach(() => {

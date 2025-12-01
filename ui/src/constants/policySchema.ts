@@ -7,11 +7,11 @@ export interface PolicyFieldDefinition {
   label: string;
   description: string;
   required: boolean;
-  default?: any;
+  default?: unknown;
   options?: string[];
   min?: number;
   max?: number;
-  validation?: (value: any) => string | null;
+  validation?: (value: unknown) => string | null;
 }
 
 export interface PolicyPackDefinition {
@@ -703,21 +703,23 @@ export function getPolicyPack(id: string): PolicyPackDefinition | undefined {
   return POLICY_PACKS.find((pack) => pack.id === id);
 }
 
-export function getDefaultPolicyConfig(): Record<string, any> {
-  const config: Record<string, any> = {
+export function getDefaultPolicyConfig(): Record<string, unknown> {
+  const config: Record<string, unknown> = {
     schema: 'adapteros.policy.v1',
-    packs: {},
+    packs: {} as Record<string, Record<string, unknown>>,
   };
 
+  const packs: Record<string, Record<string, unknown>> = {};
   for (const pack of POLICY_PACKS) {
-    const packConfig: Record<string, any> = {};
+    const packConfig: Record<string, unknown> = {};
     for (const field of pack.fields) {
       if (field.default !== undefined) {
         packConfig[field.name] = field.default;
       }
     }
-    config.packs[pack.id] = packConfig;
+    packs[pack.id] = packConfig;
   }
+  config.packs = packs;
 
   return config;
 }

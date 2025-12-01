@@ -8,8 +8,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { apiClient } from '../api/client';
-import type { AdapterDetailResponse, AdapterLineageResponse, LineageNode } from '../api/types';
+import { apiClient } from '@/api/client';
+import type { AdapterDetailResponse, AdapterLineageResponse, LineageNode } from '@/api/types';
 import {
   Card,
   CardContent,
@@ -23,9 +23,10 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowUp, ArrowDown, GitBranch, Clock, Database, Activity, Layers, ExternalLink, Plus } from 'lucide-react';
-import { getLifecycleVariant } from '../utils/lifecycle';
+import { getLifecycleVariant } from '@/utils/lifecycle';
 import { AddToStackModal } from './AddToStackModal';
 import { useAdapterStacks } from '@/hooks/useAdmin';
+import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
 
 export const AdapterDetail: React.FC = () => {
   const { adapterId } = useParams<{ adapterId: string }>();
@@ -204,7 +205,7 @@ export const AdapterDetail: React.FC = () => {
               <div>
                 <p className="text-sm text-gray-500">State</p>
                 <Badge className={`bg-${getStateColor(adapter.current_state)}-500`}>
-                  {adapter.current_state}
+                  {LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}
                 </Badge>
               </div>
             </div>
@@ -295,18 +296,18 @@ export const AdapterDetail: React.FC = () => {
               <p className="text-sm text-gray-500">Tier</p>
               <p>{adapter.tier}</p>
             </div>
-            {(adapter as any).lifecycle_state && (
+            {adapter.adapter?.lifecycle_state && (
               <div>
                 <p className="text-sm text-gray-500">Lifecycle State</p>
-                <Badge variant={getLifecycleVariant((adapter as any).lifecycle_state)}>
-                  {(adapter as any).lifecycle_state}
+                <Badge variant={getLifecycleVariant(adapter.adapter.lifecycle_state)}>
+                  {adapter.adapter.lifecycle_state}
                 </Badge>
               </div>
             )}
-            {(adapter as any).version && (
+            {adapter.adapter?.version && (
               <div>
                 <p className="text-sm text-gray-500">Version</p>
-                <p>{(adapter as any).version}</p>
+                <p>{adapter.adapter.version}</p>
               </div>
             )}
           </div>

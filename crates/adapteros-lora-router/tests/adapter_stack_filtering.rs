@@ -36,11 +36,6 @@ fn create_adapter(
     }
 }
 
-/// Create a uniform prior vector (all adapters equally likely)
-fn uniform_priors(count: usize) -> Vec<f32> {
-    vec![1.0; count]
-}
-
 /// Create a skewed prior vector (some adapters much stronger)
 fn skewed_priors(count: usize) -> Vec<f32> {
     (0..count)
@@ -58,16 +53,6 @@ fn python_features() -> Vec<f32> {
     features[8] = 0.3; // Framework relevance
     features[11] = 0.5; // Symbol hits
     features[12] = 0.4; // Path tokens
-    features
-}
-
-/// Create a feature vector for Rust code
-fn rust_features() -> Vec<f32> {
-    let mut features = vec![0.0; 22];
-    features[1] = 1.0; // Language: Rust
-    features[8] = 0.2; // Framework relevance
-    features[11] = 0.6; // Symbol hits
-    features[12] = 0.5; // Path tokens
     features
 }
 

@@ -1,4 +1,4 @@
-import { createActor } from './actor';
+import { createActor } from '@/services/actor';
 import type { StatusOperationRecord, OperationState } from '@/api/status';
 import { logger } from '@/utils/logger';
 import { retryWithBackoff, DEFAULT_RETRY_CONFIG, type RetryConfig, type RetryResult } from '@/utils/retry';

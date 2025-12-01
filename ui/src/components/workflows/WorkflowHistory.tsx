@@ -1,12 +1,12 @@
 // WorkflowHistory component - View and manage past workflow executions
 
 import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -14,7 +14,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '../ui/table';
+} from '@/components/ui/table';
 import {
   Dialog,
   DialogContent,
@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '../ui/dialog';
+} from '@/components/ui/dialog';
 import {
   CheckCircle,
   XCircle,
@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { WorkflowExecution, WorkflowStatus } from './types';
 import { toast } from 'sonner';
-import { useTimestamp } from '../../hooks/useTimestamp';
+import { useTimestamp } from '@/hooks/useTimestamp';
 
 interface WorkflowHistoryProps {
   executions: WorkflowExecution[];
@@ -48,7 +48,7 @@ interface WorkflowHistoryProps {
 
 const STATUS_CONFIG: Record<
   WorkflowStatus,
-  { icon: React.ComponentType<any>; color: string; label: string }
+  { icon: React.ComponentType<{ className?: string }>; color: string; label: string }
 > = {
   pending: {
     icon: Clock,

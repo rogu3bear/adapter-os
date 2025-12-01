@@ -102,7 +102,7 @@ fn test_file_size_constraint() -> Result<()> {
 
 #[test]
 fn test_directory_depth_constraint() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let _temp_dir = TempDir::new()?;
     let mut constraints = StorageConstraints::default();
     constraints.max_directory_depth = 3;
 
@@ -126,7 +126,7 @@ fn test_directory_depth_constraint() -> Result<()> {
 
 #[test]
 fn test_blocked_patterns() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let _temp_dir = TempDir::new()?;
     let mut constraints = StorageConstraints::default();
     constraints.blocked_patterns = vec!["*/secret/*".to_string()];
 
@@ -149,7 +149,7 @@ fn test_blocked_patterns() -> Result<()> {
 
 #[test]
 fn test_allowed_patterns() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let _temp_dir = TempDir::new()?;
     let mut constraints = StorageConstraints::default();
     constraints.allowed_patterns = vec!["*/public/*".to_string()];
     constraints.allowed_extensions = vec![]; // Clear default allowed extensions
@@ -439,7 +439,7 @@ fn test_log_action() -> Result<()> {
 
 #[test]
 fn test_pattern_matching_wildcard() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let _temp_dir = TempDir::new()?;
     let mut constraints = StorageConstraints::default();
     constraints.blocked_patterns = vec!["*.tmp".to_string()];
 
@@ -491,7 +491,7 @@ fn test_condition_operators() {
 
 #[test]
 fn test_directory_depth_condition() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let _temp_dir = TempDir::new()?;
 
     let condition = StorageCondition {
         condition_type: StorageConditionType::DirectoryDepth,
@@ -533,7 +533,7 @@ fn test_directory_depth_condition() -> Result<()> {
 
 #[test]
 fn test_file_without_extension() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let _temp_dir = TempDir::new()?;
     let mut constraints = StorageConstraints::default();
     constraints.allowed_extensions = vec!["txt".to_string()];
 

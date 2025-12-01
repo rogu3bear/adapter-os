@@ -314,19 +314,20 @@ export function useDeactivateAdapterStack() {
   });
 }
 
-export function useGetDefaultStack(tenantId: string = 'default') {
+export function useGetDefaultStack(tenantId: string | undefined) {
   return useQuery({
     queryKey: ['default-stack', tenantId],
-    queryFn: () => apiClient.getDefaultAdapterStack(tenantId),
+    queryFn: () => apiClient.getDefaultAdapterStack(tenantId!),
     staleTime: 30000,
+    enabled: !!tenantId, // Only fetch when we have a real tenant
   });
 }
 
-export function useSetDefaultStack(tenantId: string = 'default') {
+export function useSetDefaultStack(tenantId: string | undefined) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (stackId: string) => apiClient.setDefaultAdapterStack(stackId, tenantId),
+    mutationFn: (stackId: string) => apiClient.setDefaultAdapterStack(stackId, tenantId!),
     onSuccess: (_, stackId) => {
       queryClient.invalidateQueries({ queryKey: ['adapter-stacks'] });
       queryClient.invalidateQueries({ queryKey: ['default-stack', tenantId] });
@@ -348,11 +349,11 @@ export function useSetDefaultStack(tenantId: string = 'default') {
   });
 }
 
-export function useClearDefaultStack(tenantId: string = 'default') {
+export function useClearDefaultStack(tenantId: string | undefined) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: () => apiClient.clearDefaultAdapterStack(tenantId),
+    mutationFn: () => apiClient.clearDefaultAdapterStack(tenantId!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['adapter-stacks'] });
       queryClient.invalidateQueries({ queryKey: ['default-stack', tenantId] });

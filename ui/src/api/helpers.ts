@@ -3,8 +3,8 @@
 // Centralized response handling utilities to reduce duplication in API client.
 // These helpers extract common patterns for JSON parsing, error handling, and status checks.
 
-import { logger, toError } from '../utils/logger';
-import type { ErrorResponse } from './api-types';
+import { logger, toError } from '@/utils/logger';
+import type { ErrorResponse, PaginatedResponse } from '@/api/api-types';
 
 /**
  * API error with extended properties for better error handling
@@ -224,4 +224,47 @@ export function validateRequestId(response: Response, sentRequestId: string): vo
       received: returnedId
     });
   }
+}
+
+/**
+ * Extract array from paginated or direct array response.
+ *
+ * DEFENSIVE: Handles multiple response formats to prevent future bugs when
+ * backend endpoints migrate to PaginatedResponse.
+ *
+ * Supported formats:
+ * - PaginatedResponse: { data: T[], total, page, limit, pages }
+ * - Legacy wrapper: { items: T[] }
+ * - Direct array: T[]
+ *
+ * @param response - Unknown response that may be array or wrapper
+ * @returns Extracted array, or empty array if extraction fails
+ *
+ * @example
+ * const items = extractArrayFromResponse<User>(response);
+ */
+export function extractArrayFromResponse<T>(response: unknown): T[] {
+  // PaginatedResponse format: { data: T[], total, page, limit, pages }
+  if (response && typeof response === 'object' && 'data' in response) {
+    const paginated = response as PaginatedResponse<T>;
+    if (Array.isArray(paginated.data)) {
+      return paginated.data;
+    }
+  }
+
+  // Legacy { items: T[] } format (for backwards compatibility)
+  if (response && typeof response === 'object' && 'items' in response) {
+    const legacy = response as { items: T[] };
+    if (Array.isArray(legacy.items)) {
+      return legacy.items;
+    }
+  }
+
+  // Direct array response
+  if (Array.isArray(response)) {
+    return response as T[];
+  }
+
+  // Fallback: return empty array (prevents .map errors on undefined/null)
+  return [];
 }

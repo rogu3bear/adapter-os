@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { CHART_COLORS } from '@/constants/chart-colors';
 import {
   Select,
   SelectContent,
@@ -17,7 +18,7 @@ import { DensityProvider, useDensity } from '@/contexts/DensityContext';
 import { DensityControls } from '@/components/ui/density-controls';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { usePolling } from '@/hooks/usePolling';
 import { toast } from 'sonner';
 import {
@@ -40,6 +41,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import type { MetricsSeriesResponse } from '@/api/types';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 const METRIC_OPTIONS = [
   { value: 'cpu_usage', label: 'CPU Usage' },
@@ -100,7 +102,7 @@ function AdvancedMetricsPageInner() {
   }, [selectedMetric, timeRange, customDateRange]);
 
   const {
-    data: metricsSeries = [],
+    data: metricsSeriesRaw,
     isLoading,
     error,
     refetch,
@@ -109,6 +111,9 @@ function AdvancedMetricsPageInner() {
     enabled: true,
     operationName: 'fetchMetricsSeries',
   });
+
+  // Ensure metricsSeries is always an array (usePolling can return null)
+  const metricsSeries = metricsSeriesRaw ?? [];
 
   // Calculate start time based on time range
   function getStartTime(range: string): string {
@@ -177,15 +182,16 @@ function AdvancedMetricsPageInner() {
       description="Time-series metrics and performance analysis"
       headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
     >
-      <div className="space-y-6">
-        {/* Controls */}
-        <Card>
+      <SectionErrorBoundary sectionName="Advanced Metrics">
+        <div className="space-y-6">
+          {/* Controls */}
+          <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Configuration
-              <HelpTooltip helpId="metrics-config">
+              <GlossaryTooltip termId="metrics-config">
                 <span className="cursor-help text-muted-foreground">(?)</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -364,8 +370,8 @@ function AdvancedMetricsPageInner() {
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8} />
-                      <stop offset="95%" stopColor="#8884d8" stopOpacity={0} />
+                      <stop offset="5%" stopColor={CHART_COLORS.primary} stopOpacity={0.8} />
+                      <stop offset="95%" stopColor={CHART_COLORS.primary} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -382,7 +388,7 @@ function AdvancedMetricsPageInner() {
                   <Area
                     type="monotone"
                     dataKey="value"
-                    stroke="#8884d8"
+                    stroke={CHART_COLORS.primary}
                     fillOpacity={1}
                     fill="url(#colorValue)"
                     name={METRIC_OPTIONS.find((m) => m.value === selectedMetric)?.label}
@@ -392,7 +398,8 @@ function AdvancedMetricsPageInner() {
             )}
           </CardContent>
         </Card>
-      </div>
+        </div>
+      </SectionErrorBoundary>
     </FeatureLayout>
   );
 }

@@ -482,8 +482,8 @@ Examples:
   # Start serving
   aosctl serve --tenant tenant_dev --plan cp_abc123
 
-  # Custom socket path
-  aosctl serve --tenant tenant_dev --plan cp_abc123 --socket /tmp/aos.sock
+  # Custom socket path (development)
+  aosctl serve --tenant tenant_dev --plan cp_abc123 --socket ./var/run/aos.sock
 ")]
     Serve {
         /// Tenant ID

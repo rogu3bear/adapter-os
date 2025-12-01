@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { logger } from '../utils/logger';
-import apiClient from '../api/client';
-import { errorRecoveryTemplates } from '../components/ui/error-recovery';
+import { logger } from '@/utils/logger';
+import apiClient from '@/api/client';
+import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { useCancellableOperation } from './useCancellableOperation';
-import type { AdapterCategory, CategoryPolicy } from '../api/types';
-import type { PolicyPreflightResponse } from '../api/policyTypes';
+import type { AdapterCategory, CategoryPolicy } from '@/api/types';
+import type { PolicyPreflightResponse } from '@/api/policyTypes';
 
 export interface UseAdapterOperationsOptions {
-  onAdapterUpdate?: (adapterId: string, updates: Partial<any>) => void;
+  onAdapterUpdate?: (adapterId: string, updates: Partial<Record<string, unknown>>) => void;
   onAdapterEvict?: (adapterId: string) => void;
   onAdapterPin?: (adapterId: string, pinned: boolean) => void;
   onPolicyUpdate?: (category: AdapterCategory, policy: CategoryPolicy) => void;

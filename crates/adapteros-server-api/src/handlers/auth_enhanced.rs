@@ -2,7 +2,7 @@ use crate::auth::{
     generate_token_ed25519_with_admin_tenants, generate_token_with_admin_tenants, hash_password,
     refresh_token, verify_password, Claims,
 };
-use crate::auth_common::AuthConfig;
+use crate::auth_common::{attach_auth_cookie, AuthConfig};
 use crate::ip_extraction::ClientIp;
 use crate::security::{
     create_session, get_user_sessions, is_account_locked, revoke_token, track_auth_attempt,
@@ -16,7 +16,7 @@ use adapteros_db::{
 };
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Extension, Json,
 };
 use chrono::{Duration, Utc};
@@ -220,7 +220,7 @@ pub async fn login_handler(
     headers: axum::http::HeaderMap,
     Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<LoginRequest>,
-) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<LoginResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Extract user agent from headers for session tracking
     let user_agent = headers
         .get(axum::http::header::USER_AGENT)
@@ -500,14 +500,28 @@ pub async fn login_handler(
         "User logged in"
     );
 
-    Ok(Json(LoginResponse {
-        schema_version: "v1".to_string(),
-        token,
-        user_id: user.id,
-        tenant_id: tenant_id.clone(),
-        role: user.role,
-        expires_in: 28800, // 8 hours
-    }))
+    // Attach auth cookie for browser-based authentication
+    let auth_cfg = AuthConfig::from_state(&state);
+    let mut response_headers = HeaderMap::new();
+    attach_auth_cookie(&mut response_headers, &token, &auth_cfg).map_err(|e| {
+        warn!(error = %e, "Failed to attach auth cookie");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    Ok((
+        response_headers,
+        Json(LoginResponse {
+            schema_version: "v1".to_string(),
+            token,
+            user_id: user.id,
+            tenant_id: tenant_id.clone(),
+            role: user.role,
+            expires_in: 28800, // 8 hours
+        }),
+    ))
 }
 
 /// Logout handler - revokes current token

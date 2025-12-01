@@ -25,8 +25,9 @@ expect.extend({
  * Validates schema, version, and required fields.
  */
 expect.extend({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test matcher needs flexible typing
   toBeValidStatusV2(received: any) {
-    const pass = 
+    const pass =
       received?.schema === 'status.v2' &&
       typeof received?.version === 'number' &&
       received?.version === 2 &&
@@ -39,7 +40,7 @@ expect.extend({
       typeof received?.signature?.value === 'string' &&
       typeof received?.signature?.keyId === 'string' &&
       typeof received?.signature?.issuedAt === 'string';
-    
+
     return {
       message: () => {
         if (!pass) {
@@ -65,27 +66,29 @@ expect.extend({
  * Validates signature fields are present and correctly typed.
  */
 expect.extend({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test matcher needs flexible typing
   toHaveValidSignature(received: any) {
-    const pass = 
-      received?.signature &&
-      typeof received?.signature?.algorithm === 'string' &&
-      received?.signature?.algorithm.length > 0 &&
-      typeof received?.signature?.value === 'string' &&
-      received?.signature?.value.length > 0 &&
-      typeof received?.signature?.keyId === 'string' &&
-      received?.signature?.keyId.length > 0 &&
-      typeof received?.signature?.issuedAt === 'string' &&
-      received?.signature?.issuedAt.length > 0;
-    
+    const sig = received?.signature;
+    const pass =
+      sig &&
+      typeof sig?.algorithm === 'string' &&
+      sig?.algorithm.length > 0 &&
+      typeof sig?.value === 'string' &&
+      sig?.value.length > 0 &&
+      typeof sig?.keyId === 'string' &&
+      sig?.keyId.length > 0 &&
+      typeof sig?.issuedAt === 'string' &&
+      sig?.issuedAt.length > 0;
+
     return {
       message: () => {
         if (!pass) {
           const issues: string[] = [];
-          if (!received?.signature) issues.push('signature object is missing');
-          if (!received?.signature?.algorithm) issues.push('signature.algorithm is required');
-          if (!received?.signature?.value) issues.push('signature.value is required');
-          if (!received?.signature?.keyId) issues.push('signature.keyId is required');
-          if (!received?.signature?.issuedAt) issues.push('signature.issuedAt is required');
+          if (!sig) issues.push('signature object is missing');
+          if (!sig?.algorithm) issues.push('signature.algorithm is required');
+          if (!sig?.value) issues.push('signature.value is required');
+          if (!sig?.keyId) issues.push('signature.keyId is required');
+          if (!sig?.issuedAt) issues.push('signature.issuedAt is required');
           return `expected ${JSON.stringify(received)} to have a valid signature. Issues: ${issues.join(', ')}`;
         }
         return `expected ${JSON.stringify(received)} not to have a valid signature`;

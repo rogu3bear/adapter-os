@@ -24,6 +24,9 @@ export function useChatCategories(
   return useQuery<ChatCategory[], Error>({
     queryKey: QUERY_KEYS.categories,
     queryFn: () => apiClient.listChatCategories(),
+    meta: {
+      errorMessage: 'Failed to load chat categories',
+    },
     ...options,
   });
 }

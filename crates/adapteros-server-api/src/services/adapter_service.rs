@@ -194,9 +194,12 @@ impl DefaultAdapterService {
     }
 
     /// Execute state transition using lifecycle manager or direct DB update
+    ///
+    /// Uses Compare-And-Swap (CAS) to prevent TOCTOU race conditions.
     async fn execute_transition(
         &self,
         adapter_id: &str,
+        old_state_str: &str,
         new_state_str: &str,
         reason: &str,
         lifecycle_manager: &Option<Arc<Mutex<adapteros_lora_lifecycle::LifecycleManager>>>,
@@ -227,40 +230,61 @@ impl DefaultAdapterService {
                     .await
                 {
                     warn!(adapter_id = %adapter_id, error = %e, "Failed to sync adapter state with database via lifecycle manager");
-                    // Fallback: update DB directly
-                    self.state
+                    // Fallback: use CAS update directly
+                    let updated = self
+                        .state
                         .db
-                        .update_adapter_state_tx(adapter_id, new_state_str, reason)
+                        .update_adapter_state_cas(adapter_id, old_state_str, new_state_str, reason)
                         .await
                         .map_err(|e| {
-                            error!(error = %e, "Failed to update adapter state");
+                            error!(error = %e, "Failed to update adapter state (CAS)");
                             AosError::Database(format!("Failed to update adapter state: {}", e))
                         })?;
+                    if !updated {
+                        return Err(AosError::Validation(format!(
+                            "State transition conflict: adapter {} is no longer in '{}' state",
+                            adapter_id, old_state_str
+                        )));
+                    }
                 }
 
                 Ok(new_state_str.to_string())
             } else {
-                // Adapter not found in lifecycle manager, update DB directly
-                self.state
+                // Adapter not found in lifecycle manager, use CAS update directly
+                let updated = self
+                    .state
                     .db
-                    .update_adapter_state_tx(adapter_id, new_state_str, reason)
+                    .update_adapter_state_cas(adapter_id, old_state_str, new_state_str, reason)
                     .await
                     .map_err(|e| {
-                        error!(error = %e, "Failed to update adapter state");
+                        error!(error = %e, "Failed to update adapter state (CAS)");
                         AosError::Database(format!("Failed to update adapter state: {}", e))
                     })?;
+                if !updated {
+                    return Err(AosError::Validation(format!(
+                        "State transition conflict: adapter {} is no longer in '{}' state",
+                        adapter_id, old_state_str
+                    )));
+                }
                 Ok(new_state_str.to_string())
             }
         } else {
-            // Fallback: direct DB update if no lifecycle manager
-            self.state
+            // No lifecycle manager: use CAS update directly
+            let updated = self
+                .state
                 .db
-                .update_adapter_state_tx(adapter_id, new_state_str, reason)
+                .update_adapter_state_cas(adapter_id, old_state_str, new_state_str, reason)
                 .await
                 .map_err(|e| {
-                    error!(error = %e, "Failed to update adapter state");
+                    error!(error = %e, "Failed to update adapter state (CAS)");
                     AosError::Database(format!("Failed to update adapter state: {}", e))
                 })?;
+            if !updated {
+                return Err(AosError::Validation(format!(
+                    "State transition conflict: adapter {} is no longer in '{}' state",
+                    adapter_id, old_state_str
+                )));
+            }
             Ok(new_state_str.to_string())
         }
     }
@@ -268,6 +292,15 @@ impl DefaultAdapterService {
 
 #[async_trait]
 impl AdapterService for DefaultAdapterService {
+    #[tracing::instrument(
+        skip(self),
+        fields(
+            otel.kind = "server",
+            adapter.id = %adapter_id,
+            tenant.id = %tenant_id,
+            transition.direction = "promote"
+        )
+    )]
     async fn promote_lifecycle(
         &self,
         adapter_id: &str,
@@ -275,6 +308,8 @@ impl AdapterService for DefaultAdapterService {
         reason: &str,
         actor: &str,
     ) -> Result<LifecycleTransitionResult> {
+        let start = std::time::Instant::now();
+
         // Get current adapter
         let adapter = self
             .state
@@ -301,16 +336,25 @@ impl AdapterService for DefaultAdapterService {
         let old_state = adapter.current_state.clone();
         let new_state_str = Self::next_state(&old_state)?;
 
-        // Execute state transition
+        // Record span fields for observability
+        tracing::Span::current().record("transition.old_state", &old_state);
+        tracing::Span::current().record("transition.new_state", new_state_str);
+
+        // Execute state transition with CAS to prevent TOCTOU races
         let new_state = self
             .execute_transition(
                 adapter_id,
+                &old_state,
                 new_state_str,
                 reason,
                 &self.state.lifecycle_manager,
                 true,
             )
             .await?;
+
+        // Calculate transition duration for metrics
+        let duration_secs = start.elapsed().as_secs_f64();
+        tracing::Span::current().record("transition.duration_ms", duration_secs * 1000.0);
 
         let timestamp = chrono::Utc::now().to_rfc3339();
 
@@ -327,6 +371,7 @@ impl AdapterService for DefaultAdapterService {
                 "actor": actor,
                 "reason": reason,
                 "timestamp": timestamp.clone(),
+                "duration_ms": duration_secs * 1000.0,
             }
         });
 
@@ -337,6 +382,7 @@ impl AdapterService for DefaultAdapterService {
             new_state = %new_state,
             actor = %actor,
             reason = %reason,
+            duration_ms = %format!("{:.2}", duration_secs * 1000.0),
             "Adapter lifecycle promoted"
         );
 
@@ -349,6 +395,15 @@ impl AdapterService for DefaultAdapterService {
         })
     }
 
+    #[tracing::instrument(
+        skip(self),
+        fields(
+            otel.kind = "server",
+            adapter.id = %adapter_id,
+            tenant.id = %tenant_id,
+            transition.direction = "demote"
+        )
+    )]
     async fn demote_lifecycle(
         &self,
         adapter_id: &str,
@@ -356,6 +411,8 @@ impl AdapterService for DefaultAdapterService {
         reason: &str,
         actor: &str,
     ) -> Result<LifecycleTransitionResult> {
+        let start = std::time::Instant::now();
+
         // Get current adapter
         let adapter = self
             .state
@@ -382,16 +439,25 @@ impl AdapterService for DefaultAdapterService {
         let old_state = adapter.current_state.clone();
         let new_state_str = Self::previous_state(&old_state)?;
 
-        // Execute state transition
+        // Record span fields for observability
+        tracing::Span::current().record("transition.old_state", &old_state);
+        tracing::Span::current().record("transition.new_state", new_state_str);
+
+        // Execute state transition with CAS to prevent TOCTOU races
         let new_state = self
             .execute_transition(
                 adapter_id,
+                &old_state,
                 new_state_str,
                 reason,
                 &self.state.lifecycle_manager,
                 false,
             )
             .await?;
+
+        // Calculate transition duration for metrics
+        let duration_secs = start.elapsed().as_secs_f64();
+        tracing::Span::current().record("transition.duration_ms", duration_secs * 1000.0);
 
         let timestamp = chrono::Utc::now().to_rfc3339();
 
@@ -408,6 +474,7 @@ impl AdapterService for DefaultAdapterService {
                 "actor": actor,
                 "reason": reason,
                 "timestamp": timestamp.clone(),
+                "duration_ms": duration_secs * 1000.0,
             }
         });
 
@@ -418,6 +485,7 @@ impl AdapterService for DefaultAdapterService {
             new_state = %new_state,
             actor = %actor,
             reason = %reason,
+            duration_ms = %format!("{:.2}", duration_secs * 1000.0),
             "Adapter lifecycle demoted"
         );
 

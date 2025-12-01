@@ -1,8 +1,13 @@
+use crate::audit_helper::{log_failure, log_success, resources};
 use crate::auth::Claims;
 use crate::error_helpers::{db_error, internal_error, not_found};
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+
+/// Audit action constants for stack operations
+const ACTION_STACK_CREATE: &str = "stack.create";
+const ACTION_STACK_DELETE: &str = "stack.delete";
 use adapteros_core::B3Hash;
 use adapteros_core::StackName;
 use adapteros_db::LifecycleHistoryEvent;
@@ -214,28 +219,48 @@ pub async fn create_stack(
         workflow_type: req.workflow_type.as_ref().map(|w| format!("{:?}", w)),
     };
 
-    let id = state.db.insert_stack(&db_req).await.map_err(|e| {
-        if e.to_string().contains("UNIQUE constraint failed") {
-            (
-                StatusCode::CONFLICT,
-                Json(
+    let id = match state.db.insert_stack(&db_req).await {
+        Ok(id) => id,
+        Err(e) => {
+            let (status, error_response) = if e.to_string().contains("UNIQUE constraint failed") {
+                (
+                    StatusCode::CONFLICT,
                     ErrorResponse::new(&format!(
                         "Stack name '{}' already exists for tenant",
                         req.name
                     ))
                     .with_code("CONFLICT"),
-                ),
-            )
-        } else {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
+                )
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
                     ErrorResponse::new(&format!("Failed to create stack: {}", e))
                         .with_code("DATABASE_ERROR"),
-                ),
+                )
+            };
+            // Audit log: stack creation failure
+            let _ = log_failure(
+                &state.db,
+                &claims,
+                ACTION_STACK_CREATE,
+                resources::ADAPTER,
+                None,
+                &format!("Failed to create stack '{}': {}", req.name, e),
             )
+            .await;
+            return Err((status, Json(error_response)));
         }
-    })?;
+    };
+
+    // Audit log: stack creation success
+    let _ = log_success(
+        &state.db,
+        &claims,
+        ACTION_STACK_CREATE,
+        resources::ADAPTER,
+        Some(&id),
+    )
+    .await;
 
     info!(stack_id = %id, stack_name = %stack_name, tenant_id = %tenant_id, "Adapter stack created");
 
@@ -400,15 +425,46 @@ pub async fn delete_stack(
 
     let tenant_id = claims.tenant_id.clone();
 
-    let deleted = state
-        .db
-        .delete_stack(&tenant_id, &id)
-        .await
-        .map_err(db_error)?;
+    let deleted = match state.db.delete_stack(&tenant_id, &id).await {
+        Ok(deleted) => deleted,
+        Err(e) => {
+            // Audit log: stack deletion failure
+            let _ = log_failure(
+                &state.db,
+                &claims,
+                ACTION_STACK_DELETE,
+                resources::ADAPTER,
+                Some(&id),
+                &format!("Failed to delete stack: {}", e),
+            )
+            .await;
+            return Err(db_error(e));
+        }
+    };
 
     if !deleted {
+        // Audit log: stack not found
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_STACK_DELETE,
+            resources::ADAPTER,
+            Some(&id),
+            "Stack not found",
+        )
+        .await;
         return Err(not_found("Stack"));
     }
+
+    // Audit log: stack deletion success
+    let _ = log_success(
+        &state.db,
+        &claims,
+        ACTION_STACK_DELETE,
+        resources::ADAPTER,
+        Some(&id),
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

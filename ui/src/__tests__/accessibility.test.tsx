@@ -2,13 +2,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { axe, toHaveNoViolations } from 'jest-axe';
 import { BrowserRouter } from 'react-router-dom';
-import { Button } from '../components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { LoadingState } from '../components/ui/loading-state';
-import { PageSkeleton } from '../components/ui/page-skeleton';
-import { SectionErrorBoundary } from '../components/ui/section-error-boundary';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { LoadingState } from '@/components/ui/loading-state';
+import { PageSkeleton } from '@/components/ui/page-skeleton';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 // Extend expect with axe matchers
 expect.extend(toHaveNoViolations);

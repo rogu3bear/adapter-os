@@ -18,7 +18,7 @@
 //!
 //! Run with: cargo test -p adapteros-deterministic-exec --test stress_test -- --nocapture
 
-use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig, ExecutorEvent, TaskId};
+use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig, ExecutorEvent};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;

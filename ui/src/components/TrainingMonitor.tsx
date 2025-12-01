@@ -23,19 +23,20 @@ import {
   TrendingDown,
   BarChart3
 } from 'lucide-react';
-import apiClient from '../api/client';
+import apiClient from '@/api/client';
 
-import { TrainingJob, TrainingSession, TrainingMetrics, TrainingArtifactsResponse } from '../api/types';
-import { logger, toError } from '../utils/logger';
+import { TrainingJob, TrainingSession, TrainingMetrics, TrainingArtifactsResponse } from '@/api/types';
+import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
-import { usePolling } from '../hooks/usePolling';
-import { useSSE } from '../hooks/useSSE';
+import { usePolling } from '@/hooks/usePolling';
+import { useSSE } from '@/hooks/useSSE';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { SectionErrorBoundary } from './ui/section-error-boundary';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { calculateTrainingETA, formatDuration as formatDurationUtil } from '../utils/trainingEta';
+import { calculateTrainingETA, formatDuration as formatDurationUtil } from '@/utils/trainingEta';
+import { formatDurationSeconds, formatRelativeTime } from '@/utils/format';
 
 interface TrainingMonitorProps {
   sessionId?: string;
@@ -417,22 +418,17 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
     const start = new Date(startTime);
     const now = new Date();
     const diffMs = now.getTime() - start.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffDays > 0) return `${diffDays}d ${diffHours % 24}h ${diffMins % 60}m`;
-    if (diffHours > 0) return `${diffHours}h ${diffMins % 60}m`;
-    return `${diffMins}m`;
+    const diffSeconds = Math.floor(diffMs / 1000);
+    return formatDurationSeconds(diffSeconds);
   };
 
   const formatETA = (startTime: string, progress: number, jobStatus?: string) => {
     if (progress === 0) return 'Calculating...';
     if (jobStatus === 'paused') return 'Paused';
-    
+
     const etaSeconds = calculateTrainingETA(progress, startTime, undefined, jobStatus);
     if (etaSeconds === null) return 'Calculating...';
-    
+
     return formatDurationUtil(etaSeconds);
   };
 

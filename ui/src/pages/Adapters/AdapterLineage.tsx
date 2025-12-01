@@ -10,9 +10,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { AdapterLineageResponse } from '@/api/adapter-types';
 import { formatDistanceToNow, parseISO } from 'date-fns';
+import { formatRelativeTime } from '@/utils/format';
 
 interface AdapterLineageProps {
   adapterId: string;
@@ -63,7 +64,7 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
           <CardTitle className="flex items-center gap-2">
             <GitBranch className="h-5 w-5" />
             Lineage Summary
-            <HelpTooltip content="Overview of adapter relationships and revision history" />
+            <GlossaryTooltip brief="Overview of adapter relationships and revision history" />
           </CardTitle>
           <CardDescription>Family tree and revision tracking</CardDescription>
         </CardHeader>
@@ -94,7 +95,7 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
           <CardTitle className="flex items-center gap-2">
             <GitMerge className="h-5 w-5" />
             Lineage Tree
-            <HelpTooltip content="Visual representation of adapter lineage relationships" />
+            <GlossaryTooltip brief="Visual representation of adapter lineage relationships" />
           </CardTitle>
           <CardDescription>Parent-child adapter relationships</CardDescription>
         </CardHeader>
@@ -167,7 +168,7 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
             <CardTitle className="flex items-center gap-2">
               <GitCommit className="h-5 w-5" />
               Lineage History
-              <HelpTooltip content="Chronological record of lineage events" />
+              <GlossaryTooltip brief="Chronological record of lineage events" />
             </CardTitle>
             <CardDescription>Timeline of adapter derivations and changes</CardDescription>
           </CardHeader>
@@ -188,7 +189,7 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
             <CardTitle className="flex items-center gap-2">
               <GitMerge className="h-5 w-5" />
               Training Context
-              <HelpTooltip content="Training job and dataset used to create this adapter" />
+              <GlossaryTooltip brief="Training job and dataset used to create this adapter" />
             </CardTitle>
             <CardDescription>Origin and training details</CardDescription>
           </CardHeader>
@@ -314,7 +315,7 @@ interface HistoryEntryProps {
 function HistoryEntry({ entry, isLast }: HistoryEntryProps) {
   const formatTime = (timestamp: string): string => {
     try {
-      return formatDistanceToNow(parseISO(timestamp), { addSuffix: true });
+      return formatRelativeTime(timestamp);
     } catch {
       return timestamp;
     }

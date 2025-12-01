@@ -215,6 +215,7 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
                   onClick={handleShare}
                   disabled={isSubmitting || (!shareWithWorkspace && !userInput.trim())}
                   size="icon"
+                  aria-label="Share with user"
                 >
                   {isSubmitting ? (
                     <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -290,6 +291,7 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
                         size="icon"
                         onClick={() => handleRevoke(share.id)}
                         disabled={revokeMutation.isPending}
+                        aria-label="Revoke workspace share"
                       >
                         <X className="h-4 w-4" />
                       </Button>
@@ -331,6 +333,7 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
                         size="icon"
                         onClick={() => handleRevoke(share.id)}
                         disabled={revokeMutation.isPending}
+                        aria-label={`Revoke share for ${share.shared_with_user_id}`}
                       >
                         <X className="h-4 w-4" />
                       </Button>
@@ -360,6 +363,7 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
                   );
                   toast.success('Link copied to clipboard');
                 }}
+                aria-label="Copy share link"
               >
                 <Link className="h-4 w-4" />
               </Button>

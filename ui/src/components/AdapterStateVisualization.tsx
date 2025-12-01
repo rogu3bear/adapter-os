@@ -17,7 +17,7 @@ import {
   TrendingDown,
   Minus
 } from 'lucide-react';
-import { AdapterState, AdapterCategory, AdapterStateRecord } from '../api/types';
+import { AdapterState, AdapterCategory, AdapterStateRecord } from '@/api/types';
 
 interface AdapterStateVisualizationProps {
   adapters: AdapterStateRecord[];

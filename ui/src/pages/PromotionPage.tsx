@@ -4,7 +4,8 @@ import { Promotion } from '@/components/Promotion';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 export default function PromotionPage() {
   const { user } = useAuth();
@@ -14,7 +15,9 @@ export default function PromotionPage() {
   return (
     <DensityProvider pageKey="promotion">
       <FeatureLayout title="Promotion" description="Promotion gates and approvals">
-        <Promotion user={user} selectedTenant={selectedTenant} />
+        <SectionErrorBoundary sectionName="Promotion">
+          <Promotion user={user} selectedTenant={selectedTenant} />
+        </SectionErrorBoundary>
       </FeatureLayout>
     </DensityProvider>
   );

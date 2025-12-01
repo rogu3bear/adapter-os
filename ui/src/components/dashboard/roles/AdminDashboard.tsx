@@ -17,17 +17,17 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '../../ui/card';
-import { Button } from '../../ui/button';
-import { Badge } from '../../ui/badge';
-import { Progress } from '../../ui/progress';
-import { Skeleton } from '../../ui/skeleton';
-import { Alert, AlertDescription, AlertTitle } from '../../ui/alert';
-import { PageHeader } from '../../ui/page-header';
-import { KpiGrid, ContentGrid } from '../../ui/grid';
-import { ActionGrid } from '../../ui/action-grid';
-import { HelpTooltip } from '../../ui/help-tooltip';
-import { SectionErrorBoundary } from '../../ui/section-error-boundary';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { PageHeader } from '@/components/ui/page-header';
+import { KpiGrid, ContentGrid } from '@/components/ui/grid';
+import { ActionGrid } from '@/components/ui/action-grid';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import {
   Users,
   UserPlus,
@@ -110,7 +110,7 @@ export default function AdminDashboard() {
     staleTime: 30000,
   });
 
-  // Fetch system metrics
+  // Fetch system metrics - near real-time updates (every 2 seconds)
   const {
     data: systemMetrics,
     isLoading: metricsLoading,
@@ -118,8 +118,8 @@ export default function AdminDashboard() {
   } = useQuery({
     queryKey: ['admin-system-metrics', refreshTrigger],
     queryFn: () => apiClient.getSystemMetrics(),
-    refetchInterval: 30000,
-    staleTime: 10000,
+    refetchInterval: 2000,  // Update every 2 seconds for near real-time
+    staleTime: 1000,        // Consider data stale after 1 second
   });
 
   // Calculate tenant summary
@@ -472,18 +472,18 @@ export default function AdminDashboard() {
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
                       <Cpu className="h-5 w-5 text-muted-foreground" />
-                      <HelpTooltip helpId="cpu-usage">
+                      <GlossaryTooltip termId="cpu-usage">
                         <span className="text-sm font-medium cursor-help">
                           CPU Usage
                         </span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </div>
                     <span className="text-sm font-semibold">
-                      {systemMetrics?.cpu_usage_percent?.toFixed(1) || 0}%
+                      {(systemMetrics?.cpu_usage ?? systemMetrics?.cpu_usage_percent ?? 0).toFixed(1)}%
                     </span>
                   </div>
                   <Progress
-                    value={systemMetrics?.cpu_usage_percent || 0}
+                    value={systemMetrics?.cpu_usage ?? systemMetrics?.cpu_usage_percent ?? 0}
                     className="h-3"
                   />
                 </div>
@@ -493,18 +493,18 @@ export default function AdminDashboard() {
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
                       <HardDrive className="h-5 w-5 text-muted-foreground" />
-                      <HelpTooltip helpId="memory-usage">
+                      <GlossaryTooltip termId="memory-usage">
                         <span className="text-sm font-medium cursor-help">
                           Memory Usage
                         </span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </div>
                     <span className="text-sm font-semibold">
-                      {systemMetrics?.memory_usage_percent?.toFixed(1) || 0}%
+                      {(systemMetrics?.memory_usage ?? systemMetrics?.memory_usage_percent ?? 0).toFixed(1)}%
                     </span>
                   </div>
                   <Progress
-                    value={systemMetrics?.memory_usage_percent || 0}
+                    value={systemMetrics?.memory_usage ?? systemMetrics?.memory_usage_percent ?? 0}
                     className="h-3"
                   />
                 </div>
@@ -514,18 +514,18 @@ export default function AdminDashboard() {
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
                       <Database className="h-5 w-5 text-muted-foreground" />
-                      <HelpTooltip helpId="disk-usage">
+                      <GlossaryTooltip termId="disk-usage">
                         <span className="text-sm font-medium cursor-help">
                           Disk Usage
                         </span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </div>
                     <span className="text-sm font-semibold">
-                      {systemMetrics?.disk_usage_percent?.toFixed(1) || 0}%
+                      {(systemMetrics?.disk_usage ?? systemMetrics?.disk_usage_percent ?? 0).toFixed(1)}%
                     </span>
                   </div>
                   <Progress
-                    value={systemMetrics?.disk_usage_percent || 0}
+                    value={systemMetrics?.disk_usage ?? systemMetrics?.disk_usage_percent ?? 0}
                     className="h-3"
                   />
                 </div>

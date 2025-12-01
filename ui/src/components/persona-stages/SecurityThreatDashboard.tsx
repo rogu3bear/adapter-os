@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   AlertTriangle,
   Shield,
@@ -16,10 +16,10 @@ import {
   AlertCircle,
   Ban,
 } from 'lucide-react';
-import apiClient from '../../api/client';
-import { Alert, AlertFilters, AnomalyDetectionStatus, AccessPattern } from '../../api/types';
+import apiClient from '@/api/client';
+import { Alert, AlertFilters, AnomalyDetectionStatus, AccessPattern } from '@/api/types';
 import { toast } from 'sonner';
-import { logger } from '../../utils/logger';
+import { logger } from '@/utils/logger';
 
 interface PolicyViolation {
   id?: string;

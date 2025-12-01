@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { PolicyPreflightDialog, PolicyCheck } from '../components/PolicyPreflightDialog';
+import { PolicyPreflightDialog, PolicyCheck } from '@/components/PolicyPreflightDialog';
 
 describe('PolicyPreflightDialog', () => {
   const mockChecks: PolicyCheck[] = [

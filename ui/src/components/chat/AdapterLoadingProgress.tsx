@@ -9,7 +9,7 @@ import { Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { useSSE } from '@/hooks/useSSE';
+import { useLiveData } from '@/hooks/useLiveData';
 import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
 
 // ============================================================================
@@ -65,11 +65,19 @@ export function AdapterLoadingProgress({
   }, [adapters]);
 
   // Subscribe to adapter state transitions
-  useSSE<AdapterStreamEvent>('/v1/stream/adapters', {
+  useLiveData({
+    sseEndpoint: '/v1/stream/adapters',
+    sseEventType: 'adapters',
+    fetchFn: async () => {
+      // No polling fallback for adapter state transitions - SSE only
+      return null;
+    },
     enabled: true,
-    onMessage: (event) => {
-      if (event && 'current_state' in event) {
-        const transition = event as AdapterStateTransitionEvent;
+    pollingSpeed: 'fast',
+    onSSEMessage: (event) => {
+      const adapterEvent = event as AdapterStreamEvent;
+      if (adapterEvent && 'current_state' in adapterEvent) {
+        const transition = adapterEvent as AdapterStateTransitionEvent;
         setLoadingItems((prev) => {
           const updated = new Map(prev);
           const existing = updated.get(transition.adapter_id);

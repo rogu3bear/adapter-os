@@ -2,12 +2,15 @@
 //!
 //! This example shows how to:
 //! - Create a metrics collector
-//! - Record various metrics (latency, queue depth, tokens/sec)
-//! - Export metrics via Prometheus and JSON endpoints
-//! - Start a metrics server
+//! - Record various metrics using the increment API
+//! - Query counter values
+//!
+//! Note: The MetricsCollector provides a simple counter-based interface.
+//! For Prometheus-style metrics with histograms and gauges, see the
+//! CriticalComponentMetrics in adapteros_telemetry::metrics::critical_components.
 
-use adapteros_telemetry::{MetricsCollector, MetricsServer};
-use std::sync::Arc;
+use adapteros_telemetry::MetricsCollector;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -15,86 +18,63 @@ use tokio::time::sleep;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting AdapterOS metrics collector example");
 
-    // Create metrics collector
-    let collector = Arc::new(MetricsCollector::new(
+    // Create metrics collector wrapped in Mutex for interior mutability
+    // (increment requires &mut self)
+    let collector = Arc::new(Mutex::new(MetricsCollector::new(
         adapteros_telemetry::metrics::MetricsConfig::default(),
-    ));
+    )));
     println!("Created metrics collector");
-
-    // Note: MetricsServer API has changed - server functionality is now handled differently
-    // This example focuses on metrics collection only
-
-    println!("Started metrics server on port {}", server_port);
 
     // Simulate metrics collection
     let collector_clone = collector.clone();
     let metrics_task = tokio::spawn(async move {
-        let mut counter = 0;
+        let mut counter = 0u64;
         loop {
             counter += 1;
 
-            // Simulate inference latency
-            let latency_ms = 25.0 + (counter % 50) as f64; // 25-75ms
-            collector_clone.record_inference_latency("tenant1", "adapter1", latency_ms / 1000.0);
+            // Lock collector for updates
+            {
+                let mut coll = collector_clone.lock().unwrap();
 
-            // Simulate router latency
-            let router_latency_ms = 5.0 + (counter % 10) as f64; // 5-15ms
-            collector_clone.record_router_latency("tenant1", router_latency_ms / 1000.0);
+                // Record inference count
+                coll.increment("inference_count", 1);
 
-            // Simulate kernel latency
-            let kernel_latency_ms = 10.0 + (counter % 20) as f64; // 10-30ms
-            collector_clone.record_kernel_latency(
-                "attention",
-                "tenant1",
-                kernel_latency_ms / 1000.0,
-            );
+                // Record tokens generated
+                let tokens = 50 + (counter % 100);
+                coll.increment("tokens_generated_total", tokens);
 
-            // Simulate queue depth
-            let queue_depth = (counter % 20) as f64;
-            collector_clone.update_queue_depth("request", "tenant1", queue_depth);
-            collector_clone.update_adapter_queue_depth("adapter1", "tenant1", queue_depth / 2.0);
+                // Record latency samples (as microseconds for integer storage)
+                let latency_us = (25.0 + (counter % 50) as f64) * 1000.0;
+                coll.increment("inference_latency_us_total", latency_us as u64);
 
-            // Simulate token generation
-            let tokens = 50 + (counter % 100) as u64; // 50-150 tokens
-            collector_clone.record_tokens_generated("tenant1", "adapter1", tokens);
+                // Record queue depth samples
+                let queue_depth = counter % 20;
+                coll.increment("queue_depth_samples", queue_depth);
 
-            // Simulate tokens per second
-            let tps = 40.0 + (counter % 20) as f64; // 40-60 tps
-            collector_clone.update_tokens_per_second("tenant1", tps);
+                // Record policy violations
+                if counter % 100 == 0 {
+                    coll.increment("policy_violations", 1);
+                }
 
-            // Simulate active sessions
-            let sessions = 5.0 + (counter % 10) as f64; // 5-15 sessions
-            collector_clone.update_active_sessions(sessions);
+                // Record adapter activations
+                if counter % 200 == 0 {
+                    coll.increment("adapter_activations", 1);
+                }
 
-            // Simulate memory usage
-            let memory_mb = 1024.0 + (counter % 512) as f64; // 1-1.5GB
-            collector_clone.update_memory_usage("worker", "tenant1", memory_mb * 1_048_576.0);
-
-            // Simulate policy violations
-            if counter % 100 == 0 {
-                collector_clone.record_policy_violation("egress", "attempt");
-            }
-
-            // Simulate abstain events
-            if counter % 50 == 0 {
-                collector_clone.record_abstain_event("low_confidence", "tenant1");
-            }
-
-            // Simulate adapter activations/evictions
-            if counter % 200 == 0 {
-                collector_clone.record_adapter_activation("adapter2", "tenant1");
-            }
-            if counter % 300 == 0 {
-                collector_clone.record_adapter_eviction("adapter1", "tenant1", "memory");
-            }
-
-            // Update metrics cache
-            if let Err(e) = collector_clone.update_cache().await {
-                println!("Failed to update metrics cache: {}", e);
+                // Record adapter evictions
+                if counter % 300 == 0 {
+                    coll.increment("adapter_evictions", 1);
+                }
             }
 
             if counter % 100 == 0 {
-                println!("Recorded {} metric samples", counter);
+                let coll = collector_clone.lock().unwrap();
+                println!(
+                    "Recorded {} iterations - inferences: {:?}, tokens: {:?}",
+                    counter,
+                    coll.get("inference_count"),
+                    coll.get("tokens_generated_total")
+                );
             }
 
             sleep(Duration::from_millis(100)).await;
@@ -114,6 +94,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Print final metrics
+    {
+        let coll = collector.lock().unwrap();
+        println!("\nFinal metrics:");
+        println!("  inference_count: {:?}", coll.get("inference_count"));
+        println!(
+            "  tokens_generated_total: {:?}",
+            coll.get("tokens_generated_total")
+        );
+        println!(
+            "  inference_latency_us_total: {:?}",
+            coll.get("inference_latency_us_total")
+        );
+        println!("  policy_violations: {:?}", coll.get("policy_violations"));
+        println!(
+            "  adapter_activations: {:?}",
+            coll.get("adapter_activations")
+        );
+        println!("  adapter_evictions: {:?}", coll.get("adapter_evictions"));
+    }
+
     Ok(())
 }
 
@@ -121,27 +122,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_metrics_collector_example() {
-        let collector =
+    #[test]
+    fn test_metrics_collector_example() {
+        let mut collector =
             MetricsCollector::new(adapteros_telemetry::metrics::MetricsConfig::default());
 
         // Test basic metrics recording
-        collector.record_inference_latency("test_tenant", "test_adapter", 0.025);
-        collector.update_queue_depth("request", "test_tenant", 5.0);
-        collector.record_tokens_generated("test_tenant", "test_adapter", 100);
+        collector.increment("inference_count", 1);
+        collector.increment("inference_count", 1);
+        collector.increment("tokens_generated", 100);
 
-        // Test snapshot generation
-        let snapshot = collector.get_metrics_snapshot().await;
-        assert!(snapshot.timestamp > 0);
-
-        // Test Prometheus rendering
-        let prometheus_output = collector
-            .render_prometheus()
-            .expect("Should render Prometheus metrics");
-        let output_str = String::from_utf8(prometheus_output).expect("Should be valid UTF-8");
-        assert!(output_str.contains("adapteros_inference_latency_seconds"));
-        assert!(output_str.contains("adapteros_queue_depth"));
-        assert!(output_str.contains("adapteros_tokens_generated_total"));
+        // Verify counter values
+        assert_eq!(collector.get("inference_count"), Some(2));
+        assert_eq!(collector.get("tokens_generated"), Some(100));
+        assert_eq!(collector.get("nonexistent"), None);
     }
 }

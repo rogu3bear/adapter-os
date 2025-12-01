@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -21,9 +21,9 @@ import {
   Lock,
   Unlock
 } from 'lucide-react';
-import { toast } from 'sonner';
-import apiClient from '../api/client';
-import { logger } from '../utils/logger';
+import apiClient from '@/api/client';
+import { useDataLoader } from '@/hooks/useDataLoader';
+import { useAsyncAction } from '@/hooks/useAsyncAction';
 
 interface AuthConfig {
   production_mode: boolean;
@@ -44,118 +44,110 @@ interface SessionInfo {
 }
 
 export function AuthenticationSettings() {
-  const [config, setConfig] = useState<AuthConfig | null>(null);
-  const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
   // Load authentication configuration and sessions
-  const loadData = async () => {
-    setIsRefreshing(true);
-    try {
+  const { data, isInitialLoading, isRefreshing, refetch } = useDataLoader({
+    fetchFn: async () => {
       const [configResponse, sessionsResponse] = await Promise.all([
         apiClient.getAuthConfig(),
         apiClient.listSessions()
       ]);
-      setConfig({
-        production_mode: configResponse.production_mode,
-        dev_token_enabled: configResponse.dev_token_enabled,
-        jwt_mode: configResponse.jwt_mode,
-        token_expiry_hours: configResponse.token_expiry_hours,
-      });
-      setSessions(sessionsResponse);
-    } catch (error) {
-      logger.error('Failed to load auth data', { component: 'AuthenticationSettings' }, error instanceof Error ? error : new Error(String(error)));
-      toast.error('Failed to load authentication settings');
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
+      return {
+        config: {
+          production_mode: configResponse.production_mode,
+          dev_token_enabled: configResponse.dev_token_enabled,
+          jwt_mode: configResponse.jwt_mode,
+          token_expiry_hours: configResponse.token_expiry_hours,
+        },
+        sessions: sessionsResponse,
+      };
+    },
+    operationName: 'loadAuthData',
+  });
 
   // Update authentication configuration
-  const updateConfig = async (updates: Partial<AuthConfig>) => {
-    if (!config) return;
-
-    setIsLoading(true);
-    try {
-      const newConfig = { ...config, ...updates };
+  const updateConfigAction = useAsyncAction(
+    async (updates: Partial<AuthConfig>) => {
+      if (!data?.config) return;
+      const newConfig = { ...data.config, ...updates };
       await apiClient.updateAuthConfig(newConfig);
-      setConfig(newConfig);
-      toast.success('Authentication settings updated');
-    } catch (error) {
-      logger.error('Failed to update auth config', { component: 'AuthenticationSettings' }, error instanceof Error ? error : new Error(String(error)));
-      toast.error('Failed to update authentication settings');
-    } finally {
-      setIsLoading(false);
+      return newConfig;
+    },
+    {
+      componentName: 'AuthenticationSettings',
+      operationName: 'updateAuthConfig',
+      successToast: 'Authentication settings updated',
+      errorToast: 'Failed to update authentication settings',
+      onSuccess: () => refetch(),
     }
-  };
+  );
 
   // Rotate token
-  const rotateToken = async () => {
-    setIsLoading(true);
-    try {
+  const rotateTokenAction = useAsyncAction(
+    async () => {
       await apiClient.rotateApiToken();
-      toast.success('API token rotated successfully');
-      await loadData(); // Refresh data
-    } catch (error) {
-      logger.error('Failed to rotate API token', { component: 'AuthenticationSettings' }, error instanceof Error ? error : new Error(String(error)));
-      toast.error('Failed to rotate token');
-    } finally {
-      setIsLoading(false);
+    },
+    {
+      componentName: 'AuthenticationSettings',
+      operationName: 'rotateApiToken',
+      successToast: 'API token rotated successfully',
+      errorToast: 'Failed to rotate token',
+      onSuccess: () => refetch(),
     }
-  };
+  );
 
-  // Logout current session (logout-all not supported server-side)
-  const logoutAllSessions = async () => {
-    if (!confirm('Log out of the current session?')) {
-      return;
-    }
-
-    setIsLoading(true);
-    try {
+  // Logout current session
+  const logoutAction = useAsyncAction(
+    async () => {
+      if (!confirm('Log out of the current session?')) {
+        throw new Error('Cancelled');
+      }
       await apiClient.logoutAllSessions();
-      toast.success('Logged out');
       // Current session is invalidated; UI will redirect to login
-    } catch (error) {
-      logger.error('Failed to logout all sessions', { component: 'AuthenticationSettings' }, error instanceof Error ? error : new Error(String(error)));
-      toast.error('Failed to logout');
-    } finally {
-      setIsLoading(false);
+    },
+    {
+      componentName: 'AuthenticationSettings',
+      operationName: 'logoutAllSessions',
+      successToast: 'Logged out',
+      errorToast: (error) => error.message === 'Cancelled' ? '' : 'Failed to logout',
     }
-  };
+  );
 
   // Revoke specific session
-  const revokeSession = async (sessionId: string) => {
-    if (sessionId === sessions.find(s => s.is_current)?.id) {
-      if (!confirm('Are you sure you want to revoke your current session? This will log you out.')) {
-        return;
+  const revokeSessionAction = useAsyncAction(
+    async (sessionId: string) => {
+      const currentSession = data?.sessions.find(s => s.is_current);
+      if (sessionId === currentSession?.id) {
+        if (!confirm('Are you sure you want to revoke your current session? This will log you out.')) {
+          throw new Error('Cancelled');
+        }
       }
-    }
-
-    setIsLoading(true);
-    try {
       await apiClient.revokeSession(sessionId);
-      toast.success('Session revoked');
-      await loadData(); // Refresh data
-    } catch (error) {
-      logger.error('Failed to revoke session', { component: 'AuthenticationSettings', sessionId }, error instanceof Error ? error : new Error(String(error)));
-      toast.error('Failed to revoke session');
-    } finally {
-      setIsLoading(false);
+    },
+    {
+      componentName: 'AuthenticationSettings',
+      operationName: 'revokeSession',
+      successToast: 'Session revoked',
+      errorToast: (error) => error.message === 'Cancelled' ? '' : 'Failed to revoke session',
+      onSuccess: () => refetch(),
     }
-  };
+  );
 
-  if (!config) {
+  const isLoading = updateConfigAction.isLoading || rotateTokenAction.isLoading || logoutAction.isLoading || revokeSessionAction.isLoading;
+
+  if (isInitialLoading) {
     return (
       <div className="flex items-center justify-center p-8">
         <RefreshCw className="w-6 h-6 animate-spin" />
         <span className="ml-2">Loading authentication settings...</span>
       </div>
     );
+  }
+
+  const config = data?.config;
+  const sessions = data?.sessions ?? [];
+
+  if (!config) {
+    return null;
   }
 
   return (
@@ -165,7 +157,7 @@ export function AuthenticationSettings() {
         <Shield className="w-6 h-6 text-blue-500" />
         <h2 className="text-2xl font-semibold">Authentication Settings</h2>
         <Button
-          onClick={loadData}
+          onClick={refetch}
           variant="outline"
           size="sm"
           disabled={isRefreshing}
@@ -204,7 +196,7 @@ export function AuthenticationSettings() {
             <Switch
               id="production-mode"
               checked={config.production_mode}
-              onCheckedChange={(checked) => updateConfig({ production_mode: checked })}
+              onCheckedChange={(checked) => updateConfigAction.execute({ production_mode: checked })}
               disabled={isLoading}
             />
           </div>
@@ -232,7 +224,7 @@ export function AuthenticationSettings() {
             <Switch
               id="dev-token"
               checked={config.dev_token_enabled}
-              onCheckedChange={(checked) => updateConfig({ dev_token_enabled: checked })}
+              onCheckedChange={(checked) => updateConfigAction.execute({ dev_token_enabled: checked })}
               disabled={isLoading || config.production_mode}
             />
           </div>
@@ -276,7 +268,7 @@ export function AuthenticationSettings() {
           {/* Token Actions */}
           <div className="flex gap-2">
             <Button
-              onClick={rotateToken}
+              onClick={() => rotateTokenAction.execute()}
               variant="outline"
               size="sm"
               disabled={isLoading}
@@ -285,7 +277,7 @@ export function AuthenticationSettings() {
               Rotate Token
             </Button>
             <Button
-              onClick={logoutAllSessions}
+              onClick={() => logoutAction.execute()}
               variant="destructive"
               size="sm"
               disabled={isLoading}
@@ -323,7 +315,7 @@ export function AuthenticationSettings() {
                 </div>
                 {!session.is_current && (
                   <Button
-                    onClick={() => revokeSession(session.id)}
+                    onClick={() => revokeSessionAction.execute(session.id)}
                     variant="outline"
                     size="sm"
                     disabled={isLoading}

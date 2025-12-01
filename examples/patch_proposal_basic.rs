@@ -103,7 +103,7 @@ fn create_evidence_spans() -> Vec<EvidenceSpan> {
             rev: "v1".to_string(),
             span_hash: "doc_auth_hash".to_string(),
             score: 0.82,
-            evidence_type: EvidenceType::Documentation,
+            evidence_type: EvidenceType::Doc,
             file_path: "docs/middleware.md".to_string(),
             start_line: 50,
             end_line: 60,

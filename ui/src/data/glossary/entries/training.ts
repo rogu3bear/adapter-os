@@ -1,4 +1,4 @@
-import type { GlossaryEntry } from '../types';
+import type { GlossaryEntry } from '@/data/glossary/types';
 
 export const trainingEntries: GlossaryEntry[] = [
   {
@@ -1312,87 +1312,5 @@ Track gap between training and validation loss:
     relatedTerms: ['training-loss', 'epochs', 'weight-decay', 'early-stopping'],
     aliases: ['overfit', 'memorization', 'generalization-gap'],
   },
-  {
-    id: 'base-model',
-    term: 'Base Model',
-    category: 'training',
-    content: {
-      brief: 'The foundation model that LoRA adapters modify. Common examples: Llama, Qwen, Mistral. Adapters must match the base model architecture and tokenizer.',
-      detailed: `The base model is the pretrained foundation language model that LoRA adapters augment with new capabilities. All adapters are trained relative to a specific base model.
-
-**Common Base Models:**
-
-**Llama 3 / 3.1:**
-- Sizes: 7B, 13B, 70B parameters
-- Strong general capabilities
-- Good code understanding
-- Open weights
-
-**Qwen 2.5:**
-- Sizes: 0.5B, 1.5B, 3B, 7B, 14B, 32B, 72B
-- Excellent multilingual support
-- Strong reasoning
-- Code-optimized variants
-
-**Mistral:**
-- Sizes: 7B, Mixtral 8x7B
-- High quality outputs
-- Efficient architecture
-- Good instruction following
-
-**Compatibility Requirements:**
-
-**Architecture Match:**
-- Adapter trained on Llama 3 7B only works with Llama 3 7B
-- Cannot mix architectures (Llama + Qwen)
-- Cannot mix sizes (7B + 13B)
-
-**Tokenizer Match:**
-- Must use same tokenizer as training
-- Token IDs must align
-- Vocabulary must match
-
-**Version Match:**
-- Llama 2 ≠ Llama 3
-- Different versions = different base models
-- Check exact model ID/hash
-
-**Selecting a Base Model:**
-
-**For Code:**
-- Qwen 2.5 Coder
-- Llama 3.1 (70B for complex tasks)
-- Codestral
-
-**For Chat/General:**
-- Llama 3.1 Instruct
-- Qwen 2.5 Instruct
-- Mistral Instruct
-
-**For Specialized Domains:**
-- Start with general base model
-- Fine-tune with LoRA for domain
-- May need larger base for complex domains
-
-**Base Model in AdapterOS:**
-- Stored in registry with hash verification
-- Tracked for each adapter
-- Enforced compatibility checks
-- Support for multiple bases simultaneously
-
-**Memory Considerations:**
-Base model loaded once, adapters swap on top:
-- 7B model: ~14GB (float16)
-- Multiple adapters: +50-200MB each
-- Efficient for serving many adapters
-
-**Base Model Updates:**
-New base model version = retrain all adapters:
-- Plan migration strategy
-- Validate adapter performance on new base
-- May see quality improvements`,
-    },
-    relatedTerms: ['lora-rank', 'target-modules', 'training-job'],
-    aliases: ['foundation-model', 'pretrained-model', 'base'],
-  },
+  // NOTE: 'base-model' is defined in core-concepts.ts
 ];

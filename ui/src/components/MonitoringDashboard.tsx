@@ -20,12 +20,13 @@ import {
   ShieldCheck,
   Zap,
 } from 'lucide-react';
-import apiClient from '../api/client';
-import * as types from '../api/types';
+import apiClient from '@/api/client';
+import * as types from '@/api/types';
 
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { KpiGrid, ContentGrid } from './ui/grid';
+import { formatPercent, formatDurationMs } from '@/utils/format';
 
 
 interface AlertEntry {
@@ -46,8 +47,6 @@ interface AdapterOverview {
   totalRequests?: number;
 }
 
-const formatPercent = (value: number) => `${value.toFixed(1)}%`;
-const formatLatency = (value: number) => `${value.toFixed(1)} ms`;
 
 const pickMetric = (source: unknown, keys: string[]): number => {
   if (!source || typeof source !== 'object') return 0;
@@ -361,7 +360,7 @@ export const MonitoringDashboard: React.FC = () => {
                     <TableRow key={adapter.adapterId}>
                       <TableCell className="font-medium">{adapter.adapterId}</TableCell>
                       <TableCell>{formatPercent(adapter.activationRate ?? 0)}</TableCell>
-                      <TableCell>{formatLatency(adapter.avgLatencyMs ?? 0)}</TableCell>
+                      <TableCell>{formatDurationMs(adapter.avgLatencyMs ?? 0)}</TableCell>
                       <TableCell>{adapter.qualityScore?.toFixed(2) ?? '--'}</TableCell>
                       <TableCell>{adapter.totalRequests ?? '--'}</TableCell>
                     </TableRow>

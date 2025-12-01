@@ -8,9 +8,9 @@
 //! - CRUD operations with caching
 
 import { useState, useEffect, useCallback } from 'react';
-import { logger, toError } from '../utils/logger';
-import apiClient from '../api/client';
-import { Workspace, WorkspaceMember, WorkspaceResource, CreateWorkspaceRequest, AddWorkspaceMemberRequest } from '../api/types';
+import { logger, toError } from '@/utils/logger';
+import apiClient from '@/api/client';
+import { Workspace, WorkspaceMember, WorkspaceResource, CreateWorkspaceRequest, AddWorkspaceMemberRequest } from '@/api/types';
 
 export interface UseWorkspacesOptions {
   enabled?: boolean;

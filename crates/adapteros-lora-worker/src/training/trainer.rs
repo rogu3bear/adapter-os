@@ -1011,12 +1011,32 @@ impl MicroLoRATrainer {
             *grad += rng.gen_range(-noise_scale..noise_scale);
         }
 
+        // Gradient clipping to prevent explosion
+        const MAX_GRAD_NORM: f32 = 1.0;
+        let grad_norm: f32 = grad_output.iter().map(|g| g * g).sum::<f32>().sqrt();
+        if grad_norm > MAX_GRAD_NORM {
+            let scale = MAX_GRAD_NORM / grad_norm;
+            for grad in &mut grad_output {
+                *grad *= scale;
+            }
+            debug!("Clipped gradient norm from {:.4} to {:.4}", grad_norm, MAX_GRAD_NORM);
+        }
+
+        // NaN prevention: zero out any non-finite gradients
+        for grad in &mut grad_output {
+            if !grad.is_finite() {
+                *grad = 0.0;
+            }
+        }
+
         // Update LoRA_A: gradient is dL/dA = hidden^T * grad_output (simplified)
+        const MAX_UPDATE: f32 = 0.1;
         for r in 0..self.config.rank {
             for h_idx in 0..self.config.hidden_dim.min(hidden.len()) {
                 if h_idx < weights.lora_a[r].len() {
                     let grad = grad_output[h_idx] * hidden[h_idx];
-                    weights.lora_a[r][h_idx] -= learning_rate * grad;
+                    let update = (learning_rate * grad).clamp(-MAX_UPDATE, MAX_UPDATE);
+                    weights.lora_a[r][h_idx] -= update;
                 }
             }
         }
@@ -1027,7 +1047,8 @@ impl MicroLoRATrainer {
                 for r in 0..self.config.rank {
                     if r < weights.lora_b[h_idx].len() {
                         let grad = grad_output[h_idx] * hidden[h_idx];
-                        weights.lora_b[h_idx][r] -= learning_rate * grad;
+                        let update = (learning_rate * grad).clamp(-MAX_UPDATE, MAX_UPDATE);
+                        weights.lora_b[h_idx][r] -= update;
                     }
                 }
             }

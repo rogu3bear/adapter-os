@@ -13,7 +13,6 @@
 use adapteros_core::B3Hash;
 use adapteros_memory::{
     FFIFragmentationMetrics, FragmentationMetrics, FragmentationType, HeapAllocation, HeapState,
-    MetalHeapObserver,
 };
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::HashMap;

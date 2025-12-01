@@ -4,19 +4,27 @@ import './matchers'; // Initialize custom matchers
 
 // TextEncoder/TextDecoder polyfills
 try {
-  if (!(globalThis as any).TextEncoder) {
-    const { TextEncoder } = await import('util');
-    ;(globalThis as any).TextEncoder = TextEncoder as any;
+  type GlobalWithTextCodecs = typeof globalThis & {
+    TextEncoder?: typeof TextEncoder;
+    TextDecoder?: typeof TextDecoder;
+  };
+  const g = globalThis as GlobalWithTextCodecs;
+
+  if (!g.TextEncoder) {
+    const { TextEncoder: NodeTextEncoder } = await import('util');
+    g.TextEncoder = NodeTextEncoder as unknown as typeof TextEncoder;
   }
-  if (!(globalThis as any).TextDecoder) {
-    const { TextDecoder } = await import('util');
-    ;(globalThis as any).TextDecoder = TextDecoder as any;
+  if (!g.TextDecoder) {
+    const { TextDecoder: NodeTextDecoder } = await import('util');
+    g.TextDecoder = NodeTextDecoder as unknown as typeof TextDecoder;
   }
 } catch {}
 
 // Web Crypto API
 async function ensureCrypto() {
-  const g = globalThis as any;
+  type GlobalWithCrypto = typeof globalThis & { crypto?: Crypto };
+  const g = globalThis as GlobalWithCrypto;
+
   if (g.crypto?.subtle && typeof g.crypto.getRandomValues === 'function') return;
   try {
     const { webcrypto } = await import('node:crypto');
@@ -29,7 +37,7 @@ async function ensureCrypto() {
         async digest(alg: AlgorithmIdentifier, data: BufferSource): Promise<ArrayBuffer> {
           const algo = (typeof alg === 'string' ? alg : alg.name).toLowerCase();
           const hash = nodeCrypto.createHash(algo);
-          const buf = Buffer.from(data as ArrayBuffer as any);
+          const buf = Buffer.from(data as ArrayBuffer);
           hash.update(buf);
           return hash.digest().buffer.slice(0) as ArrayBuffer;
         },
@@ -51,34 +59,45 @@ class MemoryStorage implements Storage {
 }
 
 // Check if localStorage works, otherwise replace with MemoryStorage
+type GlobalWithStorage = typeof globalThis & {
+  localStorage?: Storage;
+  sessionStorage?: Storage;
+};
+const gStorage = globalThis as GlobalWithStorage;
+
 try {
-  if (!(globalThis as any).localStorage) {
-    (globalThis as any).localStorage = new MemoryStorage();
+  if (!gStorage.localStorage) {
+    gStorage.localStorage = new MemoryStorage();
   } else {
     // Test if it's accessible (jsdom may throw SecurityError)
-    (globalThis as any).localStorage.getItem('__test__');
+    gStorage.localStorage.getItem('__test__');
   }
 } catch {
-  (globalThis as any).localStorage = new MemoryStorage();
+  gStorage.localStorage = new MemoryStorage();
 }
 
 try {
-  if (!(globalThis as any).sessionStorage) {
-    (globalThis as any).sessionStorage = new MemoryStorage();
+  if (!gStorage.sessionStorage) {
+    gStorage.sessionStorage = new MemoryStorage();
   } else {
-    (globalThis as any).sessionStorage.getItem('__test__');
+    gStorage.sessionStorage.getItem('__test__');
   }
 } catch {
-  (globalThis as any).sessionStorage = new MemoryStorage();
+  gStorage.sessionStorage = new MemoryStorage();
 }
 
 // ResizeObserver stub
-if (!(globalThis as any).ResizeObserver) {
-  (globalThis as any).ResizeObserver = class {
+type GlobalWithResizeObserver = typeof globalThis & {
+  ResizeObserver?: typeof ResizeObserver;
+};
+const gResizeObserver = globalThis as GlobalWithResizeObserver;
+
+if (!gResizeObserver.ResizeObserver) {
+  gResizeObserver.ResizeObserver = class {
     observe() {}
     unobserve() {}
     disconnect() {}
-  } as any;
+  } as unknown as typeof ResizeObserver;
 }
 
 // matchMedia stub
@@ -99,26 +118,40 @@ if (!window.matchMedia) {
 }
 
 // scrollIntoView stub
-if (!(Element.prototype as any).scrollIntoView) {
-  (Element.prototype as any).scrollIntoView = vi.fn();
+type ElementWithScrollIntoView = Element & {
+  scrollIntoView?: (arg?: boolean | ScrollIntoViewOptions) => void;
+};
+const elementProto = Element.prototype as ElementWithScrollIntoView;
+
+if (!elementProto.scrollIntoView) {
+  elementProto.scrollIntoView = vi.fn();
 }
 
 // Default EventSource stub
-if (!(globalThis as any).EventSource) {
+type GlobalWithEventSource = typeof globalThis & {
+  EventSource?: typeof EventSource;
+};
+const gEventSource = globalThis as GlobalWithEventSource;
+
+if (!gEventSource.EventSource) {
   class EventSourceStub {
-    url: string; readyState = 1; onerror: ((this: EventSource, ev: Event) => any) | null = null;
+    url: string;
+    readyState = 1;
+    onerror: ((this: EventSource, ev: Event) => unknown) | null = null;
     constructor(url: string) { this.url = url; }
     addEventListener(_type: string, _listener: EventListenerOrEventListenerObject) {}
     close() { this.readyState = 2; }
   }
-  vi.stubGlobal('EventSource', EventSourceStub as any);
+  vi.stubGlobal('EventSource', EventSourceStub as unknown as typeof EventSource);
 }
 
 // import.meta.env defaults
 try {
-  const env = (import.meta as any).env ?? {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test setup needs to modify import.meta.env
+  const meta = import.meta as any;
+  const env = meta.env ?? {};
   Object.assign(env, { DEV: true, VITE_API_URL: '/api', VITE_SSE_URL: undefined });
-  (import.meta as any).env = env;
+  meta.env = env;
 } catch {}
 
 // Safe default api client mock for providers/components

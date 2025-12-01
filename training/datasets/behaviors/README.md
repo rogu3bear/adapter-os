@@ -20,7 +20,7 @@ Adapter behavior encompasses the full lifecycle state machine, memory management
 {
   "input": {
     "adapter_id": "adapter-001",
-    "current_state": "warm",
+    "load_state": "warm",
     "activation_pct": 0.65,
     "memory_mb": 150,
     "last_used": "2025-11-18T05:00:00Z"
@@ -56,8 +56,8 @@ Adapter behavior encompasses the full lifecycle state machine, memory management
 
 ## Data Sources
 
-1. **Lifecycle Manager:** `adapteros-lora-lifecycle/src/lib.rs`
-2. **Adapter Table:** `adapters` with `current_state`, `activation_pct`
+1. **Lifecycle Manager:** `crates/adapteros-lora-lifecycle/src/lib.rs`
+2. **Adapter Table:** `adapters` with `load_state`, `activation_pct`
 3. **Telemetry:** `adapter_promoted`, `adapter_evicted` events
 4. **Heartbeat:** `last_heartbeat`, `stale_adapters` view
 
@@ -69,6 +69,10 @@ Adapter behavior encompasses the full lifecycle state machine, memory management
 - `heartbeat_recovery/` - Stale adapter detection
 - `pinning_patterns/` - Pin/unpin examples
 - `ttl_enforcement/` - Expiration patterns
+
+## Detailed Documentation
+
+For full implementation details, schema validation, generation strategies, and CLI usage, see [docs/BEHAVIOR_TRAINING.md](docs/BEHAVIOR_TRAINING.md).
 
 ## References
 

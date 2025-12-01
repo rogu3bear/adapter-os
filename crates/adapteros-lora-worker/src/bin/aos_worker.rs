@@ -4,8 +4,8 @@
 //! by the node agent or run standalone for development/testing.
 //!
 //! Usage:
-//!   aos-worker --uds-path /tmp/worker.sock --manifest manifests/qwen7b.yaml \
-//!              --model-path var/model-cache/models/qwen2.5-7b-instruct-bf16
+//!   aos-worker --uds-path ./var/run/worker.sock --manifest manifests/qwen7b.yaml \
+//!              --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16
 
 use adapteros_core::Result;
 use adapteros_lora_worker::{
@@ -36,7 +36,7 @@ struct Args {
 
     /// UDS socket path for communication
     /// Standard production path: /var/run/aos/{tenant_id}/worker.sock
-    /// Development fallback: /tmp/aos-worker.sock
+    /// Development path: ./var/run/worker.sock (relative to cwd)
     #[arg(long, env = "AOS_WORKER_SOCKET")]
     uds_path: Option<PathBuf>,
 
@@ -72,15 +72,19 @@ async fn main() -> Result<()> {
 
     // Resolve UDS path with fallback logic
     let uds_path = args.uds_path.unwrap_or_else(|| {
-        // Try production path first, fallback to /tmp for development
+        // Try production path first: /var/run/aos/{tenant_id}/worker.sock
         let prod_path = PathBuf::from(format!("/var/run/aos/{}/worker.sock", args.tenant_id));
         if let Some(parent) = prod_path.parent() {
             if parent.exists() || std::fs::create_dir_all(parent).is_ok() {
                 return prod_path;
             }
         }
-        // Fallback to temp directory for development
-        std::env::temp_dir().join(format!("aos-worker-{}.sock", args.tenant_id))
+        // Fallback to development path: ./var/run/worker.sock (relative to cwd)
+        let dev_path = PathBuf::from("./var/run/worker.sock");
+        if let Some(parent) = dev_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        dev_path
     });
 
     info!(
@@ -139,9 +143,9 @@ async fn main() -> Result<()> {
     info!(backend = %args.backend, "Creating kernel backend");
     let kernels = create_backend_with_model(backend_choice, &model_path)?;
 
-    // Create telemetry writer - use env var or temp directory
+    // Create telemetry writer - use env var or ./var/telemetry
     let telemetry_dir = std::env::var("AOS_TELEMETRY_DIR")
-        .unwrap_or_else(|_| std::env::temp_dir().join("aos-worker-telemetry").to_string_lossy().to_string());
+        .unwrap_or_else(|_| "./var/telemetry".to_string());
     std::fs::create_dir_all(&telemetry_dir).ok();
     let telemetry = TelemetryWriter::new(&telemetry_dir, 10000, 100_000_000).map_err(|e| {
         adapteros_core::AosError::Worker(format!("Failed to create telemetry writer: {}", e))

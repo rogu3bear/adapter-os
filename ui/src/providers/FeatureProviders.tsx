@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { apiClient } from '../api/client';
-import type { Tenant } from '../api/types';
-import { logger, toError } from '../utils/logger';
-import { BookmarkProvider } from '../contexts/BookmarkContext';
-import { ModalProvider } from '../contexts/ModalContext';
-import { HistoryProvider } from '../contexts/HistoryContext';
+import { apiClient } from '@/api/client';
+import type { Tenant } from '@/api/types';
+import { logger, toError } from '@/utils/logger';
+import { BookmarkProvider } from '@/contexts/BookmarkContext';
+import { ModalProvider } from '@/contexts/ModalContext';
+import { HistoryProvider } from '@/contexts/HistoryContext';
+import { BreadcrumbProvider } from '@/contexts/BreadcrumbContext';
+import { UndoRedoProvider } from '@/contexts/UndoRedoContext';
 import { useAuth } from './CoreProviders';
 
 // Tenant Context
@@ -150,9 +152,13 @@ export function FeatureProviders({ children }: { children: ReactNode }) {
     <BookmarkProvider>
       <ModalProvider>
         <HistoryProvider>
-          <TenantProvider>
-            {children}
-          </TenantProvider>
+          <BreadcrumbProvider>
+            <TenantProvider>
+              <UndoRedoProvider>
+                {children}
+              </UndoRedoProvider>
+            </TenantProvider>
+          </BreadcrumbProvider>
         </HistoryProvider>
       </ModalProvider>
     </BookmarkProvider>

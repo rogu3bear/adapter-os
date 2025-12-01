@@ -1,9 +1,9 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 
-import { AppVM } from '../services/AppVM';
-import { OpVM } from '../services/OpVM';
-import { computeStatusDigest } from '../api/status';
-import { buildStatus, buildOperation, createDeferred, waitForCondition } from '../test/utils';
+import { AppVM } from '@/services/AppVM';
+import { OpVM } from '@/services/OpVM';
+import { computeStatusDigest } from '@/api/status';
+import { buildStatus, buildOperation, createDeferred, waitForCondition } from '@/test/utils';
 
 afterEach(() => {
   vi.useRealTimers();

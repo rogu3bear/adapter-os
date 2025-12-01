@@ -182,7 +182,7 @@ pub async fn run(
     let model_path = if let Some(cfg) = model_config {
         cfg.path.display().to_string()
     } else {
-        format!("./models/{}", manifest.base.model_id)
+        format!("./var/model-cache/models/{}", manifest.base.model_id)
     };
     let tokenizer_path = format!("{}/tokenizer.json", model_path);
 

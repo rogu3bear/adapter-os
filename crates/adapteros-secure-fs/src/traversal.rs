@@ -269,7 +269,9 @@ fn check_dangerous_absolute_paths(path_str: &str) -> Result<()> {
         }
     }
 
-    // Special case: allow /tmp/ for temporary files on Unix
+    // INTENTIONAL: Allow system /tmp/ for OS-level temporary files (e.g., during tests).
+    // Production code should use ./var/ paths instead - see CLAUDE.md "Storage Paths".
+    // This security policy exception is for system compatibility, NOT a default path pattern.
     if path_str.starts_with("/tmp/") && path_str.len() > 5 {
         return Ok(());
     }

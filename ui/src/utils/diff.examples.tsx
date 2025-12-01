@@ -250,12 +250,12 @@ export function MergedDiffExample() {
  * Use case: Performance metrics, change tracking, analytics
  */
 export function DiffStatsDashboardExample() {
-  const samples = [
+  const samples = useMemo(() => [
     { name: 'Minimal change', g: 'hello world', c: 'hello mars' },
     { name: 'Major change', g: 'version 1.0', c: 'version 2.0 with new features' },
     { name: 'Identical', g: 'test', c: 'test' },
     { name: 'Complete rewrite', g: 'old text', c: 'brand new content here' },
-  ];
+  ], []);
 
   const results = useMemo(
     () =>
@@ -264,7 +264,7 @@ export function DiffStatsDashboardExample() {
         score: similarity(s.g, s.c),
         stats: getDiffStats(tokenDiff(s.g, s.c)),
       })),
-    []
+    [samples]
   );
 
   return (
@@ -315,7 +315,7 @@ export function CodeReviewDiffExample() {
   return mapped;
 }`;
 
-  const diffs = useMemo(() => lineDiff(goldenCode, currentCode, true), []);
+  const diffs = useMemo(() => lineDiff(goldenCode, currentCode, true), [goldenCode, currentCode]);
   const stats = useMemo(() => getDiffStats(diffs), [diffs]);
 
   return (

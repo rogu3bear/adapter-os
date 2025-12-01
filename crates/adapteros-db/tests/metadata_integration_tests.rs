@@ -73,7 +73,7 @@ async fn test_adapter_default_version_and_lifecycle() -> anyhow::Result<()> {
         .hash_b3("b3:test_hash")
         .rank(16)
         .tier("persistent")
-        .category("code-generation")
+        .category("code")
         .scope("global")
         .build()?;
 
@@ -83,7 +83,7 @@ async fn test_adapter_default_version_and_lifecycle() -> anyhow::Result<()> {
     let adapters = db.list_all_adapters_system().await?;
     let adapter = adapters
         .into_iter()
-        .find(|a| a.id == adapter_id)
+        .find(|a| a.adapter_id.as_deref() == Some(adapter_id))
         .expect("Adapter should exist");
 
     // Verify default values (from migration 0068)
@@ -113,7 +113,7 @@ async fn test_adapter_to_adaptermeta_conversion() -> anyhow::Result<()> {
         .hash_b3("b3:test_hash_conversion")
         .rank(16)
         .tier("persistent")
-        .category("code-generation")
+        .category("code")
         .scope("global")
         .build()?;
 
@@ -123,7 +123,7 @@ async fn test_adapter_to_adaptermeta_conversion() -> anyhow::Result<()> {
     let adapters = db.list_all_adapters_system().await?;
     let adapter = adapters
         .into_iter()
-        .find(|a| a.id == adapter_id)
+        .find(|a| a.adapter_id.as_deref() == Some(adapter_id))
         .expect("Adapter should exist");
 
     // Convert to AdapterMeta (canonical metadata struct)
@@ -163,7 +163,7 @@ async fn test_multiple_adapters_metadata_consistency() -> anyhow::Result<()> {
             .hash_b3(format!("b3:hash_{}", i))
             .rank(16)
             .tier("persistent")
-            .category("code-generation")
+            .category("code")
             .scope("global")
             .build()?;
 
@@ -179,12 +179,12 @@ async fn test_multiple_adapters_metadata_consistency() -> anyhow::Result<()> {
         assert!(
             !adapter.version.is_empty(),
             "Adapter {} should have version",
-            adapter.id
+            adapter.adapter_id.as_deref().unwrap_or("unknown")
         );
         assert!(
             !adapter.lifecycle_state.is_empty(),
             "Adapter {} should have lifecycle_state",
-            adapter.id
+            adapter.adapter_id.as_deref().unwrap_or("unknown")
         );
 
         // Convert to AdapterMeta
@@ -220,7 +220,7 @@ async fn test_adapter_meta_has_all_required_fields() -> anyhow::Result<()> {
         .hash_b3("b3:test_hash_meta")
         .rank(16)
         .tier("persistent")
-        .category("code-generation")
+        .category("code")
         .scope("global")
         .build()?;
 
@@ -229,7 +229,7 @@ async fn test_adapter_meta_has_all_required_fields() -> anyhow::Result<()> {
     let adapters = db.list_all_adapters_system().await?;
     let adapter = adapters
         .into_iter()
-        .find(|a| a.id == adapter_id)
+        .find(|a| a.adapter_id.as_deref() == Some(adapter_id))
         .expect("Adapter should exist");
 
     // Convert to canonical AdapterMeta
@@ -269,7 +269,7 @@ async fn test_explicit_field_query() -> anyhow::Result<()> {
         .hash_b3("b3:test_hash_explicit")
         .rank(16)
         .tier("persistent")
-        .category("code-generation")
+        .category("code")
         .scope("global")
         .build()?;
 
@@ -277,7 +277,7 @@ async fn test_explicit_field_query() -> anyhow::Result<()> {
 
     // Explicit query for version and lifecycle_state
     let result: (String, String) =
-        sqlx::query_as("SELECT version, lifecycle_state FROM adapters WHERE id = ?")
+        sqlx::query_as("SELECT version, lifecycle_state FROM adapters WHERE adapter_id = ?")
             .bind(adapter_id)
             .fetch_one(db.pool())
             .await?;

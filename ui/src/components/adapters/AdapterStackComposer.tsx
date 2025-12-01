@@ -1,19 +1,19 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Alert, AlertDescription } from '../ui/alert';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../ui/select';
+} from '@/components/ui/select';
 import {
   DndContext,
   closestCenter,
@@ -40,9 +40,9 @@ import {
   GripVertical,
   Settings,
 } from 'lucide-react';
-import { cn } from '../ui/utils';
-import apiClient from '../../api/client';
-import { Adapter } from '../../api/types';
+import { cn } from '@/components/ui/utils';
+import apiClient from '@/api/client';
+import { Adapter } from '@/api/types';
 import {
   StackPreview,
   ValidationReport,
@@ -103,9 +103,9 @@ export const AdapterStackComposer: React.FC<AdapterStackComposerProps> = ({
     const fetchAdapters = async () => {
       setIsLoading(true);
       try {
-        const response = await apiClient.get('/api/adapters') as any;
-        setAvailableAdapters(response.data || []);
-      } catch (error: any) {
+        const adapters = await apiClient.listAdapters();
+        setAvailableAdapters(adapters || []);
+      } catch (error: unknown) {
         console.error('Failed to fetch adapters:', error);
       } finally {
         setIsLoading(false);
@@ -208,11 +208,17 @@ export const AdapterStackComposer: React.FC<AdapterStackComposerProps> = ({
         workflow_type: 'sequential',
       };
 
-      let response: any;
+      let response: { data: { id?: string; stack_id?: string } };
       if (initialStackId) {
-        response = await (apiClient as any).put(`/api/adapter-stacks/${initialStackId}`, payload);
+        response = await apiClient.request<{ data: { id?: string; stack_id?: string } }>(`/api/adapter-stacks/${initialStackId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
       } else {
-        response = await (apiClient as any).post('/api/adapter-stacks', payload);
+        response = await apiClient.request<{ data: { id?: string; stack_id?: string } }>('/api/adapter-stacks', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
       }
 
       const stackId = response.data.id || response.data.stack_id;
@@ -228,9 +234,9 @@ export const AdapterStackComposer: React.FC<AdapterStackComposerProps> = ({
           ? 'Stack updated successfully'
           : 'Stack created successfully'
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to save stack:', error);
-      alert(`Failed to save stack: ${error?.message}`);
+      alert(`Failed to save stack: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsSaving(false);
     }

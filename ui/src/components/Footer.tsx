@@ -1,9 +1,10 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '../api/client';
+import apiClient from '@/api/client';
 
-import { MetaResponse } from '../api/types';
+import { MetaResponse } from '@/api/types';
 import { cn, FROST_BACKGROUND } from '@/components/ui/utils';
+import { formatDurationSeconds } from '@/utils/format';
 
 
 interface MetaData {
@@ -26,9 +27,7 @@ export const Footer: React.FC = () => {
 
   const formatUptime = (seconds?: number) => {
     if (!seconds || seconds <= 0) return '—';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
+    return formatDurationSeconds(seconds);
   };
 
   return (

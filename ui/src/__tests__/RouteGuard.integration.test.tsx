@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { RouteGuard } from '../components/route-guard';
-import { routes } from '../config/routes';
-import * as CoreProviders from '../providers/CoreProviders';
+import { RouteGuard } from '@/components/route-guard';
+import { routes } from '@/config/routes';
+import * as CoreProviders from '@/providers/CoreProviders';
 
 // Mock useAuth hook
-vi.mock('../providers/CoreProviders', () => ({
+vi.mock('@/providers/CoreProviders', () => ({
   useAuth: vi.fn(),
 }));
 
 // Mock PageSkeleton
-vi.mock('../components/ui/page-skeleton', () => ({
+vi.mock('@/components/ui/page-skeleton', () => ({
   PageSkeleton: ({ variant }: { variant: string }) => (
     <div data-testid="page-skeleton" data-variant={variant}>Loading...</div>
   ),

@@ -59,9 +59,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import apiClient from '../api/client';
+import apiClient from '@/api/client';
 
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
 import { toast } from 'sonner';
 

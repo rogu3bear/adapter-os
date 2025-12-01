@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { Loader2, ExternalLink, BookOpen } from 'lucide-react';
-import { Persona, Stage } from '../data/persona-journeys';
+import { Persona, Stage } from '@/data/persona-journeys';
 import { useNavigate } from 'react-router-dom';
 
 // Lazy load mock components

@@ -15,10 +15,10 @@ import { FileJson, FileText, AlertTriangle, CheckCircle, Save, X } from 'lucide-
 
 // 【ui/src/components/PolicyEditor.tsx§1-45】 - Replace toast notifications with ErrorRecovery patterns
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import apiClient from '../api/client';
-import { POLICY_PACKS, getDefaultPolicyConfig, PolicyFieldDefinition } from '../constants/policySchema';
-import { PolicyPackConfig } from '../api/types';
-import { logger, toError } from '../utils/logger';
+import apiClient from '@/api/client';
+import { POLICY_PACKS, getDefaultPolicyConfig, PolicyFieldDefinition } from '@/constants/policySchema';
+import { PolicyPackConfig } from '@/api/types';
+import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 
 interface PolicyEditorProps {
@@ -38,7 +38,7 @@ export function PolicyEditor({
 }: PolicyEditorProps) {
   const [mode, setMode] = useState<'form' | 'json'>('form');
   const [cpid, setCpid] = useState(initialCpid || '');
-  const [policyConfig, setPolicyConfig] = useState<Record<string, any>>({});
+  const [policyConfig, setPolicyConfig] = useState<Record<string, unknown>>({});
   const [jsonContent, setJsonContent] = useState('');
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [isValidating, setIsValidating] = useState(false);
@@ -76,17 +76,21 @@ export function PolicyEditor({
     }
   }, [open, existingPolicy, initialCpid]);
 
-  const updatePolicyField = (packId: string, fieldName: string, value: any) => {
-    setPolicyConfig((prev) => ({
-      ...prev,
-      packs: {
-        ...prev.packs,
-        [packId]: {
-          ...prev.packs?.[packId],
-          [fieldName]: value,
+  const updatePolicyField = (packId: string, fieldName: string, value: unknown) => {
+    setPolicyConfig((prev) => {
+      const existingPacks = (prev.packs || {}) as Record<string, Record<string, unknown>>;
+      const existingPack = existingPacks[packId] || {};
+      return {
+        ...prev,
+        packs: {
+          ...existingPacks,
+          [packId]: {
+            ...existingPack,
+            [fieldName]: value,
+          },
         },
-      },
-    }));
+      };
+    });
   };
 
   const handleModeSwitch = (newMode: 'form' | 'json') => {

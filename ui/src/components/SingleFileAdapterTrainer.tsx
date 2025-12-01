@@ -10,7 +10,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Textarea } from './ui/textarea';
-import apiClient from '../api/client';
+import apiClient from '@/api/client';
 import {
   Upload,
   FileText,
@@ -30,26 +30,47 @@ import type { TrainingJob, TrainingConfigRequest, InferRequest, InferResponse } 
 import { logger, toError } from '@/utils/logger';
 import { ProgressIndicator, ContextualLoading, loadingStates } from './ui/progress-indicator';
 import { SuccessFeedback, successTemplates } from './ui/success-feedback';
-import { useViewTransition } from '../hooks/useViewTransition';
+import { useViewTransition } from '@/hooks/useViewTransition';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import { HelpTooltip } from './ui/help-tooltip';
-import { useRBAC } from '../hooks/useRBAC';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
+import { useRBAC } from '@/hooks/useRBAC';
 
 /**
  * Training configuration form schema for SingleFileAdapterTrainer
  *
- * Simplified schema for the single-file trainer - uses simple adapter name
- * (not full semantic naming format) for ease of use
+ * Uses semantic naming format: {tenant}/{domain}/{purpose}/{revision}
+ * Example: default/training/my-adapter/r001
  */
 const TrainerConfigSchema = z.object({
-  adapterName: z.string()
-    .min(3, 'Adapter name must be at least 3 characters')
-    .max(100, 'Adapter name must not exceed 100 characters')
+  // Semantic naming components
+  tenant: z.string()
+    .min(1, 'Tenant is required')
+    .max(50, 'Tenant must not exceed 50 characters')
     .regex(
-      /^[a-zA-Z0-9_-]+$/,
-      'Adapter name must contain only letters, numbers, underscores, and hyphens'
+      /^[a-z0-9_-]+$/,
+      'Tenant must contain only lowercase letters, numbers, underscores, and hyphens'
     ),
+  domain: z.string()
+    .min(1, 'Domain is required')
+    .max(50, 'Domain must not exceed 50 characters')
+    .regex(
+      /^[a-z0-9_-]+$/,
+      'Domain must contain only lowercase letters, numbers, underscores, and hyphens'
+    ),
+  purpose: z.string()
+    .min(1, 'Purpose is required')
+    .max(50, 'Purpose must not exceed 50 characters')
+    .regex(
+      /^[a-z0-9_-]+$/,
+      'Purpose must contain only lowercase letters, numbers, underscores, and hyphens'
+    ),
+  revision: z.string()
+    .regex(
+      /^r\d{3,}$/,
+      'Revision must be in format rXXX (e.g., r001)'
+    ),
+  // Training parameters
   rank: z.number()
     .int('Rank must be an integer')
     .min(1, 'Rank must be at least 1')
@@ -70,6 +91,18 @@ const TrainerConfigSchema = z.object({
     .positive('Learning rate must be positive')
     .max(0.1, 'Learning rate must not exceed 0.1'),
 });
+
+/**
+ * Helper to sanitize a string for use in semantic naming
+ */
+function sanitizeForSemanticName(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/\.[^/.]+$/, '') // Remove file extension
+    .replace(/[^a-z0-9_-]/g, '-') // Replace invalid chars with hyphen
+    .replace(/-+/g, '-') // Collapse multiple hyphens
+    .replace(/^-|-$/g, ''); // Trim hyphens from ends
+}
 
 type TrainerConfigFormData = z.infer<typeof TrainerConfigSchema>;
 
@@ -106,9 +139,12 @@ export function SingleFileAdapterTrainer() {
     reset: resetForm,
   } = useForm<TrainerConfigFormData>({
     resolver: zodResolver(TrainerConfigSchema),
-    mode: 'onChange',
+    mode: 'onBlur',
     defaultValues: {
-      adapterName: '',
+      tenant: 'default',
+      domain: 'training',
+      purpose: '',
+      revision: 'r001',
       rank: 8,
       alpha: 16,
       epochs: 3,
@@ -116,6 +152,15 @@ export function SingleFileAdapterTrainer() {
       learningRate: 0.0003,
     },
   });
+
+  // Compute full semantic adapter name
+  const tenant = watch('tenant');
+  const domain = watch('domain');
+  const purpose = watch('purpose');
+  const revision = watch('revision');
+  const fullAdapterName = tenant && domain && purpose && revision
+    ? `${tenant}/${domain}/${purpose}/${revision}`
+    : '';
 
   const formValues = watch();
 
@@ -157,9 +202,10 @@ export function SingleFileAdapterTrainer() {
       };
       reader.readAsText(uploadedFile);
 
-      // Auto-generate adapter name from filename (sanitize to match schema)
-      const baseName = uploadedFile.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
-      setValue('adapterName', baseName + '_adapter', { shouldValidate: true });
+      // Auto-generate purpose from filename (sanitize to match semantic naming)
+      const sanitizedName = sanitizeForSemanticName(uploadedFile.name);
+      const purposeName = sanitizedName || 'custom-adapter';
+      setValue('purpose', purposeName, { shouldValidate: true });
     }
   };
 
@@ -189,11 +235,14 @@ export function SingleFileAdapterTrainer() {
         targets: ['q_proj', 'v_proj'],
       };
 
+      // Build full semantic adapter name
+      const semanticAdapterName = `${data.tenant}/${data.domain}/${data.purpose}/${data.revision}`;
+
       // For now, we'll create a training job with the file content
       // Note: UI-only fields (dataset_path, adapters_root, package) removed
       // In production, file upload would create a dataset_id to pass here
       const response = await apiClient.startTraining({
-        adapter_name: data.adapterName,
+        adapter_name: semanticAdapterName,
         config: config,
         // dataset_id: would be set after file upload creates a dataset
       });
@@ -429,7 +478,7 @@ export function SingleFileAdapterTrainer() {
             <CardTitle className="flex items-center gap-2">
               <Upload className="w-5 h-5" />
               Upload Training Data
-              <HelpTooltip helpId="trainer-file-upload" />
+              <GlossaryTooltip termId="trainer-file-upload" />
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -492,19 +541,81 @@ export function SingleFileAdapterTrainer() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleFormSubmit(handleStartTraining)} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="adapter-name">
-                  Adapter Name
-                  <HelpTooltip helpId="trainer-adapter-name" />
-                </Label>
-                <Input
-                  id="adapter-name"
-                  {...register('adapterName')}
-                  placeholder="my_code_adapter"
-                  className={errors.adapterName ? 'border-red-500' : ''}
-                />
-                {errors.adapterName && (
-                  <p className="text-sm text-red-500 mt-1">{errors.adapterName.message}</p>
+              {/* Semantic Naming Fields */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Label className="text-sm font-medium">Adapter Name</Label>
+                  <GlossaryTooltip termId="trainer-adapter-name" />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="tenant" className="text-xs text-muted-foreground">
+                      Organization
+                    </Label>
+                    <Input
+                      id="tenant"
+                      {...register('tenant')}
+                      placeholder="default"
+                      className={errors.tenant ? 'border-red-500' : ''}
+                    />
+                    {errors.tenant && (
+                      <p className="text-xs text-red-500">{errors.tenant.message}</p>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <Label htmlFor="domain" className="text-xs text-muted-foreground">
+                      Domain
+                    </Label>
+                    <Input
+                      id="domain"
+                      {...register('domain')}
+                      placeholder="training"
+                      className={errors.domain ? 'border-red-500' : ''}
+                    />
+                    {errors.domain && (
+                      <p className="text-xs text-red-500">{errors.domain.message}</p>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <Label htmlFor="purpose" className="text-xs text-muted-foreground">
+                      Purpose
+                    </Label>
+                    <Input
+                      id="purpose"
+                      {...register('purpose')}
+                      placeholder="my-adapter"
+                      className={errors.purpose ? 'border-red-500' : ''}
+                    />
+                    {errors.purpose && (
+                      <p className="text-xs text-red-500">{errors.purpose.message}</p>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <Label htmlFor="revision" className="text-xs text-muted-foreground">
+                      Revision
+                    </Label>
+                    <Input
+                      id="revision"
+                      {...register('revision')}
+                      placeholder="r001"
+                      className={errors.revision ? 'border-red-500' : ''}
+                    />
+                    {errors.revision && (
+                      <p className="text-xs text-red-500">{errors.revision.message}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Full Name Preview */}
+                {fullAdapterName && (
+                  <div className="bg-accent/50 rounded-md p-3 border">
+                    <p className="text-xs text-muted-foreground mb-1">Full Adapter Name:</p>
+                    <code className="text-sm font-mono text-primary">{fullAdapterName}</code>
+                  </div>
                 )}
               </div>
 
@@ -512,7 +623,7 @@ export function SingleFileAdapterTrainer() {
                 <div className="space-y-2">
                   <Label htmlFor="rank">
                     LoRA Rank
-                    <HelpTooltip helpId="trainer-rank" />
+                    <GlossaryTooltip termId="trainer-rank" />
                   </Label>
                   <Input
                     id="rank"
@@ -530,7 +641,7 @@ export function SingleFileAdapterTrainer() {
                 <div className="space-y-2">
                   <Label htmlFor="alpha">
                     Alpha
-                    <HelpTooltip helpId="trainer-alpha" />
+                    <GlossaryTooltip termId="trainer-alpha" />
                   </Label>
                   <Input
                     id="alpha"
@@ -548,7 +659,7 @@ export function SingleFileAdapterTrainer() {
                 <div className="space-y-2">
                   <Label htmlFor="epochs">
                     Epochs
-                    <HelpTooltip helpId="trainer-epochs" />
+                    <GlossaryTooltip termId="trainer-epochs" />
                   </Label>
                   <Input
                     id="epochs"
@@ -566,7 +677,7 @@ export function SingleFileAdapterTrainer() {
                 <div className="space-y-2">
                   <Label htmlFor="batch-size">
                     Batch Size
-                    <HelpTooltip helpId="trainer-batch-size" />
+                    <GlossaryTooltip termId="trainer-batch-size" />
                   </Label>
                   <Input
                     id="batch-size"
@@ -584,7 +695,7 @@ export function SingleFileAdapterTrainer() {
                 <div className="space-y-2">
                   <Label htmlFor="learning-rate">
                     Learning Rate
-                    <HelpTooltip helpId="trainer-learning-rate" />
+                    <GlossaryTooltip termId="trainer-learning-rate" />
                   </Label>
                   <Input
                     id="learning-rate"
@@ -695,7 +806,7 @@ export function SingleFileAdapterTrainer() {
       {step === 'complete' && (
         <div className="space-y-6">
           {successTemplates.trainingComplete(
-            formValues.adapterName,
+            fullAdapterName || `${formValues.tenant}/${formValues.domain}/${formValues.purpose}/${formValues.revision}`,
             () => {
               // Scroll to test section
               const testSection = document.getElementById('test-section');

@@ -1,14 +1,9 @@
 import React from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Modal } from '@/components/shared/Modal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import RouterSummaryView from './RouterSummaryView';
 import RouterTechnicalView from './RouterTechnicalView';
 import type { ExtendedRouterDecision } from '@/api/types';
@@ -65,7 +60,7 @@ export function RouterDetailsModal({
   const summaryData = {
     confidence: calculateConfidence() * 100, // Convert to 0-100 scale
     selectedAdapters: adapters.map(id => {
-      const candidate = candidates.find((c: any) => c.adapter_id === id);
+      const candidate = candidates.find((c: { adapter_id: string }) => c.adapter_id === id) as { adapter_id: string; raw_score?: number } | undefined;
       return {
         id,
         name: id, // Use adapter ID as name for now
@@ -80,8 +75,8 @@ export function RouterDetailsModal({
   // Transform data for RouterTechnicalView
   const technicalData = {
     q15Gates: candidates
-      .filter((c: any) => adapters.includes(c.adapter_id))
-      .map((c: any, idx: number) => ({
+      .filter((c: { adapter_id: string }) => adapters.includes(c.adapter_id))
+      .map((c: { adapter_id: string; gate_float?: number }, idx: number) => ({
         adapterId: c.adapter_id,
         adapterName: c.adapter_id,
         gateValue: c.gate_float || 0,
@@ -93,7 +88,7 @@ export function RouterDetailsModal({
       outputHash: decision.request_id || 'N/A',
       timestamp: decision.timestamp,
     },
-    allCandidates: candidates.map((c: any) => ({
+    allCandidates: candidates.map((c: { adapter_id: string; raw_score?: number; selected?: boolean }) => ({
       id: c.adapter_id,
       name: c.adapter_id,
       score: c.raw_score || 0,
@@ -103,43 +98,45 @@ export function RouterDetailsModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Router Decision Details</DialogTitle>
-          <DialogDescription>
-            Adapters selected by the K-sparse router for this message
-          </DialogDescription>
-        </DialogHeader>
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Router Decision Details"
+      description="Adapters selected by the K-sparse router for this message"
+      size="xl"
+      footer={
+        <Button variant="outline" onClick={() => onOpenChange(false)}>
+          Close
+        </Button>
+      }
+    >
+      <Tabs defaultValue="summary">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="summary">Summary</TabsTrigger>
+          <TabsTrigger value="technical">Technical Proof</TabsTrigger>
+        </TabsList>
 
-        <Tabs defaultValue="summary" className="mt-4">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="summary">Summary</TabsTrigger>
-            <TabsTrigger value="technical">Technical Proof</TabsTrigger>
-          </TabsList>
+        <TabsContent value="summary" className="mt-4">
+          <RouterSummaryView
+            decision={summaryData}
+            onExportAudit={handleExportAudit}
+          />
+        </TabsContent>
 
-          <TabsContent value="summary" className="mt-4">
-            <RouterSummaryView
-              decision={summaryData}
-              onExportAudit={handleExportAudit}
-            />
-          </TabsContent>
+        <TabsContent value="technical" className="mt-4">
+          <RouterTechnicalView data={technicalData} />
+        </TabsContent>
+      </Tabs>
 
-          <TabsContent value="technical" className="mt-4">
-            <RouterTechnicalView data={technicalData} />
-          </TabsContent>
-        </Tabs>
-
-        {/* Request ID footer (preserved from original) */}
-        {decision.request_id && (
-          <div className="pt-2 mt-4 border-t">
-            <p className="text-xs text-muted-foreground">
-              Request ID: <span className="font-mono">{decision.request_id}</span>
-            </p>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+      {/* Request ID footer (preserved from original) */}
+      {decision.request_id && (
+        <div className="pt-2 mt-4 border-t">
+          <p className="text-xs text-muted-foreground">
+            Request ID: <span className="font-mono">{decision.request_id}</span>
+          </p>
+        </div>
+      )}
+    </Modal>
   );
 }
 

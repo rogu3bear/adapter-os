@@ -13,9 +13,10 @@
 //! - `openapi_compat.rs` - OpenAPI schema compatibility
 //! - `frontend_compat.rs` - Frontend type compatibility
 
-pub mod frontend_compat;
-pub mod openapi_compat;
-pub mod round_trip;
+// NOTE: These modules are planned but not yet implemented
+// pub mod frontend_compat;
+// pub mod openapi_compat;
+// pub mod round_trip;
 
 // Test utilities
 mod test_utils {

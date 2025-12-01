@@ -105,11 +105,10 @@ async fn test_severity_threshold_enforcement() {
     });
 
     // Validation should fail if High severity is present
-    let result = policy.validate_dependency("vulnerable-pkg", "1.0.0").await;
+    let _result = policy.validate_dependency("vulnerable-pkg", "1.0.0").await;
 
     // Stub implementation doesn't return real CVEs yet
     // But we can verify the policy was created with correct threshold
-    let config = &policy;
     assert_eq!(policy.id(), adapteros_policy::PolicyId::DependencySecurity);
 }
 

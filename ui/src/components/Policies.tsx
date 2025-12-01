@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -14,24 +13,24 @@ import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
 
 import { toast } from 'sonner';
-import apiClient from '../api/client';
-import { Policy, User, SignPolicyResponse, PolicyComparisonResponse } from '../api/types';
-import { useTimestamp } from '../hooks/useTimestamp';
+import apiClient from '@/api/client';
+import { Policy, User, SignPolicyResponse, PolicyComparisonResponse } from '@/api/types';
+import { useTimestamp } from '@/hooks/useTimestamp';
 import { PolicyEditor } from './PolicyEditor';
 import { AuditDashboard } from './AuditDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
-import { logger } from '../utils/logger';
+import { logger } from '@/utils/logger';
 
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Skeleton } from './ui/skeleton';
 import { BookmarkButton } from './ui/bookmark-button';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import { useRBAC } from '@/hooks/useRBAC';
-import { useProgressiveHints } from '../hooks/useProgressiveHints';
-import { getPageHints } from '../data/page-hints';
+import { useProgressiveHints } from '@/hooks/useProgressiveHints';
+import { getPageHints } from '@/data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
 
 interface PoliciesProps {
@@ -368,7 +367,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             Active Policies
-            <ConceptTooltip concept="policy" />
+            <GlossaryTooltip termId="policy" variant="icon" />
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -397,24 +396,24 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                   />
                 </TableHead>
                 <TableHead>
-                  <HelpTooltip helpId="policy-cpid">
+                  <GlossaryTooltip termId="policy-cpid">
                     <span>Policy ID</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead>
-                  <HelpTooltip helpId="policy-schema-hash">
+                  <GlossaryTooltip termId="policy-schema-hash">
                     <span>Schema Hash</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead>
-                  <HelpTooltip helpId="policy-status">
+                  <GlossaryTooltip termId="policy-status">
                     <span>Status</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead className="w-[100px]">
-                  <HelpTooltip helpId="policy-actions">
+                  <GlossaryTooltip termId="policy-actions">
                     <span>Actions</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -514,15 +513,15 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
           {signResult && (
             <div className="space-y-3">
               <div className="mb-4">
-                <HelpTooltip helpId="policy-cpid">
+                <GlossaryTooltip termId="policy-cpid">
                   <p className="font-medium text-sm mb-1 cursor-help">Policy ID</p>
-                </HelpTooltip>
+                </GlossaryTooltip>
                 <p className="text-sm text-muted-foreground font-mono">{signResult.cpid}</p>
               </div>
               <div className="mb-4">
-                <HelpTooltip helpId="policy-signed">
+                <GlossaryTooltip termId="policy-signed">
                   <p className="font-medium text-sm mb-1 cursor-help">Signature</p>
-                </HelpTooltip>
+                </GlossaryTooltip>
                 <p className="text-xs text-muted-foreground font-mono break-all">{signResult.signature}</p>
               </div>
               <div className="mb-4">
@@ -589,15 +588,15 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
           </DialogHeader>
           <div className="space-y-4">
             <div className="mb-4">
-              <HelpTooltip helpId="policy-cpid">
+              <GlossaryTooltip termId="policy-cpid">
                 <label className="font-medium text-sm mb-1 cursor-help">First Policy</label>
-              </HelpTooltip>
+              </GlossaryTooltip>
               <p className="text-sm text-muted-foreground font-mono">{selectedPolicy?.cpid}</p>
             </div>
             <div className="mb-4">
-              <HelpTooltip helpId="policy-cpid">
+              <GlossaryTooltip termId="policy-cpid">
                 <label className="font-medium text-sm mb-1 cursor-help">Second Policy ID</label>
-              </HelpTooltip>
+              </GlossaryTooltip>
               <select
                 className="w-full p-2 border rounded"
                 value={compareCpid2}

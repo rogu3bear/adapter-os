@@ -1,7 +1,7 @@
 // DatasetValidation - Validation tab for dataset detail page
 
 import React, { useState, useEffect } from 'react';
-import { useSSE } from '@/hooks/useSSE';
+import { useLiveData } from '@/hooks/useLiveData';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -63,21 +63,26 @@ export default function DatasetValidation({ dataset, onValidate, isValidating }:
   } | null>(null);
 
   // Subscribe to validation progress events
-  const { data: progressEvent } = useSSE<DatasetProgressEvent>(
-    `/v1/datasets/upload/progress?dataset_id=${dataset.id}`,
-    {
-      enabled: isValidating || dataset.validation_status === 'validating',
-      onMessage: (event) => {
-        if (event.event_type === 'validation') {
-          setValidationProgress({
-            percentage: event.percentage_complete,
-            currentFile: event.current_file,
-            message: event.message,
-          });
-        }
-      },
-    }
-  );
+  useLiveData({
+    sseEndpoint: `/v1/datasets/upload/progress?dataset_id=${dataset.id}`,
+    sseEventType: 'validation',
+    fetchFn: async () => {
+      // No polling fallback for validation progress - SSE only
+      return null;
+    },
+    enabled: isValidating || dataset.validation_status === 'validating',
+    pollingSpeed: 'fast',
+    onSSEMessage: (event) => {
+      const progressEvent = event as DatasetProgressEvent;
+      if (progressEvent.event_type === 'validation') {
+        setValidationProgress({
+          percentage: progressEvent.percentage_complete,
+          currentFile: progressEvent.current_file,
+          message: progressEvent.message,
+        });
+      }
+    },
+  });
 
   // Clear progress when validation completes
   useEffect(() => {

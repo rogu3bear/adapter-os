@@ -1,10 +1,10 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { apiClient } from '../../api/client';
-import type { BaseModelStatus, AllModelsStatusResponse } from '../../api/types';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { apiClient } from '@/api/client';
+import type { BaseModelStatus, AllModelsStatusResponse } from '@/api/types';
 import { CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
-import { logger } from '../../utils/logger';
-import { usePolling } from '../../hooks/usePolling';
+import { logger } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 
 interface ModelStatusBadgeProps {
   status: BaseModelStatus['status'];

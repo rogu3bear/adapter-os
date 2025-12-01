@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -15,23 +14,24 @@ import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
 import { Checkbox } from './ui/checkbox';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
-import apiClient from '../api/client';
-import { TelemetryBundle, User, VerifyBundleSignatureResponse } from '../api/types';
+import apiClient from '@/api/client';
+import { TelemetryBundle, User, VerifyBundleSignatureResponse } from '@/api/types';
 
-import { useTimestamp } from '../hooks/useTimestamp';
+import { useTimestamp } from '@/hooks/useTimestamp';
 import { HashChainView } from './HashChainView';
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { toast } from 'sonner';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import { GoldenCompareModal } from './GoldenCompareModal';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { DensityControls } from './ui/density-controls';
-import { useDensity } from '../contexts/DensityContext';
+import { useDensity } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/useRBAC';
 import { PERMISSIONS } from '@/utils/rbac';
+import { useLiveData } from '@/hooks/useLiveData';
 
 interface TelemetryProps {
   user?: User;
@@ -67,14 +67,14 @@ function TelemetryToolbar({
         showLabel={false}
         className="min-w-[160px]"
       />
-      <HelpTooltip helpId="telemetry-export">
+      <GlossaryTooltip termId="telemetry-export">
         <ExportMenu
           onExport={onExportAll}
           filename="telemetry-bundles-export"
           formats={['csv', 'json']}
           disabled={exportDisabled || !canExport}
         />
-      </HelpTooltip>
+      </GlossaryTooltip>
       <Badge variant={connected ? 'default' : 'secondary'} className="flex items-center gap-2">
         <Activity className="h-4 w-4" aria-hidden="true" />
         {connected ? 'Capturing Events (Live)' : 'Capturing Events'}
@@ -229,120 +229,65 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
       });
     }
   }, [bundles.length, effectiveTenant, filteredBundles.length, loading]);
-  
+
   // Golden compare modal is encapsulated in its own component
 
-  // SSE connection state for bundles
-  const [sseConnected, setSseConnected] = useState(false);
+  const handleSSEMessage = useCallback((eventData: unknown) => {
+    try {
+      // Normalize: handle both single object and array
+      const bundleList = Array.isArray(eventData) ? eventData : [eventData];
 
-  useEffect(() => {
-    const fetchBundles = async () => {
-      try {
-        setTelemetryError(null);
-        const data = await apiClient.listTelemetryBundles();
-        setBundles(data);
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error('Failed to fetch telemetry bundles');
-        setTelemetryError(error);
-        logger.error('Failed to fetch telemetry bundles', {
-          component: 'Telemetry',
-          operation: 'fetchBundles',
-          tenantId: effectiveTenant,
-        }, toError(err));
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchBundles();
-  }, [effectiveTenant]);
+      setBundles((prev) => {
+        // Merge new bundles, avoiding duplicates by ID
+        const existingIds = new Set(prev.map(b => b.id));
+        const newBundles = bundleList.filter((b: { id: string }) => !existingIds.has(b.id));
+        if (newBundles.length === 0) return prev;
 
-  // SSE for real-time bundle notifications
-  useEffect(() => {
-    const baseUrl = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
-    const url = `${baseUrl}/v1/stream/telemetry`;
-
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
-    let reconnectTimeout: NodeJS.Timeout | null = null;
-
-    const createEventSource = () => {
-      const eventSource = new EventSource(url);
-
-      eventSource.onopen = () => {
-        setSseConnected(true);
-        setSseError(null);
-        reconnectAttempts = 0;
-      };
-
-      eventSource.onerror = (event) => {
-        setSseConnected(false);
-
-        // Close the failed connection
-        eventSource.close();
-
-        if (reconnectAttempts < maxReconnectAttempts) {
-          reconnectAttempts++;
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-
-          logger.warn('SSE connection error, attempting reconnect', {
-            component: 'Telemetry',
-            operation: 'sse_reconnect',
-            attempt: reconnectAttempts,
-            maxAttempts: maxReconnectAttempts,
-            delayMs: delay,
-          });
-
-          reconnectTimeout = setTimeout(() => {
-            createEventSource();
-          }, delay);
-        } else {
-          const error = new Error('Failed to establish SSE connection after multiple attempts. Live updates are unavailable.');
-          setSseError(error);
-          logger.error('SSE connection failed permanently', {
-            component: 'Telemetry',
-            operation: 'sse_connection_failed',
-            attempts: reconnectAttempts,
-          }, error);
-        }
-      };
-
-      // Listen for bundle events (single objects or arrays)
-      eventSource.addEventListener('bundles', (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          // Normalize: handle both single object and array
-          const bundleList = Array.isArray(payload) ? payload : [payload];
-
-          setBundles((prev) => {
-            // Merge new bundles, avoiding duplicates by ID
-            const existingIds = new Set(prev.map(b => b.id));
-            const newBundles = bundleList.filter(b => !existingIds.has(b.id));
-            if (newBundles.length === 0) return prev;
-
-            // Prepend new bundles and limit to last 100
-            const merged = [...newBundles, ...prev];
-            return merged.slice(0, 100);
-          });
-        } catch (err) {
-          logger.error('Failed to parse bundles SSE payload', {
-            component: 'Telemetry',
-            operation: 'sse_bundles_parse',
-          }, toError(err));
-        }
+        // Prepend new bundles and limit to last 100
+        const merged = [...newBundles, ...prev];
+        return merged.slice(0, 100);
       });
-
-      return eventSource;
-    };
-
-    const eventSource = createEventSource();
-
-    return () => {
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-      eventSource.close();
-    };
+    } catch (err) {
+      logger.error('Failed to process bundles SSE payload', {
+        component: 'Telemetry',
+        operation: 'sse_bundles_parse',
+      }, toError(err));
+    }
   }, []);
+
+  // Use standardized live data hook
+  const { data, isLoading: liveDataLoading, error: liveDataError, sseConnected, refetch } = useLiveData<TelemetryBundle[]>({
+    sseEndpoint: '/v1/stream/telemetry',
+    sseEventType: 'bundles',
+    fetchFn: async () => {
+      const data = await apiClient.listTelemetryBundles();
+      setBundles(data);
+      return data;
+    },
+    pollingSpeed: 'normal',
+    enabled: true,
+    onSSEMessage: handleSSEMessage,
+    onError: (err, source) => {
+      logger.error('Telemetry data error', {
+        component: 'Telemetry',
+        operation: source === 'sse' ? 'sse_error' : 'fetchBundles',
+        tenantId: effectiveTenant,
+        source,
+      }, err);
+
+      if (source === 'sse') {
+        setSseError(err);
+      } else {
+        setTelemetryError(err);
+      }
+    },
+    operationName: 'TelemetryBundles',
+  });
+
+  // Update loading state
+  useEffect(() => {
+    setLoading(liveDataLoading);
+  }, [liveDataLoading]);
 
   const handleExportBundle = (bundle: TelemetryBundle) => {
     // Download bundle as JSON
@@ -566,7 +511,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
         </Alert>
       )}
 
-      <HelpTooltip helpId="telemetry-filters">
+      <GlossaryTooltip termId="telemetry-filters">
         <AdvancedFilter
           configs={telemetryFilterConfigs}
           values={filterValues}
@@ -574,7 +519,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
           className="mb-4"
           title="Filter Bundles"
         />
-      </HelpTooltip>
+      </GlossaryTooltip>
 
       <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
         <CardHeader>
@@ -588,7 +533,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                   </span>
                 )}
               </span>
-              <ConceptTooltip concept="bundle" />
+              <GlossaryTooltip termId="bundle" variant="icon" />
             </CardTitle>
             <TelemetryToolbar
               density={density}
@@ -628,30 +573,30 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                   />
                 </TableHead>
                 <TableHead role="columnheader" scope="col">
-                  <HelpTooltip helpId="telemetry-event">
+                  <GlossaryTooltip termId="telemetry-event">
                     <span>Bundle ID</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead role="columnheader" scope="col">
-                  <HelpTooltip helpId="cpid">
+                  <GlossaryTooltip termId="cpid">
                     <span>Policy ID</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead role="columnheader" scope="col">
-                  <HelpTooltip helpId="telemetry-type">
+                  <GlossaryTooltip termId="telemetry-type">
                     <span>Events</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead role="columnheader" scope="col">Size</TableHead>
                 <TableHead role="columnheader" scope="col">
-                  <HelpTooltip helpId="merkle-root">
+                  <GlossaryTooltip termId="merkle-root">
                     <span>Merkle Root</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead role="columnheader" scope="col">
-                  <HelpTooltip helpId="telemetry-timestamp">
+                  <GlossaryTooltip termId="telemetry-timestamp">
                     <span>Created</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead role="columnheader" scope="col">Actions</TableHead>
               </TableRow>

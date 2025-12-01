@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import apiClient from '../../api/client';
-import { logger, toError } from '../../utils/logger';
-import { usePolling } from '../../hooks/usePolling';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 
 interface Span {
   span_id: string;
@@ -13,7 +13,7 @@ interface Span {
   name: string;
   start_ns: number;
   end_ns: number;
-  attributes?: Record<string, any>;
+  attributes?: Record<string, unknown>;
   status: string;
   start_time?: string;
   end_time?: string;
@@ -38,7 +38,7 @@ export function TraceTimeline() {
   });
 
   const fetchTraces = async (): Promise<string[]> => {
-    const params: any = {};
+    const params: Record<string, string | number> = {};
     if (searchParams.span_name) params.span_name = searchParams.span_name;
     if (searchParams.status) params.status = searchParams.status;
     if (searchParams.start_time_ns) params.start_time_ns = new Date(searchParams.start_time_ns).getTime() * 1_000_000; // Convert to nanoseconds

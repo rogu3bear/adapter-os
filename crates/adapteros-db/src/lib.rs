@@ -23,6 +23,7 @@ pub mod sqlite_backend;
 pub mod traits;
 pub mod kv_backend;
 pub mod kv_metrics;
+pub mod tenant_policies;
 
 // Re-export commonly used types
 pub use traits::{
@@ -37,6 +38,12 @@ pub use kv_backend::{KvBackend, KvDb, StorageError as KvStorageError};
 pub use kv_metrics::{
     global_kv_metrics, KvErrorType, KvMetrics, KvMetricsSnapshot, KvOperationTimer,
     KvOperationType,
+};
+
+// Re-export tenant policy types
+pub use tenant_policies::{
+    CreateCustomizationRequest, CustomizationHistoryEntry, CustomizationStatus,
+    TenantPolicyCustomization, TenantPolicyCustomizationOps,
 };
 
 // PostgreSQL backend for production (legacy - to be deprecated)
@@ -2086,5 +2093,187 @@ impl Db {
                 Ok(false)
             }
         }
+    }
+
+    /// Insert a behavior event for lifecycle tracking
+    pub async fn insert_behavior_event(
+        &self,
+        event_type: &str,
+        adapter_id: &str,
+        tenant_id: &str,
+        from_state: &str,
+        to_state: &str,
+        activation_pct: f32,
+        memory_mb: u64,
+        reason: &str,
+        metadata: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO behavior_events (id, event_type, adapter_id, tenant_id, from_state, to_state, 
+                   activation_pct, memory_mb, reason, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(uuid::Uuid::now_v7().to_string())
+        .bind(event_type)
+        .bind(adapter_id)
+        .bind(tenant_id)
+        .bind(from_state)
+        .bind(to_state)
+        .bind(activation_pct)
+        .bind(memory_mb as i64)
+        .bind(reason)
+        .bind(metadata)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert behavior event: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Query behavior events with optional filtering
+    pub async fn get_behavior_events(
+        &self,
+        tenant_id: Option<&str>,
+        event_type: Option<&str>,
+        adapter_id: Option<&str>,
+        since: Option<&str>,
+        until: Option<&str>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<serde_json::Value>> {
+        let mut query = "SELECT id, event_type, adapter_id, tenant_id, from_state, to_state, activation_pct, memory_mb, reason, created_at, metadata FROM behavior_events WHERE 1=1".to_string();
+        
+        if tenant_id.is_some() {
+            query.push_str(" AND tenant_id = ?");
+        }
+        if event_type.is_some() {
+            query.push_str(" AND event_type = ?");
+        }
+        if adapter_id.is_some() {
+            query.push_str(" AND adapter_id = ?");
+        }
+        if since.is_some() {
+            query.push_str(" AND created_at >= ?");
+        }
+        if until.is_some() {
+            query.push_str(" AND created_at <= ?");
+        }
+        
+        query.push_str(" ORDER BY created_at DESC");
+        
+        if let Some(lim) = limit {
+            query.push_str(&format!(" LIMIT {}", lim));
+        }
+        if let Some(off) = offset {
+            query.push_str(&format!(" OFFSET {}", off));
+        }
+
+        let mut q = sqlx::query(&query);
+        
+        if let Some(tid) = tenant_id {
+            q = q.bind(tid);
+        }
+        if let Some(et) = event_type {
+            q = q.bind(et);
+        }
+        if let Some(aid) = adapter_id {
+            q = q.bind(aid);
+        }
+        if let Some(s) = since {
+            q = q.bind(s);
+        }
+        if let Some(u) = until {
+            q = q.bind(u);
+        }
+
+        let rows = q
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to query behavior events: {}", e)))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let mut event = serde_json::Map::new();
+            event.insert("id".to_string(), serde_json::json!(row.try_get::<String, _>("id").unwrap_or_default()));
+            event.insert("event_type".to_string(), serde_json::json!(row.try_get::<String, _>("event_type").unwrap_or_default()));
+            event.insert("adapter_id".to_string(), serde_json::json!(row.try_get::<String, _>("adapter_id").unwrap_or_default()));
+            event.insert("tenant_id".to_string(), serde_json::json!(row.try_get::<String, _>("tenant_id").unwrap_or_default()));
+            event.insert("from_state".to_string(), serde_json::json!(row.try_get::<String, _>("from_state").ok()));
+            event.insert("to_state".to_string(), serde_json::json!(row.try_get::<String, _>("to_state").ok()));
+            event.insert("activation_pct".to_string(), serde_json::json!(row.try_get::<f64, _>("activation_pct").unwrap_or(0.0)));
+            event.insert("memory_mb".to_string(), serde_json::json!(row.try_get::<i64, _>("memory_mb").unwrap_or(0)));
+            event.insert("reason".to_string(), serde_json::json!(row.try_get::<String, _>("reason").unwrap_or_default()));
+            event.insert("created_at".to_string(), serde_json::json!(row.try_get::<String, _>("created_at").unwrap_or_default()));
+            if let Ok(Some(meta)) = row.try_get::<Option<String>, _>("metadata") {
+                event.insert("metadata".to_string(), serde_json::json!(meta));
+            }
+            results.push(serde_json::Value::Object(event));
+        }
+
+        Ok(results)
+    }
+
+    /// Get behavior event statistics
+    pub async fn get_behavior_stats(&self, tenant_id: Option<&str>) -> Result<serde_json::Value> {
+        let tenant_filter = if tenant_id.is_some() {
+            "WHERE tenant_id = ?"
+        } else {
+            ""
+        };
+
+        // Total count
+        let total_query = format!("SELECT COUNT(*) as total FROM behavior_events {}", tenant_filter);
+        let mut total_q = sqlx::query(&total_query);
+        if let Some(tid) = tenant_id {
+            total_q = total_q.bind(tid);
+        }
+        let total_row = total_q.fetch_one(&*self.pool()).await
+            .map_err(|e| AosError::Database(format!("Failed to get total count: {}", e)))?;
+        let total: i64 = total_row.try_get("total").unwrap_or(0);
+
+        // By category
+        let category_query = format!("SELECT event_type, COUNT(*) as count FROM behavior_events {} GROUP BY event_type", tenant_filter);
+        let mut cat_q = sqlx::query(&category_query);
+        if let Some(tid) = tenant_id {
+            cat_q = cat_q.bind(tid);
+        }
+        let category_rows = cat_q.fetch_all(&*self.pool()).await
+            .map_err(|e| AosError::Database(format!("Failed to get category stats: {}", e)))?;
+        
+        let mut by_category = serde_json::Map::new();
+        for row in category_rows {
+            let event_type: String = row.try_get("event_type").unwrap_or_default();
+            let count: i64 = row.try_get("count").unwrap_or(0);
+            by_category.insert(event_type, serde_json::json!(count));
+        }
+
+        // By state transition
+        let transition_query = format!("SELECT from_state, to_state, COUNT(*) as count FROM behavior_events {} GROUP BY from_state, to_state ORDER BY count DESC LIMIT 10", tenant_filter);
+        let mut trans_q = sqlx::query(&transition_query);
+        if let Some(tid) = tenant_id {
+            trans_q = trans_q.bind(tid);
+        }
+        let transition_rows = trans_q.fetch_all(&*self.pool()).await
+            .map_err(|e| AosError::Database(format!("Failed to get transition stats: {}", e)))?;
+        
+        let mut by_transition = Vec::new();
+        for row in transition_rows {
+            let from: String = row.try_get("from_state").unwrap_or_default();
+            let to: String = row.try_get("to_state").unwrap_or_default();
+            let count: i64 = row.try_get("count").unwrap_or(0);
+            by_transition.push(serde_json::json!({
+                "from": from,
+                "to": to,
+                "count": count
+            }));
+        }
+
+        Ok(serde_json::json!({
+            "total_events": total,
+            "by_category": by_category,
+            "by_state_transition": by_transition
+        }))
     }
 }

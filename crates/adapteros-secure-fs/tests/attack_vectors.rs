@@ -15,14 +15,10 @@ use adapteros_secure_fs::symlink;
 use adapteros_secure_fs::traversal;
 use adapteros_secure_fs::{SecureFsConfig, SecureFsManager};
 use std::fs;
-use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use tempfile::TempDir;
-
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
 
 // ============================================================================
 // Test 1: Symlink Attack Prevention
@@ -39,7 +35,7 @@ fn test_symlink_attack_prevention() -> Result<()> {
     config.enable_caps = false;
     config.enable_symlink_protection = true;
 
-    let manager = SecureFsManager::new(config)?;
+    let _manager = SecureFsManager::new(config)?;
 
     // Test 1.1: Attempt to create symlink to /etc/passwd
     let symlink_path = temp_dir.path().join("passwd_link");
@@ -598,7 +594,7 @@ fn test_concurrent_file_access() -> Result<()> {
 
         let handle = thread::spawn(move || -> Result<()> {
             let config = SecureFsConfig::default();
-            let manager = SecureFsManager::new(config)?;
+            let _manager = SecureFsManager::new(config)?;
 
             barrier.wait();
 
@@ -735,7 +731,7 @@ fn test_combined_attack_scenarios() -> Result<()> {
 
     // Scenario 3: Path normalization bypass attempt
     let attack_path = temp_dir.path().join("safe/./../../etc/passwd");
-    let result = manager.create_file(&attack_path);
+    let _result = manager.create_file(&attack_path);
     // May be blocked depending on normalization timing
 
     Ok(())

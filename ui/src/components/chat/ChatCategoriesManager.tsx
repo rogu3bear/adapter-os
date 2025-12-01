@@ -120,8 +120,10 @@ export function ChatCategoriesManager({
       return;
     }
 
+    // Handle __none__ sentinel value for clearing category
+    const effectiveCategoryId = categoryId === '__none__' ? null : categoryId;
     // Allow deselection by clicking the same category
-    const newCategoryId = categoryId === currentCategoryId ? null : categoryId;
+    const newCategoryId = effectiveCategoryId === currentCategoryId ? null : effectiveCategoryId;
     setCategoryMutation.mutate({ sessionId, categoryId: newCategoryId });
   };
 
@@ -142,7 +144,9 @@ export function ChatCategoriesManager({
   };
 
   const handleFormChange = (field: keyof CategoryFormData, value: string | undefined) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    // Convert __none__ sentinel to undefined for parent_id
+    const effectiveValue = value === '__none__' ? undefined : value;
+    setFormData((prev) => ({ ...prev, [field]: effectiveValue }));
   };
 
   if (error) {
@@ -189,7 +193,7 @@ export function ChatCategoriesManager({
               <>
                 {/* Option to clear category */}
                 {currentCategoryId && (
-                  <SelectItem value="">
+                  <SelectItem value="__none__">
                     <span className="text-muted-foreground italic">No category</span>
                   </SelectItem>
                 )}
@@ -265,7 +269,7 @@ export function ChatCategoriesManager({
                   <SelectValue placeholder="None (top-level)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">
+                  <SelectItem value="__none__">
                     <span className="text-muted-foreground italic">None (top-level)</span>
                   </SelectItem>
                   {categories.map((category) => (

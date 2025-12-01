@@ -3,6 +3,7 @@ import {
   ServiceStatus,
   LifecyclePhase,
   HealthStatus,
+  HealthCheck,
   ServiceDependency,
   LifecycleEvent,
   ServiceLogEntry,
@@ -12,8 +13,8 @@ import {
   StopOptions,
   RestartOptions,
   ServiceManagerConfig
-} from '../types/service-lifecycle';
-import { logger } from '../utils/logger';
+} from '@/types/service-lifecycle';
+import { logger } from '@/utils/logger';
 
 export class ServiceLifecycleManager {
   private services: Map<string, Service> = new Map();
@@ -436,7 +437,7 @@ export class ServiceLifecycleManager {
     }
   }
 
-  private async executeHealthCheck(service: Service, healthCheck: any): Promise<HealthStatus> {
+  private async executeHealthCheck(service: Service, healthCheck: HealthCheck): Promise<HealthStatus> {
     switch (healthCheck.type) {
       case 'http':
         return await this.checkHttpHealth(service, healthCheck);
@@ -556,7 +557,7 @@ export class ServiceLifecycleManager {
   }
 
   // Lifecycle Hooks
-  private async executeLifecycleHooks(serviceId: string, hookType: string, ...args: any[]): Promise<void> {
+  private async executeLifecycleHooks(serviceId: string, hookType: string, ...args: unknown[]): Promise<void> {
     const service = this.services.get(serviceId);
     if (!service) return;
 
@@ -667,7 +668,7 @@ export class ServiceLifecycleManager {
   }
 
   // Health Check Implementations
-  private async checkHttpHealth(service: Service, healthCheck: any): Promise<HealthStatus> {
+  private async checkHttpHealth(service: Service, healthCheck: HealthCheck): Promise<HealthStatus> {
     try {
       const url = healthCheck.endpoint || `http://localhost:${service.port}/health`;
       const controller = new AbortController();
@@ -680,12 +681,12 @@ export class ServiceLifecycleManager {
     }
   }
 
-  private async checkTcpHealth(service: Service, healthCheck: any): Promise<HealthStatus> {
+  private async checkTcpHealth(service: Service, healthCheck: HealthCheck): Promise<HealthStatus> {
     // Would implement TCP connection check
     return 'healthy'; // Placeholder
   }
 
-  private async checkCommandHealth(service: Service, healthCheck: any): Promise<HealthStatus> {
+  private async checkCommandHealth(service: Service, healthCheck: HealthCheck): Promise<HealthStatus> {
     const result = await this.executeCommand(healthCheck.command || service.healthCommand);
     return result.success ? 'healthy' : 'critical';
   }

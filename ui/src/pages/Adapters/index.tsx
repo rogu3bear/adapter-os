@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -89,7 +89,7 @@ export function AdaptersPage() {
   const canDelete = can('adapter:delete');
 
   // Extract data
-  const adapters = data?.adapters ?? [];
+  const adapters = useMemo(() => data?.adapters ?? [], [data]);
   const totalMemory = data?.totalMemory ?? 0;
   const systemMetrics = data?.systemMetrics;
 
@@ -367,7 +367,7 @@ export function AdaptersPage() {
           disabled: !canRegister,
           size: 'sm',
         }}
-        helpContent="Manage your LoRA adapter fleet - load, unload, pin, and monitor adapter performance."
+        brief="Manage your LoRA adapter fleet - load, unload, pin, and monitor adapter performance."
       >
         <div className="space-y-6">
           {/* Error Alert */}

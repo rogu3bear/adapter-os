@@ -9,7 +9,7 @@
 import React from 'react';
 import { Button } from './button';
 import { Undo2, Redo2 } from 'lucide-react';
-import { useUndoRedoContext } from '../../contexts/UndoRedoContext';
+import { useUndoRedoContext } from '@/contexts/UndoRedoContext';
 
 interface UndoRedoToolbarProps {
   className?: string;

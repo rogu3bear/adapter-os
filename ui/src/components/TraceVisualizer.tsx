@@ -13,7 +13,7 @@ import {
   Info,
   HelpCircle,
 } from 'lucide-react';
-import { InferenceTrace } from '../api/types';
+import { InferenceTrace } from '@/api/types';
 
 interface TraceVisualizerProps {
   trace: InferenceTrace;

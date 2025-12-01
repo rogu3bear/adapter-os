@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -40,8 +40,9 @@ import { ServiceCard } from './ServiceCard';
 import { TerminalOutput } from './TerminalOutput';
 import PromptOrchestrationPanel from './PromptOrchestrationPanel';
 import { AuthenticationSettings } from './AuthenticationSettings';
-import { logger, toError } from '../utils/logger';
-import apiClient from '../api/client';
+import { logger, toError } from '@/utils/logger';
+import apiClient from '@/api/client';
+import { useServiceStatus } from '@/hooks/useServiceStatus';
 
 // Simple service interface
 interface SimpleService {
@@ -59,11 +60,7 @@ interface SimpleService {
 }
 
 export default function ServicePanel() {
-  const [services, setServices] = useState<SimpleService[]>([]);
   const [selectedService, setSelectedService] = useState<SimpleService | null>(null);
-  const [globalStatus, setGlobalStatus] = useState<'checking' | 'healthy' | 'warning' | 'error'>('checking');
-  const [isLoading, setIsLoading] = useState(false);
-  const [essentialServices, setEssentialServices] = useState<any[]>([]);
   const [essentialOperation, setEssentialOperation] = useState<'idle' | 'starting' | 'stopping'>('idle');
 
   // Service-level loading state
@@ -77,15 +74,24 @@ export default function ServicePanel() {
   const [stopAllConfirmation, setStopAllConfirmation] = useState(false);
   const [stopAllConfirmText, setStopAllConfirmText] = useState('');
 
-  // Load services from backend
-  const loadServices = useCallback(async () => {
-    try {
-      const data = await apiClient.getStatus();
-      // Map status.services to SimpleService format
-      const services: SimpleService[] = (data.services || []).map((s: any) => ({
+  // Use shared service status hook (handles 404s silently, deduplicates polling)
+  const { status: serviceStatusData, isLoading, refetch: loadServices } = useServiceStatus();
+
+  // Map status data to SimpleService format, applying optimistic overrides from serviceOperations
+  const services: SimpleService[] = React.useMemo(() => {
+    if (!serviceStatusData?.services) return [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return serviceStatusData.services.map((s: any) => {
+      const operation = serviceOperations[s.id];
+      // Apply optimistic status override if there's an active operation
+      let status = s.state as 'running' | 'stopped' | 'starting' | 'stopping' | 'error';
+      if (operation === 'starting') status = 'starting';
+      else if (operation === 'stopping') status = 'stopping';
+
+      return {
         id: s.id,
         name: s.name,
-        status: s.state as 'running' | 'stopped' | 'starting' | 'stopping' | 'error',
+        status,
         port: s.port,
         pid: s.pid,
         startTime: s.start_time,
@@ -94,62 +100,31 @@ export default function ServicePanel() {
         dependencies: s.dependencies,
         startupOrder: s.startup_order,
         logs: s.logs || [],
-      }));
-      setServices(services);
+      };
+    });
+  }, [serviceStatusData, serviceOperations]);
 
-      // Calculate global status
-      const running = services.filter((s) => s.status === 'running').length;
-      const total = services.length;
+  // Calculate global status from services
+  const globalStatus = React.useMemo((): 'checking' | 'healthy' | 'warning' | 'error' => {
+    if (isLoading && services.length === 0) return 'checking';
+    if (services.length === 0) return 'error';
+    
+    const running = services.filter((s) => s.status === 'running').length;
+    const total = services.length;
 
-      if (running === total) {
-        setGlobalStatus('healthy');
-      } else if (running >= total * 0.5) {
-        setGlobalStatus('warning');
-      } else {
-        setGlobalStatus('error');
-      }
-    } catch (error) {
-      logger.error('Failed to load services', { 
-        component: 'ServicePanel',
-        error: toError(error),
-      });
-      setGlobalStatus('error');
-    }
-  }, []);
+    if (running === total) return 'healthy';
+    if (running >= total * 0.5) return 'warning';
+    return 'error';
+  }, [services, isLoading]);
 
-  // Load essential services
-  const loadEssentialServices = useCallback(async () => {
-    // For now, filter essential from services
-    // This is a placeholder; implement proper essential services endpoint when available
-    try {
-      const data = await apiClient.getStatus();
-      const essential = (data.services || [])
-        .filter((s: any) => s.essential)
-        .map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          status: s.state,
-          // ... other fields
-        }));
-      setEssentialServices(essential);
-    } catch (error) {
-      logger.error('Failed to load essential services', { 
-        component: 'ServicePanel',
-        error: toError(error),
-      });
-    }
-  }, []);
-
-  // Initial load and polling
-  useEffect(() => {
-    loadServices();
-    loadEssentialServices();
-    const interval = setInterval(() => {
-      loadServices();
-      loadEssentialServices();
-    }, 3000); // Poll every 3 seconds
-    return () => clearInterval(interval);
-  }, [loadServices, loadEssentialServices]);
+  // Filter essential services
+  const essentialServices = React.useMemo(() => {
+    return services.filter(s => s.essential).map(s => ({
+      id: s.id,
+      name: s.name,
+      status: s.status,
+    }));
+  }, [services]);
 
   // Helper to show notification with auto-dismiss
   const showNotification = useCallback((type: 'success' | 'error', message: string) => {
@@ -164,13 +139,8 @@ export default function ServicePanel() {
       serviceId: service.id,
     });
 
-    // Set optimistic loading state
+    // Set optimistic loading state (status override applied in services useMemo)
     setServiceOperations(prev => ({ ...prev, [service.id]: 'starting' }));
-
-    // Optimistically update service status
-    setServices(prev => prev.map(s =>
-      s.id === service.id ? { ...s, status: 'starting' as const } : s
-    ));
 
     try {
       const result = await apiClient.startService(service.id);
@@ -182,9 +152,7 @@ export default function ServicePanel() {
       });
 
       showNotification('success', `Service "${service.name}" started successfully`);
-
-      // Reload services to get actual state
-      await loadServices();
+      // Service status will update via the shared polling hook
     } catch (error) {
       logger.error('Failed to start service', {
         component: 'ServicePanel',
@@ -193,9 +161,7 @@ export default function ServicePanel() {
       });
 
       showNotification('error', `Failed to start service "${service.name}": ${toError(error).message}`);
-
-      // Revert optimistic update on error
-      await loadServices();
+      // Service status will revert via the shared polling hook
     } finally {
       setServiceOperations(prev => ({ ...prev, [service.id]: null }));
     }
@@ -218,13 +184,8 @@ export default function ServicePanel() {
       serviceId: service.id,
     });
 
-    // Set loading state
+    // Set loading state (status override applied in services useMemo)
     setServiceOperations(prev => ({ ...prev, [service.id]: 'stopping' }));
-
-    // Optimistically update service status
-    setServices(prev => prev.map(s =>
-      s.id === service.id ? { ...s, status: 'stopping' as const } : s
-    ));
 
     try {
       const result = await apiClient.stopService(service.id);
@@ -236,8 +197,7 @@ export default function ServicePanel() {
       });
 
       showNotification('success', `Service "${service.name}" stopped successfully`);
-
-      await loadServices();
+      // Service status will update via the shared polling hook
     } catch (error) {
       logger.error('Failed to stop service', {
         component: 'ServicePanel',
@@ -246,8 +206,7 @@ export default function ServicePanel() {
       });
 
       showNotification('error', `Failed to stop service "${service.name}": ${toError(error).message}`);
-
-      await loadServices();
+      // Service status will revert via the shared polling hook
     } finally {
       setServiceOperations(prev => ({ ...prev, [service.id]: null }));
     }
@@ -270,9 +229,7 @@ export default function ServicePanel() {
       });
 
       showNotification('success', 'All essential services started successfully');
-
-      await loadServices();
-      await loadEssentialServices();
+      // Service status will update via the shared polling hook
     } catch (error) {
       logger.error('Failed to start essential services', {
         component: 'ServicePanel',
@@ -313,9 +270,7 @@ export default function ServicePanel() {
       });
 
       showNotification('success', 'All essential services stopped successfully');
-
-      await loadServices();
-      await loadEssentialServices();
+      // Service status will update via the shared polling hook
     } catch (error) {
       logger.error('Failed to stop essential services', {
         component: 'ServicePanel',

@@ -22,7 +22,7 @@
 - **Host:** 127.0.0.1
 - **Port:** 8082
 - **Started:** 2025-11-25T18:09:12Z
-- **Logs:** `/tmp/aos-server-startup.log`
+- **Logs:** `./var/logs/aos-server-startup.log`
 
 ### API Endpoints (Verified)
 - ✅ `GET /api/healthz` → **WORKS** - Returns `{"status":"healthy","version":"0.1.0"}`
@@ -171,7 +171,7 @@ b3sum crates/adapteros-lora-kernel-mtl/shaders/aos_kernels.metallib
 
 ## 🔗 References
 
-- Server logs: `/tmp/aos-server-startup.log`
+- Server logs: `./var/logs/aos-server-startup.log`
 - Database: `var/aos-cp.sqlite3`
 - Code fixes: `git diff HEAD crates/adapteros-lora-worker/`
 - API Base: `http://127.0.0.1:8082/api/`

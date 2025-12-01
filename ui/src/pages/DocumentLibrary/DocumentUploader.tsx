@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
 import { useDocumentsApi } from '@/hooks/useDocumentsApi';
 import { useToast } from '@/hooks/use-toast';
+import { logger, toError } from '@/utils/logger';
 
 export function DocumentUploader() {
   const { toast } = useToast();
@@ -43,7 +44,17 @@ export function DocumentUploader() {
           description: `${file.name} uploaded successfully`,
         });
       } catch (error) {
-        console.error('Upload failed:', error);
+        logger.error('Document upload failed', {
+          component: 'DocumentUploader',
+          operation: 'uploadFiles',
+          errorType: 'document_upload_failure',
+          details: 'Failed to upload document to server',
+          fileName: file.name,
+          fileSize: file.size,
+          fileType: file.type,
+          uploadIndex: i,
+          totalFiles: pendingFiles.length
+        }, toError(error));
         toast({
           title: 'Upload Failed',
           description: `Failed to upload ${file.name}`,

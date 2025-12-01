@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Label } from '../ui/label';
-import { Switch } from '../ui/switch';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../ui/select';
+} from '@/components/ui/select';
 import {
   LineChart,
   Line,
@@ -36,9 +36,10 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '../../api/client';
-import { TrainingJob, TrainingMetrics } from '../../api/training-types';
-import { logger } from '../../utils/logger';
+import apiClient from '@/api/client';
+import { TrainingJob, TrainingMetrics } from '@/api/training-types';
+import { logger } from '@/utils/logger';
+import { METRIC_COLORS } from '@/constants/chart-colors';
 
 // Simulated extended metrics for demonstration
 interface ExtendedMetrics extends TrainingMetrics {
@@ -58,15 +59,8 @@ interface MetricsDataPoint {
   tokens_per_second?: number;
 }
 
-// Color palette (Tol Bright scheme - color-blind friendly)
-const COLORS = {
-  trainingLoss: '#4477AA',
-  validationLoss: '#EE6677',
-  learningRate: '#228833',
-  gradientNorm: '#CCBB44',
-  gpuMemory: '#66CCEE',
-  tokensPerSec: '#AA3377',
-};
+// Use design system chart colors for metrics
+const COLORS = METRIC_COLORS;
 
 export default function MLEngineerTrainingMetrics() {
   // Job selection state
@@ -510,7 +504,7 @@ export default function MLEngineerTrainingMetrics() {
                   <XAxis dataKey="step" fontSize={10} />
                   <YAxis fontSize={10} />
                   <Tooltip formatter={(value: number) => value.toFixed(4)} />
-                  <ReferenceLine y={1.0} stroke="#ef4444" strokeDasharray="5 5" label="Clip" />
+                  <ReferenceLine y={1.0} stroke="hsl(var(--chart-4))" strokeDasharray="5 5" label="Clip" />
                   <Line
                     type="monotone"
                     dataKey="gradient_norm"

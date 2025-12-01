@@ -5,14 +5,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import apiClient from '../api/client';
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { LoadingState } from './ui/loading-state';
 import { LastUpdated } from './ui/last-updated';
-import { useRBAC } from '../hooks/useRBAC';
+import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { KpiGrid, ContentGrid } from './ui/grid';
 import {
   Activity,
@@ -226,15 +226,15 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <HelpTooltip helpId="management-services">
+          <GlossaryTooltip termId="management-services">
             <TabsTrigger value="services">Services</TabsTrigger>
-          </HelpTooltip>
-          <HelpTooltip helpId="management-resources">
+          </GlossaryTooltip>
+          <GlossaryTooltip termId="management-resources">
             <TabsTrigger value="resources">Resources</TabsTrigger>
-          </HelpTooltip>
-          <HelpTooltip helpId="management-workers">
+          </GlossaryTooltip>
+          <GlossaryTooltip termId="management-workers">
             <TabsTrigger value="actions">Quick Actions</TabsTrigger>
-          </HelpTooltip>
+          </GlossaryTooltip>
         </TabsList>
 
         {/* Overview Tab */}
@@ -308,7 +308,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <Cpu className="h-4 w-4" />
                     CPU Usage
-                    <HelpTooltip helpId="cpu-usage" />
+                    <GlossaryTooltip termId="cpu-usage" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -329,7 +329,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <MemoryStick className="h-4 w-4" />
                     Memory Usage
-                    <HelpTooltip helpId="memory-usage" />
+                    <GlossaryTooltip termId="memory-usage" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -363,7 +363,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <HardDrive className="h-4 w-4" />
                     Disk Usage
-                    <HelpTooltip helpId="disk-usage" />
+                    <GlossaryTooltip termId="disk-usage" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -487,7 +487,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                         <div className="flex gap-1">
                           {service.status === 'running' ? (
                             <>
-                              <HelpTooltip content="Restart service">
+                              <GlossaryTooltip brief="Restart service">
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -496,8 +496,8 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                                 >
                                   <RotateCcw className="h-4 w-4" />
                                 </Button>
-                              </HelpTooltip>
-                              <HelpTooltip content="Stop service">
+                              </GlossaryTooltip>
+                              <GlossaryTooltip brief="Stop service">
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -506,10 +506,10 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                                 >
                                   <Square className="h-4 w-4" />
                                 </Button>
-                              </HelpTooltip>
+                              </GlossaryTooltip>
                             </>
                           ) : (
-                            <HelpTooltip content="Start service">
+                            <GlossaryTooltip brief="Start service">
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -518,14 +518,14 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                               >
                                 <Play className="h-4 w-4" />
                               </Button>
-                            </HelpTooltip>
+                            </GlossaryTooltip>
                           )}
                         </div>
                       )}
                       {!canManageWorkers && (
-                        <HelpTooltip helpId="requires-admin">
+                        <GlossaryTooltip termId="requires-admin">
                           <span className="text-xs text-muted-foreground">No permission</span>
-                        </HelpTooltip>
+                        </GlossaryTooltip>
                       )}
                     </div>
                   </div>
@@ -567,9 +567,9 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                           View
                         </Button>
                       ) : (
-                        <HelpTooltip helpId="requires-admin">
+                        <GlossaryTooltip termId="requires-admin">
                           <span className="text-xs text-muted-foreground">View only</span>
-                        </HelpTooltip>
+                        </GlossaryTooltip>
                       )}
                     </div>
                   ))}

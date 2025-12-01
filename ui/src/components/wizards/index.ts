@@ -9,9 +9,9 @@
  */
 
 // Re-export from current locations (files not moved yet)
-export { AdapterImportWizard } from '../AdapterImportWizard';
-export { CursorSetupWizard } from '../CursorSetupWizard';
-export { ModelImportWizard } from '../ModelImportWizard';
-export { TenantImportWizard } from '../TenantImportWizard';
-export { TrainingWizard } from '../TrainingWizard';
-export { WorkflowWizard } from '../WorkflowWizard';
+export { AdapterImportWizard } from '@/components/AdapterImportWizard';
+export { CursorSetupWizard } from '@/components/CursorSetupWizard';
+export { ModelImportWizard } from '@/components/ModelImportWizard';
+export { TenantImportWizard } from '@/components/TenantImportWizard';
+export { TrainingWizard } from '@/components/TrainingWizard';
+export { WorkflowWizard } from '@/components/WorkflowWizard';

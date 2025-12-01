@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { type WorkerResponse } from '@/api/api-types';
 import { DataTable } from '@/components/shared/DataTable/DataTable';
 import { type Column } from '@/components/shared/DataTable/types';
@@ -25,7 +25,7 @@ export default function WorkerTable({ workers, isLoading, onWorkerSelect, onRefr
   const { stopWorker } = useWorkerOperations();
   const { toast } = useToast();
 
-  const handleStopWorker = async (workerId: string) => {
+  const handleStopWorker = useCallback(async (workerId: string) => {
     if (!confirm(`Are you sure you want to stop worker ${workerId}?`)) {
       return;
     }
@@ -44,7 +44,7 @@ export default function WorkerTable({ workers, isLoading, onWorkerSelect, onRefr
         variant: 'destructive',
       });
     }
-  };
+  }, [stopWorker, toast, onRefresh]);
 
   const columns = useMemo<Column<WorkerResponse>[]>(
     () => [
@@ -171,7 +171,7 @@ export default function WorkerTable({ workers, isLoading, onWorkerSelect, onRefr
         },
       },
     ],
-    [onWorkerSelect, stopWorker.isLoading]
+    [onWorkerSelect, stopWorker.isLoading, handleStopWorker]
   );
 
   return (

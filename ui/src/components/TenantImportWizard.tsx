@@ -7,11 +7,11 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, CheckCircle, XCircle, ArrowRight, ArrowLeft, FileText } from 'lucide-react';
-import apiClient from '../api/client';
+import apiClient from '@/api/client';
 import { toast } from 'sonner';
 
 interface TenantImportWizardProps {
-  onComplete: (tenant: any) => void;
+  onComplete: (tenant: { id: string; name: string }) => void;
   onCancel: () => void;
 }
 
@@ -183,7 +183,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
         <Label htmlFor="dataClassification">Data Classification</Label>
         <Select
           value={state.tenantData.dataClassification}
-          onValueChange={(value: any) =>
+          onValueChange={(value: 'public' | 'internal' | 'confidential' | 'restricted') =>
             setState({
               ...state,
               tenantData: { ...state.tenantData, dataClassification: value },

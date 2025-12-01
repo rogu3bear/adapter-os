@@ -39,6 +39,7 @@ export function TrainingSnapshotPanel({ adapterId }: Props) {
 
   useEffect(() => {
     fetchSnapshot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchSnapshot is not stable, only run when adapterId changes
   }, [adapterId]);
 
   const fetchSnapshot = async () => {

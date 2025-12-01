@@ -13,27 +13,31 @@ AdapterOS requires GPU acceleration for efficient LoRA adapter inference on macO
 
 ## Decision
 
-We adopt a **CoreML-first (ANE production), MLX-active (production), Metal-fallback (legacy)** multi-backend architecture with a unified `FusedKernels` trait interface.
+We adopt a **CoreML-first (ANE production), MLX-second (production), Metal-fallback (incomplete/legacy)** multi-backend architecture with a unified `FusedKernels` trait interface.
+
+**Fallback Chain:** CoreML → MLX → Metal
 
 ### Backend Priority Matrix
 
 | Backend | Status | Determinism | Primary Use Case | Implementation Language |
 |---------|--------|-------------|------------------|------------------------|
-| **CoreML** | **✅ Production** | **Guaranteed (ANE)** | ANE acceleration, production | Objective-C++ (CoreML API) |
-| **MLX** | **✅ Production** | **HKDF-seeded** | Production inference, training | C++ FFI |
-| **Metal** | **✅ Production** | **Guaranteed** | Fallback for non-ANE systems | Objective-C++ (Metal shaders) |
+| **CoreML** | **✅ Production** | **Guaranteed (ANE)** | ANE acceleration, production (primary) | Objective-C++ (CoreML API) |
+| **MLX** | **✅ Production** | **HKDF-seeded** | Production inference, training (secondary) | C++ FFI |
+| **Metal** | **⚠️ Incomplete** | **Guaranteed** | Legacy fallback only (model loading incomplete) | Objective-C++ (Metal shaders) |
 
-**Status Note:** All three backends are fully implemented and production-ready. CoreML provides ANE acceleration with guaranteed determinism. MLX provides production-grade inference with enterprise resilience features. Metal provides deterministic GPU kernels as a fallback option.
+**Status Note:** CoreML and MLX are fully implemented and production-ready. CoreML provides ANE acceleration with guaranteed determinism. MLX provides production-grade inference with enterprise resilience features. Metal backend has incomplete model loading (LM head weights issue) and should only be used as a last-resort fallback.
 
 ---
 
 ## Rationale
 
-### Why Metal-First?
+### Why Metal as Fallback?
 
-**Production-Ready Determinism**
+**Note:** Metal is the fallback option due to incomplete model loading implementation. The following describes the intended design when complete.
 
-Metal provides the strongest determinism guarantees through:
+**Determinism Guarantees (when working)**
+
+Metal provides determinism guarantees through:
 - Precompiled `.metallib` shaders with BLAKE3 content hashing
 - No fast-math optimizations (`-fno-fast-math`)
 - Explicit floating-point rounding control

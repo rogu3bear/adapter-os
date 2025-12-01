@@ -52,6 +52,7 @@ export function GlossaryTooltip({
     if (termId) {
       return getGlossaryEntry(termId) ?? null;
     }
+    // Support providing term directly
     if (term) {
       return {
         id: term.toLowerCase().replace(/\s+/g, '-'),
@@ -59,6 +60,18 @@ export function GlossaryTooltip({
         category: 'ui-fields' as const,
         content: {
           brief: brief || '',
+          detailed,
+        },
+      };
+    }
+    // Support brief-only mode (anonymous tooltip with just help text)
+    if (brief) {
+      return {
+        id: 'inline-help',
+        term: '',
+        category: 'ui-fields' as const,
+        content: {
+          brief,
           detailed,
         },
       };
@@ -128,16 +141,19 @@ export function GlossaryTooltip({
 
   return (
     <>
-      <Tooltip>
+      {/* Use longer close delay when tooltip has interactive content (Learn more button) */}
+      <Tooltip closeDelayMs={hasDetailed ? 500 : 150}>
         <TooltipTrigger asChild>
           <span className="inline-flex items-center">
             {renderTrigger()}
           </span>
         </TooltipTrigger>
-        <TooltipContent side={side} align={align} className="max-w-xs">
+        <TooltipContent side={side} align={align}>
           <div className="space-y-2">
-            <div className="font-semibold">{entry.term}</div>
-            <div className="text-sm text-muted-foreground">{entry.content?.brief}</div>
+            {entry.term && <div className="font-semibold">{entry.term}</div>}
+            <div className={entry.term ? "text-sm text-muted-foreground" : "text-sm"}>
+              {entry.content?.brief}
+            </div>
             {hasDetailed && (
               <button
                 onClick={handleLearnMoreClick}

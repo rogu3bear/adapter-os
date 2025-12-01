@@ -11,12 +11,12 @@ import { Checkbox } from './ui/checkbox';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
-import { useActionHistory } from '../hooks/useActionHistory';
+import { useActionHistory } from '@/hooks/useActionHistory';
 import { UndoRedoBar } from './ui/undo-redo-bar';
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { ErrorRecovery } from './ui/error-recovery';
-import { usePolling } from '../hooks/usePolling';
-import { useRBAC } from '../hooks/useRBAC';
+import { usePolling } from '@/hooks/usePolling';
+import { useRBAC } from '@/hooks/useRBAC';
 import {
   Server,
   CheckCircle,
@@ -36,13 +36,25 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import apiClient from '../api/client';
-import { Node, User, NodeDetailsResponse, NodePingResponse } from '../api/types';
+import apiClient from '@/api/client';
+import { Node, User, NodeDetailsResponse, NodePingResponse } from '@/api/types';
+import { hasProperty, isObject } from '@/types/utilities';
 
 import { WorkersTab } from './WorkersTab';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
 import { toast } from 'sonner';
+
+// Extended node type with optional runtime fields
+interface ExtendedNode extends Node {
+  cpu_usage_pct?: number;
+  last_seen_at?: string;
+}
+
+// Extended node details response with optional runtime fields
+interface ExtendedNodeDetailsResponse extends NodeDetailsResponse {
+  labels_json?: string;
+}
 
 
 interface NodesProps {
@@ -156,7 +168,19 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
       const result = await apiClient.testNodeConnection(node.id);
       setPingResult(result);
       // Update row display optimistically
-      setNodes(prev => prev.map(n => n.id === node.id ? { ...n, status: result.status as any } : n));
+      setNodes(prev => prev.map(n => {
+        if (n.id === node.id) {
+          const updatedNode: Node = { ...n };
+          // Map ping status to node status
+          if (result.status === 'reachable') {
+            updatedNode.status = 'healthy';
+          } else if (result.status === 'unreachable' || result.status === 'timeout') {
+            updatedNode.status = 'offline';
+          }
+          return updatedNode;
+        }
+        return n;
+      }));
       if (result.status === 'reachable') {
         showStatus(`Node is reachable (${result.latency_ms.toFixed(0)}ms).`, 'success');
       } else {
@@ -181,10 +205,13 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
       setNodeDetails(details);
       // Initialize drafts from details if available via extended fields
       try {
-        const parsed: Record<string, string> = (details as any).labels_json ? JSON.parse((details as any).labels_json) : {};
+        const extendedDetails = details as ExtendedNodeDetailsResponse;
+        const parsed: Record<string, string> = extendedDetails.labels_json
+          ? JSON.parse(extendedDetails.labels_json)
+          : {};
         setLabelsDraft(parsed);
       } catch { setLabelsDraft({}); }
-      setCapacityDraft({ memory_gb: details.memory_gb, gpu_count: (details as any).gpu_count });
+      setCapacityDraft({ memory_gb: details.memory_gb, gpu_count: details.gpu_count });
       setShowDetailsModal(true);
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to load node details');
@@ -480,7 +507,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
-            <HelpTooltip helpId="node-register">
+            <GlossaryTooltip termId="node-register">
               <Button
                 onClick={() => setShowRegisterModal(true)}
                 disabled={!can('node:manage')}
@@ -488,7 +515,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                 <Server className="h-4 w-4 mr-2" />
                 Register Node
               </Button>
-            </HelpTooltip>
+            </GlossaryTooltip>
           </div>
 
           <Card className="card-standard">
@@ -521,44 +548,46 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                       />
                     </TableHead>
                     <TableHead className="p-4 border-b border-border">
-                      <HelpTooltip helpId="node-name">
+                      <GlossaryTooltip termId="node-name">
                         <span className="cursor-help">Hostname</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </TableHead>
                     <TableHead className="p-4 border-b border-border">
-                      <HelpTooltip helpId="node-status">
+                      <GlossaryTooltip termId="node-status">
                         <span className="cursor-help">Status</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </TableHead>
                     <TableHead className="p-4 border-b border-border">
-                      <HelpTooltip helpId="node-cpu">
+                      <GlossaryTooltip termId="node-cpu">
                         <span className="cursor-help">CPU</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </TableHead>
                     <TableHead className="p-4 border-b border-border">
-                      <HelpTooltip helpId="node-memory">
+                      <GlossaryTooltip termId="node-memory">
                         <span className="cursor-help">Memory</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </TableHead>
                     <TableHead className="p-4 border-b border-border">
-                      <HelpTooltip helpId="node-gpu">
+                      <GlossaryTooltip termId="node-gpu">
                         <span className="cursor-help">GPU</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </TableHead>
                     <TableHead className="p-4 border-b border-border">
-                      <HelpTooltip helpId="node-last-seen">
+                      <GlossaryTooltip termId="node-last-seen">
                         <span className="cursor-help">Last Seen</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </TableHead>
                     <TableHead className="p-4 border-b border-border">
-                      <HelpTooltip helpId="node-actions">
+                      <GlossaryTooltip termId="node-actions">
                         <span className="cursor-help">Actions</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {nodes.map((node) => (
+                  {nodes.map((node) => {
+                    const extendedNode = node as ExtendedNode;
+                    return (
                     <TableRow key={node.id}>
                       <TableCell className="p-4 border-b border-border">
                         <Checkbox
@@ -583,15 +612,15 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                         </div>
                       </TableCell>
                       <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">
-                        {(node as any).cpu_usage_pct ? `${(node as any).cpu_usage_pct.toFixed(1)}%` : 'N/A'}
+                        {extendedNode.cpu_usage_pct ? `${extendedNode.cpu_usage_pct.toFixed(1)}%` : 'N/A'}
                       </TableCell>
                       <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">
-                        {(node as any).memory_gb ? `${(node as any).memory_gb} GB` : 'N/A'}
+                        {node.memory_gb ? `${node.memory_gb} GB` : 'N/A'}
                       </TableCell>
                       <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">
-                        {(node as any).gpu_count !== undefined ? (node as any).gpu_count : 'N/A'}
+                        {node.gpu_count !== undefined ? node.gpu_count : 'N/A'}
                       </TableCell>
-                      <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">{(node as any).last_seen_at ? new Date((node as any).last_seen_at).toLocaleString() : (node.last_heartbeat ? new Date(node.last_heartbeat).toLocaleString() : 'Never')}</TableCell>
+                      <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">{extendedNode.last_seen_at ? new Date(extendedNode.last_seen_at).toLocaleString() : (node.last_heartbeat ? new Date(node.last_heartbeat).toLocaleString() : 'Never')}</TableCell>
                       <TableCell className="p-4 border-b border-border">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -630,7 +659,8 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                         </DropdownMenu>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                   {nodes.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={8} className="text-center text-muted-foreground">
@@ -663,9 +693,9 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
           )}
           <div className="mb-4">
             <div className="mb-4">
-              <HelpTooltip helpId="node-name">
+              <GlossaryTooltip termId="node-name">
                 <Label htmlFor="hostname" className="font-medium text-sm mb-1 cursor-help">Hostname</Label>
-              </HelpTooltip>
+              </GlossaryTooltip>
               <Input
                 id="hostname"
                 placeholder="node-01"
@@ -674,9 +704,9 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
               />
             </div>
             <div className="mb-4">
-              <HelpTooltip helpId="node-endpoint">
+              <GlossaryTooltip termId="node-endpoint">
                 <Label htmlFor="agent-endpoint" className="font-medium text-sm mb-1 cursor-help">Agent Endpoint</Label>
-              </HelpTooltip>
+              </GlossaryTooltip>
               <Input
                 id="agent-endpoint"
                 placeholder="http://node-01:8080"
@@ -717,18 +747,18 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                 <AccordionContent>
                   <div className="grid-standard grid-cols-2 pt-2">
                     <div>
-                      <HelpTooltip helpId="node-status">
+                      <GlossaryTooltip termId="node-status">
                         <p className="font-medium text-sm mb-1 cursor-help">Status</p>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                       <div className={`status-indicator ${nodeDetails.status === 'healthy' ? 'status-success' : 'status-error'
                         }`}>
                         {nodeDetails.status}
                       </div>
                     </div>
                     <div>
-                      <HelpTooltip helpId="node-last-seen">
+                      <GlossaryTooltip termId="node-last-seen">
                         <p className="font-medium text-sm mb-1 cursor-help">Last Seen</p>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                       <p className="text-sm font-medium">
                         {nodeDetails.last_seen_at ? new Date(nodeDetails.last_seen_at).toLocaleString() : 'Never'}
                       </p>
@@ -743,9 +773,9 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                 </AccordionTrigger>
                 <AccordionContent>
                   <div className="mb-4 pt-2">
-                    <HelpTooltip helpId="node-labels">
+                    <GlossaryTooltip termId="node-labels">
                       <p className="font-medium text-sm mb-1 cursor-help">Labels</p>
-                    </HelpTooltip>
+                    </GlossaryTooltip>
                     <div className="space-y-2">
                       {Object.entries(labelsDraft).map(([k, v]) => (
                         <div key={k} className="flex gap-2">
@@ -776,22 +806,22 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                   <div className="space-y-4 pt-2">
                     <div className="grid-standard grid-cols-2">
                       <div>
-                        <HelpTooltip helpId="node-memory">
+                        <GlossaryTooltip termId="node-memory">
                           <p className="font-medium text-sm mb-1 cursor-help">Memory (GB)</p>
-                        </HelpTooltip>
+                        </GlossaryTooltip>
                         <Input type="number" value={capacityDraft.memory_gb ?? ''} onChange={(e) => setCapacityDraft({ ...capacityDraft, memory_gb: parseInt(e.target.value || '0', 10) })} />
                       </div>
                       <div>
-                        <HelpTooltip helpId="node-gpu">
+                        <GlossaryTooltip termId="node-gpu">
                           <p className="font-medium text-sm mb-1 cursor-help">GPU Count</p>
-                        </HelpTooltip>
+                        </GlossaryTooltip>
                         <Input type="number" value={capacityDraft.gpu_count ?? ''} onChange={(e) => setCapacityDraft({ ...capacityDraft, gpu_count: parseInt(e.target.value || '0', 10) })} />
                       </div>
                     </div>
                     <div>
-                      <HelpTooltip helpId="node-adapters">
+                      <GlossaryTooltip termId="node-adapters">
                         <p className="font-medium text-sm mb-1 cursor-help">Running Workers ({nodeDetails.workers.length})</p>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                       {nodeDetails.workers.length > 0 ? (
                         <div className="mb-4">
                           {nodeDetails.workers.map((worker) => (

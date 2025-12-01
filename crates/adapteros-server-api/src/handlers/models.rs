@@ -3,18 +3,41 @@
 //! These handlers provide basic API endpoints for model operations.
 //! Full implementation details are in the original models.rs file.
 
+use crate::audit_helper::{log_failure, log_success};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
+
+/// Resource type for model audit logs
+const RESOURCE_MODEL: &str = "model";
+
+/// Audit action: model load
+const ACTION_MODEL_LOAD: &str = "model.load";
+
+/// Audit action: model unload
+const ACTION_MODEL_UNLOAD: &str = "model.unload";
+
+/// Audit action: model import
+const ACTION_MODEL_IMPORT: &str = "model.import";
 use axum::{
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AllModelsStatusResponse {
+    #[serde(rename = "schema_version")]
+    pub schema_version: String,
+    pub models: Vec<crate::types::BaseModelStatusResponse>,
+    pub total_memory_mb: i64,
+    pub available_memory_mb: Option<i64>,
+    pub active_model_count: i64,
+}
 
 #[derive(Deserialize, ToSchema)]
 pub struct ImportModelRequest {
@@ -45,11 +68,23 @@ pub struct ModelStatusResponse {
 }
 
 #[derive(Serialize, ToSchema)]
+pub struct ValidationIssue {
+    #[serde(rename = "type")]
+    pub issue_type: String,
+    pub message: String,
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct ModelValidationResponse {
     pub model_id: String,
-    pub status: String,
+    pub status: String, // "ready", "needs_setup", "invalid"
     pub valid: bool,
-    pub errors: Vec<String>,
+    pub can_load: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub issues: Vec<ValidationIssue>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>, // Legacy field for backwards compatibility
 }
 
 #[derive(Serialize, ToSchema)]
@@ -148,14 +183,18 @@ pub async fn load_model(
             )
         })?;
 
-    // Check if model is already loaded
+    // Check if model is already loaded - return success with current status
     if let Some(status) = &current_status {
         if status.status == "loaded" && status.model_id == model_id {
-            warn!("Model already loaded: {}", model_id);
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new("model already loaded").with_code("BAD_REQUEST")),
-            ));
+            info!("Model already loaded: {}", model_id);
+            return Ok(Json(ModelStatusResponse {
+                model_id: model_id.clone(),
+                model_name: model.name.clone(),
+                status: "loaded".to_string(),
+                memory_usage_mb: status.memory_usage_mb,
+                loaded_at: status.loaded_at.clone(),
+                is_loaded: true,
+            }));
         }
     }
 
@@ -224,6 +263,16 @@ pub async fn load_model(
             .db
             .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
             .await;
+        // Audit log: model load failure
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_MODEL_LOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &format!("Failed to load model: {}", e),
+        )
+        .await;
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -240,6 +289,16 @@ pub async fn load_model(
         .db
         .update_model_operation(&op_id, "completed", None, Some(&completion_time), Some(100))
         .await;
+
+    // Audit log: model load success
+    let _ = log_success(
+        &state.db,
+        &claims,
+        ACTION_MODEL_LOAD,
+        RESOURCE_MODEL,
+        Some(&model_id),
+    )
+    .await;
 
     info!(
         model_id = %model_id,
@@ -402,6 +461,16 @@ pub async fn unload_model(
             .db
             .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
             .await;
+        // Audit log: model unload failure
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_MODEL_UNLOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &format!("Failed to unload model: {}", e),
+        )
+        .await;
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -418,6 +487,16 @@ pub async fn unload_model(
         .db
         .update_model_operation(&op_id, "completed", None, Some(&completion_time), Some(100))
         .await;
+
+    // Audit log: model unload success
+    let _ = log_success(
+        &state.db,
+        &claims,
+        ACTION_MODEL_UNLOAD,
+        RESOURCE_MODEL,
+        Some(&model_id),
+    )
+    .await;
 
     info!(
         model_id = %model_id,
@@ -685,10 +764,28 @@ pub async fn validate_model(
         );
     }
 
+    let reason = if !is_valid {
+        Some(errors.first().cloned().unwrap_or_else(|| "Model validation failed".to_string()))
+    } else {
+        None
+    };
+
+    // Convert errors to issues for frontend compatibility
+    let issues: Vec<ValidationIssue> = errors.iter().map(|e| ValidationIssue {
+        issue_type: "validation_error".to_string(),
+        message: e.clone(),
+    }).collect();
+
+    // Use frontend-compatible status values
+    let status = if is_valid { "ready" } else { "invalid" };
+
     Ok(Json(ModelValidationResponse {
         model_id,
         status: status.to_string(),
         valid: is_valid,
+        can_load: is_valid,
+        reason,
+        issues,
         errors,
     }))
 }
@@ -773,7 +870,7 @@ pub async fn import_model(
     }
 
     // Start import
-    let model_id = state
+    let model_id = match state
         .db
         .import_model_from_path(
             &req.model_name,
@@ -784,17 +881,30 @@ pub async fn import_model(
             &claims.sub,
         )
         .await
-        .map_err(|e| {
+    {
+        Ok(id) => id,
+        Err(e) => {
             error!("Failed to start model import: {}", e);
-            (
+            // Audit log: model import failure
+            let _ = log_failure(
+                &state.db,
+                &claims,
+                ACTION_MODEL_IMPORT,
+                RESOURCE_MODEL,
+                None,
+                &format!("Failed to import model {}: {}", req.model_name, e),
+            )
+            .await;
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to start import")
                         .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
-            )
-        })?;
+            ));
+        }
+    };
 
     // Update status to available (in real implementation, this would be async)
     if let Err(e) = state
@@ -804,6 +914,16 @@ pub async fn import_model(
     {
         error!("Failed to update import status: {}", e);
     }
+
+    // Audit log: model import success
+    let _ = log_success(
+        &state.db,
+        &claims,
+        ACTION_MODEL_IMPORT,
+        RESOURCE_MODEL,
+        Some(&model_id),
+    )
+    .await;
 
     info!(
         model_id = %model_id,
@@ -913,4 +1033,104 @@ pub async fn list_models_with_stats(
         .collect();
 
     Ok(Json(ModelListResponse { models, total }))
+}
+
+/// Get all models status
+///
+/// Returns status for all base models across all tenants, including memory usage and active count.
+///
+/// **Permissions:** Operator, Admin, Compliance roles.
+#[utoipa::path(
+    get,
+    path = "/v1/models/status/all",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Optional tenant filter")
+    ),
+    responses(
+        (status = 200, description = "All models status", body = AllModelsStatusResponse),
+        (status = 500, description = "Database error")
+    ),
+    tag = "models"
+)]
+pub async fn get_all_models_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<AllModelsStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use tracing::error;
+
+    require_any_role(&claims, &[Role::Operator, Role::Admin, Role::Compliance])?;
+
+    // Get all base model statuses
+    let statuses = state.db.list_base_model_statuses().await.map_err(|e| {
+        error!("Failed to list base model statuses: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Filter by tenant if provided
+    let tenant_filter = query.get("tenant_id");
+    let statuses: Vec<_> = if let Some(tenant_id) = tenant_filter {
+        statuses
+            .into_iter()
+            .filter(|s| s.tenant_id == *tenant_id)
+            .collect()
+    } else {
+        statuses
+    };
+
+    // Convert to response format and get model details
+    let mut model_responses = Vec::new();
+    let mut total_memory_mb = 0;
+    let mut active_model_count = 0;
+
+    for status in statuses {
+        // Get model details
+        let model = match state.db.get_model(&status.model_id).await {
+            Ok(Some(m)) => m,
+            Ok(None) => {
+                error!("Model not found: {}", status.model_id);
+                continue;
+            }
+            Err(e) => {
+                error!("Failed to get model {}: {}", status.model_id, e);
+                continue;
+            }
+        };
+
+        let is_loaded = status.status == "loaded";
+        if is_loaded {
+            active_model_count += 1;
+        }
+
+        if let Some(memory) = status.memory_usage_mb {
+            total_memory_mb += memory as i64;
+        }
+
+        model_responses.push(crate::types::BaseModelStatusResponse {
+            model_id: status.model_id,
+            model_name: model.name,
+            status: status.status,
+            loaded_at: status.loaded_at,
+            unloaded_at: status.unloaded_at,
+            error_message: status.error_message,
+            memory_usage_mb: status.memory_usage_mb,
+            is_loaded,
+            updated_at: status.updated_at,
+        });
+    }
+
+    Ok(Json(AllModelsStatusResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        models: model_responses,
+        total_memory_mb,
+        available_memory_mb: None, // Not available from current data
+        active_model_count,
+    }))
 }

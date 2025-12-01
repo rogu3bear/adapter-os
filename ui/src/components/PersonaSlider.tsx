@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { cn } from './ui/utils';
-import { Persona } from '../data/persona-journeys';
+import { Persona } from '@/data/persona-journeys';
 
 interface PersonaSliderProps {
   personas: Persona[];

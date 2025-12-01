@@ -15,10 +15,14 @@ module.exports = {
         'no-console': ['error', { allow: ['error'] }],
         // allow repository annotations that reference this rule
         'react-hooks/exhaustive-deps': 'warn',
-        // Enforce @/ alias instead of deep relative imports
-        // Using 'warn' to avoid blocking development during migration
+        // Enforce @/ alias instead of relative imports
+        // NOTE: Keep at 'warn' until existing violations are fixed, then upgrade to 'error'
         'no-restricted-imports': ['warn', {
           patterns: [
+            {
+              group: ['../*'],
+              message: 'Use @/ alias for imports outside current directory.',
+            },
             {
               group: ['../../**/components/*', '../../../**/components/*'],
               message: 'Use @/components instead of deep relative imports. Example: import { Button } from "@/components/ui/button"',
@@ -37,6 +41,10 @@ module.exports = {
             },
           ],
         }],
+        // TypeScript type safety rules
+        '@typescript-eslint/no-explicit-any': 'warn',
+        '@typescript-eslint/explicit-module-boundary-types': 'off',
+        'max-lines-per-function': ['warn', { max: 500, skipBlankLines: true, skipComments: true }],
       },
     },
     {
@@ -46,9 +54,12 @@ module.exports = {
       },
     },
     {
-      files: ['src/__tests__/**/*.{ts,tsx}'],
+      files: ['src/__tests__/**/*.{ts,tsx}', '**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}'],
       rules: {
         'no-console': 'off',
+        // Be more permissive with 'any' in test files
+        '@typescript-eslint/no-explicit-any': 'off',
+        'max-lines-per-function': 'off',
       },
     },
   ],

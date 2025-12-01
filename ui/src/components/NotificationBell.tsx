@@ -16,8 +16,8 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { useNotifications } from '../hooks/useNotifications';
-import { logger } from '../utils/logger';
+import { useNotifications } from '@/hooks/useNotifications';
+import { logger } from '@/utils/logger';
 
 interface NotificationBellProps {
   onOpenChange?: (open: boolean) => void;

@@ -177,6 +177,16 @@ pub enum AosError {
     #[error("Lifecycle error: {0}")]
     Lifecycle(String),
 
+    /// Adapter is not loaded or not in a ready state for inference
+    ///
+    /// This error is returned when inference is attempted on an adapter
+    /// that is in Unloaded or Cold state, rather than Warm, Hot, or Resident.
+    #[error("Adapter not loaded: {adapter_id} is in {current_state} state (requires: warm, hot, or resident)")]
+    AdapterNotLoaded {
+        adapter_id: String,
+        current_state: String,
+    },
+
     #[error("Adapter hash mismatch for {adapter_id}: expected {expected}, got {actual}")]
     AdapterHashMismatch {
         adapter_id: String,

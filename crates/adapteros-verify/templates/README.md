@@ -19,6 +19,7 @@ golden_runs/
 │   │   ├── manifest.json          # Run metadata (CPID, Plan, toolchain, adapters)
 │   │   ├── epsilon_stats.json     # Per-layer ε statistics
 │   │   ├── bundle_hash.txt        # BLAKE3 hash of event bundle
+│   │   ├── routing_decisions.json # Per-step router decisions for deterministic verification
 │   │   ├── signature.sig          # Ed25519 signature (optional)
 │   │   └── event_bundle.ndjson    # Complete event trace (optional, can be large)
 │   └── baseline-002/
@@ -58,9 +59,16 @@ BLAKE3 hash of the complete event bundle (NDJSON format). This enables verificat
 
 Ed25519 signature over the golden run archive (hex-encoded). Provides cryptographic proof of authenticity.
 
-### event_bundle.ndjson (optional)
+### routing_decisions.json
 
-Complete event trace from the inference run. Can be omitted to save space if only hash verification is needed.
+Per-step routing decisions captured during inference:
+
+- Records which adapters were selected at each token generation step
+- Includes Q15 quantized gate values for deterministic verification
+- Enables replay verification to confirm exactly which adapters fired
+- Used by verification to detect routing divergences
+
+This file enables **full deterministic replay** including adapter selection, not just final output verification.
 
 ## Creating a Golden Run
 

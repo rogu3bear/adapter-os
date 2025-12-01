@@ -8,7 +8,6 @@ use crate::state::AppState;
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
-use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::AosError;
 use adapteros_lora_lifecycle::GpuIntegrityReport;
 use sqlx::Row;
@@ -25,6 +24,7 @@ use utoipa::ToSchema;
 pub mod activity;
 pub mod adapter_stacks;
 pub mod adapters;
+pub mod admin;
 pub mod auth;
 pub mod auth_enhanced;
 pub mod batch;
@@ -45,9 +45,12 @@ pub mod git;
 pub mod git_repository;
 pub mod golden;
 pub mod health;
+pub mod inference;
+pub mod journeys;
 pub mod memory_detail;
 pub mod metrics_time_series;
 pub mod models;
+pub mod monitoring;
 pub mod node_detail;
 pub mod notifications;
 pub mod owner_chat;
@@ -102,6 +105,9 @@ pub use streaming::*;
 
 // Re-export adapter_stacks streaming handler
 pub use adapter_stacks::stack_policy_stream;
+
+// Re-export inference handler (including utoipa path types)
+pub use inference::{__path_infer, infer};
 
 // Re-export domain adapter handlers
 use adapteros_db::sqlx;
@@ -1706,37 +1712,6 @@ pub async fn get_node_details(
             }
         },
     }))
-}
-
-/// Import model
-pub async fn import_model(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Json(req): Json<ImportModelRequest>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Compliance])?;
-
-    let params = adapteros_db::models::ModelRegistrationParams {
-        name: req.name.clone(),
-        hash_b3: req.hash_b3.clone(),
-        config_hash_b3: req.config_hash_b3.clone(),
-        tokenizer_hash_b3: req.tokenizer_hash_b3.clone(),
-        tokenizer_cfg_hash_b3: req.tokenizer_cfg_hash_b3.clone(),
-        license_hash_b3: req.license_hash_b3.clone(),
-        metadata_json: req.metadata_json.clone(),
-    };
-    state.db.register_model(params).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to import model")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    Ok(StatusCode::CREATED)
 }
 
 /// Get base model status
@@ -4228,219 +4203,6 @@ pub async fn propose_patch(
     }
 }
 
-/// Inference endpoint
-#[utoipa::path(
-    tag = "system",
-    post,
-    path = "/v1/infer",
-    request_body = InferRequest,
-    responses(
-        (status = 200, description = "Inference successful", body = InferResponse),
-        (status = 400, description = "Invalid request", body = ErrorResponse),
-        (status = 500, description = "Inference failed", body = ErrorResponse),
-        (status = 501, description = "Worker not initialized", body = ErrorResponse)
-    )
-)]
-pub async fn infer(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Extension(identity): Extension<IdentityEnvelope>,
-    Json(req): Json<InferRequest>,
-) -> Result<Json<InferResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Role check: Operator, SRE, and Admin can execute inference (Viewer and Compliance cannot)
-    crate::permissions::require_permission(
-        &claims,
-        crate::permissions::Permission::InferenceExecute,
-    )?;
-
-    // Validate request
-    if req.prompt.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("prompt cannot be empty").with_code("INTERNAL_ERROR")),
-        ));
-    }
-
-    // Audit log: inference execution start
-    let adapters_requested = req
-        .adapters
-        .as_ref()
-        .map(|a| a.join(","))
-        .or_else(|| req.adapter_stack.as_ref().map(|s| s.join(",")));
-
-    let _ = crate::audit_helper::log_success(
-        &state.db,
-        &claims,
-        crate::audit_helper::actions::INFERENCE_EXECUTE,
-        crate::audit_helper::resources::ADAPTER,
-        adapters_requested.as_deref(),
-    )
-    .await;
-
-    // Check UMA pressure - compare by string to avoid version conflicts between crates
-    let pressure_str = state.uma_monitor.get_current_pressure().to_string();
-    let is_high_pressure = pressure_str == "High" || pressure_str == "Critical";
-    if is_high_pressure {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("service under memory pressure")
-                    .with_code("BACKPRESSURE")
-                    .with_string_details(format!(
-                        "level={}, retry_after_secs=30, action=reduce max_tokens or retry later",
-                        pressure_str
-                    )),
-            ),
-        ));
-    }
-
-    // Real inference implementation - proxy to worker UDS server
-    // 1. Look up available workers from database
-    // 2. Select a healthy worker
-    // 3. Connect to worker UDS server
-    // 4. Forward inference request
-    // 5. Return worker response
-
-    // Get available workers from database
-    let workers = state.db.list_all_workers().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to list workers")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    // Resolve UDS path: prefer registered worker; otherwise fall back to local dev socket
-    let uds_path_buf = if let Some(worker) = workers.get(0) {
-        std::path::PathBuf::from(&worker.uds_path)
-    } else {
-        // Fallback: honor env override or default to /var/run/adapteros.sock
-        let fallback = std::env::var("AOS_WORKER_SOCKET")
-            .unwrap_or_else(|_| "/var/run/adapteros.sock".to_string());
-        std::path::PathBuf::from(fallback)
-    };
-    let uds_path = uds_path_buf.as_path();
-
-    // Create UDS client and send request
-    let uds_client = UdsClient::new(std::time::Duration::from_secs(30));
-
-    // Convert server API request to worker API request
-    let worker_request = WorkerInferRequest {
-        cpid: claims.tenant_id.clone(),
-        prompt: req.prompt.clone(),
-        max_tokens: req.max_tokens.unwrap_or(100),
-        require_evidence: req.require_evidence.unwrap_or(false), // Get from request or default to false
-    };
-
-    match uds_client.infer(uds_path, worker_request).await {
-        Ok(worker_response) => {
-            // Convert worker response to server API response
-            let response = InferResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                id: uuid::Uuid::new_v4().to_string(),
-                text: worker_response.text.unwrap_or_default(),
-                tokens: vec![],      // Worker doesn't expose token IDs in current API
-                tokens_generated: 0, // Not tracked in current response
-                finish_reason: worker_response.status.clone(),
-                latency_ms: 0, // Not tracked in current response
-                adapters_used: worker_response.trace.router_summary.adapters_used.clone(),
-                trace: InferenceTrace {
-                    adapters_used: worker_response.trace.router_summary.adapters_used.clone(),
-                    router_decisions: vec![], // Router decisions not in simplified trace
-                    latency_ms: 0,            // Not tracked in current response
-                },
-                model: None,
-                prompt_tokens: None,
-                error: None,
-            };
-
-            // Link session traces if session_id is provided
-            if let Some(session_id) = &req.session_id {
-                // Link adapters used
-                for adapter_id in &response.adapters_used {
-                    if let Err(e) = state
-                        .db
-                        .add_session_trace(session_id, "adapter", adapter_id)
-                        .await
-                    {
-                        tracing::warn!(
-                            session_id = %session_id,
-                            adapter_id = %adapter_id,
-                            error = %e,
-                            "Failed to link adapter trace to session"
-                        );
-                    }
-                }
-
-                // Update session activity
-                if let Err(e) = crate::security::update_session_activity(&state.db, session_id).await {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        error = %e,
-                        "Failed to update session activity"
-                    );
-                }
-            }
-
-            // Validate response schema before returning
-            let response_value = serde_json::to_value(&response).map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("response serialization failed")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
-
-            state
-                .response_validator
-                .validate_response(&response_value, "inference_response")
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("response validation failed")
-                                .with_code("VALIDATION_ERROR")
-                                .with_string_details(e.to_string()),
-                        ),
-                    )
-                })?;
-
-            Ok(Json(response))
-        }
-        Err(UdsClientError::WorkerNotAvailable(msg)) => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("worker not available")
-                    .with_code("SERVICE_UNAVAILABLE")
-                    .with_string_details(msg),
-            ),
-        )),
-        Err(UdsClientError::Timeout(msg)) => Err((
-            StatusCode::REQUEST_TIMEOUT,
-            Json(
-                ErrorResponse::new("inference timeout")
-                    .with_code("REQUEST_TIMEOUT")
-                    .with_string_details(msg),
-            ),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("inference failed")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )),
-    }
-}
-
 // ===== Process Debugging Endpoints =====
 
 /// List process logs for a worker
@@ -5281,6 +5043,17 @@ pub async fn register_adapter(
                             "Naming policy violation detected"
                         );
 
+                        // Audit log: policy violation during adapter registration
+                        let _ = crate::audit_helper::log_failure(
+                            &state.db,
+                            &claims,
+                            crate::audit_helper::actions::ADAPTER_REGISTER,
+                            crate::audit_helper::resources::ADAPTER,
+                            Some(&req.adapter_id),
+                            &format!("Naming policy violation: {}", e),
+                        )
+                        .await;
+
                         // Reject registration if naming policy is enforced
                         return Err((
                             StatusCode::FORBIDDEN,
@@ -5320,16 +5093,29 @@ pub async fn register_adapter(
             )
         })?;
 
-    let id = state.db.register_adapter(params).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to register adapter")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let id = match state.db.register_adapter(params).await {
+        Ok(id) => id,
+        Err(e) => {
+            // Audit log: adapter registration failure
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::ADAPTER_REGISTER,
+                crate::audit_helper::resources::ADAPTER,
+                Some(&req.adapter_id),
+                &format!("Failed to register adapter: {}", e),
+            )
+            .await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to register adapter")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    };
 
     // Audit log: adapter registration
     let _ = crate::audit_helper::log_success(
@@ -5419,16 +5205,26 @@ pub async fn delete_adapter(
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
-    state.db.delete_adapter(&adapter_id).await.map_err(|e| {
-        (
+    if let Err(e) = state.db.delete_adapter(&adapter_id).await {
+        // Audit log: adapter deletion failure
+        let _ = crate::audit_helper::log_failure(
+            &state.db,
+            &claims,
+            crate::audit_helper::actions::ADAPTER_DELETE,
+            crate::audit_helper::resources::ADAPTER,
+            Some(&adapter_id),
+            &format!("Failed to delete adapter: {}", e),
+        )
+        .await;
+        return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to delete adapter")
                     .with_code("INTERNAL_SERVER_ERROR")
                     .with_string_details(e.to_string()),
             ),
-        )
-    })?;
+        ));
+    }
 
     // Audit log: adapter deletion
     let _ = crate::audit_helper::log_success(
@@ -5466,26 +5262,34 @@ pub async fn load_adapter(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterLoad)?;
 
     // Get adapter from database
-    let adapter = state
-        .db
-        .get_adapter(&adapter_id)
-        .await
-        .map_err(|e| {
-            (
+    let adapter = match state.db.get_adapter(&adapter_id).await {
+        Ok(Some(adapter)) => adapter,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            ));
+        }
+        Err(e) => {
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::ADAPTER_LOAD,
+                crate::audit_helper::resources::ADAPTER,
+                Some(&adapter_id),
+                &format!("Error: {}", e),
+            )
+            .await;
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to get adapter")
                         .with_code("INTERNAL_SERVER_ERROR")
                         .with_string_details(e.to_string()),
                 ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
+            ));
+        }
+    };
 
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &adapter.tenant_id)?;
@@ -5506,32 +5310,53 @@ pub async fn load_adapter(
     } else {
         // Fallback: direct DB update if no lifecycle manager
         // Use transactional version for safety in handlers
-        state
+        if let Err(e) = state
             .db
             .update_adapter_state_tx(&adapter_id, "loading", "user_request")
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update adapter state")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+        {
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::ADAPTER_LOAD,
+                crate::audit_helper::resources::ADAPTER,
+                Some(&adapter_id),
+                &format!("Error: {}", e),
+            )
+            .await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update adapter state")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
     }
 
-    let expected_hash = parse_hash_b3(&adapter.hash_b3).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("invalid adapter hash")
-                    .with_code("INVALID_HASH")
-                    .with_string_details(format!("{}: {}", adapter.hash_b3, e)),
-            ),
-        )
-    })?;
+    let expected_hash = match parse_hash_b3(&adapter.hash_b3) {
+        Ok(hash) => hash,
+        Err(e) => {
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::ADAPTER_LOAD,
+                crate::audit_helper::resources::ADAPTER,
+                Some(&adapter_id),
+                &format!("Error: {}", e),
+            )
+            .await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("invalid adapter hash")
+                        .with_code("INVALID_HASH")
+                        .with_string_details(format!("{}: {}", adapter.hash_b3, e)),
+                ),
+            ));
+        }
+    };
     let mut expected_hashes = HashMap::new();
     expected_hashes.insert(adapter.hash_b3.clone(), expected_hash);
 
@@ -5542,17 +5367,29 @@ pub async fn load_adapter(
         let mut manager = lifecycle.lock().await;
 
         // Load adapter (updates internal state only)
-        manager.get_or_reload(&adapter_id).map_err(|e| {
+        if let Err(e) = manager.get_or_reload(&adapter_id) {
             tracing::error!(adapter_id = %adapter_id, error = %e, "Failed to load adapter via lifecycle manager");
-            (
+            // Must drop the lock before awaiting
+            drop(manager);
+            // Audit log: adapter load failure
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::ADAPTER_LOAD,
+                crate::audit_helper::resources::ADAPTER,
+                Some(&adapter_id),
+                &format!("Failed to load adapter: {}", e),
+            )
+            .await;
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to load adapter")
                         .with_code("INTERNAL_SERVER_ERROR")
                         .with_string_details(e.to_string()),
                 ),
-            )
-        })?;
+            ));
+        }
 
         // Update state (handles DB update if db is set)
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
@@ -5586,20 +5423,29 @@ pub async fn load_adapter(
         tracing::info!(adapter_id = %adapter_id, "simulating adapter load (no lifecycle manager)");
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        state
+        if let Err(e) = state
             .db
             .update_adapter_state_tx(&adapter_id, "warm", "simulated_load")
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update adapter state")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+        {
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::ADAPTER_LOAD,
+                crate::audit_helper::resources::ADAPTER,
+                Some(&adapter_id),
+                &format!("Error: {}", e),
+            )
+            .await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update adapter state")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
 
         tracing::info!(
             event = "adapter.load",
@@ -5699,26 +5545,34 @@ pub async fn unload_adapter(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterUnload)?;
 
     // Get adapter from database
-    let adapter = state
-        .db
-        .get_adapter(&adapter_id)
-        .await
-        .map_err(|e| {
-            (
+    let adapter = match state.db.get_adapter(&adapter_id).await {
+        Ok(Some(adapter)) => adapter,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            ));
+        }
+        Err(e) => {
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::ADAPTER_UNLOAD,
+                crate::audit_helper::resources::ADAPTER,
+                Some(&adapter_id),
+                &format!("Error: {}", e),
+            )
+            .await;
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to get adapter")
                         .with_code("INTERNAL_SERVER_ERROR")
                         .with_string_details(e.to_string()),
                 ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
+            ));
+        }
+    };
 
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &adapter.tenant_id)?;
@@ -5739,20 +5593,29 @@ pub async fn unload_adapter(
     } else {
         // Fallback: direct DB update if no lifecycle manager
         // Use transactional version for safety in handlers
-        state
+        if let Err(e) = state
             .db
             .update_adapter_state_tx(&adapter_id, "unloading", "user_request")
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update adapter state")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+        {
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::ADAPTER_UNLOAD,
+                crate::audit_helper::resources::ADAPTER,
+                Some(&adapter_id),
+                &format!("Error: {}", e),
+            )
+            .await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update adapter state")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
     }
 
     tracing::info!("Unloading adapter {}", adapter_id);
@@ -5781,20 +5644,29 @@ pub async fn unload_adapter(
             );
         } else {
             // Adapter not found in lifecycle manager, update DB state directly
-            state
+            if let Err(e) = state
                 .db
                 .update_adapter_state_tx(&adapter_id, "unloaded", "not_found_in_lifecycle_manager")
                 .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("failed to update adapter state")
-                                .with_code("INTERNAL_SERVER_ERROR")
-                                .with_string_details(e.to_string()),
-                        ),
-                    )
-                })?;
+            {
+                let _ = crate::audit_helper::log_failure(
+                    &state.db,
+                    &claims,
+                    crate::audit_helper::actions::ADAPTER_UNLOAD,
+                    crate::audit_helper::resources::ADAPTER,
+                    Some(&adapter_id),
+                    &format!("Error: {}", e),
+                )
+                .await;
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update adapter state")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                ));
+            }
 
             tracing::info!(
                 event = "adapter.unload",
@@ -5804,20 +5676,29 @@ pub async fn unload_adapter(
         }
     } else {
         // Fallback: direct DB update if no lifecycle manager
-        state
+        if let Err(e) = state
             .db
             .update_adapter_state_tx(&adapter_id, "unloaded", "unloaded_via_api")
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update adapter state")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+        {
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::ADAPTER_UNLOAD,
+                crate::audit_helper::resources::ADAPTER,
+                Some(&adapter_id),
+                &format!("Error: {}", e),
+            )
+            .await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update adapter state")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
 
         state.db.update_adapter_memory(&adapter_id, 0).await.ok();
 

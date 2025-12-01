@@ -1,8 +1,8 @@
 import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   GripVertical,
   Trash2,
@@ -12,8 +12,9 @@ import {
   GitBranch,
   Clock,
 } from 'lucide-react';
-import { cn } from '../ui/utils';
-import { Adapter } from '../../api/types';
+import { cn } from '@/components/ui/utils';
+import { Adapter } from '@/api/types';
+import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
 
 interface StackAdapter {
   adapter: Adapter;
@@ -45,32 +46,32 @@ const getCategoryIcon = (category: string) => {
 const getStateColor = (state: string) => {
   switch (state) {
     case 'unloaded':
-      return 'bg-gray-100 text-gray-700';
+      return 'bg-muted text-muted-foreground';
     case 'cold':
-      return 'bg-blue-100 text-blue-700';
+      return 'bg-info/10 text-info';
     case 'warm':
-      return 'bg-amber-100 text-amber-700';
+      return 'bg-warning/10 text-warning';
     case 'hot':
-      return 'bg-orange-100 text-orange-700';
+      return 'bg-warning text-warning-foreground';
     case 'resident':
-      return 'bg-green-100 text-green-700';
+      return 'bg-success/10 text-success';
     default:
-      return 'bg-gray-100 text-gray-700';
+      return 'bg-muted text-muted-foreground';
   }
 };
 
 const getLifecycleColor = (state: string) => {
   switch (state) {
     case 'draft':
-      return 'bg-slate-100 text-slate-700';
+      return 'bg-muted text-muted-foreground';
     case 'active':
-      return 'bg-green-100 text-green-700';
+      return 'bg-success/10 text-success';
     case 'deprecated':
-      return 'bg-yellow-100 text-yellow-700';
+      return 'bg-warning/10 text-warning';
     case 'retired':
-      return 'bg-red-100 text-red-700';
+      return 'bg-destructive/10 text-destructive';
     default:
-      return 'bg-gray-100 text-gray-700';
+      return 'bg-muted text-muted-foreground';
   }
 };
 
@@ -80,12 +81,17 @@ export const SortableAdapterItem: React.FC<SortableAdapterItemProps> = ({
   onToggle,
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: item.adapter.adapter_id });
+    useSortable({
+      id: item.adapter.adapter_id,
+    });
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
+
+  // Create instructions for screen readers
+  const dragInstructions = `Press space to start dragging ${item.adapter.name}. While dragging, use the arrow keys to move the item. Press space again to drop, or press escape to cancel.`;
 
   return (
     <div
@@ -99,13 +105,21 @@ export const SortableAdapterItem: React.FC<SortableAdapterItemProps> = ({
     >
       <div className="flex items-start gap-3">
         {/* Drag Handle */}
-        <div
+        <button
           {...attributes}
           {...listeners}
-          className="cursor-grab active:cursor-grabbing pt-1 text-muted-foreground hover:text-foreground"
+          type="button"
+          aria-label={`Drag to reorder ${item.adapter.name}`}
+          aria-describedby={`drag-instructions-${item.adapter.adapter_id}`}
+          className="cursor-grab active:cursor-grabbing pt-1 text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+          tabIndex={0}
         >
           <GripVertical className="h-5 w-5" />
-        </div>
+        </button>
+        {/* Hidden instructions for screen readers */}
+        <span id={`drag-instructions-${item.adapter.adapter_id}`} className="sr-only">
+          {dragInstructions}
+        </span>
 
         {/* Order Number */}
         <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted text-muted-foreground font-medium text-sm flex-shrink-0">
@@ -149,7 +163,7 @@ export const SortableAdapterItem: React.FC<SortableAdapterItemProps> = ({
               className={cn('text-xs', getStateColor(item.adapter.current_state || 'unknown'))}
               title={item.adapter.current_state}
             >
-              {item.adapter.current_state || 'unknown'}
+              {LIFECYCLE_STATE_LABELS[item.adapter.current_state || 'unknown'] || item.adapter.current_state || 'unknown'}
             </Badge>
 
             {/* Lifecycle */}

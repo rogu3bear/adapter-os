@@ -8,11 +8,11 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
+import { apiClient } from '@/api/client';
 import type {
   Collection,
   CollectionDetail,
-} from '../api/document-types';
+} from '@/api/document-types';
 import { createResourceHooks } from './factories/createApiHooks';
 
 // Create standard CRUD hooks using the factory
@@ -32,6 +32,10 @@ const collectionHooks = createResourceHooks<
     delete: (id: string) => apiClient.deleteCollection(id),
   },
   staleTime: 30000, // 30 seconds
+  errorMessages: {
+    list: 'Failed to load collections',
+    detail: 'Failed to load collection',
+  },
 });
 
 // Export query keys for external cache management
@@ -68,6 +72,9 @@ export function useAddDocumentToCollection() {
       queryClient.invalidateQueries({ queryKey: collectionKeys.detail(collectionId) });
       queryClient.invalidateQueries({ queryKey: collectionKeys.lists() });
     },
+    meta: {
+      errorMessage: 'Failed to add document to collection',
+    },
   });
 }
 
@@ -89,6 +96,9 @@ export function useRemoveDocumentFromCollection() {
     onSuccess: (_data, { collectionId }) => {
       queryClient.invalidateQueries({ queryKey: collectionKeys.detail(collectionId) });
       queryClient.invalidateQueries({ queryKey: collectionKeys.lists() });
+    },
+    meta: {
+      errorMessage: 'Failed to remove document from collection',
     },
   });
 }

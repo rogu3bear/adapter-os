@@ -1,6 +1,6 @@
 # CLAUDE.md - AdapterOS Developer Guide
 
-**Single source of truth** for AI assistants and developers. Last updated: 2025-11-28
+**Single source of truth** for AI assistants and developers. Last updated: 2025-12-01
 **Copyright:** 2025 JKCA / James KC Auchterlonie | **Version:** v0.3-alpha
 
 ---
@@ -8,11 +8,12 @@
 ## Architecture Scale
 | Metric | Count |
 |--------|-------|
-| Crates | 57 |
-| Rust LOC | 422,000+ |
-| Migrations | 119 (0001-0119) |
+| Crates | 71 |
+| Rust LOC | 486,000+ |
+| UI LOC | 215,000+ |
+| Migrations | 123 (0001-0123) |
 | Policies | 24 |
-| Permissions | 56 (5 roles) |
+| Permissions | 59 (5 roles) |
 | REST Endpoints | ~250+ |
 | CI Workflows | 16 |
 | Docs | 340+ files |
@@ -82,7 +83,7 @@ See `crates/adapteros-policy/src/packs/`
 
 ---
 
-## RBAC (5 Roles, 56 Permissions)
+## RBAC (5 Roles, 59 Permissions)
 
 **Roles:** Admin, Operator, SRE, Compliance, Viewer
 
@@ -171,7 +172,7 @@ let backend = create_backend(BackendChoice::Metal)?;
 
 **CoreML:** ANE acceleration, Swift bridge (macOS 15+), graceful GPU fallback
 **MLX:** `--features real-mlx`, circuit breaker, hot-swap, memory pool
-**Selection:** CoreML → Metal → MLX fallback chain
+**Selection:** CoreML → MLX → Metal fallback chain (Metal is backup for incomplete/legacy scenarios)
 
 See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md), [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md)
 
@@ -193,16 +194,99 @@ See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md), [docs/MLX_INTEGRAT
 
 ---
 
+## Control Plane + Worker Architecture (UDS)
+
+AdapterOS uses a **two-process architecture** for security isolation:
+
+```
+┌─────────────────────────┐         ┌─────────────────────────┐
+│    Control Plane        │   UDS   │        Worker           │
+│    (HTTP Server)        │◄───────►│     (Inference)         │
+│    Port 8080            │  socket │   Loads model weights   │
+│    Handles API/Auth     │   file  │   Runs GPU compute      │
+│    Serves UI            │         │   Zero network access   │
+└─────────────────────────┘         └─────────────────────────┘
+         ▲                                    ▲
+         │ HTTP/HTTPS                         │ Metal/CoreML/MLX
+         │                                    │
+      Users/UI                           Model + Adapters
+```
+
+### Why Unix Domain Sockets (UDS)?
+
+A UDS is like an API but "underground" - local IPC without network exposure:
+
+| HTTP API | Unix Socket |
+|----------|-------------|
+| Public road anyone can access | Private tunnel only local processes use |
+| Requires ports, firewalls | Just a file with permissions |
+| Network stack overhead | Direct memory transfer |
+| Can be accessed remotely | Cannot leave the machine |
+
+**Security benefit:** The worker handling your model has NO network access. It can only communicate via the socket file, enforcing zero-egress guarantees.
+
+### Socket Paths
+
+| Environment | Socket Path | Purpose |
+|-------------|-------------|---------|
+| Development | `var/run/worker.sock` | Local inference worker |
+| Production | `/var/run/aos/{tenant_id}/worker.sock` | Per-tenant isolation |
+| Metrics | `var/run/metrics.sock` | Telemetry streaming |
+
+### Running the Full Stack
+
+**1. Start the Worker** (loads model, listens on socket):
+```bash
+AOS_DEV_SKIP_METALLIB_CHECK=1 cargo run -p adapteros-lora-worker --bin aos-worker -- \
+  --manifest manifests/qwen7b-mlx.yaml \
+  --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16 \
+  --uds-path ./var/run/worker.sock
+```
+
+**2. Start the Control Plane** (HTTP server, points to worker):
+```bash
+AOS_WORKER_SOCKET=./var/run/worker.sock cargo run -p adapteros-server -- \
+  --config configs/cp.toml --skip-pf-check --single-writer
+```
+
+**3. Start the UI** (optional):
+```bash
+cd ui && pnpm dev
+```
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AOS_WORKER_SOCKET` | `/var/run/adapteros.sock` | Path to worker UDS |
+| `AOS_DEV_SKIP_METALLIB_CHECK` | (unset) | Skip metallib hash validation (dev only) |
+
+### Crates Involved
+
+| Crate | Role |
+|-------|------|
+| `adapteros-server` | Control plane binary, HTTP server |
+| `adapteros-server-api` | API handlers, routes, middleware |
+| `adapteros-lora-worker` | Worker binary, inference engine, UDS server |
+| `adapteros-lora-worker/uds_server.rs` | UDS listener implementation |
+| `adapteros-server-api/uds_client.rs` | UDS client for control plane |
+
+---
+
 ## Database
 
 **Core Tables:** adapters, tenants, adapter_stacks, repository_training_jobs, training_datasets, pinned_adapters, audit_logs, chat_sessions, chat_messages, documents, document_chunks, document_collections, inference_evidence
 
-**119 Migrations** (key recent):
+**123 Migrations** (key recent):
 - 0084-0097: Default stacks, chat sessions, evidence, documents/collections, policy packs, base models, crypto audit
 - 0102-0116: Dashboard indexes, federation health, chat features (tags, FTS, sharing), admin access
 - 0117: Training job category metadata (category, language, framework, post_actions)
 - 0118: Training jobs denormalization
 - 0119: Registry consolidation
+- 0120: Behavior telemetry capture
+- 0121: Tenant policy customizations
+- 0122: Workers rename last_heartbeat column
+- 0123: Adapters add metadata_json
 
 ```bash
 touch migrations/NNNN_description.sql

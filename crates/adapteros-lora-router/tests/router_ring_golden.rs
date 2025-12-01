@@ -13,7 +13,7 @@
 //! - PRD-02: Router-Kernel Ring Buffer Unification
 //! - Router Decision: adapteros-lora-router/src/lib.rs:1010-1032
 
-use adapteros_lora_router::{Decision, DecisionCandidate, Router, RouterWeights};
+use adapteros_lora_router::{Decision, DecisionCandidate, Router, RouterWeights, AdapterInfo};
 use smallvec::SmallVec;
 
 /// Golden example: Typical K=3 routing decision
@@ -238,8 +238,15 @@ fn test_router_produces_valid_decisions() {
 
     let features = vec![0.5; 10];
     let priors = vec![0.1, 0.9, 0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6, 0.0];
-
-    let decision = router.route(&features, &priors);
+    let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+        .map(|i| AdapterInfo {
+            id: format!("test_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+        })
+        .collect();
+    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
 
     // Verify structural invariants
     assert!(

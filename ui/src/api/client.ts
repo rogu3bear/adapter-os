@@ -7,23 +7,25 @@
 //! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
 //! - Policy Pack #1 (Egress): "MUST NOT open listening TCP ports; use Unix domain sockets only"
 
-import * as types from './types';
-import * as authTypes from './auth-types';
-import * as trainingTypes from './training-types';
-import * as apiTypes from './api-types';
-import * as federationTypes from './federation-types';
-import * as pluginTypes from './plugin-types';
-import * as chatTypes from './chat-types';
-import * as documentTypes from './document-types';
-import * as policyTypes from './policyTypes';
-import * as ownerTypes from './owner-types';
-import * as systemStateTypes from './system-state-types';
-import { logger, toError } from '../utils/logger';
-import { SystemMetrics } from './types';
-import { enhanceError, isTransientError } from '../utils/errorMessages';
-import { handleBlobResponse, getFilenameFromResponse } from './helpers';
-import { retryWithBackoff, RetryConfig, RetryResult, createRetryWrapper } from '../utils/retry';
-import { LoginResponseSchema } from '../schemas/common.schema';
+import * as types from '@/api/types';
+import * as authTypes from '@/api/auth-types';
+import * as trainingTypes from '@/api/training-types';
+import * as apiTypes from '@/api/api-types';
+import * as federationTypes from '@/api/federation-types';
+import * as pluginTypes from '@/api/plugin-types';
+import * as chatTypes from '@/api/chat-types';
+import * as documentTypes from '@/api/document-types';
+import * as policyTypes from '@/api/policyTypes';
+import * as ownerTypes from '@/api/owner-types';
+import * as systemStateTypes from '@/api/system-state-types';
+import * as adapterTypes from '@/api/adapter-types';
+import { logger, toError } from '@/utils/logger';
+import { SystemMetrics } from '@/api/types';
+import { enhanceError, isTransientError, isTimeoutError } from '@/utils/errorMessages';
+import { handleBlobResponse, getFilenameFromResponse, extractArrayFromResponse } from '@/api/helpers';
+import { retryWithBackoff, RetryConfig, RetryResult, createRetryWrapper } from '@/utils/retry';
+import { LoginResponseSchema } from '@/schemas/common.schema';
+import { captureException } from '@/stores/errorStore';
 
 // Type-safe API error with extended properties
 export interface ApiError extends Error {
@@ -159,7 +161,7 @@ class ApiClient {
     if (result.success) {
       return result.value;
     } else {
-      throw (result as { success: false; error: any; attempts: number }).error;
+      throw (result as { success: false; error: Error; attempts: number }).error;
     }
   }
 
@@ -198,6 +200,16 @@ class ApiClient {
         path,
         requestId,
       }, error);
+
+      // Capture to dev error store (only active in dev mode)
+      if (import.meta.env.DEV) {
+        captureException(error, {
+          component: 'ApiClient',
+          operation: `${method} ${path}`,
+          extra: { requestId, networkError: true },
+        });
+      }
+
       throw error;
     }
     
@@ -212,18 +224,32 @@ class ApiClient {
       });
     }
 
+    // Track request ID for error correlation
+    if (returnedId) {
+      logger.trackRequestId(returnedId);
+    }
+
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
       let errorCode: string | undefined;
-      let errorDetails: any = {};
+      let errorDetails: Record<string, unknown> = {};
 
       try {
         const error: types.ErrorResponse = await response.json();
         errorMessage = error.error || errorMessage;
         errorCode = error.code;
-        errorDetails = error.details || {};
-      } catch {
-        // If JSON parsing fails, use status text
+        // Convert string details to Record if needed
+        if (typeof error.details === 'string') {
+          errorDetails = { message: error.details };
+        } else {
+          errorDetails = {};
+        }
+      } catch (parseErr) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console -- intentional dev-mode logging
+          console.debug('[ApiClient] Failed to parse error response JSON:', parseErr);
+        }
+        // Continue with status text fallback
       }
 
       const originalError = new Error(errorMessage) as ApiError;
@@ -232,7 +258,7 @@ class ApiClient {
       originalError.details = errorDetails;
 
       // Extract context from request for better error messages
-      const context: any = {
+      const context: Record<string, unknown> = {
         operation: path.split('/').pop(),
         method,
         path,
@@ -266,9 +292,9 @@ class ApiClient {
       }
 
       // Extract memory requirements from request body if present
-      if (typeof body === 'string') {
+      if (typeof options.body === 'string') {
         try {
-          const bodyData = JSON.parse(body);
+          const bodyData = JSON.parse(options.body);
           if (bodyData.memory_bytes) {
             context.memoryRequired = bodyData.memory_bytes;
           }
@@ -283,8 +309,8 @@ class ApiClient {
       // Enhance error with user-friendly messaging
       const enhancedError = enhanceError(originalError, context);
 
-      // Log both original and enhanced error details
-      logger.error('API request HTTP error', {
+      // Log both original and enhanced error details with network context
+      logger.networkError('API request failed', {
         component: 'ApiClient',
         operation: 'request',
         method,
@@ -294,8 +320,30 @@ class ApiClient {
         statusText: response.statusText,
         errorCode,
         userFriendlyTitle: enhancedError.userFriendly.title,
-        isTransient: isTransientError(enhancedError)
+        isTransient: isTransientError(enhancedError),
+        userJourney: (context.operation as string | undefined) || 'api_request',
+        ...context // Include extracted context like adapterId, fileSize, etc.
+      }, {
+        status: response.status,
+        statusText: response.statusText,
+        url: path,
+        method,
+        connectionError: response.status === 0,
+        timeout: isTimeoutError(originalError)
       }, originalError);
+
+      // Capture to dev error store (only active in dev mode)
+      if (import.meta.env.DEV) {
+        captureException(enhancedError, {
+          component: 'ApiClient',
+          operation: `${method} ${path}`,
+          extra: {
+            requestId,
+            status: response.status,
+            ...context,
+          },
+        });
+      }
 
       throw enhancedError;
     }
@@ -308,8 +356,26 @@ class ApiClient {
     try {
       return await response.json();
     } catch (parseError) {
-      // JSON parsing error
-      const error = toError(parseError);
+      // JSON parsing error - enhance with user-friendly messaging
+      const originalError = toError(parseError);
+
+      // Create enhanced error with PARSE_ERROR code
+      const enhancedError = new Error('Invalid response from server') as ApiError;
+      enhancedError.code = 'PARSE_ERROR';
+      enhancedError.status = response.status;
+      enhancedError.details = {
+        originalMessage: originalError.message,
+        responseStatus: response.status,
+        contentType: response.headers.get('content-type'),
+      };
+
+      // Enhance with user-friendly messaging
+      const userFriendlyError = enhanceError(enhancedError, {
+        operation: path.split('/').pop(),
+        method,
+        path,
+      });
+
       logger.error('API response JSON parse error', {
         component: 'ApiClient',
         operation: 'request',
@@ -317,9 +383,48 @@ class ApiClient {
         path,
         requestId,
         status: response.status,
-      }, error);
-      throw error;
+        contentType: response.headers.get('content-type'),
+        userFriendlyTitle: userFriendlyError.userFriendly.title,
+      }, originalError);
+
+      // Capture in dev error store
+      if (import.meta.env.DEV) {
+        captureException(userFriendlyError, {
+          component: 'ApiClient',
+          operation: `JSON parse: ${method} ${path}`,
+          extra: {
+            requestId,
+            status: response.status,
+            contentType: response.headers.get('content-type'),
+          },
+        });
+      }
+
+      throw userFriendlyError;
     }
+  }
+
+  /**
+   * Request that expects an array response.
+   *
+   * DEFENSIVE: Handles both direct arrays and PaginatedResponse wrappers.
+   * Use this for ALL list endpoints returning T[] to prevent future bugs when
+   * backend endpoints migrate to PaginatedResponse format.
+   *
+   * @param path - API endpoint path
+   * @param options - Fetch options
+   * @param skipRetry - Skip retry logic
+   * @param cancelToken - Abort signal for cancellation
+   * @returns Array of T extracted from response
+   */
+  async requestList<T>(
+    path: string,
+    options: RequestInit = {},
+    skipRetry: boolean = false,
+    cancelToken?: AbortSignal
+  ): Promise<T[]> {
+    const response = await this.request<unknown>(path, options, skipRetry, cancelToken);
+    return extractArrayFromResponse<T>(response);
   }
 
   // Authentication
@@ -339,16 +444,20 @@ class ApiClient {
         tenant_id: validated.tenant_id,
         email: credentials.email,
       });
-      // Token is now stored in httpOnly cookie by server
+      // Store token for SSE endpoints (EventSource cannot send cookies)
+      // Cookie is also set by server for regular fetch requests
+      this.setToken(validated.token);
       return validated as authTypes.LoginResponse;
     } catch (validationError) {
       const error = toError(validationError);
-      logger.error('Login response validation failed', {
+      logger.validationError('Login response validation failed', {
         component: 'ApiClient',
         operation: 'login',
+        userJourney: 'login_flow',
+        details: 'Server returned invalid login response structure',
         expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in'],
         receivedResponse: typeof response === 'object' ? Object.keys(response as Record<string, unknown>) : String(response),
-      }, error);
+      }, ['Invalid response structure from authentication server'], error);
 
       // Create a more helpful error message
       const validationError_ = new Error('Login response has invalid structure') as ApiError;
@@ -363,7 +472,8 @@ class ApiClient {
 
   async logout(): Promise<void> {
     await this.request('/v1/auth/logout', { method: 'POST' });
-    // Cookie is cleared by server
+    // Clear stored token (cookie is also cleared by server)
+    this.token = undefined;
   }
 
   async devBypass(): Promise<authTypes.LoginResponse> {
@@ -378,6 +488,8 @@ class ApiClient {
         user_id: validated.user_id,
         tenant_id: validated.tenant_id,
       });
+      // Store token for SSE endpoints (EventSource cannot send cookies)
+      this.setToken(validated.token);
       return validated as authTypes.LoginResponse;
     } catch (validationError) {
       const error = toError(validationError);
@@ -419,10 +531,12 @@ class ApiClient {
       operation: 'logoutAllSessions',
     });
     await this.request('/v1/auth/logout', { method: 'POST' });
+    // Clear stored token
+    this.token = undefined;
   }
 
   async listSessions(): Promise<types.SessionInfo[]> {
-    return this.request<types.SessionInfo[]>('/v1/auth/sessions');
+    return this.requestList<types.SessionInfo>('/v1/auth/sessions');
   }
 
   async revokeSession(sessionId: string): Promise<void> {
@@ -498,7 +612,7 @@ class ApiClient {
 
   // Tenants
   async listTenants(): Promise<types.Tenant[]> {
-    return this.request<types.Tenant[]>('/v1/tenants');
+    return this.requestList<types.Tenant>('/v1/tenants');
   }
 
   async createTenant(data: types.CreateTenantRequest): Promise<types.Tenant> {
@@ -510,7 +624,7 @@ class ApiClient {
 
   // Nodes
   async listNodes(): Promise<types.Node[]> {
-    return this.request<types.Node[]>('/v1/nodes');
+    return this.requestList<types.Node>('/v1/nodes');
   }
 
   // Adapters
@@ -519,7 +633,7 @@ class ApiClient {
     if (params?.tier !== undefined) qs.append('tier', params.tier);
     if (params?.framework) qs.append('framework', params.framework);
     const query = qs.toString() ? `?${qs.toString()}` : '';
-    return this.request<types.Adapter[]>(`/v1/adapters${query}`);
+    return this.requestList<types.Adapter>(`/v1/adapters${query}`);
   }
 
   async preflightAdapterLoad(
@@ -586,7 +700,7 @@ class ApiClient {
     if (tenantId) params.append('tenant_id', tenantId);
     if (nodeId) params.append('node_id', nodeId);
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<types.WorkerResponse[]>(`/v1/workers${query}`);
+    return this.requestList<types.WorkerResponse>(`/v1/workers${query}`);
   }
 
   async spawnWorker(request: types.SpawnWorkerRequest): Promise<types.WorkerResponse> {
@@ -609,7 +723,7 @@ class ApiClient {
 
   // Plans
   async listPlans(): Promise<types.Plan[]> {
-    return this.request<types.Plan[]>('/v1/plans');
+    return this.requestList<types.Plan>('/v1/plans');
   }
 
   async buildPlan(data: types.BuildPlanRequest): Promise<types.Plan> {
@@ -654,7 +768,7 @@ class ApiClient {
   }
 
   async getPromotionGates(cpid: string): Promise<types.PromotionGate[]> {
-    return this.request<types.PromotionGate[]>(`/v1/cp/promotion-gates/${cpid}`);
+    return this.requestList<types.PromotionGate>(`/v1/cp/promotion-gates/${cpid}`);
   }
 
   async rollback(): Promise<void> {
@@ -667,7 +781,7 @@ class ApiClient {
 
   // Policies
   async listPolicies(): Promise<types.Policy[]> {
-    return this.request<types.Policy[]>('/v1/policies');
+    return this.requestList<types.Policy>('/v1/policies');
   }
 
   async getPolicy(cpid: string): Promise<types.Policy> {
@@ -704,7 +818,7 @@ class ApiClient {
 
   // Telemetry
   async listTelemetryBundles(): Promise<types.TelemetryBundle[]> {
-    return this.request<types.TelemetryBundle[]>('/v1/telemetry/bundles');
+    return this.requestList<types.TelemetryBundle>('/v1/telemetry/bundles');
   }
 
   async getTelemetryLogs(filters?: { category?: string; limit?: number; offset?: number }): Promise<types.TelemetryEvent[]> {
@@ -713,17 +827,17 @@ class ApiClient {
     if (filters?.limit) params.append('limit', filters.limit.toString());
     if (filters?.offset) params.append('offset', filters.offset.toString());
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<types.TelemetryEvent[]>(`/v1/telemetry/logs${query}`);
+    return this.requestList<types.TelemetryEvent>(`/v1/telemetry/logs${query}`);
   }
 
   async listContacts(tenantId: string): Promise<types.Contact[]> {
     const params = new URLSearchParams({ tenant_id: tenantId });
-    return this.request<types.Contact[]>(`/v1/contacts?${params.toString()}`);
+    return this.requestList<types.Contact>(`/v1/contacts?${params.toString()}`);
   }
 
   // Golden baselines
   async listGoldenRuns(): Promise<string[]> {
-    return this.request<string[]>('/v1/golden/runs');
+    return this.requestList<string>('/v1/golden/runs');
   }
 
   async getGoldenRun(name: string): Promise<types.GoldenRunSummary> {
@@ -771,7 +885,7 @@ class ApiClient {
   }
 
   async getGoldenGateStatus(runId: string): Promise<types.GateStatus[]> {
-    return this.request<types.GateStatus[]>(`/v1/golden/${encodeURIComponent(runId)}/gates`);
+    return this.requestList<types.GateStatus>(`/v1/golden/${encodeURIComponent(runId)}/gates`);
   }
 
   async rollbackGoldenPromotion(stage: string): Promise<types.RollbackResponse> {
@@ -888,7 +1002,7 @@ class ApiClient {
   }
 
   async getTrainingLogs(jobId: string): Promise<string[]> {
-    return this.request<string[]>(`/v1/training/jobs/${jobId}/logs`);
+    return this.requestList<string>(`/v1/training/jobs/${jobId}/logs`);
   }
 
   async getTrainingMetrics(jobId: string): Promise<types.TrainingMetrics> {
@@ -942,7 +1056,7 @@ class ApiClient {
   }
 
   async listTrainingTemplates(): Promise<types.TrainingTemplate[]> {
-    return this.request<types.TrainingTemplate[]>('/v1/training/templates');
+    return this.requestList<types.TrainingTemplate>('/v1/training/templates');
   }
 
   async getTrainingTemplate(templateId: string): Promise<types.TrainingTemplate> {
@@ -1001,7 +1115,8 @@ class ApiClient {
     const query = queryParams.toString();
     
     // Backend returns array directly, but frontend expects wrapped response
-    const response = await this.request<Array<{
+    // DEFENSIVE: Use extractArrayFromResponse to handle potential PaginatedResponse migration
+    type BackendDataset = {
       dataset_id: string;
       name: string;
       hash: string;
@@ -1015,8 +1130,10 @@ class ApiClient {
       created_at: string;
       updated_at: string;
       description?: string;
-    }>>(`/v1/datasets${query ? `?${query}` : ''}`);
-    
+    };
+    const rawResponse = await this.request<unknown>(`/v1/datasets${query ? `?${query}` : ''}`);
+    const response = extractArrayFromResponse<BackendDataset>(rawResponse);
+
     // Map backend responses to frontend Dataset type
     const datasets: trainingTypes.Dataset[] = response.map((d) => ({
       id: d.dataset_id,
@@ -1157,7 +1274,7 @@ class ApiClient {
   }
 
   async getAdapterActivations(adapterId: string): Promise<types.AdapterActivation[]> {
-    return this.request<types.AdapterActivation[]>(`/v1/adapters/${adapterId}/activations`);
+    return this.requestList<types.AdapterActivation>(`/v1/adapters/${adapterId}/activations`);
   }
 
   async promoteAdapterState(adapterId: string, options: RequestInit = {}, skipRetry: boolean = false, cancelToken?: AbortSignal): Promise<types.AdapterStateResponse> {
@@ -1207,7 +1324,7 @@ class ApiClient {
 
   // Repositories
   async listRepositories(): Promise<types.Repository[]> {
-    return this.request<types.Repository[]>('/v1/repositories');
+    return this.requestList<types.Repository>('/v1/repositories');
   }
 
   async registerRepository(data: types.RegisterRepositoryRequest): Promise<types.Repository> {
@@ -1233,7 +1350,7 @@ class ApiClient {
   // Commits
   async listCommits(repoId?: string): Promise<types.Commit[]> {
     const query = repoId ? `?repo_id=${repoId}` : '';
-    return this.request<types.Commit[]>(`/v1/commits${query}`);
+    return this.requestList<types.Commit>(`/v1/commits${query}`);
   }
 
   async getCommit(sha: string): Promise<types.Commit> {
@@ -1254,7 +1371,7 @@ class ApiClient {
   }
 
   async getAdapterMetrics(): Promise<types.AdapterMetrics[]> {
-    return this.request<types.AdapterMetrics[]>('/v1/metrics/adapters');
+    return this.requestList<types.AdapterMetrics>('/v1/metrics/adapters');
   }
 
   async getSystemOverview(): Promise<ownerTypes.SystemOverview> {
@@ -1323,6 +1440,10 @@ class ApiClient {
     });
   }
 
+  async getModelStatus(modelId: string): Promise<types.ModelStatusResponse> {
+    return this.request<types.ModelStatusResponse>(`/v1/models/${encodeURIComponent(modelId)}/status`);
+  }
+
   async getModelImportStatus(importId: string): Promise<types.ImportModelResponse> {
     return this.request<types.ImportModelResponse>(`/v1/models/imports/${importId}`);
   }
@@ -1335,8 +1456,23 @@ class ApiClient {
     return this.request<types.ModelValidationResponse>(`/v1/models/${modelId}/validate`);
   }
 
-  async downloadModel(modelId: string): Promise<types.ModelDownloadResponse> {
-    return this.request<types.ModelDownloadResponse>(`/v1/models/${modelId}/download`);
+  /**
+   * Start downloading a model from HuggingFace
+   * Returns immediately with a job ID that can be polled for progress
+   */
+  async downloadModel(modelId: string): Promise<types.DownloadJobResponse> {
+    return this.request<types.DownloadJobResponse>(`/v1/models/${encodeURIComponent(modelId)}/download`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Get the status of a model download job
+   */
+  async getDownloadStatus(modelId: string, jobId: string): Promise<types.DownloadJobResponse> {
+    return this.request<types.DownloadJobResponse>(
+      `/v1/models/${encodeURIComponent(modelId)}/download/${jobId}`
+    );
   }
 
   // Routing
@@ -1349,7 +1485,7 @@ class ApiClient {
 
   async getRoutingHistory(limit?: number): Promise<types.RoutingDecision[]> {
     const query = limit ? `?limit=${limit}` : '';
-    return this.request<types.RoutingDecision[]>(`/v1/routing/history${query}`);
+    return this.requestList<types.RoutingDecision>(`/v1/routing/history${query}`);
   }
 
   // Backend metadata
@@ -1411,6 +1547,7 @@ class ApiClient {
       prompt_length: data.prompt.length,
     });
 
+    const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB limit
     let fullText = '';
 
     try {
@@ -1433,6 +1570,11 @@ class ApiClient {
           // If JSON parsing fails, use status text
         }
         throw new Error(errorMessage);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('text/event-stream') && !contentType?.includes('application/stream')) {
+        throw new Error(`Unexpected content type: ${contentType}. Expected streaming response.`);
       }
 
       if (!response.body) {
@@ -1486,6 +1628,13 @@ class ApiClient {
                 const token = choice.delta?.content || '';
                 if (token) {
                   fullText += token;
+
+                  // Check if response size exceeds limit
+                  if (fullText.length > MAX_RESPONSE_SIZE) {
+                    reader.cancel();
+                    throw new Error('Response exceeded maximum size limit');
+                  }
+
                   callbacks.onToken(token, chunk);
                 }
 
@@ -1552,7 +1701,7 @@ class ApiClient {
   }
 
   async getPromotionHistory(): Promise<types.PromotionHistoryEntry[]> {
-    return this.request<types.PromotionHistoryEntry[]>('/v1/cp/promotions');
+    return this.requestList<types.PromotionHistoryEntry>('/v1/cp/promotions');
   }
 
   // ===== Phase 8: Telemetry Operations =====
@@ -1646,11 +1795,11 @@ class ApiClient {
     });
   }
 
-  async getRepositoryAnalysis(repoId: string): Promise<any> {
+  async getRepositoryAnalysis(repoId: string): Promise<unknown> {
     return this.request(`/v1/git/repositories/${repoId}/analysis`);
   }
 
-  async trainRepositoryAdapter(repoId: string, config: any): Promise<{
+  async trainRepositoryAdapter(repoId: string, config: Record<string, unknown>): Promise<{
     training_id: string;
     status: string;
     estimated_duration: string;
@@ -1664,7 +1813,7 @@ class ApiClient {
 
   // Domain Adapter API
   async listDomainAdapters(): Promise<types.DomainAdapter[]> {
-    return this.request<types.DomainAdapter[]>('/v1/domain-adapters');
+    return this.requestList<types.DomainAdapter>('/v1/domain-adapters');
   }
 
   async testDomainAdapter(adapterId: string, inputData: string, expectedOutput?: string, iterations?: number): Promise<types.TestDomainAdapterResponse> {
@@ -1682,7 +1831,8 @@ class ApiClient {
   // Adapter Stack API
   async listAdapterStacks(): Promise<types.AdapterStack[]> {
     // Backend returns StackResponse[] with adapter_ids, map to AdapterStack
-    const backendStacks = await this.request<Array<{
+    // DEFENSIVE: Use extractArrayFromResponse to handle potential PaginatedResponse migration
+    type BackendStack = {
       id: string;
       name: string;
       adapter_ids: string[];
@@ -1691,8 +1841,10 @@ class ApiClient {
       updated_at: string;
       version?: number;
       workflow_type?: string;
-    }>>('/v1/adapter-stacks');
-    
+    };
+    const rawResponse = await this.request<unknown>('/v1/adapter-stacks');
+    const backendStacks = extractArrayFromResponse<BackendStack>(rawResponse);
+
     return backendStacks.map(stack => ({
       id: stack.id,
       name: stack.name,
@@ -1725,7 +1877,7 @@ class ApiClient {
   }
 
   async getAdapterStackHistory(id: string): Promise<types.LifecycleHistoryEvent[]> {
-    return this.request<types.LifecycleHistoryEvent[]>(`/v1/adapter-stacks/${id}/history`);
+    return this.requestList<types.LifecycleHistoryEvent>(`/v1/adapter-stacks/${id}/history`);
   }
 
   async updateAdapterStack(id: string, data: types.UpdateAdapterStackRequest): Promise<types.AdapterStack> {
@@ -1777,8 +1929,8 @@ class ApiClient {
         return await this.getAdapterStack(response.stack_id);
       }
       return null;
-    } catch (error: any) {
-      if (error.status === 404) {
+    } catch (error: unknown) {
+      if (error instanceof Error && 'status' in error && (error as ApiError).status === 404) {
         return null;
       }
       throw error;
@@ -1808,7 +1960,7 @@ class ApiClient {
   // Monitoring API
   async listMonitoringRules(tenantId?: string): Promise<types.MonitoringRule[]> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
-    return this.request<types.MonitoringRule[]>(`/v1/monitoring/rules${query}`);
+    return this.requestList<types.MonitoringRule>(`/v1/monitoring/rules${query}`);
   }
 
   async createMonitoringRule(data: types.CreateMonitoringRuleRequest): Promise<types.MonitoringRule> {
@@ -1832,7 +1984,7 @@ class ApiClient {
     if (filters?.severity) params.append('severity', filters.severity);
     if (filters?.limit) params.append('limit', filters.limit.toString());
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<types.Alert[]>(`/v1/monitoring/alerts${query}`);
+    return this.requestList<types.Alert>(`/v1/monitoring/alerts${query}`);
   }
 
   async acknowledgeAlert(alertId: string, data: types.AcknowledgeAlertRequest): Promise<types.Alert> {
@@ -1858,11 +2010,11 @@ class ApiClient {
 
   async listHealthMetrics(tenantId?: string): Promise<types.HealthMetric[]> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
-    return this.request<types.HealthMetric[]>(`/v1/monitoring/health-metrics${query}`);
+    return this.requestList<types.HealthMetric>(`/v1/monitoring/health-metrics${query}`);
   }
 
   async listAnomalies(): Promise<apiTypes.Anomaly[]> {
-    return this.request<apiTypes.Anomaly[]>('/v1/monitoring/anomalies');
+    return this.requestList<apiTypes.Anomaly>('/v1/monitoring/anomalies');
   }
 
   async updateAnomalyStatus(anomalyId: string, data: apiTypes.UpdateAnomalyStatusRequest): Promise<apiTypes.Anomaly> {
@@ -1875,7 +2027,7 @@ class ApiClient {
   // Replay API
   async listReplaySessions(tenantId?: string): Promise<types.ReplaySession[]> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
-    return this.request<types.ReplaySession[]>(`/v1/replay/sessions${query}`);
+    return this.requestList<types.ReplaySession>(`/v1/replay/sessions${query}`);
   }
 
   async getReplaySession(sessionId: string): Promise<types.ReplaySession> {
@@ -2008,7 +2160,7 @@ class ApiClient {
     if (filters?.level) params.append('level', filters.level);
 
     const queryString = params.toString();
-    return this.request<types.TelemetryEvent[]>(`/v1/telemetry/events${queryString ? `?${queryString}` : ''}`);
+    return this.requestList<types.TelemetryEvent>(`/v1/telemetry/events${queryString ? `?${queryString}` : ''}`);
   }
 
   // Logs API methods
@@ -2029,7 +2181,7 @@ class ApiClient {
     if (filters?.trace_id) params.append('trace_id', filters.trace_id);
 
     const queryString = params.toString();
-    return this.request<types.UnifiedTelemetryEvent[]>(`/v1/logs/query${queryString ? `?${queryString}` : ''}`);
+    return this.requestList<types.UnifiedTelemetryEvent>(`/v1/logs/query${queryString ? `?${queryString}` : ''}`);
   }
 
   // Metrics API methods
@@ -2048,7 +2200,7 @@ class ApiClient {
     if (params?.end_ms) queryParams.append('end_ms', params.end_ms.toString());
 
     const queryString = queryParams.toString();
-    return this.request<types.MetricsSeriesResponse[]>(`/v1/metrics/series${queryString ? `?${queryString}` : ''}`);
+    return this.requestList<types.MetricsSeriesResponse>(`/v1/metrics/series${queryString ? `?${queryString}` : ''}`);
   }
 
   // Traces API methods
@@ -2065,7 +2217,7 @@ class ApiClient {
     if (params?.end_time_ns) queryParams.append('end_time_ns', params.end_time_ns.toString());
 
     const queryString = queryParams.toString();
-    return this.request<string[]>(`/v1/traces/search${queryString ? `?${queryString}` : ''}`);
+    return this.requestList<string>(`/v1/traces/search${queryString ? `?${queryString}` : ''}`);
   }
 
   async getTrace(traceId: string): Promise<types.Trace | null> {
@@ -2156,7 +2308,7 @@ class ApiClient {
   // Get access patterns for visualization
   async getAccessPatterns(tenantId?: string): Promise<types.AccessPattern[]> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
-    return this.request<types.AccessPattern[]>(`/v1/security/access-patterns${query}`);
+    return this.requestList<types.AccessPattern>(`/v1/security/access-patterns${query}`);
   }
 
   // Federation management methods
@@ -2205,11 +2357,11 @@ class ApiClient {
     if (filters?.start_time) params.append('start_time', filters.start_time);
     if (filters?.end_time) params.append('end_time', filters.end_time);
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<types.ProcessLog[]>(`/v1/workers/${workerId}/logs${query}`);
+    return this.requestList<types.ProcessLog>(`/v1/workers/${workerId}/logs${query}`);
   }
 
   async getProcessCrashes(workerId: string): Promise<types.ProcessCrash[]> {
-    return this.request<types.ProcessCrash[]>(`/v1/workers/${workerId}/crashes`);
+    return this.requestList<types.ProcessCrash>(`/v1/workers/${workerId}/crashes`);
   }
 
   async startDebugSession(workerId: string, config: types.DebugSessionConfig): Promise<types.DebugSession> {
@@ -2385,11 +2537,11 @@ class ApiClient {
 
   // Workspace methods
   async listWorkspaces(): Promise<types.Workspace[]> {
-    return this.request<types.Workspace[]>('/v1/workspaces');
+    return this.requestList<types.Workspace>('/v1/workspaces');
   }
 
   async listUserWorkspaces(): Promise<types.Workspace[]> {
-    return this.request<types.Workspace[]>('/v1/workspaces/my');
+    return this.requestList<types.Workspace>('/v1/workspaces/my');
   }
 
   async createWorkspace(data: types.CreateWorkspaceRequest): Promise<types.Workspace> {
@@ -2417,7 +2569,7 @@ class ApiClient {
   }
 
   async listWorkspaceMembers(workspaceId: string): Promise<types.WorkspaceMember[]> {
-    return this.request<types.WorkspaceMember[]>(`/v1/workspaces/${workspaceId}/members`);
+    return this.requestList<types.WorkspaceMember>(`/v1/workspaces/${workspaceId}/members`);
   }
 
   async addWorkspaceMember(workspaceId: string, data: types.AddWorkspaceMemberRequest): Promise<{ id: string }> {
@@ -2441,7 +2593,7 @@ class ApiClient {
   }
 
   async listWorkspaceResources(workspaceId: string): Promise<types.WorkspaceResource[]> {
-    return this.request<types.WorkspaceResource[]>(`/v1/workspaces/${workspaceId}/resources`);
+    return this.requestList<types.WorkspaceResource>(`/v1/workspaces/${workspaceId}/resources`);
   }
 
   async shareWorkspaceResource(workspaceId: string, data: { resource_type: string; resource_id: string }): Promise<{ id: string }> {
@@ -2464,7 +2616,7 @@ class ApiClient {
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.offset) queryParams.append('offset', params.offset.toString());
     const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    return this.request<types.Message[]>(`/v1/workspaces/${workspaceId}/messages${query}`);
+    return this.requestList<types.Message>(`/v1/workspaces/${workspaceId}/messages${query}`);
   }
 
   async createMessage(workspaceId: string, data: types.CreateMessageRequest): Promise<types.Message> {
@@ -2482,7 +2634,7 @@ class ApiClient {
   }
 
   async getMessageThread(workspaceId: string, threadId: string): Promise<types.Message[]> {
-    return this.request<types.Message[]>(`/v1/workspaces/${workspaceId}/messages/${threadId}/thread`);
+    return this.requestList<types.Message>(`/v1/workspaces/${workspaceId}/messages/${threadId}/thread`);
   }
 
   async markMessageRead(workspaceId: string, messageId: string): Promise<types.Message> {
@@ -2512,7 +2664,7 @@ class ApiClient {
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.offset) queryParams.append('offset', params.offset.toString());
     const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    return this.request<types.Notification[]>(`/v1/notifications${query}`);
+    return this.requestList<types.Notification>(`/v1/notifications${query}`);
   }
 
   async getNotificationSummary(workspaceId?: string): Promise<types.NotificationSummary> {
@@ -2539,7 +2691,7 @@ class ApiClient {
 
   // Tutorial methods
   async listTutorials(): Promise<types.Tutorial[]> {
-    return this.request<types.Tutorial[]>('/v1/tutorials');
+    return this.requestList<types.Tutorial>('/v1/tutorials');
   }
 
   async markTutorialCompleted(tutorialId: string): Promise<void> {
@@ -2583,7 +2735,7 @@ class ApiClient {
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.offset) queryParams.append('offset', params.offset.toString());
     const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    return this.request<types.ActivityEvent[]>(`/v1/activity${query}`);
+    return this.requestList<types.ActivityEvent>(`/v1/activity${query}`);
   }
 
   async getRecentActivityEvents(params?: { event_types?: string[]; limit?: number }): Promise<types.RecentActivityEvent[]> {
@@ -2595,7 +2747,7 @@ class ApiClient {
       queryParams.append('event_types[]', eventType);
     });
     const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    return this.request<types.RecentActivityEvent[]>(`/v1/telemetry/events/recent${query}`);
+    return this.requestList<types.RecentActivityEvent>(`/v1/telemetry/events/recent${query}`);
   }
 
   async createActivityEvent(data: types.CreateActivityEventRequest): Promise<types.ActivityEvent> {
@@ -2609,7 +2761,7 @@ class ApiClient {
     const queryParams = new URLSearchParams();
     if (limit) queryParams.append('limit', limit.toString());
     const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    return this.request<types.ActivityEvent[]>(`/v1/activity/my${query}`);
+    return this.requestList<types.ActivityEvent>(`/v1/activity/my${query}`);
   }
 
   subscribeToMetrics(callback: (metrics: SystemMetrics | null) => void): () => void {
@@ -2625,6 +2777,7 @@ class ApiClient {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
     let disposed = false;
+    let isConnecting = false;
 
     const stopFallback = () => {
       if (fallbackInterval) {
@@ -2693,52 +2846,58 @@ class ApiClient {
     };
 
     const connect = () => {
-      if (disposed) return;
-      cleanupEventSource();
-      stopFallback();
+      if (disposed || isConnecting) return;
+      isConnecting = true;
 
       try {
-        eventSource = new EventSource(sseUrl);
-      } catch (error) {
-        logger.error('Failed to initialise metrics SSE', {
-          component: 'ApiClient',
-          operation: 'subscribeToMetrics',
-        }, toError(error));
-        callback(null);
-        reconnectAttempts++;
-        if (reconnectAttempts >= maxReconnect) {
-          startFallback();
-        }
-        scheduleReconnect();
-        return;
-      }
-
-      eventSource.addEventListener('metrics', onMetrics);
-
-      eventSource.addEventListener('open', () => {
-        if (disposed) return;
-        logger.info('Metrics SSE connected', {
-          component: 'ApiClient',
-          operation: 'subscribeToMetrics',
-        });
-        reconnectAttempts = 0;
+        cleanupEventSource();
         stopFallback();
-      });
 
-      eventSource.addEventListener('error', () => {
-        if (disposed) return;
-        callback(null);
-        reconnectAttempts++;
-        logger.warn('Metrics SSE error detected', {
-          component: 'ApiClient',
-          operation: 'subscribeToMetrics',
-          reconnectAttempts,
-        });
-        if (reconnectAttempts >= maxReconnect) {
-          startFallback();
+        try {
+          eventSource = new EventSource(sseUrl);
+        } catch (error) {
+          logger.error('Failed to initialise metrics SSE', {
+            component: 'ApiClient',
+            operation: 'subscribeToMetrics',
+          }, toError(error));
+          callback(null);
+          reconnectAttempts++;
+          if (reconnectAttempts >= maxReconnect) {
+            startFallback();
+          }
+          scheduleReconnect();
+          return;
         }
-        scheduleReconnect();
-      });
+
+        eventSource.addEventListener('metrics', onMetrics);
+
+        eventSource.addEventListener('open', () => {
+          if (disposed) return;
+          logger.info('Metrics SSE connected', {
+            component: 'ApiClient',
+            operation: 'subscribeToMetrics',
+          });
+          reconnectAttempts = 0;
+          stopFallback();
+        });
+
+        eventSource.addEventListener('error', () => {
+          if (disposed) return;
+          callback(null);
+          reconnectAttempts++;
+          logger.warn('Metrics SSE error detected', {
+            component: 'ApiClient',
+            operation: 'subscribeToMetrics',
+            reconnectAttempts,
+          });
+          if (reconnectAttempts >= maxReconnect) {
+            startFallback();
+          }
+          scheduleReconnect();
+        });
+      } finally {
+        isConnecting = false;
+      }
     };
 
     connect();
@@ -2764,6 +2923,7 @@ class ApiClient {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
     let disposed = false;
+    let isConnecting = false;
 
     const stopFallback = () => {
       if (fallbackInterval) {
@@ -2776,9 +2936,12 @@ class ApiClient {
       if (fallbackInterval) {
         return;
       }
-      logger.warn('Falling back to polling for notifications', {
+      logger.info('Notifications: using polling fallback (SSE unavailable after max retries)', {
         component: 'ApiClient',
         operation: 'subscribeToNotifications',
+        url: sseUrl,
+        maxReconnect,
+        pollIntervalMs: 5000,
       });
       fallbackInterval = setInterval(async () => {
         try {
@@ -2828,7 +2991,14 @@ class ApiClient {
       reconnectTimer = setTimeout(() => {
         if (disposed) return; // Check disposed before reconnecting
         reconnectTimer = null;
-        connect();
+        // Properly handle async reconnection errors
+        connect().catch((error) => {
+          logger.error('Reconnection failed', {
+            component: 'ApiClient',
+            operation: 'SSE reconnection',
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       }, delay);
     };
 
@@ -2847,56 +3017,146 @@ class ApiClient {
       }
     };
 
-    const connect = () => {
-      if (disposed) return;
-      cleanupEventSource();
-      stopFallback();
+    const connect = async () => {
+      if (disposed || isConnecting) return;
+      isConnecting = true;
 
       try {
-        // EventSource doesn't support withCredentials option
-        // Cookies are sent automatically if they're httpOnly and origin matches
-        eventSource = new EventSource(sseUrl);
-      } catch (error) {
-        logger.error('Failed to initialise notifications SSE', {
-          component: 'ApiClient',
-          operation: 'subscribeToNotifications',
-        }, toError(error));
-        callback(null);
-        reconnectAttempts++;
-        if (reconnectAttempts >= maxReconnect) {
-          startFallback();
-        }
-        scheduleReconnect();
-        return;
-      }
-
-      eventSource.addEventListener('notifications', onNotifications);
-
-      eventSource.addEventListener('open', () => {
-        logger.info('Notifications SSE connected', {
-          component: 'ApiClient',
-          operation: 'subscribeToNotifications',
-        });
-        reconnectAttempts = 0;
+        cleanupEventSource();
         stopFallback();
-      });
 
-      eventSource.addEventListener('error', () => {
-        callback(null);
-        reconnectAttempts++;
-        logger.warn('Notifications SSE error detected', {
-          component: 'ApiClient',
-          operation: 'subscribeToNotifications',
-          reconnectAttempts,
-        });
-        if (reconnectAttempts >= maxReconnect) {
-          startFallback();
+        // Pre-flight check to detect common errors with actionable messages
+        try {
+          const checkResponse = await fetch(sseUrl, {
+            method: 'HEAD',
+            credentials: 'include',
+          });
+          if (!checkResponse.ok) {
+            const statusMessages: Record<number, string> = {
+              401: 'Authentication required - please log in',
+              403: 'Permission denied - NotificationView permission required',
+              404: 'Notifications stream endpoint not implemented on server',
+              500: 'Server error - check server logs',
+              502: 'Backend unavailable - server may be starting up',
+              503: 'Service unavailable - server overloaded or in maintenance',
+            };
+            const message = statusMessages[checkResponse.status] || `HTTP ${checkResponse.status}`;
+
+            // For 404, immediately fall back to polling - endpoint doesn't exist
+            if (checkResponse.status === 404) {
+              logger.info('Notifications SSE endpoint not available, using polling fallback', {
+                component: 'ApiClient',
+                operation: 'subscribeToNotifications',
+                url: sseUrl,
+              });
+              callback(null);
+              startFallback();
+              return;
+            }
+
+            logger.warn(`Notifications SSE unavailable: ${message}`, {
+              component: 'ApiClient',
+              operation: 'subscribeToNotifications',
+              url: sseUrl,
+              status: checkResponse.status,
+              reconnectAttempts,
+            });
+            callback(null);
+            reconnectAttempts++;
+            if (reconnectAttempts >= maxReconnect) {
+              startFallback();
+            }
+            scheduleReconnect();
+            return;
+          }
+        } catch (prefetchError) {
+          // Network error during pre-flight - server likely down
+          logger.warn('Notifications SSE: server unreachable', {
+            component: 'ApiClient',
+            operation: 'subscribeToNotifications',
+            url: sseUrl,
+            error: prefetchError instanceof Error ? prefetchError.message : String(prefetchError),
+            reconnectAttempts,
+          });
+          callback(null);
+          reconnectAttempts++;
+          if (reconnectAttempts >= maxReconnect) {
+            startFallback();
+          }
+          scheduleReconnect();
+          return;
         }
-        scheduleReconnect();
-      });
+
+        try {
+          // EventSource doesn't support withCredentials option
+          // Cookies are sent automatically if they're httpOnly and origin matches
+          eventSource = new EventSource(sseUrl);
+        } catch (error) {
+          logger.error('Failed to initialise notifications SSE', {
+            component: 'ApiClient',
+            operation: 'subscribeToNotifications',
+            url: sseUrl,
+          }, toError(error));
+          callback(null);
+          reconnectAttempts++;
+          if (reconnectAttempts >= maxReconnect) {
+            startFallback();
+          }
+          scheduleReconnect();
+          return;
+        }
+
+        eventSource.addEventListener('notifications', onNotifications);
+
+        eventSource.addEventListener('open', () => {
+          logger.info('Notifications SSE connected', {
+            component: 'ApiClient',
+            operation: 'subscribeToNotifications',
+            url: sseUrl,
+          });
+          reconnectAttempts = 0;
+          stopFallback();
+        });
+
+        eventSource.addEventListener('error', () => {
+          callback(null);
+          reconnectAttempts++;
+          // EventSource error events don't provide details, but we can check readyState
+          const readyStateMap: Record<number, string> = {
+            0: 'connecting',
+            1: 'open',
+            2: 'closed',
+          };
+          const state = eventSource?.readyState ?? -1;
+          logger.warn('Notifications SSE connection lost', {
+            component: 'ApiClient',
+            operation: 'subscribeToNotifications',
+            url: sseUrl,
+            readyState: readyStateMap[state] || `unknown(${state})`,
+            reconnectAttempts,
+            maxReconnect,
+            willRetry: reconnectAttempts < maxReconnect,
+          });
+          if (reconnectAttempts >= maxReconnect) {
+            startFallback();
+          }
+          scheduleReconnect();
+        });
+      } finally {
+        isConnecting = false;
+      }
     };
 
-    connect();
+    // Start initial connection with proper error handling
+    connect().catch((error) => {
+      logger.error('Initial connection failed', {
+        component: 'ApiClient',
+        operation: 'subscribeToNotifications',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // Start fallback if initial connection fails
+      startFallback();
+    });
 
     return () => {
       disposed = true;
@@ -2920,6 +3180,7 @@ class ApiClient {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
     let disposed = false;
+    let isConnecting = false;
 
     const stopFallback = () => {
       if (fallbackInterval) {
@@ -2976,7 +3237,14 @@ class ApiClient {
       reconnectTimer = setTimeout(() => {
         if (disposed) return; // Check disposed before reconnecting
         reconnectTimer = null;
-        connect();
+        // Properly handle async reconnection errors
+        connect().catch((error) => {
+          logger.error('Reconnection failed', {
+            component: 'ApiClient',
+            operation: 'SSE reconnection',
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       }, delay);
     };
 
@@ -2997,59 +3265,88 @@ class ApiClient {
       }
     };
 
-    const connect = () => {
-      if (disposed) return;
-      cleanupEventSource();
-      stopFallback();
+    const connect = async () => {
+      if (disposed || isConnecting) return;
+      isConnecting = true;
 
       try {
-        eventSource = new EventSource(sseUrl);
-      } catch (error) {
-        logger.error('Failed to initialise messages SSE', {
-          component: 'ApiClient',
-          operation: 'subscribeToMessages',
-          workspaceId,
-        }, toError(error));
-        callback(null);
-        reconnectAttempts++;
-        if (reconnectAttempts >= maxReconnect) {
-          startFallback();
-        }
-        scheduleReconnect();
-        return;
-      }
-
-      eventSource.addEventListener('messages', onMessages);
-
-      eventSource.addEventListener('open', () => {
-        if (disposed) return;
-        logger.info('Messages SSE connected', {
-          component: 'ApiClient',
-          operation: 'subscribeToMessages',
-          workspaceId,
-        });
-        reconnectAttempts = 0;
+        cleanupEventSource();
         stopFallback();
-      });
 
-      eventSource.addEventListener('error', () => {
-        if (disposed) return;
-        callback(null);
-        reconnectAttempts++;
-        logger.warn('Messages SSE error detected', {
-          component: 'ApiClient',
-          operation: 'subscribeToMessages',
-          workspaceId,
-          reconnectAttempts,
-        });
-        if (reconnectAttempts >= maxReconnect) {
-          startFallback();
+        // Pre-flight check - immediately fall back for 404 (endpoint not implemented)
+        try {
+          const checkResponse = await fetch(sseUrl, { method: 'HEAD', credentials: 'include' });
+          if (checkResponse.status === 404) {
+            logger.info('Messages SSE endpoint not available, using polling fallback', {
+              component: 'ApiClient',
+              operation: 'subscribeToMessages',
+              workspaceId,
+            });
+            callback(null);
+            startFallback();
+            return;
+          }
+        } catch {
+          // Network error - continue to try EventSource
         }
-        scheduleReconnect();
-      });
+
+        try {
+          eventSource = new EventSource(sseUrl);
+        } catch (error) {
+          logger.error('Failed to initialise messages SSE', {
+            component: 'ApiClient',
+            operation: 'subscribeToMessages',
+            workspaceId,
+          }, toError(error));
+          callback(null);
+          reconnectAttempts++;
+          if (reconnectAttempts >= maxReconnect) {
+            startFallback();
+          }
+          scheduleReconnect();
+          return;
+        }
+
+        eventSource.addEventListener('messages', onMessages);
+
+        eventSource.addEventListener('open', () => {
+          if (disposed) return;
+          logger.info('Messages SSE connected', {
+            component: 'ApiClient',
+            operation: 'subscribeToMessages',
+            workspaceId,
+          });
+          reconnectAttempts = 0;
+          stopFallback();
+        });
+
+        eventSource.addEventListener('error', () => {
+          if (disposed) return;
+          callback(null);
+          reconnectAttempts++;
+          logger.warn('Messages SSE error detected', {
+            component: 'ApiClient',
+            operation: 'subscribeToMessages',
+            workspaceId,
+            reconnectAttempts,
+          });
+          if (reconnectAttempts >= maxReconnect) {
+            startFallback();
+          }
+          scheduleReconnect();
+        });
+      } finally {
+        isConnecting = false;
+      }
     };
 
-    connect();
+    // Start initial connection with proper error handling
+    connect().catch((error) => {
+      logger.error('Initial SSE connection failed', {
+        component: 'ApiClient',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 
     return () => {
       disposed = true;
@@ -3073,6 +3370,7 @@ class ApiClient {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
     let disposed = false;
+    let isConnecting = false;
 
     const stopFallback = () => {
       if (fallbackInterval) {
@@ -3129,7 +3427,14 @@ class ApiClient {
       reconnectTimer = setTimeout(() => {
         if (disposed) return; // Check disposed before reconnecting
         reconnectTimer = null;
-        connect();
+        // Properly handle async reconnection errors
+        connect().catch((error) => {
+          logger.error('Reconnection failed', {
+            component: 'ApiClient',
+            operation: 'SSE reconnection',
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       }, delay);
     };
 
@@ -3150,59 +3455,88 @@ class ApiClient {
       }
     };
 
-    const connect = () => {
-      if (disposed) return;
-      cleanupEventSource();
-      stopFallback();
+    const connect = async () => {
+      if (disposed || isConnecting) return;
+      isConnecting = true;
 
       try {
-        eventSource = new EventSource(sseUrl);
-      } catch (error) {
-        logger.error('Failed to initialise activity SSE', {
-          component: 'ApiClient',
-          operation: 'subscribeToActivity',
-          workspaceId,
-        }, toError(error));
-        callback(null);
-        reconnectAttempts++;
-        if (reconnectAttempts >= maxReconnect) {
-          startFallback();
-        }
-        scheduleReconnect();
-        return;
-      }
-
-      eventSource.addEventListener('activity', onActivity);
-
-      eventSource.addEventListener('open', () => {
-        if (disposed) return;
-        logger.info('Activity SSE connected', {
-          component: 'ApiClient',
-          operation: 'subscribeToActivity',
-          workspaceId,
-        });
-        reconnectAttempts = 0;
+        cleanupEventSource();
         stopFallback();
-      });
 
-      eventSource.addEventListener('error', () => {
-        if (disposed) return;
-        callback(null);
-        reconnectAttempts++;
-        logger.warn('Activity SSE error detected', {
-          component: 'ApiClient',
-          operation: 'subscribeToActivity',
-          workspaceId,
-          reconnectAttempts,
-        });
-        if (reconnectAttempts >= maxReconnect) {
-          startFallback();
+        // Pre-flight check - immediately fall back for 404 (endpoint not implemented)
+        try {
+          const checkResponse = await fetch(sseUrl, { method: 'HEAD', credentials: 'include' });
+          if (checkResponse.status === 404) {
+            logger.info('Activity SSE endpoint not available, using polling fallback', {
+              component: 'ApiClient',
+              operation: 'subscribeToActivity',
+              workspaceId,
+            });
+            callback(null);
+            startFallback();
+            return;
+          }
+        } catch {
+          // Network error - continue to try EventSource
         }
-        scheduleReconnect();
-      });
+
+        try {
+          eventSource = new EventSource(sseUrl);
+        } catch (error) {
+          logger.error('Failed to initialise activity SSE', {
+            component: 'ApiClient',
+            operation: 'subscribeToActivity',
+            workspaceId,
+          }, toError(error));
+          callback(null);
+          reconnectAttempts++;
+          if (reconnectAttempts >= maxReconnect) {
+            startFallback();
+          }
+          scheduleReconnect();
+          return;
+        }
+
+        eventSource.addEventListener('activity', onActivity);
+
+        eventSource.addEventListener('open', () => {
+          if (disposed) return;
+          logger.info('Activity SSE connected', {
+            component: 'ApiClient',
+            operation: 'subscribeToActivity',
+            workspaceId,
+          });
+          reconnectAttempts = 0;
+          stopFallback();
+        });
+
+        eventSource.addEventListener('error', () => {
+          if (disposed) return;
+          callback(null);
+          reconnectAttempts++;
+          logger.warn('Activity SSE error detected', {
+            component: 'ApiClient',
+            operation: 'subscribeToActivity',
+            workspaceId,
+            reconnectAttempts,
+          });
+          if (reconnectAttempts >= maxReconnect) {
+            startFallback();
+          }
+          scheduleReconnect();
+        });
+      } finally {
+        isConnecting = false;
+      }
     };
 
-    connect();
+    // Start initial connection with proper error handling
+    connect().catch((error) => {
+      logger.error('Initial SSE connection failed', {
+        component: 'ApiClient',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 
     return () => {
       disposed = true;
@@ -3319,7 +3653,7 @@ class ApiClient {
       lines,
     });
 
-    return this.request(`/v1/services/${serviceId}/logs?lines=${lines}`, {
+    return this.requestList<string>(`/v1/services/${serviceId}/logs?lines=${lines}`, {
       method: 'GET',
     });
   }
@@ -3942,7 +4276,7 @@ class ApiClient {
     if (query?.limit) params.append('limit', query.limit.toString());
 
     const queryString = params.toString();
-    return this.request<chatTypes.ChatSession[]>(`/v1/chat/sessions${queryString ? `?${queryString}` : ''}`);
+    return this.requestList<chatTypes.ChatSession>(`/v1/chat/sessions${queryString ? `?${queryString}` : ''}`);
   }
 
   /**
@@ -4028,7 +4362,7 @@ class ApiClient {
     if (limit) params.append('limit', limit.toString());
 
     const queryString = params.toString();
-    return this.request<chatTypes.ChatMessage[]>(
+    return this.requestList<chatTypes.ChatMessage>(
       `/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages${queryString ? `?${queryString}` : ''}`
     );
   }
@@ -4161,7 +4495,7 @@ class ApiClient {
     if (limit) params.append('limit', limit.toString());
 
     const queryString = params.toString();
-    return this.request<chatTypes.ChatSessionWithStatus[]>(
+    return this.requestList<chatTypes.ChatSessionWithStatus>(
       `/v1/chat/sessions/archived${queryString ? `?${queryString}` : ''}`
     );
   }
@@ -4179,7 +4513,7 @@ class ApiClient {
     if (limit) params.append('limit', limit.toString());
 
     const queryString = params.toString();
-    return this.request<chatTypes.ChatSessionWithStatus[]>(
+    return this.requestList<chatTypes.ChatSessionWithStatus>(
       `/v1/chat/sessions/trash${queryString ? `?${queryString}` : ''}`
     );
   }
@@ -4208,7 +4542,7 @@ class ApiClient {
     if (query.include_archived !== undefined) params.append('include_archived', query.include_archived.toString());
     if (query.limit) params.append('limit', query.limit.toString());
 
-    return this.request<chatTypes.ChatSearchResult[]>(`/v1/chat/sessions/search?${params.toString()}`);
+    return this.requestList<chatTypes.ChatSearchResult>(`/v1/chat/sessions/search?${params.toString()}`);
   }
 
   // ============================================================================
@@ -4255,7 +4589,7 @@ class ApiClient {
    * @returns Array of session shares
    */
   async getSessionShares(sessionId: string): Promise<chatTypes.SessionShare[]> {
-    return this.request<chatTypes.SessionShare[]>(
+    return this.requestList<chatTypes.SessionShare>(
       `/v1/chat/sessions/${encodeURIComponent(sessionId)}/shares`
     );
   }
@@ -4275,7 +4609,7 @@ class ApiClient {
     if (query?.limit) params.append('limit', query.limit.toString());
 
     const queryString = params.toString();
-    return this.request<chatTypes.ChatSessionWithStatus[]>(
+    return this.requestList<chatTypes.ChatSessionWithStatus>(
       `/v1/chat/sessions/shared-with-me${queryString ? `?${queryString}` : ''}`
     );
   }
@@ -4325,7 +4659,7 @@ class ApiClient {
    * @returns Array of chat tags
    */
   async listChatTags(): Promise<chatTypes.ChatTag[]> {
-    return this.request<chatTypes.ChatTag[]>('/v1/chat/tags');
+    return this.requestList<chatTypes.ChatTag>('/v1/chat/tags');
   }
 
   /**
@@ -4411,7 +4745,7 @@ class ApiClient {
       tag_ids: tagIds,
     };
 
-    return this.request<chatTypes.ChatTag[]>(
+    return this.requestList<chatTypes.ChatTag>(
       `/v1/chat/sessions/${encodeURIComponent(sessionId)}/tags`,
       {
         method: 'POST',
@@ -4429,7 +4763,7 @@ class ApiClient {
    * @returns Array of tags assigned to the session
    */
   async getSessionTags(sessionId: string): Promise<chatTypes.ChatTag[]> {
-    return this.request<chatTypes.ChatTag[]>(
+    return this.requestList<chatTypes.ChatTag>(
       `/v1/chat/sessions/${encodeURIComponent(sessionId)}/tags`
     );
   }
@@ -4470,7 +4804,7 @@ class ApiClient {
    * @returns Array of chat categories (tree-sorted by path)
    */
   async listChatCategories(): Promise<chatTypes.ChatCategory[]> {
-    return this.request<chatTypes.ChatCategory[]>('/v1/chat/categories');
+    return this.requestList<chatTypes.ChatCategory>('/v1/chat/categories');
   }
 
   /**
@@ -4638,7 +4972,7 @@ class ApiClient {
    * @returns Array of documents
    */
   async listDocuments(): Promise<documentTypes.Document[]> {
-    return this.request<documentTypes.Document[]>('/v1/documents');
+    return this.requestList<documentTypes.Document>('/v1/documents');
   }
 
   /**
@@ -4678,7 +5012,7 @@ class ApiClient {
    * @returns Array of document chunks
    */
   async listDocumentChunks(documentId: string): Promise<documentTypes.DocumentChunk[]> {
-    return this.request<documentTypes.DocumentChunk[]>(
+    return this.requestList<documentTypes.DocumentChunk>(
       `/v1/documents/${encodeURIComponent(documentId)}/chunks`
     );
   }
@@ -4734,7 +5068,7 @@ class ApiClient {
    * @returns Array of collections
    */
   async listCollections(): Promise<documentTypes.Collection[]> {
-    return this.request<documentTypes.Collection[]>('/v1/collections');
+    return this.requestList<documentTypes.Collection>('/v1/collections');
   }
 
   /**
@@ -4826,7 +5160,7 @@ class ApiClient {
     if (query?.limit) params.append('limit', query.limit.toString());
 
     const queryString = params.toString();
-    return this.request<documentTypes.Evidence[]>(
+    return this.requestList<documentTypes.Evidence>(
       `/v1/evidence${queryString ? `?${queryString}` : ''}`
     );
   }
@@ -4885,7 +5219,7 @@ class ApiClient {
    * @returns Array of evidence entries
    */
   async getDatasetEvidence(datasetId: string): Promise<documentTypes.Evidence[]> {
-    return this.request<documentTypes.Evidence[]>(
+    return this.requestList<documentTypes.Evidence>(
       `/v1/datasets/${encodeURIComponent(datasetId)}/evidence`
     );
   }
@@ -4899,7 +5233,7 @@ class ApiClient {
    * @returns Array of evidence entries
    */
   async getAdapterEvidence(adapterId: string): Promise<documentTypes.Evidence[]> {
-    return this.request<documentTypes.Evidence[]>(
+    return this.requestList<documentTypes.Evidence>(
       `/v1/adapters/${encodeURIComponent(adapterId)}/evidence`
     );
   }
@@ -4920,6 +5254,77 @@ class ApiClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
     });
+  }
+
+  // Behavior Training API
+
+  /**
+   * List behavior events with optional filtering
+   *
+   * GET /v1/behavior-events
+   *
+   * @param filters - Optional filters for events
+   * @returns Array of behavior events
+   */
+  async getBehaviorEvents(
+    filters?: adapterTypes.BehaviorEventFilters
+  ): Promise<adapterTypes.BehaviorEvent[]> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          params.append(key, String(value));
+        }
+      });
+    }
+    const queryString = params.toString();
+    return this.requestList<adapterTypes.BehaviorEvent>(
+      `/v1/behavior-events${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  /**
+   * Get behavior event statistics
+   *
+   * GET /v1/behavior-events/stats
+   *
+   * @param tenantId - Optional tenant ID filter
+   * @returns Behavior statistics
+   */
+  async getBehaviorStats(tenantId?: string): Promise<adapterTypes.BehaviorStats> {
+    const params = new URLSearchParams();
+    if (tenantId) {
+      params.append('tenant_id', tenantId);
+    }
+    const queryString = params.toString();
+    return this.request<adapterTypes.BehaviorStats>(
+      `/v1/behavior-events/stats${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  /**
+   * Export behavior data to JSONL format
+   *
+   * POST /v1/behavior-events/export
+   *
+   * @param request - Export configuration
+   * @returns Blob of JSONL data
+   */
+  async exportBehaviorData(request: adapterTypes.BehaviorExportRequest): Promise<Blob> {
+    const response = await fetch(`${this.baseUrl}/v1/behavior-events/export`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.token && { Authorization: `Bearer ${this.token}` }),
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Export failed: ${response.statusText}`);
+    }
+
+    return response.blob();
   }
 }
 

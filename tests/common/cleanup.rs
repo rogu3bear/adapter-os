@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Test cleanup context that tracks resources to clean up
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TestCleanupContext {
     /// Database files to remove
     pub db_files: Vec<PathBuf>,
@@ -120,8 +120,8 @@ impl TestCleanupContext {
 }
 
 /// Global cleanup registry for tracking test resources across the test suite
-static CLEANUP_REGISTRY: once_cell::sync::Lazy<Arc<Mutex<Vec<TestCleanupContext>>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
+static CLEANUP_REGISTRY: std::sync::LazyLock<Arc<Mutex<Vec<TestCleanupContext>>>> =
+    std::sync::LazyLock::new(|| Arc::new(Mutex::new(Vec::new())));
 
 /// Register a cleanup context for global cleanup
 pub async fn register_cleanup_context(context: TestCleanupContext) {
@@ -208,35 +208,36 @@ impl TestCleanupGuard {
     }
 
     /// Add a database file to be cleaned up
-    pub fn add_db_file<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.context = self.context.add_db_file(path);
+    pub fn add_db_file<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
+        self.context.db_files.push(path.as_ref().to_path_buf());
         self
     }
 
     /// Add a temporary directory to be cleaned up
-    pub fn add_temp_dir<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.context = self.context.add_temp_dir(path);
+    pub fn add_temp_dir<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
+        self.context.temp_dirs.push(path.as_ref().to_path_buf());
         self
     }
 
     /// Add an environment variable to be restored
-    pub fn add_env_var(mut self, key: &str) -> Self {
-        self.context = self.context.add_env_var(key);
+    pub fn add_env_var(&mut self, key: &str) -> &mut Self {
+        let original_value = std::env::var(key).ok();
+        self.context.env_vars.insert(key.to_string(), original_value);
         self
     }
 
     /// Add a custom cleanup function
-    pub fn add_cleanup_fn<F>(mut self, f: F) -> Self
+    pub fn add_cleanup_fn<F>(&mut self, f: F) -> &mut Self
     where
         F: Fn() -> Result<(), Box<dyn std::error::Error>> + Send + Sync + 'static,
     {
-        self.context = self.context.add_cleanup_fn(f);
+        self.context.cleanup_fns.push(Arc::new(f));
         self
     }
 
     /// Manually trigger cleanup
     pub fn cleanup_now(self) -> Result<(), Box<dyn std::error::Error>> {
-        self.context.cleanup()
+        self.context.clone().cleanup()
     }
 }
 
@@ -290,14 +291,14 @@ macro_rules! setup_test_env {
         env::set_var("DATABASE_URL", db_path.to_str().unwrap());
         env::set_var("TEST_ENV", "true");
 
-        // Create cleanup guard
-        let guard = TestCleanupGuard::new(TestCleanupContext::new())
-            .add_db_file(&db_path)
-            .add_temp_dir(&temp_dir)
-            .add_cleanup_fn(move || {
-                restore_env_vars(&env_vars)?;
-                Ok(())
-            });
+        // Create cleanup guard with mutable builder pattern
+        let mut guard = TestCleanupGuard::new(TestCleanupContext::new());
+        guard.add_db_file(&db_path);
+        guard.add_temp_dir(&temp_dir);
+        guard.add_cleanup_fn(move || {
+            restore_env_vars(&env_vars)?;
+            Ok(())
+        });
 
         (db_path, temp_dir, guard)
     }};

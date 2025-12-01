@@ -187,7 +187,15 @@ export function ApiIntegrationExample() {
       const data = await response.json();
 
       // Transform API response to PolicyCheck format
-      const checks: PolicyCheck[] = data.policies.map((p: any) => ({
+      const checks: PolicyCheck[] = data.policies.map((p: {
+        id: string;
+        name: string;
+        status: string;
+        severity: string;
+        message: string;
+        can_override: boolean;
+        details: string;
+      }) => ({
         policy_id: p.id,
         policy_name: p.name,
         passed: p.status === 'passed',
@@ -250,7 +258,15 @@ export function AdapterDetailPageIntegration() {
   const validateAdapterPolicies = async (adapterId: string): Promise<PolicyCheck[]> => {
     const response = await fetch(`/api/v1/adapters/${adapterId}/validate-policies`);
     const data = await response.json();
-    return data.policies.map((p: any) => ({
+    return data.policies.map((p: {
+      id: string;
+      name: string;
+      status: string;
+      severity: string;
+      message: string;
+      can_override: boolean;
+      details: string;
+    }) => ({
       policy_id: p.id,
       policy_name: p.name,
       passed: p.status === 'passed',

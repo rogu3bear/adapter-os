@@ -6,9 +6,9 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '../api/client';
-import { logger } from '../utils/logger';
-import type { TrainingJob } from '../api/types';
+import apiClient from '@/api/client';
+import { logger } from '@/utils/logger';
+import type { TrainingJob } from '@/api/types';
 import { globalNotifiedJobs, globalNotifiedAdapters } from './useTrainingNotifications';
 
 interface UseBatchedTrainingNotificationsOptions {
@@ -124,10 +124,12 @@ export function useBatchedTrainingNotifications({
 
   // Cleanup: remove completed/failed jobs from local tracking
   useEffect(() => {
+    const jobs = notifiedJobsRef.current;
+    const adapters = notifiedAdaptersRef.current;
     return () => {
       // Clean up local refs on unmount
-      notifiedJobsRef.current.clear();
-      notifiedAdaptersRef.current.clear();
+      jobs.clear();
+      adapters.clear();
     };
   }, []);
 }

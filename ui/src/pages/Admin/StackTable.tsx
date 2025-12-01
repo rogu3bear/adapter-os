@@ -135,14 +135,17 @@ export function StackTable({ stacks }: StackTableProps) {
       header: 'Adapters',
       accessorKey: 'adapters',
       cell: (context) => {
-        const adapters = context.getValue() as any[];
+        const adapters = context.getValue() as Array<{ adapter_id?: string } | string>;
         return (
           <div className="flex flex-wrap gap-1">
-            {adapters.slice(0, 3).map((adapter, idx) => (
-              <Badge key={idx} variant="outline" className="text-xs">
-                {adapter.adapter_id || adapter}
-              </Badge>
-            ))}
+            {adapters.slice(0, 3).map((adapter, idx) => {
+              const adapterId = typeof adapter === 'object' && adapter !== null && 'adapter_id' in adapter ? adapter.adapter_id : adapter;
+              return (
+                <Badge key={idx} variant="outline" className="text-xs">
+                  {String(adapterId)}
+                </Badge>
+              );
+            })}
             {adapters.length > 3 && (
               <Badge variant="secondary" className="text-xs">
                 +{adapters.length - 3} more
@@ -173,10 +176,10 @@ export function StackTable({ stacks }: StackTableProps) {
       cell: (context) => {
         const state = (context.getValue() as string | undefined) || 'active';
         const stateConfig: Record<string, { variant: 'default' | 'secondary' | 'outline'; className: string }> = {
-          active: { variant: 'default', className: 'bg-green-500 text-white hover:bg-green-600' },
-          deprecated: { variant: 'secondary', className: 'bg-yellow-500 text-white hover:bg-yellow-600' },
-          retired: { variant: 'outline', className: 'bg-gray-500 text-white hover:bg-gray-600' },
-          draft: { variant: 'secondary', className: 'bg-blue-500 text-white hover:bg-blue-600' },
+          active: { variant: 'default', className: 'bg-success text-white hover:bg-success/90' },
+          deprecated: { variant: 'secondary', className: 'bg-warning text-white hover:bg-warning/90' },
+          retired: { variant: 'outline', className: 'bg-muted text-white hover:bg-muted/90' },
+          draft: { variant: 'secondary', className: 'bg-info text-white hover:bg-info/90' },
         };
         const config = stateConfig[state.toLowerCase()] || stateConfig.active;
         return (

@@ -1,19 +1,58 @@
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
-import RootLayout from "./layout/RootLayout";
-import { useAuth } from "./providers/CoreProviders";
-import { AppProviders } from "./providers/AppProviders";
-import { LoginForm } from "./components/LoginForm";
-import { ErrorBoundary } from "./components/shared/Feedback";
-import { routes } from "./config/routes";
-import { RouteGuard } from "./components/route-guard";
-import { logger, toError } from "./utils/logger";
-
+import RootLayout from "@/layout/RootLayout";
+import { useAuth } from "@/providers/CoreProviders";
+import { AppProviders } from "@/providers/AppProviders";
+import { LoginForm } from "@/components/LoginForm";
+import { ErrorBoundary } from "@/components/shared/Feedback";
+import { routes } from "@/config/routes";
+import { RouteGuard } from "@/components/route-guard";
+import { logger, toError } from "@/utils/logger";
+import { captureException } from "@/stores/errorStore";
+import { toast } from "sonner";
 
 import "./index.css";
 
+// Global error handlers - always enabled with different behavior for dev vs prod
+window.addEventListener('error', (event) => {
+  captureException(event.error || new Error(event.message), {
+    component: 'global',
+    operation: 'uncaught error',
+    extra: {
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+    },
+  });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  logger.error('Unhandled promise rejection', { component: 'global' }, event.reason);
+
+  captureException(event.reason, {
+    component: 'global',
+    operation: 'unhandled promise rejection',
+  });
+
+  // Show user-friendly error in production
+  if (import.meta.env.PROD) {
+    toast.error('An unexpected error occurred');
+  }
+});
+
 const FIRST_RUN_KEY = 'aos-first-login-completed';
+
+/** Extended error type for API errors with additional metadata */
+interface ApiError extends Error {
+  code?: string;
+  status?: number;
+}
+
+/** Type guard to check if error has API error properties */
+function isApiError(err: unknown): err is ApiError {
+  return err instanceof Error && ('code' in err || 'status' in err);
+}
 
 function LoginRoute() {
   const { user, login, refreshUser } = useAuth();
@@ -53,10 +92,9 @@ function LoginRoute() {
     return <Navigate to="/dashboard" replace />;
   }
 
+  // LoginForm handles its own full-screen layout
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-6">
-      <div className="w-full max-w-md">
-        <LoginForm
+    <LoginForm
           onLogin={async (creds) => {
             try {
               setLoginError(null);
@@ -70,16 +108,17 @@ function LoginRoute() {
               if (err instanceof Error) {
                 errorMessage = err.message;
                 // Include error code if available for better diagnostics
-                if ((err as any).code) {
-                  errorMessage = `${errorMessage} (${(err as any).code})`;
+                if (isApiError(err) && err.code) {
+                  errorMessage = `${errorMessage} (${err.code})`;
                 }
               }
               setLoginError(errorMessage);
+              const apiErr = isApiError(err) ? err : undefined;
               logger.error('Login failed', {
                 component: 'LoginRoute',
                 operation: 'login',
-                errorCode: (err as any)?.code,
-                status: (err as any)?.status,
+                errorCode: apiErr?.code,
+                status: apiErr?.status,
               }, toError(err));
             }
           }}
@@ -96,23 +135,22 @@ function LoginRoute() {
               if (err instanceof Error) {
                 errorMessage = err.message;
                 // Include error code if available
-                if ((err as any).code) {
-                  errorMessage = `${errorMessage} (${(err as any).code})`;
+                if (isApiError(err) && err.code) {
+                  errorMessage = `${errorMessage} (${err.code})`;
                 }
               }
               setLoginError(errorMessage);
+              const apiErr = isApiError(err) ? err : undefined;
               logger.error('Dev bypass failed', {
                 component: 'LoginRoute',
                 operation: 'devBypass',
-                errorCode: (err as any)?.code,
-                status: (err as any)?.status,
+                errorCode: apiErr?.code,
+                status: apiErr?.status,
               }, toError(err));
             }
           }}
-          error={loginError}
-        />
-      </div>
-    </div>
+      error={loginError}
+    />
   );
 }
 

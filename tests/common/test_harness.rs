@@ -10,7 +10,6 @@ use adapteros_db::Db;
 use adapteros_server_api::routes;
 use adapteros_server_api::AppState;
 use axum::Router;
-use serde_json::Value as JsonValue;
 use std::sync::Arc;
 
 /// Complete integration test harness for API testing
@@ -28,6 +27,10 @@ impl ApiTestHarness {
 
     /// Initialize a test harness with a custom database URL
     pub async fn with_db_url(db_url: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        use adapteros_lora_worker::memory::UmaPressureMonitor;
+        use adapteros_server_api::config::PathsConfig;
+        use adapteros_server_api::state::{ApiConfig, MetricsConfig};
+
         // Connect to database (in-memory or file-based)
         let db = Db::connect(db_url).await?;
 
@@ -53,30 +56,51 @@ impl ApiTestHarness {
         )
         .await?;
 
-        // Create app state
-        let state = AppState::with_sqlite(
+        // Create paths config with test defaults
+        let paths_config = PathsConfig {
+            artifacts_root: "var/artifacts".to_string(),
+            bundles_root: "var/bundles".to_string(),
+            adapters_root: "var/adapters".to_string(),
+            plan_dir: "plan".to_string(),
+            datasets_root: "var/datasets".to_string(),
+            documents_root: "var/documents".to_string(),
+        };
+
+        let api_config = Arc::new(std::sync::RwLock::new(ApiConfig {
+            metrics: MetricsConfig {
+                enabled: true,
+                bearer_token: "test-bearer-token".to_string(),
+            },
+            directory_analysis_timeout_secs: 120,
+            capacity_limits: Default::default(),
+            general: None,
+            server: Default::default(),
+            security: Default::default(),
+            performance: Default::default(),
+            paths: paths_config,
+        }));
+
+        let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
+            0.1, 0.5, 1.0,
+        ])?);
+
+        let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new(
+            adapteros_telemetry::metrics::MetricsConfig::default(),
+        ));
+
+        let metrics_registry = Arc::new(adapteros_server_api::telemetry::MetricsRegistry::new());
+
+        let uma_monitor = Arc::new(UmaPressureMonitor::new(15, None));
+
+        // Create app state using the new() constructor
+        let state = AppState::new(
             db,
             b"test-jwt-secret-key-32-bytes-long".to_vec(),
-            Arc::new(std::sync::RwLock::new(
-                adapteros_server_api::state::ApiConfig {
-                    metrics: adapteros_server_api::state::MetricsConfig {
-                        enabled: true,
-                        bearer_token: "test-bearer-token".to_string(),
-                        system_metrics_interval_secs: 30,
-                    },
-                    golden_gate: None,
-                    bundles_root: "test-bundles".to_string(),
-                    rate_limits: None,
-                },
-            )),
-            Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
-                0.1, 0.5, 1.0,
-            ])?),
-            Arc::new(adapteros_telemetry::MetricsCollector::new(
-                adapteros_telemetry::metrics::MetricsConfig::default(),
-            )),
-            Arc::new(adapteros_server_api::telemetry::MetricsRegistry::new()),
-            Arc::new(adapteros_orchestrator::TrainingService::new()),
+            api_config,
+            metrics_exporter,
+            metrics_collector,
+            metrics_registry,
+            uma_monitor,
         );
 
         // Build router
@@ -104,18 +128,15 @@ impl ApiTestHarness {
         email: &str,
         password: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        use super::auth::{create_test_app_state, login_user};
+        use super::auth::login_user;
 
-        // Create a fresh app state for login
-        let app_state = create_test_app_state().await;
-        let app = routes::build(app_state);
-
-        let response = login_user(&app, email, password).await.map_err(|e| {
+        let response = login_user(&self.app, email, password).await.map_err(|e| {
             Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
                 as Box<dyn std::error::Error>
         })?;
 
-        Ok(response.access_token)
+        // LoginResponse has field `token`, not `access_token`
+        Ok(response.token)
     }
 
     /// Create an adapter in the test database
@@ -125,7 +146,7 @@ impl ApiTestHarness {
         tenant_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use super::fixtures_consolidated::TestAdapterFactory;
-        TestAdapterFactory::create_adapter(self.state.db(), adapter_id, tenant_id)
+        TestAdapterFactory::create_adapter(&self.state.db, adapter_id, tenant_id)
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
@@ -137,7 +158,7 @@ impl ApiTestHarness {
         name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use super::fixtures_consolidated::TestDatasetFactory;
-        TestDatasetFactory::create_dataset(self.state.db(), dataset_id, name)
+        TestDatasetFactory::create_dataset(&self.state.db, dataset_id, name)
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
@@ -150,14 +171,14 @@ impl ApiTestHarness {
         adapter_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use super::fixtures_consolidated::TestTrainingJobFactory;
-        TestTrainingJobFactory::create_completed_job(self.state.db(), job_id, dataset_id, adapter_id)
+        TestTrainingJobFactory::create_completed_job(&self.state.db, job_id, dataset_id, adapter_id)
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 
     /// Get the current database connection for manual queries
     pub fn db(&self) -> &Db {
-        self.state.db()
+        &self.state.db
     }
 
     /// Get a mutable reference to app state

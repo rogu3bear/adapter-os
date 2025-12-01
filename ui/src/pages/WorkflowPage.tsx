@@ -12,7 +12,7 @@ export default function WorkflowPage() {
       <FeatureLayout
         title="Getting Started"
         description="Onboarding and workflow wizard"
-        helpContent="Step-by-step guide to configure your AdapterOS workflow"
+        brief="Step-by-step guide to configure your AdapterOS workflow"
       >
         <div className="space-y-6">
           <WorkflowWizard />

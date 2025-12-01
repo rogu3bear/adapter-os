@@ -247,8 +247,8 @@ impl TrainingMetrics {
                     "Infinite loss detected - training instability".to_string(),
                 ));
             }
-            if loss > 1e6 {
-                warn!("Loss exceeded 1e6: {:.2}, possible divergence", loss);
+            if loss > 1e4 {
+                warn!("Loss exceeded 1e4: {:.2}, possible divergence", loss);
             }
         }
 

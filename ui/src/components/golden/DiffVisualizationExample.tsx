@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { DiffVisualization } from './DiffVisualization';
-import { Card } from '../ui/card';
-import { Button } from '../ui/button';
-import { Textarea } from '../ui/textarea';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 /**
  * Example component demonstrating DiffVisualization usage

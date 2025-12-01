@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   Copy,
   Download,
@@ -14,9 +14,9 @@ import {
   FileJson,
   FileSpreadsheet
 } from 'lucide-react';
-import { BatchInferItemResponse } from '../../api/types';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
-import { logger } from '../../utils/logger';
+import { BatchInferItemResponse } from '@/api/types';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { logger } from '@/utils/logger';
 
 interface BatchResultsProps {
   results: BatchInferItemResponse[];

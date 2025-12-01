@@ -13,9 +13,11 @@ import { DensityControls } from '@/components/ui/density-controls';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from '@/components/ui/advanced-filter';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { usePolling } from '@/hooks/usePolling';
 import { Download, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatTimestamp } from '@/utils/format';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 function AuditPageInner() {
   const { density, setDensity } = useDensity();
@@ -214,10 +216,6 @@ function AuditPageInner() {
     }
   }, [polledLogs]);
 
-  const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString();
-  };
-
   const getSeverityColor = (level: string) => {
     switch (level?.toLowerCase()) {
       case 'error': return 'destructive';
@@ -248,32 +246,33 @@ function AuditPageInner() {
       description="Security and system audit events"
       headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
     >
-      <div className="space-y-6">
-        {/* Advanced Filters */}
-        <AdvancedFilter
-          configs={auditFilterConfigs}
-          values={filterValues}
-          onChange={setFilterValues}
-          className="mb-4"
-          title="Filter Audit Logs"
-        />
+      <SectionErrorBoundary sectionName="Audit Log">
+        <div className="space-y-6">
+          {/* Advanced Filters */}
+          <AdvancedFilter
+            configs={auditFilterConfigs}
+            values={filterValues}
+            onChange={setFilterValues}
+            className="mb-4"
+            title="Filter Audit Logs"
+          />
 
-        {/* Basic Controls */}
-        <Card>
+          {/* Basic Controls */}
+          <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Controls
-              <HelpTooltip helpId="audit-controls">
+              <GlossaryTooltip termId="audit-controls">
                 <span className="cursor-help text-muted-foreground">(?)</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex gap-4 items-center flex-wrap">
               <div className="flex items-center gap-2">
-                <HelpTooltip helpId="audit-items-per-page">
+                <GlossaryTooltip termId="audit-items-per-page">
                   <label className="text-sm font-medium cursor-help">Items per page:</label>
-                </HelpTooltip>
+                </GlossaryTooltip>
                 <Select value={limit.toString()} onValueChange={(value) => setLimit(parseInt(value))}>
                   <SelectTrigger className="w-24">
                     <SelectValue />
@@ -286,13 +285,13 @@ function AuditPageInner() {
                   </SelectContent>
                 </Select>
               </div>
-              <HelpTooltip helpId="audit-refresh">
+              <GlossaryTooltip termId="audit-refresh">
                 <Button onClick={loadAuditLogs} disabled={loading} variant="outline">
                   <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                   Refresh
                 </Button>
-              </HelpTooltip>
-              <HelpTooltip helpId="audit-export">
+              </GlossaryTooltip>
+              <GlossaryTooltip termId="audit-export">
                 <Button
                   onClick={handleExportLogs}
                   disabled={!can('audit:view') || allAuditLogs.length === 0}
@@ -301,7 +300,7 @@ function AuditPageInner() {
                   <Download className="h-4 w-4 mr-2" />
                   Export
                 </Button>
-              </HelpTooltip>
+              </GlossaryTooltip>
               {lastUpdated && (
                 <span className="text-xs text-muted-foreground">
                   Last updated: {lastUpdated.toLocaleTimeString()}
@@ -316,9 +315,9 @@ function AuditPageInner() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Audit Events
-              <HelpTooltip helpId="audit-events">
+              <GlossaryTooltip termId="audit-events">
                 <span className="cursor-help text-muted-foreground">(?)</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
               {filteredAuditLogs.length !== allAuditLogs.length && (
                 <span className="ml-2 text-sm font-normal text-muted-foreground">
                   ({filteredAuditLogs.length} of {allAuditLogs.length} total)
@@ -352,39 +351,39 @@ function AuditPageInner() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>
-                        <HelpTooltip helpId="audit-timestamp">
+                        <GlossaryTooltip termId="audit-timestamp">
                           <div className="flex items-center gap-1 cursor-help">
                             Timestamp
                           </div>
-                        </HelpTooltip>
+                        </GlossaryTooltip>
                       </TableHead>
                       <TableHead>
-                        <HelpTooltip helpId="audit-level">
+                        <GlossaryTooltip termId="audit-level">
                           <div className="flex items-center gap-1 cursor-help">
                             Level
                           </div>
-                        </HelpTooltip>
+                        </GlossaryTooltip>
                       </TableHead>
                       <TableHead>
-                        <HelpTooltip helpId="audit-event">
+                        <GlossaryTooltip termId="audit-event">
                           <div className="flex items-center gap-1 cursor-help">
                             Event
                           </div>
-                        </HelpTooltip>
+                        </GlossaryTooltip>
                       </TableHead>
                       <TableHead>
-                        <HelpTooltip helpId="audit-user">
+                        <GlossaryTooltip termId="audit-user">
                           <div className="flex items-center gap-1 cursor-help">
                             User
                           </div>
-                        </HelpTooltip>
+                        </GlossaryTooltip>
                       </TableHead>
                       <TableHead>
-                        <HelpTooltip helpId="audit-details">
+                        <GlossaryTooltip termId="audit-details">
                           <div className="flex items-center gap-1 cursor-help">
                             Details
                           </div>
-                        </HelpTooltip>
+                        </GlossaryTooltip>
                       </TableHead>
                     </TableRow>
                   </TableHeader>
@@ -392,7 +391,7 @@ function AuditPageInner() {
                     {auditLogs.map((log, index) => (
                       <TableRow key={index}>
                         <TableCell className="font-mono text-sm">
-                          {formatTimestamp(log.timestamp)}
+                          {formatTimestamp(log.timestamp, 'long')}
                         </TableCell>
                         <TableCell>
                           <Badge variant={getSeverityColor(log.level)}>
@@ -421,7 +420,7 @@ function AuditPageInner() {
             {/* Pagination */}
             {filteredAuditLogs.length > limit && (
               <div className="flex justify-between items-center mt-4">
-                <HelpTooltip helpId="audit-pagination-prev">
+                <GlossaryTooltip termId="audit-pagination-prev">
                   <Button
                     variant="outline"
                     onClick={() => setOffset(Math.max(0, offset - limit))}
@@ -430,11 +429,11 @@ function AuditPageInner() {
                     <ChevronLeft className="h-4 w-4 mr-1" />
                     Previous
                   </Button>
-                </HelpTooltip>
+                </GlossaryTooltip>
                 <span className="text-sm text-muted-foreground">
                   Showing {offset + 1} - {Math.min(offset + limit, filteredAuditLogs.length)} of {filteredAuditLogs.length}
                 </span>
-                <HelpTooltip helpId="audit-pagination-next">
+                <GlossaryTooltip termId="audit-pagination-next">
                   <Button
                     variant="outline"
                     onClick={() => setOffset(offset + limit)}
@@ -443,12 +442,13 @@ function AuditPageInner() {
                     Next
                     <ChevronRight className="h-4 w-4 ml-1" />
                   </Button>
-                </HelpTooltip>
+                </GlossaryTooltip>
               </div>
             )}
           </CardContent>
         </Card>
-      </div>
+        </div>
+      </SectionErrorBoundary>
     </FeatureLayout>
   );
 }

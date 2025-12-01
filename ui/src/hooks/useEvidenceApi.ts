@@ -5,12 +5,12 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
+import { apiClient } from '@/api/client';
 import type {
   Evidence,
   CreateEvidenceRequest,
   ListEvidenceQuery,
-} from '../api/document-types';
+} from '@/api/document-types';
 
 // Query keys for cache management
 export const evidenceKeys = {
@@ -30,6 +30,9 @@ export function useEvidence(filter?: ListEvidenceQuery) {
   return useQuery({
     queryKey: evidenceKeys.list(filter),
     queryFn: () => apiClient.listEvidence(filter),
+    meta: {
+      errorMessage: 'Failed to load evidence entries',
+    },
   });
 }
 
@@ -41,6 +44,9 @@ export function useEvidenceEntry(evidenceId: string | undefined) {
     queryKey: evidenceKeys.detail(evidenceId ?? ''),
     queryFn: () => apiClient.getEvidence(evidenceId!),
     enabled: !!evidenceId,
+    meta: {
+      errorMessage: 'Failed to load evidence entry',
+    },
   });
 }
 
@@ -52,6 +58,9 @@ export function useDatasetEvidence(datasetId: string | undefined) {
     queryKey: evidenceKeys.byDataset(datasetId ?? ''),
     queryFn: () => apiClient.getDatasetEvidence(datasetId!),
     enabled: !!datasetId,
+    meta: {
+      errorMessage: 'Failed to load dataset evidence',
+    },
   });
 }
 
@@ -63,6 +72,9 @@ export function useAdapterEvidence(adapterId: string | undefined) {
     queryKey: evidenceKeys.byAdapter(adapterId ?? ''),
     queryFn: () => apiClient.getAdapterEvidence(adapterId!),
     enabled: !!adapterId,
+    meta: {
+      errorMessage: 'Failed to load adapter evidence',
+    },
   });
 }
 

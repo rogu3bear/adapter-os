@@ -38,15 +38,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { logger } from '../utils/logger';
-import useEnhancedActionHistory from '../hooks/useEnhancedActionHistory';
+import { logger } from '@/utils/logger';
+import useEnhancedActionHistory from '@/hooks/useEnhancedActionHistory';
 import {
   ActionHistoryItem,
   ActionType,
   ResourceType,
   ActionStatus,
   HistoryFilterOptions,
-} from '../types/history';
+} from '@/types/history';
 import { KpiGrid } from './ui/grid';
 
 interface HistoryViewerProps {
@@ -173,29 +173,29 @@ export function HistoryViewer({
   const getStatusIcon = (status: ActionStatus) => {
     switch (status) {
       case 'success':
-        return <CheckCircle className="h-4 w-4 text-green-600" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case 'failed':
-        return <AlertCircle className="h-4 w-4 text-red-600" />;
+        return <AlertCircle className="h-4 w-4 text-destructive" />;
       case 'cancelled':
-        return <AlertCircle className="h-4 w-4 text-yellow-600" />;
+        return <AlertCircle className="h-4 w-4 text-warning" />;
       default:
-        return <Clock className="h-4 w-4 text-blue-600" />;
+        return <Clock className="h-4 w-4 text-info" />;
     }
   };
 
   const getActionColor = (action: ActionType) => {
     const colors: Record<ActionType, string> = {
-      create: 'bg-green-100 text-green-800',
-      update: 'bg-blue-100 text-blue-800',
-      delete: 'bg-red-100 text-red-800',
-      load: 'bg-purple-100 text-purple-800',
-      unload: 'bg-gray-100 text-gray-800',
-      swap: 'bg-orange-100 text-orange-800',
-      train: 'bg-cyan-100 text-cyan-800',
-      deploy: 'bg-indigo-100 text-indigo-800',
-      rollback: 'bg-rose-100 text-rose-800',
-      configure: 'bg-amber-100 text-amber-800',
-      other: 'bg-slate-100 text-slate-800',
+      create: 'bg-success/10 text-success',
+      update: 'bg-info/10 text-info',
+      delete: 'bg-destructive/10 text-destructive',
+      load: 'bg-info/10 text-info',
+      unload: 'bg-muted text-muted-foreground',
+      swap: 'bg-warning/10 text-warning',
+      train: 'bg-info/10 text-info',
+      deploy: 'bg-success/10 text-success',
+      rollback: 'bg-destructive/10 text-destructive',
+      configure: 'bg-warning/10 text-warning',
+      other: 'bg-muted text-muted-foreground',
     };
     return colors[action] || colors.other;
   };
@@ -286,7 +286,7 @@ export function HistoryViewer({
             )}
             <DropdownMenuItem
               onClick={() => setShowClearConfirm(true)}
-              className="text-red-600"
+              className="text-destructive"
             >
               Clear All History
             </DropdownMenuItem>
@@ -302,9 +302,9 @@ export function HistoryViewer({
             <div>
               <label className="text-sm font-medium">Action Type</label>
               <Select
-                value={activeFilters.actionTypes?.[0] || ''}
+                value={activeFilters.actionTypes?.[0] || '__all__'}
                 onValueChange={(value) => {
-                  if (value) {
+                  if (value && value !== '__all__') {
                     handleFilterChange({ ...activeFilters, actionTypes: [value as ActionType] });
                   } else {
                     const { actionTypes, ...rest } = activeFilters;
@@ -316,7 +316,7 @@ export function HistoryViewer({
                   <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All</SelectItem>
+                  <SelectItem value="__all__">All</SelectItem>
                   <SelectItem value="create">Create</SelectItem>
                   <SelectItem value="update">Update</SelectItem>
                   <SelectItem value="delete">Delete</SelectItem>
@@ -330,9 +330,9 @@ export function HistoryViewer({
             <div>
               <label className="text-sm font-medium">Resource Type</label>
               <Select
-                value={activeFilters.resourceTypes?.[0] || ''}
+                value={activeFilters.resourceTypes?.[0] || '__all__'}
                 onValueChange={(value) => {
-                  if (value) {
+                  if (value && value !== '__all__') {
                     handleFilterChange({ ...activeFilters, resourceTypes: [value as ResourceType] });
                   } else {
                     const { resourceTypes, ...rest } = activeFilters;
@@ -344,7 +344,7 @@ export function HistoryViewer({
                   <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All</SelectItem>
+                  <SelectItem value="__all__">All</SelectItem>
                   <SelectItem value="adapter">Adapter</SelectItem>
                   <SelectItem value="stack">Stack</SelectItem>
                   <SelectItem value="training">Training</SelectItem>
@@ -357,9 +357,9 @@ export function HistoryViewer({
             <div>
               <label className="text-sm font-medium">Status</label>
               <Select
-                value={activeFilters.statuses?.[0] || ''}
+                value={activeFilters.statuses?.[0] || '__all__'}
                 onValueChange={(value) => {
-                  if (value) {
+                  if (value && value !== '__all__') {
                     handleFilterChange({ ...activeFilters, statuses: [value as ActionStatus] });
                   } else {
                     const { statuses, ...rest } = activeFilters;
@@ -371,7 +371,7 @@ export function HistoryViewer({
                   <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All</SelectItem>
+                  <SelectItem value="__all__">All</SelectItem>
                   <SelectItem value="success">Success</SelectItem>
                   <SelectItem value="failed">Failed</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
@@ -443,7 +443,7 @@ export function HistoryViewer({
                             </p>
                           )}
                           {action.errorMessage && (
-                            <p className="text-xs text-red-600">{action.errorMessage}</p>
+                            <p className="text-xs text-destructive">{action.errorMessage}</p>
                           )}
                         </div>
                         <div className="flex gap-1">
@@ -541,7 +541,7 @@ export function HistoryViewer({
                       <span className="text-sm w-20">{type}</span>
                       <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-blue-500"
+                          className="h-full bg-info"
                           style={{
                             width: `${(count / stats.totalActions) * 100}%`,
                           }}

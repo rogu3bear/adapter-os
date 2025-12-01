@@ -53,6 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         batch_size: 2,
         epochs: 3,
         hidden_dim: 64, // Small dimension for testing
+        vocab_size: 50272,
         preferred_backend: None,
         require_gpu: false,
         max_gpu_memory_mb: 0,
@@ -80,8 +81,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
     println!(
         "   ✅ Quantized: {} lora_a matrices, {} lora_b matrices",
-        quantized.lora_a_quantized.len(),
-        quantized.lora_b_quantized.len()
+        quantized.lora_a_q15.len(),
+        quantized.lora_b_q15.len()
     );
 
     // Step 5: Package adapter as .aos archive
@@ -91,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let packager = AdapterPackager::new(&output_dir);
     let packaged = packager
-        .package_aos(&result.adapter_id, &quantized, &config)
+        .package_aos(&result.adapter_id, &quantized, &config, "qwen2.5-7b")
         .await?;
 
     println!("   ✅ Packaged adapter: {}", packaged.adapter_id);

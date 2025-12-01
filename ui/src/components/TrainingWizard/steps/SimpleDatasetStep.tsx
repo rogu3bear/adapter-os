@@ -9,8 +9,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { TERMS } from '@/constants/terminology';
 import { formatBytes } from '@/utils/format';
 import { AlertTriangle } from 'lucide-react';
-import { FILE_VALIDATION } from '../constants';
-import { useTrainingWizardContext } from '../context';
+import { FILE_VALIDATION } from '@/components/TrainingWizard/constants';
+import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
 
 export function SimpleDatasetStep() {
   const {
@@ -28,6 +28,7 @@ export function SimpleDatasetStep() {
     validationResult,
     createdDatasetId,
     handleOpenDatasetTools,
+    createStatus,
   } = useTrainingWizardContext();
 
   return (
@@ -75,7 +76,7 @@ export function SimpleDatasetStep() {
             </SelectTrigger>
             <SelectContent>
               {datasets.length === 0 ? (
-                <SelectItem value="" disabled>{TERMS.noDatasets}</SelectItem>
+                <SelectItem value="__empty__" disabled>{TERMS.noDatasets}</SelectItem>
               ) : (
                 datasets.map((dataset) => (
                   <SelectItem key={dataset.id} value={dataset.id}>

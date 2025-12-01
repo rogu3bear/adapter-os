@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { Telemetry } from '../Telemetry';
-import apiClient from '../../api/client';
-import { useSSE } from '../../hooks/useSSE';
+import { Telemetry } from '@/components/Telemetry';
+import apiClient from '@/api/client';
+import { useSSE } from '@/hooks/useSSE';
 
 // Mock apiClient
-vi.mock('../../api/client', () => ({
+vi.mock('@/api/client', () => ({
   default: {
     getTelemetryEvents: vi.fn(),
     getTelemetryBundle: vi.fn(),
@@ -17,12 +17,12 @@ vi.mock('../../api/client', () => ({
 
 // Mock useSSE hook
 const mockUseSSE = vi.fn();
-vi.mock('../../hooks/useSSE', () => ({
+vi.mock('@/hooks/useSSE', () => ({
   useSSE: (endpoint: string, options?: any) => mockUseSSE(endpoint, options),
 }));
 
 // Mock LayoutProvider hooks
-vi.mock('../../layout/LayoutProvider', () => ({
+vi.mock('@/layout/LayoutProvider', () => ({
   useAuth: () => ({
     user: {
       user_id: 'test-user',
@@ -36,7 +36,7 @@ vi.mock('../../layout/LayoutProvider', () => ({
 }));
 
 // Mock useDensity hook
-vi.mock('../../contexts/DensityContext', () => ({
+vi.mock('@/contexts/DensityContext', () => ({
   useDensity: () => ({
     density: 'normal',
     setDensity: vi.fn(),

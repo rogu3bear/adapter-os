@@ -257,12 +257,16 @@ See `crates/adapteros-policy/src/packs/` for implementations.
 
 ---
 
-## RBAC (5 Roles, 55 Permissions)
+## RBAC (5 Roles, 59 Permissions)
 
 **Roles:** Admin (full), Operator (runtime ops), SRE (infra debug), Compliance (audit-only), Viewer (read-only)
 
 **Permission matrix (condensed):**
 - **All roles:** AdapterList, AdapterView, TrainingView, PolicyView, MetricsView
+- **Admin only:** AdapterDelete, PolicyApply, PolicySign, PolicyActivate, TenantManage, NodeManage, AuditView
+- **Operator+Admin:** AdapterRegister, AdapterLoad/Unload, TrainingStart/Cancel, InferenceExecute, PolicyCustomize
+- **SRE+Compliance+Admin:** AuditView
+- **Compliance+Admin:** PolicyValidate, PolicyReview
 - **Admin only:** AdapterDelete, PolicyApply, PolicySign, TenantManage, NodeManage, AuditView
 - **Operator+Admin:** AdapterRegister, AdapterLoad/Unload, TrainingStart/Cancel, InferenceExecute
 - **SRE+Compliance+Admin:** AuditView
@@ -718,13 +722,15 @@ See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 
 ## Multi-Backend Architecture
 
-**Strategy:** CoreML-first (ANE production), MLX-active (production), Metal-fallback (deterministic)
+**Strategy:** CoreML-first (ANE production), MLX-second (production), Metal-fallback (incomplete, legacy only)
+
+**Fallback Chain:** CoreML → MLX → Metal
 
 | Backend | Status | Determinism | Use Case | Crate |
 |---------|--------|-------------|----------|-------|
-| **CoreML** | **Implemented** (model loading, inference, Swift bridge with runtime dispatch) | **Guaranteed (ANE)** | ANE acceleration, production | `adapteros-lora-kernel-coreml` |
-| **MLX** | **Implemented** (model loading, forward passes, hidden states, text generation) | **HKDF-seeded** | Production inference, training | `adapteros-lora-mlx-ffi` |
-| **Metal** | **Implemented** (precompiled Metal kernels, GPU acceleration) | **Guaranteed** | Legacy, non-ANE systems | `adapteros-lora-kernel-mtl` |
+| **CoreML** | **Implemented** (model loading, inference, Swift bridge with runtime dispatch) | **Guaranteed (ANE)** | ANE acceleration, production (primary) | `adapteros-lora-kernel-coreml` |
+| **MLX** | **Implemented** (model loading, forward passes, hidden states, text generation) | **HKDF-seeded** | Production inference, training (secondary) | `adapteros-lora-mlx-ffi` |
+| **Metal** | **Incomplete** (precompiled Metal kernels, GPU acceleration) | **Guaranteed** | Legacy fallback only, model loading incomplete | `adapteros-lora-kernel-mtl` |
 
 **Implementation Status:**
 - CoreML: Fully implemented and operational. Supports model loading, inference, ANE detection, memory pooling, and MLTensor bridge (macOS 15+). Guaranteed determinism with ANE, graceful fallback to GPU on older systems. See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) for operational guide.
@@ -829,8 +835,8 @@ See [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) for quick start a
 | Router | `adapteros-lora-router` | K-sparse adapter selection |
 | Backend Factory | `adapteros-lora-worker/backend_factory.rs` | Multi-backend creation & attestation |
 | CoreML Backend | `adapteros-lora-kernel-coreml` | ANE acceleration (primary/production) |
-| MLX Backend | `adapteros-lora-mlx-ffi` | Production inference, training (active) |
-| Metal Kernels | `adapteros-lora-kernel-mtl` | Deterministic GPU kernels (fallback) |
+| MLX Backend | `adapteros-lora-mlx-ffi` | Production inference, training (secondary) |
+| Metal Kernels | `adapteros-lora-kernel-mtl` | Incomplete fallback (model loading issues) |
 | Policy Engine | `adapteros-policy` | 24-pack policy enforcement |
 | Memory Mgmt | `adapteros-memory` | Auto-eviction, headroom maintenance |
 | Lifecycle | `adapteros-lora-lifecycle` | State machine (Unloaded→Resident) |
@@ -848,7 +854,7 @@ See [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) for quick start a
 
 > **Maintenance:** Update this section when adding/removing routes in `crates/adapteros-server-api/src/routes.rs`. Verify OpenAPI annotations match with `cargo doc`.
 
-**Source:** `crates/adapteros-server-api/src/routes.rs` | **Total Endpoints:** 225 | **Auth:** JWT (Ed25519) required except where noted
+**Source:** `crates/adapteros-server-api/src/routes.rs` | **Total Endpoints:** 236 | **Auth:** JWT (Ed25519) required except where noted
 
 ### Health & Auth (Public)
 | Method | Path | Description |
@@ -984,6 +990,20 @@ See [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) for quick start a
 | POST | `/v1/policies/:cpid/sign` | Sign policy |
 | POST | `/v1/policies/compare` | Compare versions |
 | GET | `/v1/policies/:cpid/export` | Export policy |
+
+### Tenant Policy Customization
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/tenants/:tenant_id/policies/customize` | Create customization draft |
+| GET | `/v1/tenants/:tenant_id/policies/customizations` | List tenant customizations |
+| GET | `/v1/tenants/:tenant_id/policies/customizations/:id` | Get customization |
+| PUT | `/v1/tenants/:tenant_id/policies/customizations/:id` | Update customization (draft only) |
+| DELETE | `/v1/tenants/:tenant_id/policies/customizations/:id` | Delete customization (draft only) |
+| POST | `/v1/tenants/:tenant_id/policies/customizations/:id/submit` | Submit for review |
+| GET | `/v1/policies/pending-reviews` | List pending reviews (Admin/Compliance) |
+| POST | `/v1/policies/customizations/:id/approve` | Approve customization |
+| POST | `/v1/policies/customizations/:id/reject` | Reject customization |
+| POST | `/v1/policies/customizations/:id/activate` | Activate approved customization (Admin) |
 
 ### Routing
 | Method | Path | Description |
@@ -1304,9 +1324,9 @@ curl http://localhost:8080/v1/metrics/system
 **Status:** 40+ crates building successfully
 
 **Backend Implementation Status:**
-- `adapteros-lora-kernel-coreml` - Fully implemented and operational. Supports model loading, inference, ANE detection, memory pool integration, and Swift bridge (macOS 15+). Guaranteed determinism with ANE, graceful GPU fallback. See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md). Priority: Operational
-- `adapteros-lora-mlx-ffi` - Fully implemented. Supports model loading, text generation, health tracking, and memory pool integration. Priority: Operational
-- `adapteros-lora-kernel-mtl` - In workspace, builds successfully. Priority: Low
+- `adapteros-lora-kernel-coreml` - Fully implemented and operational. Supports model loading, inference, ANE detection, memory pool integration, and Swift bridge (macOS 15+). Guaranteed determinism with ANE, graceful GPU fallback. See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md). Priority: Operational (primary)
+- `adapteros-lora-mlx-ffi` - Fully implemented. Supports model loading, text generation, health tracking, and memory pool integration. Priority: Operational (secondary)
+- `adapteros-lora-kernel-mtl` - In workspace, builds successfully. Model loading incomplete (LM head weights issue). Priority: Low (fallback only)
 
 **Workspace crates with issues:**
 1. `adapteros-lora-worker` - In workspace, library compiles. 29 test errors (tests need fixes). Priority: High

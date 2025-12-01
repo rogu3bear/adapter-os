@@ -20,44 +20,24 @@ fn fused_qkv_and_flash_attention_zero_outputs() {
     let hidden_size = gqa_config.hidden_size as usize;
     let kv_width = gqa_config.kv_width as usize;
 
-    let input = vec![0.0f32; hidden_size];
-    let q_weight = vec![0.0f32; hidden_size * hidden_size];
-    let k_weight = vec![0.0f32; hidden_size * kv_width];
-    let v_weight = vec![0.0f32; hidden_size * kv_width];
-    let input_buf = device.new_buffer_with_data(
-        input.as_ptr() as *const _,
-        (input.len() * std::mem::size_of::<f32>()) as u64,
-        MTLResourceOptions::StorageModeShared,
-    );
-    let q_weight_buf = device.new_buffer_with_data(
-        q_weight.as_ptr() as *const _,
-        (q_weight.len() * std::mem::size_of::<f32>()) as u64,
-        MTLResourceOptions::StorageModeShared,
-    );
-    let k_weight_buf = device.new_buffer_with_data(
-        k_weight.as_ptr() as *const _,
-        (k_weight.len() * std::mem::size_of::<f32>()) as u64,
-        MTLResourceOptions::StorageModeShared,
-    );
-    let v_weight_buf = device.new_buffer_with_data(
-        v_weight.as_ptr() as *const _,
-        (v_weight.len() * std::mem::size_of::<f32>()) as u64,
-        MTLResourceOptions::StorageModeShared,
-    );
+    let _input = vec![0.0f32; hidden_size];
+    let _q_weight = vec![0.0f32; hidden_size * hidden_size];
+    let _k_weight = vec![0.0f32; hidden_size * kv_width];
+    let _v_weight = vec![0.0f32; hidden_size * kv_width];
 
-    let q_output_buf = device.new_buffer(
+    let _q_output_buf = device.new_buffer(
         (hidden_size * std::mem::size_of::<f32>()) as u64,
         MTLResourceOptions::StorageModeShared,
     );
-    let k_output_buf = device.new_buffer(
+    let _k_output_buf = device.new_buffer(
         (kv_width * std::mem::size_of::<f32>()) as u64,
         MTLResourceOptions::StorageModeShared,
     );
-    let v_output_buf = device.new_buffer(
+    let _v_output_buf = device.new_buffer(
         (kv_width * std::mem::size_of::<f32>()) as u64,
         MTLResourceOptions::StorageModeShared,
     );
-    let attention_output_buf = device.new_buffer(
+    let _attention_output_buf = device.new_buffer(
         (hidden_size * std::mem::size_of::<f32>()) as u64,
         MTLResourceOptions::StorageModeShared,
     );

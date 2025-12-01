@@ -170,7 +170,7 @@ cargo build --release
 
 Use `make fresh-build` before rebuilding to prevent port conflicts and build errors.
 
-**Note**: CoreML backend is the primary production backend (ANE acceleration), MLX backend is production-ready for inference and training workloads, Metal backend serves as fallback for deterministic GPU kernels.
+**Note**: CoreML backend is the primary production backend (ANE acceleration), MLX backend is secondary for production inference and training workloads. Metal backend is an incomplete fallback (model loading issues) for legacy scenarios only.
 
 ### Database Initialization
 
@@ -329,7 +329,7 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 ## 📊 Current Status (v0.3-alpha)
 
 ### ✅ **Implemented Features**
-- **Multi-Backend Support**: CoreML (ANE), MLX (GPU), Metal (fallback) backends
+- **Multi-Backend Support**: CoreML (ANE, primary), MLX (GPU, secondary), Metal (incomplete fallback) backends
 - **K-Sparse LoRA Routing**: Dynamic adapter selection with Q15 quantization
 - **Deterministic Execution**: HKDF seeding, reproducible results
 - **Policy Enforcement**: 24 canonical policy packs with runtime validation

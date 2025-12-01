@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { Badge } from '../ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
 import { Copy, Check, Eye, EyeOff, RefreshCw, Code2 } from 'lucide-react';
 
 type Language = 'python' | 'typescript' | 'rust';
@@ -135,7 +135,7 @@ export default function AppDevSDKManager() {
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
-              <Button variant="outline" size="icon" onClick={regenerateApiKey}>
+              <Button variant="outline" size="icon" onClick={regenerateApiKey} aria-label="Regenerate API key">
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </div>

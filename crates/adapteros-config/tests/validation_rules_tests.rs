@@ -1,9 +1,8 @@
 //! Comprehensive tests for configuration validation rules
 //! Tests: ip_address, url, range, enum validation rules
 
-use adapteros_config::precedence::{ConfigBuilder, DeterministicConfig};
-use adapteros_config::types::{ConfigSchema, ConfigValidationError, FieldDefinition};
-use std::collections::HashMap;
+use adapteros_config::precedence::ConfigBuilder;
+use adapteros_config::types::{ConfigSchema, FieldDefinition};
 
 #[test]
 fn test_ip_address_validation_ipv4_valid() {

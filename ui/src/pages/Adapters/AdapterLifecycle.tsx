@@ -18,7 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Dialog,
@@ -33,6 +33,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { AdapterDetailResponse, LifecycleTransitionResponse, AdapterState } from '@/api/adapter-types';
 import { getLifecycleVariant } from '@/utils/lifecycle';
 import { toast } from 'sonner';
+import { formatBytes, formatRelativeTime } from '@/utils/format';
 
 interface AdapterLifecycleProps {
   adapterId: string;
@@ -119,7 +120,7 @@ export default function AdapterLifecycle({
           <CardTitle className="flex items-center gap-2">
             <Activity className="h-5 w-5" />
             Current State
-            <HelpTooltip content="The current lifecycle state of the adapter in the memory hierarchy" />
+            <GlossaryTooltip brief="The current lifecycle state of the adapter in the memory hierarchy" />
           </CardTitle>
           <CardDescription>Adapter state in the lifecycle hierarchy</CardDescription>
         </CardHeader>
@@ -147,7 +148,7 @@ export default function AdapterLifecycle({
           <CardTitle className="flex items-center gap-2">
             <TrendingUp className="h-5 w-5" />
             State Transitions
-            <HelpTooltip content="Manually promote or demote the adapter in the lifecycle hierarchy" />
+            <GlossaryTooltip brief="Manually promote or demote the adapter in the lifecycle hierarchy" />
           </CardTitle>
           <CardDescription>Manage adapter lifecycle state transitions</CardDescription>
         </CardHeader>
@@ -194,11 +195,11 @@ export default function AdapterLifecycle({
             <AlertTitle>State Information</AlertTitle>
             <AlertDescription>
               <ul className="mt-2 space-y-1 text-sm">
-                <li><strong>Unloaded:</strong> Adapter not in memory, requires loading before use</li>
-                <li><strong>Cold:</strong> In memory but not actively used, eligible for eviction</li>
-                <li><strong>Warm:</strong> Recently used, kept in memory for faster access</li>
-                <li><strong>Hot:</strong> Frequently used, high priority for retention</li>
-                <li><strong>Resident:</strong> Protected in memory, will not be removed</li>
+                <li><strong>Not Loaded:</strong> Adapter not in memory, requires loading before use</li>
+                <li><strong>Ready:</strong> Metadata loaded, ready to be activated</li>
+                <li><strong>Standby:</strong> Weights loaded in RAM, ready for quick activation</li>
+                <li><strong>Loaded:</strong> Active on GPU, serving requests</li>
+                <li><strong>Pinned:</strong> Protected in memory, will not be removed</li>
               </ul>
             </AlertDescription>
           </Alert>
@@ -211,7 +212,7 @@ export default function AdapterLifecycle({
           <CardTitle className="flex items-center gap-2">
             <Activity className="h-5 w-5" />
             Activation Metrics
-            <HelpTooltip content="Usage statistics that influence lifecycle transitions" />
+            <GlossaryTooltip brief="Usage statistics that influence lifecycle transitions" />
           </CardTitle>
           <CardDescription>Metrics affecting lifecycle state changes</CardDescription>
         </CardHeader>
@@ -224,7 +225,7 @@ export default function AdapterLifecycle({
             />
             <MetricItem
               label="Memory Usage"
-              value={formatBytes(adapter.adapter?.memory_bytes ?? adapter.memory_bytes)}
+              value={formatBytes(adapter.adapter?.memory_bytes ?? adapter.memory_bytes ?? 0)}
               description="Current memory footprint"
             />
             <MetricItem
@@ -410,19 +411,11 @@ function GuidelineItem({ type, title, items }: GuidelineItemProps) {
   );
 }
 
-// Helper functions
-function formatBytes(bytes: number | undefined): string {
-  if (!bytes) return 'N/A';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
+// Helper function
 function formatTime(timestamp: string | undefined): string {
   if (!timestamp) return 'Never';
   try {
-    return formatDistanceToNow(parseISO(timestamp), { addSuffix: true });
+    return formatRelativeTime(timestamp);
   } catch {
     return timestamp;
   }

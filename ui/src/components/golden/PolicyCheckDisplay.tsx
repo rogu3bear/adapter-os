@@ -1,15 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../ui/accordion';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { AlertCircle, CheckCircle2, AlertTriangle, Filter, Download } from 'lucide-react';
 import { PolicyCheckItem } from './PolicyCheckItem';
 import { PolicyDetails } from './PolicyDetails';
 import { PolicyOverride } from './PolicyOverride';
-import { logger } from '../../utils/logger';
+import { logger } from '@/utils/logger';
 
 export type PolicyStatus = 'passed' | 'failed' | 'warning' | 'pending';
 export type PolicyCategory = 'security' | 'quality' | 'compliance' | 'performance';

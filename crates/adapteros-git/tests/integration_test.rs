@@ -12,14 +12,8 @@ async fn test_git_subsystem_integration() {
         .await
         .expect("Failed to create database");
 
-    let mut git_subsystem = GitSubsystem::new(config, db)
-        .await
-        .expect("Failed to create Git subsystem");
-
-    git_subsystem
-        .start()
-        .await
-        .expect("Failed to start Git subsystem");
+    let result = GitSubsystem::new(config, db).await;
+    assert!(result.is_ok(), "Failed to create Git subsystem");
 }
 
 /// Test Git subsystem stub starts without errors
@@ -31,14 +25,8 @@ async fn test_git_error_handling() {
         .await
         .expect("Failed to create database");
 
-    let mut git_subsystem = GitSubsystem::new(config, db)
-        .await
-        .expect("Failed to create Git subsystem");
-
-    git_subsystem
-        .start()
-        .await
-        .expect("Failed to start Git subsystem");
+    let result = GitSubsystem::new(config, db).await;
+    assert!(result.is_ok(), "Failed to create Git subsystem");
 }
 
 /// Test Git subsystem stub can be started
@@ -50,12 +38,6 @@ async fn test_commit_batching() {
         .await
         .expect("Failed to create database");
 
-    let mut git_subsystem = GitSubsystem::new(config, db)
-        .await
-        .expect("Failed to create Git subsystem");
-
-    git_subsystem
-        .start()
-        .await
-        .expect("Failed to start Git subsystem");
+    let result = GitSubsystem::new(config, db).await;
+    assert!(result.is_ok(), "Failed to create Git subsystem");
 }

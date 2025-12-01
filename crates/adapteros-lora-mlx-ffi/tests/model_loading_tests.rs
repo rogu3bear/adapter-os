@@ -125,7 +125,7 @@ mod model_config_tests {
 #[cfg(test)]
 mod model_loading_tests {
     use adapteros_lora_mlx_ffi::MLXFFIModel;
-    use std::path::{Path, PathBuf};
+    use std::path::{PathBuf};
 
     /// Get path to test fixtures
     fn fixtures_dir() -> PathBuf {
@@ -366,8 +366,6 @@ mod generation_tests {
         };
 
         let model = MockMLXFFIModel::new(config);
-        let prompt = "Hello, world!";
-        let max_tokens = 10;
 
         // Generate is currently a placeholder
         let _ = model.forward(&[1, 2, 3], 0);

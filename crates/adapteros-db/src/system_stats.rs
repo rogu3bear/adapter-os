@@ -162,7 +162,8 @@ impl Db {
             "SELECT a.adapter_id, a.name, a.rank, a.current_state,
                     COALESCE(a.last_access_at, a.created_at) as last_access,
                     COALESCE(a.access_count, 0) as access_count,
-                    CASE WHEN p.adapter_pk IS NOT NULL THEN 1 ELSE 0 END as pinned
+                    CASE WHEN p.adapter_pk IS NOT NULL THEN 1 ELSE 0 END as pinned,
+                    a.category
              FROM adapters a
              LEFT JOIN pinned_adapters p ON a.id = p.adapter_pk
              WHERE a.active = 1
@@ -224,6 +225,7 @@ pub struct AdapterMemoryInfo {
     pub last_access: String,
     pub access_count: i64,
     pub pinned: i32,
+    pub category: Option<String>,
 }
 
 /// Eviction candidate record

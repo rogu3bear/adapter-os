@@ -8,7 +8,7 @@
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
 /**
  * Hook for smooth page transitions using View Transitions API
@@ -21,7 +21,7 @@ import { logger, toError } from '../utils/logger';
 export function useViewTransition() {
   const navigate = useNavigate();
 
-  const transitionTo = (path: string, options?: { state?: any; replace?: boolean }) => {
+  const transitionTo = (path: string, options?: { state?: unknown; replace?: boolean }) => {
     // Check if View Transitions API is supported
     if ('startViewTransition' in document) {
       try {

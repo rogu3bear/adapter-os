@@ -12,7 +12,11 @@
 //! - `manifest.json` - Metadata about the run (toolchain, adapters, device)
 //! - `event_bundle.ndjson` - Complete event trace from the run
 //! - `epsilon_stats.json` - Floating-point error statistics per layer
+//! - `routing_decisions.json` - Per-step router decisions for deterministic replay
 //! - `signature.sig` - Ed25519 signature over the archive
+//!
+//! The `routing_decisions.json` file enables full deterministic verification including
+//! which adapters fired at each inference step, not just the final output.
 //!
 //! # Usage
 //!
@@ -47,6 +51,7 @@ pub mod federation;
 pub mod keys;
 pub mod metadata;
 pub mod rng_diff_viewer;
+pub mod routing;
 pub mod sysinfo;
 pub mod verification;
 
@@ -57,6 +62,7 @@ pub use federation::{verify_cross_host, FederationVerificationReport};
 pub use keys::{get_fingerprint_public_key, get_or_create_fingerprint_keypair};
 pub use metadata::{DeviceFingerprint, GoldenRunMetadata, ToolchainMetadata};
 pub use rng_diff_viewer::{compare_rng_states, format_diff, RngState, RngStateDiff};
+pub use routing::{compare_routing_decisions, RoutingDivergence};
 pub use verification::{verify_against_golden, VerificationReport};
 
 /// Error types for golden-run verification

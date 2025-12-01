@@ -10,8 +10,8 @@ import {
   FROST_BACKGROUND,
   FROST_OVERLAY,
   CLOSE_BUTTON_BASE,
-} from "../../ui/utils";
-import { Button } from "../../ui/button";
+} from "@/components/ui/utils";
+import { Button } from "@/components/ui/button";
 import type { FormModalProps, ModalSize } from "./types";
 import { MODAL_SIZE_CLASSES } from "./types";
 

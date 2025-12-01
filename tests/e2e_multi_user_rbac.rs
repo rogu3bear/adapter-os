@@ -236,7 +236,7 @@ async fn test_operator_can_load_adapter() {
     .await
     .expect("Adapter should exist");
 
-    assert_eq!(adapter.id, "operator-load-adapter");
+    assert_eq!(adapter.id.as_deref(), Some("operator-load-adapter"));
 
     println!("✓ Operator can load adapter test passed");
 }
@@ -334,17 +334,17 @@ async fn test_tenant_isolation() {
         .await
         .expect("Failed to create adapter for tenant-a");
 
-    // Create adapter for tenant-b
-    sqlx::query!(
-        "INSERT INTO adapters (id, tenant_id, hash, tier, rank, activation_pct, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-        "tenant-b-adapter",
-        "tenant-b",
-        "d".repeat(64),
-        "persistent",
-        8,
-        0.0
+    // Create adapter for tenant-b using the test harness pattern
+    // Note: The adapters table schema uses hash_b3, not hash
+    sqlx::query(
+        "INSERT INTO adapters (id, tenant_id, tier, rank, activation_pct, created_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now'))"
     )
+    .bind("tenant-b-adapter")
+    .bind("tenant-b")
+    .bind("persistent")
+    .bind(8)
+    .bind(0.0)
     .execute(harness.db().pool())
     .await
     .expect("Failed to create adapter for tenant-b");
@@ -431,7 +431,7 @@ async fn test_role_hierarchy() {
                 email,
                 &format!("Test {}", email),
                 &password_hash,
-                role,
+                role.clone(),  // Clone to avoid move issues
                 "default",
             )
             .await

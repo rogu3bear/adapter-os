@@ -16,7 +16,7 @@ export interface ErrorContext {
   memoryRequired?: number;
   memoryAvailable?: number;
   retryAfter?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface UserFriendlyError {
@@ -273,6 +273,23 @@ const ERROR_CODE_MAP: Record<string, (context?: ErrorContext) => UserFriendlyErr
     actionText: 'Check Status',
     helpUrl: '/docs/status',
     variant: 'info'
+  }),
+
+  // Response parsing errors
+  'PARSE_ERROR': () => ({
+    title: 'Invalid Server Response',
+    message: 'The server returned an unexpected response format. This is usually a temporary issue.',
+    actionText: 'Try Again',
+    helpUrl: '/docs/troubleshooting#server-errors',
+    variant: 'warning'
+  }),
+
+  'RESPONSE_FORMAT_ERROR': () => ({
+    title: 'Response Format Error',
+    message: 'We received data in an unexpected format. Please try again or contact support if the issue persists.',
+    actionText: 'Try Again',
+    helpUrl: '/docs/support',
+    variant: 'warning'
   })
 };
 
@@ -393,16 +410,16 @@ export function getUserFriendlyError(
  * Creates an enhanced error object with user-friendly messaging
  */
 export function enhanceError(
-  originalError: any,
+  originalError: unknown,
   context?: ErrorContext
-): Error & { userFriendly: UserFriendlyError; originalError: any } {
-  const errorCode = originalError.code;
-  const httpStatus = originalError.status;
+): Error & { userFriendly: UserFriendlyError; originalError: unknown } {
+  const errorCode = (originalError as { code?: string }).code;
+  const httpStatus = (originalError as { status?: number }).status;
   const userFriendly = getUserFriendlyError(errorCode, httpStatus, context);
 
   const enhancedError = new Error(userFriendly.message) as Error & {
     userFriendly: UserFriendlyError;
-    originalError: any;
+    originalError: unknown;
     code?: string;
     status?: number;
   };
@@ -419,9 +436,9 @@ export function enhanceError(
 /**
  * Checks if an error is transient and should be retried
  */
-export function isTransientError(error: any): boolean {
-  const errorCode = error.code;
-  const httpStatus = error.status;
+export function isTransientError(error: unknown): boolean {
+  const errorCode = (error as { code?: string }).code;
+  const httpStatus = (error as { status?: number }).status;
 
   // Error codes that indicate transient failures
   const transientCodes = [
@@ -437,4 +454,17 @@ export function isTransientError(error: any): boolean {
   const transientStatuses = [429, 500, 502, 503, 504];
 
   return transientCodes.includes(errorCode) || transientStatuses.includes(httpStatus);
+}
+
+/**
+ * Checks if an error is specifically a timeout error
+ */
+export function isTimeoutError(error: Error): boolean {
+  return error.name === 'TimeoutError' ||
+         error.name === 'AbortError' ||
+         error.message.includes('timeout') ||
+         error.message.includes('timed out') ||
+         error.message.includes('Request timeout') ||
+         error.message.includes('ETIMEDOUT') ||
+         error.message.includes('ESOCKETTIMEDOUT');
 }

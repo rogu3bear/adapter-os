@@ -472,7 +472,6 @@ mod tests {
             Some("django"),
             None,
         );
-        let generic_adapter = create_adapter_with_metadata("generic", 4, vec![1], None, None);
 
         // Features with high framework relevance
         let high_framework = create_feature_vector(1, [0.8, 0.5, 0.3]);

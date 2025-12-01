@@ -119,7 +119,7 @@ export interface PromotionGateResult {
   name: string;
   status: 'passed' | 'failed' | 'skipped';
   message?: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 /**

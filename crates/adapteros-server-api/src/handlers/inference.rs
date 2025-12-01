@@ -1,45 +1,33 @@
+//! Inference endpoint handler
+//!
+//! This module handles inference requests by proxying them to the worker process
+//! via Unix Domain Socket (UDS). It includes:
+//! - Permission validation
+//! - Memory pressure checks
+//! - Audit logging
+//! - Session trace linking
+//! - Response validation
+
 use crate::auth::Claims;
-use crate::permissions::{require_permission, Permission};
+use crate::permissions::Permission;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, InferRequest, InferResponse, InferenceTrace, WorkerInferRequest};
 use crate::uds_client::{UdsClient, UdsClientError};
 use adapteros_core::identity::IdentityEnvelope;
-use adapteros_deterministic_exec::{ExecutorEvent, TaskId};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 
 /// Inference endpoint
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/infer",
     request_body = InferRequest,
     responses(
-        (
-            status = 200,
-            description = "Inference successful",
-            body = InferResponse
-        ),
-        (
-            status = 400,
-            description = "Invalid request",
-            body = ErrorResponse
-        ),
-        (
-            status = 503,
-            description = "Service unavailable",
-            body = ErrorResponse
-        ),
-        (
-            status = 408,
-            description = "Request timeout",
-            body = ErrorResponse
-        ),
-        (
-            status = 500,
-            description = "Inference failed",
-            body = ErrorResponse
-        )
-    ),
-    tag = "inference"
+        (status = 200, description = "Inference successful", body = InferResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 500, description = "Inference failed", body = ErrorResponse),
+        (status = 501, description = "Worker not initialized", body = ErrorResponse)
+    )
 )]
 pub async fn infer(
     State(state): State<AppState>,
@@ -48,10 +36,7 @@ pub async fn infer(
     Json(req): Json<InferRequest>,
 ) -> Result<Json<InferResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator, SRE, and Admin can execute inference (Viewer and Compliance cannot)
-    crate::permissions::require_permission(
-        &claims,
-        crate::permissions::Permission::InferenceExecute,
-    )?;
+    crate::permissions::require_permission(&claims, Permission::InferenceExecute)?;
 
     // Validate request
     if req.prompt.is_empty() {
@@ -135,55 +120,8 @@ pub async fn infer(
         require_evidence: req.require_evidence.unwrap_or(false), // Get from request or default to false
     };
 
-    // Record inference task spawned event to tick ledger
-    let task_id = if let Some(ref ledger) = state.tick_ledger {
-        // Generate a deterministic task ID from request ID
-        let request_id_bytes = uuid::Uuid::new_v4().as_bytes().to_owned();
-        let mut task_id_bytes = [0u8; 32];
-        task_id_bytes[..16].copy_from_slice(&request_id_bytes);
-        let task_id = TaskId::from_bytes(task_id_bytes);
-
-        // Record task spawned event
-        let spawn_event = ExecutorEvent::TaskSpawned {
-            task_id,
-            description: format!("inference: {}", &req.prompt[..req.prompt.len().min(50)]),
-            tick: ledger.current_tick(),
-            agent_id: Some(claims.tenant_id.clone()),
-            hash: task_id_bytes,
-        };
-
-        if let Err(e) = ledger.record_tick(task_id, &spawn_event).await {
-            tracing::warn!(
-                error = %e,
-                "Failed to record inference task spawn to tick ledger"
-            );
-        }
-
-        Some(task_id)
-    } else {
-        None
-    };
-
     match uds_client.infer(uds_path, worker_request).await {
         Ok(worker_response) => {
-            // Record task completed event to tick ledger
-            if let (Some(task_id), Some(ref ledger)) = (task_id, &state.tick_ledger) {
-                let complete_event = ExecutorEvent::TaskCompleted {
-                    task_id,
-                    tick: ledger.current_tick(),
-                    duration_ticks: 1, // Simplified - actual duration would be tracked
-                    agent_id: Some(claims.tenant_id.clone()),
-                    hash: task_id.as_bytes().to_owned(),
-                };
-
-                if let Err(e) = ledger.record_tick(task_id, &complete_event).await {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to record inference task completion to tick ledger"
-                    );
-                }
-            }
-
             // Convert worker response to server API response
             let response = InferResponse {
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -223,7 +161,7 @@ pub async fn infer(
                 }
 
                 // Update session activity
-                if let Err(e) = state.db.update_chat_session_activity(session_id).await {
+                if let Err(e) = crate::security::update_session_activity(&state.db, session_id).await {
                     tracing::warn!(
                         session_id = %session_id,
                         error = %e,
@@ -262,25 +200,15 @@ pub async fn infer(
             Ok(Json(response))
         }
         Err(UdsClientError::WorkerNotAvailable(msg)) => {
-            // Record task failed event to tick ledger
-            if let (Some(task_id), Some(ref ledger)) = (task_id, &state.tick_ledger) {
-                let failed_event = ExecutorEvent::TaskFailed {
-                    task_id,
-                    error: msg.clone(),
-                    tick: ledger.current_tick(),
-                    duration_ticks: 1,
-                    agent_id: Some(claims.tenant_id.clone()),
-                    hash: task_id.as_bytes().to_owned(),
-                };
-
-                if let Err(e) = ledger.record_tick(task_id, &failed_event).await {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to record inference task failure to tick ledger"
-                    );
-                }
-            }
-
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::INFERENCE_EXECUTE,
+                crate::audit_helper::resources::ADAPTER,
+                adapters_requested.as_deref(),
+                &format!("Worker not available: {}", msg),
+            )
+            .await;
             Err((
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(
@@ -291,24 +219,15 @@ pub async fn infer(
             ))
         }
         Err(UdsClientError::Timeout(msg)) => {
-            // Record task timeout event to tick ledger
-            if let (Some(task_id), Some(ref ledger)) = (task_id, &state.tick_ledger) {
-                let timeout_event = ExecutorEvent::TaskTimeout {
-                    task_id,
-                    timeout_ticks: 1, // Simplified
-                    tick: ledger.current_tick(),
-                    agent_id: Some(claims.tenant_id.clone()),
-                    hash: task_id.as_bytes().to_owned(),
-                };
-
-                if let Err(e) = ledger.record_tick(task_id, &timeout_event).await {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to record inference task timeout to tick ledger"
-                    );
-                }
-            }
-
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::INFERENCE_EXECUTE,
+                crate::audit_helper::resources::ADAPTER,
+                adapters_requested.as_deref(),
+                &format!("Inference timeout: {}", msg),
+            )
+            .await;
             Err((
                 StatusCode::REQUEST_TIMEOUT,
                 Json(
@@ -319,25 +238,15 @@ pub async fn infer(
             ))
         }
         Err(e) => {
-            // Record task failed event to tick ledger
-            if let (Some(task_id), Some(ref ledger)) = (task_id, &state.tick_ledger) {
-                let failed_event = ExecutorEvent::TaskFailed {
-                    task_id,
-                    error: e.to_string(),
-                    tick: ledger.current_tick(),
-                    duration_ticks: 1,
-                    agent_id: Some(claims.tenant_id.clone()),
-                    hash: task_id.as_bytes().to_owned(),
-                };
-
-                if let Err(e) = ledger.record_tick(task_id, &failed_event).await {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to record inference task failure to tick ledger"
-                    );
-                }
-            }
-
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::INFERENCE_EXECUTE,
+                crate::audit_helper::resources::ADAPTER,
+                adapters_requested.as_deref(),
+                &format!("Inference failed: {}", e),
+            )
+            .await;
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(

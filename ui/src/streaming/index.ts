@@ -18,8 +18,8 @@
 // ============================================================================
 // Services
 // ============================================================================
-export { streamingService, default as StreamingService } from '../services/StreamingService';
-export type { StreamSubscription } from '../services/StreamingService';
+export { streamingService, default as StreamingService } from '@/services/StreamingService';
+export type { StreamSubscription } from '@/services/StreamingService';
 
 // ============================================================================
 // Hooks
@@ -33,11 +33,11 @@ export {
   useTelemetryStream,
   useAdaptersStream,
   useAllStreamsStatus,
-} from '../hooks/useStreamingEndpoints';
-export type { StreamHookResult } from '../hooks/useStreamingEndpoints';
+} from '@/hooks/useStreamingEndpoints';
+export type { StreamHookResult } from '@/hooks/useStreamingEndpoints';
 
-export { useSSE } from '../hooks/useSSE';
-export type { UseSSEOptions } from '../hooks/useSSE';
+export { useSSE } from '@/hooks/useSSE';
+export type { UseSSEOptions } from '@/hooks/useSSE';
 
 // ============================================================================
 // Types
@@ -79,7 +79,7 @@ export type {
   RawSSEMessage,
   StreamState,
   StreamConfig,
-} from '../api/streaming-types';
+} from '@/api/streaming-types';
 
 // ============================================================================
 // Utilities
@@ -89,9 +89,9 @@ export {
   isTrainingProgressEvent,
   isAdapterStateTransitionEvent,
   isSystemMetricsEvent,
-} from '../api/streaming-types';
+} from '@/api/streaming-types';
 
 // ============================================================================
 // Components
 // ============================================================================
-export { StreamingIntegration } from '../components/StreamingIntegration';
+export { StreamingIntegration } from '@/components/StreamingIntegration';

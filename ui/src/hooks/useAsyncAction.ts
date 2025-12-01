@@ -13,7 +13,7 @@
 
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useMutation, useQueryClient, UseMutationOptions } from '@tanstack/react-query';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 
 export interface AsyncActionState<TData> {
@@ -283,7 +283,12 @@ export function useAsyncAction<TData, TVariables = void>(
       execute: async (variables: TVariables) => {
         try {
           return await mutation.mutateAsync(variables);
-        } catch {
+        } catch (e) {
+          // Error is captured by React Query's error state, just return null
+          // The mutation.isError and mutation.error will contain the error details
+          if (import.meta.env.DEV) {
+            console.debug('[useAsyncAction] Mutation failed, error available via isError/error:', e);
+          }
           return null;
         }
       },
@@ -296,7 +301,11 @@ export function useAsyncAction<TData, TVariables = void>(
   return {
     ...state,
     execute: executeManual,
-    mutate: (variables: TVariables) => { executeManual(variables); },
+    mutate: (variables: TVariables) => {
+      executeManual(variables).catch((err) => {
+        logger.error('Mutation failed', { hook: 'useAsyncAction' }, err);
+      });
+    },
     mutateAsync: async (variables: TVariables) => {
       const result = await executeManual(variables);
       if (result === null && state.error) {

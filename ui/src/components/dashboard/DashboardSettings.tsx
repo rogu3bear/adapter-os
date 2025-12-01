@@ -6,12 +6,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../ui/dialog';
-import { Button } from '../ui/button';
-import { Switch } from '../ui/switch';
-import { Label } from '../ui/label';
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Settings, RefreshCw, Loader2 } from 'lucide-react';
-import type { DashboardWidgetConfig } from '../../api/types';
+import type { DashboardWidgetConfig } from '@/api/types';
 
 // Widget metadata for display
 const WIDGET_METADATA: Record<string, { label: string; description: string }> = {

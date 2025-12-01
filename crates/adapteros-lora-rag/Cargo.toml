@@ -26,6 +26,7 @@ tokio = { workspace = true, features = ["fs"] }
 default = ["pgvector", "fts5"]
 pgvector = []
 fts5 = []
+rag-pgvector = ["pgvector"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

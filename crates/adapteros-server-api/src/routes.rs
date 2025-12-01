@@ -2,6 +2,8 @@ use crate::caching;
 use crate::handlers;
 use crate::handlers::auth;
 use crate::handlers::domain_adapters;
+use crate::middleware::audit::audit_middleware;
+use crate::middleware::context::context_middleware;
 use crate::middleware::policy_enforcement::policy_enforcement_middleware;
 use crate::middleware::{auth_middleware, client_ip_middleware};
 use crate::middleware_security::{
@@ -195,6 +197,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::evidence::delete_evidence,
         handlers::evidence::get_dataset_evidence,
         handlers::evidence::get_adapter_evidence,
+        // Journey visualization handlers
+        handlers::journeys::get_journey,
         // Golden run handlers
         handlers::golden::list_golden_runs,
         handlers::golden::get_golden_run,
@@ -520,6 +524,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "tutorials", description = "Tutorial management and progress tracking"),
         (name = "cli", description = "Owner CLI command execution"),
         (name = "storage", description = "Storage mode and statistics visibility"),
+        (name = "journeys", description = "Journey visualization and workflow tracking"),
     )
 )]
 pub struct ApiDoc;
@@ -582,6 +587,8 @@ pub fn build(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/v1/auth/logout", post(auth::auth_logout))
         .route("/v1/auth/me", get(auth::auth_me))
+        // Admin routes
+        .route("/v1/admin/users", get(handlers::admin::list_users))
         .route(
             "/v1/auth/refresh",
             post(handlers::auth_enhanced::refresh_token_handler),
@@ -671,6 +678,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/models", get(handlers::models::list_models_with_stats))
         .route("/v1/models/import", post(handlers::models::import_model))
         .route("/v1/models/status", get(handlers::get_base_model_status))
+        .route("/v1/models/status/all", get(handlers::models::get_all_models_status))
         .route(
             "/v1/models/{model_id}/load",
             post(handlers::models::load_model),
@@ -739,7 +747,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/monitoring/rules",
             post(handlers::create_process_monitoring_rule),
         )
-        .route("/v1/monitoring/alerts", get(handlers::list_process_alerts))
+        .route("/v1/monitoring/alerts", get(handlers::monitoring::list_alerts))
         .route(
             "/v1/monitoring/alerts/{alert_id}/acknowledge",
             post(handlers::acknowledge_process_alert),
@@ -773,6 +781,11 @@ pub fn build(state: AppState) -> Router {
             post(handlers::create_process_monitoring_report),
         )
         .route("/v1/jobs", get(handlers::list_jobs))
+        // Journey visualization routes
+        .route(
+            "/v1/journeys/{journey_type}/{id}",
+            get(handlers::journeys::get_journey),
+        )
         .route("/v1/policies", get(handlers::list_policies))
         .route("/v1/policies/{cpid}", get(handlers::get_policy))
         .route("/v1/policies/validate", post(handlers::validate_policy))
@@ -1315,6 +1328,10 @@ pub fn build(state: AppState) -> Router {
         // Memory routes
         .route("/v1/system/memory", get(handlers::get_uma_memory))
         .route(
+            "/v1/memory/usage",
+            get(handlers::memory_detail::get_combined_memory_usage),
+        )
+        .route(
             "/v1/memory/uma-breakdown",
             get(handlers::memory_detail::get_uma_memory_breakdown),
         )
@@ -1419,6 +1436,19 @@ pub fn build(state: AppState) -> Router {
             "/v1/streams/file-changes",
             get(handlers::git::file_changes_stream),
         )
+        // Git repository management routes
+        .route(
+            "/v1/git/repositories",
+            post(handlers::git_repository::register_git_repository),
+        )
+        .route(
+            "/v1/git/repositories/{repo_id}/analysis",
+            get(handlers::git_repository::get_repository_analysis),
+        )
+        .route(
+            "/v1/git/repositories/{repo_id}/train",
+            post(handlers::git_repository::train_repository_adapter),
+        )
         // Federation routes
         .route(
             "/v1/federation/status",
@@ -1454,19 +1484,19 @@ pub fn build(state: AppState) -> Router {
             "/v1/stream/stack-policies/{id}",
             get(handlers::stack_policy_stream),
         )
-        // TODO: These streaming routes need implementation
-        // .route(
-        //     "/v1/stream/notifications",
-        //     get(handlers::streaming::notifications_stream),
-        // )
-        // .route(
-        //     "/v1/stream/messages/{workspace_id}",
-        //     get(handlers::streaming::messages_stream),
-        // )
-        // .route(
-        //     "/v1/stream/activity/{workspace_id}",
-        //     get(handlers::streaming::activity_stream),
-        // )
+        .route(
+            "/v1/stream/notifications",
+            get(handlers::streaming::notifications_stream)
+                .head(handlers::streaming::sse_preflight_check),
+        )
+        .route(
+            "/v1/stream/messages/{workspace_id}",
+            get(handlers::streaming::messages_stream),
+        )
+        .route(
+            "/v1/stream/activity/{workspace_id}",
+            get(handlers::streaming::activity_stream),
+        )
         .route(
             "/v1/plugins/{name}/enable",
             post(handlers::plugins::enable_plugin),
@@ -1595,6 +1625,11 @@ pub fn build(state: AppState) -> Router {
                     state.clone(),
                     policy_enforcement_middleware,
                 ))
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    audit_middleware,
+                )) // Automatic audit logging (needs RequestContext)
+                .layer(middleware::from_fn(context_middleware)) // Consolidate request context after auth
                 .layer(middleware::from_fn_with_state(
                     state.clone(),
                     auth_middleware,

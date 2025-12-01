@@ -1,4 +1,4 @@
-import { ProgressiveHint } from '../hooks/useProgressiveHints';
+import { ProgressiveHint } from '@/hooks/useProgressiveHints';
 
 export const pageHints: Record<string, ProgressiveHint[]> = {
   adapters: [

@@ -4,10 +4,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { PageErrorsProvider } from '@/components/ui/page-error-boundary';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { TrainingJobsTab } from './TrainingJobsTab';
 import { DatasetsTab } from './DatasetsTab';
 import { TemplatesTab } from './TemplatesTab';
-import { Brain, Database, FileText } from 'lucide-react';
+import { BehaviorEventsTab } from './BehaviorEventsTab';
+import { Brain, Database, FileText, Activity } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { TrainingWizard } from '@/components/TrainingWizard';
 
@@ -28,7 +30,7 @@ function TrainingPageContent() {
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full max-w-[600px] grid-cols-3">
+        <TabsList className="grid w-full max-w-[800px] grid-cols-4">
           <TabsTrigger value="jobs" className="flex items-center gap-2">
             <Brain className="h-4 w-4" />
             Training Jobs
@@ -41,18 +43,34 @@ function TrainingPageContent() {
             <FileText className="h-4 w-4" />
             Templates
           </TabsTrigger>
+          <TabsTrigger value="behavior" className="flex items-center gap-2">
+            <Activity className="h-4 w-4" />
+            Behavior
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="jobs" className="mt-6">
-          <TrainingJobsTab />
+          <SectionErrorBoundary sectionName="Training Jobs">
+            <TrainingJobsTab />
+          </SectionErrorBoundary>
         </TabsContent>
 
         <TabsContent value="datasets" className="mt-6">
-          <DatasetsTab />
+          <SectionErrorBoundary sectionName="Datasets">
+            <DatasetsTab />
+          </SectionErrorBoundary>
         </TabsContent>
 
         <TabsContent value="templates" className="mt-6">
-          <TemplatesTab />
+          <SectionErrorBoundary sectionName="Templates">
+            <TemplatesTab />
+          </SectionErrorBoundary>
+        </TabsContent>
+
+        <TabsContent value="behavior" className="mt-6">
+          <SectionErrorBoundary sectionName="Behavior Events">
+            <BehaviorEventsTab selectedTenant="default" />
+          </SectionErrorBoundary>
         </TabsContent>
       </Tabs>
 

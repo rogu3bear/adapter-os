@@ -19,9 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { apiClient } from '@/api/client';
 import type { RecentActivityEvent } from '@/api/auth-types';
 
-interface ActivityCardProps {
-  refreshKey: number;
-}
+interface ActivityCardProps {}
 
 // Map activity event type to display type with semantic meaning
 type ActivityType = 'info' | 'warning' | 'error' | 'success';
@@ -110,11 +108,11 @@ const formatActivityMessage = (event: RecentActivityEvent): string => {
   return `${actor} ${action}`;
 };
 
-const ActivityCard: React.FC<ActivityCardProps> = ({ refreshKey }) => {
+const ActivityCard: React.FC<ActivityCardProps> = () => {
   const navigate = useNavigate();
 
   const { data: events, isLoading, isError } = useQuery<RecentActivityEvent[]>({
-    queryKey: ['recent-activity', refreshKey],
+    queryKey: ['recent-activity'],
     queryFn: async () => {
       try {
         // Fetch recent activity events (last 10)

@@ -9,7 +9,7 @@ interface EvidenceItemProps {
     text_preview: string;
     relevance_score: number;
     reference?: string;
-    metadata_json?: string | Record<string, any>;
+    metadata_json?: string | Record<string, unknown>;
   };
   /** Callback when clicking to view the evidence source */
   onView?: (documentId: string, chunkId?: string, pageNumber?: number) => void;
@@ -25,7 +25,7 @@ function parseDocumentMetadata(item: EvidenceItemProps['item']): {
   chunkId?: string;
   pageNumber?: number;
 } {
-  let metadata: Record<string, any> = {};
+  let metadata: Record<string, unknown> = {};
 
   // Parse metadata_json if it's a string
   if (typeof item.metadata_json === 'string') {
@@ -50,15 +50,15 @@ function parseDocumentMetadata(item: EvidenceItemProps['item']): {
       return {
         documentId: refMatch[1],
         chunkId: item.reference.match(/chunk:([^:]+)/)?.[1],
-        pageNumber: pageNumber ?? undefined,
+        pageNumber: typeof pageNumber === 'number' ? pageNumber : undefined,
       };
     }
   }
 
   return {
-    documentId: documentId ?? undefined,
-    chunkId: chunkId ?? undefined,
-    pageNumber: pageNumber ?? undefined,
+    documentId: typeof documentId === 'string' ? documentId : undefined,
+    chunkId: typeof chunkId === 'string' ? chunkId : undefined,
+    pageNumber: typeof pageNumber === 'number' ? pageNumber : undefined,
   };
 }
 

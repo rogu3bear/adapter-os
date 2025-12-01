@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { FileText, Hash, Languages, TrendingUp, Database } from 'lucide-react';
+import { formatBytes, formatNumber } from '@/utils/format';
 
 interface DatasetStatistics {
   num_examples: number;
@@ -30,18 +31,6 @@ interface DatasetStatsProps {
   statistics?: DatasetStatistics;
   loading?: boolean;
 }
-
-const formatBytes = (bytes: number): string => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-};
-
-const formatNumber = (num: number): string => {
-  return new Intl.NumberFormat().format(num);
-};
 
 const CHART_COLORS = [
   '#8b5cf6', '#6366f1', '#3b82f6', '#0ea5e9', '#06b6d4',

@@ -35,7 +35,7 @@ MLX operates as a **fully-capable production backend** in our multi-backend ecos
 
 | Backend | Status | Use Case | Determinism | Resilience |
 |---------|--------|----------|-------------|------------|
-| **Metal** | Production | GPU acceleration | Guaranteed | Full |
+| **Metal** | Incomplete | GPU acceleration | Guaranteed | Partial (model loading issues) |
 | **CoreML** | Production | ANE acceleration | Conditional | Full |
 | **MLX** | **Production** | Production inference, training | **Feature-gated** | **Enterprise-grade** |
 
@@ -366,7 +366,7 @@ enabled = true
 # Default model path (can be overridden by AOS_MLX_FFI_MODEL env var)
 model_path = "./models/qwen2.5-7b-mlx"
 # Default backend selection when both Metal and MLX are available
-# Options: "metal" (default, production) or "mlx" (development/experimentation)
+# Options: "coreml" (default, production), "mlx" (secondary production), or "metal" (legacy fallback)
 default_backend = "mlx"
 ```
 

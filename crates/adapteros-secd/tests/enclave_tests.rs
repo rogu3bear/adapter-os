@@ -7,7 +7,7 @@
 //! - Error handling and edge cases
 //! - Security properties (determinism, isolation)
 
-use adapteros_secd::{EnclaveManager, Request, Response};
+use adapteros_secd::EnclaveManager;
 
 #[test]
 fn test_enclave_manager_creation() {

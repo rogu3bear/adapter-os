@@ -27,7 +27,7 @@ interface Service {
   dependencies?: string[];
   startupOrder?: number;
   logs: string[];
-  icon?: any;
+  icon?: React.ComponentType<{ className?: string }>;
   description?: string;
   error?: string;
 }

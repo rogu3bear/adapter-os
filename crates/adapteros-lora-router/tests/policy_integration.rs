@@ -12,7 +12,7 @@ fn test_router_respects_k_sparse_policy() {
     let mut policy_config = RouterConfig::default();
     policy_config.k_sparse = 2; // Limit to 2 adapters
 
-    let policy = RouterPolicy::new(policy_config.clone());
+    let _policy = RouterPolicy::new(policy_config.clone());
     let mut router =
         Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
 

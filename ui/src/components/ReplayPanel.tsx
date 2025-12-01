@@ -7,14 +7,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from './ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Shield, Play, Hash, Trash2 } from 'lucide-react';
-import apiClient from '../api/client';
-import { ReplaySession, ReplayVerificationResponse } from '../api/types';
-import { useTimestamp } from '../hooks/useTimestamp';
+import apiClient from '@/api/client';
+import { ReplaySession, ReplayVerificationResponse } from '@/api/types';
+import { useTimestamp } from '@/hooks/useTimestamp';
 import { toast } from 'sonner';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import { HelpTooltip } from './ui/help-tooltip';
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { useRBAC } from '@/hooks/useRBAC';
 
 import { useTenant } from '@/layout/LayoutProvider';
@@ -158,7 +158,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
           <CardTitle className="flex items-center gap-2">
             <Play className="mr-2 h-5 w-5" />
             Replay Sessions
-            <HelpTooltip helpId="replay-session" />
+            <GlossaryTooltip termId="replay-session" />
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -231,20 +231,20 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
                       <div className="flex items-center gap-2 text-xs">
                         <Hash className="h-3 w-3" />
                         <span className="text-muted-foreground">Manifest:</span>
-                        <HelpTooltip helpId="replay-manifest-hash" />
+                        <GlossaryTooltip termId="replay-manifest-hash" />
                         <code className="font-mono border border-border px-1 rounded">{currentSession.manifest_hash_b3.substring(0, 16)}...</code>
                       </div>
                       <div className="flex items-center gap-2 text-xs">
                         <Hash className="h-3 w-3" />
                         <span className="text-muted-foreground">Policy:</span>
-                        <HelpTooltip helpId="replay-policy-hash" />
+                        <GlossaryTooltip termId="replay-policy-hash" />
                         <code className="font-mono border border-border px-1 rounded">{currentSession.policy_hash_b3.substring(0, 16)}...</code>
                       </div>
                       {currentSession.kernel_hash_b3 && (
                         <div className="flex items-center gap-2 text-xs">
                           <Hash className="h-3 w-3" />
                           <span className="text-muted-foreground">Kernel:</span>
-                          <HelpTooltip helpId="replay-kernel-hash" />
+                          <GlossaryTooltip termId="replay-kernel-hash" />
                           <code className="font-mono border border-border px-1 rounded">{currentSession.kernel_hash_b3.substring(0, 16)}...</code>
                         </div>
                       )}
@@ -303,13 +303,14 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
                   <Shield className="mr-2 h-4 w-4" />
                   {verifying ? 'Verifying...' : 'Verify Cryptographic Chain'}
                 </Button>
-                <HelpTooltip helpId="replay-verification" />
+                <GlossaryTooltip termId="replay-verification" />
                 {canDeleteSession && (
                   <Button
                     onClick={() => handleDeleteSession(currentSession.id)}
                     variant="outline"
                     size="icon"
                     className="text-destructive hover:text-destructive"
+                    aria-label="Delete replay session"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -326,7 +327,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
                     <details className="p-2 border rounded">
                       <summary className="cursor-pointer text-sm flex items-center gap-1">
                         {verifyResponse.divergences.length} divergences
-                        <HelpTooltip helpId="replay-divergence" />
+                        <GlossaryTooltip termId="replay-divergence" />
                       </summary>
                       <ul className="mt-2 space-y-1 text-xs font-mono">
                         {verifyResponse.divergences.map((d, idx) => (

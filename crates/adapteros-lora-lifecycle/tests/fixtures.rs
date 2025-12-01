@@ -41,31 +41,9 @@ impl TestDbFixture {
         }
     }
 
-    /// Create a test database with a temporary file
-    pub async fn with_file() -> Self {
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let db_path = temp_dir.path().join("test.db");
-
-        let db = Db::connect(db_path.to_str().unwrap())
-            .await
-            .expect("Failed to create test database");
-
-        db.migrate().await.expect("Failed to run migrations");
-
-        Self {
-            db,
-            _temp_dir: Some(temp_dir),
-        }
-    }
-
     /// Get a reference to the database
     pub fn db(&self) -> &Db {
         &self.db
-    }
-
-    /// Clone the database for use in async operations
-    pub fn clone_db(&self) -> Db {
-        self.db.clone()
     }
 }
 

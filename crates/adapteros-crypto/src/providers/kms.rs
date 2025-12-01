@@ -3295,7 +3295,7 @@ mod tests {
         // This test requires the GCP KMS emulator to be running locally
         // Start with: gcloud kms emulator
 
-        let config = KmsConfig {
+        let _config = KmsConfig {
             backend_type: KmsBackendType::GcpKms,
             endpoint: "http://localhost:9011".to_string(),
             region: Some("us-central1".to_string()),
@@ -3347,7 +3347,7 @@ mod tests {
     async fn test_gcp_kms_missing_project_id() {
         let invalid_creds = r#"{"type": "service_account"}"#;
 
-        let config = KmsConfig {
+        let _config = KmsConfig {
             backend_type: KmsBackendType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
@@ -3363,7 +3363,7 @@ mod tests {
         // Without the feature, it falls back to mock
         #[cfg(feature = "gcp-kms")]
         {
-            let result = GcpKmsBackend::new_async(config).await;
+            let result = GcpKmsBackend::new_async(_config).await;
             assert!(result.is_err());
             assert!(result.unwrap_err().to_string().contains("project_id"));
         }
@@ -3373,7 +3373,7 @@ mod tests {
     async fn test_gcp_kms_invalid_credentials_json() {
         let invalid_json = "not valid json {]";
 
-        let config = KmsConfig {
+        let _config = KmsConfig {
             backend_type: KmsBackendType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
@@ -3387,7 +3387,7 @@ mod tests {
 
         #[cfg(feature = "gcp-kms")]
         {
-            let result = GcpKmsBackend::new_async(config).await;
+            let result = GcpKmsBackend::new_async(_config).await;
             assert!(result.is_err());
             assert!(result.unwrap_err().to_string().contains("JSON"));
         }
@@ -3395,7 +3395,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_gcp_kms_wrong_credential_type() {
-        let config = KmsConfig {
+        let _config = KmsConfig {
             backend_type: KmsBackendType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
@@ -3411,7 +3411,7 @@ mod tests {
 
         #[cfg(feature = "gcp-kms")]
         {
-            let result = GcpKmsBackend::new_async(config).await;
+            let result = GcpKmsBackend::new_async(_config).await;
             assert!(result.is_err());
             assert!(result
                 .unwrap_err()

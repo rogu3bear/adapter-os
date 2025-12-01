@@ -20,13 +20,13 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '../api/client';
-import { WorkerResponse, Node, Plan } from '../api/types';
+import apiClient from '@/api/client';
+import { WorkerResponse, Node, Plan } from '@/api/types';
 import { SpawnWorkerModal } from './SpawnWorkerModal';
 import { ProcessDebugger } from './ProcessDebugger';
 
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 
@@ -285,7 +285,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
                     {worker.plan_id.substring(0, 8)}...
                   </TableCell>
                   <TableCell>
-                    <Badge variant={getStatusBadgeVariant(worker.status) as any} className="gap-1">
+                    <Badge variant={getStatusBadgeVariant(worker.status) as 'default' | 'secondary' | 'destructive' | 'outline'} className="gap-1">
                       {getStatusIcon(worker.status)}
                       {worker.status}
                     </Badge>

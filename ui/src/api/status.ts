@@ -66,8 +66,12 @@ function canonicalize(value: unknown): string {
   return `{${serialized.join(',')}}`;
 }
 
+interface NodeBuffer {
+  from(buffer: ArrayBuffer): { toString(encoding: string): string };
+}
+
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const scope = globalThis as typeof globalThis & { Buffer?: any };
+  const scope = globalThis as typeof globalThis & { Buffer?: NodeBuffer };
   if (typeof scope.btoa === 'function') {
     const bytes = new Uint8Array(buffer);
     let binary = '';

@@ -164,11 +164,13 @@ graph TD
 **Backend Status:**
 | Backend | Status | Determinism | Use Case |
 |---------|--------|-------------|----------|
-| **CoreML** | ✅ Production | Guaranteed (ANE) | Production, ANE acceleration |
-| **MLX** | ✅ Production | HKDF-seeded | Production inference, training |
-| **Metal** | ✅ Production | Guaranteed | Fallback, deterministic kernels |
+| **CoreML** | ✅ Production | Guaranteed (ANE) | Production, ANE acceleration (primary) |
+| **MLX** | ✅ Production | HKDF-seeded | Production inference, training (secondary) |
+| **Metal** | ⚠️ Incomplete | Guaranteed | Legacy fallback only (model loading incomplete) |
 
-**Selection Strategy:** CoreML-first (ANE production), MLX-active (production), Metal-fallback (deterministic)
+**Fallback Chain:** CoreML → MLX → Metal
+
+**Selection Strategy:** CoreML-first (ANE production), MLX-second (production), Metal-fallback (incomplete, legacy only)
 
 ---
 

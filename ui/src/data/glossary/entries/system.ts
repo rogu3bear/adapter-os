@@ -1,4 +1,4 @@
-import type { GlossaryEntry } from '../types';
+import type { GlossaryEntry } from '@/data/glossary/types';
 
 export const systemEntries: GlossaryEntry[] = [
   {
@@ -260,7 +260,7 @@ export const systemEntries: GlossaryEntry[] = [
     category: 'system',
     content: {
       brief: 'Apple\'s Metal GPU API for graphics and compute.',
-      detailed: 'Metal is Apple\'s low-level GPU programming framework providing direct access to graphics and compute capabilities. AdapterOS uses Metal as a fallback backend when CoreML or MLX are unavailable, leveraging MetalPerformanceShaders for matrix operations. Metal provides guaranteed determinism through controlled shader execution and is part of the multi-backend fallback chain.'
+      detailed: 'Metal is Apple\'s low-level GPU programming framework providing direct access to graphics and compute capabilities. AdapterOS uses Metal as the last-resort fallback backend when CoreML and MLX are unavailable. Note: Metal backend has incomplete model loading (LM head weights issue) and should only be used for legacy scenarios. When complete, it provides guaranteed determinism through controlled shader execution.'
     },
     relatedTerms: ['metal-family', 'backend', 'gpu-usage'],
     aliases: ['metal api', 'metal framework', 'metal gpu']
@@ -282,7 +282,7 @@ export const systemEntries: GlossaryEntry[] = [
     category: 'system',
     content: {
       brief: 'Compute backend for inference: CoreML, MLX, or Metal.',
-      detailed: 'The backend is the underlying compute framework used to execute adapter inference. AdapterOS supports three backends with automatic fallback: CoreML (primary, ANE-accelerated), Metal (guaranteed fallback), and MLX (research/experimentation). Backend selection affects performance, determinism guarantees, and hardware utilization. The backend factory manages initialization and hot-swapping between backends.'
+      detailed: 'The backend is the underlying compute framework used to execute adapter inference. AdapterOS supports three backends with automatic fallback: CoreML (primary, ANE-accelerated), MLX (secondary, production inference/training), and Metal (legacy fallback, incomplete). Backend selection affects performance, determinism guarantees, and hardware utilization. The backend factory manages initialization and hot-swapping between backends.'
     },
     relatedTerms: ['coreml', 'mlx', 'metal', 'worker'],
     aliases: ['compute backend', 'inference backend', 'ml backend']

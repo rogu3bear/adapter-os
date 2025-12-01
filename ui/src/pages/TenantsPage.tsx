@@ -2,6 +2,7 @@ import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Tenants } from '@/components/Tenants';
 import { DensityProvider } from '@/contexts/DensityContext';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 export default function TenantsPage() {
   const { user } = useAuth();
@@ -12,10 +13,12 @@ export default function TenantsPage() {
       <FeatureLayout
         title="Organizations"
         description="Manage organization configurations and settings"
-        helpContent="Configure and manage organization settings and isolation"
+        brief="Configure and manage organization settings and isolation"
       >
         <div className="space-y-6">
-          <Tenants user={user} selectedTenant={selectedTenant} />
+          <SectionErrorBoundary sectionName="Tenants">
+            <Tenants user={user} selectedTenant={selectedTenant} />
+          </SectionErrorBoundary>
         </div>
       </FeatureLayout>
     </DensityProvider>

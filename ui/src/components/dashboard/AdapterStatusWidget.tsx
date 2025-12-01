@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Progress } from '../ui/progress';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { Layers, TrendingUp, Activity, Loader2, AlertCircle } from 'lucide-react';
-import { Skeleton } from '../ui/skeleton';
-import { Alert, AlertDescription } from '../ui/alert';
-import { Button } from '../ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { useAdapters } from '@/pages/Adapters/useAdapters';
 import { useMemoryUsage } from '@/hooks/useSystemMetrics';
 import type { AdapterState } from '@/api/adapter-types';

@@ -6,14 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, CheckCircle2, XCircle, HardDrive, Cpu, Activity } from 'lucide-react';
 import apiClient from '@/api/client';
-// Format bytes to human-readable string
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-}
+import { formatBytes } from '@/utils/format';
 
 interface CapacityResponse {
   total_ram_bytes: number;
@@ -71,16 +64,16 @@ export function CapacityTab() {
       case 'critical':
         return <Badge variant="destructive" className="flex items-center gap-1"><XCircle className="h-3 w-3" /> Critical</Badge>;
       case 'warning':
-        return <Badge variant="outline" className="flex items-center gap-1 bg-yellow-50 text-yellow-800 border-yellow-300"><AlertTriangle className="h-3 w-3" /> Warning</Badge>;
+        return <Badge variant="outline" className="flex items-center gap-1 bg-warning/10 text-warning border-warning"><AlertTriangle className="h-3 w-3" /> Warning</Badge>;
       default:
-        return <Badge variant="outline" className="flex items-center gap-1 bg-green-50 text-green-800 border-green-300"><CheckCircle2 className="h-3 w-3" /> OK</Badge>;
+        return <Badge variant="outline" className="flex items-center gap-1 bg-success/10 text-success border-success"><CheckCircle2 className="h-3 w-3" /> OK</Badge>;
     }
   };
 
   const getHeadroomColor = (pct: number) => {
-    if (pct < 10) return 'text-red-600';
-    if (pct < 20) return 'text-yellow-600';
-    return 'text-green-600';
+    if (pct < 10) return 'text-destructive';
+    if (pct < 20) return 'text-warning';
+    return 'text-success';
   };
 
   return (
@@ -107,19 +100,19 @@ export function CapacityTab() {
             </Alert>
           )}
           {data.node_health === 'warning' && (
-            <Alert className="mb-4 border-yellow-300 bg-yellow-50">
-              <AlertTriangle className="h-4 w-4 text-yellow-600" />
-              <AlertTitle className="text-yellow-800">Memory Pressure Warning</AlertTitle>
-              <AlertDescription className="text-yellow-700">
+            <Alert className="mb-4 border-warning bg-warning/10">
+              <AlertTriangle className="h-4 w-4 text-warning" />
+              <AlertTitle className="text-warning">Memory Pressure Warning</AlertTitle>
+              <AlertDescription className="text-warning">
                 System memory is below recommended thresholds. Consider reducing concurrent operations.
               </AlertDescription>
             </Alert>
           )}
           {data.node_health === 'ok' && (
-            <Alert className="mb-4 border-green-300 bg-green-50">
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
-              <AlertTitle className="text-green-800">System Operating Normally</AlertTitle>
-              <AlertDescription className="text-green-700">
+            <Alert className="mb-4 border-success bg-success/10">
+              <CheckCircle2 className="h-4 w-4 text-success" />
+              <AlertTitle className="text-success">System Operating Normally</AlertTitle>
+              <AlertDescription className="text-success">
                 All systems are operating within normal capacity limits.
               </AlertDescription>
             </Alert>
@@ -150,12 +143,12 @@ export function CapacityTab() {
                 <span>Available</span>
                 <span className="font-mono">{formatBytes(data.total_ram_bytes - data.usage.ram_used_bytes)}</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="w-full bg-muted rounded-full h-2">
                 <div
                   className={`h-2 rounded-full ${getHeadroomColor(data.usage.ram_headroom_pct)}`}
                   style={{
                     width: `${100 - (data.usage.ram_used_bytes / data.total_ram_bytes) * 100}%`,
-                    backgroundColor: data.usage.ram_headroom_pct < 10 ? '#dc2626' : data.usage.ram_headroom_pct < 20 ? '#d97706' : '#16a34a',
+                    backgroundColor: data.usage.ram_headroom_pct < 10 ? 'hsl(var(--destructive))' : data.usage.ram_headroom_pct < 20 ? 'hsl(var(--warning))' : 'hsl(var(--success))',
                   }}
                 />
               </div>
@@ -187,12 +180,12 @@ export function CapacityTab() {
                 <span>Available</span>
                 <span className="font-mono">{formatBytes(data.total_vram_bytes - data.usage.vram_used_bytes)}</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="w-full bg-muted rounded-full h-2">
                 <div
                   className={`h-2 rounded-full ${getHeadroomColor(data.usage.vram_headroom_pct)}`}
                   style={{
                     width: `${100 - (data.usage.vram_used_bytes / data.total_vram_bytes) * 100}%`,
-                    backgroundColor: data.usage.vram_headroom_pct < 10 ? '#dc2626' : data.usage.vram_headroom_pct < 20 ? '#d97706' : '#16a34a',
+                    backgroundColor: data.usage.vram_headroom_pct < 10 ? 'hsl(var(--destructive))' : data.usage.vram_headroom_pct < 20 ? 'hsl(var(--warning))' : 'hsl(var(--success))',
                   }}
                 />
               </div>

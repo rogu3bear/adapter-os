@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
-import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -19,13 +18,14 @@ import {
   BarChart3,
   Zap
 } from 'lucide-react';
-import apiClient from '../api/client';
-import { RouterConfig, FeatureVector, AdapterScore } from '../api/types';
+import apiClient from '@/api/client';
+import { RouterConfig, FeatureVector, AdapterScore } from '@/api/types';
 
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import { logger } from '../utils/logger';
+import { logger } from '@/utils/logger';
 import { Alert, AlertDescription } from './ui/alert';
 import { toast } from 'sonner';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 
 interface RouterConfigPageProps {
   selectedTenant: string;
@@ -109,7 +109,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
     loadRouterConfig();
   }, [loadRouterConfig]);
 
-  const handleConfigChange = (field: keyof RouterConfig, value: any) => {
+  const handleConfigChange = (field: keyof RouterConfig, value: unknown) => {
     setConfig(prev => ({ ...prev, [field]: value }));
     setHasUnsavedChanges(true);
   };
@@ -357,7 +357,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 K-Sparse Configuration
-                <ConceptTooltip concept="router" />
+                <GlossaryTooltip termId="router" variant="icon" />
               </CardTitle>
               <CardDescription>
                 Configure the number of adapters selected per token (K-sparse routing)

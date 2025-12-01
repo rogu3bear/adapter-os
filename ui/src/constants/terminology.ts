@@ -127,14 +127,14 @@ export const DOCUMENT_STATUS_LABELS: Record<string, string> = {
 };
 
 /**
- * Lifecycle state labels
+ * Lifecycle state labels (adapter memory states)
  */
 export const LIFECYCLE_STATE_LABELS: Record<string, string> = {
   unloaded: 'Not Loaded',
-  cold: 'Standby',
-  warm: 'Ready',
-  hot: 'Active',
-  resident: 'Always Ready',
+  cold: 'Ready',
+  warm: 'Standby',
+  hot: 'Loaded',
+  resident: 'Pinned',
 };
 
 /**

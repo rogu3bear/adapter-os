@@ -10,6 +10,7 @@ use crate::state::AppState;
 use axum::{
     extract::Extension,
     extract::State,
+    http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
 };
 use futures_util::stream::{self, Stream};
@@ -18,6 +19,12 @@ use std::convert::Infallible;
 use std::time::Duration;
 use tracing::{info, warn};
 use utoipa::ToSchema;
+
+/// HEAD handler for SSE endpoints - returns 200 OK for preflight checks
+/// This allows clients to verify endpoint availability without starting a stream
+pub async fn sse_preflight_check() -> StatusCode {
+    StatusCode::OK
+}
 
 /// Metrics snapshot event for SSE streaming
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -111,14 +118,19 @@ pub async fn system_metrics_stream(
         );
     }
 
-    let stream = stream::unfold((state, has_permission), |(state, has_permission)| async move {
+    // Track whether error has been sent to terminate stream after one error
+    let stream = stream::unfold((state, has_permission, false), |(state, has_permission, error_sent)| async move {
         if !has_permission {
-            // Return error event once and end stream
+            if error_sent {
+                // Already sent error, terminate stream
+                return None;
+            }
+            // Return error event once then terminate
             return Some((
                 Ok(Event::default()
                     .event("error")
                     .data("{\"error\": \"Permission denied - MetricsView required\"}")),
-                (state, false),
+                (state, false, true), // Mark error as sent
             ));
         }
         // Sleep for 5 seconds between updates
@@ -157,12 +169,12 @@ pub async fn system_metrics_stream(
                     Ok(Event::default()
                         .event("error")
                         .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                    (state, has_permission),
+                    (state, has_permission, false),
                 ));
             }
         };
 
-        Some((Ok(Event::default().event("metrics").data(json)), (state, has_permission)))
+        Some((Ok(Event::default().event("metrics").data(json)), (state, has_permission, false)))
     });
 
     Sse::new(stream).keep_alive(
@@ -216,16 +228,21 @@ pub async fn telemetry_events_stream(
     // Capture tenant_id for filtering
     let tenant_id = claims.tenant_id.clone();
 
+    // Track error_sent to terminate stream after one error
     let stream = stream::unfold(
-        (state, initial_timestamp, tenant_id, has_permission),
-        |(state, last_timestamp, tenant_id, has_permission)| async move {
+        (state, initial_timestamp, tenant_id, has_permission, false),
+        |(state, last_timestamp, tenant_id, has_permission, error_sent)| async move {
             if !has_permission {
-                // Return error event once and end stream
+                if error_sent {
+                    // Already sent error, terminate stream
+                    return None;
+                }
+                // Return error event once then terminate
                 return Some((
                     Ok(Event::default()
                         .event("error")
                         .data("{\"error\": \"Permission denied - TelemetryView required\"}")),
-                    (state, last_timestamp, tenant_id, false),
+                    (state, last_timestamp, tenant_id, false, true),
                 ));
             }
             // Poll every 2 seconds for new events
@@ -256,7 +273,7 @@ pub async fn telemetry_events_stream(
                     Ok(Event::default()
                         .event("telemetry")
                         .data("{\"events\": [], \"count\": 0}")),
-                    (state, current_timestamp, tenant_id, has_permission),
+                    (state, current_timestamp, tenant_id, has_permission, false),
                 ));
             }
 
@@ -282,7 +299,7 @@ pub async fn telemetry_events_stream(
                     Ok(Event::default()
                         .event("telemetry")
                         .data("{\"events\": [], \"count\": 0}")),
-                    (state, current_timestamp, tenant_id, has_permission),
+                    (state, current_timestamp, tenant_id, has_permission, false),
                 ));
             }
 
@@ -299,14 +316,14 @@ pub async fn telemetry_events_stream(
                         Ok(Event::default()
                             .event("error")
                             .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                        (state, current_timestamp, tenant_id, has_permission),
+                        (state, current_timestamp, tenant_id, has_permission, false),
                     ));
                 }
             };
 
             Some((
                 Ok(Event::default().event("telemetry").data(json)),
-                (state, current_timestamp, tenant_id, has_permission),
+                (state, current_timestamp, tenant_id, has_permission, false),
             ))
         },
     );
@@ -360,16 +377,21 @@ pub async fn adapter_state_stream(
     let initial_states: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
 
+    // Track error_sent to terminate stream after one error
     let stream = stream::unfold(
-        (state, initial_states, tenant_id, has_permission),
-        |(state, mut previous_states, tenant_id, has_permission)| async move {
+        (state, initial_states, tenant_id, has_permission, false),
+        |(state, mut previous_states, tenant_id, has_permission, error_sent)| async move {
             if !has_permission {
-                // Return error event once and end stream
+                if error_sent {
+                    // Already sent error, terminate stream
+                    return None;
+                }
+                // Return error event once then terminate
                 return Some((
                     Ok(Event::default()
                         .event("error")
                         .data("{\"error\": \"Permission denied - AdapterView required\"}")),
-                    (state, previous_states, tenant_id, false),
+                    (state, previous_states, tenant_id, false, true),
                 ));
             }
             // Poll every 3 seconds for state changes
@@ -470,7 +492,7 @@ pub async fn adapter_state_stream(
                             Ok(Event::default()
                                 .event("error")
                                 .data(format!("{{\"error\": \"{}\"}}", e))),
-                            (state, previous_states, tenant_id, has_permission),
+                            (state, previous_states, tenant_id, has_permission, false),
                         ));
                     }
                 }
@@ -491,14 +513,14 @@ pub async fn adapter_state_stream(
                         Ok(Event::default()
                             .event("error")
                             .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                        (state, previous_states, tenant_id, has_permission),
+                        (state, previous_states, tenant_id, has_permission, false),
                     ));
                 }
             };
 
             Some((
                 Ok(Event::default().event("adapter_state").data(json)),
-                (state, previous_states, tenant_id, has_permission),
+                (state, previous_states, tenant_id, has_permission, false),
             ))
         },
     );
@@ -590,16 +612,21 @@ pub async fn boot_progress_stream(
         .map(|bs| bs.current_state().as_str().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
+    // Track error_sent to terminate stream after one error
     let stream = stream::unfold(
-        (state, initial_state, has_permission),
-        |(state, mut previous_state, has_permission)| async move {
+        (state, initial_state, has_permission, false),
+        |(state, mut previous_state, has_permission, error_sent)| async move {
             if !has_permission {
-                // Return error event once and end stream
+                if error_sent {
+                    // Already sent error, terminate stream
+                    return None;
+                }
+                // Return error event once then terminate
                 return Some((
                     Ok(Event::default()
                         .event("error")
                         .data("{\"error\": \"Permission denied - MetricsView required\"}")),
-                    (state, previous_state, false),
+                    (state, previous_state, false, true),
                 ));
             }
             // Poll every 500ms for rapid updates during boot
@@ -619,7 +646,7 @@ pub async fn boot_progress_stream(
                         Ok(Event::default()
                             .event("error")
                             .data("{\"error\": \"boot state manager not available\"}")),
-                        (state, previous_state, has_permission),
+                        (state, previous_state, has_permission, false),
                     ));
                 }
             };
@@ -651,14 +678,14 @@ pub async fn boot_progress_stream(
                             Ok(Event::default()
                                 .event("error")
                                 .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                            (state, previous_state, has_permission),
+                            (state, previous_state, has_permission, false),
                         ));
                     }
                 };
 
                 return Some((
                     Ok(Event::default().event("boot_progress").data(json)),
-                    (state, previous_state, has_permission),
+                    (state, previous_state, has_permission, false),
                 ));
             }
 
@@ -686,14 +713,14 @@ pub async fn boot_progress_stream(
                             Ok(Event::default()
                                 .event("error")
                                 .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                            (state, previous_state, has_permission),
+                            (state, previous_state, has_permission, false),
                         ));
                     }
                 };
 
                 return Some((
                     Ok(Event::default().event("boot_progress").data(json)),
-                    (state, previous_state, has_permission),
+                    (state, previous_state, has_permission, false),
                 ));
             }
 
@@ -716,14 +743,14 @@ pub async fn boot_progress_stream(
                             Ok(Event::default()
                                 .event("error")
                                 .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                            (state, previous_state, has_permission),
+                            (state, previous_state, has_permission, false),
                         ));
                     }
                 };
 
                 return Some((
                     Ok(Event::default().event("boot_progress").data(json)),
-                    (state, previous_state, has_permission),
+                    (state, previous_state, has_permission, false),
                 ));
             }
 
@@ -732,7 +759,7 @@ pub async fn boot_progress_stream(
                 Ok(Event::default()
                     .event("keepalive")
                     .data(format!("{{\"timestamp\": {}}}", current_timestamp))),
-                (state, previous_state, has_permission),
+                (state, previous_state, has_permission, false),
             ))
         },
     );
@@ -740,6 +767,616 @@ pub async fn boot_progress_stream(
     Sse::new(stream).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(10))
+            .text("keep-alive"),
+    )
+}
+
+/// Notifications SSE stream endpoint
+///
+/// Streams real-time notifications for the authenticated user.
+/// Polls for new notifications every 5 seconds and emits changes.
+///
+/// # SSE Event Format
+/// ```json
+/// event: notification
+/// data: {"notifications": [...], "unread_count": 3, "timestamp": "..."}
+/// ```
+#[utoipa::path(
+    tag = "notifications",
+    get,
+    path = "/v1/stream/notifications",
+    responses(
+        (status = 200, description = "SSE stream of notifications")
+    )
+)]
+pub async fn notifications_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    use crate::permissions::require_permission;
+    use crate::permissions::Permission;
+
+    // Permission check
+    let has_permission = require_permission(&claims, Permission::NotificationView).is_ok();
+
+    if !has_permission {
+        warn!(
+            user_id = %claims.sub,
+            "Permission denied for notifications stream"
+        );
+    } else {
+        info!(
+            user_id = %claims.sub,
+            "Starting notifications SSE stream"
+        );
+    }
+
+    // Capture user_id for use in the stream closure
+    let user_id = claims.sub.clone();
+
+    // Initialize with empty notification cache
+    let previous_notification_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
+    // Track error_sent to terminate stream after one error
+    let stream = stream::unfold(
+        (state, previous_notification_ids, user_id, has_permission, false),
+        |(state, mut previous_ids, user_id, has_permission, error_sent)| async move {
+            if !has_permission {
+                if error_sent {
+                    // Already sent error, terminate stream
+                    return None;
+                }
+                // Return error event once then terminate
+                return Some((
+                    Ok(Event::default()
+                        .event("error")
+                        .data("{\"error\": \"Permission denied - NotificationView required\"}")),
+                    (state, previous_ids, user_id, false, true),
+                ));
+            }
+
+            // Poll every 5 seconds for new notifications
+            tokio::time::sleep(Duration::from_secs(5)).await;
+
+            // Fetch recent unread notifications
+            let notifications = match state
+                .db
+                .list_user_notifications(&user_id, None, None, true, Some(50), Some(0))
+                .await
+            {
+                Ok(notifications) => notifications,
+                Err(e) => {
+                    warn!("Failed to fetch notifications for SSE: {}", e);
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"{}\"}}", e))),
+                        (state, previous_ids, user_id, has_permission, false),
+                    ));
+                }
+            };
+
+            // Check if there are new notifications
+            let current_ids: std::collections::HashSet<String> =
+                notifications.iter().map(|n| n.id.clone()).collect();
+
+            // Only emit if there are changes
+            if current_ids != previous_ids {
+                let notification_data = serde_json::json!({
+                    "notifications": notifications.iter().map(|n| serde_json::json!({
+                        "id": n.id,
+                        "user_id": n.user_id,
+                        "workspace_id": n.workspace_id,
+                        "type": n.type_,
+                        "target_type": n.target_type,
+                        "target_id": n.target_id,
+                        "title": n.title,
+                        "content": n.content,
+                        "read_at": n.read_at,
+                        "created_at": n.created_at,
+                    })).collect::<Vec<_>>(),
+                    "unread_count": notifications.len(),
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                });
+
+                let json = match serde_json::to_string(&notification_data) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        warn!("Failed to serialize notifications: {}", e);
+                        return Some((
+                            Ok(Event::default()
+                                .event("error")
+                                .data("{\"error\": \"serialization failed\"}".to_string())),
+                            (state, previous_ids, user_id, has_permission, false),
+                        ));
+                    }
+                };
+
+                previous_ids = current_ids;
+
+                Some((
+                    Ok(Event::default().event("notification").data(json)),
+                    (state, previous_ids, user_id, has_permission, false),
+                ))
+            } else {
+                // No changes, but keep connection alive with heartbeat
+                let heartbeat = serde_json::json!({
+                    "type": "heartbeat",
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "unread_count": notifications.len(),
+                });
+
+                Some((
+                    Ok(Event::default()
+                        .event("heartbeat")
+                        .data(serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()))),
+                    (state, previous_ids, user_id, has_permission, false),
+                ))
+            }
+        },
+    );
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+// ============================================================================
+// Circuit Breaker for SSE Streams
+// ============================================================================
+
+/// Circuit breaker state for SSE stream error handling
+#[derive(Debug, Clone)]
+struct StreamCircuitBreaker {
+    /// Number of consecutive errors before opening circuit
+    threshold: u32,
+    /// Current consecutive error count
+    error_count: u32,
+    /// Whether circuit is currently open (blocking requests)
+    is_open: bool,
+    /// Time when circuit was opened (for half-open recovery)
+    opened_at: Option<std::time::Instant>,
+    /// Recovery timeout before trying half-open state
+    recovery_timeout: Duration,
+}
+
+impl Default for StreamCircuitBreaker {
+    fn default() -> Self {
+        Self {
+            threshold: 5,
+            error_count: 0,
+            is_open: false,
+            opened_at: None,
+            recovery_timeout: Duration::from_secs(30),
+        }
+    }
+}
+
+impl StreamCircuitBreaker {
+    fn new(threshold: u32, recovery_timeout: Duration) -> Self {
+        Self {
+            threshold,
+            recovery_timeout,
+            ..Default::default()
+        }
+    }
+
+    fn record_success(&mut self) {
+        self.error_count = 0;
+        self.is_open = false;
+        self.opened_at = None;
+    }
+
+    fn record_error(&mut self) {
+        self.error_count += 1;
+        if self.error_count >= self.threshold {
+            self.is_open = true;
+            self.opened_at = Some(std::time::Instant::now());
+            warn!(
+                error_count = self.error_count,
+                threshold = self.threshold,
+                "SSE stream circuit breaker opened"
+            );
+        }
+    }
+
+    fn should_allow(&self) -> bool {
+        if !self.is_open {
+            return true;
+        }
+        // Check if we're in half-open state (recovery timeout passed)
+        if let Some(opened_at) = self.opened_at {
+            if opened_at.elapsed() >= self.recovery_timeout {
+                return true; // Allow one request to test recovery
+            }
+        }
+        false
+    }
+}
+
+// ============================================================================
+// Workspace Messages Stream
+// ============================================================================
+
+/// Message event for SSE streaming
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct MessageStreamEvent {
+    pub id: String,
+    pub workspace_id: String,
+    pub from_user_id: String,
+    pub content: String,
+    pub thread_id: Option<String>,
+    pub created_at: String,
+    pub edited_at: Option<String>,
+}
+
+/// Workspace messages streaming endpoint
+///
+/// Streams real-time messages for a workspace. Polls for new messages
+/// every 2 seconds and emits changes. Uses circuit breaker for error handling.
+///
+/// # SSE Event Format
+/// ```json
+/// event: message
+/// data: {"messages": [...], "count": 3, "timestamp": "..."}
+/// ```
+#[utoipa::path(
+    tag = "streaming",
+    get,
+    path = "/v1/stream/messages/{workspace_id}",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID to stream messages for")
+    ),
+    responses(
+        (status = 200, description = "SSE stream of workspace messages")
+    )
+)]
+pub async fn messages_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    axum::extract::Path(workspace_id): axum::extract::Path<String>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    use crate::permissions::require_permission;
+    use crate::permissions::Permission;
+
+    // Permission check: WorkspaceView required
+    let has_permission = require_permission(&claims, Permission::WorkspaceView).is_ok();
+
+    if !has_permission {
+        warn!(
+            user_id = %claims.sub,
+            workspace_id = %workspace_id,
+            "Permission denied for messages stream"
+        );
+    } else {
+        info!(
+            user_id = %claims.sub,
+            workspace_id = %workspace_id,
+            "Starting messages SSE stream"
+        );
+    }
+
+    // Initialize circuit breaker
+    let circuit_breaker = StreamCircuitBreaker::new(5, Duration::from_secs(30));
+
+    // Track last seen message ID
+    let last_message_id: Option<String> = None;
+
+    // Track error_sent to terminate stream after one error
+    let stream = stream::unfold(
+        (state, workspace_id, has_permission, false, last_message_id, circuit_breaker),
+        |(state, workspace_id, has_permission, error_sent, mut last_id, mut cb)| async move {
+            if !has_permission {
+                if error_sent {
+                    return None;
+                }
+                return Some((
+                    Ok(Event::default()
+                        .event("error")
+                        .data("{\"error\": \"Permission denied - WorkspaceView required\"}")),
+                    (state, workspace_id, false, true, last_id, cb),
+                ));
+            }
+
+            // Check circuit breaker
+            if !cb.should_allow() {
+                // Circuit is open, wait and emit status
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                return Some((
+                    Ok(Event::default()
+                        .event("circuit_open")
+                        .data("{\"status\": \"circuit_breaker_open\", \"retry_after_secs\": 30}")),
+                    (state, workspace_id, has_permission, error_sent, last_id, cb),
+                ));
+            }
+
+            // Poll every 2 seconds for new messages
+            tokio::time::sleep(Duration::from_secs(2)).await;
+
+            // Fetch recent messages (passing None for `since` to get all recent messages)
+            let messages = match state
+                .db
+                .get_recent_workspace_messages(&workspace_id, None)
+                .await
+            {
+                Ok(msgs) => {
+                    cb.record_success();
+                    msgs
+                }
+                Err(e) => {
+                    cb.record_error();
+                    warn!(error = %e, workspace_id = %workspace_id, "Failed to fetch messages for SSE");
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"{}\"}}", e))),
+                        (state, workspace_id, has_permission, error_sent, last_id, cb),
+                    ));
+                }
+            };
+
+            // Check if there are new messages
+            let has_new = messages
+                .first()
+                .map(|m| Some(&m.id) != last_id.as_ref())
+                .unwrap_or(false);
+
+            if has_new || last_id.is_none() {
+                // Update last seen ID
+                if let Some(first) = messages.first() {
+                    last_id = Some(first.id.clone());
+                }
+
+                let message_events: Vec<MessageStreamEvent> = messages
+                    .iter()
+                    .map(|m| MessageStreamEvent {
+                        id: m.id.clone(),
+                        workspace_id: m.workspace_id.clone(),
+                        from_user_id: m.from_user_id.clone(),
+                        content: m.content.clone(),
+                        thread_id: m.thread_id.clone(),
+                        created_at: m.created_at.clone(),
+                        edited_at: m.edited_at.clone(),
+                    })
+                    .collect();
+
+                let payload = serde_json::json!({
+                    "messages": message_events,
+                    "count": message_events.len(),
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                });
+
+                let json = match serde_json::to_string(&payload) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to serialize messages");
+                        return Some((
+                            Ok(Event::default()
+                                .event("error")
+                                .data("{\"error\": \"serialization failed\"}")),
+                            (state, workspace_id, has_permission, error_sent, last_id, cb),
+                        ));
+                    }
+                };
+
+                Some((
+                    Ok(Event::default().event("message").data(json)),
+                    (state, workspace_id, has_permission, error_sent, last_id, cb),
+                ))
+            } else {
+                // No changes, emit heartbeat
+                let heartbeat = serde_json::json!({
+                    "type": "heartbeat",
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                });
+
+                Some((
+                    Ok(Event::default()
+                        .event("heartbeat")
+                        .data(serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()))),
+                    (state, workspace_id, has_permission, error_sent, last_id, cb),
+                ))
+            }
+        },
+    );
+
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keep-alive"),
+    )
+}
+
+// ============================================================================
+// Workspace Activity Stream
+// ============================================================================
+
+/// Activity event for SSE streaming
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ActivityStreamEvent {
+    pub id: String,
+    pub workspace_id: Option<String>,
+    pub user_id: String,
+    pub event_type: String,
+    pub target_type: Option<String>,
+    pub target_id: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: String,
+}
+
+/// Workspace activity streaming endpoint
+///
+/// Streams real-time activity events for a workspace. Polls for new events
+/// every 3 seconds and emits changes. Uses circuit breaker for error handling.
+///
+/// # SSE Event Format
+/// ```json
+/// event: activity
+/// data: {"events": [...], "count": 5, "timestamp": "..."}
+/// ```
+#[utoipa::path(
+    tag = "streaming",
+    get,
+    path = "/v1/stream/activity/{workspace_id}",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID to stream activity for")
+    ),
+    responses(
+        (status = 200, description = "SSE stream of workspace activity")
+    )
+)]
+pub async fn activity_stream(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    axum::extract::Path(workspace_id): axum::extract::Path<String>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    use crate::permissions::require_permission;
+    use crate::permissions::Permission;
+
+    // Permission check: ActivityView required
+    let has_permission = require_permission(&claims, Permission::ActivityView).is_ok();
+
+    if !has_permission {
+        warn!(
+            user_id = %claims.sub,
+            workspace_id = %workspace_id,
+            "Permission denied for activity stream"
+        );
+    } else {
+        info!(
+            user_id = %claims.sub,
+            workspace_id = %workspace_id,
+            "Starting activity SSE stream"
+        );
+    }
+
+    let tenant_id = claims.tenant_id.clone();
+    let user_id = claims.sub.clone();
+
+    // Initialize circuit breaker
+    let circuit_breaker = StreamCircuitBreaker::new(5, Duration::from_secs(30));
+
+    // Track last seen timestamp
+    let last_timestamp = chrono::Utc::now();
+
+    // Track error_sent to terminate stream after one error
+    let stream = stream::unfold(
+        (state, workspace_id, tenant_id, user_id, has_permission, false, last_timestamp, circuit_breaker),
+        |(state, workspace_id, tenant_id, user_id, has_permission, error_sent, mut last_ts, mut cb)| async move {
+            if !has_permission {
+                if error_sent {
+                    return None;
+                }
+                return Some((
+                    Ok(Event::default()
+                        .event("error")
+                        .data("{\"error\": \"Permission denied - ActivityView required\"}")),
+                    (state, workspace_id, tenant_id, user_id, false, true, last_ts, cb),
+                ));
+            }
+
+            // Check circuit breaker
+            if !cb.should_allow() {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                return Some((
+                    Ok(Event::default()
+                        .event("circuit_open")
+                        .data("{\"status\": \"circuit_breaker_open\", \"retry_after_secs\": 30}")),
+                    (state, workspace_id, tenant_id, user_id, has_permission, error_sent, last_ts, cb),
+                ));
+            }
+
+            // Poll every 3 seconds for new activity
+            tokio::time::sleep(Duration::from_secs(3)).await;
+
+            // Fetch recent activity events for this workspace
+            let events = match state
+                .db
+                .list_activity_events_since(&workspace_id, Some(&last_ts.to_rfc3339()), Some(50))
+                .await
+            {
+                Ok(evts) => {
+                    cb.record_success();
+                    evts
+                }
+                Err(e) => {
+                    cb.record_error();
+                    warn!(error = %e, workspace_id = %workspace_id, "Failed to fetch activity for SSE");
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"{}\"}}", e))),
+                        (state, workspace_id, tenant_id, user_id, has_permission, error_sent, last_ts, cb),
+                    ));
+                }
+            };
+
+            // Filter to workspace-specific events
+            let workspace_events: Vec<_> = events
+                .iter()
+                .filter(|e| e.workspace_id.as_ref() == Some(&workspace_id))
+                .collect();
+
+            // Update timestamp
+            last_ts = chrono::Utc::now();
+
+            if !workspace_events.is_empty() {
+                let activity_events: Vec<ActivityStreamEvent> = workspace_events
+                    .iter()
+                    .map(|e| ActivityStreamEvent {
+                        id: e.id.clone(),
+                        workspace_id: e.workspace_id.clone(),
+                        user_id: e.user_id.clone(),
+                        event_type: e.event_type.clone(),
+                        target_type: e.target_type.clone(),
+                        target_id: e.target_id.clone(),
+                        metadata: e.metadata_json.as_ref().and_then(|j| serde_json::from_str(j).ok()),
+                        created_at: e.created_at.clone(),
+                    })
+                    .collect();
+
+                let payload = serde_json::json!({
+                    "events": activity_events,
+                    "count": activity_events.len(),
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                });
+
+                let json = match serde_json::to_string(&payload) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to serialize activity events");
+                        return Some((
+                            Ok(Event::default()
+                                .event("error")
+                                .data("{\"error\": \"serialization failed\"}")),
+                            (state, workspace_id, tenant_id, user_id, has_permission, error_sent, last_ts, cb),
+                        ));
+                    }
+                };
+
+                Some((
+                    Ok(Event::default().event("activity").data(json)),
+                    (state, workspace_id, tenant_id, user_id, has_permission, error_sent, last_ts, cb),
+                ))
+            } else {
+                // No new events, emit heartbeat
+                let heartbeat = serde_json::json!({
+                    "type": "heartbeat",
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                });
+
+                Some((
+                    Ok(Event::default()
+                        .event("heartbeat")
+                        .data(serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()))),
+                    (state, workspace_id, tenant_id, user_id, has_permission, error_sent, last_ts, cb),
+                ))
+            }
+        },
+    );
+
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
             .text("keep-alive"),
     )
 }

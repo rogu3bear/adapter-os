@@ -1,6 +1,7 @@
 //! Replay system for determinism verification
 
 use adapteros_core::{AosError, B3Hash, Result};
+use crate::events::RouterDecisionEvent;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -159,6 +160,19 @@ pub fn format_divergence(div: &ReplayDivergence, verbose: bool) -> String {
     output
 }
 
+/// Extract router decisions from a replay bundle
+///
+/// Filters events by type "router.decision" and deserializes them into RouterDecisionEvent.
+/// This enables golden run archives to capture per-step routing decisions for deterministic replay.
+pub fn extract_router_decisions(bundle: &ReplayBundle) -> Vec<RouterDecisionEvent> {
+    bundle
+        .events
+        .iter()
+        .filter(|e| e.event_type == "router.decision")
+        .filter_map(|e| serde_json::from_value(e.payload.clone()).ok())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +211,81 @@ mod tests {
         let div = find_divergence(&expected, &actual);
         assert!(div.is_some());
         assert_eq!(div.expect("Should find divergence").token_idx, 1);
+    }
+
+    #[test]
+    fn test_extract_router_decisions() {
+        use crate::events::{RouterCandidate, RouterDecisionEvent};
+
+        // Create test replay bundle with router decisions
+        let router_event_1 = RouterDecisionEvent {
+            step: 0,
+            input_token_id: Some(42),
+            candidate_adapters: vec![RouterCandidate {
+                adapter_idx: 0,
+                raw_score: 1.5,
+                gate_q15: 16384,
+            }],
+            entropy: 0.5,
+            tau: 0.1,
+            entropy_floor: 0.01,
+            stack_hash: Some("test-hash".to_string()),
+            stack_id: None,
+            stack_version: None,
+        };
+
+        let router_event_2 = RouterDecisionEvent {
+            step: 1,
+            input_token_id: Some(43),
+            candidate_adapters: vec![RouterCandidate {
+                adapter_idx: 1,
+                raw_score: 1.2,
+                gate_q15: 12000,
+            }],
+            entropy: 0.4,
+            tau: 0.1,
+            entropy_floor: 0.01,
+            stack_hash: Some("test-hash".to_string()),
+            stack_id: None,
+            stack_version: None,
+        };
+
+        let events = vec![
+            ReplayEvent {
+                event_type: "router.decision".to_string(),
+                timestamp: 100,
+                event_hash: B3Hash::hash(b"event1"),
+                payload: serde_json::to_value(&router_event_1).unwrap(),
+            },
+            ReplayEvent {
+                event_type: "inference.step".to_string(),
+                timestamp: 150,
+                event_hash: B3Hash::hash(b"event2"),
+                payload: serde_json::json!({"step": 0}),
+            },
+            ReplayEvent {
+                event_type: "router.decision".to_string(),
+                timestamp: 200,
+                event_hash: B3Hash::hash(b"event3"),
+                payload: serde_json::to_value(&router_event_2).unwrap(),
+            },
+        ];
+
+        let bundle = ReplayBundle {
+            cpid: "test-cpid".to_string(),
+            plan_id: "test-plan".to_string(),
+            seed_global: B3Hash::hash(b"test-seed"),
+            events,
+            rng_checkpoints: Vec::new(),
+        };
+
+        // Extract router decisions
+        let decisions = extract_router_decisions(&bundle);
+
+        assert_eq!(decisions.len(), 2);
+        assert_eq!(decisions[0].step, 0);
+        assert_eq!(decisions[1].step, 1);
+        assert_eq!(decisions[0].entropy, 0.5);
+        assert_eq!(decisions[1].entropy, 0.4);
     }
 }

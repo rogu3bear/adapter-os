@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. Set up telemetry with writer
     println!("[CHART] Setting up telemetry...");
-    let telemetry_writer = TelemetryWriter::new("/tmp/telemetry", 1000, 1024 * 1024)?;
+    let telemetry_writer = TelemetryWriter::new("./var/telemetry", 1000, 1024 * 1024)?;
     let mut telemetry = PatchTelemetry::new_with_writer(telemetry_writer);
     println!("[CHECK] Telemetry configured");
 
@@ -248,7 +248,7 @@ fn create_comprehensive_evidence() -> Vec<EvidenceSpan> {
             rev: "v1".to_string(),
             span_hash: "auth_framework_hash".to_string(),
             score: 0.85,
-            evidence_type: EvidenceType::Framework,
+            evidence_type: EvidenceType::Other,
             file_path: "src/framework/middleware.rs".to_string(),
             start_line: 70,
             end_line: 80,

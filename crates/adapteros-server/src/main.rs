@@ -24,7 +24,13 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::signal;
 use tracing::{error, info, warn};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::{
+    fmt::{self, format::FmtSpan},
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+    Layer,
+};
 
 mod alerting;
 mod openapi;
@@ -136,16 +142,67 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "aos_cp=info,aos_cp_api=info,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
+    // Parse CLI first (before logging, so we know config path)
     let cli = Cli::parse();
+
+    // Load configuration early - needed for logging setup
+    // Use eprintln for errors here since logging isn't initialized yet
+    let server_config = match Config::load(&cli.config) {
+        Ok(cfg) => Arc::new(RwLock::new(cfg)),
+        Err(e) => {
+            eprintln!("FATAL: Failed to load configuration from {}: {}", cli.config, e);
+            std::process::exit(1);
+        }
+    };
+
+    // Initialize tracing with config-based settings
+    let _guard = {
+        let cfg = server_config.read().map_err(|e| {
+            eprintln!("FATAL: Config lock poisoned: {}", e);
+            std::process::exit(1);
+        }).unwrap();
+
+        initialize_logging(&cfg.logging)?
+    };
+
+    // Set up panic hook to capture panics to log
+    {
+        let cfg = server_config.read().map_err(|e| {
+            AosError::Config(format!("Config lock poisoned: {}", e))
+        })?;
+
+        if cfg.logging.capture_panics {
+            let default_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |panic_info| {
+                // Log the panic using tracing
+                let location = panic_info
+                    .location()
+                    .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown panic payload".to_string()
+                };
+
+                // Log to tracing (will go to file if configured)
+                error!(
+                    panic.location = %location,
+                    panic.message = %message,
+                    "PANIC CAPTURED"
+                );
+
+                // Also call default hook for stderr output
+                default_hook(panic_info);
+            }));
+            info!("Panic capture hook installed");
+        }
+    }
+
+    info!("Configuration loaded from {}", cli.config);
 
     // Initialize deterministic config system (validates all AOS_* env vars)
     if let Err(e) = adapteros_config::init_runtime_config() {
@@ -171,10 +228,6 @@ async fn main() -> Result<()> {
     } else {
         None
     };
-
-    // Load configuration early (needed for production mode check)
-    info!("Loading configuration from {}", cli.config);
-    let server_config = Arc::new(RwLock::new(Config::load(&cli.config)?));
 
     // Log effective configuration at startup
     {
@@ -1451,6 +1504,108 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Initialize logging with configuration-based settings
+///
+/// Sets up tracing with:
+/// - Console output (always)
+/// - File output with rotation (if log_dir configured)
+/// - Configurable log levels
+/// - JSON or human-readable format
+///
+/// Returns a guard that must be kept alive for the duration of the program
+/// to ensure log files are properly flushed.
+fn initialize_logging(
+    config: &adapteros_server_api::config::LoggingConfig,
+) -> Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
+    use tracing_subscriber::EnvFilter;
+
+    // Parse log level from config or environment
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(&config.level));
+
+    // Determine rotation strategy
+    let rotation = match config.rotation.as_str() {
+        "hourly" => Rotation::HOURLY,
+        "daily" => Rotation::DAILY,
+        "never" => Rotation::NEVER,
+        _ => {
+            eprintln!("WARNING: Unknown rotation '{}', defaulting to daily", config.rotation);
+            Rotation::DAILY
+        }
+    };
+
+    // Set up file logging if log_dir is configured
+    let (file_layer, guard) = if let Some(ref log_dir) = config.log_dir {
+        // Ensure log directory exists
+        std::fs::create_dir_all(log_dir).map_err(|e| {
+            anyhow::anyhow!("Failed to create log directory {}: {}", log_dir, e)
+        })?;
+
+        let file_appender = RollingFileAppender::new(rotation, log_dir, &config.log_prefix);
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+        let file_layer = if config.json_format {
+            fmt::layer()
+                .json()
+                .with_writer(non_blocking)
+                .with_span_events(FmtSpan::CLOSE)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_file(true)
+                .with_line_number(true)
+                .boxed()
+        } else {
+            fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false) // No ANSI colors in log files
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_file(true)
+                .with_line_number(true)
+                .boxed()
+        };
+
+        (Some(file_layer), Some(guard))
+    } else {
+        (None, None)
+    };
+
+    // Console layer (always enabled)
+    let console_layer = fmt::layer()
+        .with_target(true)
+        .with_thread_ids(false) // Cleaner console output
+        .with_file(false)
+        .with_line_number(false);
+
+    // Build the subscriber
+    let subscriber = tracing_subscriber::registry().with(env_filter);
+
+    if let Some(file_layer) = file_layer {
+        subscriber
+            .with(console_layer)
+            .with(file_layer)
+            .init();
+    } else {
+        subscriber.with(console_layer).init();
+    }
+
+    // Log effective logging configuration
+    if let Some(ref log_dir) = config.log_dir {
+        // Can't use tracing yet since it's being initialized, use eprintln
+        eprintln!(
+            "Logging initialized: level={}, dir={}, rotation={}, json={}",
+            config.level, log_dir, config.rotation, config.json_format
+        );
+    } else {
+        eprintln!(
+            "Logging initialized: level={}, stdout only",
+            config.level
+        );
+    }
+
+    Ok(guard)
 }
 
 /// Download priority models from HuggingFace Hub if enabled

@@ -118,6 +118,16 @@ export {
   type ErrorResponse,
 } from './common.schema';
 
+// ===== Admin Schemas =====
+export {
+  StackFormSchema,
+  type StackFormData,
+  TenantFormSchema,
+  type TenantFormData,
+  UserFormSchema,
+  type UserFormData,
+} from './admin.schema';
+
 // ===== Validation Utilities =====
 export {
   formatValidationError,

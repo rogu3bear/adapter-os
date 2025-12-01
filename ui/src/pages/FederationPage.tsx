@@ -14,7 +14,7 @@ import { derivePeerSyncInfoList } from '@/utils/peerSync';
 import { DensityControls } from '@/components/ui/density-controls';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { usePolling } from '@/hooks/usePolling';
 import { RefreshCw, ShieldAlert, CheckCircle, AlertTriangle, Server, Activity } from 'lucide-react';
 import {
@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 function FederationPageInner() {
   const { density, setDensity } = useDensity();
@@ -183,15 +184,16 @@ function FederationPageInner() {
       description="Cross-node synchronization and health monitoring"
       headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
     >
-      <div className="space-y-6">
-        {/* Controls */}
-        <Card>
+      <SectionErrorBoundary sectionName="Federation Status">
+        <div className="space-y-6">
+          {/* Controls */}
+          <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Controls
-              <HelpTooltip helpId="federation-controls">
+              <GlossaryTooltip termId="federation-controls">
                 <span className="cursor-help text-muted-foreground">(?)</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -215,9 +217,9 @@ function FederationPageInner() {
             <CardTitle className="flex items-center gap-2">
               <Server className="h-5 w-5" />
               Federation Status
-              <HelpTooltip helpId="federation-status">
+              <GlossaryTooltip termId="federation-status">
                 <span className="cursor-help text-muted-foreground">(?)</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -298,9 +300,9 @@ function FederationPageInner() {
             <CardTitle className="flex items-center gap-2">
               <ShieldAlert className="h-5 w-5" />
               Quarantine Status
-              <HelpTooltip helpId="quarantine-status">
+              <GlossaryTooltip termId="quarantine-status">
                 <span className="cursor-help text-muted-foreground">(?)</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -356,9 +358,9 @@ function FederationPageInner() {
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
               Sync Summary
-              <HelpTooltip helpId="federation-audit">
+              <GlossaryTooltip termId="federation-audit">
                 <span className="cursor-help text-muted-foreground">(?)</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -429,7 +431,8 @@ function FederationPageInner() {
             )}
           </CardContent>
         </Card>
-      </div>
+        </div>
+      </SectionErrorBoundary>
 
       {/* Release Quarantine Dialog */}
       <Dialog open={quarantineDialogOpen} onOpenChange={setQuarantineDialogOpen}>

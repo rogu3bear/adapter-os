@@ -119,7 +119,7 @@ export function CommandPalette() {
   // Convert bookmarks to command items
   const bookmarkItems: CmdItem[] = bookmarks.map(bookmark => ({
     id: bookmark.id,
-    type: bookmark.type as any,
+    type: bookmark.type as CmdItem['type'],
     title: bookmark.title,
     description: bookmark.description,
     url: bookmark.url,

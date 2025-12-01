@@ -5,10 +5,10 @@ import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 
-import { useBreadcrumb } from '../contexts/BreadcrumbContext';
-import { useProgressiveDisclosure } from '../hooks/useProgressiveDisclosure';
+import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
+import { useProgressiveDisclosure } from '@/hooks/useProgressiveDisclosure';
 import { AdvancedToggle } from './ui/advanced-toggle';
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { 
   Activity, 
   FileText, 
@@ -43,8 +43,8 @@ import { Telemetry } from './Telemetry';
 import { InferencePlayground } from './InferencePlayground';
 import { AlertsPage } from './AlertsPage';
 import { FederationStatus } from './FederationStatus';
-import apiClient from '../api/client';
-import { User } from '../api/types';
+import apiClient from '@/api/client';
+import { User } from '@/api/types';
 import { toast } from 'sonner';
 
 interface OperationsProps {
@@ -101,7 +101,7 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
         icon: currentTab.icon
       });
     }
-  }, [activeTab, addBreadcrumb]);
+  }, [activeTab, addBreadcrumb, operationTabs]);
 
   return (
     <div className="space-y-6">
@@ -141,12 +141,12 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             return (
-              <HelpTooltip key={tab.id} helpId={tab.id}>
+              <GlossaryTooltip key={tab.id} termId={tab.id}>
                 <TabsTrigger value={tab.id} className="flex items-center gap-2">
                   <Icon className="h-4 w-4" />
                   <span className="hidden sm:inline">{tab.label}</span>
                 </TabsTrigger>
-              </HelpTooltip>
+              </GlossaryTooltip>
             );
           })}
         </TabsList>

@@ -13,8 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { toast } from 'sonner';
-import { logger } from '../utils/logger';
-import { useActivityFeed } from '../hooks/useActivityFeed';
+import { logger } from '@/utils/logger';
+import { useActivityFeed } from '@/hooks/useActivityFeed';
+import { formatRelativeTime } from '@/utils/format';
 import {
   Activity,
   Server,
@@ -38,18 +39,18 @@ import {
 import { BaseModelStatusComponent } from './BaseModelStatus';
 import { Nodes } from './Nodes';
 import { AlertsPage } from './AlertsPage';
-import { useInformationDensity } from '../hooks/useInformationDensity';
+import { useInformationDensity } from '@/hooks/useInformationDensity';
 import { DensityControls } from './ui/density-controls';
 import { PluginStatusWidget } from './dashboard/PluginStatusWidget';
 import { DashboardSettings } from './dashboard/DashboardSettings';
-import apiClient from '../api/client';
-import { usePolling } from '../hooks/usePolling';
-import { useSSE } from '../hooks/useSSE';
-import { useDashboardConfig } from '../hooks/useDashboardConfig';
+import apiClient from '@/api/client';
+import { usePolling } from '@/hooks/usePolling';
+import { useSSE } from '@/hooks/useSSE';
+import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import type { User, TrainingJob, DatasetValidationStatus, AdapterStack } from '@/api/types';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import { HelpTooltip } from './ui/help-tooltip';
-import { useRBAC } from '../hooks/useRBAC';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
+import { useRBAC } from '@/hooks/useRBAC';
 import { PageHeader } from './ui/page-header';
 import { ActionGrid } from './ui/action-grid';
 import { KpiGrid, ContentGrid, FormGrid } from './ui/grid';
@@ -79,7 +80,7 @@ interface DashboardProps {
 
 interface DashboardWidget {
   id: string;
-  component: React.ComponentType<any>;
+  component: React.ComponentType<Record<string, unknown>>;
   priority: number;
 }
 
@@ -87,7 +88,7 @@ interface DashboardLayout {
   widgets: DashboardWidget[];
   quickActions: Array<{
     label: string;
-    icon: any;
+    icon: React.ComponentType<{ className?: string }>;
     route: string;
     variant?: 'default' | 'outline' | 'secondary';
   }>;
@@ -106,6 +107,11 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
     connected: sseConnected,
     reconnect: sseReconnect
   } = useSSE<{
+    // Backend returns these field names
+    cpu_usage?: number;
+    memory_usage?: number;
+    disk_usage?: number;
+    // SSE/legacy field names (fallback)
     cpu_usage_percent?: number;
     memory_usage_percent?: number;
     disk_usage_percent?: number;
@@ -132,7 +138,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
   const [error, setError] = useState<string | null>(null);
   const [newTenantName, setNewTenantName] = useState('');
   const [newTenantIsolation, setNewTenantIsolation] = useState('standard');
-  const [adapters, setAdapters] = useState<any[]>([]);
+  const [adapters, setAdapters] = useState<{ id: string; name: string }[]>([]);
   const [selectedAdapter, setSelectedAdapter] = useState('');
   const [deployTargetTenant, setDeployTargetTenant] = useState(selectedTenant || '');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -170,6 +176,8 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
     updated_at: new Date().toISOString(),
     is_active: true
   };
+
+  // Display-only tenant label (for UI strings), API hooks use selectedTenant directly
   const effectiveTenant = selectedTenant || 'default';
 
   // Core usage data
@@ -213,7 +221,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
     isLoading: defaultStackLoading,
     error: defaultStackError,
     refetch: refetchDefaultStack
-  } = useGetDefaultStack(effectiveTenant);
+  } = useGetDefaultStack(selectedTenant);
 
   // SSE connection status - use real SSE connection state
   const connected = sseConnected;
@@ -454,20 +462,6 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
     tenantId: effectiveTenant
   });
 
-  // Helper functions for activity feed
-  const formatTimeAgo = (timestamp: string): string => {
-    const now = new Date();
-    const eventTime = new Date(timestamp);
-    const diffMs = now.getTime() - eventTime.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
-  };
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -485,7 +479,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
   // Transform activity events to display format - memoized to prevent re-renders
   const recentActivity = useMemo(() =>
     activityEvents.map(event => ({
-      time: formatTimeAgo(event.timestamp),
+      time: formatRelativeTime(event.timestamp),
       action: event.message,
       type: event.type,
       icon: getActivityIcon(event.type),
@@ -532,13 +526,14 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
 
   // Merge SSE and polling data - SSE takes priority for real-time updates
   const effectiveMetrics = sseMetrics || systemMetrics;
-  const memoryUsage = effectiveMetrics?.memory_usage_percent || (systemMetrics as { memory_usage_pct?: number } | null)?.memory_usage_pct || 0;
+  // Backend returns cpu_usage, memory_usage, disk_usage - fallback to _percent for SSE/legacy
+  const memoryUsage = effectiveMetrics?.memory_usage ?? effectiveMetrics?.memory_usage_percent ?? (systemMetrics as { memory_usage_pct?: number } | null)?.memory_usage_pct ?? 0;
   const adapterCount = effectiveMetrics?.adapter_count || 0;
   const activeSessions = effectiveMetrics?.active_sessions || 0;
   const tokensPerSecond = effectiveMetrics?.tokens_per_second || 0;
   const latencyP95 = effectiveMetrics?.latency_p95_ms || 0;
-  const cpuUsage = effectiveMetrics?.cpu_usage_percent || 0;
-  const diskUsage = effectiveMetrics?.disk_usage_percent || 0;
+  const cpuUsage = effectiveMetrics?.cpu_usage ?? effectiveMetrics?.cpu_usage_percent ?? 0;
+  const diskUsage = effectiveMetrics?.disk_usage ?? effectiveMetrics?.disk_usage_percent ?? 0;
   const networkBandwidth = effectiveMetrics?.network_rx_bytes ? (effectiveMetrics.network_rx_bytes / 1024 / 1024).toFixed(1) : '0';
 
 
@@ -867,9 +862,9 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
           <KpiGrid>
             <Card className="card-standard">
               <CardHeader className="flex-between pb-2">
-                <HelpTooltip helpId="compute-nodes">
+                <GlossaryTooltip termId="compute-nodes">
                   <CardTitle className="text-sm font-medium cursor-help">Inference Nodes</CardTitle>
-                </HelpTooltip>
+                </GlossaryTooltip>
                 <Server className="icon-standard text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -884,9 +879,9 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
 
             <Card className="card-standard">
               <CardHeader className="flex-between pb-2">
-                <HelpTooltip helpId="active-tenants">
+                <GlossaryTooltip termId="active-tenants">
                   <CardTitle className="text-sm font-medium cursor-help">Active Tenants</CardTitle>
-                </HelpTooltip>
+                </GlossaryTooltip>
                 <Users className="icon-standard text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -901,35 +896,35 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
 
             <Card className="card-standard">
               <CardHeader className="flex-between pb-2">
-                <HelpTooltip helpId="adapter-count">
+                <GlossaryTooltip termId="adapter-count">
                   <CardTitle className="text-sm font-medium cursor-help">LoRA Adapters</CardTitle>
-                </HelpTooltip>
+                </GlossaryTooltip>
                 <Code className="icon-standard text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-purple-600">{adapterCount}</div>
-                <HelpTooltip helpId="active-sessions">
+                <GlossaryTooltip termId="active-sessions">
                   <p className="text-xs text-muted-foreground cursor-help">
                     {activeSessions} active sessions
                   </p>
-                </HelpTooltip>
+                </GlossaryTooltip>
               </CardContent>
             </Card>
 
             <Card className="card-standard">
               <CardHeader className="flex-between pb-2">
-                <HelpTooltip helpId="tokens-per-second">
+                <GlossaryTooltip termId="tokens-per-second">
                   <CardTitle className="text-sm font-medium cursor-help">Performance</CardTitle>
-                </HelpTooltip>
+                </GlossaryTooltip>
                 <Zap className="icon-standard text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600">{tokensPerSecond.toFixed(0)}</div>
-                <HelpTooltip helpId="latency-p95">
+                <GlossaryTooltip termId="latency-p95">
                   <p className="text-xs text-muted-foreground cursor-help">
                     tokens/sec (p95: {latencyP95.toFixed(0)}ms)
                   </p>
-                </HelpTooltip>
+                </GlossaryTooltip>
               </CardContent>
             </Card>
           </KpiGrid>
@@ -946,9 +941,9 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                   <div className="flex justify-between items-center mb-2">
                     <div className="flex items-center gap-2">
                       <Cpu className="h-5 w-5 text-muted-foreground" />
-                      <HelpTooltip helpId="cpu-usage">
+                      <GlossaryTooltip termId="cpu-usage">
                         <span className="text-sm font-medium cursor-help">CPU Usage</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                       {connected && (
                         <Badge variant="outline" className="text-xs px-2 py-0 h-5">
                           <span className="relative flex h-2 w-2 mr-1">
@@ -970,24 +965,24 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                   <div className="flex justify-between items-center mb-2">
                     <div className="flex items-center gap-2">
                       <HardDrive className="h-5 w-5 text-muted-foreground" />
-                      <HelpTooltip helpId="memory-usage">
+                      <GlossaryTooltip termId="memory-usage">
                         <span className="text-sm font-medium cursor-help">Memory Usage</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </div>
                     <span className="text-sm font-semibold">
-                      {systemMetrics ? `${systemMetrics.memory_usage_percent ? systemMetrics.memory_usage_percent.toFixed(1) : memoryUsage.toFixed(1)}%` : '--'}
+                      {systemMetrics ? `${memoryUsage.toFixed(1)}%` : '--'}
                     </span>
                   </div>
-                  <Progress value={systemMetrics?.memory_usage_percent || memoryUsage} className="h-3 transition-all duration-500" />
+                  <Progress value={memoryUsage} className="h-3 transition-all duration-500" />
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex justify-between items-center mb-2">
                     <div className="flex items-center gap-2">
                       <HardDrive className="h-5 w-5 text-muted-foreground" />
-                      <HelpTooltip helpId="disk-usage">
+                      <GlossaryTooltip termId="disk-usage">
                         <span className="text-sm font-medium cursor-help">Disk Usage</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </div>
                     <span className="text-sm font-semibold">
                       {systemMetrics ? `${diskUsage.toFixed(1)}%` : '--'}
@@ -1000,9 +995,9 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                   <div className="flex justify-between items-center mb-2">
                     <div className="flex items-center gap-2">
                       <Network className="h-5 w-5 text-muted-foreground" />
-                      <HelpTooltip helpId="network-bandwidth">
+                      <GlossaryTooltip termId="network-bandwidth">
                         <span className="text-sm font-medium cursor-help">Network Bandwidth</span>
-                      </HelpTooltip>
+                      </GlossaryTooltip>
                     </div>
                     <span className="text-sm font-semibold">
                       {systemMetrics ? `${networkBandwidth} MB/s` : '--'}
@@ -1017,9 +1012,9 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
             <SectionErrorBoundary sectionName="Recent Activity">
               <Card className="card-standard">
                 <CardHeader>
-                  <HelpTooltip helpId="recent-activity">
+                  <GlossaryTooltip termId="recent-activity">
                     <CardTitle className="cursor-help">Recent Activity</CardTitle>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </CardHeader>
                 <CardContent>
                   {activityError ? (
@@ -1062,9 +1057,9 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
           {/* Quick Actions */}
           <Card>
             <CardHeader>
-              <HelpTooltip helpId="quick-actions">
+              <GlossaryTooltip termId="quick-actions">
                 <CardTitle className="cursor-help">Quick Actions</CardTitle>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </CardHeader>
             <CardContent>
               <ActionGrid actions={quickActions} columns={4} />
@@ -1150,9 +1145,9 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
               })}
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <HelpTooltip helpId="tenant-name-field">
+                  <GlossaryTooltip termId="tenant-name-field">
                     <Label htmlFor="tenant-name" className="cursor-help">Organization Name</Label>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                   <Input
                     id="tenant-name"
                     placeholder="Enter organization name"
@@ -1161,9 +1156,9 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                   />
                 </div>
                 <div className="space-y-2">
-                  <HelpTooltip helpId="isolation-level-field">
+                  <GlossaryTooltip termId="isolation-level-field">
                     <Label htmlFor="isolation-level" className="cursor-help">Isolation Level</Label>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                   <Select value={newTenantIsolation} onValueChange={setNewTenantIsolation}>
                     <SelectTrigger id="isolation-level">
                       <SelectValue />
@@ -1202,16 +1197,16 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
               })}
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <HelpTooltip helpId="adapter-select-field">
+                  <GlossaryTooltip termId="adapter-select-field">
                     <Label htmlFor="adapter-select" className="cursor-help">Select Adapter</Label>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                   <Select value={selectedAdapter} onValueChange={setSelectedAdapter}>
                     <SelectTrigger id="adapter-select">
                       <SelectValue placeholder="Choose an adapter" />
                     </SelectTrigger>
                     <SelectContent>
                       {adapters.map((adapter) => (
-                        <SelectItem key={adapter.id} value={adapter.adapter_id}>
+                        <SelectItem key={adapter.id} value={adapter.id}>
                           {adapter.name}
                         </SelectItem>
                       ))}
@@ -1219,9 +1214,9 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <HelpTooltip helpId="target-tenant-field">
+                  <GlossaryTooltip termId="target-tenant-field">
                     <Label htmlFor="target-tenant" className="cursor-help">Target Tenant</Label>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                   <Input
                     id="target-tenant"
                     value={deployTargetTenant}

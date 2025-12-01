@@ -1,4 +1,4 @@
-import { UserRole } from '../api/types';
+import { UserRole } from '@/api/types';
 
 export interface RoleGuidanceItem {
   role: UserRole;

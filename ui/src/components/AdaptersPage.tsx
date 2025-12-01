@@ -5,11 +5,11 @@ import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { AdapterStateVisualization } from './AdapterStateVisualization';
 import { AdapterMemoryMonitor } from './AdapterMemoryMonitor';
-import apiClient from '../api/client';
-import { Adapter } from '../api/types';
+import apiClient from '@/api/client';
+import { Adapter } from '@/api/types';
 import { toast } from 'sonner';
-import { logger } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import { logger } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
@@ -21,15 +21,16 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from './ui/dropdown-menu';
-import { useProgressiveHints } from '../hooks/useProgressiveHints';
-import { getPageHints } from '../data/page-hints';
+import { useProgressiveHints } from '@/hooks/useProgressiveHints';
+import { getPageHints } from '@/data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
-import { useAdapterOperations } from '../hooks/useAdapterOperations';
-import { ConceptTooltip } from './ConceptTooltip';
-import { getLifecycleVariant } from '../utils/lifecycle';
-import { useRBAC } from '../hooks/useRBAC';
-import { HelpTooltip } from './ui/help-tooltip';
+import { useAdapterOperations } from '@/hooks/useAdapterOperations';
+import { getLifecycleVariant } from '@/utils/lifecycle';
+import { useRBAC } from '@/hooks/useRBAC';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
+import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
+import { AdapterLifecycleState } from '@/api/system-state-types';
 
 interface AdaptersData {
   adapters: Adapter[];
@@ -163,7 +164,7 @@ function AdaptersPageContent() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold">Adapters</h1>
-          <ConceptTooltip concept="adapter" />
+          <GlossaryTooltip termId="adapter" variant="icon" />
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -174,7 +175,7 @@ function AdaptersPageContent() {
           >
             <Upload className="h-4 w-4 mr-2" />
             Register
-            <HelpTooltip content="Register a new LoRA adapter from weights file" />
+            <GlossaryTooltip brief="Register a new LoRA adapter from weights file" />
           </Button>
           <Button
             disabled={!canRegister}
@@ -182,7 +183,7 @@ function AdaptersPageContent() {
             onClick={() => toast.info('Training wizard coming soon')}
           >
             Train New Adapter
-            <HelpTooltip content="Start the training wizard to create a new LoRA adapter from documents" />
+            <GlossaryTooltip brief="Start the training wizard to create a new LoRA adapter from documents" />
           </Button>
         </div>
       </div>
@@ -190,10 +191,11 @@ function AdaptersPageContent() {
       {/* Visualizations */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {(() => {
-          const stateRecords = adapters.map((a, idx) => ({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const stateRecords: any[] = adapters.map((a, idx) => ({
             adapter_id: a.adapter_id || a.id,
             adapter_idx: idx,
-            state: a.current_state as any,
+            state: a.current_state,
             pinned: a.pinned,
             memory_bytes: a.memory_bytes,
             category: a.category,
@@ -201,7 +203,7 @@ function AdaptersPageContent() {
             last_activated: a.last_activated,
             activation_count: a.activation_count,
           }));
-          return <AdapterStateVisualization adapters={stateRecords as any} totalMemory={totalMemory} />;
+          return <AdapterStateVisualization adapters={stateRecords} totalMemory={totalMemory} />;
         })()}
         <AdapterMemoryMonitor
           adapters={adapters}
@@ -217,7 +219,7 @@ function AdaptersPageContent() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             Deployed Adapters
-            <HelpTooltip content="List of all registered LoRA adapters with their current state and metrics" />
+            <GlossaryTooltip brief="List of all registered LoRA adapters with their current state and metrics" />
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -240,35 +242,35 @@ function AdaptersPageContent() {
                 <TableRow>
                   <TableHead>
                     Name
-                    <HelpTooltip helpId="adapter-name" />
+                    <GlossaryTooltip termId="adapter-name" />
                   </TableHead>
                   <TableHead>
                     Tier
-                    <HelpTooltip helpId="adapter-tier" />
+                    <GlossaryTooltip termId="adapter-tier" />
                   </TableHead>
                   <TableHead>
                     Rank
-                    <HelpTooltip helpId="adapter-rank" />
+                    <GlossaryTooltip termId="adapter-rank" />
                   </TableHead>
                   <TableHead>
                     Lifecycle
-                    <HelpTooltip helpId="adapter-lifecycle" />
+                    <GlossaryTooltip termId="adapter-lifecycle" />
                   </TableHead>
                   <TableHead>
                     State
-                    <HelpTooltip helpId="adapter-state" />
+                    <GlossaryTooltip termId="adapter-state" />
                   </TableHead>
                   <TableHead>
                     Memory
-                    <HelpTooltip helpId="adapter-memory" />
+                    <GlossaryTooltip termId="adapter-memory" />
                   </TableHead>
                   <TableHead>
                     Activation
-                    <HelpTooltip helpId="adapter-activation" />
+                    <GlossaryTooltip termId="adapter-activation" />
                   </TableHead>
                   <TableHead>
                     Actions
-                    <HelpTooltip helpId="adapter-actions" />
+                    <GlossaryTooltip termId="adapter-actions" />
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -288,7 +290,7 @@ function AdaptersPageContent() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge>{adapter.current_state}</Badge>
+                      <Badge>{LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}</Badge>
                       {adapter.pinned && <Pin className="h-4 w-4 ml-2" />}
                     </TableCell>
                     <TableCell>{(adapter.memory_bytes / 1024 / 1024).toFixed(1)} MB</TableCell>
@@ -309,7 +311,7 @@ function AdaptersPageContent() {
                           >
                             <Power className="mr-2 h-4 w-4" />
                             Load
-                            <HelpTooltip content="Load adapter weights into GPU memory for inference" />
+                            <GlossaryTooltip brief="Load adapter weights into GPU memory for inference" />
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => unloadAdapter?.(adapter.id)}
@@ -318,7 +320,7 @@ function AdaptersPageContent() {
                           >
                             <PowerOff className="mr-2 h-4 w-4" />
                             Unload
-                            <HelpTooltip content="Remove adapter from GPU memory (can be reloaded)" />
+                            <GlossaryTooltip brief="Remove adapter from GPU memory (can be reloaded)" />
                           </DropdownMenuItem>
 
                           <DropdownMenuSeparator />
@@ -331,7 +333,7 @@ function AdaptersPageContent() {
                           >
                             <ArrowUp className="mr-2 h-4 w-4" />
                             Promote
-                            <HelpTooltip content="Increase adapter tier for higher routing priority" />
+                            <GlossaryTooltip brief="Increase adapter tier for higher routing priority" />
                           </DropdownMenuItem>
 
                           {/* Pin/Unpin action */}
@@ -342,7 +344,7 @@ function AdaptersPageContent() {
                           >
                             <Pin className="mr-2 h-4 w-4" />
                             {adapter.pinned ? 'Allow Removal' : 'Protect Adapter'}
-                            <HelpTooltip content={adapter.pinned ? 'Allow adapter to be removed when memory is needed' : 'Prevent adapter from being removed during memory pressure'} />
+                            <GlossaryTooltip brief={adapter.pinned ? 'Allow adapter to be removed when memory is needed' : 'Prevent adapter from being removed during memory pressure'} />
                           </DropdownMenuItem>
 
                           {/* Evict action */}
@@ -353,7 +355,7 @@ function AdaptersPageContent() {
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Evict
-                            <HelpTooltip content="Force remove adapter from memory to free resources" />
+                            <GlossaryTooltip brief="Force remove adapter from memory to free resources" />
                           </DropdownMenuItem>
 
                           <DropdownMenuSeparator />
@@ -367,7 +369,7 @@ function AdaptersPageContent() {
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Delete
-                            <HelpTooltip content="Permanently remove adapter and weights from the system" />
+                            <GlossaryTooltip brief="Permanently remove adapter and weights from the system" />
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

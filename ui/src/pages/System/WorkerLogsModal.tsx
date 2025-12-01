@@ -1,16 +1,11 @@
 import { useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Modal } from '@/components/shared/Modal';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { useWorkerDetails, useWorkerLogs, useWorkerCrashes } from '@/hooks/useSystemMetrics';
 
 interface WorkerLogsModalProps {
@@ -38,14 +33,19 @@ export default function WorkerLogsModal({ workerId, open, onClose }: WorkerLogsM
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Worker Details</DialogTitle>
-          <DialogDescription>Logs and information for worker {workerId}</DialogDescription>
-        </DialogHeader>
-
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+    <Modal
+      open={open}
+      onOpenChange={onClose}
+      title="Worker Details"
+      description={`Logs and information for worker ${workerId}`}
+      size="xl"
+      footer={
+        <Button variant="outline" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="logs">
@@ -243,7 +243,6 @@ export default function WorkerLogsModal({ workerId, open, onClose }: WorkerLogsM
             </ScrollArea>
           </TabsContent>
         </Tabs>
-      </DialogContent>
-    </Dialog>
+    </Modal>
   );
 }

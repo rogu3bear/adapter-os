@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import { logger, toError } from '@/utils/logger';
 
 // Set worker path for pdf.js
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -65,7 +66,13 @@ const PDFViewerEmbedded = forwardRef<PDFViewerEmbeddedRef, PDFViewerEmbeddedProp
     };
 
     const onDocumentLoadError = (error: Error) => {
-      console.error('PDF load error:', error);
+      logger.error('PDF document load failed', {
+        component: 'PDFViewerEmbedded',
+        operation: 'loadDocument',
+        errorType: 'pdf_load_failure',
+        details: 'Failed to load and render PDF document',
+        documentUrl: src
+      }, toError(error));
       setError('Failed to load PDF document');
       setIsLoading(false);
     };

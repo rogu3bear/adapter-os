@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState, useMemo, memo } from 'react';
 import { toast } from 'sonner';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { BookmarkButton } from './ui/bookmark-button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -16,24 +18,29 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { TrainingWizard } from './TrainingWizard';
 import { AdapterImportWizard } from './AdapterImportWizard';
 import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
-import { AdapterRegistryTab } from './components/AdapterRegistryTab';
-import { DeleteConfirmDialog } from './components/DeleteConfirmDialog';
-import { useViewTransition } from '../hooks/useViewTransition';
-import { useUndoRedoContext } from '../contexts/UndoRedoContext';
-import { useProgressOperation } from '../hooks/useProgressOperation';
+import { AdapterRegistryTab } from './adapters/components/AdapterRegistryTab';
+import { DeleteConfirmDialog } from './adapters/components/DeleteConfirmDialog';
+import { useViewTransition } from '@/hooks/useViewTransition';
+import { useUndoRedoContext } from '@/contexts/UndoRedoContext';
+import { useProgressOperation } from '@/hooks/useProgressOperation';
 import { Plus, Upload, Brain, Database, Target, GitBranch, CheckCircle, AlertCircle } from 'lucide-react';
-import apiClient from '../api/client';
-import { User, Adapter } from '../api/types';
-import { useSSE } from '../hooks/useSSE';
+import apiClient from '@/api/client';
+import { User, Adapter, AdapterHealthResponse } from '@/api/types';
+import { useSSE } from '@/hooks/useSSE';
 import { useNavigate } from 'react-router-dom';
-import { logger, toError } from '../utils/logger';
-import { getVisualHierarchyClasses } from '../utils/visual-hierarchy';
+import { logger, toError } from '@/utils/logger';
+import { getVisualHierarchyClasses } from '@/utils/visual-hierarchy';
 import { ContentSection } from './ui/content-section';
 import { CodeIntelligence } from './CodeIntelligence';
 import { RouterConfigPage } from './RouterConfigPage';
 import { TrainingStreamPage } from './TrainingStreamPage';
 import { SectionErrorBoundary } from './ui/section-error-boundary';
-import { useAdapterFilters } from './hooks/useAdapterFilters';
+import { useAdapterFilters } from './adapters/hooks/useAdapterFilters';
+import {
+  useAdapterBulkActions,
+  useAdapterDialogs,
+  useAdapterExport
+} from '@/hooks/adapters';
 
 interface AdaptersProps {
   user: User;
@@ -87,31 +94,62 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [trainingJobs, setTrainingJobs] = useState<TrainingJob[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [registerTab, setRegisterTab] = useState<'upload' | 'path'>('upload');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [upsertOpen, setUpsertOpen] = useState(false);
-  const [upsertRoot, setUpsertRoot] = useState('');
-  const [upsertPath, setUpsertPath] = useState('');
 
-  // Bulk selection state
-  const [selectedAdapters, setSelectedAdapters] = useState<string[]>([]);
-  const [confirmationOpen, setConfirmationOpen] = useState(false);
-  const [confirmationOptions, setConfirmationOptions] = useState<ConfirmationOptions | null>(null);
-  const [pendingBulkAction, setPendingBulkAction] = useState<(() => Promise<void>) | null>(null);
+  // Dialog state management (replaces lines 92-135)
+  const {
+    isCreateDialogOpen, setIsCreateDialogOpen,
+    isImportDialogOpen, setIsImportDialogOpen,
+    isTrainingDialogOpen, setIsTrainingDialogOpen,
+    isLanguageDialogOpen, setIsLanguageDialogOpen,
+    isUpsertDialogOpen, setUpsertOpen,
+    selectedAdapterForHealth, setSelectedAdapterForHealth,
+    deleteConfirmId,
+    exportDialogScope,
+    upsertRoot, setUpsertRoot,
+    upsertPath, setUpsertPath,
+    upsertActivate, setUpsertActivate,
+    setShowExportDialog: setShowExportDialogBase,
+    setDeleteConfirmId: setDeleteConfirmIdBase,
+    setExportDialogScope: setExportDialogScopeBase,
+    isExportDialogOpen,
+  } = useAdapterDialogs();
+
+  // Wrapper functions to handle SetStateAction
+  const setDeleteConfirmId = useCallback((idOrUpdater: string | null | ((prev: string | null) => string | null)) => {
+    if (typeof idOrUpdater === 'function') {
+      setDeleteConfirmIdBase(idOrUpdater(deleteConfirmId));
+    } else {
+      setDeleteConfirmIdBase(idOrUpdater);
+    }
+  }, [setDeleteConfirmIdBase, deleteConfirmId]);
+
+  const setExportDialogScope = useCallback((scopeOrUpdater: ExportScope | ((prev: ExportScope) => ExportScope)) => {
+    if (typeof scopeOrUpdater === 'function') {
+      setExportDialogScopeBase(scopeOrUpdater(exportDialogScope));
+    } else {
+      setExportDialogScopeBase(scopeOrUpdater);
+    }
+  }, [setExportDialogScopeBase, exportDialogScope]);
+
+  const setShowExportDialog = useCallback((openOrUpdater: boolean | ((prev: boolean) => boolean)) => {
+    if (typeof openOrUpdater === 'function') {
+      setShowExportDialogBase(openOrUpdater(isExportDialogOpen));
+    } else {
+      setShowExportDialogBase(openOrUpdater);
+    }
+  }, [setShowExportDialogBase, isExportDialogOpen]);
+
   const [successFeedback, setSuccessFeedback] = useState<React.ReactElement | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
-  const [upsertActivate, setUpsertActivate] = useState(true);
-  const [isTrainingDialogOpen, setIsTrainingDialogOpen] = useState(false);
-  const [isLanguageDialogOpen, setIsLanguageDialogOpen] = useState(false);
 
   // Progress tracking for long operations
   const { operation: activeProgressOperation, start: startProgressOperation, cancel: cancelProgressOperation } = useProgressOperation();
   const [selectedAdapter, setSelectedAdapter] = useState<Adapter | null>(null);
 
-  const [selectedAdapterForHealth, setSelectedAdapterForHealth] = useState<Adapter | null>(null);
   const [activeTab, setActiveTab] = useState('registry');
   const transitionTo = useViewTransition();
 
@@ -126,13 +164,44 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
   };
   const [selectedTrainingJob, setSelectedTrainingJob] = useState<string | null>(null);
   const [trainingConfig, setTrainingConfig] = useState<Partial<TrainingConfig>>({});
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [showExportDialog, setShowExportDialog] = useState(false);
-  const [exportDialogScope, setExportDialogScope] = useState<ExportScope>('all');
-  const [showImportDialog, setShowImportDialog] = useState(false);
 
   // SSE connection for real-time adapter state updates
   const { data: sseAdapters } = useSSE<Adapter[]>('/v1/stream/adapters');
+
+  // Bulk actions hook (replaces lines 518-820)
+  const {
+    selectedIds, setSelectedIds, selectAll, clearSelection, toggleSelection,
+    bulkLoad, bulkUnload, bulkDelete,
+    isBulkOperationRunning, bulkOperationProgress,
+    confirmationState, requestConfirmation, confirmAction, cancelConfirmation
+  } = useAdapterBulkActions({
+    adapters,
+    onDataRefresh: async () => {
+      await loadAdapters();
+    },
+  });
+
+  // Export hook (replaces lines 822-955)
+  const {
+    exportAdapters, downloadManifest,
+    isExporting, exportProgress,
+    exportDialogOpen, openExportDialog, closeExportDialog
+  } = useAdapterExport({
+    adapters,
+    selectedIds,
+  });
+
+  // Convert Set to Array for backwards compatibility
+  const selectedAdapters = useMemo(() => Array.from(selectedIds), [selectedIds]);
+  const setSelectedAdapters = useCallback((idsOrUpdater: string[] | ((prev: string[]) => string[])) => {
+    if (typeof idsOrUpdater === 'function') {
+      const updater = idsOrUpdater;
+      const newIds = updater(Array.from(selectedIds));
+      setSelectedIds(new Set(newIds));
+    } else {
+      setSelectedIds(new Set(idsOrUpdater));
+    }
+  }, [setSelectedIds, selectedIds]);
 
   useEffect(() => {
     const handleOpenExport = (event: Event) => {
@@ -148,12 +217,12 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
       }
 
       setExportDialogScope(scope);
-      setShowExportDialog(true);
+      openExportDialog();
     };
 
     window.addEventListener('aos:open-adapter-export', handleOpenExport as EventListener);
     return () => window.removeEventListener('aos:open-adapter-export', handleOpenExport as EventListener);
-  }, [selectedAdapters]);
+  }, [selectedAdapters, openExportDialog, setExportDialogScope]);
 
   // Remove mock data - using real API now
   /* Mock data removed
@@ -294,7 +363,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
       const next = prev.filter(id => valid.has(id));
       return next.length === prev.length ? prev : next;
     });
-  }, [adapters]);
+  }, [adapters, setSelectedAdapters]);
 
   const handleDeleteAdapter = useCallback(async (adapterId: string) => {
     try {
@@ -323,10 +392,10 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
               hash_b3: previousAdapter.hash_b3,
               rank: previousAdapter.rank,
               tier: previousAdapter.tier,
-              category: previousAdapter.category,
+              category: previousAdapter.category ?? 'code',
               framework: previousAdapter.framework,
-              scope: previousAdapter.scope,
-              languages: previousAdapter.languages,
+              scope: previousAdapter.scope ?? 'tenant',
+              languages: previousAdapter.languages ?? [],
             });
             await loadAdapters();
             showStatus(`Adapter "${adapter.name}" restored.`, 'success');
@@ -349,7 +418,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
         />
       );
     }
-  }, [adapters, addAction, loadAdapters]);
+  }, [adapters, addAction, loadAdapters, setDeleteConfirmId]);
 
   const handleLoadAdapter = useCallback(async (adapterId: string) => {
     try {
@@ -512,435 +581,30 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
     }
   }, []);
 
-  // Bulk action handlers
-  const handleBulkLoad = async (adapterIds: string[]) => {
-    const performBulkLoad = async () => {
-      const snapshots = adapters
-        .filter(adapter => adapterIds.includes(adapter.adapter_id))
-        .map(adapter => ({ ...adapter }));
-
-      if (snapshots.length === 0) {
-        showStatus('No adapters selected for load.', 'warning');
-        return;
-      }
-
-      // Optimistic update
-      setAdapters(prev =>
-        prev.map(adapter =>
-          adapterIds.includes(adapter.adapter_id)
-            ? { ...adapter, current_state: 'hot', active: true }
-            : adapter
-        )
-      );
-
-      const failedIds: string[] = [];
-
-      for (const adapterId of adapterIds) {
-        try {
-          await apiClient.loadAdapter(adapterId);
-        } catch (err) {
-          failedIds.push(adapterId);
-          logger.error('Failed to load adapter in bulk operation', {
-            component: 'Adapters',
-            operation: 'bulkLoad',
-            adapterId,
-          }, toError(err));
-        }
-      }
-
-      if (failedIds.length > 0) {
-        // Revert failures to previous snapshot
-        setAdapters(prev =>
-          prev.map(adapter => {
-            if (!failedIds.includes(adapter.adapter_id)) return adapter;
-            const fallback = snapshots.find(snapshot => snapshot.adapter_id === adapter.adapter_id);
-            return fallback ? fallback : adapter;
-          })
-        );
-
-        setErrorRecovery(
-          <ErrorRecovery
-            error={`Failed to load ${failedIds.length} adapter(s).`}
-            onRetry={() => handleBulkLoad(failedIds)}
-          />
-        );
-      }
-
-      const successfulIds = adapterIds.filter(id => !failedIds.includes(id));
-
-      if (successfulIds.length > 0) {
-        showStatus(`Successfully loaded ${successfulIds.length} adapter(s).`, 'success');
-        addAction({
-          type: 'bulk_load_adapters',
-          description: `Load ${successfulIds.length} adapter(s)`,
-          previousState: snapshots.filter(snapshot => successfulIds.includes(snapshot.adapter_id)),
-          reverse: async () => {
-            try {
-              for (const snapshot of snapshots.filter(s => successfulIds.includes(s.adapter_id))) {
-                if (!snapshot.active) {
-                  await apiClient.unloadAdapter(snapshot.adapter_id);
-                } else {
-                  await apiClient.loadAdapter(snapshot.adapter_id);
-                }
-              }
-              await loadAdapters();
-              showStatus('Reverted adapter load.', 'success');
-            } catch (err) {
-              logger.error('Failed to undo adapter load', {
-                component: 'Adapters',
-                operation: 'undoBulkLoad',
-              }, toError(err));
-              showStatus('Failed to undo load operation.', 'warning');
-            }
-          },
-        });
-      }
-
-      await loadAdapters();
-      setSelectedAdapters(prev => prev.filter(id => failedIds.includes(id)));
-    };
-
-    setConfirmationOptions({
-      title: 'Activate Adapters',
-      description: `Activate ${adapterIds.length} adapter(s) into memory? This may take some time.`,
-      confirmText: 'Activate Adapters',
-      variant: 'default'
-    });
-    setPendingBulkAction(() => performBulkLoad);
-    setConfirmationOpen(true);
-  };
-
-  const handleBulkUnload = async (adapterIds: string[]) => {
-    const performBulkUnload = async () => {
-      const snapshots = adapters
-        .filter(adapter => adapterIds.includes(adapter.adapter_id))
-        .map(adapter => ({ ...adapter }));
-
-      if (snapshots.length === 0) {
-        showStatus('No adapters selected for unload.', 'warning');
-        return;
-      }
-
-      setAdapters(prev =>
-        prev.map(adapter =>
-          adapterIds.includes(adapter.adapter_id)
-            ? { ...adapter, current_state: 'cold', active: false }
-            : adapter
-        )
-      );
-
-      const failedIds: string[] = [];
-
-      for (const adapterId of adapterIds) {
-        try {
-          await apiClient.unloadAdapter(adapterId);
-        } catch (err) {
-          failedIds.push(adapterId);
-          logger.error('Failed to unload adapter in bulk operation', {
-            component: 'Adapters',
-            operation: 'bulkUnload',
-            adapterId,
-          }, toError(err));
-        }
-      }
-
-      if (failedIds.length > 0) {
-        setAdapters(prev =>
-          prev.map(adapter => {
-            if (!failedIds.includes(adapter.adapter_id)) return adapter;
-            const fallback = snapshots.find(snapshot => snapshot.adapter_id === adapter.adapter_id);
-            return fallback ? fallback : adapter;
-          })
-        );
-
-        setErrorRecovery(
-          <ErrorRecovery
-            error={`Failed to unload ${failedIds.length} adapter(s).`}
-            onRetry={() => handleBulkUnload(failedIds)}
-          />
-        );
-      }
-
-      const successfulIds = adapterIds.filter(id => !failedIds.includes(id));
-
-      if (successfulIds.length > 0) {
-        showStatus(`Successfully unloaded ${successfulIds.length} adapter(s).`, 'success');
-        addAction({
-          type: 'bulk_unload_adapters',
-          description: `Unload ${successfulIds.length} adapter(s)`,
-          previousState: snapshots.filter(snapshot => successfulIds.includes(snapshot.adapter_id)),
-          reverse: async () => {
-            try {
-              for (const snapshot of snapshots.filter(s => successfulIds.includes(s.adapter_id))) {
-                if (snapshot.active) {
-                  await apiClient.loadAdapter(snapshot.adapter_id);
-                } else {
-                  await apiClient.unloadAdapter(snapshot.adapter_id);
-                }
-              }
-              await loadAdapters();
-              showStatus('Reverted adapter unload.', 'success');
-            } catch (err) {
-              logger.error('Failed to undo adapter unload', {
-                component: 'Adapters',
-                operation: 'undoBulkUnload',
-              }, toError(err));
-              showStatus('Failed to undo unload operation.', 'warning');
-            }
-          },
-        });
-      }
-
-      await loadAdapters();
-      setSelectedAdapters(prev => prev.filter(id => failedIds.includes(id)));
-    };
-
-    setConfirmationOptions({
-      title: 'Unload Adapters',
-      description: `Unload ${adapterIds.length} adapter(s) from memory?`,
-      confirmText: 'Unload Adapters',
-      variant: 'default'
-    });
-    setPendingBulkAction(() => performBulkUnload);
-    setConfirmationOpen(true);
-  };
-
-  const handleBulkDelete = async (adapterIds: string[]) => {
-    const performBulkDelete = async () => {
-      const snapshots = adapters
-        .filter(adapter => adapterIds.includes(adapter.adapter_id))
-        .map(adapter => ({ ...adapter }));
-
-      if (snapshots.length === 0) {
-        showStatus('No adapters selected for deletion.', 'warning');
-        return;
-      }
-
-      setAdapters(prev => prev.filter(adapter => !adapterIds.includes(adapter.adapter_id)));
-
-      const failedAdapters: Adapter[] = [];
-
-      for (const adapterId of adapterIds) {
-        try {
-          await apiClient.deleteAdapter(adapterId);
-        } catch (err) {
-          const original = snapshots.find(adapter => adapter.adapter_id === adapterId);
-          if (original) {
-            failedAdapters.push(original);
-          }
-          logger.error('Failed to delete adapter in bulk operation', {
-            component: 'Adapters',
-            operation: 'bulkDelete',
-            adapterId,
-          }, toError(err));
-        }
-      }
-
-      if (failedAdapters.length > 0) {
-        setAdapters(prev => [...prev, ...failedAdapters]);
-        setErrorRecovery(
-          <ErrorRecovery
-            error={`Failed to delete ${failedAdapters.length} adapter(s).`}
-            onRetry={() => handleBulkDelete(failedAdapters.map(adapter => adapter.adapter_id))}
-          />
-        );
-      }
-
-      const successfulAdapters = snapshots.filter(snapshot => !failedAdapters.some(failed => failed.adapter_id === snapshot.adapter_id));
-
-      if (successfulAdapters.length > 0) {
-        showStatus(`Successfully deleted ${successfulAdapters.length} adapter(s).`, 'success');
-
-        addAction({
-          type: 'bulk_delete_adapters',
-          description: `Delete ${successfulAdapters.length} adapter(s)`,
-          previousState: successfulAdapters,
-          reverse: async () => {
-            try {
-              for (const adapter of successfulAdapters) {
-                await apiClient.registerAdapter({
-                  adapter_id: adapter.adapter_id,
-                  name: adapter.name,
-                  hash_b3: adapter.hash_b3,
-                  rank: adapter.rank,
-                  tier: adapter.tier,
-                  category: adapter.category,
-                  framework: adapter.framework,
-                  scope: adapter.scope,
-                  languages: adapter.languages,
-                });
-              }
-              await loadAdapters();
-              showStatus(`Restored ${successfulAdapters.length} adapter(s).`, 'success');
-            } catch (err) {
-              logger.error('Failed to undo bulk adapter delete', {
-                component: 'Adapters',
-                operation: 'undoBulkDelete',
-                adapterIds: successfulAdapters.map(adapter => adapter.adapter_id),
-              }, toError(err));
-              showStatus('Failed to restore adapters.', 'warning');
-            }
-          },
-        });
-      }
-
-      await loadAdapters();
-      setSelectedAdapters(prev => prev.filter(id => failedAdapters.some(adapter => adapter.adapter_id === id)));
-    };
-
-    setConfirmationOptions({
-      title: 'Delete Adapters',
-      description: `Permanently delete ${adapterIds.length} adapter(s)? This action cannot be undone.`,
-      confirmText: 'Delete Adapters',
-      variant: 'destructive'
-    });
-    setPendingBulkAction(() => performBulkDelete);
-    setConfirmationOpen(true);
-  };
-
+  // Bulk action handlers (now provided by hook)
   const bulkActions: BulkAction[] = useMemo(() => [
     {
       id: 'load',
       label: 'Load',
-      handler: handleBulkLoad
+      handler: bulkLoad
     },
     {
       id: 'unload',
       label: 'Unload',
-      handler: handleBulkUnload
+      handler: bulkUnload
     },
     {
       id: 'delete',
       label: 'Delete',
       variant: 'destructive',
-      handler: handleBulkDelete
+      handler: bulkDelete
     }
-  ], [handleBulkLoad, handleBulkUnload, handleBulkDelete]);
+  ], [bulkLoad, bulkUnload, bulkDelete]);
 
-  const handleDownloadManifest = async (adapterId: string) => {
-    try {
-      const manifest = await apiClient.downloadAdapterManifest(adapterId);
-      const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${adapterId}-manifest.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showStatus('Manifest downloaded.', 'success');
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to download manifest');
-      setErrorRecovery(
-        <ErrorRecovery
-          error={error.message}
-          onRetry={() => handleDownloadManifest(adapterId)}
-        />
-      );
-    }
-  };
-
-  const handleExportDialogOpenChange = useCallback((open: boolean) => {
-    setShowExportDialog(open);
-    if (!open) {
-      setExportDialogScope(selectedAdapters.length > 0 ? 'selected' : 'all');
-    }
-  }, [selectedAdapters]);
-
+  // Export handlers (now provided by hook)
   const handleExport = async (options: ExportOptions) => {
     try {
-      let adapterIdsToExport: string[] = [];
-
-      if (options.scope === 'selected') {
-        adapterIdsToExport = selectedAdapters;
-      } else if (options.scope === 'all') {
-        adapterIdsToExport = adapters.map(a => a.adapter_id);
-      } else {
-        // filtered - for now, same as all
-        adapterIdsToExport = adapters.map(a => a.adapter_id);
-      }
-
-      if (adapterIdsToExport.length === 0) {
-        showStatus('No adapters to export.', 'warning');
-        handleExportDialogOpenChange(false);
-        return;
-      }
-
-      // Download all manifests
-      const manifests = [];
-      for (const adapterId of adapterIdsToExport) {
-        try {
-          const manifest = await apiClient.downloadAdapterManifest(adapterId);
-          manifests.push(manifest);
-        } catch (err) {
-          logger.error('Failed to download manifest for export', {
-            component: 'Adapters',
-            operation: 'export',
-            adapterId
-          }, toError(err));
-        }
-      }
-
-      // Create export file
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-      const filename = `adapters-export-${timestamp}`;
-
-      if (options.format === 'json') {
-        const blob = new Blob([JSON.stringify(manifests, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${filename}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        // CSV export
-        if (manifests.length === 0) return;
-        
-        const headers = [
-          // Primary identifiers
-          'adapter_id', 'name',
-
-          // Content classification
-          'category', 'scope', 'intent', 'languages',
-
-          // Technical details
-          'framework', 'framework_id', 'framework_version', 'blake3_hash',
-
-          // Quality metrics
-          'tier', 'rank',
-
-          // Provenance tracking
-          'repository_id', 'commit_sha',
-
-          // Metadata
-          'created_at', 'updated_at'
-        ];
-        const csvRows = manifests.map(m =>
-          headers.map(header => {
-            // Map user-friendly header names to API field names
-            const fieldName = header === 'languages' ? 'languages_json' :
-                             header === 'blake3_hash' ? 'hash_b3' :
-                             header === 'repository_id' ? 'repo_id' :
-                             header;
-            const value = (m as any)[fieldName] || '';
-            if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-              return `"${value.replace(/"/g, '""')}"`;
-            }
-            return value;
-          }).join(',')
-        );
-        const csv = [headers.join(','), ...csvRows].join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${filename}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-
-      showStatus(`Exported ${manifests.length} adapter manifest(s).`, 'success');
-      handleExportDialogOpenChange(false);
+      await exportAdapters(options.format, options.scope);
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to export adapters');
       setErrorRecovery(
@@ -953,7 +617,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
   };
 
   const [showHealthModal, setShowHealthModal] = useState(false);
-  const [healthData, setHealthData] = useState<any | null>(null);
+  const [healthData, setHealthData] = useState<AdapterHealthResponse | null>(null);
 
   const { adapterFilterConfigs, filteredAdapters, filterValues, setFilterValues } = useAdapterFilters(adapters);
 
@@ -975,7 +639,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
         />
       );
     }
-  }, [adapters]);
+  }, [adapters, setSelectedAdapterForHealth]);
 
 
 
@@ -1061,7 +725,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
               Register Adapter
             </Button>
 
-            <Button variant="outline" onClick={() => setShowImportDialog(true)}>
+            <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />
               Import Adapter
             </Button>
@@ -1098,6 +762,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
         {/* Registry Tab */}
 
         <TabsContent value="registry" className="mb-4">
+          <SectionErrorBoundary sectionName="Adapter Registry">
           <AdapterRegistryTab
             adapters={adapters}
             filteredAdapters={filteredAdapters}
@@ -1113,26 +778,33 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
             handlePinToggle={handlePinToggle}
             handlePromoteState={handlePromoteState}
             handleViewHealth={handleViewHealth}
-            handleDownloadManifest={handleDownloadManifest}
+            handleDownloadManifest={downloadManifest}
             setDeleteConfirmId={setDeleteConfirmId}
           />
+          </SectionErrorBoundary>
         </TabsContent>
 
         {/* Training Tab */}
 
 
         <TabsContent value="training" className="space-y-4">
+          <SectionErrorBoundary sectionName="Training Stream">
           <TrainingStreamPage selectedTenant={selectedTenant} />
+          </SectionErrorBoundary>
         </TabsContent>
 
         {/* Router Config Tab */}
         <TabsContent value="router" className="space-y-4">
+          <SectionErrorBoundary sectionName="Router Config">
           <RouterConfigPage selectedTenant={selectedTenant} />
+          </SectionErrorBoundary>
         </TabsContent>
 
         {/* Code Intelligence Tab */}
         <TabsContent value="code-intel" className="space-y-4">
+          <SectionErrorBoundary sectionName="Code Intelligence">
           <CodeIntelligence user={user} selectedTenant={selectedTenant} />
+          </SectionErrorBoundary>
         </TabsContent>
 
       </Tabs>
@@ -1140,6 +812,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
       {/* Training Dialog */}
       <Dialog open={isTrainingDialogOpen} onOpenChange={setIsTrainingDialogOpen}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <SectionErrorBoundary sectionName="Training Wizard">
           <TrainingWizard
             onComplete={(jobId) => {
 
@@ -1151,10 +824,12 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
             }}
             onCancel={() => setIsTrainingDialogOpen(false)}
           />
+          </SectionErrorBoundary>
         </DialogContent>
       </Dialog>
 
       {/* Language Base Adapter Dialog */}
+      <SectionErrorBoundary sectionName="Language Base Adapter Dialog">
       <LanguageBaseAdapterDialog
         open={isLanguageDialogOpen}
         onOpenChange={setIsLanguageDialogOpen}
@@ -1166,6 +841,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
           setActiveTab('training');
         }}
       />
+      </SectionErrorBoundary>
 
       {/* Register Adapter Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
@@ -1201,6 +877,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
               </SectionErrorBoundary>
             </TabsContent>
             <TabsContent value="path" className="space-y-4">
+              <SectionErrorBoundary sectionName="Register From Path">
               <div className="space-y-3">
                 <div>
                   <Label>Organization</Label>
@@ -1260,17 +937,19 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
                   }
                 }}>Create</Button>
               </DialogFooter>
+              </SectionErrorBoundary>
             </TabsContent>
           </Tabs>
         </DialogContent>
       </Dialog>
 
       {/* Directory Upsert Dialog */}
-      <Dialog open={upsertOpen} onOpenChange={setUpsertOpen}>
+      <Dialog open={isUpsertDialogOpen} onOpenChange={setUpsertOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Directory Upsert</DialogTitle>
           </DialogHeader>
+          <SectionErrorBoundary sectionName="Directory Upsert">
           <div className="space-y-3">
             <div>
               <label className="font-medium text-sm mb-1">Organization</label>
@@ -1318,6 +997,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
               }
             }}>Submit</Button>
           </DialogFooter>
+          </SectionErrorBoundary>
         </DialogContent>
       </Dialog>
 
@@ -1340,32 +1020,35 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
               )}
             </div>
           </DialogHeader>
+          <SectionErrorBoundary sectionName="Adapter Health Details">
           {healthData && (
             <div className="space-y-4">
               <div>
                 <Label>Status</Label>
-                <Badge variant={healthData.is_healthy ? 'default' : 'destructive'}>
-                  {healthData.is_healthy ? 'Healthy' : 'Unhealthy'}
+                <Badge variant={healthData.health === 'healthy' ? 'default' : 'destructive'}>
+                  {healthData.health}
                 </Badge>
               </div>
               <div>
-                <Label>Load Time</Label>
-                <p>{healthData.load_time_ms}ms</p>
+                <Label>Last Check</Label>
+                <p>{new Date(healthData.last_check).toLocaleString()}</p>
               </div>
               <div>
-                <Label>Memory Usage</Label>
-                <p>{Math.round(healthData.memory_usage_bytes / 1024 / 1024)} MB</p>
-              </div>
-              {healthData.error_message && (
-                <div>
-                  <Label>Error</Label>
-                  <Alert variant="destructive">
-                    <AlertDescription>{healthData.error_message}</AlertDescription>
-                  </Alert>
+                <Label>Health Checks</Label>
+                <div className="space-y-2">
+                  {healthData.checks.map((check, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <Badge variant={check.status === 'passed' ? 'default' : 'destructive'}>
+                        {check.name}
+                      </Badge>
+                      {check.message && <span className="text-sm text-muted-foreground">{check.message}</span>}
+                    </div>
+                  ))}
                 </div>
-              )}
+              </div>
             </div>
           )}
+          </SectionErrorBoundary>
         </DialogContent>
       </Dialog>
 
@@ -1379,33 +1062,44 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
 
       {/* Confirmation Dialog */}
       <ConfirmationDialog
-        open={confirmationOpen}
+        open={confirmationState?.isOpen ?? false}
         onOpenChange={(open) => {
-          setConfirmationOpen(open);
           if (!open) {
-            setPendingBulkAction(null);
-            setConfirmationOptions(null);
+            cancelConfirmation();
           }
         }}
-        onConfirm={async () => {
-          if (pendingBulkAction) {
-            await pendingBulkAction();
-            setPendingBulkAction(null);
-            setConfirmationOptions(null);
-          }
-        }}
-        options={confirmationOptions || {
-          title: 'Confirm Action',
-          description: 'Are you sure?',
-          variant: 'default'
+        onConfirm={confirmAction}
+        options={{
+          title: confirmationState?.action === 'load' ? 'Activate Adapters' :
+                 confirmationState?.action === 'unload' ? 'Unload Adapters' :
+                 confirmationState?.action === 'delete' ? 'Delete Adapters' :
+                 'Confirm Action',
+          description: confirmationState
+            ? `${confirmationState.action === 'load' ? 'Activate' :
+                 confirmationState.action === 'unload' ? 'Unload' :
+                 'Permanently delete'} ${confirmationState.ids.length} adapter(s)${confirmationState.action === 'load' ? ' into memory? This may take some time.' :
+                                                                                      confirmationState.action === 'delete' ? '? This action cannot be undone.' :
+                                                                                      ' from memory?'}`
+            : 'Are you sure?',
+          confirmText: confirmationState?.action === 'load' ? 'Activate Adapters' :
+                      confirmationState?.action === 'unload' ? 'Unload Adapters' :
+                      confirmationState?.action === 'delete' ? 'Delete Adapters' :
+                      'Confirm',
+          variant: confirmationState?.action === 'delete' ? 'destructive' : 'default'
         }}
       />
 
       {/* Export Dialog */}
       <ExportDialog
         key={`adapter-export-${exportDialogScope}-${selectedAdapters.length}`}
-        open={showExportDialog}
-        onOpenChange={handleExportDialogOpenChange}
+        open={exportDialogOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            openExportDialog();
+          } else {
+            closeExportDialog();
+          }
+        }}
         onExport={handleExport}
         itemName="adapters"
         hasSelected={selectedAdapters.length > 0}
@@ -1418,7 +1112,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
 
 
       {/* Import Dialog */}
-      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+      <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Import Adapter</DialogTitle>
@@ -1426,11 +1120,11 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
           <SectionErrorBoundary sectionName="Import Wizard">
           <AdapterImportWizard
             onComplete={(adapter) => {
-              setShowImportDialog(false);
+              setIsImportDialogOpen(false);
               loadAdapters();
               showStatus(`Adapter "${adapter.name}" imported successfully.`, 'success');
             }}
-            onCancel={() => setShowImportDialog(false)}
+            onCancel={() => setIsImportDialogOpen(false)}
           />
           </SectionErrorBoundary>
         </DialogContent>

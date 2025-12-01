@@ -1428,7 +1428,6 @@ mod tests {
 
     #[test]
     fn test_router_topk() {
-        let weights = vec![1.0; 10];
         let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
 
         let features = vec![0.5; 10];
@@ -1454,7 +1453,6 @@ mod tests {
 
     #[test]
     fn test_entropy_floor() {
-        let weights = vec![1.0; 5];
         let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.1);
 
         let features = vec![0.0; 5];
@@ -1480,7 +1478,6 @@ mod tests {
 
     #[test]
     fn test_route_with_code_features() {
-        let weights = vec![1.0; 21]; // 21-dim feature vector
         let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
 
         let code_features = CodeFeatures::from_context("Fix this python bug in django app");

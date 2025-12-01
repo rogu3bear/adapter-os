@@ -11,15 +11,16 @@ import {
   RefreshCw,
   Info
 } from 'lucide-react';
-import { BaseModelStatus } from '../api/types';
-import apiClient from '../api/client';
+import { BaseModelStatus } from '@/api/types';
+import apiClient from '@/api/client';
 
 import { toast } from 'sonner';
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery } from './ui/error-recovery';
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
+import { formatTimestamp as formatTimestampUtil, formatRelativeTime } from '@/utils/format';
 
 interface BaseModelStatusProps {
   selectedTenant: string;
@@ -96,7 +97,7 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
 
   const formatTimestamp = (timestamp?: string) => {
     if (!timestamp) return 'N/A';
-    return new Date(timestamp).toLocaleString();
+    return formatTimestampUtil(timestamp, 'long');
   };
 
   const getTimeSinceLoaded = (loadedAt?: string) => {
@@ -158,11 +159,11 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
           <div>
             <h3 className="text-lg font-medium text-gray-900">
               Base Model Status
-              <HelpTooltip helpId="base-model-status" />
+              <GlossaryTooltip termId="base-model-status" />
             </h3>
             <p className="text-sm text-gray-500">
               {status.model_name} ({status.model_id})
-              <HelpTooltip helpId="base-model-name" />
+              <GlossaryTooltip termId="base-model-name" />
             </p>
 
             {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
@@ -185,7 +186,7 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
           <HardDrive className="h-4 w-4 text-gray-400" />
           <span className="text-sm font-medium text-gray-700">
             Memory:
-            <HelpTooltip helpId="base-model-memory" />
+            <GlossaryTooltip termId="base-model-memory" />
           </span>
           <span className="text-sm text-gray-600">{formatMemoryUsage(status.memory_usage_mb)}</span>
         </div>

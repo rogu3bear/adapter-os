@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import apiClient from '../../api/client';
-import { TrainingJob, TrainingStatus } from '../../api/training-types';
-import { usePolling } from '../../hooks/usePolling';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import apiClient from '@/api/client';
+import { TrainingJob, TrainingStatus } from '@/api/training-types';
+import { usePolling } from '@/hooks/usePolling';
 import {
   FlaskConical,
   Activity,
@@ -18,7 +18,7 @@ import {
   TrendingDown,
   Settings,
 } from 'lucide-react';
-import { logger } from '../../utils/logger';
+import { logger } from '@/utils/logger';
 import {
   LineChart,
   Line,

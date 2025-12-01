@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { FileText, Download, Trash2, RefreshCw, Eye, MessageSquare } from 'lucide-react';
 import { useDocumentsApi } from '@/hooks/useDocumentsApi';
 import type { Document } from '@/api/document-types';
+import { logger, toError } from '@/utils/logger';
+import { formatBytes, formatTimestamp } from '@/utils/format';
 import {
   Table,
   TableBody,
@@ -39,22 +41,6 @@ export function DocumentTable({ documents, loading, onDelete, onRefresh, isDelet
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { downloadDocument } = useDocumentsApi();
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric',
-    }).format(date);
-  };
 
   const getStatusBadge = (status: Document['status']) => {
     const variants = {
@@ -89,7 +75,15 @@ export function DocumentTable({ documents, loading, onDelete, onRefresh, isDelet
       a.click();
       window.URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Download failed:', error);
+      logger.error('Document download failed', {
+        component: 'DocumentTable',
+        operation: 'downloadDocument',
+        errorType: 'document_download_failure',
+        details: 'Failed to download document from server',
+        documentId: document.document_id,
+        documentName: document.name,
+        documentSize: document.size_bytes
+      }, toError(error));
     }
   };
 
@@ -150,10 +144,10 @@ export function DocumentTable({ documents, loading, onDelete, onRefresh, isDelet
                 <TableCell>
                   {doc.chunk_count !== null ? doc.chunk_count : '-'}
                 </TableCell>
-                <TableCell>{formatFileSize(doc.size_bytes)}</TableCell>
+                <TableCell>{formatBytes(doc.size_bytes)}</TableCell>
                 <TableCell>{getStatusBadge(doc.status)}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {formatDate(doc.created_at)}
+                  {formatTimestamp(doc.created_at, 'long')}
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end space-x-2">

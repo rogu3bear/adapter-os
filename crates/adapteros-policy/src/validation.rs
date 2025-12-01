@@ -1,319 +1,1347 @@
-//! Policy-driven validation aligned with 20 rulesets
+//! Policy Customization Validation
 //!
-//! Implements validation logic for:
-//! - Egress control (Ruleset #1)
-//! - Evidence requirements (Ruleset #4)
-//! - Numeric validation (Ruleset #6)
-//! - Artifact verification (Ruleset #13)
-//! - Input sanitization
+//! Server-side validation for tenant policy customizations against canonical schema bounds.
+//! Citation: AGENTS.md - Policy Studio feature validation requirements
 
-use crate::Policies;
-use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_lora_rag::EvidenceSpan;
-use std::path::PathBuf;
+use adapteros_core::{AosError, Result};
+use serde_json::Value;
+use std::collections::HashMap;
+use tracing::{debug, warn};
 
-/// Policy validator enforcing 20 rulesets
-pub struct PolicyValidator {
-    policies: Policies,
+/// Policy field bounds and validation rules
+#[derive(Debug, Clone)]
+pub struct PolicyFieldSchema {
+    pub field_name: String,
+    pub field_type: FieldType,
+    pub required: bool,
+    pub min_value: Option<f64>,
+    pub max_value: Option<f64>,
+    pub allowed_values: Option<Vec<String>>,
+    pub safety_constraint: Option<SafetyConstraint>,
 }
 
-impl PolicyValidator {
-    /// Create a new policy validator
-    pub fn new(policies: Policies) -> Self {
-        Self { policies }
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldType {
+    String,
+    Number,
+    Boolean,
+    Array,
+    Object,
+}
+
+#[derive(Debug, Clone)]
+pub struct SafetyConstraint {
+    pub description: String,
+    pub validator: fn(&Value) -> bool,
+}
+
+/// Validation result
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ValidationResult {
+    pub valid: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+impl ValidationResult {
+    pub fn success() -> Self {
+        Self {
+            valid: true,
+            errors: Vec::new(),
+            warnings: Vec::new(),
+        }
     }
 
-    /// Validate network access (Egress Ruleset #1)
-    pub fn validate_network_access(&self, target: &str) -> Result<()> {
-        // Check if egress is allowed
-        if self.policies.egress.mode == "deny_all" {
-            // Only UDS paths are allowed
-            if !self.is_uds_path(target) {
-                return Err(AosError::PolicyViolation(format!(
-                    "Network access denied by egress policy: {}",
-                    target
-                )));
-            }
+    pub fn with_error(error: String) -> Self {
+        Self {
+            valid: false,
+            errors: vec![error],
+            warnings: Vec::new(),
         }
-
-        Ok(())
     }
 
-    /// Check if path matches UDS allow list
-    fn is_uds_path(&self, path: &str) -> bool {
-        self.policies
-            .egress
-            .uds_paths
-            .iter()
-            .any(|pattern| self.matches_pattern(path, pattern))
+    pub fn add_error(&mut self, error: String) {
+        self.errors.push(error);
+        self.valid = false;
     }
 
-    /// Simple glob pattern matching
-    fn matches_pattern(&self, path: &str, pattern: &str) -> bool {
-        // Handle patterns like /var/run/aos/<tenant>/*.sock
-        // Replace <tenant> and * with wildcards, then do simple matching
-        if pattern.contains('*') || pattern.contains('<') {
-            // Simple wildcard matching: check prefix and suffix
-            let normalized = pattern.replace("<tenant>", "*");
-            let parts: Vec<&str> = normalized.split('*').filter(|s| !s.is_empty()).collect();
-
-            if parts.is_empty() {
-                return true; // Pattern is all wildcards
-            }
-
-            // Check if path contains all parts in order
-            let mut remaining = path;
-            for part in parts {
-                if let Some(pos) = remaining.find(part) {
-                    remaining = &remaining[pos + part.len()..];
-                } else {
-                    return false;
-                }
-            }
-            return true;
-        }
-        path == pattern
+    pub fn add_warning(&mut self, warning: String) {
+        self.warnings.push(warning);
     }
+}
 
-    /// Validate evidence spans (Evidence Ruleset #4)
-    pub fn validate_evidence_spans(&self, spans: &[EvidenceSpan]) -> Result<()> {
-        let policy = &self.policies.evidence;
-
-        // Check minimum span requirement
-        if spans.len() < policy.min_spans {
-            return Err(AosError::PolicyViolation(format!(
-                "Insufficient evidence spans: found {}, required {}",
-                spans.len(),
-                policy.min_spans
-            )));
-        }
-
-        // Validate each span has required fields
-        for span in spans {
-            if span.doc_id.is_empty() {
-                return Err(AosError::PolicyViolation(
-                    "Evidence span missing doc_id".to_string(),
-                ));
-            }
-            if span.text.is_empty() {
-                return Err(AosError::PolicyViolation(
-                    "Evidence span missing text".to_string(),
-                ));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Validate numeric claim with units (Numeric Ruleset #6)
-    pub fn validate_numeric_claim(&self, value: f64, unit: &str) -> Result<()> {
-        // Check if value is finite
-        if !value.is_finite() {
-            return Err(AosError::PolicyViolation(format!(
-                "Invalid numeric value: {}",
-                value
-            )));
-        }
-
-        // Validate unit is canonical
-        let canonical_units = &self.policies.numeric.canonical_units;
-        if let Some(expected_unit) = canonical_units.get("torque") {
-            if unit != expected_unit && unit.contains("torque") {
-                return Err(AosError::PolicyViolation(format!(
-                    "Non-canonical unit for torque: expected {}, got {}",
-                    expected_unit, unit
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Validate artifact signature (Artifacts Ruleset #13)
-    pub fn validate_artifact_signature(
-        &self,
-        artifact_hash: &B3Hash,
-        signature: &[u8],
-    ) -> Result<()> {
-        if !self.policies.artifacts.require_signature {
-            return Ok(());
-        }
-
-        // Check signature is not empty
-        if signature.is_empty() {
-            return Err(AosError::PolicyViolation(
-                "Artifact signature required but not provided".to_string(),
-            ));
-        }
-
-        // Verify signature length (Ed25519 signatures are 64 bytes)
-        if signature.len() != 64 {
-            return Err(AosError::PolicyViolation(format!(
-                "Invalid signature length: expected 64, got {}",
-                signature.len()
-            )));
-        }
-
-        // In production, would verify signature against artifact_hash
-        // For now, just validate format
-        tracing::debug!("Validated artifact signature for hash: {}", artifact_hash);
-
-        Ok(())
-    }
-
-    /// Sanitize file path
-    pub fn sanitize_path(&self, path: &str) -> Result<PathBuf> {
-        // Reject paths with traversal attempts
-        if path.contains("..") {
-            return Err(AosError::Validation(
-                "Path contains directory traversal".to_string(),
-            ));
-        }
-
-        // Reject absolute paths outside workspace
-        let path_buf = PathBuf::from(path);
-        if path_buf.is_absolute() {
-            return Err(AosError::Validation(
-                "Absolute paths not allowed".to_string(),
-            ));
-        }
-
-        // Canonicalize to prevent symlink attacks
-        Ok(path_buf)
-    }
-
-    /// Validate adapter ID format
-    pub fn validate_adapter_id(&self, id: &str) -> Result<()> {
-        // Adapter IDs should be alphanumeric with hyphens/underscores
-        if id.is_empty() {
-            return Err(AosError::Validation(
-                "Adapter ID cannot be empty".to_string(),
-            ));
-        }
-
-        if id.len() > 255 {
-            return Err(AosError::Validation(
-                "Adapter ID exceeds maximum length".to_string(),
-            ));
-        }
-
-        for ch in id.chars() {
-            if !ch.is_alphanumeric() && ch != '-' && ch != '_' {
-                return Err(AosError::Validation(format!(
-                    "Invalid character in adapter ID: {}",
-                    ch
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Validate CPID format
-    pub fn validate_cpid(&self, cpid: &str) -> Result<()> {
-        // CPIDs should be BLAKE3 hashes (64 hex chars)
-        if cpid.len() != 64 {
+/// Get policy schema for a given policy type
+pub fn get_policy_schema(policy_type: &str) -> Result<HashMap<String, PolicyFieldSchema>> {
+    let schema = match policy_type {
+        "egress" => egress_schema(),
+        "determinism" => determinism_schema(),
+        "router" => router_schema(),
+        "evidence" => evidence_schema(),
+        "refusal" => refusal_schema(),
+        "numeric" => numeric_schema(),
+        "rag" => rag_schema(),
+        "isolation" => isolation_schema(),
+        "telemetry" => telemetry_schema(),
+        "retention" => retention_schema(),
+        "performance" => performance_schema(),
+        "memory" => memory_schema(),
+        "artifacts" => artifacts_schema(),
+        "secrets" => secrets_schema(),
+        "build_release" => build_release_schema(),
+        "compliance" => compliance_schema(),
+        "incident" => incident_schema(),
+        "output" => output_schema(),
+        "adapters" => adapters_schema(),
+        _ => {
             return Err(AosError::Validation(format!(
-                "Invalid CPID length: expected 64, got {}",
-                cpid.len()
-            )));
+                "Unknown policy type: {}",
+                policy_type
+            )))
         }
+    };
 
-        // Check all characters are hex
-        for ch in cpid.chars() {
-            if !ch.is_ascii_hexdigit() {
-                return Err(AosError::Validation(format!(
-                    "Invalid character in CPID: {}",
-                    ch
-                )));
+    Ok(schema)
+}
+
+/// Validate policy customization JSON
+pub fn validate_customization(policy_type: &str, customizations_json: &str) -> Result<ValidationResult> {
+    let schema = get_policy_schema(policy_type)?;
+    let customizations: Value = serde_json::from_str(customizations_json)
+        .map_err(|e| AosError::Validation(format!("Invalid JSON: {}", e)))?;
+
+    let mut result = ValidationResult::success();
+
+    if !customizations.is_object() {
+        result.add_error("Customizations must be a JSON object".to_string());
+        return Ok(result);
+    }
+
+    let obj = customizations.as_object().unwrap();
+
+    // Validate each field
+    for (field_name, value) in obj {
+        match schema.get(field_name) {
+            Some(field_schema) => {
+                validate_field(field_name, value, field_schema, &mut result);
+            }
+            None => {
+                result.add_warning(format!("Unknown field: {}", field_name));
             }
         }
-
-        Ok(())
     }
 
-    /// Validate deterministic execution (Determinism Ruleset #2)
-    pub fn validate_determinism(&self, kernel_hash: &B3Hash, expected_hash: &B3Hash) -> Result<()> {
-        if !self.policies.determinism.require_kernel_hash_match {
-            return Ok(());
+    // Check required fields
+    for (field_name, field_schema) in &schema {
+        if field_schema.required && !obj.contains_key(field_name) {
+            result.add_error(format!("Missing required field: {}", field_name));
         }
+    }
 
-        if kernel_hash != expected_hash {
-            return Err(AosError::PolicyViolation(format!(
-                "Kernel hash mismatch: expected {}, got {}",
-                expected_hash, kernel_hash
-            )));
+    Ok(result)
+}
+
+/// Validate a single field
+fn validate_field(
+    field_name: &str,
+    value: &Value,
+    schema: &PolicyFieldSchema,
+    result: &mut ValidationResult,
+) {
+    // Type validation
+    let type_matches = match schema.field_type {
+        FieldType::String => value.is_string(),
+        FieldType::Number => value.is_number(),
+        FieldType::Boolean => value.is_boolean(),
+        FieldType::Array => value.is_array(),
+        FieldType::Object => value.is_object(),
+    };
+
+    if !type_matches {
+        result.add_error(format!(
+            "Field '{}' has wrong type (expected {:?})",
+            field_name, schema.field_type
+        ));
+        return;
+    }
+
+    // Numeric bounds validation
+    if let Some(min) = schema.min_value {
+        if let Some(num) = value.as_f64() {
+            if num < min {
+                result.add_error(format!(
+                    "Field '{}' value {} is below minimum {}",
+                    field_name, num, min
+                ));
+            }
         }
-
-        Ok(())
     }
 
-    /// Validate refusal conditions (Refusal Ruleset #5)
-    pub fn should_refuse(&self, confidence: f32) -> bool {
-        confidence < self.policies.refusal.abstain_threshold
+    if let Some(max) = schema.max_value {
+        if let Some(num) = value.as_f64() {
+            if num > max {
+                result.add_error(format!(
+                    "Field '{}' value {} exceeds maximum {}",
+                    field_name, num, max
+                ));
+            }
+        }
     }
 
-    /// Get policies reference
-    pub fn policies(&self) -> &Policies {
-        &self.policies
+    // Enum validation
+    if let Some(allowed) = &schema.allowed_values {
+        if let Some(str_val) = value.as_str() {
+            if !allowed.contains(&str_val.to_string()) {
+                result.add_error(format!(
+                    "Field '{}' value '{}' is not in allowed values: {:?}",
+                    field_name, str_val, allowed
+                ));
+            }
+        }
     }
+
+    // Safety constraint validation
+    if let Some(constraint) = &schema.safety_constraint {
+        if !(constraint.validator)(value) {
+            result.add_error(format!(
+                "Field '{}' violates safety constraint: {}",
+                field_name, constraint.description
+            ));
+        }
+    }
+}
+
+// Schema definitions for each policy type
+
+fn router_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+    
+    schema.insert(
+        "k_sparse".to_string(),
+        PolicyFieldSchema {
+            field_name: "k_sparse".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(1.0),
+            max_value: Some(16.0),
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "gate_quant".to_string(),
+        PolicyFieldSchema {
+            field_name: "gate_quant".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: Some(vec!["q15".to_string(), "q8".to_string(), "f16".to_string()]),
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "entropy_floor".to_string(),
+        PolicyFieldSchema {
+            field_name: "entropy_floor".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(0.0),
+            max_value: Some(1.0),
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "sample_tokens_full".to_string(),
+        PolicyFieldSchema {
+            field_name: "sample_tokens_full".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(0.0),
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn memory_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "min_headroom_pct".to_string(),
+        PolicyFieldSchema {
+            field_name: "min_headroom_pct".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(5.0), // Safety: minimum 5% headroom
+            max_value: Some(100.0),
+            allowed_values: None,
+            safety_constraint: Some(SafetyConstraint {
+                description: "Minimum headroom must be at least 5% for system stability".to_string(),
+                validator: |v| v.as_f64().map_or(false, |n| n >= 5.0),
+            }),
+        },
+    );
+
+    schema.insert(
+        "evict_order".to_string(),
+        PolicyFieldSchema {
+            field_name: "evict_order".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "k_reduce_before_evict".to_string(),
+        PolicyFieldSchema {
+            field_name: "k_reduce_before_evict".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn performance_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "latency_p95_ms".to_string(),
+        PolicyFieldSchema {
+            field_name: "latency_p95_ms".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(1.0),
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "router_overhead_pct_max".to_string(),
+        PolicyFieldSchema {
+            field_name: "router_overhead_pct_max".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(0.0),
+            max_value: Some(100.0),
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "throughput_tokens_per_s_min".to_string(),
+        PolicyFieldSchema {
+            field_name: "throughput_tokens_per_s_min".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(1.0),
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+// Stub implementations for other policy types
+fn egress_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "mode".to_string(),
+        PolicyFieldSchema {
+            field_name: "mode".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: Some(vec!["deny_all".to_string(), "allow_list".to_string()]),
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "serve_requires_pf".to_string(),
+        PolicyFieldSchema {
+            field_name: "serve_requires_pf".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "allow_tcp".to_string(),
+        PolicyFieldSchema {
+            field_name: "allow_tcp".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "allow_udp".to_string(),
+        PolicyFieldSchema {
+            field_name: "allow_udp".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "uds_paths".to_string(),
+        PolicyFieldSchema {
+            field_name: "uds_paths".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn determinism_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "require_metallib_embed".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_metallib_embed".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "require_kernel_hash_match".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_kernel_hash_match".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "rng".to_string(),
+        PolicyFieldSchema {
+            field_name: "rng".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: Some(vec!["hkdf_seeded".to_string(), "deterministic".to_string()]),
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "retrieval_tie_break".to_string(),
+        PolicyFieldSchema {
+            field_name: "retrieval_tie_break".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn evidence_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "require_open_book".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_open_book".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "min_spans".to_string(),
+        PolicyFieldSchema {
+            field_name: "min_spans".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(0.0),
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "prefer_latest_revision".to_string(),
+        PolicyFieldSchema {
+            field_name: "prefer_latest_revision".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "warn_on_superseded".to_string(),
+        PolicyFieldSchema {
+            field_name: "warn_on_superseded".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn refusal_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "abstain_threshold".to_string(),
+        PolicyFieldSchema {
+            field_name: "abstain_threshold".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(0.0),
+            max_value: Some(1.0),
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "missing_fields_templates".to_string(),
+        PolicyFieldSchema {
+            field_name: "missing_fields_templates".to_string(),
+            field_type: FieldType::Object,
+            required: false,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn numeric_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "canonical_units".to_string(),
+        PolicyFieldSchema {
+            field_name: "canonical_units".to_string(),
+            field_type: FieldType::Object,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "max_rounding_error".to_string(),
+        PolicyFieldSchema {
+            field_name: "max_rounding_error".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(0.0),
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "require_units_in_trace".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_units_in_trace".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn rag_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "index_scope".to_string(),
+        PolicyFieldSchema {
+            field_name: "index_scope".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: Some(vec!["per_tenant".to_string(), "shared".to_string()]),
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "doc_tags_required".to_string(),
+        PolicyFieldSchema {
+            field_name: "doc_tags_required".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "embedding_model_hash".to_string(),
+        PolicyFieldSchema {
+            field_name: "embedding_model_hash".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "topk".to_string(),
+        PolicyFieldSchema {
+            field_name: "topk".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(1.0),
+            max_value: Some(100.0),
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "order".to_string(),
+        PolicyFieldSchema {
+            field_name: "order".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn isolation_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "process_model".to_string(),
+        PolicyFieldSchema {
+            field_name: "process_model".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: Some(vec!["per_tenant".to_string(), "shared".to_string()]),
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "uds_root".to_string(),
+        PolicyFieldSchema {
+            field_name: "uds_root".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "forbid_shm".to_string(),
+        PolicyFieldSchema {
+            field_name: "forbid_shm".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn telemetry_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "schema_hash".to_string(),
+        PolicyFieldSchema {
+            field_name: "schema_hash".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "router_full_tokens".to_string(),
+        PolicyFieldSchema {
+            field_name: "router_full_tokens".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(0.0),
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn retention_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "keep_bundles_per_cpid".to_string(),
+        PolicyFieldSchema {
+            field_name: "keep_bundles_per_cpid".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(1.0),
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "keep_incident_bundles".to_string(),
+        PolicyFieldSchema {
+            field_name: "keep_incident_bundles".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "keep_promotion_bundles".to_string(),
+        PolicyFieldSchema {
+            field_name: "keep_promotion_bundles".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "evict_strategy".to_string(),
+        PolicyFieldSchema {
+            field_name: "evict_strategy".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: Some(vec![
+                "oldest_first_safe".to_string(),
+                "lru".to_string(),
+                "fifo".to_string(),
+            ]),
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn artifacts_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "require_signature".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_signature".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "require_sbom".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_sbom".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "cas_only".to_string(),
+        PolicyFieldSchema {
+            field_name: "cas_only".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn secrets_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "env_allowed".to_string(),
+        PolicyFieldSchema {
+            field_name: "env_allowed".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "keystore".to_string(),
+        PolicyFieldSchema {
+            field_name: "keystore".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: Some(vec!["secure_enclave".to_string(), "file".to_string()]),
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "rotate_on_promotion".to_string(),
+        PolicyFieldSchema {
+            field_name: "rotate_on_promotion".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn build_release_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "require_replay_zero_diff".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_replay_zero_diff".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "require_signed_plan".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_signed_plan".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "require_rollback_plan".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_rollback_plan".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn compliance_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "control_matrix_hash".to_string(),
+        PolicyFieldSchema {
+            field_name: "control_matrix_hash".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "require_evidence_links".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_evidence_links".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "require_itar_suite_green".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_itar_suite_green".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn incident_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "memory".to_string(),
+        PolicyFieldSchema {
+            field_name: "memory".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "router_skew".to_string(),
+        PolicyFieldSchema {
+            field_name: "router_skew".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "determinism".to_string(),
+        PolicyFieldSchema {
+            field_name: "determinism".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "violation".to_string(),
+        PolicyFieldSchema {
+            field_name: "violation".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn output_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "format".to_string(),
+        PolicyFieldSchema {
+            field_name: "format".to_string(),
+            field_type: FieldType::String,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: Some(vec!["json".to_string(), "text".to_string()]),
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "require_trace".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_trace".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "forbidden_topics".to_string(),
+        PolicyFieldSchema {
+            field_name: "forbidden_topics".to_string(),
+            field_type: FieldType::Array,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
+}
+
+fn adapters_schema() -> HashMap<String, PolicyFieldSchema> {
+    let mut schema = HashMap::new();
+
+    schema.insert(
+        "min_activation_pct".to_string(),
+        PolicyFieldSchema {
+            field_name: "min_activation_pct".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(0.0),
+            max_value: Some(100.0),
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "min_quality_delta".to_string(),
+        PolicyFieldSchema {
+            field_name: "min_quality_delta".to_string(),
+            field_type: FieldType::Number,
+            required: true,
+            min_value: Some(0.0),
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "require_registry_admit".to_string(),
+        PolicyFieldSchema {
+            field_name: "require_registry_admit".to_string(),
+            field_type: FieldType::Boolean,
+            required: true,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_manifest::Policies;
 
     #[test]
-    fn test_validate_adapter_id() {
-        let validator = PolicyValidator::new(Policies::default());
-
-        // Valid IDs
-        assert!(validator.validate_adapter_id("test-adapter").is_ok());
-        assert!(validator.validate_adapter_id("adapter_123").is_ok());
-
-        // Invalid IDs
-        assert!(validator.validate_adapter_id("").is_err());
-        assert!(validator.validate_adapter_id("test/adapter").is_err());
-        assert!(validator.validate_adapter_id("test adapter").is_err());
+    fn test_validate_router_customization() {
+        let valid_json = r#"{"k_sparse": 4, "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128}"#;
+        let result = validate_customization("router", valid_json).unwrap();
+        assert!(result.valid);
+        assert!(result.errors.is_empty());
     }
 
     #[test]
-    fn test_validate_cpid() {
-        let validator = PolicyValidator::new(Policies::default());
-
-        // Valid CPID (64 hex chars)
-        assert!(validator.validate_cpid("a".repeat(64).as_str()).is_ok());
-
-        // Invalid CPIDs
-        assert!(validator.validate_cpid("short").is_err());
-        assert!(validator.validate_cpid(&"x".repeat(64)).is_err()); // non-hex
+    fn test_validate_router_invalid_k_sparse() {
+        let invalid_json = r#"{"k_sparse": 20, "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128}"#;
+        let result = validate_customization("router", invalid_json).unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("exceeds maximum")));
     }
 
     #[test]
-    fn test_sanitize_path() {
-        let validator = PolicyValidator::new(Policies::default());
-
-        // Valid paths
-        assert!(validator.sanitize_path("adapters/test.bin").is_ok());
-
-        // Invalid paths
-        assert!(validator.sanitize_path("../etc/passwd").is_err());
-        assert!(validator.sanitize_path("/etc/passwd").is_err());
+    fn test_validate_memory_safety_constraint() {
+        let unsafe_json = r#"{"min_headroom_pct": 2, "evict_order": [], "k_reduce_before_evict": true}"#;
+        let result = validate_customization("memory", unsafe_json).unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("safety constraint")));
     }
 
     #[test]
-    fn test_validate_network_access() {
-        let validator = PolicyValidator::new(Policies::default());
+    fn test_validate_egress_enum_values() {
+        let valid_json = r#"{"mode": "deny_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": ["/var/run/aos/tenant/*.sock"]}"#;
+        let result = validate_customization("egress", valid_json).unwrap();
+        assert!(result.valid);
 
-        // UDS paths should be allowed
-        assert!(validator
-            .validate_network_access("/var/run/aos/tenant/aos.sock")
-            .is_ok());
+        let invalid_json = r#"{"mode": "allow_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": []}"#;
+        let result = validate_customization("egress", invalid_json).unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+    }
 
-        // Network addresses should be denied
-        assert!(validator
-            .validate_network_access("https://example.com")
-            .is_err());
+    #[test]
+    fn test_validate_performance_bounds() {
+        let valid_json = r#"{"latency_p95_ms": 24, "router_overhead_pct_max": 8, "throughput_tokens_per_s_min": 40}"#;
+        let result = validate_customization("performance", valid_json).unwrap();
+        assert!(result.valid);
+
+        let invalid_latency = r#"{"latency_p95_ms": 0, "router_overhead_pct_max": 8, "throughput_tokens_per_s_min": 40}"#;
+        let result = validate_customization("performance", invalid_latency).unwrap();
+        assert!(!result.valid);
+
+        let invalid_pct = r#"{"latency_p95_ms": 24, "router_overhead_pct_max": 150, "throughput_tokens_per_s_min": 40}"#;
+        let result = validate_customization("performance", invalid_pct).unwrap();
+        assert!(!result.valid);
+    }
+
+    #[test]
+    fn test_validate_determinism_rng() {
+        let valid_json = r#"{"require_metallib_embed": true, "require_kernel_hash_match": true, "rng": "hkdf_seeded", "retrieval_tie_break": ["score_desc", "doc_id_asc"]}"#;
+        let result = validate_customization("determinism", valid_json).unwrap();
+        assert!(result.valid);
+
+        let invalid_rng = r#"{"require_metallib_embed": true, "require_kernel_hash_match": true, "rng": "random", "retrieval_tie_break": []}"#;
+        let result = validate_customization("determinism", invalid_rng).unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+    }
+
+    #[test]
+    fn test_validate_evidence_min_spans() {
+        let valid_json = r#"{"require_open_book": true, "min_spans": 2, "prefer_latest_revision": true, "warn_on_superseded": true}"#;
+        let result = validate_customization("evidence", valid_json).unwrap();
+        assert!(result.valid);
+
+        let invalid_json = r#"{"require_open_book": true, "min_spans": -1, "prefer_latest_revision": true, "warn_on_superseded": true}"#;
+        let result = validate_customization("evidence", invalid_json).unwrap();
+        assert!(!result.valid);
+    }
+
+    #[test]
+    fn test_validate_refusal_threshold() {
+        let valid_json = r#"{"abstain_threshold": 0.55, "missing_fields_templates": {}}"#;
+        let result = validate_customization("refusal", valid_json).unwrap();
+        assert!(result.valid);
+
+        let invalid_json = r#"{"abstain_threshold": 1.5, "missing_fields_templates": {}}"#;
+        let result = validate_customization("refusal", invalid_json).unwrap();
+        assert!(!result.valid);
+    }
+
+    #[test]
+    fn test_validate_rag_topk() {
+        let valid_json = r#"{"index_scope": "per_tenant", "doc_tags_required": ["doc_id", "rev"], "embedding_model_hash": "b3:abc", "topk": 5, "order": ["score_desc"]}"#;
+        let result = validate_customization("rag", valid_json).unwrap();
+        assert!(result.valid);
+
+        let invalid_json = r#"{"index_scope": "per_tenant", "doc_tags_required": [], "embedding_model_hash": "b3:abc", "topk": 150, "order": []}"#;
+        let result = validate_customization("rag", invalid_json).unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("exceeds maximum")));
+    }
+
+    #[test]
+    fn test_validate_isolation_process_model() {
+        let valid_json = r#"{"process_model": "per_tenant", "uds_root": "/var/run/aos/tenant", "forbid_shm": true}"#;
+        let result = validate_customization("isolation", valid_json).unwrap();
+        assert!(result.valid);
+
+        let invalid_json = r#"{"process_model": "shared_all", "uds_root": "/var/run/aos/tenant", "forbid_shm": true}"#;
+        let result = validate_customization("isolation", invalid_json).unwrap();
+        assert!(!result.valid);
+    }
+
+    #[test]
+    fn test_validate_retention_bundles() {
+        let valid_json = r#"{"keep_bundles_per_cpid": 12, "keep_incident_bundles": true, "keep_promotion_bundles": true, "evict_strategy": "oldest_first_safe"}"#;
+        let result = validate_customization("retention", valid_json).unwrap();
+        assert!(result.valid);
+
+        let invalid_json = r#"{"keep_bundles_per_cpid": 0, "keep_incident_bundles": true, "keep_promotion_bundles": true, "evict_strategy": "oldest_first_safe"}"#;
+        let result = validate_customization("retention", invalid_json).unwrap();
+        assert!(!result.valid);
+    }
+
+    #[test]
+    fn test_validate_secrets_keystore() {
+        let valid_json = r#"{"env_allowed": [], "keystore": "secure_enclave", "rotate_on_promotion": true}"#;
+        let result = validate_customization("secrets", valid_json).unwrap();
+        assert!(result.valid);
+
+        let invalid_json = r#"{"env_allowed": [], "keystore": "plaintext", "rotate_on_promotion": true}"#;
+        let result = validate_customization("secrets", invalid_json).unwrap();
+        assert!(!result.valid);
+    }
+
+    #[test]
+    fn test_validate_output_format() {
+        let valid_json = r#"{"format": "json", "require_trace": true, "forbidden_topics": ["tenant_crossing"]}"#;
+        let result = validate_customization("output", valid_json).unwrap();
+        assert!(result.valid);
+
+        let invalid_json = r#"{"format": "xml", "require_trace": true, "forbidden_topics": []}"#;
+        let result = validate_customization("output", invalid_json).unwrap();
+        assert!(!result.valid);
+    }
+
+    #[test]
+    fn test_validate_adapters_activation() {
+        let valid_json = r#"{"min_activation_pct": 2.0, "min_quality_delta": 0.5, "require_registry_admit": true}"#;
+        let result = validate_customization("adapters", valid_json).unwrap();
+        assert!(result.valid);
+
+        let invalid_json = r#"{"min_activation_pct": 150.0, "min_quality_delta": 0.5, "require_registry_admit": true}"#;
+        let result = validate_customization("adapters", invalid_json).unwrap();
+        assert!(!result.valid);
+    }
+
+    #[test]
+    fn test_validate_missing_required_fields() {
+        let incomplete_json = r#"{"k_sparse": 4}"#;
+        let result = validate_customization("router", incomplete_json).unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("Missing required field")));
+    }
+
+    #[test]
+    fn test_validate_wrong_field_type() {
+        let invalid_json = r#"{"k_sparse": "not_a_number", "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128}"#;
+        let result = validate_customization("router", invalid_json).unwrap();
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("wrong type")));
+    }
+
+    #[test]
+    fn test_validate_unknown_policy_type() {
+        let json = r#"{"some": "config"}"#;
+        let result = validate_customization("unknown_policy", json);
+        assert!(result.is_err());
     }
 }

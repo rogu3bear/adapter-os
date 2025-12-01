@@ -1,13 +1,13 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Label } from '../ui/label';
-import { Textarea } from '../ui/textarea';
-import { Input } from '../ui/input';
-import { Alert, AlertDescription } from '../ui/alert';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Layers, AlertTriangle } from 'lucide-react';
 import { BatchResults } from './BatchResults';
-import { logger } from '../../utils/logger';
+import { logger } from '@/utils/logger';
 import { toast } from 'sonner';
 
 export interface ValidationResult {
@@ -19,6 +19,7 @@ export interface ValidationResult {
 
 export interface BatchProcessorProps {
   prompts: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic batch results from API
   results: any[];
   validation: ValidationResult[];
   isProcessing: boolean;

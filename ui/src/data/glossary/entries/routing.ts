@@ -1,16 +1,16 @@
-import type { GlossaryEntry } from '../types';
+import type { GlossaryEntry } from '@/data/glossary/types';
 
 export const routingEntries: GlossaryEntry[] = [
   {
     id: 'k-sparse-routing',
-    term: 'K-Sparse Routing',
+    term: 'Smart Selection',
     category: 'routing',
     content: {
-      brief: 'K-sparse routing selects the top-K most relevant adapters per request based on learned gate scores.',
-      detailed: `K-sparse routing is the core mechanism for adapter selection in AdapterOS. Instead of using all available adapters, the router computes gate scores for each adapter and selects only the top-K adapters with the highest confidence scores.
+      brief: 'Smart Selection chooses the top-K most relevant adapters per request based on learned confidence scores.',
+      detailed: `Smart Selection (technically called K-sparse routing) is the core mechanism for adapter selection in AdapterOS. Instead of using all available adapters, the router computes confidence scores for each adapter and selects only the top-K adapters with the highest confidence.
 
 **Key characteristics:**
-- Gate scores are computed using learned feature weights
+- Confidence scores are computed using learned routing rules
 - Only the top-K adapters are activated per request
 - Deterministic selection ensures reproducibility
 - Q15 quantization reduces computational overhead
@@ -26,7 +26,7 @@ export const routingEntries: GlossaryEntry[] = [
 - Target routing overhead is <8% of total inference time`,
     },
     relatedTerms: ['routing-k-value', 'gate', 'gate-quantization', 'routing-overhead'],
-    aliases: ['k-sparse', 'sparse routing', 'top-k routing'],
+    aliases: ['k-sparse', 'k-sparse routing', 'sparse routing', 'top-k routing', 'adapter selection'],
   },
   {
     id: 'routing-k-value',
@@ -58,15 +58,15 @@ export const routingEntries: GlossaryEntry[] = [
   },
   {
     id: 'gate',
-    term: 'Gate Value',
+    term: 'Confidence Score',
     category: 'routing',
     content: {
       brief: 'Router\'s confidence score for selecting this adapter, ranging from 0.0 to 1.0.',
-      detailed: `Gate values represent the router's learned confidence that a particular adapter is relevant for the current request. They are the fundamental output of the routing computation.
+      detailed: `Confidence Scores (technically called gate values) represent the router's learned confidence that a particular adapter is relevant for the current request. They are the fundamental output of the routing computation.
 
 **Computation:**
 - Computed from input features (language, framework, symbols, path tokens, prompt verb)
-- Weighted by learned feature weights
+- Weighted by learned routing rules
 - Normalized to sum to 1.0 across all candidate adapters
 - Quantized to Q15 (15-bit fixed point) for efficiency
 
@@ -77,16 +77,16 @@ export const routingEntries: GlossaryEntry[] = [
 - 1.0: Maximum confidence (rare, indicates single dominant adapter)
 
 **Quality indicators:**
-- High max gate (>0.7): Strong signal, confident routing
-- Low max gate (<0.3): Weak signal, may indicate missing adapter or poor routing
+- High max score (>0.7): Strong signal, confident routing
+- Low max score (<0.3): Weak signal, may indicate missing adapter or poor routing
 - Balanced distribution: Healthy multi-adapter usage
 - Collapsed distribution: Potential routing degradation
 
-**Gate quantization:**
-Gates are stored as Q15 (15-bit fixed point) to reduce memory and computation overhead while maintaining sufficient precision for routing decisions.`,
+**Technical note:**
+Scores are stored as Q15 (15-bit fixed point) to reduce memory and computation overhead while maintaining sufficient precision for routing decisions.`,
     },
     relatedTerms: ['k-sparse-routing', 'gate-quantization', 'routing-entropy', 'feature-weights'],
-    aliases: ['gate score', 'gate value', 'routing score', 'confidence score'],
+    aliases: ['gate', 'gate value', 'gate score', 'routing score', 'selection confidence'],
   },
   {
     id: 'gate-quantization',
@@ -161,11 +161,11 @@ Gates are stored as Q15 (15-bit fixed point) to reduce memory and computation ov
   },
   {
     id: 'entropy-floor',
-    term: 'Entropy Floor',
+    term: 'Selection Diversity',
     category: 'routing',
     content: {
-      brief: 'Minimum entropy threshold for routing decisions (0.0-1.0). Prevents over-confident selections.',
-      detailed: `The entropy floor is a routing policy parameter that sets a minimum threshold for the Shannon entropy of the gate distribution. It prevents routing collapse and ensures diverse adapter usage.
+      brief: 'Minimum selection diversity threshold for routing decisions (0.0-1.0). Prevents over-confident selections.',
+      detailed: `Selection Diversity (technically called entropy floor) is a routing policy parameter that sets a minimum threshold for the Shannon entropy of the gate distribution. It prevents routing collapse and ensures diverse adapter usage.
 
 **Purpose:**
 - Prevents over-confident routing (all weight on one adapter)
@@ -180,12 +180,12 @@ Gates are stored as Q15 (15-bit fixed point) to reduce memory and computation ov
 - H=1: Uniform distribution across all adapters
 
 **Recommended thresholds:**
-- Entropy floor = 0.3: Allows focused routing but prevents collapse
-- Entropy floor = 0.5: Moderate diversity requirement
-- Entropy floor = 0.7: High diversity, good for exploration
+- Selection diversity = 0.3: Allows focused routing but prevents collapse
+- Selection diversity = 0.5: Moderate diversity requirement
+- Selection diversity = 0.7: High diversity, good for exploration
 
 **Violation handling:**
-- If measured entropy < entropy floor, routing is flagged
+- If measured entropy < threshold, routing is flagged
 - May trigger adapter recalibration
 - Logged as routing quality metric
 - Can indicate training drift or missing adapters
@@ -197,7 +197,7 @@ Gates are stored as Q15 (15-bit fixed point) to reduce memory and computation ov
 - Uniform routing: entropy >0.8 (may indicate weak signals)`,
     },
     relatedTerms: ['routing-entropy', 'gate', 'k-sparse-routing'],
-    aliases: ['entropy threshold', 'minimum entropy', 'routing entropy floor'],
+    aliases: ['entropy floor', 'entropy threshold', 'minimum entropy', 'routing entropy floor', 'diversity threshold'],
   },
   {
     id: 'routing-entropy',
@@ -333,11 +333,11 @@ Gates are stored as Q15 (15-bit fixed point) to reduce memory and computation ov
   },
   {
     id: 'feature-weights',
-    term: 'Feature Weights',
+    term: 'Routing Rules',
     category: 'routing',
     content: {
       brief: 'How much each signal (language, framework, symbol hits, path tokens, prompt verb) influences routing decisions.',
-      detailed: `Feature weights are learned parameters that determine how much each input signal contributes to the final gate scores. They are the core of the router's learned behavior.
+      detailed: `Routing Rules (technically called feature weights) are learned parameters that determine how much each input signal contributes to the final confidence scores. They are the core of the router's learned behavior.
 
 **Feature categories:**
 - Language: Programming language detected in prompt (e.g., Python, Rust, JavaScript)
@@ -376,7 +376,7 @@ Gates are stored as Q15 (15-bit fixed point) to reduce memory and computation ov
 - Compare weights across different routing models`,
     },
     relatedTerms: ['gate', 'k-sparse-routing', 'routing-entropy'],
-    aliases: ['routing weights', 'learned weights', 'router parameters'],
+    aliases: ['feature weights', 'routing weights', 'learned weights', 'router parameters', 'selection rules'],
   },
   {
     id: 'sample-tokens-full',

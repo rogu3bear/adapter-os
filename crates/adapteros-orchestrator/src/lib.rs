@@ -5,6 +5,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+pub mod behavior_training;
 pub mod code_jobs;
 pub mod codebase_ingestion;
 pub mod dataset_cleanup;
@@ -30,6 +31,10 @@ pub use training::{
 };
 pub use training_dataset_integration::{
     CreateDatasetFromDocumentsRequest, DatasetCreationResult, TrainingDatasetManager,
+};
+pub use behavior_training::{
+    BehaviorCategory, BehaviorDataset, BehaviorExample, BehaviorInput, BehaviorMetadata,
+    BehaviorTarget, BehaviorTrainingGenerator, DatasetConfig, ExportFilter, SyntheticConfig,
 };
 
 /// Gate runner configuration

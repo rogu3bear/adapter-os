@@ -18,8 +18,8 @@ import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, Settings, CheckCircle } from 'lucide-react';
 import apiClient from '@/api/client';
 import { Adapter } from '@/api/types';
-import { useProgressOperation } from '../hooks/useProgressOperation';
-import { useCancellableOperation } from '../hooks/useCancellableOperation';
+import { useProgressOperation } from '@/hooks/useProgressOperation';
+import { useCancellableOperation } from '@/hooks/useCancellableOperation';
 
 interface AdapterImportWizardProps {
   onComplete: (adapter: Adapter) => void;

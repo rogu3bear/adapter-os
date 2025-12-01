@@ -28,7 +28,7 @@ import {
   Layers,
 } from 'lucide-react';
 import apiClient from '@/api/client';
-import { useSSE } from '@/hooks/useSSE';
+import { useLiveData } from '@/hooks/useLiveData';
 import { logger } from '@/utils/logger';
 import { useToast } from '@/hooks/use-toast';
 import { StackFormModal } from '@/pages/Admin/StackFormModal';
@@ -57,38 +57,45 @@ function TrainingJobDetailContent() {
   // SSE for real-time updates when job is active
   const isJobActive = job?.status === 'running' || job?.status === 'pending';
 
-  const { data: streamData } = useSSE<TrainingProgressEvent>(
-    '/v1/streams/training',
-    {
-      enabled: isJobActive && !!jobId,
-      onMessage: (event) => {
-        if (event.job_id === jobId) {
-          setJob(prev => prev ? {
-            ...prev,
-            status: event.status,
-            progress_pct: event.progress_pct,
-            current_epoch: event.current_epoch,
-            total_epochs: event.total_epochs,
-            current_loss: event.current_loss,
-            tokens_per_second: event.tokens_per_second,
-            eta_seconds: event.estimated_time_remaining_sec,
-            error_message: event.error,
-          } : prev);
+  useLiveData({
+    sseEndpoint: '/v1/streams/training',
+    sseEventType: 'training',
+    fetchFn: async () => {
+      // Polling fallback - fetch job details
+      if (!jobId) return null;
+      const jobData = await apiClient.getTrainingJob(jobId);
+      return jobData;
+    },
+    enabled: isJobActive && !!jobId,
+    pollingSpeed: 'fast',
+    onSSEMessage: (event) => {
+      const progressEvent = event as TrainingProgressEvent;
+      if (progressEvent.job_id === jobId) {
+        setJob(prev => prev ? {
+          ...prev,
+          status: progressEvent.status,
+          progress_pct: progressEvent.progress_pct,
+          current_epoch: progressEvent.current_epoch,
+          total_epochs: progressEvent.total_epochs,
+          current_loss: progressEvent.current_loss,
+          tokens_per_second: progressEvent.tokens_per_second,
+          eta_seconds: progressEvent.estimated_time_remaining_sec,
+          error_message: progressEvent.error,
+        } : prev);
 
-          if (event.current_loss !== undefined) {
-            setMetrics(prev => ({
-              ...prev,
-              loss: event.current_loss,
-              learning_rate: event.learning_rate,
-              epoch: event.current_epoch,
-              progress_pct: event.progress_pct,
-              tokens_per_second: event.tokens_per_second,
-            }));
-          }
+        if (progressEvent.current_loss !== undefined) {
+          setMetrics(prev => ({
+            ...prev,
+            loss: progressEvent.current_loss,
+            learning_rate: progressEvent.learning_rate,
+            epoch: progressEvent.current_epoch,
+            progress_pct: progressEvent.progress_pct,
+            tokens_per_second: progressEvent.tokens_per_second,
+          }));
         }
-      },
-    }
-  );
+      }
+    },
+  });
 
   const fetchJobDetails = useCallback(async () => {
     if (!jobId) return;

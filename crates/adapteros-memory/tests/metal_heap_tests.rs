@@ -13,8 +13,8 @@
 use adapteros_core::B3Hash;
 use adapteros_memory::{
     FFIFragmentationMetrics, FFIHeapState, FFIMetalMemoryMetrics, FFIPageMigrationEvent,
-    FragmentationMetrics, FragmentationType, HeapAllocation, HeapObserverMemoryStats, HeapState,
-    MemoryMigrationEvent, MetalHeapObserver, MigrationType,
+    FragmentationType, HeapAllocation, HeapObserverMemoryStats, HeapState, MemoryMigrationEvent,
+    MetalHeapObserver,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -144,9 +144,9 @@ fn test_mock_observer_single_allocation() {
 #[test]
 fn test_mock_observer_multiple_allocations() {
     let mut observer = MockHeapObserver::new();
-    let id1 = observer.record_allocation(1, 1024, 0, 0x1000);
-    let id2 = observer.record_allocation(1, 2048, 1024, 0x2000);
-    let id3 = observer.record_allocation(1, 512, 3072, 0x3000);
+    let _id1 = observer.record_allocation(1, 1024, 0, 0x1000);
+    let _id2 = observer.record_allocation(1, 2048, 1024, 0x2000);
+    let _id3 = observer.record_allocation(1, 512, 3072, 0x3000);
 
     assert_eq!(observer.get_allocation_count(), 3);
     assert_eq!(observer.get_total_allocated(), 1024 + 2048 + 512);
@@ -156,7 +156,7 @@ fn test_mock_observer_multiple_allocations() {
 fn test_mock_observer_deallocation() {
     let mut observer = MockHeapObserver::new();
     let id1 = observer.record_allocation(1, 1024, 0, 0x1000);
-    let id2 = observer.record_allocation(1, 2048, 1024, 0x2000);
+    let _id2 = observer.record_allocation(1, 2048, 1024, 0x2000);
 
     observer.record_deallocation(id1);
     assert_eq!(observer.get_allocation_count(), 1);
@@ -416,7 +416,7 @@ fn test_fragmentation_metrics_classification() {
         (0.9, FragmentationType::Critical),
     ];
 
-    for (ratio, expected_type) in test_cases {
+    for (ratio, _expected_type) in test_cases {
         let actual_type = match ratio {
             r if r < 0.2 => FragmentationType::Low,
             r if r < 0.5 => FragmentationType::Medium,

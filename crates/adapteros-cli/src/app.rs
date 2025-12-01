@@ -636,8 +636,8 @@ pub enum Commands {
   # Start serving
   aosctl serve --tenant tenant_dev --plan cp_abc123
 
-  # Custom socket path
-  aosctl serve --tenant tenant_dev --plan cp_abc123 --socket /tmp/aos.sock
+  # Custom socket path (development)
+  aosctl serve --tenant tenant_dev --plan cp_abc123 --socket ./var/run/aos.sock
 "#)]
     Serve {
         /// Tenant ID
@@ -1179,6 +1179,25 @@ pub enum Commands {
     TrainDocs {
         #[command(flatten)]
         args: train_docs::TrainDocsArgs,
+    },
+
+    /// Export behavior training data from adapter lifecycle events
+    #[command(after_help = r#"Examples:
+  # Export historical events from the last 30 days
+  aosctl behavior-export --output behavior.jsonl --since 2025-11-01
+
+  # Generate 1000 synthetic examples
+  aosctl behavior-export --output synthetic.jsonl --synthetic-count 1000
+
+  # Export specific categories
+  aosctl behavior-export --output promotions.jsonl --categories promotion,demotion
+
+  # Combined: historical + synthetic fill to minimum
+  aosctl behavior-export --output combined.jsonl --since 2025-01-01 --min-per-category 500
+"#)]
+    BehaviorExport {
+        #[command(flatten)]
+        args: behavior_export::BehaviorExportArgs,
     },
 
     /// Alias for tenant-init (for convenience)
@@ -1790,6 +1809,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             args.execute().await?;
         }
 
+        Commands::BehaviorExport { args } => {
+            args.execute().await?;
+        }
+
         // Code Intelligence Commands
         Commands::CodeInit { path, tenant } => {
             commands::code::code_init(path, tenant, output).await?;
@@ -1864,6 +1887,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::TrainBaseAdapter { .. } => "train-base-adapter",
         Commands::IngestDocs { .. } => "ingest-docs",
         Commands::TrainDocs { .. } => "train-docs",
+        Commands::BehaviorExport { .. } => "behavior-export",
         Commands::CodeInit { .. } => "code-init",
         Commands::CodeUpdate { .. } => "code-update",
         Commands::CodeList { .. } => "code-list",

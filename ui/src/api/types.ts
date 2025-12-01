@@ -43,11 +43,11 @@
  */
 
 // Re-export all types from modular files
-export * from './auth-types';
-export * from './adapter-types';
-export * from './training-types';
-export * from './api-types';
-export * from './federation-types';
-export * from './plugin-types';
-export * from './streaming-types';
-export * from './owner-types';
+export * from '@/api/auth-types';
+export * from '@/api/adapter-types';
+export * from '@/api/training-types';
+export * from '@/api/api-types';
+export * from '@/api/federation-types';
+export * from '@/api/plugin-types';
+export * from '@/api/streaming-types';
+export * from '@/api/owner-types';

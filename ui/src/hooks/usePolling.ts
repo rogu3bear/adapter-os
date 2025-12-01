@@ -2,7 +2,7 @@
 // 【ui/src/components/RealtimeMetrics.tsx§138-182】 - Metrics polling pattern
 // 【ui/src/utils/logger.ts】 - Error handling pattern
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
 export interface PollingConfig {
   intervalMs?: number; // Override default interval

@@ -9,4 +9,4 @@
  */
 
 // Re-export from current locations (files not moved yet)
-export { AuditDashboard } from '../AuditDashboard';
+export { AuditDashboard } from '@/components/AuditDashboard';

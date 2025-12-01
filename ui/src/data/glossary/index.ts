@@ -29,7 +29,8 @@ export { categoryMeta } from './types';
 // Combined Glossary
 // ============================================================================
 
-export const allEntries = [
+// Combine all entries (may contain duplicates from different category files)
+const rawEntries = [
   ...coreConceptsEntries,
   ...lifecycleEntries,
   ...routingEntries,
@@ -38,7 +39,25 @@ export const allEntries = [
   ...securityEntries,
   ...systemEntries,
   ...uiFieldsEntries,
-] as const;
+];
+
+// Deduplicate by ID (first occurrence wins, warn in development)
+const seenIds = new Set<string>();
+const deduplicatedEntries: typeof rawEntries = [];
+
+for (const entry of rawEntries) {
+  if (seenIds.has(entry.id)) {
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console -- dev-mode duplicate detection warning
+      console.warn(`[Glossary] Duplicate entry ID: "${entry.id}" - using first occurrence`);
+    }
+    continue;
+  }
+  seenIds.add(entry.id);
+  deduplicatedEntries.push(entry);
+}
+
+export const allEntries = deduplicatedEntries as unknown as typeof rawEntries;
 
 // Fast lookup by ID
 export const glossaryById = new Map(

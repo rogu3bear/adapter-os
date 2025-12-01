@@ -1,6 +1,7 @@
 import FeatureLayout from '@/layout/FeatureLayout';
 import { ObservabilityDashboard } from '@/components/ObservabilityDashboard';
 import { DensityProvider } from '@/contexts/DensityContext';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 export default function ObservabilityPage() {
   return (
@@ -9,7 +10,9 @@ export default function ObservabilityPage() {
         title="Observability"
         description="Live metrics, traces, and logs"
       >
-        <ObservabilityDashboard />
+        <SectionErrorBoundary sectionName="Observability">
+          <ObservabilityDashboard />
+        </SectionErrorBoundary>
       </FeatureLayout>
     </DensityProvider>
   );

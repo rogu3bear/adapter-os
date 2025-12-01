@@ -2,8 +2,8 @@ import React from 'react';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle, AlertTriangle } from 'lucide-react';
-import { useTrainingWizardContext } from '../context';
-import { CATEGORY_ICONS, CATEGORY_DESCRIPTIONS } from '../constants';
+import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
+import { CATEGORY_ICONS, CATEGORY_DESCRIPTIONS } from '@/components/TrainingWizard/constants';
 
 export function CategoryStep() {
   const { state, updateState } = useTrainingWizardContext();

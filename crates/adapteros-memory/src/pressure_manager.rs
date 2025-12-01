@@ -17,8 +17,7 @@ use crate::unified_tracker::{
     BackendType, EvictionStrategy, MemoryLimits, PressureLevel, UnifiedMemoryTracker,
 };
 use adapteros_core::{AosError, Result};
-// TODO: Re-enable when adapteros-deterministic-exec is available
-// use adapteros_deterministic_exec::spawn_deterministic;
+use adapteros_deterministic_exec::spawn_deterministic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -191,18 +190,18 @@ impl MemoryPressureManager {
             let sender_clone = sender.clone();
             let request_clone = request.clone();
 
-            // TODO: Re-enable deterministic execution when available
-            // if let Err(e) = spawn_deterministic(
-            //     format!("k-reduction-send:{}", request_clone.request_id),
-            //     send_once(sender_clone, request_clone.clone()),
-            // ) {
-            //     debug!(
-            //         error = %e,
-            //         request_id = %request_clone.request_id,
-            //         "Deterministic executor unavailable for K reduction; falling back to Tokio"
-            //     );
-            tokio::spawn(send_once(sender.clone(), request.clone()));
-            // }
+            // Use deterministic execution for reproducible K-reduction ordering
+            if let Err(e) = spawn_deterministic(
+                format!("k-reduction-send:{}", request_clone.request_id),
+                send_once(sender_clone, request_clone.clone()),
+            ) {
+                debug!(
+                    error = %e,
+                    request_id = %request_clone.request_id,
+                    "Deterministic executor unavailable for K reduction; falling back to Tokio"
+                );
+                tokio::spawn(send_once(sender.clone(), request.clone()));
+            }
 
             return Ok(self.create_report(pressure.level, EvictionStrategy::ReduceK, vec![], 0, pressure.headroom_pct));
         }

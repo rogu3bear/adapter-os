@@ -815,6 +815,24 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             {
                 let lifecycle = self.lifecycle.lock().await;
                 lifecycle.record_router_decision(&decision.indices).await?;
+
+                // Validate all selected adapters are in a ready state (warm, hot, or resident)
+                for &adapter_idx in &decision.indices {
+                    if let Some(state) = lifecycle.get_state(adapter_idx) {
+                        if !state.is_available() {
+                            let adapter_id = self
+                                .manifest
+                                .adapters
+                                .get(adapter_idx as usize)
+                                .map(|a| a.id.clone())
+                                .unwrap_or_else(|| format!("adapter_{}", adapter_idx));
+                            return Err(AosError::AdapterNotLoaded {
+                                adapter_id,
+                                current_state: state.to_string(),
+                            });
+                        }
+                    }
+                }
             }
 
             // Convert Decision to RouterRing

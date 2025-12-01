@@ -147,15 +147,15 @@ export default function SystemOverviewTab() {
               ) : (
                 <div className="grid grid-cols-3 gap-4 text-center">
                   <div>
-                    <div className="text-2xl font-bold text-green-600">{nodeStats.healthy}</div>
+                    <div className="text-2xl font-bold text-success">{nodeStats.healthy}</div>
                     <div className="text-sm text-muted-foreground">Healthy</div>
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-yellow-600">{nodeStats.offline}</div>
+                    <div className="text-2xl font-bold text-warning">{nodeStats.offline}</div>
                     <div className="text-sm text-muted-foreground">Offline</div>
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-red-600">{nodeStats.error}</div>
+                    <div className="text-2xl font-bold text-destructive">{nodeStats.error}</div>
                     <div className="text-sm text-muted-foreground">Error</div>
                   </div>
                 </div>
@@ -180,15 +180,15 @@ export default function SystemOverviewTab() {
               ) : (
                 <div className="grid grid-cols-3 gap-4 text-center">
                   <div>
-                    <div className="text-2xl font-bold text-green-600">{workerStats.running}</div>
+                    <div className="text-2xl font-bold text-success">{workerStats.running}</div>
                     <div className="text-sm text-muted-foreground">Running</div>
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-gray-600">{workerStats.stopped}</div>
+                    <div className="text-2xl font-bold text-muted-foreground">{workerStats.stopped}</div>
                     <div className="text-sm text-muted-foreground">Stopped</div>
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-red-600">{workerStats.errored}</div>
+                    <div className="text-2xl font-bold text-destructive">{workerStats.errored}</div>
                     <div className="text-sm text-muted-foreground">Error</div>
                   </div>
                 </div>

@@ -1,15 +1,15 @@
 import React from 'react';
 import { LucideIcon, MoreHorizontal, ChevronDown } from 'lucide-react';
 
-import { cn } from '../../ui/utils';
-import { Button } from '../../ui/button';
+import { cn } from '@/components/ui/utils';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '../../ui/dropdown-menu';
+} from '@/components/ui/dropdown-menu';
 
 export interface ActionConfig {
   /** Unique identifier */

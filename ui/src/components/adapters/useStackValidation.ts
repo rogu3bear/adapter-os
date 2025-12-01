@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { Adapter, AdapterState, LifecycleState } from '../../api/types';
+import { Adapter, AdapterState, LifecycleState } from '@/api/types';
 
 interface StackAdapter {
   adapter: Adapter;

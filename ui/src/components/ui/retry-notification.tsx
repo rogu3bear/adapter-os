@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from './alert';
 import { Button } from './button';
 import { Progress } from './progress';
 import { AlertTriangle, X, RefreshCw } from 'lucide-react';
-import { logger } from '../../utils/logger';
+import { logger } from '@/utils/logger';
 
 export interface RetryNotificationProps {
   operation: string; // Description of the operation being retried
@@ -137,31 +137,35 @@ class RetryNotificationManager {
     document.body.appendChild(container);
 
     // Render the notification
-    import('react-dom/client').then(({ createRoot }) => {
-      const root = createRoot(container);
-      root.render(
-        <RetryNotification
-          operation={operation}
-          attempt={attempt}
-          maxAttempts={maxAttempts}
-          delayMs={delayMs}
-          onCancel={() => {
-            onCancel?.();
-            this.hide(operation);
-          }}
-        />
-      );
+    import('react-dom/client')
+      .then(({ createRoot }) => {
+        const root = createRoot(container);
+        root.render(
+          <RetryNotification
+            operation={operation}
+            attempt={attempt}
+            maxAttempts={maxAttempts}
+            delayMs={delayMs}
+            onCancel={() => {
+              onCancel?.();
+              this.hide(operation);
+            }}
+          />
+        );
 
-      // Auto-hide after delay
-      const timeoutId = window.setTimeout(() => {
-        this.hide(operation);
-      }, delayMs + 1000);
+        // Auto-hide after delay
+        const timeoutId = window.setTimeout(() => {
+          this.hide(operation);
+        }, delayMs + 1000);
 
-      this.activeNotifications.set(operation, {
-        element: container,
-        timeoutId
+        this.activeNotifications.set(operation, {
+          element: container,
+          timeoutId
+        });
+      })
+      .catch((error) => {
+        logger.error('Failed to load react-dom/client', { component: 'RetryNotificationManager' }, error);
       });
-    });
   }
 
   hide(operation: string) {

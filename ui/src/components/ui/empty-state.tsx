@@ -9,17 +9,19 @@ interface EmptyStateProps {
   description: string;
   actionLabel?: string;
   onAction?: () => void;
+  ariaLabel?: string;
 }
 
-export function EmptyState({ 
-  icon: Icon, 
-  title, 
-  description, 
-  actionLabel, 
-  onAction 
+export function EmptyState({
+  icon: Icon,
+  title,
+  description,
+  actionLabel,
+  onAction,
+  ariaLabel
 }: EmptyStateProps) {
   return (
-    <Card className="border-dashed">
+    <Card className="border-dashed" role="status" aria-label={ariaLabel || `${title}: ${description}`}>
       <CardContent className="flex flex-col items-center justify-center py-12 text-center">
         <div className="flex-center mb-4">
           <Icon className="h-12 w-12 text-muted-foreground opacity-50" />

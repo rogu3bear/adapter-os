@@ -7,7 +7,7 @@ import {
   ActionType,
   ResourceType,
   ActionStats,
-} from '../types/history';
+} from '@/types/history';
 
 // Import and re-export formatting utilities from shared format module
 import { formatTimestamp as _formatTimestamp, formatDurationMs as _formatDurationMs } from './format';

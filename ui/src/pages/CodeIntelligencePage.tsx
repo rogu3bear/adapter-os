@@ -37,7 +37,7 @@ import { DensityProvider, useDensity } from '@/contexts/DensityContext';
 import { DensityControls } from '@/components/ui/density-controls';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { usePolling } from '@/hooks/usePolling';
 import { toast } from 'sonner';
 import {
@@ -52,6 +52,7 @@ import {
   Clock,
 } from 'lucide-react';
 import type { Repository } from '@/api/types';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 function CodeIntelligencePageInner() {
   const { density, setDensity } = useDensity();
@@ -183,15 +184,16 @@ function CodeIntelligencePageInner() {
       description="Manage code repositories and trigger scans"
       headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
     >
-      <div className="space-y-6">
-        {/* Controls */}
-        <Card>
+      <SectionErrorBoundary sectionName="Code Intelligence">
+        <div className="space-y-6">
+          {/* Controls */}
+          <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Controls
-              <HelpTooltip helpId="code-controls">
+              <GlossaryTooltip termId="code-controls">
                 <span className="cursor-help text-muted-foreground">(?)</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -357,6 +359,8 @@ function CodeIntelligencePageInner() {
             )}
           </CardContent>
         </Card>
+        </div>
+      </SectionErrorBoundary>
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={!!deleteRepoId} onOpenChange={() => setDeleteRepoId(null)}>
@@ -376,7 +380,6 @@ function CodeIntelligencePageInner() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </div>
     </FeatureLayout>
   );
 }

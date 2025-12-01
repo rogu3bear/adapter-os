@@ -169,7 +169,7 @@ async fn test_merkle_chain_concurrent() -> Result<()> {
 
     // Build a hash map for O(1) lookups
     use std::collections::HashMap;
-    let entry_map: HashMap<_, _> = entries.iter().map(|e| (e.event_hash, e)).collect();
+    let _entry_map: HashMap<_, _> = entries.iter().map(|e| (e.event_hash, e)).collect();
 
     // Count roots
     let roots: Vec<_> = entries

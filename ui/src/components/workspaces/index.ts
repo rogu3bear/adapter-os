@@ -9,7 +9,7 @@
  */
 
 // Re-export from current locations (files not moved yet)
-export { WorkspaceCard } from '../WorkspaceCard';
-export { WorkspaceMembers } from '../WorkspaceMembers';
-export { WorkspaceResources } from '../WorkspaceResources';
-export { WorkspaceSelector } from '../WorkspaceSelector';
+export { WorkspaceCard } from '@/components/WorkspaceCard';
+export { WorkspaceMembers } from '@/components/WorkspaceMembers';
+export { WorkspaceResources } from '@/components/WorkspaceResources';
+export { WorkspaceSelector } from '@/components/WorkspaceSelector';

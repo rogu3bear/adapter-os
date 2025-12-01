@@ -1,11 +1,11 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Alert, AlertDescription } from '../ui/alert';
-import { Progress } from '../ui/progress';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
   DialogContent,
@@ -13,12 +13,12 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '../ui/dialog';
+} from '@/components/ui/dialog';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '../ui/collapsible';
+} from '@/components/ui/collapsible';
 import {
   CheckCircle2,
   AlertCircle,
@@ -35,9 +35,10 @@ import {
   Info,
   X,
 } from 'lucide-react';
-import { cn } from '../ui/utils';
-import apiClient from '../../api/client';
-import { Adapter } from '../../api/types';
+import { cn } from '@/components/ui/utils';
+import apiClient from '@/api/client';
+import { Adapter } from '@/api/types';
+import { formatBytes } from '@/utils/format';
 
 interface StackAdapter {
   adapter: Adapter;
@@ -464,16 +465,19 @@ export const StackPreview: React.FC<StackPreviewProps> = ({
 
     setIsTestingInference(true);
     try {
-      const response = await (apiClient as any).post(
+      const response = await apiClient.request<{ data: { output?: string; latency_ms?: number; adapters_applied?: string[] } }>(
         '/api/inference/test',
         {
-          prompt: testPrompt,
-          adapter_ids: adapters
-            .filter((item) => item.enabled)
-            .map((item) => item.adapter.adapter_id),
-          stack_id: stackId,
+          method: 'POST',
+          body: JSON.stringify({
+            prompt: testPrompt,
+            adapter_ids: adapters
+              .filter((item) => item.enabled)
+              .map((item) => item.adapter.adapter_id),
+            stack_id: stackId,
+          }),
         }
-      ) as any;
+      );
 
       const result: InferenceTestResult = {
         success: true,
@@ -488,28 +492,20 @@ export const StackPreview: React.FC<StackPreviewProps> = ({
       if (onTestInference) {
         onTestInference(result);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       const result: InferenceTestResult = {
         success: false,
         prompt: testPrompt,
         output: '',
         latency: 0,
         adaptersApplied: [],
-        error: error?.message || 'Inference test failed',
+        error: error instanceof Error ? error.message : 'Inference test failed',
       };
 
       setTestResult(result);
     } finally {
       setIsTestingInference(false);
     }
-  };
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
   };
 
   const errorIssues = validationReport.issues.filter(

@@ -284,8 +284,8 @@ async fn test_adapter_state_transitions() {
     .unwrap();
 
     assert_eq!(
-        result.lifecycle_state.as_deref(),
-        Some("warm"),
+        result.lifecycle_state.as_str(),
+        "warm",
         "Lifecycle state should be updated"
     );
 
@@ -304,41 +304,42 @@ async fn test_adapter_activation_tracking() {
         .await
         .expect("Failed to create test adapter");
 
-    // Verify initial activation percentage is 0
-    let result = sqlx::query!(
-        "SELECT activation_pct FROM adapters WHERE id = ?",
-        "activation-test-adapter"
+    // Verify adapter exists and has correct initial state
+    // Note: The adapters table uses 'active' column (INTEGER) for tracking active state
+    let result: (i64,) = sqlx::query_as(
+        "SELECT active FROM adapters WHERE id = ?"
     )
+    .bind("activation-test-adapter")
     .fetch_one(harness.db().pool())
     .await
     .unwrap();
 
     assert_eq!(
-        result.activation_pct, 0.0,
-        "Initial activation percentage should be 0"
+        result.0, 1,
+        "Initial active state should be 1 (active)"
     );
 
-    // Simulate activation by updating activation_pct
-    sqlx::query!(
-        "UPDATE adapters SET activation_pct = ? WHERE id = ?",
-        25.5,
-        "activation-test-adapter"
+    // Simulate deactivation by updating active column
+    sqlx::query(
+        "UPDATE adapters SET active = ? WHERE id = ?"
     )
+    .bind(0)
+    .bind("activation-test-adapter")
     .execute(harness.db().pool())
     .await
     .unwrap();
 
-    let result = sqlx::query!(
-        "SELECT activation_pct FROM adapters WHERE id = ?",
-        "activation-test-adapter"
+    let result: (i64,) = sqlx::query_as(
+        "SELECT active FROM adapters WHERE id = ?"
     )
+    .bind("activation-test-adapter")
     .fetch_one(harness.db().pool())
     .await
     .unwrap();
 
     assert_eq!(
-        result.activation_pct, 25.5,
-        "Activation percentage should be updated"
+        result.0, 0,
+        "Active state should be updated to 0 (inactive)"
     );
 
     println!("✓ Adapter activation tracking test passed");
@@ -364,7 +365,7 @@ async fn test_adapter_pinning_lifecycle() {
             "pin-test-adapter",
             None,
             "critical-production-adapter",
-            "test@example.com",
+            Some("test@example.com"),
         )
         .await;
 

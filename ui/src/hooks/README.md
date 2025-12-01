@@ -805,6 +805,436 @@ describe('useDocumentsApi', () => {
 
 ---
 
+## Migration Guide
+
+This section helps developers migrate from manual loading patterns to our standardized hooks.
+
+### Hook Selection Guide
+
+| Hook | Use Case | Return Values |
+|------|----------|---------------|
+| `useDataLoader` | Simple data fetching (GET requests) | `{ data, isLoading, error, refetch }` |
+| `useAsyncAction` | Mutations (POST/PUT/DELETE) | `{ execute, isLoading, error }` |
+| `useLiveData` | Real-time data with SSE | `{ data, isConnected, error }` |
+| `useAsyncOperation` | Lower-level async with more control | `{ execute, isLoading, error, reset }` |
+
+### When to Use Each Hook
+
+**`useDataLoader`** - Initial Data Fetching
+- Loading data on component mount
+- Simple GET requests
+- Need automatic refetch capability
+- Want to show loading spinners
+
+**`useAsyncAction`** - Mutations & Form Submissions
+- Form submissions
+- POST/PUT/DELETE operations
+- User-triggered actions (button clicks)
+- Need automatic toast notifications
+
+**`useLiveData`** - Real-Time Updates
+- SSE/EventSource connections
+- Real-time metrics
+- Live system status
+- Training progress updates
+
+**`useAsyncOperation`** - Advanced Control
+- Need manual execution control
+- Complex retry logic
+- Custom error handling
+- Multi-step operations
+
+---
+
+### Migration Examples
+
+#### 1. Simple Data Fetching
+
+**Before (manual pattern):**
+```typescript
+const [data, setData] = useState<Adapter[] | null>(null);
+const [isLoading, setIsLoading] = useState(true);
+const [error, setError] = useState<string | null>(null);
+
+const loadData = useCallback(async () => {
+  setIsLoading(true);
+  setError(null);
+  try {
+    const result = await apiClient.getAdapters();
+    setData(result);
+  } catch (err) {
+    setError(err instanceof Error ? err.message : 'Failed to load data');
+    console.error('Load failed:', err);
+  } finally {
+    setIsLoading(false);
+  }
+}, []);
+
+useEffect(() => {
+  loadData();
+}, [loadData]);
+```
+
+**After (useDataLoader):**
+```typescript
+const { data, isLoading, error, refetch } = useDataLoader({
+  fetchFn: () => apiClient.getAdapters(),
+  operationName: 'fetch-adapters',
+});
+```
+
+**Benefits:**
+- 15 lines → 4 lines
+- Automatic error logging
+- Built-in refetch capability
+- Consistent error handling
+
+---
+
+#### 2. Form Submission
+
+**Before:**
+```typescript
+const [isSubmitting, setIsSubmitting] = useState(false);
+const [error, setError] = useState<string | null>(null);
+
+const handleSubmit = async (formData: FormData) => {
+  setIsSubmitting(true);
+  setError(null);
+  try {
+    await apiClient.createAdapter(formData);
+    toast.success('Adapter created successfully');
+    navigate('/adapters');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to create adapter';
+    setError(message);
+    toast.error(message);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+```
+
+**After (useAsyncAction):**
+```typescript
+const navigate = useNavigate();
+
+const { execute, isLoading: isSubmitting } = useAsyncAction(
+  (data: FormData) => apiClient.createAdapter(data),
+  {
+    successToast: 'Adapter created successfully',
+    errorToast: 'Failed to create adapter',
+    invalidateKeys: ['adapters'],
+    onSuccess: () => navigate('/adapters'),
+  }
+);
+```
+
+**Benefits:**
+- Automatic toast notifications
+- Cache invalidation
+- Navigation on success
+- Cleaner error handling
+
+---
+
+#### 3. Polling with Manual Refetch
+
+**Before:**
+```typescript
+const [metrics, setMetrics] = useState<Metrics | null>(null);
+const [isLoading, setIsLoading] = useState(false);
+
+const fetchMetrics = async () => {
+  setIsLoading(true);
+  try {
+    const data = await apiClient.getMetrics();
+    setMetrics(data);
+  } catch (err) {
+    console.error('Metrics fetch failed:', err);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+useEffect(() => {
+  fetchMetrics();
+  const interval = setInterval(fetchMetrics, 5000);
+  return () => clearInterval(interval);
+}, []);
+```
+
+**After (useDataLoader with polling):**
+```typescript
+const { data: metrics, isLoading } = useDataLoader({
+  fetchFn: () => apiClient.getMetrics(),
+  operationName: 'fetch-metrics',
+  pollInterval: 5000,
+});
+```
+
+---
+
+#### 4. SSE Real-Time Data
+
+**Before:**
+```typescript
+const [metrics, setMetrics] = useState<MetricsData | null>(null);
+const [isConnected, setIsConnected] = useState(false);
+
+useEffect(() => {
+  const eventSource = new EventSource('/v1/stream/metrics');
+
+  eventSource.onopen = () => setIsConnected(true);
+  eventSource.onmessage = (event) => {
+    setMetrics(JSON.parse(event.data));
+  };
+  eventSource.onerror = () => {
+    setIsConnected(false);
+    eventSource.close();
+  };
+
+  return () => eventSource.close();
+}, []);
+```
+
+**After (useLiveData):**
+```typescript
+const { data: metrics, isConnected } = useLiveData<MetricsData>({
+  endpoint: '/v1/stream/metrics',
+  operationName: 'metrics-stream',
+});
+```
+
+---
+
+#### 5. Delete with Confirmation
+
+**Before:**
+```typescript
+const [isDeleting, setIsDeleting] = useState(false);
+
+const handleDelete = async (id: string) => {
+  if (!confirm('Are you sure?')) return;
+
+  setIsDeleting(true);
+  try {
+    await apiClient.deleteAdapter(id);
+    toast.success('Adapter deleted');
+    refetchAdapters();
+  } catch (err) {
+    toast.error('Delete failed');
+  } finally {
+    setIsDeleting(false);
+  }
+};
+```
+
+**After (useAsyncAction):**
+```typescript
+const { execute: deleteAdapter, isLoading: isDeleting } = useAsyncAction(
+  (id: string) => apiClient.deleteAdapter(id),
+  {
+    successToast: 'Adapter deleted',
+    errorToast: 'Delete failed',
+    invalidateKeys: ['adapters'],
+  }
+);
+
+const handleDelete = (id: string) => {
+  if (confirm('Are you sure?')) {
+    deleteAdapter(id);
+  }
+};
+```
+
+---
+
+### Best Practices for Migration
+
+1. **Always Provide Operation Names**
+   ```typescript
+   // Good - helps with debugging and logging
+   useDataLoader({
+     fetchFn: () => apiClient.getAdapters(),
+     operationName: 'fetch-adapters',
+   });
+
+   // Bad - harder to debug
+   useDataLoader({
+     fetchFn: () => apiClient.getAdapters(),
+   });
+   ```
+
+2. **Use Cache Invalidation**
+   ```typescript
+   const { execute } = useAsyncAction(
+     (data) => apiClient.createAdapter(data),
+     {
+       invalidateKeys: ['adapters', 'adapter-stacks'], // Refetch related data
+     }
+   );
+   ```
+
+3. **Handle Success Callbacks**
+   ```typescript
+   const { execute } = useAsyncAction(
+     (data) => apiClient.updateAdapter(data),
+     {
+       onSuccess: (result) => {
+         // Navigate, update local state, etc.
+         navigate(`/adapters/${result.id}`);
+       },
+     }
+   );
+   ```
+
+4. **Disable Buttons During Loading**
+   ```typescript
+   const { execute, isLoading } = useAsyncAction(submitForm);
+
+   <button onClick={() => execute(data)} disabled={isLoading}>
+     {isLoading ? 'Saving...' : 'Save'}
+   </button>
+   ```
+
+5. **Use TypeScript Generics**
+   ```typescript
+   // Type-safe data loading
+   const { data } = useDataLoader<Adapter[]>({
+     fetchFn: () => apiClient.getAdapters(),
+   });
+
+   // Type-safe actions
+   const { execute } = useAsyncAction<CreateAdapterRequest, Adapter>(
+     (req) => apiClient.createAdapter(req)
+   );
+   ```
+
+6. **Prefer Hooks Over Manual State**
+   ```typescript
+   // Bad - manual state management
+   const [loading, setLoading] = useState(false);
+   const [error, setError] = useState(null);
+
+   // Good - use appropriate hook
+   const { isLoading, error } = useDataLoader({ fetchFn });
+   ```
+
+---
+
+### Common Patterns
+
+**Conditional Fetching:**
+```typescript
+const { data, refetch } = useDataLoader({
+  fetchFn: () => apiClient.getAdapterDetails(id),
+  enabled: !!id, // Only fetch when id is available
+});
+```
+
+**Dependent Queries:**
+```typescript
+const { data: user } = useDataLoader({
+  fetchFn: () => apiClient.getCurrentUser(),
+  operationName: 'fetch-user',
+});
+
+const { data: preferences } = useDataLoader({
+  fetchFn: () => apiClient.getUserPreferences(user.id),
+  enabled: !!user,
+  operationName: 'fetch-preferences',
+});
+```
+
+**Optimistic Updates:**
+```typescript
+const { execute } = useAsyncAction(
+  (data) => apiClient.updateAdapter(data),
+  {
+    onSuccess: (result) => {
+      // Update local state immediately
+      setLocalAdapter(result);
+    },
+    invalidateKeys: ['adapters'], // Refetch in background
+  }
+);
+```
+
+**Error Recovery:**
+```typescript
+const { error, refetch } = useDataLoader({
+  fetchFn: () => apiClient.getAdapters(),
+  operationName: 'fetch-adapters',
+});
+
+{error && (
+  <div>
+    <p>Failed to load: {error}</p>
+    <button onClick={refetch}>Retry</button>
+  </div>
+)}
+```
+
+---
+
+### Migration Checklist
+
+When converting manual patterns to hooks:
+
+- [ ] Identify operation type (fetch, mutation, real-time)
+- [ ] Choose appropriate hook
+- [ ] Remove manual state declarations (`useState` for loading/error)
+- [ ] Remove `try/catch/finally` boilerplate
+- [ ] Add `operationName` for debugging
+- [ ] Configure toast messages (for mutations)
+- [ ] Add cache invalidation keys
+- [ ] Remove manual `useEffect` if using `useDataLoader`
+- [ ] Update button `disabled` states to use `isLoading`
+- [ ] Test loading and error states
+
+---
+
+### Troubleshooting
+
+**Q: My data isn't refetching after mutation**
+```typescript
+// Add invalidateKeys to the mutation
+useAsyncAction(mutationFn, {
+  invalidateKeys: ['resource-name'],
+});
+```
+
+**Q: How do I disable automatic fetching?**
+```typescript
+useDataLoader({
+  fetchFn,
+  enabled: false, // Won't fetch on mount
+});
+```
+
+**Q: How do I handle pagination?**
+```typescript
+const { data, refetch } = useDataLoader({
+  fetchFn: () => apiClient.getAdapters({ page, limit }),
+});
+
+// Refetch when page changes
+useEffect(() => {
+  refetch();
+}, [page, refetch]);
+```
+
+**Q: Can I use multiple hooks in one component?**
+```typescript
+// Yes - each hook is independent
+const { data: adapters } = useDataLoader({ fetchFn: fetchAdapters });
+const { execute: createAdapter } = useAsyncAction(createFn);
+const { execute: deleteAdapter } = useAsyncAction(deleteFn);
+```
+
+---
+
 ## Related Documentation
 
 - [React Query Docs](https://tanstack.com/query/latest/docs/react/overview)

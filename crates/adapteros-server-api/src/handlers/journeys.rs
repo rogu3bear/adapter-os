@@ -19,20 +19,49 @@ pub struct JourneyPath {
 
 #[derive(Serialize, ToSchema)]
 pub struct JourneyResponse {
-    journey_type: String,
-    id: String,
-    data: serde_json::Value,
-    states: Vec<JourneyState>,
-    created_at: DateTime<Utc>,
+    pub schema_version: String,
+    pub journey_id: String,
+    pub steps: Vec<JourneyStep>,
+    pub current_step: usize,
+    pub completed: bool,
+    pub states: Vec<JourneyState>,
+    pub id: String,
+    pub journey_type: String,
+    pub created_at: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct JourneyStep {
+    pub id: String,
+    pub name: String,
+    pub status: String, // "pending" | "in_progress" | "completed" | "skipped"
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, ToSchema)]
 pub struct JourneyState {
-    state: String,
-    timestamp: DateTime<Utc>,
-    details: serde_json::Value,
+    pub state: String,
+    pub timestamp: String,
+    pub details: serde_json::Value,
 }
 
+/// Get journey details by type and ID
+#[utoipa::path(
+    get,
+    path = "/v1/journeys/{journey_type}/{id}",
+    params(
+        ("journey_type" = String, Path, description = "Type of journey (adapter-lifecycle, promotion-pipeline, monitoring-flow)"),
+        ("id" = String, Path, description = "Journey identifier")
+    ),
+    responses(
+        (status = 200, description = "Journey data retrieved", body = JourneyResponse),
+        (status = 400, description = "Invalid journey type", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 403, description = "Forbidden - ITAR restriction", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "journeys"
+)]
 pub async fn get_journey(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -82,8 +111,6 @@ pub async fn get_journey(
     );
 
     let mut states = Vec::new();
-    #[allow(unused_assignments)]
-    let mut data = serde_json::json!({});
 
     match journey_type.as_str() {
         "adapter-lifecycle" => {
@@ -128,7 +155,7 @@ pub async fn get_journey(
 
                 states.push(JourneyState {
                     state: row.current_state,
-                    timestamp,
+                    timestamp: timestamp.to_rfc3339(),
                     details: serde_json::json!({
                         "memory_bytes": row.memory_bytes,
                         "activation_count": row.activation_count,
@@ -136,10 +163,6 @@ pub async fn get_journey(
                 });
             }
 
-            data = serde_json::json!({
-                "adapter_id": id,
-                "total_states": states.len(),
-            });
             info!("Retrieved {} states for adapter lifecycle", states.len());
         }
         "promotion-pipeline" => {
@@ -176,7 +199,7 @@ pub async fn get_journey(
 
                 states.push(JourneyState {
                     state: "completed".to_string(), // Default state since status column doesn't exist
-                    timestamp,
+                    timestamp: timestamp.to_rfc3339(),
                     details: serde_json::json!({
                         "cpid": promo.cpid,
                         "promoted_by": promo.promoted_by,
@@ -184,10 +207,6 @@ pub async fn get_journey(
                 });
             }
 
-            data = serde_json::json!({
-                "plan_id": id,
-                "total_promotions": states.len(),
-            });
             info!("Retrieved {} promotions", states.len());
         }
         "monitoring-flow" => {
@@ -215,7 +234,7 @@ pub async fn get_journey(
                         "cpu: {:.2}%, mem: {:.2}%",
                         metric.cpu_usage, metric.memory_usage
                     ),
-                    timestamp,
+                    timestamp: timestamp.to_rfc3339(),
                     details: serde_json::json!({
                         "cpu_usage": metric.cpu_usage,
                         "memory_usage": metric.memory_usage,
@@ -223,10 +242,6 @@ pub async fn get_journey(
                 });
             }
 
-            data = serde_json::json!({
-                "worker_id": id,
-                "recent_metrics": states.len(),
-            });
             info!("Retrieved {} metrics", states.len());
         }
         _ => {
@@ -241,11 +256,30 @@ pub async fn get_journey(
     let created_at = Utc::now();
     info!("Journey response prepared for {}", journey_type);
 
+    // Generate steps from states for frontend compatibility
+    let steps: Vec<JourneyStep> = states
+        .iter()
+        .enumerate()
+        .map(|(i, s)| JourneyStep {
+            id: format!("step-{}", i),
+            name: s.state.clone(),
+            status: if i == states.len() - 1 { "completed".to_string() } else { "completed".to_string() },
+            metadata: Some(s.details.clone()),
+        })
+        .collect();
+
+    let current_step = if steps.is_empty() { 0 } else { steps.len() - 1 };
+    let completed = !steps.is_empty();
+
     Ok(Json(JourneyResponse {
-        journey_type,
-        id,
-        data,
+        schema_version: "1.0".to_string(),
+        journey_id: id.clone(),
+        steps,
+        current_step,
+        completed,
         states,
-        created_at,
+        id,
+        journey_type,
+        created_at: created_at.to_rfc3339(),
     }))
 }

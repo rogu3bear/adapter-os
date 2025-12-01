@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { apiClient } from '../api/client';
-import type { DashboardWidgetConfig, WidgetConfigUpdate } from '../api/types';
-import { logger } from '../utils/logger';
+import { apiClient } from '@/api/client';
+import type { DashboardWidgetConfig, WidgetConfigUpdate } from '@/api/types';
+import { logger } from '@/utils/logger';
 
 export interface UseDashboardConfigReturn {
   widgets: DashboardWidgetConfig[];
@@ -103,7 +103,7 @@ export function useDashboardConfig(userId?: string): UseDashboardConfigReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [storageKey]);
+  }, [storageKey, userId]);
 
   // Load config on mount
   useEffect(() => {

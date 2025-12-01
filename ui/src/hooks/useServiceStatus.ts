@@ -17,7 +17,7 @@ import type { AdapterOSStatus } from '@/api/types';
  * ```
  */
 export function useServiceStatus() {
-  const { data: status, isLoading, error } = usePolling<AdapterOSStatus | null>(
+  const { data: status, isLoading, error, refetch } = usePolling<AdapterOSStatus | null>(
     async () => {
       try {
         // Use direct fetch to avoid error logging in apiClient for expected 404s
@@ -47,5 +47,6 @@ export function useServiceStatus() {
     status,
     isLoading,
     error: null, // Suppress errors entirely for this polling hook
+    refetch, // Expose refetch for manual refresh triggers
   };
 }

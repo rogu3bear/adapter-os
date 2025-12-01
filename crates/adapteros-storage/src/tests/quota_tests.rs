@@ -2,11 +2,9 @@
 //!
 //! Tests for disk quota enforcement, space reservation, and usage calculation.
 
-use crate::quota::{QuotaManager, SpaceReservation};
-use crate::{StorageConfig, StorageUsage};
+use crate::quota::QuotaManager;
+use crate::StorageConfig;
 use adapteros_core::Result;
-use std::fs;
-use std::time::{Duration, SystemTime};
 use tempfile::TempDir;
 
 #[tokio::test]

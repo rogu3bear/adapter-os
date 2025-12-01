@@ -1,10 +1,10 @@
 import React from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useTrainingWizardContext } from '../context';
-import { LORA_TARGETS } from '../constants';
+import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
+import { LORA_TARGETS } from '@/components/TrainingWizard/constants';
 
 export function TrainingParamsStep() {
   const { state, updateState } = useTrainingWizardContext();
@@ -15,7 +15,7 @@ export function TrainingParamsStep() {
         <div className="space-y-2">
           <div className="flex items-center gap-1">
             <Label htmlFor="rank">Rank (r)</Label>
-            <HelpTooltip content="Controls capacity of learned patterns. Higher = more expressive but slower. Start with 8-16 for most tasks." />
+            <GlossaryTooltip brief="Controls capacity of learned patterns. Higher = more expressive but slower. Start with 8-16 for most tasks." />
           </div>
           <Input
             id="rank"
@@ -29,7 +29,7 @@ export function TrainingParamsStep() {
         <div className="space-y-2">
           <div className="flex items-center gap-1">
             <Label htmlFor="alpha">Alpha</Label>
-            <HelpTooltip content="Controls how strongly adapter influences model. Usually keep at 2x your Rank value." />
+            <GlossaryTooltip brief="Controls how strongly adapter influences model. Usually keep at 2x your Rank value." />
           </div>
           <Input
             id="alpha"
@@ -43,7 +43,7 @@ export function TrainingParamsStep() {
         <div className="space-y-2">
           <div className="flex items-center gap-1">
             <Label htmlFor="epochs">Epochs</Label>
-            <HelpTooltip content="Number of times to repeat training data. More = better learning but risk of overfitting. Start with 3-5." />
+            <GlossaryTooltip brief="Number of times to repeat training data. More = better learning but risk of overfitting. Start with 3-5." />
           </div>
           <Input
             id="epochs"
@@ -56,7 +56,7 @@ export function TrainingParamsStep() {
         <div className="space-y-2">
           <div className="flex items-center gap-1">
             <Label htmlFor="learningRate">Learning Rate</Label>
-            <HelpTooltip content="How fast model learns. Too high = unstable, too low = slow. Default 0.0003 is safe for most cases." />
+            <GlossaryTooltip brief="How fast model learns. Too high = unstable, too low = slow. Default 0.0003 is safe for most cases." />
           </div>
           <Input
             id="learningRate"
@@ -70,7 +70,7 @@ export function TrainingParamsStep() {
         <div className="space-y-2">
           <div className="flex items-center gap-1">
             <Label htmlFor="batchSize">Batch Size</Label>
-            <HelpTooltip content="Number of examples processed together. Larger = faster but needs more memory. Default 4 is conservative." />
+            <GlossaryTooltip brief="Number of examples processed together. Larger = faster but needs more memory. Default 4 is conservative." />
           </div>
           <Input
             id="batchSize"
@@ -83,7 +83,7 @@ export function TrainingParamsStep() {
         <div className="space-y-2">
           <div className="flex items-center gap-1">
             <Label htmlFor="warmupSteps">Warmup Steps (Optional)</Label>
-            <HelpTooltip content="Gradually increase learning rate at start to stabilize training. Optional; helps with some datasets." />
+            <GlossaryTooltip brief="Gradually increase learning rate at start to stabilize training. Optional; helps with some datasets." />
           </div>
           <Input
             id="warmupSteps"

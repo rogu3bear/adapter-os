@@ -6,12 +6,12 @@
  */
 
 import { useQuery, useMutation, useQueryClient, UseMutationOptions } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
+import { apiClient } from '@/api/client';
 import { createResourceHooks } from './factories/createApiHooks';
 import type {
   Document,
   DocumentChunk,
-} from '../api/document-types';
+} from '@/api/document-types';
 
 // Create standard CRUD hooks using the factory
 const documentHooks = createResourceHooks<Document, Document, never, never>({
@@ -23,6 +23,10 @@ const documentHooks = createResourceHooks<Document, Document, never, never>({
     // Note: upload and download are custom operations handled separately
   },
   staleTime: 30000,
+  errorMessages: {
+    list: 'Failed to load documents',
+    detail: 'Failed to load document',
+  },
 });
 
 // Export query keys for external use (extends factory keys with custom chunks key)
@@ -55,6 +59,9 @@ export function useDocumentChunks(documentId: string | undefined) {
     queryFn: () => apiClient.listDocumentChunks(documentId!),
     enabled: !!documentId,
     staleTime: 30000,
+    meta: {
+      errorMessage: 'Failed to load document chunks',
+    },
   });
 }
 

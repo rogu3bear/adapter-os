@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { LoadingState } from '@/components/ui/loading-state';
 import apiClient from '@/api/client';
 import type { Dataset } from '@/api/training-types';
+import { formatBytes, formatTimestamp, formatNumber } from '@/utils/format';
 
 interface DatasetOverviewProps {
   dataset: Dataset;
@@ -46,28 +47,6 @@ export default function DatasetOverview({ dataset, isLoading }: DatasetOverviewP
     return <LoadingState message="Loading dataset..." />;
   }
 
-  const formatDate = (dateString?: string): string => {
-    if (!dateString) return '-';
-    try {
-      return new Date(dateString).toLocaleString();
-    } catch {
-      return dateString;
-    }
-  };
-
-  const formatNumber = (num?: number): string => {
-    if (num === undefined || num === null) return '-';
-    return num.toLocaleString();
-  };
-
-  const formatBytes = (bytes?: number): string => {
-    if (bytes === undefined || bytes === null) return '-';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  };
-
   const sourceTypeLabel = SOURCE_TYPE_LABELS[dataset.source_type] || dataset.source_type;
 
   return (
@@ -103,11 +82,11 @@ export default function DatasetOverview({ dataset, isLoading }: DatasetOverviewP
             </div>
             <div>
               <Label className="text-muted-foreground">Created At</Label>
-              <p className="text-sm">{formatDate(dataset.created_at)}</p>
+              <p className="text-sm">{formatTimestamp(dataset.created_at, 'long')}</p>
             </div>
             <div>
               <Label className="text-muted-foreground">Updated At</Label>
-              <p className="text-sm">{formatDate(dataset.updated_at)}</p>
+              <p className="text-sm">{formatTimestamp(dataset.updated_at, 'long')}</p>
             </div>
           </div>
         </CardContent>
@@ -122,15 +101,15 @@ export default function DatasetOverview({ dataset, isLoading }: DatasetOverviewP
           <div className="grid grid-cols-3 gap-4">
             <div>
               <Label className="text-muted-foreground">File Count</Label>
-              <p className="text-2xl font-bold">{formatNumber(dataset.file_count)}</p>
+              <p className="text-2xl font-bold">{formatNumber(dataset.file_count || 0)}</p>
             </div>
             <div>
               <Label className="text-muted-foreground">Total Size</Label>
-              <p className="text-2xl font-bold">{formatBytes(dataset.total_size_bytes)}</p>
+              <p className="text-2xl font-bold">{formatBytes(dataset.total_size_bytes || 0)}</p>
             </div>
             <div>
               <Label className="text-muted-foreground">Total Tokens</Label>
-              <p className="text-2xl font-bold">{formatNumber(dataset.total_tokens)}</p>
+              <p className="text-2xl font-bold">{formatNumber(dataset.total_tokens || 0)}</p>
             </div>
           </div>
           {statistics && (
@@ -151,7 +130,7 @@ export default function DatasetOverview({ dataset, isLoading }: DatasetOverviewP
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Computed At</Label>
-                  <p className="text-sm">{formatDate(statistics.computed_at)}</p>
+                  <p className="text-sm">{formatTimestamp(statistics.computed_at, 'long')}</p>
                 </div>
               </div>
               {statistics.language_distribution && Object.keys(statistics.language_distribution).length > 0 && (

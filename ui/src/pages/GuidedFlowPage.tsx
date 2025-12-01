@@ -6,11 +6,9 @@ import { FlowProgress } from '@/components/GuidedFlow/FlowProgress';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useTraining } from '@/hooks/useTraining';
 import { useAdapterStacks } from '@/hooks/useAdmin';
-import { TrainingWizard } from '@/components/TrainingWizard';
 import { ChatInterface } from '@/components/ChatInterface';
 import { useTenant } from '@/layout/LayoutProvider';
 import { ArrowRight, ArrowLeft, CheckCircle, Play, UploadCloud } from 'lucide-react';
@@ -29,7 +27,7 @@ function StatusBadge({ status }: { status: DatasetValidationStatus | string }) {
           ? 'destructive'
           : 'outline';
   return (
-    <Badge variant={variant as any} className="capitalize">
+    <Badge variant={variant as 'default' | 'secondary' | 'destructive' | 'outline'} className="capitalize">
       {status || 'unknown'}
     </Badge>
   );
@@ -43,7 +41,6 @@ export default function GuidedFlowPage() {
   const [datasetName, setDatasetName] = useState<string | undefined>();
   const [jobId, setJobId] = useState<string | undefined>();
   const [stackId, setStackId] = useState<string | undefined>();
-  const [isTrainingWizardOpen, setIsTrainingWizardOpen] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
 
   const { data: stacks = [] } = useAdapterStacks();
@@ -63,11 +60,11 @@ export default function GuidedFlowPage() {
   const { mutateAsync: createDataset, isPending: isUploading } = useTraining.useCreateDataset({
     onSuccess: (resp) => {
       const newId =
-        (resp as any).dataset_id ||
-        (resp as any).id ||
+        ('dataset_id' in resp ? resp.dataset_id : undefined) ||
+        ('id' in resp ? resp.id : undefined) ||
         resp.dataset?.id;
-      setDatasetId(newId);
-      setDatasetName(resp.dataset?.name || newId);
+      setDatasetId(newId as string);
+      setDatasetName((resp.dataset?.name || newId) as string);
       toast.success('Dataset uploaded');
       setCurrentStep(1);
     },
@@ -97,7 +94,6 @@ export default function GuidedFlowPage() {
 
   const handleTrainingStarted = useCallback((newJobId: string) => {
     setJobId(newJobId);
-    setIsTrainingWizardOpen(false);
     toast.success('Training job started');
     setCurrentStep(3);
   }, []);
@@ -249,11 +245,11 @@ export default function GuidedFlowPage() {
           ) : (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                We’ll reuse the training wizard with your dataset preselected.
+                Use the full-featured training wizard to configure and start your training job.
               </p>
-              <Button onClick={() => setIsTrainingWizardOpen(true)}>
+              <Button onClick={() => navigate('/create-adapter', { state: { preselectedDatasetId: datasetId } })}>
                 <Play className="h-4 w-4 mr-2" />
-                Start training
+                Open Training Wizard
               </Button>
               {jobId && (
                 <div className="text-sm">
@@ -332,21 +328,6 @@ export default function GuidedFlowPage() {
             Exit Flow
           </Button>
         </div>
-
-        {/* Training Wizard Dialog */}
-        <Dialog open={isTrainingWizardOpen} onOpenChange={setIsTrainingWizardOpen}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Start Training Job</DialogTitle>
-            </DialogHeader>
-            <TrainingWizard
-              initialDatasetId={datasetId}
-              lockDatasetId
-              onComplete={handleTrainingStarted}
-              onCancel={() => setIsTrainingWizardOpen(false)}
-            />
-          </DialogContent>
-        </Dialog>
       </div>
     </FeatureLayout>
   );

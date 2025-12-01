@@ -28,7 +28,7 @@
  * ```
  */
 
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 import {
   TrainingStreamEvent,
   DiscoveryStreamEvent,
@@ -39,8 +39,8 @@ import {
   AdapterStreamEvent,
   StreamConfig,
   parseStreamEvent,
-} from '../api/streaming-types';
-import apiClient from '../api/client';
+} from '@/api/streaming-types';
+import apiClient from '@/api/client';
 
 // ============================================================================
 // Subscription Types
@@ -58,18 +58,25 @@ export interface StreamSubscription {
 
   /** Get current connection state */
   isConnected: () => boolean;
+
+  /** Get the last error that occurred, if any */
+  getError: () => Error | null;
+
+  /** Get the current reconnection attempt count */
+  getReconnectAttempts: () => number;
 }
 
 /**
  * Internal subscription state
  */
-interface InternalSubscription<T = any> {
+interface InternalSubscription<T = unknown> {
   endpoint: string;
   eventSource: EventSource | null;
   config: StreamConfig;
   reconnectAttempts: number;
   reconnectTimeout: ReturnType<typeof setTimeout> | null;
   isActive: boolean;
+  lastError: Error | null;
 }
 
 // ============================================================================
@@ -106,7 +113,7 @@ class StreamingService {
   /**
    * Internal method to establish a stream subscription
    */
-  private subscribe<T = any>(
+  private subscribe<T = unknown>(
     endpoint: string,
     subscriptionId: string,
     config: StreamConfig = {}
@@ -128,6 +135,8 @@ class StreamingService {
         unsubscribe: () => {},
         reconnect: () => {},
         isConnected: () => false,
+        getError: () => null,
+        getReconnectAttempts: () => 0,
       };
     }
 
@@ -143,6 +152,7 @@ class StreamingService {
       reconnectAttempts: 0,
       reconnectTimeout: null,
       isActive: true,
+      lastError: null,
     };
 
     const connect = () => {
@@ -170,6 +180,7 @@ class StreamingService {
             subscriptionId,
           });
           subscription.reconnectAttempts = 0;
+          subscription.lastError = null; // Clear error on successful connection
           if (onOpen) onOpen();
         };
 
@@ -190,6 +201,9 @@ class StreamingService {
 
         subscription.eventSource.onerror = (event: Event) => {
           if (!subscription.isActive) return;
+
+          // Track the error for later retrieval
+          subscription.lastError = new Error('Stream connection error');
 
           logger.warn('Stream connection error', {
             component: 'StreamingService',
@@ -261,9 +275,12 @@ class StreamingService {
       unsubscribe: () => this.unsubscribe(subscriptionId),
       reconnect: () => {
         subscription.reconnectAttempts = 0;
+        subscription.lastError = null;
         connect();
       },
       isConnected: () => subscription.eventSource?.readyState === EventSource.OPEN,
+      getError: () => subscription.lastError,
+      getReconnectAttempts: () => subscription.reconnectAttempts,
     };
   }
 
@@ -312,7 +329,7 @@ class StreamingService {
    * Endpoint: `/v1/streams/training`
    */
   public subscribeToTraining(config: StreamConfig = {}): StreamSubscription {
-    const subscriptionId = 'training-' + Date.now() + Math.random();
+    const subscriptionId = `training-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     return this.subscribe<TrainingStreamEvent>('/v1/streams/training', subscriptionId, config);
   }
 
@@ -321,7 +338,7 @@ class StreamingService {
    * Endpoint: `/v1/streams/discovery`
    */
   public subscribeToDiscovery(config: StreamConfig = {}): StreamSubscription {
-    const subscriptionId = 'discovery-' + Date.now() + Math.random();
+    const subscriptionId = `discovery-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     return this.subscribe<DiscoveryStreamEvent>('/v1/streams/discovery', subscriptionId, config);
   }
 
@@ -330,7 +347,7 @@ class StreamingService {
    * Endpoint: `/v1/streams/contacts`
    */
   public subscribeToContacts(config: StreamConfig = {}): StreamSubscription {
-    const subscriptionId = 'contacts-' + Date.now() + Math.random();
+    const subscriptionId = `contacts-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     return this.subscribe<ContactStreamEvent>('/v1/streams/contacts', subscriptionId, config);
   }
 
@@ -339,7 +356,7 @@ class StreamingService {
    * Endpoint: `/v1/streams/file-changes`
    */
   public subscribeToFileChanges(config: StreamConfig = {}): StreamSubscription {
-    const subscriptionId = 'filechanges-' + Date.now() + Math.random();
+    const subscriptionId = `filechanges-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     return this.subscribe<FileChangeStreamEvent>('/v1/streams/file-changes', subscriptionId, config);
   }
 
@@ -348,7 +365,7 @@ class StreamingService {
    * Endpoint: `/v1/stream/metrics`
    */
   public subscribeToMetrics(config: StreamConfig = {}): StreamSubscription {
-    const subscriptionId = 'metrics-' + Date.now() + Math.random();
+    const subscriptionId = `metrics-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     return this.subscribe<MetricsStreamEvent>('/v1/stream/metrics', subscriptionId, config);
   }
 
@@ -357,7 +374,7 @@ class StreamingService {
    * Endpoint: `/v1/stream/telemetry`
    */
   public subscribeToTelemetry(config: StreamConfig = {}): StreamSubscription {
-    const subscriptionId = 'telemetry-' + Date.now() + Math.random();
+    const subscriptionId = `telemetry-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     return this.subscribe<TelemetryStreamEvent>('/v1/stream/telemetry', subscriptionId, config);
   }
 
@@ -366,7 +383,7 @@ class StreamingService {
    * Endpoint: `/v1/stream/adapters`
    */
   public subscribeToAdapters(config: StreamConfig = {}): StreamSubscription {
-    const subscriptionId = 'adapters-' + Date.now() + Math.random();
+    const subscriptionId = `adapters-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     return this.subscribe<AdapterStreamEvent>('/v1/stream/adapters', subscriptionId, config);
   }
 

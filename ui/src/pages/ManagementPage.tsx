@@ -16,7 +16,7 @@ export default function ManagementPage() {
       <FeatureLayout
         title="Management Panel"
         description="Unified system management, monitoring, and control"
-        helpContent="Unified system management, monitoring, and control interface"
+        brief="Unified system management, monitoring, and control interface"
         maxWidth="xl"
         contentPadding="default"
       >

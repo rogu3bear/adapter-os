@@ -410,14 +410,19 @@ pub async fn start_training(
             error!(adapter_name = %request.adapter_name, error = %e, "Failed to start training job");
 
             // Audit log: training start failure
-            let _ = crate::audit_helper::log_failure(
-                &state.db,
-                &claims,
-                crate::audit_helper::actions::TRAINING_START,
-                crate::audit_helper::resources::TRAINING_JOB,
-                Some(&request.adapter_name),
-                &e.to_string(),
-            );
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let _ = crate::audit_helper::log_failure(
+                        &state.db,
+                        &claims,
+                        crate::audit_helper::actions::TRAINING_START,
+                        crate::audit_helper::resources::TRAINING_JOB,
+                        Some(&request.adapter_name),
+                        &e.to_string(),
+                    )
+                    .await;
+                })
+            });
 
             let as_aos = AosError::Other(e.to_string());
             build_training_error_response(&as_aos)
@@ -546,14 +551,19 @@ pub async fn cancel_training(
             error!(job_id = %job_id, error = %e, "Failed to cancel training job");
 
             // Audit log: training cancel failure
-            let _ = crate::audit_helper::log_failure(
-                &state.db,
-                &claims,
-                crate::audit_helper::actions::TRAINING_CANCEL,
-                crate::audit_helper::resources::TRAINING_JOB,
-                Some(&job_id),
-                &e.to_string(),
-            );
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let _ = crate::audit_helper::log_failure(
+                        &state.db,
+                        &claims,
+                        crate::audit_helper::actions::TRAINING_CANCEL,
+                        crate::audit_helper::resources::TRAINING_JOB,
+                        Some(&job_id),
+                        &e.to_string(),
+                    )
+                    .await;
+                })
+            });
 
             let error_str = e.to_string();
             if error_str.contains("cannot be cancelled") || error_str.contains("already") {

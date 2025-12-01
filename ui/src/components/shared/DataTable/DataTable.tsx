@@ -11,7 +11,7 @@ import {
 } from "react";
 import { ArrowUpDown, ArrowUp, ArrowDown, Inbox } from "lucide-react";
 
-import { cn } from "../../ui/utils";
+import { cn } from "@/components/ui/utils";
 import {
   Table,
   TableBody,
@@ -19,9 +19,9 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "../../ui/table";
-import { Checkbox } from "../../ui/checkbox";
-import { Skeleton } from "../../ui/skeleton";
+} from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import type {
   CellContext,

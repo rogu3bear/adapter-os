@@ -556,7 +556,7 @@ mod tests {
         let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
         let db_path = temp_dir.path().join("test.db");
 
-        let db = CodeGraphDb::new(&db_path)
+        let _db = CodeGraphDb::new(&db_path)
             .await
             .expect("Database creation should succeed");
         assert!(db_path.exists());

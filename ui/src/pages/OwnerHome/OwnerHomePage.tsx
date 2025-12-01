@@ -1,14 +1,12 @@
 /**
- * Owner Home Page
+ * Owner Home Page - Redesigned
  *
- * Unified dashboard for System Owner / Root operator providing:
- * - System overview with health metrics
- * - Tenant and adapter stack summaries
- * - Embedded system chat and CLI console
- * - Model load/unload/download controls
+ * Clean 2-column layout with collapsible sidebar for system owners.
+ * Provides system health at a glance with clear task prioritization.
  *
- * This is a composition layer aggregating existing functionality
- * into a single "god view" for system owners.
+ * Layout:
+ * - Desktop: Main content (8 cols) + Collapsible Sidebar (4 cols)
+ * - Mobile: Single column with FAB for Chat/CLI
  *
  * Citations:
  * - docs/PRD_OWNER_HOME_IMPLEMENTATION.md: PRD-OH-01
@@ -18,32 +16,33 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Crown, RefreshCw, ExternalLink } from 'lucide-react';
+import { Crown, RefreshCw, ExternalLink, PlusCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useAuth } from '@/providers/CoreProviders';
 import apiClient from '@/api/client';
 import type { ModelWithStatsResponse } from '@/api/types';
-import type { MetricsSnapshotEvent, AdapterStreamEvent } from '@/api/streaming-types';
+import type { MetricsSnapshotEvent } from '@/api/streaming-types';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Skeleton } from '@/components/ui/skeleton';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { LiveDataBadge } from '@/components/ui/live-data-badge';
 
-import SystemHealthStrip from './components/SystemHealthStrip';
-import SystemOverviewCard from './components/SystemOverviewCard';
-import { SystemStateCard } from './components/SystemStateCard';
-import TenantsCard from './components/TenantsCard';
-import { StacksAdaptersCard } from './components/StacksAdaptersCard';
-import { ModelControlPanel } from './components/ModelControlPanel';
+// New components
+import { StatusBar } from './components/StatusBar';
+import { AlertHero } from './components/AlertHero';
+import { OnboardingStrip } from './components/OnboardingStrip';
+import { ActiveModelCard } from './components/ActiveModelCard';
+import { SystemKpiGrid } from './components/SystemKpiGrid';
+import { CollapsibleSidebar } from './components/CollapsibleSidebar';
+
+// Existing components (kept)
 import ActivityCard from './components/ActivityCard';
-import UsageCard from './components/UsageCard';
 import { SystemChatWidget } from './components/SystemChatWidget';
 import { CliConsole } from './components/CliConsole';
-import { OnboardingStrip } from './components/OnboardingStrip';
+
 import { useSystemState } from '@/hooks/useSystemState';
 import { useLiveData } from '@/hooks/useLiveData';
 
@@ -63,7 +62,6 @@ function parseModelStatus(status?: string | null): ModelStatusValue | undefined 
 export default function OwnerHomePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [refreshKey, setRefreshKey] = useState(0);
   const [activeRightTab, setActiveRightTab] = useState<'chat' | 'cli'>('chat');
 
   // Fetch system overview
@@ -73,7 +71,7 @@ export default function OwnerHomePage() {
     error: systemError,
     refetch: refetchSystem,
   } = useQuery({
-    queryKey: ['owner-system-overview', refreshKey],
+    queryKey: ['owner-system-overview'],
     queryFn: () => apiClient.getSystemOverview(),
     staleTime: 10000,
     refetchInterval: 30000,
@@ -85,7 +83,7 @@ export default function OwnerHomePage() {
     isLoading: tenantsLoading,
     refetch: refetchTenants,
   } = useQuery({
-    queryKey: ['owner-tenants', refreshKey],
+    queryKey: ['owner-tenants'],
     queryFn: () => apiClient.listTenants(),
     staleTime: 30000,
   });
@@ -96,7 +94,7 @@ export default function OwnerHomePage() {
     isLoading: adaptersLoading,
     refetch: refetchAdapters,
   } = useQuery({
-    queryKey: ['owner-adapters', refreshKey],
+    queryKey: ['owner-adapters'],
     queryFn: () => apiClient.listAdapters(),
     staleTime: 15000,
   });
@@ -107,7 +105,7 @@ export default function OwnerHomePage() {
     isLoading: stacksLoading,
     refetch: refetchStacks,
   } = useQuery({
-    queryKey: ['owner-stacks', refreshKey],
+    queryKey: ['owner-stacks'],
     queryFn: () => apiClient.listAdapterStacks(),
     staleTime: 30000,
   });
@@ -118,7 +116,7 @@ export default function OwnerHomePage() {
     isLoading: modelsLoading,
     refetch: refetchModels,
   } = useQuery<ModelWithStatsResponse[]>({
-    queryKey: ['owner-models', refreshKey],
+    queryKey: ['owner-models'],
     queryFn: () => apiClient.listModels(),
     staleTime: 30000,
   });
@@ -129,21 +127,10 @@ export default function OwnerHomePage() {
     isLoading: baseModelLoading,
     refetch: refetchBaseModel,
   } = useQuery({
-    queryKey: ['owner-base-model-status', refreshKey],
+    queryKey: ['owner-base-model-status'],
     queryFn: () => apiClient.getBaseModelStatus(),
     staleTime: 15000,
     refetchInterval: 30000,
-  });
-
-  // Fetch backends list
-  const {
-    data: backendsData,
-    isLoading: backendsLoading,
-    refetch: refetchBackends,
-  } = useQuery({
-    queryKey: ['owner-backends', refreshKey],
-    queryFn: () => apiClient.listBackends(),
-    staleTime: 30000,
   });
 
   // Fetch ground truth system state (memory pressure, top adapters)
@@ -178,7 +165,6 @@ export default function OwnerHomePage() {
     sseEndpoint: '/v1/stream/metrics',
     sseEventType: 'metrics',
     fetchFn: async () => {
-      // Initial fetch handled by systemOverview query
       return sseMetrics || ({} as MetricsSnapshotEvent);
     },
     pollingSpeed: 'normal',
@@ -197,7 +183,6 @@ export default function OwnerHomePage() {
         ...systemOverview.resource_usage,
         cpu_usage_percent: sseMetrics.system.cpu_percent,
         memory_usage_percent: sseMetrics.system.memory_percent,
-        // GPU not in metrics stream, keep original
       },
     };
   }, [systemOverview, sseMetrics]);
@@ -205,7 +190,7 @@ export default function OwnerHomePage() {
   // Map OpenAIModelInfo to BaseModel format
   const models = React.useMemo(() => {
     if (!Array.isArray(rawModels)) return [];
-    return rawModels.map(model => ({
+    return rawModels.map((model) => ({
       id: model.id,
       name: model.name || model.id,
       size_bytes: model.size_bytes ?? undefined,
@@ -215,22 +200,18 @@ export default function OwnerHomePage() {
     }));
   }, [rawModels]);
 
-  // Check if first-time user for onboarding
-  const isFirstTimeUser = React.useMemo(() => {
-    const tenantsArray = Array.isArray(tenants) ? tenants : [];
-    const adaptersArray = Array.isArray(adapters) ? adapters : [];
-    return tenantsArray.length <= 1 && adaptersArray.length === 0 && models.length === 0;
-  }, [tenants, adapters, models]);
-
   // Derive active stack from stacks list
   const activeStack = React.useMemo(() => {
     if (!Array.isArray(stacks)) return null;
-    return stacks.find(s => s.is_default) || stacks[0] || null;
+    return stacks.find((s) => s.is_default) || stacks[0] || null;
   }, [stacks]);
+
+  // Adapter count for onboarding
+  const adapterCount = Array.isArray(adapters) ? adapters.length : 0;
+  const hasModel = !!baseModelStatus?.model_name;
 
   // Refresh all data
   const handleRefresh = async () => {
-    setRefreshKey((prev) => prev + 1);
     await Promise.all([
       refetchSystem(),
       refetchTenants(),
@@ -238,199 +219,166 @@ export default function OwnerHomePage() {
       refetchStacks(),
       refetchModels(),
       refetchBaseModel(),
-      refetchBackends(),
       refetchSystemState(),
     ]);
     toast.success('Dashboard refreshed');
   };
 
-  const isLoading = systemLoading || tenantsLoading || adaptersLoading || stacksLoading || modelsLoading;
+  const isLoading =
+    systemLoading || tenantsLoading || adaptersLoading || stacksLoading || modelsLoading;
 
   return (
     <div className="min-h-full bg-slate-50">
-      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* System Health Strip (Top) */}
-        <SectionErrorBoundary sectionName="System Health">
-          <SystemHealthStrip
-            systemOverview={enhancedSystemOverview}
-            isLoading={systemLoading}
-            error={systemError}
-            baseModelStatus={baseModelStatus}
-            backends={backendsData?.backends}
-            activeStack={activeStack}
-            isLive={metricsConnected}
-          />
-        </SectionErrorBoundary>
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Main Layout: Content + Sidebar */}
+        <div className="flex gap-6">
+          {/* Main Content */}
+          <div className="flex-1 min-w-0 space-y-6">
+            {/* Status Bar */}
+            <SectionErrorBoundary sectionName="Status Bar">
+              <StatusBar
+                systemOverview={enhancedSystemOverview}
+                baseModelStatus={baseModelStatus}
+                adapters={Array.isArray(adapters) ? adapters : []}
+                systemState={systemState}
+                isLoading={systemLoading}
+                error={systemError}
+                isLive={metricsConnected}
+              />
+            </SectionErrorBoundary>
 
-        {/* Header */}
-        <div className="mt-6 mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Crown className="h-8 w-8 text-amber-500" />
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Owner Home</h1>
-              <p className="text-sm text-slate-600">
-                Welcome, {user?.display_name || user?.email}. Full system access.
-              </p>
-            </div>
-            <Badge variant="default" className="ml-4 bg-amber-500 hover:bg-amber-600">
-              System Owner
-            </Badge>
-          </div>
-          <div className="flex items-center gap-3">
-            <LiveDataBadge
-              isLive={metricsConnected}
-              connectionStatus={metricsConnectionStatus}
-              freshnessLevel={metricsFreshness}
-              lastUpdated={metricsLastUpdated}
-              onReconnect={reconnectMetrics}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRefresh}
-              disabled={isLoading}
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/dashboard')}
-            >
-              Standard Dashboard
-              <ExternalLink className="h-4 w-4 ml-2" />
-            </Button>
-          </div>
-        </div>
-
-        {/* Onboarding Strip (show for first-time users) */}
-        {isFirstTimeUser && !isLoading && (
-          <SectionErrorBoundary sectionName="Onboarding">
-            <OnboardingStrip />
-          </SectionErrorBoundary>
-        )}
-
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-12 gap-6">
-          {/* Left Column - System & Tenant Overview (3 cols) */}
-          <div className="col-span-12 lg:col-span-3">
-            <div className="bg-white rounded-xl border-2 border-slate-300 shadow-md p-4 space-y-4">
-              {/* Section Header */}
-              <div className="flex items-center gap-2 pb-2 border-b border-slate-300">
-                <div className="h-2 w-2 rounded-full bg-blue-500" />
-                <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
-                  System & Infrastructure
-                </h2>
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Crown className="h-7 w-7 text-amber-500" />
+                <div>
+                  <h1 className="text-xl font-bold text-slate-900">Owner Home</h1>
+                  <p className="text-sm text-slate-600">
+                    Welcome, {user?.display_name || user?.email}
+                  </p>
+                </div>
+                <Badge
+                  variant="default"
+                  className="ml-2 bg-amber-500 hover:bg-amber-600 hidden sm:flex"
+                >
+                  Owner
+                </Badge>
               </div>
-
-              <SectionErrorBoundary sectionName="System Overview">
-                <SystemOverviewCard
-                  systemOverview={systemOverview}
-                  isLoading={systemLoading}
+              <div className="flex flex-wrap items-center gap-2">
+                <LiveDataBadge
+                  isLive={metricsConnected}
+                  connectionStatus={metricsConnectionStatus}
+                  freshnessLevel={metricsFreshness}
+                  lastUpdated={metricsLastUpdated}
+                  onReconnect={reconnectMetrics}
                 />
-              </SectionErrorBoundary>
-
-              <SectionErrorBoundary sectionName="System State">
-                <SystemStateCard
-                  data={systemState}
-                  isLoading={systemStateLoading}
-                  error={systemStateError}
-                  isLive={systemStateIsLive}
-                  lastUpdated={systemStateLastUpdated}
-                  onRefresh={refetchSystemState}
-                />
-              </SectionErrorBoundary>
-
-              <SectionErrorBoundary sectionName="Organizations">
-                <TenantsCard
-                  tenants={Array.isArray(tenants) ? tenants : []}
-                  isLoading={tenantsLoading}
-                />
-              </SectionErrorBoundary>
-
-              <SectionErrorBoundary sectionName="Stacks & Adapters">
-                <StacksAdaptersCard
-                  stacks={Array.isArray(stacks) ? stacks : []}
-                  adapters={Array.isArray(adapters) ? adapters : []}
-                  isLoading={stacksLoading || adaptersLoading}
-                />
-              </SectionErrorBoundary>
-            </div>
-          </div>
-
-          {/* Center Column - Models & Activity (4 cols) */}
-          <div className="col-span-12 lg:col-span-4">
-            <div className="bg-white rounded-xl border-2 border-slate-300 shadow-md p-4 space-y-4">
-              {/* Section Header */}
-              <div className="flex items-center gap-2 pb-2 border-b border-slate-300">
-                <div className="h-2 w-2 rounded-full bg-purple-500" />
-                <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
-                  Models & Activity
-                </h2>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => navigate('/create-adapter')}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <PlusCircle className="h-4 w-4 mr-1.5" />
+                  <span className="hidden sm:inline">Create Adapter</span>
+                  <span className="sm:hidden">Create</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={isLoading}
+                >
+                  <RefreshCw
+                    className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''} sm:mr-1.5`}
+                  />
+                  <span className="hidden sm:inline">Refresh</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate('/dashboard')}
+                  className="hidden md:flex"
+                >
+                  Dashboard
+                  <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
+                </Button>
               </div>
+            </div>
 
-              <SectionErrorBoundary sectionName="Model Control">
-                <ModelControlPanel
+            {/* Alert Hero (conditional) */}
+            <SectionErrorBoundary sectionName="Alerts">
+              <AlertHero
+                systemOverview={enhancedSystemOverview}
+                baseModelStatus={baseModelStatus}
+                systemState={systemState}
+              />
+            </SectionErrorBoundary>
+
+            {/* Onboarding (conditional based on user state) */}
+            <SectionErrorBoundary sectionName="Onboarding">
+              <OnboardingStrip adapterCount={adapterCount} hasModel={hasModel} />
+            </SectionErrorBoundary>
+
+            {/* Command Center: Model + Activity */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <SectionErrorBoundary sectionName="Active Model">
+                <ActiveModelCard
                   models={Array.isArray(models) ? models : []}
-                  adapters={Array.isArray(adapters) ? adapters : []}
-                  isLoading={modelsLoading || adaptersLoading}
+                  isLoading={modelsLoading}
                   onRefresh={refetchModels}
                 />
               </SectionErrorBoundary>
 
               <SectionErrorBoundary sectionName="Activity">
-                <ActivityCard refreshKey={refreshKey} />
-              </SectionErrorBoundary>
-
-              <SectionErrorBoundary sectionName="Usage">
-                <UsageCard refreshKey={refreshKey} />
+                <ActivityCard />
               </SectionErrorBoundary>
             </div>
+
+            {/* System KPIs */}
+            <SectionErrorBoundary sectionName="System Overview">
+              <SystemKpiGrid
+                systemOverview={enhancedSystemOverview}
+                systemState={systemState}
+                adapters={Array.isArray(adapters) ? adapters : []}
+                stacks={Array.isArray(stacks) ? stacks : []}
+                tenants={Array.isArray(tenants) ? tenants : []}
+                isLoading={systemLoading || adaptersLoading || stacksLoading}
+              />
+            </SectionErrorBoundary>
           </div>
 
-          {/* Right Column - Chat & CLI (5 cols) */}
-          <div className="col-span-12 lg:col-span-5">
-            <div className="bg-white rounded-xl border-2 border-slate-300 shadow-md p-4 h-[calc(100vh-220px)] min-h-[600px] flex flex-col">
-              {/* Section Header */}
-              <div className="flex items-center gap-2 pb-3 mb-3 border-b border-slate-300">
-                <div className="h-2 w-2 rounded-full bg-amber-500" />
-                <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
-                  Communication
-                </h2>
-              </div>
-
-              <div className="bg-white rounded-lg border shadow-sm flex-1 flex flex-col overflow-hidden">
-                <Tabs
-                  value={activeRightTab}
-                  onValueChange={(v) => setActiveRightTab(v as 'chat' | 'cli')}
-                  className="flex flex-col h-full"
-                >
-                  <div className="border-b px-4 py-2">
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="chat">System Chat</TabsTrigger>
-                      <TabsTrigger value="cli">CLI Console</TabsTrigger>
-                    </TabsList>
-                  </div>
-                  <TabsContent value="chat" className="flex-1 m-0 overflow-hidden">
-                    <SectionErrorBoundary sectionName="System Chat">
-                      <SystemChatWidget
-                        systemOverview={systemOverview}
-                        adapters={Array.isArray(adapters) ? adapters : []}
-                        baseModelStatus={baseModelStatus}
-                        activeStack={activeStack}
-                      />
-                    </SectionErrorBoundary>
-                  </TabsContent>
-                  <TabsContent value="cli" className="flex-1 m-0 overflow-hidden">
-                    <SectionErrorBoundary sectionName="CLI Console">
-                      <CliConsole />
-                    </SectionErrorBoundary>
-                  </TabsContent>
-                </Tabs>
-              </div>
+          {/* Collapsible Sidebar */}
+          <CollapsibleSidebar defaultExpanded={true}>
+            <div className="h-full flex flex-col">
+              <Tabs
+                value={activeRightTab}
+                onValueChange={(v) => setActiveRightTab(v as 'chat' | 'cli')}
+                className="flex flex-col h-full"
+              >
+                <div className="border-b px-3 py-2">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="chat">Chat</TabsTrigger>
+                    <TabsTrigger value="cli">CLI</TabsTrigger>
+                  </TabsList>
+                </div>
+                <TabsContent value="chat" className="flex-1 m-0 overflow-hidden">
+                  <SectionErrorBoundary sectionName="System Chat">
+                    <SystemChatWidget
+                      systemOverview={systemOverview}
+                      adapters={Array.isArray(adapters) ? adapters : []}
+                      baseModelStatus={baseModelStatus}
+                      activeStack={activeStack}
+                    />
+                  </SectionErrorBoundary>
+                </TabsContent>
+                <TabsContent value="cli" className="flex-1 m-0 overflow-hidden">
+                  <SectionErrorBoundary sectionName="CLI Console">
+                    <CliConsole />
+                  </SectionErrorBoundary>
+                </TabsContent>
+              </Tabs>
             </div>
-          </div>
+          </CollapsibleSidebar>
         </div>
       </div>
     </div>

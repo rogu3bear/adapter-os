@@ -1,11 +1,11 @@
 // WorkflowExecutor component - Execute workflow steps with wizard interface
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Wizard, WizardStep } from '../ui/wizard';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Alert, AlertDescription } from '../ui/alert';
-import { Badge } from '../ui/badge';
+import { Wizard, WizardStep } from '@/components/ui/wizard';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import {
   AlertTriangle,
   CheckCircle,
@@ -22,12 +22,13 @@ import {
   WorkflowProgress as WorkflowProgressType,
   WorkflowResult,
   SavedWorkflowState,
+  WorkflowStep,
 } from './types';
 import { WorkflowProgress } from './WorkflowProgress';
 
 interface WorkflowExecutorProps {
   template: WorkflowTemplate;
-  initialInputs?: Record<string, any>;
+  initialInputs?: Record<string, unknown>;
   onComplete: (execution: WorkflowExecution) => void;
   onCancel: () => void;
   savedState?: SavedWorkflowState;
@@ -41,7 +42,7 @@ export function WorkflowExecutor({
   savedState,
 }: WorkflowExecutorProps) {
   const [currentStep, setCurrentStep] = useState(savedState?.currentStep || 0);
-  const [workflowData, setWorkflowData] = useState<Record<string, any>>(
+  const [workflowData, setWorkflowData] = useState<Record<string, unknown>>(
     savedState?.data || initialInputs
   );
   const [isExecuting, setIsExecuting] = useState(false);
@@ -61,14 +62,14 @@ export function WorkflowExecutor({
     localStorage.setItem(`workflow-${template.id}`, JSON.stringify(saveState));
   }, [template.id, currentStep, workflowData]);
 
-  const updateData = (stepId: string, data: any) => {
+  const updateData = (stepId: string, data: unknown) => {
     setWorkflowData((prev) => ({
       ...prev,
       [stepId]: data,
     }));
   };
 
-  const shouldSkipStep = (step: any): boolean => {
+  const shouldSkipStep = (step: WorkflowStep): boolean => {
     if (!step.skip) return false;
 
     const { field, operator, value } = step.skip;
@@ -88,7 +89,7 @@ export function WorkflowExecutor({
     }
   };
 
-  const validateStep = async (step: any): Promise<boolean> => {
+  const validateStep = async (step: WorkflowStep): Promise<boolean> => {
     if (!step.validation) return true;
 
     const validation = step.validation;
@@ -115,7 +116,7 @@ export function WorkflowExecutor({
     return true;
   };
 
-  const executeStep = async (step: any): Promise<WorkflowResult> => {
+  const executeStep = async (step: WorkflowStep): Promise<WorkflowResult> => {
     const stepStartTime = Date.now();
 
     try {
@@ -375,7 +376,7 @@ export function WorkflowExecutor({
                 acc[step.id] = 'pending';
               }
               return acc;
-            }, {} as Record<string, any>),
+            }, {} as Record<string, 'pending' | 'running' | 'completed' | 'failed' | 'skipped'>),
             data: workflowData,
             startedAt: startTime,
             lastUpdate: new Date().toISOString(),

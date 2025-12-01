@@ -24,6 +24,9 @@ export function useChatTags(
   return useQuery<ChatTag[], Error>({
     queryKey: QUERY_KEYS.chatTags,
     queryFn: () => apiClient.listChatTags(),
+    meta: {
+      errorMessage: 'Failed to load chat tags',
+    },
     ...options,
   });
 }
@@ -91,6 +94,9 @@ export function useSessionTags(
     queryKey: QUERY_KEYS.sessionTags(sessionId),
     queryFn: () => apiClient.getSessionTags(sessionId),
     enabled: !!sessionId,
+    meta: {
+      errorMessage: 'Failed to load session tags',
+    },
     ...options,
   });
 }

@@ -1,3 +1,17 @@
+/**
+ * @deprecated This is a legacy MVP testing component that is not used in production.
+ *
+ * Purpose: Simple debug UI for testing hot-swappable LoRA adapters.
+ * Status: Not imported by main.tsx, kept for manual testing only.
+ *
+ * If you need a testing interface, consider using the full UI components instead:
+ * - InferencePlayground (ui/src/components/InferencePlayground.tsx)
+ * - AdapterLifecycleManager (ui/src/components/AdapterLifecycleManager.tsx)
+ *
+ * Note: Contains inline styles that don't follow Tailwind conventions.
+ * This is acceptable for legacy/debug components.
+ */
+
 import { useState, useEffect } from 'react';
 
 interface Adapter {
@@ -37,8 +51,9 @@ export default function MinimalApp() {
       const data = await response.json();
       setAdapters(data.adapters || []);
       setError(null);
-    } catch (err: any) {
-      setError(`Failed to fetch adapters: ${err.message}`);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error('Failed to fetch adapters');
+      setError(`Failed to fetch adapters: ${error.message}`);
       console.error('Fetch adapters error:', err);
     }
   };
@@ -67,8 +82,9 @@ export default function MinimalApp() {
       }
       await fetchAdapters(); // Refresh list
       setActiveAdapter(adapterId);
-    } catch (err: any) {
-      setError(`Failed to load adapter: ${err.message}`);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error('Failed to load adapter');
+      setError(`Failed to load adapter: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -86,8 +102,9 @@ export default function MinimalApp() {
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
       setActiveAdapter(adapterId);
-    } catch (err: any) {
-      setError(`Failed to swap adapter: ${err.message}`);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error('Failed to swap adapter');
+      setError(`Failed to swap adapter: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -121,8 +138,9 @@ export default function MinimalApp() {
 
       const data = await response.json();
       setOutput(data.text || data.output || JSON.stringify(data));
-    } catch (err: any) {
-      setError(`Generation failed: ${err.message}`);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error('Generation failed');
+      setError(`Generation failed: ${error.message}`);
     } finally {
       setLoading(false);
     }

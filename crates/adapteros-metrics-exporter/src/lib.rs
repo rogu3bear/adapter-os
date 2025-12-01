@@ -51,6 +51,11 @@ pub struct MetricsExporter {
     // System metrics
     promotions_total: Counter,
     policy_violations_total: Counter,
+    // Adapter lifecycle state transition metrics
+    adapter_state_transitions_total: CounterVec,
+    adapter_state_transition_failures_total: CounterVec,
+    adapter_state_transition_duration_seconds: HistogramVec,
+    adapters_by_state: GaugeVec,
 }
 
 impl MetricsExporter {
@@ -145,6 +150,44 @@ impl MetricsExporter {
         )?;
         registry.register(Box::new(policy_violations_total.clone()))?;
 
+        // Adapter lifecycle state transition metrics
+        let adapter_state_transitions_total = CounterVec::new(
+            Opts::new(
+                "adapteros_adapter_state_transitions_total",
+                "Total number of adapter state transitions",
+            ),
+            &["old_state", "new_state", "tenant_id"],
+        )?;
+        registry.register(Box::new(adapter_state_transitions_total.clone()))?;
+
+        let adapter_state_transition_failures_total = CounterVec::new(
+            Opts::new(
+                "adapteros_adapter_state_transition_failures_total",
+                "Total number of failed state transitions (CAS conflicts, validation errors)",
+            ),
+            &["old_state", "new_state", "reason"],
+        )?;
+        registry.register(Box::new(adapter_state_transition_failures_total.clone()))?;
+
+        let adapter_state_transition_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "adapteros_adapter_state_transition_duration_seconds",
+                "Duration of adapter state transitions in seconds",
+            )
+            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]),
+            &["old_state", "new_state"],
+        )?;
+        registry.register(Box::new(adapter_state_transition_duration_seconds.clone()))?;
+
+        let adapters_by_state = GaugeVec::new(
+            Opts::new(
+                "adapteros_adapters_by_state",
+                "Number of adapters in each lifecycle state",
+            ),
+            &["state", "tenant_id"],
+        )?;
+        registry.register(Box::new(adapters_by_state.clone()))?;
+
         Ok(Self {
             registry,
             http_requests_total,
@@ -158,6 +201,10 @@ impl MetricsExporter {
             _workers_adapters_loaded: workers_adapters_loaded,
             promotions_total,
             policy_violations_total,
+            adapter_state_transitions_total,
+            adapter_state_transition_failures_total,
+            adapter_state_transition_duration_seconds,
+            adapters_by_state,
         })
     }
 
@@ -193,6 +240,58 @@ impl MetricsExporter {
     /// Record a policy violation
     pub fn record_policy_violation(&self) {
         self.policy_violations_total.inc();
+    }
+
+    /// Record a successful adapter state transition
+    ///
+    /// # Arguments
+    /// * `old_state` - Previous adapter state (unloaded, cold, warm, hot, resident)
+    /// * `new_state` - New adapter state
+    /// * `tenant_id` - Tenant identifier
+    /// * `duration_secs` - Time taken for the transition in seconds
+    pub fn record_state_transition(
+        &self,
+        old_state: &str,
+        new_state: &str,
+        tenant_id: &str,
+        duration_secs: f64,
+    ) {
+        self.adapter_state_transitions_total
+            .with_label_values(&[old_state, new_state, tenant_id])
+            .inc();
+
+        self.adapter_state_transition_duration_seconds
+            .with_label_values(&[old_state, new_state])
+            .observe(duration_secs);
+    }
+
+    /// Record a failed adapter state transition (CAS conflict, validation error)
+    ///
+    /// # Arguments
+    /// * `old_state` - Expected old state
+    /// * `new_state` - Attempted new state
+    /// * `reason` - Failure reason (e.g., "cas_conflict", "validation_error", "not_found")
+    pub fn record_state_transition_failure(
+        &self,
+        old_state: &str,
+        new_state: &str,
+        reason: &str,
+    ) {
+        self.adapter_state_transition_failures_total
+            .with_label_values(&[old_state, new_state, reason])
+            .inc();
+    }
+
+    /// Update the gauge showing adapters by state
+    ///
+    /// # Arguments
+    /// * `state` - Adapter state (unloaded, cold, warm, hot, resident)
+    /// * `tenant_id` - Tenant identifier
+    /// * `count` - Number of adapters in this state
+    pub fn set_adapters_by_state(&self, state: &str, tenant_id: &str, count: f64) {
+        self.adapters_by_state
+            .with_label_values(&[state, tenant_id])
+            .set(count);
     }
 
     /// Update worker metrics from database

@@ -7,11 +7,12 @@
  * Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §8.2
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
-import { useTimestamp } from '../hooks/useTimestamp';
+import { useTimestamp } from '@/hooks/useTimestamp';
+import { useLiveData } from '@/hooks/useLiveData';
 
 interface TrainingEvent {
   type: string;
@@ -33,46 +34,52 @@ interface TrainingStreamPageProps {
   selectedTenant: string;
 }
 
+interface TrainingData {
+  events: TrainingEvent[];
+  adapterStates: Map<string, string>;
+  metricsHistory: Record<string, unknown>[];
+}
+
 export function TrainingStreamPage({ selectedTenant }: TrainingStreamPageProps) {
   const [events, setEvents] = useState<TrainingEvent[]>([]);
   const [adapterStates, setAdapterStates] = useState<Map<string, string>>(new Map());
-  const [metricsHistory, setMetricsHistory] = useState<any[]>([]);
+  const [metricsHistory, setMetricsHistory] = useState<Record<string, unknown>[]>([]);
 
-  // Subscribe to training events via SSE
-  useEffect(() => {
-    const eventSource = new EventSource(`/api/v1/streams/training?tenant=${selectedTenant}`);
+  const handleSSEMessage = useCallback((eventData: unknown) => {
+    const data = eventData as TrainingEvent;
 
-    const handleTrainingEvent = (event: MessageEvent) => {
-      const data = JSON.parse(event.data);
-      
-      setEvents((prev) => [data, ...prev].slice(0, 100)); // Keep last 100
+    setEvents((prev) => [data, ...prev].slice(0, 100)); // Keep last 100
 
-      // Update adapter states
-      if (
-        (data.type === 'adapter_state_transition' || data.type === 'adapter_promoted') &&
-        data.payload.adapter_id
-      ) {
-        setAdapterStates((prev) => {
-          const updated = new Map(prev);
-          updated.set(data.payload.adapter_id, data.payload.to_state || 'unknown');
-          return updated;
-        });
-      }
+    // Update adapter states
+    if (
+      (data.type === 'adapter_state_transition' || data.type === 'adapter_promoted') &&
+      data.payload.adapter_id
+    ) {
+      setAdapterStates((prev) => {
+        const updated = new Map(prev);
+        updated.set(data.payload.adapter_id, data.payload.to_state || 'unknown');
+        return updated;
+      });
+    }
 
-      // Add to metrics history
-      if (data.type === 'profiler_metrics' && data.payload.metrics) {
-        setMetricsHistory((prev) =>
-          [...prev, { timestamp: data.timestamp, ...data.payload.metrics }].slice(-60) // Keep last 60
-        );
-      }
-    };
+    // Add to metrics history
+    if (data.type === 'profiler_metrics' && data.payload.metrics) {
+      setMetricsHistory((prev) =>
+        [...prev, { timestamp: data.timestamp, ...data.payload.metrics }].slice(-60) // Keep last 60
+      );
+    }
+  }, []);
 
-    eventSource.addEventListener('training', handleTrainingEvent);
-
-    return () => {
-      eventSource.close();
-    };
-  }, [selectedTenant]);
+  // Use standardized live data hook
+  const { sseConnected } = useLiveData<TrainingData>({
+    sseEndpoint: `/v1/streams/training?tenant=${selectedTenant}`,
+    sseEventType: 'training',
+    fetchFn: async () => ({ events: [], adapterStates: new Map(), metricsHistory: [] }),
+    pollingSpeed: 'fast',
+    enabled: true,
+    onSSEMessage: handleSSEMessage,
+    operationName: 'TrainingStream',
+  });
 
   const getEventIcon = (type: string) => {
     switch (type) {
@@ -149,11 +156,20 @@ export function TrainingStreamPage({ selectedTenant }: TrainingStreamPageProps) 
                 <div className="flex justify-between mb-2">
                   <span className="text-sm">Activation %</span>
                   <span className="text-sm font-medium">
-                    {metricsHistory[metricsHistory.length - 1]?.activation_pct?.toFixed(1)}%
+                    {(() => {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const lastMetric = metricsHistory[metricsHistory.length - 1] as any;
+                      const pct = lastMetric?.activation_pct;
+                      return typeof pct === 'number' ? pct.toFixed(1) : '0.0';
+                    })()}%
                   </span>
                 </div>
                 <Progress
-                  value={metricsHistory[metricsHistory.length - 1]?.activation_pct || 0}
+                  value={(() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const lastMetric = metricsHistory[metricsHistory.length - 1] as any;
+                    return Number(lastMetric?.activation_pct) || 0;
+                  })()}
                   className="h-2"
                 />
               </div>
@@ -161,14 +177,20 @@ export function TrainingStreamPage({ selectedTenant }: TrainingStreamPageProps) 
                 <div className="flex justify-between mb-2">
                   <span className="text-sm">Avg Latency (µs)</span>
                   <span className="text-sm font-medium">
-                    {metricsHistory[metricsHistory.length - 1]?.avg_latency_us || 0}
+                    {(() => {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const lastMetric = metricsHistory[metricsHistory.length - 1] as any;
+                      return Number(lastMetric?.avg_latency_us) || 0;
+                    })()}
                   </span>
                 </div>
                 <Progress
-                  value={Math.min(
-                    ((metricsHistory[metricsHistory.length - 1]?.avg_latency_us || 0) / 1000) * 100,
-                    100
-                  )}
+                  value={(() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const lastMetric = metricsHistory[metricsHistory.length - 1] as any;
+                    const latency = Number(lastMetric?.avg_latency_us) || 0;
+                    return Math.min((latency / 1000) * 100, 100);
+                  })()}
                   className="h-2"
                 />
               </div>

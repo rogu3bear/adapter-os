@@ -88,7 +88,7 @@ The installer is a thin SwiftUI wrapper around the existing CLI infrastructure:
 
 ## Checkpoint Recovery
 
-If installation is interrupted, the installer automatically detects the checkpoint file at `/tmp/adapteros_install.state` and resumes from the last completed step:
+If installation is interrupted, the installer automatically detects the checkpoint file at `./var/adapteros_install.state` and resumes from the last completed step:
 
 - `create_dirs` - Directory creation
 - `build_binaries` - Rust compilation (longest step)

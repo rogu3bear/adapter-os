@@ -582,24 +582,23 @@ async fn set_default_stack(
     base_url: &str,
     output: &OutputWriter,
 ) -> Result<()> {
-    info!(stack_id = %stack_id, tenant = ?tenant, "Setting default adapter stack");
+    // Default stack is a tenant-level property, so we call the tenant endpoint
+    let tenant_id = tenant.unwrap_or_else(|| "default".to_string());
+    info!(stack_id = %stack_id, tenant_id = %tenant_id, "Setting default adapter stack");
 
-    // Note: This endpoint may not exist yet in the API, but we'll implement the CLI command
-    // for completeness. The API handler would need to be added to adapter_stacks.rs
     let client = reqwest::Client::new();
     let url = format!(
-        "{}/v1/adapter-stacks/{}/set-default",
+        "{}/v1/tenants/{}/default-stack",
         base_url.trim_end_matches('/'),
-        stack_id
+        tenant_id
     );
 
-    let mut body = serde_json::json!({});
-    if let Some(tenant_id) = tenant {
-        body["tenant_id"] = serde_json::Value::String(tenant_id);
-    }
+    let body = serde_json::json!({
+        "stack_id": stack_id
+    });
 
     let resp = client
-        .post(&url)
+        .put(&url)
         .json(&body)
         .send()
         .await
@@ -614,7 +613,10 @@ async fn set_default_stack(
         )));
     }
 
-    output.success(&format!("Set default adapter stack: {}", stack_id));
+    output.success(&format!(
+        "Set default adapter stack for tenant '{}': {}",
+        tenant_id, stack_id
+    ));
     Ok(())
 }
 

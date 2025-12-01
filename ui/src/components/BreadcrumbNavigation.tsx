@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { useBreadcrumb } from '../contexts/BreadcrumbContext';
+import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
 import {
   Breadcrumb,
   BreadcrumbList,

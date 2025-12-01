@@ -518,17 +518,20 @@ mod tests {
     #[tokio::test]
     async fn test_send_timeout() {
         let config = KReductionChannelConfig {
-            buffer_size: 0, // Full immediately
+            buffer_size: 1, // Minimal buffer to test full-channel behavior
             ..Default::default()
         };
         let manager = KReductionChannelManager::with_config(config);
         let (tx, _rx) = manager.create_channel();
 
-        // The channel with buffer_size=0 is a bit tricky; let's test with a real timeout scenario
-        let request = KReductionRequest::new(8, 10, 0.85, 1024 * 1024, 10.0, "Test".to_string());
+        // Fill the buffer with first request (should succeed)
+        let request1 = KReductionRequest::new(8, 10, 0.85, 1024 * 1024, 10.0, "Test1".to_string());
+        let result1 = tx.send(request1).await;
+        assert!(result1.is_ok(), "First send should succeed");
 
-        // Send should fail immediately since buffer is 0
-        let result = tx.send(request).await;
-        assert!(result.is_err());
+        // Second send should fail immediately since buffer is full (try_send returns ChannelFull)
+        let request2 = KReductionRequest::new(8, 10, 0.85, 1024 * 1024, 10.0, "Test2".to_string());
+        let result2 = tx.send(request2).await;
+        assert!(result2.is_err(), "Second send should fail (buffer full)");
     }
 }

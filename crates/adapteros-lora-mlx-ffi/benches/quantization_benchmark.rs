@@ -6,7 +6,7 @@
 //! - Inference latency impact
 //! - Memory usage
 
-use adapteros_lora_mlx_ffi::quantization::{MLXQuantizer, QuantizationConfig};
+use adapteros_lora_mlx_ffi::quantization::MLXQuantizer;
 use std::time::Instant;
 
 /// Benchmark configuration
@@ -78,7 +78,7 @@ fn benchmark_quantization(config: &BenchmarkConfig) -> Vec<BenchmarkResult> {
 
             // Generate random test data
             let data: Vec<f32> = (0..tensor_size)
-                .map(|i| ((i as f32).sin() * 0.5 + 0.5))
+                .map(|i| (i as f32).sin() * 0.5 + 0.5)
                 .collect();
 
             let shape = vec![tensor_size as i32];
@@ -96,7 +96,7 @@ fn benchmark_quantization(config: &BenchmarkConfig) -> Vec<BenchmarkResult> {
 
             // Benchmark INT4
             let result_int4 =
-                benchmark_int4(&data, tensor_size, group_size, shape, config.iterations);
+                benchmark_int4(&data, tensor_size, group_size, shape.clone(), config.iterations);
             result_int4.print_row();
             results.push(result_int4);
         }
@@ -214,13 +214,13 @@ fn benchmark_accuracy(config: &BenchmarkConfig) {
 
             // Generate test data with known distribution
             let data: Vec<f32> = (0..tensor_size)
-                .map(|i| ((i as f32 * 0.1).sin() * 0.8))
+                .map(|i| (i as f32 * 0.1).sin() * 0.8)
                 .collect();
 
             let shape = vec![tensor_size as i32];
 
             // Test INT8
-            let quantized = MLXQuantizer::quantize_int8(&data, group_size, shape.clone()).unwrap();
+            let quantized = MLXQuantizer::quantize_int8(&data, group_size, &shape).unwrap();
             let stats = MLXQuantizer::calculate_stats(&data, &quantized).unwrap();
             println!(
                 "{:>10} | {:>6} | {:>8} | {:>12.8} | {:>12.8} | {:>10.2}",
@@ -228,7 +228,7 @@ fn benchmark_accuracy(config: &BenchmarkConfig) {
             );
 
             // Test INT4
-            let quantized = MLXQuantizer::quantize_int4(&data, group_size, shape).unwrap();
+            let quantized = MLXQuantizer::quantize_int4(&data, group_size, &shape).unwrap();
             let stats = MLXQuantizer::calculate_stats(&data, &quantized).unwrap();
             println!(
                 "{:>10} | {:>6} | {:>8} | {:>12.8} | {:>12.8} | {:>10.2}",
@@ -251,19 +251,19 @@ fn benchmark_memory_efficiency(config: &BenchmarkConfig) {
                 continue;
             }
 
-            let data: Vec<f32> = (0..tensor_size).map(|i| ((i as f32).sin() * 0.5)).collect();
+            let data: Vec<f32> = (0..tensor_size).map(|i| (i as f32).sin() * 0.5).collect();
 
             let shape = vec![tensor_size as i32];
 
             // Quantize to INT8
             let quantized_int8 =
-                MLXQuantizer::quantize_int8(&data, group_size, shape.clone()).unwrap();
+                MLXQuantizer::quantize_int8(&data, group_size, &shape).unwrap();
             let original_size = tensor_size * 4; // float32
             let int8_size = quantized_int8.data.len();
             let int8_savings = original_size - int8_size;
 
             // Quantize to INT4
-            let quantized_int4 = MLXQuantizer::quantize_int4(&data, group_size, shape).unwrap();
+            let quantized_int4 = MLXQuantizer::quantize_int4(&data, group_size, &shape).unwrap();
             let int4_size = quantized_int4.data.len();
             let int4_savings = original_size - int4_size;
 
@@ -305,13 +305,13 @@ mod tests {
 
     #[test]
     fn test_benchmark_int8() {
-        let config = BenchmarkConfig {
+        let _config = BenchmarkConfig {
             tensor_sizes: vec![1024],
             group_sizes: vec![64],
             iterations: 2,
         };
 
-        let data: Vec<f32> = (0..1024).map(|i| (i as f32 / 1024.0)).collect();
+        let data: Vec<f32> = (0..1024).map(|i| i as f32 / 1024.0).collect();
         let result = benchmark_int8(&data, 1024, 64, vec![1024], 2);
 
         assert!(result.avg_quantization_time_us > 0.0);
@@ -321,13 +321,13 @@ mod tests {
 
     #[test]
     fn test_benchmark_int4() {
-        let config = BenchmarkConfig {
+        let _config = BenchmarkConfig {
             tensor_sizes: vec![1024],
             group_sizes: vec![64],
             iterations: 2,
         };
 
-        let data: Vec<f32> = (0..1024).map(|i| (i as f32 / 1024.0)).collect();
+        let data: Vec<f32> = (0..1024).map(|i| i as f32 / 1024.0).collect();
         let result = benchmark_int4(&data, 1024, 64, vec![1024], 2);
 
         assert!(result.avg_quantization_time_us > 0.0);

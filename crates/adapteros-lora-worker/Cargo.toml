@@ -25,6 +25,7 @@ multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 
 # Alias for clarity
 mlx-backend = ["multi-backend"]
+loom = []
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

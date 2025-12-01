@@ -56,6 +56,9 @@ hex.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
+rand = { workspace = true }
+
+adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

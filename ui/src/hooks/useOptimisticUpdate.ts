@@ -17,7 +17,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useQueryClient, QueryKey } from '@tanstack/react-query';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 
 export interface OptimisticUpdateState<TData> {

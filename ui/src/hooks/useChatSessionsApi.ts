@@ -200,8 +200,7 @@ export function useChatSessionsApi(tenantId: string) {
           operation: 'fetchSessions',
           tenantId,
         }, error as Error);
-        // Fallback to empty array if backend unavailable
-        return [];
+        throw error; // Let React Query handle error state
       }
     },
     staleTime: 30000, // 30 seconds

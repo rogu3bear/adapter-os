@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useSSE } from '@/hooks/useSSE';
+import { useLiveData } from '@/hooks/useLiveData';
 import { Activity, AlertCircle, CheckCircle, XCircle, Clock, Zap } from 'lucide-react';
 import type { TrainingJob, TrainingMetrics } from '@/api/training-types';
 import { calculateTrainingETA, formatDuration as formatDurationUtil } from '@/utils/trainingEta';
@@ -45,33 +45,40 @@ export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCard
   const [status, setStatus] = useState<string>(initialJob?.status || 'running');
   const [errorMessage, setErrorMessage] = useState<string | undefined>(initialJob?.error_message);
 
-  const { data: sseData, error: sseError, connected } = useSSE<TrainingEvent>(
-    '/v1/streams/training',
-    {
-      enabled: status === 'running' || status === 'pending',
-      onMessage: (event) => {
-        if (event.job_id === jobId) {
-          if (event.event_type === 'training.progress') {
-            setProgress({
-              progress_pct: event.payload.progress_pct,
-              loss: event.payload.current_loss,
-              current_epoch: event.payload.current_epoch,
-              total_epochs: event.payload.total_epochs,
-              tokens_per_second: event.payload.tokens_per_second,
-              eta_seconds: event.payload.eta_seconds,
-              learning_rate: event.payload.learning_rate,
-            });
-          } else if (event.event_type === 'training.completed') {
-            setStatus('completed');
-            setProgress((prev) => ({ ...prev, progress_pct: 100 }));
-          } else if (event.event_type === 'training.failed') {
-            setStatus('failed');
-            setErrorMessage(event.payload.error_message);
-          }
+  const { error: sseError, connectionStatus } = useLiveData({
+    sseEndpoint: '/v1/streams/training',
+    sseEventType: 'training',
+    fetchFn: async () => {
+      // No polling fallback for training progress - SSE only
+      return null;
+    },
+    enabled: status === 'running' || status === 'pending',
+    pollingSpeed: 'fast',
+    onSSEMessage: (event) => {
+      const trainingEvent = event as TrainingEvent;
+      if (trainingEvent.job_id === jobId) {
+        if (trainingEvent.event_type === 'training.progress') {
+          setProgress({
+            progress_pct: trainingEvent.payload.progress_pct,
+            loss: trainingEvent.payload.current_loss,
+            current_epoch: trainingEvent.payload.current_epoch,
+            total_epochs: trainingEvent.payload.total_epochs,
+            tokens_per_second: trainingEvent.payload.tokens_per_second,
+            eta_seconds: trainingEvent.payload.eta_seconds,
+            learning_rate: trainingEvent.payload.learning_rate,
+          });
+        } else if (trainingEvent.event_type === 'training.completed') {
+          setStatus('completed');
+          setProgress((prev) => ({ ...prev, progress_pct: 100 }));
+        } else if (trainingEvent.event_type === 'training.failed') {
+          setStatus('failed');
+          setErrorMessage(trainingEvent.payload.error_message);
         }
-      },
-    }
-  );
+      }
+    },
+  });
+
+  const connected = connectionStatus === 'sse';
 
   const getStatusIcon = () => {
     switch (status) {
@@ -131,7 +138,7 @@ export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCard
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              Failed to connect to live updates: {sseError}
+              Failed to connect to live updates: {sseError.message}
             </AlertDescription>
           </Alert>
         )}

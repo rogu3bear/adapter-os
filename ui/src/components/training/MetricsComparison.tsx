@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { toast } from 'sonner';
-import { logger } from '../../utils/logger';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Switch } from '../ui/switch';
-import { Label } from '../ui/label';
+import { logger } from '@/utils/logger';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   LineChart,
   Line,
@@ -34,7 +34,8 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
-import { TrainingJob, TrainingMetrics } from '../../api/types';
+import { TrainingJob, TrainingMetrics } from '@/api/types';
+import { CHART_PALETTE } from '@/constants/chart-colors';
 
 interface MetricsComparisonProps {
   jobs: TrainingJob[];
@@ -48,16 +49,8 @@ interface ChartDataPoint {
   [key: string]: number | undefined; // Dynamic keys for each job
 }
 
-// Color-blind friendly palette (Tol Bright scheme)
-const JOB_COLORS = [
-  '#4477AA', // Blue
-  '#EE6677', // Red
-  '#228833', // Green
-  '#CCBB44', // Yellow
-  '#66CCEE', // Cyan
-  '#AA3377', // Purple
-  '#BBBBBB', // Grey
-];
+// Use design system chart colors for job visualization
+const JOB_COLORS = CHART_PALETTE;
 
 // Helper to generate smooth curves using moving average
 const smoothData = (data: number[], windowSize: number = 5): number[] => {
@@ -263,14 +256,14 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
   };
 
   // Custom tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ dataKey: string; value: number; color: string }>; label?: string | number }) => {
     if (!active || !payload || payload.length === 0) return null;
 
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
         <div className="font-medium mb-2">Epoch {label}</div>
         <div className="space-y-1">
-          {payload.map((entry: any, index: number) => {
+          {payload.map((entry, index: number) => {
             const jobId = entry.dataKey.split('_')[0];
             const job = jobs.find(j => j.id === jobId);
             if (!job || !visibleJobs.has(jobId)) return null;
@@ -492,12 +485,12 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
                 {bestJob && (
                   <ReferenceLine
                     x={bestJob.bestEpoch}
-                    stroke="#10b981"
+                    stroke="hsl(var(--chart-2))"
                     strokeDasharray="3 3"
                     label={{
                       value: 'Best',
                       position: 'top',
-                      fill: '#10b981',
+                      fill: 'hsl(var(--chart-2))',
                       fontSize: 12,
                     }}
                   />

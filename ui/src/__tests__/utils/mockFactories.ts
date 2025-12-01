@@ -13,7 +13,7 @@ import type {
   ChatSession,
   PolicyCheck,
   PolicyCheckResult,
-} from '../../api/chat-types';
+} from '@/api/chat-types';
 
 /**
  * Creates a mock Document object with default or custom values
@@ -218,19 +218,22 @@ export function createMockError(message: string = 'Mock error', code?: string) {
 }
 
 /**
- * Utility to create a mock success response with pagination
+ * Utility to create a mock success response with pagination.
+ * Matches PaginatedResponse<T> structure from backend.
  */
 export function createMockPaginatedResponse<T>(
-  items: T[],
+  data: T[],
   total?: number,
   page: number = 1,
   limit: number = 20
 ) {
+  const actualTotal = total ?? data.length;
   return {
-    items,
-    total: total ?? items.length,
+    schema_version: '1.0',
+    data,
+    total: actualTotal,
     page,
     limit,
-    has_more: items.length === limit,
+    pages: Math.ceil(actualTotal / limit),
   };
 }

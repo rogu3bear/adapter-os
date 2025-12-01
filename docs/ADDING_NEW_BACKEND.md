@@ -630,7 +630,7 @@ fn create_backend_internal(choice: BackendChoice) -> Result<Box<dyn FusedKernels
 ```markdown
 | Backend | Status | Determinism | Primary Use Case |
 |---------|--------|-------------|------------------|
-| **Metal** | **Production** | **Guaranteed** | M1/M2/M3/M4 GPU |
+| **Metal** | **Incomplete** | **Guaranteed** | M1/M2/M3/M4 GPU (model loading issues) |
 | **CoreML** | **Active** | **Conditional** | ANE acceleration |
 | **MLX** | **Production** | **HKDF-seeded** | Production inference, training |
 | **MyBackend** | **Experimental** | **Guaranteed** | Custom accelerator |

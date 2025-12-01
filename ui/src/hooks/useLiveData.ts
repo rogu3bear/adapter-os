@@ -13,8 +13,8 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import apiClient from '../api/client';
-import { logger, toError } from '../utils/logger';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
 
 // ============================================================================
 // Types
@@ -480,6 +480,7 @@ export function useLiveData<T>(options: UseLiveDataOptions<T>): UseLiveDataRetur
         endpoint: sseEndpoint,
       }, toError(e));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sseEndpoint, sseEventType, sseEnabled, enabled, operationName]);
 
   // Store connect function for reconnect

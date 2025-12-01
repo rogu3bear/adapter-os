@@ -3,8 +3,8 @@
 //! Provides utilities for persisting and managing action history in localStorage/IndexedDB.
 
 import { useCallback, useEffect, useRef } from 'react';
-import { logger } from '../utils/logger';
-import { ActionHistoryItem } from '../types/history';
+import { logger } from '@/utils/logger';
+import { ActionHistoryItem } from '@/types/history';
 
 const STORAGE_KEY = 'aos_action_history_v2';
 const BACKUP_KEY = 'aos_action_history_backup';

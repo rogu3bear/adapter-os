@@ -55,8 +55,6 @@ use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 
 #[cfg(target_os = "macos")]
 use adapteros_lora_kernel_mtl::MetalKernels;
-#[cfg(target_os = "macos")]
-use metal::Device;
 
 #[cfg(not(target_os = "macos"))]
 use adapteros_lora_kernel_api::MockKernels;
@@ -140,12 +138,7 @@ fn bench_mlp_batch_scaling(c: &mut Criterion) {
             &batch,
             |b, &batch_size| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -200,12 +193,7 @@ fn bench_qkv_kernel_configs(c: &mut Criterion) {
             &(num_heads, kv_heads, head_dim, seq_len),
             |b, &(_num_heads, _kv_heads, _head_dim, seq_len)| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -246,12 +234,7 @@ fn bench_qkv_head_dims(c: &mut Criterion) {
             &head_dim,
             |b, &_head_dim| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -302,12 +285,7 @@ fn bench_flash_attention_seq_lengths(c: &mut Criterion) {
             &seq_len,
             |b, &seq_len| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -341,7 +319,7 @@ fn bench_flash_attention_block_sizes(c: &mut Criterion) {
     let seq_len = 1024;
 
     for block_size in block_sizes {
-        let num_blocks = (seq_len + block_size - 1) / block_size;
+        let _num_blocks = (seq_len + block_size - 1) / block_size;
         group.throughput(Throughput::Elements((seq_len * seq_len) as u64));
 
         group.bench_with_input(
@@ -349,12 +327,7 @@ fn bench_flash_attention_block_sizes(c: &mut Criterion) {
             &block_size,
             |b, &_block_size| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -477,12 +450,7 @@ fn bench_dispatch_overhead(c: &mut Criterion) {
             &(batch, hidden_size),
             |b, &(batch, _hidden_size)| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -521,12 +489,7 @@ fn bench_dispatch_batching(c: &mut Criterion) {
             &dispatch_count,
             |b, &dispatch_count| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -658,12 +621,7 @@ fn bench_full_inference_pipeline(c: &mut Criterion) {
             &(num_tokens, k),
             |b, &(num_tokens, k)| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -712,12 +670,7 @@ fn bench_prefill_vs_decode(c: &mut Criterion) {
             &prompt_len,
             |b, &prompt_len| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -740,12 +693,7 @@ fn bench_prefill_vs_decode(c: &mut Criterion) {
             &prompt_len,
             |b, &_prompt_len| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -796,12 +744,7 @@ fn bench_batch_size_sweep(c: &mut Criterion) {
             &batch,
             |b, &batch_size| {
                 #[cfg(target_os = "macos")]
-                let mut kernels = {
-                    let device =
-                        Device::system_default().expect("Metal device required for GPU benchmarks");
-                    MetalKernels::new(device, Default::default())
-                        .expect("MetalKernels initialization failed")
-                };
+                let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
                 #[cfg(not(target_os = "macos"))]
                 let mut kernels = MockKernels::new();
@@ -874,7 +817,7 @@ fn bench_router_k_sparse_selection(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(5));
 
     let k_values = [1, 2, 4, 8];
-    let pool_size = 32; // Total adapters available
+    let _pool_size = 32; // Total adapters available
 
     for k in k_values {
         group.throughput(Throughput::Elements(k as u64));

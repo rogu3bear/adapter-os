@@ -5,7 +5,6 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::{users::Role, Db};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Test database configuration
@@ -139,8 +138,6 @@ impl TestDbBuilder {
 pub struct TestAppStateBuilder {
     db: Option<Db>,
     jwt_secret: Vec<u8>,
-    bundles_root: String,
-    metrics_enabled: bool,
 }
 
 impl TestAppStateBuilder {
@@ -149,8 +146,6 @@ impl TestAppStateBuilder {
         Self {
             db: None,
             jwt_secret: b"test-jwt-secret-key-32-bytes-long".to_vec(),
-            bundles_root: "test-bundles".to_string(),
-            metrics_enabled: true,
         }
     }
 
@@ -166,14 +161,12 @@ impl TestAppStateBuilder {
         self
     }
 
-    /// Disable metrics
-    pub fn without_metrics(mut self) -> Self {
-        self.metrics_enabled = false;
-        self
-    }
-
     /// Build the app state
     pub async fn build(self) -> Result<adapteros_server_api::AppState> {
+        use adapteros_lora_worker::memory::UmaPressureMonitor;
+        use adapteros_server_api::config::PathsConfig;
+        use adapteros_server_api::state::{ApiConfig, MetricsConfig};
+
         let db = match self.db {
             Some(db) => db,
             None => {
@@ -185,22 +178,33 @@ impl TestAppStateBuilder {
             }
         };
 
-        let api_config = Arc::new(std::sync::RwLock::new(
-            adapteros_server_api::state::ApiConfig {
-                metrics: adapteros_server_api::state::MetricsConfig {
-                    enabled: self.metrics_enabled,
-                    bearer_token: "test-bearer-token".to_string(),
-                    system_metrics_interval_secs: 30,
-                },
-                golden_gate: None,
-                bundles_root: self.bundles_root,
-                rate_limits: None,
+        // Create paths config with test defaults
+        let paths_config = PathsConfig {
+            artifacts_root: "var/artifacts".to_string(),
+            bundles_root: "var/bundles".to_string(),
+            adapters_root: "var/adapters".to_string(),
+            plan_dir: "plan".to_string(),
+            datasets_root: "var/datasets".to_string(),
+            documents_root: "var/documents".to_string(),
+        };
+
+        let api_config = Arc::new(std::sync::RwLock::new(ApiConfig {
+            metrics: MetricsConfig {
+                enabled: true,
+                bearer_token: "test-bearer-token".to_string(),
             },
-        ));
+            directory_analysis_timeout_secs: 120,
+            capacity_limits: Default::default(),
+            general: None,
+            server: Default::default(),
+            security: Default::default(),
+            performance: Default::default(),
+            paths: paths_config,
+        }));
 
         let metrics_exporter = Arc::new(
             adapteros_metrics_exporter::MetricsExporter::new(vec![0.1, 0.5, 1.0])
-                .map_err(|e| AosError::Metrics(format!("Failed to create metrics exporter: {}", e)))?,
+                .map_err(|e| AosError::Other(format!("Failed to create metrics exporter: {}", e)))?,
         );
 
         let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new(
@@ -210,16 +214,16 @@ impl TestAppStateBuilder {
         let metrics_registry =
             Arc::new(adapteros_server_api::telemetry::MetricsRegistry::new());
 
-        let training_service = Arc::new(adapteros_orchestrator::TrainingService::new());
+        let uma_monitor = Arc::new(UmaPressureMonitor::new(15, None));
 
-        Ok(adapteros_server_api::AppState::with_sqlite(
+        Ok(adapteros_server_api::AppState::new(
             db,
             self.jwt_secret,
             api_config,
             metrics_exporter,
             metrics_collector,
             metrics_registry,
-            training_service,
+            uma_monitor,
         ))
     }
 }
@@ -232,36 +236,6 @@ impl TestAuth {
     pub const DEFAULT_EMAIL: &'static str = "testadmin@example.com";
     pub const DEFAULT_PASSWORD: &'static str = "test-password-123";
     pub const DEFAULT_JWT_SECRET: &'static [u8] = b"test-jwt-secret-key-32-bytes-long";
-
-    /// Create JWT token for testing
-    pub fn create_jwt_token(
-        email: &str,
-        role: Role,
-        tenant_id: &str,
-        secret: &[u8],
-    ) -> Result<String> {
-        use jsonwebtoken::{encode, EncodingKey, Header};
-
-        let claims = adapteros_server_api::auth::Claims {
-            sub: email.to_string(),
-            role: role.to_string(),
-            tenant_id: tenant_id.to_string(),
-            exp: (chrono::Utc::now() + chrono::Duration::hours(8)).timestamp() as usize,
-        };
-
-        encode(&Header::default(), &claims, &EncodingKey::from_secret(secret))
-            .map_err(|e| AosError::Auth(format!("Failed to encode JWT: {}", e)))
-    }
-
-    /// Create default admin JWT token
-    pub fn default_admin_token() -> Result<String> {
-        Self::create_jwt_token(
-            Self::DEFAULT_EMAIL,
-            Role::Admin,
-            "default",
-            Self::DEFAULT_JWT_SECRET,
-        )
-    }
 
     /// Hash password for testing
     pub fn hash_password(password: &str) -> Result<String> {
@@ -283,15 +257,17 @@ impl TestAdapterFactory {
         let hash = format!("{:0>64}", adapter_id);
 
         sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, hash, tier, rank, activation_pct, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+            "INSERT INTO adapters (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
         )
         .bind(adapter_id)
         .bind(tenant_id)
-        .bind(&hash)
+        .bind(format!("Test Adapter {}", adapter_id))
         .bind("persistent")
+        .bind(&hash)
         .bind(8)
-        .bind(0.0)
+        .bind(1.0)
+        .bind("[]")
         .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test adapter: {}", e)))?;
@@ -310,15 +286,17 @@ impl TestAdapterFactory {
         let hash = format!("{:0>64}", adapter_id);
 
         sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, hash, tier, rank, activation_pct, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+            "INSERT INTO adapters (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
         )
         .bind(adapter_id)
         .bind(tenant_id)
-        .bind(&hash)
+        .bind(format!("Test Adapter {}", adapter_id))
         .bind(tier)
+        .bind(&hash)
         .bind(rank)
-        .bind(0.0)
+        .bind(1.0)
+        .bind("[]")
         .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test adapter: {}", e)))?;
@@ -480,7 +458,7 @@ impl TestAssertions {
             b.len()
         );
 
-        for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+        for (_i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
             Self::assert_approx_eq(
                 *x,
                 *y,
@@ -545,12 +523,6 @@ mod tests {
             .expect("Failed to query adapters");
 
         assert_eq!(count.0, 1);
-    }
-
-    #[tokio::test]
-    async fn test_auth_jwt_creation() {
-        let token = TestAuth::default_admin_token().expect("Failed to create JWT");
-        assert!(!token.is_empty());
     }
 
     #[test]

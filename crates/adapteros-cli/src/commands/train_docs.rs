@@ -11,7 +11,9 @@ use adapteros_ingest_docs::{
     generate_training_data_from_documents, load_tokenizer, ChunkingOptions, DocumentIngestor,
     TrainingGenConfig, TrainingStrategy,
 };
-use adapteros_lora_worker::training::{MicroLoRATrainer, TrainingConfig, TrainingExample};
+use adapteros_lora_worker::training::{
+    AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
+};
 use clap::Args;
 use glob::glob;
 use std::collections::HashMap;
@@ -61,6 +63,10 @@ pub struct TrainDocsArgs {
     /// Skip training (only generate data)
     #[arg(long)]
     skip_training: bool,
+
+    /// Training strategy: identity, qa, or mlm
+    #[arg(long, default_value = "identity")]
+    training_strategy: String,
 
     /// Tokenizer configuration
     #[command(flatten)]
@@ -168,8 +174,23 @@ impl TrainDocsArgs {
 
         // === Step 2: Generate Training Data ===
         info!("Step 2/4: Generating training data...");
+
+        // Parse training strategy from CLI flag
+        let strategy = match self.training_strategy.to_lowercase().as_str() {
+            "identity" => TrainingStrategy::Identity,
+            "qa" | "question-answer" => TrainingStrategy::QuestionAnswer,
+            "mlm" | "masked-lm" => TrainingStrategy::MaskedLM,
+            _ => {
+                return Err(AosError::Validation(format!(
+                    "Invalid training strategy: '{}'. Must be one of: identity, qa, mlm",
+                    self.training_strategy
+                )));
+            }
+        };
+        info!("Using training strategy: {:?}", strategy);
+
         let gen_config = TrainingGenConfig {
-            strategy: TrainingStrategy::QuestionAnswer,
+            strategy,
             max_seq_length: self.max_seq_length,
             add_special_tokens: true,
         };
@@ -235,7 +256,7 @@ impl TrainDocsArgs {
             ..TrainingConfig::default()
         };
 
-        let mut trainer = MicroLoRATrainer::new(train_config)?;
+        let mut trainer = MicroLoRATrainer::new(train_config.clone())?;
         let result = trainer.train(&examples).await?;
 
         info!(
@@ -244,7 +265,7 @@ impl TrainDocsArgs {
             result.training_time_ms()
         );
 
-        // Save adapter weights
+        // Save adapter weights (JSON format for compatibility)
         let weights_path = self.output.join("lora_weights.json");
         let weights_json = serde_json::to_string_pretty(&result.weights)?;
         fs::write(&weights_path, &weights_json)?;
@@ -271,6 +292,20 @@ impl TrainDocsArgs {
 
         info!("Saved adapter to {}", self.output.display());
 
+        // Package to .aos archive format
+        info!("Packaging adapter to .aos format...");
+        let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
+        let packager = AdapterPackager::new(&self.output);
+        let safe_adapter_id = adapter_id.replace('/', "_");
+        let packaged = packager
+            .package_aos(&safe_adapter_id, &quantized, &train_config, "qwen2.5-7b")
+            .await?;
+        info!(
+            "Created .aos archive: {} ({} bytes)",
+            packaged.weights_path.display(),
+            fs::metadata(&packaged.weights_path).map(|m| m.len()).unwrap_or(0)
+        );
+
         // === Step 4: Register and Activate ===
         info!("Step 4/4: Registering adapter...");
         let db = self.connect_db().await?;
@@ -295,8 +330,19 @@ impl TrainDocsArgs {
             .revision(Some(revision.clone()))
             .build()?;
 
-        let db_id = db.register_adapter(params).await?;
-        info!("Registered adapter: {} (db_id={})", adapter_id, db_id);
+        // Upsert pattern: update if adapter already exists
+        match db.register_adapter(params).await {
+            Ok(db_id) => {
+                info!("Registered new adapter: {} (db_id={})", adapter_id, db_id);
+            }
+            Err(e) if e.to_string().contains("UNIQUE constraint") => {
+                info!("Adapter already exists, updating...");
+                db.update_adapter_state(&adapter_id, "warm", "re-trained from docs")
+                    .await?;
+                info!("Updated existing adapter: {}", adapter_id);
+            }
+            Err(e) => return Err(e.into()),
+        }
 
         // Update current_state to 'warm' so it's usable for inference
         // Note: current_state holds the load state (unloaded/cold/warm/hot/resident)

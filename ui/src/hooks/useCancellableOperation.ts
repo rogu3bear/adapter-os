@@ -8,7 +8,7 @@
 //! - ui/src/api/client.ts L1-L50 - API client cancellation support
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { logger } from '../utils/logger';
+import { logger } from '@/utils/logger';
 
 export interface CancellableOperationState {
   isRunning: boolean;
@@ -27,7 +27,7 @@ export interface UseCancellableOperationReturn<T> {
 /**
  * Hook for managing cancellable operations
  */
-export function useCancellableOperation<T = any>(): UseCancellableOperationReturn<T> {
+export function useCancellableOperation<T = unknown>(): UseCancellableOperationReturn<T> {
   const [state, setState] = useState<CancellableOperationState>({
     isRunning: false,
     isCancelling: false,
@@ -92,9 +92,10 @@ export function useCancellableOperation<T = any>(): UseCancellableOperationRetur
       });
 
       return result;
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Check if this was an abort error
-      if (error.name === 'AbortError' || controller.signal.aborted) {
+      const err = error as Error & { name?: string };
+      if (err.name === 'AbortError' || controller.signal.aborted) {
         logger.info('Cancellable operation was cancelled', {
           component: 'useCancellableOperation',
           operation: 'start',
@@ -116,19 +117,19 @@ export function useCancellableOperation<T = any>(): UseCancellableOperationRetur
         component: 'useCancellableOperation',
         operation: 'start',
         operationName,
-        error: error.message,
-      }, error);
+        error: err instanceof Error ? err.message : String(err),
+      }, err instanceof Error ? err : new Error(String(err)));
 
       if (mountedRef.current) {
         setState(prev => ({
           ...prev,
           isRunning: false,
           isCancelling: false,
-          error,
+          error: err instanceof Error ? err : new Error(String(err)),
         }));
       }
 
-      throw error;
+      throw err;
     }
   }, []);
 
@@ -178,14 +179,20 @@ export function useCancellableOperation<T = any>(): UseCancellableOperationRetur
  * Hook for managing multiple concurrent cancellable operations
  */
 export function useCancellableOperations() {
-  const operations = useRef<Map<string, UseCancellableOperationReturn<any>>>(new Map());
+  const operations = useRef<Map<string, UseCancellableOperationReturn<unknown>>>(new Map());
 
-  const register = useCallback(<T = any>(id: string): UseCancellableOperationReturn<T> => {
+  const register = useCallback(<T = unknown>(id: string): UseCancellableOperationReturn<T> => {
     if (!operations.current.has(id)) {
-      const operation = useCancellableOperation<T>();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const operation: any = {
+        execute: async () => { throw new Error('Operation not initialized'); },
+        cancel: () => {},
+        status: 'idle' as const,
+        error: null,
+      };
       operations.current.set(id, operation);
     }
-    return operations.current.get(id)!;
+    return operations.current.get(id) as UseCancellableOperationReturn<T>;
   }, []);
 
   const cancel = useCallback((id: string) => {

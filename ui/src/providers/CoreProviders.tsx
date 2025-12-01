@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
-import { apiClient } from '../api/client';
-import type { User } from '../api/types';
-import type { LoginRequest } from '../api/auth-types';
-import { logger, toError } from '../utils/logger';
+import { apiClient } from '@/api/client';
+import type { User } from '@/api/types';
+import type { LoginRequest } from '@/api/auth-types';
+import { logger, toError } from '@/utils/logger';
 
 // Auth Context
 interface AuthContextValue {

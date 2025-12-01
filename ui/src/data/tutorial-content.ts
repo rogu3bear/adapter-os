@@ -1,5 +1,5 @@
 import type { TutorialConfig } from '@/components/ContextualTutorial';
-import tutorialsJson from '../../../shared/tutorials.json';
+import tutorialsJson from '@/../../shared/tutorials.json';
 
 // Type for the shared JSON format
 interface SharedTutorialStep {

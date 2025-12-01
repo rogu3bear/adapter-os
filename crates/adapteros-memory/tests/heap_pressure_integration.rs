@@ -4,11 +4,8 @@
 //! Simulates realistic memory pressure scenarios and validates correct behavior.
 
 use adapteros_core::B3Hash;
-use adapteros_memory::{
-    FragmentationType, HeapAllocation, HeapObserverMemoryStats, HeapState, MetalHeapObserver,
-};
+use adapteros_memory::{HeapAllocation, HeapObserverMemoryStats, HeapState};
 use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
 
 // ============================================================================
@@ -353,7 +350,7 @@ fn test_eviction_clears_heap_observer() {
     let mut manager = MockMemoryPressureManager::new(10 * 1024 * 1024, 0.85);
 
     // Allocate adapter_a
-    let buffer_id_a = observer.record_allocation(1, 5 * 1024 * 1024, 0);
+    let _buffer_id_a = observer.record_allocation(1, 5 * 1024 * 1024, 0);
     manager
         .allocate_adapter("adapter_a".to_string(), 5 * 1024 * 1024)
         .ok();

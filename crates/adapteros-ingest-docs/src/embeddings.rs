@@ -206,8 +206,6 @@ impl EmbeddingModel for SimpleEmbeddingModel {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored"]
     fn test_simple_embedding_deterministic() {

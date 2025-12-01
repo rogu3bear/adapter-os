@@ -8,7 +8,6 @@
 //! - SafeTensors loading strategies
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use std::time::{Duration, Instant};
 
 /// Benchmark MLX runtime initialization (should be fast after first call)
 fn bench_runtime_init(c: &mut Criterion) {
@@ -188,46 +187,6 @@ fn bench_memory_ops(c: &mut Criterion) {
     group.finish();
 }
 
-/// Manual timing benchmark for operations that need custom measurement
-fn bench_manual_timing() -> Vec<(&'static str, Duration)> {
-    let mut results = Vec::new();
-
-    // Runtime init timing
-    let start = Instant::now();
-    let _ = adapteros_lora_mlx_ffi::mlx_runtime_init();
-    results.push(("runtime_init", start.elapsed()));
-
-    // Adapter cache timing
-    let config = adapteros_lora_mlx_ffi::MLXAdapterCacheConfig::default();
-    let cache = adapteros_lora_mlx_ffi::MLXAdapterCache::new(config);
-
-    // Cache insert 10MB
-    let weights = vec![0u8; 10 * 1024 * 1024];
-    let start = Instant::now();
-    let _ = cache.cache_adapter(1, weights);
-    results.push(("cache_insert_10mb", start.elapsed()));
-
-    // Cache hit
-    let start = Instant::now();
-    for _ in 0..1000 {
-        let _ = cache.get_cached(1);
-    }
-    let elapsed = start.elapsed();
-    results.push(("cache_hit_x1000", elapsed));
-    results.push(("cache_hit_avg", elapsed / 1000));
-
-    // Cache miss
-    let start = Instant::now();
-    for _ in 0..1000 {
-        let _ = cache.get_cached(999);
-    }
-    let elapsed = start.elapsed();
-    results.push(("cache_miss_x1000", elapsed));
-    results.push(("cache_miss_avg", elapsed / 1000));
-
-    results
-}
-
 criterion_group!(
     benches,
     bench_runtime_init,
@@ -241,8 +200,30 @@ criterion_main!(benches);
 
 #[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
-    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn bench_manual_timing() -> Vec<(&'static str, Duration)> {
+        let mut results = Vec::new();
+
+        // Runtime init timing
+        let start = Instant::now();
+        let _ = adapteros_lora_mlx_ffi::mlx_runtime_init();
+        results.push(("runtime_init", start.elapsed()));
+
+        // Is initialized check timing
+        let start = Instant::now();
+        for _ in 0..1000 {
+            let _ = adapteros_lora_mlx_ffi::mlx_runtime_is_initialized();
+        }
+        results.push(("is_initialized (1000x)", start.elapsed()));
+
+        // Sync timing
+        let start = Instant::now();
+        adapteros_lora_mlx_ffi::mlx_sync();
+        results.push(("mlx_sync", start.elapsed()));
+
+        results
+    }
 
     #[test]
     fn run_manual_benchmarks() {

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Textarea } from '../ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Badge } from '../ui/badge';
-import { apiClient } from '../../api/client';
-import type { Adapter } from '../../api/adapter-types';
-import type { InferResponse } from '../../api/api-types';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { apiClient } from '@/api/client';
+import type { Adapter } from '@/api/adapter-types';
+import type { InferResponse } from '@/api/api-types';
 import { Play, Loader2, Clock, Zap } from 'lucide-react';
 
 interface TestResult {
@@ -88,12 +88,12 @@ export default function AppDevTestConsole() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-medium">Adapter</label>
-            <Select value={selectedAdapter} onValueChange={setSelectedAdapter}>
+            <Select value={selectedAdapter || "__none__"} onValueChange={(v) => setSelectedAdapter(v === "__none__" ? "" : v)}>
               <SelectTrigger>
                 <SelectValue placeholder={isLoadingAdapters ? 'Loading...' : 'Select adapter (optional)'} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">No adapter (base model)</SelectItem>
+                <SelectItem value="__none__">No adapter (base model)</SelectItem>
                 {adapters.map((adapter) => (
                   <SelectItem key={adapter.id} value={adapter.id}>
                     {adapter.id}

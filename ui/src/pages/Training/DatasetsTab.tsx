@@ -36,7 +36,7 @@ import { useRBAC } from '@/hooks/useRBAC';
 import { PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { withErrorBoundary } from '@/components/withErrorBoundary';
 import { TrainingWizard } from '@/components/TrainingWizard';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { TERMS, formatSourceType, formatValidationStatus } from '@/constants/terminology';
 import {
   Database,
@@ -52,6 +52,7 @@ import {
   Play,
 } from 'lucide-react';
 import type { Dataset, DatasetSourceType, DatasetValidationStatus } from '@/api/training-types';
+import { formatTimestamp, formatNumber } from '@/utils/format';
 
 const STATUS_CONFIG: Record<DatasetValidationStatus, {
   icon: React.ElementType;
@@ -171,20 +172,6 @@ export function DatasetsTab() {
     }
   }, [validateDataset, clearError, addError]);
 
-  const formatDate = (dateString?: string): string => {
-    if (!dateString) return '-';
-    try {
-      return new Date(dateString).toLocaleString();
-    } catch {
-      return dateString;
-    }
-  };
-
-  const formatNumber = (num?: number): string => {
-    if (num === undefined || num === null) return '-';
-    return num.toLocaleString();
-  };
-
   return (
     <div className="space-y-6">
       {/* Action Bar */}
@@ -196,7 +183,7 @@ export function DatasetsTab() {
                 <Upload className="h-4 w-4 mr-2" />
                 {TERMS.uploadDataset}
               </Button>
-              <HelpTooltip content="For large or complex collections. Use Training Wizard for simple uploads." />
+              <GlossaryTooltip brief="For large or complex collections. Use Training Wizard for simple uploads." />
             </div>
           )}
           <p className="text-xs text-muted-foreground">
@@ -290,16 +277,16 @@ export function DatasetsTab() {
                         {dataset.language || '-'}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {formatNumber(dataset.file_count)}
+                        {formatNumber(dataset.file_count || 0)}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {formatNumber(dataset.total_tokens)}
+                        {formatNumber(dataset.total_tokens || 0)}
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={dataset.validation_status} />
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {formatDate(dataset.created_at)}
+                        {formatTimestamp(dataset.created_at, 'long')}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
@@ -432,19 +419,19 @@ export function DatasetsTab() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Files</Label>
-                  <p className="font-medium">{formatNumber(selectedDataset.file_count)}</p>
+                  <p className="font-medium">{formatNumber(selectedDataset.file_count || 0)}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Total Tokens</Label>
-                  <p className="font-medium">{formatNumber(selectedDataset.total_tokens)}</p>
+                  <p className="font-medium">{formatNumber(selectedDataset.total_tokens || 0)}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Created At</Label>
-                  <p className="text-sm">{formatDate(selectedDataset.created_at)}</p>
+                  <p className="text-sm">{formatTimestamp(selectedDataset.created_at, 'long')}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Updated At</Label>
-                  <p className="text-sm">{formatDate(selectedDataset.updated_at)}</p>
+                  <p className="text-sm">{formatTimestamp(selectedDataset.updated_at, 'long')}</p>
                 </div>
               </div>
               <div>

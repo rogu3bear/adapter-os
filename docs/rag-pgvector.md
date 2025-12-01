@@ -54,7 +54,7 @@ AOS_INSECURE_SKIP_EGRESS=1 \
 DATABASE_URL=postgresql://aos:aos@localhost/adapteros \
 RAG_EMBED_DIM=3584 \
  cargo run -p adapteros-cli --features rag-pgvector -- \
-  serve --tenant default --plan <plan> --socket /tmp/aos.sock
+  serve --tenant default --plan <plan> --socket ./var/run/aos.sock
 
 If your policy enables open-book (evidence) mode, serve refuses to start without a RAG backend. Ensure pgvector is reachable or create a local index under `./var/indices/<tenant>`.
 ```

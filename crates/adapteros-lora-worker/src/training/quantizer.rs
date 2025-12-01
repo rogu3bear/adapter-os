@@ -89,11 +89,12 @@ impl LoRAQuantizer {
             return (Vec::new(), 1.0);
         }
 
-        // Find maximum absolute value for scaling
+        // Find maximum absolute value for scaling (handle NaN/Inf values)
         let max_abs = row
             .iter()
+            .filter(|v| v.is_finite())
             .map(|&v| v.abs())
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap_or(1.0);
 
         // Compute scale to map max_abs to Q15 range
@@ -114,6 +115,10 @@ impl LoRAQuantizer {
 
     /// Quantize a single f32 value to i16 Q15
     fn quantize_value(value: f32, scale: f32) -> i16 {
+        // Handle NaN/Inf by treating them as zero
+        if !value.is_finite() {
+            return 0;
+        }
         let normalized = value / scale;
         let quantized = (normalized * 32768.0).clamp(-32768.0, 32767.0);
         quantized as i16

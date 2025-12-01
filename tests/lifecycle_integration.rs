@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod lifecycle_tests {
     use adapteros_core::B3Hash;
-    use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig};
+    use adapteros_deterministic_exec::{init_global_executor, EnforcementMode, ExecutorConfig};
     use std::time::Duration;
 
     fn init_test_executor() {
@@ -20,6 +20,7 @@ mod lifecycle_tests {
             agent_id: None,
             enable_thread_pinning: false,
             worker_threads: Some(2),
+            enforcement_mode: EnforcementMode::AuditOnly,
         };
         let _ = init_global_executor(executor_config);
     }
@@ -184,8 +185,11 @@ mod lifecycle_tests {
         let coordinator = adapteros_server_api::ShutdownCoordinator::new();
         let mut rx = coordinator.subscribe_shutdown();
 
-        // Verify we can subscribe to shutdown signal
-        let _ = coordinator.shutdown_tx.send(());
+        // Verify we can subscribe to shutdown signal by calling shutdown()
+        // which internally sends the signal via shutdown_tx
+        tokio::spawn(async move {
+            let _ = coordinator.shutdown().await;
+        });
 
         // Should receive the signal
         let result = tokio::time::timeout(Duration::from_millis(100), rx.recv()).await;

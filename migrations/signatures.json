@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2025-11-30T03:18:21Z",
+  "signed_at": "2025-11-30T07:32:21Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQUhNaGpzRmRGb1R1OHRTS0QxSkRTR1VubiszeDJ6VG9yY1NISWtFTE0vV3c9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "c892c5f22f9907547c7dab915c8e473bc2108bc5e7b40b120a7ef68ddd5facc4", "signature": "tI/ve64nMzh0hW7dpEjhUsqJthRZx8i+w0aP1N4WIEKGio6AQvQ4VJ/apWAwFoN1GAllzPTQFSSXXxoSDcGrBQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -121,6 +121,10 @@
     "0116_admin_tenant_access.sql": {"hash": "ebc0de60529699fb5342e42b66f31fc65e9f740f3902112a002decff00714b8a", "signature": "1ZguqD2IUL2rHbuGlcqiendM9kBIHizlol8uwVrm8H94/reH0JBBLISPc0FbRcQDEH4dKyagJePicCLy4IFmCA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0117_training_job_category_metadata.sql": {"hash": "216dd9f30df80767e2379da8815530316c1b1781d805d3c7c2a899614ccd338d", "signature": "NJ7MLR/xLVYAt7q/K8lAo1X/nO5UGaCpSqmjFblUdV8JAWDvu+N2SEJU9TRanDdldgIxF9xlp2HfbhlYj2ZJAA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0118_training_jobs_denormalize.sql": {"hash": "d4f953248261f230ede548e08e67c5efd65d226c57d2693603d17bcf1b72cde3", "signature": "oQ8en77i6BaEKwn1DDS0Z2+TIoEyRliWPvu5Pwb77xQeQmBMlYOBdl4ZJVVSiCyCh07UIi2A0ANg7ZolhrhwDA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "0119_registry_consolidation.sql": {"hash": "7d3a37b3d39710e5cf522d73cd63c7f17d1e989f27ece862d78e780c457ff5f6", "signature": "J+eZBV0XYq/3p3X5jk0pJSCx04xSi4zCXvJTmkKkiInsPib6/fzMD3GELaTB6YiKNnsgc0QHHE9cNRKM9C9pCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
+    "0119_registry_consolidation.sql": {"hash": "7d3a37b3d39710e5cf522d73cd63c7f17d1e989f27ece862d78e780c457ff5f6", "signature": "J+eZBV0XYq/3p3X5jk0pJSCx04xSi4zCXvJTmkKkiInsPib6/fzMD3GELaTB6YiKNnsgc0QHHE9cNRKM9C9pCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0120_behavior_telemetry_capture.sql": {"hash": "f4c8108ef25f11aeb148b7a584cab9cebbe1ed5622255d4c739c517858a1868b", "signature": "5vYQ/0U/HWcqI3WBEFDIrKxXXEqJGpC3qv96f4rWX3DD7jP7JBE2hc6LFRfmdyo1fp1XmIqRO0Pig7TzhAD1DQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0121_tenant_policy_customizations.sql": {"hash": "32bfae874304c6ec7fc372f7592fc2a700b888b48e830e0e187d2d290c7a38c3", "signature": "BDEteNkpXoGWFj5+DK0WKOtl99ZI96Z2UeqY3X+8kZr35qWLdqyNIOP0uag16xlsixJsp+hDFPn4rnQaEORIBQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0122_workers_rename_last_heartbeat_column.sql": {"hash": "0dd14531c16971e4599cde782d129620ada2e49b562f7a681d6c269ab8ade911", "signature": "09FJ3RdUwb35YbTHwAue9to7Dbqgu4WLoP1guPUbdH+EPVlMEqtFmhc42UfoEqpMWWK2XdwpIXcbzdx2F1ZYCg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0123_adapters_add_metadata_json.sql": {"hash": "1c0c05dd63161fa632057853f460974f7973124589a3592a9ad1ccf9dfaf01d5", "signature": "SQhsw/Si9JLOxrxJGKhgcmD4pZnG2LGChPD4ZUXQlI0YYYRtufRo79D3zmzaxka5bCQ1DI+XvkzplFLquP20Bg==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
   }
 }

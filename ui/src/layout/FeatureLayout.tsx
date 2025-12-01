@@ -41,13 +41,13 @@ interface FeatureLayoutProps {
    */
   badges?: PageHeaderBadge[];
   /**
-   * Help tooltip ID for the page header
+   * Glossary term ID for the page header tooltip
    */
-  helpId?: string;
+  termId?: string;
   /**
-   * Help tooltip content for the page header
+   * Brief tooltip content for the page header
    */
-  helpContent?: string;
+  brief?: string;
   /**
    * Adjust outer padding tokens (defaults to `default` spacing).
    */
@@ -97,8 +97,8 @@ export default function FeatureLayout({
   primaryAction,
   secondaryActions,
   badges,
-  helpId,
-  helpContent,
+  termId,
+  brief,
   contentPadding = 'default',
   maxWidth = 'xl',
   resizable,
@@ -222,8 +222,8 @@ export default function FeatureLayout({
             primaryAction={primaryAction}
             secondaryActions={secondaryActions}
             badges={badges}
-            helpId={helpId}
-            helpContent={helpContent}
+            termId={termId}
+            brief={brief}
           >
             {headerActions}
           </PageHeader>

@@ -8,8 +8,8 @@ import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { AlertTriangle, Brain } from 'lucide-react';
 import { errorRecoveryTemplates } from './ui/error-recovery';
-import apiClient from '../api/client';
-import { StartTrainingRequest, TrainingConfigRequest } from '../api/types';
+import apiClient from '@/api/client';
+import { StartTrainingRequest, TrainingConfigRequest } from '@/api/types';
 
 interface LanguageBaseAdapterDialogProps {
   open: boolean;
@@ -70,7 +70,7 @@ export function LanguageBaseAdapterDialog({
     }
   }, [open, selectedTenant]);
 
-  const languageValid = useMemo(() => SUPPORTED_LANGUAGES.includes(language as any), [language]);
+  const languageValid = useMemo(() => SUPPORTED_LANGUAGES.includes(language as SupportedLanguage), [language]);
 
   const isAbsolutePath = (p: string) => {
     if (!p) return false;
@@ -118,8 +118,9 @@ export function LanguageBaseAdapterDialog({
       showStatus(`Training job ${job.id} started.`, 'success');
       onSuccess?.(job.id);
       onOpenChange(false);
-    } catch (e: any) {
-      const message = e?.message || 'Failed to start training';
+    } catch (e: unknown) {
+      const error = e as { message?: string };
+      const message = error?.message || 'Failed to start training';
       setError(message);
       setStatusMessage({ message, variant: 'warning' });
       setErrorRecovery(

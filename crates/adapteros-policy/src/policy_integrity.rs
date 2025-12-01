@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn test_recovery_action_determination() {
-        let mut metadata = PolicyIntegrityMetadata::new(
+        let metadata = PolicyIntegrityMetadata::new(
             "hash".to_string(),
             "sig".to_string(),
             "key".to_string(),

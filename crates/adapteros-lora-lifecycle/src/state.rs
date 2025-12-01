@@ -254,6 +254,33 @@ impl std::fmt::Display for AdapterState {
     }
 }
 
+impl std::str::FromStr for AdapterState {
+    type Err = String;
+
+    /// Parse adapter state from string (case-insensitive)
+    ///
+    /// # Examples
+    /// ```
+    /// use adapteros_lora_lifecycle::AdapterState;
+    /// assert_eq!("warm".parse::<AdapterState>().unwrap(), AdapterState::Warm);
+    /// assert_eq!("WARM".parse::<AdapterState>().unwrap(), AdapterState::Warm);
+    /// assert!("invalid".parse::<AdapterState>().is_err());
+    /// ```
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "unloaded" => Ok(Self::Unloaded),
+            "cold" => Ok(Self::Cold),
+            "warm" => Ok(Self::Warm),
+            "hot" => Ok(Self::Hot),
+            "resident" => Ok(Self::Resident),
+            _ => Err(format!(
+                "Invalid adapter state: '{}'. Valid states: unloaded, cold, warm, hot, resident",
+                s
+            )),
+        }
+    }
+}
+
 /// Adapter state record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdapterStateRecord {
@@ -465,9 +492,16 @@ impl AdapterStateRecord {
     }
 
     /// Unpin adapter
+    ///
+    /// When unpinning, the adapter is demoted from Resident to Hot state.
+    /// This ensures the adapter can be evicted under memory pressure.
     pub fn unpin(&mut self) {
         self.pinned = false;
-        // Don't change state when unpinning
+        // Demote from Resident to Hot when unpinning
+        // An unpinned adapter should not remain in Resident state
+        if self.state == AdapterState::Resident {
+            self.state = AdapterState::Hot;
+        }
     }
 
     /// Record activation

@@ -205,6 +205,76 @@ impl Db {
         Ok(count)
     }
 
+    /// List users with pagination and filtering
+    ///
+    /// Returns a tuple of (users, total_count) for pagination support.
+    /// Supports filtering by role and tenant_id.
+    pub async fn list_users(
+        &self,
+        page: i64,
+        page_size: i64,
+        role_filter: Option<&str>,
+        tenant_filter: Option<&str>,
+    ) -> Result<(Vec<User>, i64)> {
+        // Build WHERE clause dynamically
+        let mut where_clauses = Vec::new();
+
+        if role_filter.is_some() {
+            where_clauses.push("role = ?");
+        }
+        if tenant_filter.is_some() {
+            where_clauses.push("COALESCE(tenant_id, 'default') = ?");
+        }
+
+        let where_clause = if where_clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", where_clauses.join(" AND "))
+        };
+
+        // Count total matching users
+        let count_query = format!("SELECT COUNT(*) FROM users {}", where_clause);
+        let mut count_builder = sqlx::query_scalar::<_, i64>(&count_query);
+        
+        if let Some(role) = role_filter {
+            count_builder = count_builder.bind(role);
+        }
+        if let Some(tenant) = tenant_filter {
+            count_builder = count_builder.bind(tenant);
+        }
+
+        let total = count_builder
+            .fetch_one(&*self.pool())
+            .await
+            .db_err("count users with filters")?;
+
+        // Calculate offset
+        let offset = (page - 1) * page_size;
+
+        // Build SELECT query
+        let select_query = format!(
+            "SELECT id, email, display_name, pw_hash, role, disabled, created_at, COALESCE(tenant_id, 'default') as tenant_id FROM users {} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            where_clause
+        );
+
+        let mut select_builder = sqlx::query_as::<_, User>(&select_query);
+        
+        if let Some(role) = role_filter {
+            select_builder = select_builder.bind(role);
+        }
+        if let Some(tenant) = tenant_filter {
+            select_builder = select_builder.bind(tenant);
+        }
+        select_builder = select_builder.bind(page_size).bind(offset);
+
+        let users = select_builder
+            .fetch_all(&*self.pool())
+            .await
+            .db_err("list users")?;
+
+        Ok((users, total))
+    }
+
     /// Update user role with dual-write support
     ///
     /// Updates the user's role in SQL, and also in KV backend if dual-write mode is enabled.

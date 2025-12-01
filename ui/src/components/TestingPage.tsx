@@ -9,15 +9,16 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import GoldenRuns from './GoldenRuns';
 import GoldenCompareModal from './GoldenCompareModal';
-import apiClient from '../api/client';
-import { Adapter, VerificationReport } from '../api/types';
-import { logger, toError } from '../utils/logger';
+import apiClient from '@/api/client';
+import { Adapter, VerificationReport } from '@/api/types';
+import { logger, toError } from '@/utils/logger';
 import { Link } from 'react-router-dom';
 import { FlaskConical, CheckCircle, XCircle, AlertTriangle, Settings, Play, GitCompare } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
 import { errorRecoveryTemplates } from './ui/error-recovery';
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { useRBAC } from '@/hooks/useRBAC';
+import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
 
 export function TestingPage() {
   const { can } = useRBAC();
@@ -136,7 +137,7 @@ export function TestingPage() {
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
             Testing & Validation
-            <HelpTooltip helpId="testing-config" />
+            <GlossaryTooltip termId="testing-config" />
           </h1>
           <p className="text-muted-foreground">Test and validate adapters against golden baselines</p>
         </div>
@@ -167,14 +168,14 @@ export function TestingPage() {
                   <TableRow key={adapter.id}>
                     <TableCell className="font-medium">{adapter.name}</TableCell>
                     <TableCell>
-                      <Badge>{adapter.current_state}</Badge>
+                      <Badge>{LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}</Badge>
                     </TableCell>
                     <TableCell>{new Date(adapter.created_at).toLocaleString()}</TableCell>
                     <TableCell>
                       <Button onClick={() => handleStartTest(adapter.id)} disabled={!canRunTests}>
                         <FlaskConical className="mr-2 h-4 w-4" />
                         Start Test
-                        <HelpTooltip helpId="testing-run" />
+                        <GlossaryTooltip termId="testing-run" />
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -202,14 +203,14 @@ export function TestingPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-1">
               Configure Test
-              <HelpTooltip helpId="testing-config" />
+              <GlossaryTooltip termId="testing-config" />
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <Label className="flex items-center gap-1">
                 Epsilon Threshold
-                <HelpTooltip helpId="testing-epsilon" />
+                <GlossaryTooltip termId="testing-epsilon" />
               </Label>
               <Input
                 type="number"
@@ -220,7 +221,7 @@ export function TestingPage() {
             <div>
               <Label className="flex items-center gap-1">
                 Pass Rate Threshold (%)
-                <HelpTooltip helpId="testing-pass-rate" />
+                <GlossaryTooltip termId="testing-pass-rate" />
               </Label>
               <Input
                 type="number"
@@ -231,7 +232,7 @@ export function TestingPage() {
             <div>
               <Label className="flex items-center gap-1">
                 Golden Baseline
-                <HelpTooltip helpId="golden-baseline" />
+                <GlossaryTooltip termId="golden-baseline" />
               </Label>
               <Select onValueChange={(value) => setTestConfig(prev => ({ ...prev, selectedGolden: value }))}>
                 <SelectTrigger>

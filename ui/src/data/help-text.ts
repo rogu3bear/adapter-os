@@ -21,14 +21,14 @@ export const helpTextDatabase: HelpTextItem[] = [
   },
   {
     id: 'policies',
-    title: 'Policies',
-    content: 'Configure security and compliance policies. Manage the 20 policy packs that enforce system behavior.',
+    title: 'Guardrails',
+    content: 'Configure security and compliance rules. Manage the 24 policy packs (guardrails) that enforce system behavior.',
     category: 'navigation'
   },
   {
     id: 'operations',
-    title: 'Operations',
-    content: 'Runtime management, plan execution, and system monitoring. Execute plans, manage telemetry, and monitor alerts.',
+    title: 'Run',
+    content: 'Runtime management and execution. Run inference, chat with models, manage documents, and view event history.',
     category: 'navigation'
   },
   {
@@ -53,7 +53,7 @@ export const helpTextDatabase: HelpTextItem[] = [
   },
   {
     id: 'telemetry',
-    title: 'Telemetry',
+    title: 'Event History',
     content: 'Event bundle management. Monitor system events, performance metrics, and audit trails.',
     category: 'operations'
   },
@@ -109,25 +109,25 @@ export const helpTextDatabase: HelpTextItem[] = [
   },
   {
     id: 'policy-pack',
-    title: 'Policy Pack',
+    title: 'Guardrails',
     content: 'Collection of security and compliance rules that enforce system behavior and data handling.',
     category: 'technical'
   },
   {
     id: 'telemetry-bundle',
-    title: 'Telemetry Bundle',
+    title: 'Event History',
     content: 'Compressed collection of system events, metrics, and audit logs for monitoring and compliance.',
     category: 'technical'
   },
   {
     id: 'router',
-    title: 'Router',
-    content: 'Component that selects the best adapters for each request based on context and performance.',
+    title: 'Smart Selection',
+    content: 'Component that selects the best adapters for each request based on context and confidence scores.',
     category: 'technical'
   },
   {
     id: 'k-sparse',
-    title: 'K-Sparse',
+    title: 'Smart Selection',
     content: 'Routing strategy that selects only the top K most relevant adapters to optimize performance.',
     category: 'technical'
   }

@@ -3,9 +3,9 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import apiClient from '../api/client';
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { LoadingState } from './ui/loading-state';
 import { KpiGrid, ContentGrid } from './ui/grid';
@@ -232,13 +232,13 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
                   <span className="text-sm font-medium">CPU</span>
                 </div>
                 <span className="text-sm font-bold">
-                  {systemMetrics?.cpu_usage_percent?.toFixed(1) || '0.0'}%
+                  {(systemMetrics?.cpu_usage ?? systemMetrics?.cpu_usage_percent ?? 0).toFixed(1)}%
                 </span>
               </div>
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                 <div
                   className="bg-blue-600 h-2 rounded-full transition-all"
-                  style={{ width: `${systemMetrics?.cpu_usage_percent || 0}%` }}
+                  style={{ width: `${systemMetrics?.cpu_usage ?? systemMetrics?.cpu_usage_percent ?? 0}%` }}
                 />
               </div>
             </div>
@@ -251,14 +251,13 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
                   <span className="text-sm font-medium">Memory</span>
                 </div>
                 <span className="text-sm font-bold">
-                  {systemMetrics?.memory_used_gb?.toFixed(1) || '0.0'} / 
-                  {systemMetrics?.memory_total_gb?.toFixed(1) || '0.0'} GB
+                  {(systemMetrics?.memory_usage ?? systemMetrics?.memory_usage_percent ?? 0).toFixed(1)}%
                 </span>
               </div>
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                 <div
                   className="bg-purple-600 h-2 rounded-full transition-all"
-                  style={{ width: `${systemMetrics?.memory_usage_percent || 0}%` }}
+                  style={{ width: `${systemMetrics?.memory_usage ?? systemMetrics?.memory_usage_percent ?? 0}%` }}
                 />
               </div>
             </div>
@@ -271,14 +270,13 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
                   <span className="text-sm font-medium">Disk</span>
                 </div>
                 <span className="text-sm font-bold">
-                  {systemMetrics?.disk_used_gb?.toFixed(1) || '0.0'} / 
-                  {systemMetrics?.disk_total_gb?.toFixed(1) || '0.0'} GB
+                  {(systemMetrics?.disk_usage ?? systemMetrics?.disk_usage_percent ?? 0).toFixed(1)}%
                 </span>
               </div>
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                 <div
                   className="bg-orange-600 h-2 rounded-full transition-all"
-                  style={{ width: `${systemMetrics?.disk_usage_percent || 0}%` }}
+                  style={{ width: `${systemMetrics?.disk_usage ?? systemMetrics?.disk_usage_percent ?? 0}%` }}
                 />
               </div>
             </div>

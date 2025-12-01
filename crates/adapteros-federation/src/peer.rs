@@ -28,7 +28,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 #[cfg(test)]
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
 
 /// Peer health status
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1457,7 +1457,6 @@ mod tests {
         // Register initial peers
         let keypair1 = Keypair::generate();
         let keypair2 = Keypair::generate();
-        let keypair3 = Keypair::generate();
 
         registry
             .register_peer("host1".to_string(), keypair1.public_key(), None, None)

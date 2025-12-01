@@ -76,3 +76,21 @@ enabled = true
 alert_dir = "var/alerts"
 max_alerts_per_file = 10000
 rotate_size_mb = 50
+
+[logging]
+# Log level filter (supports per-module levels like "aos_cp=debug,tower_http=info")
+level = "aos_cp=info,aos_cp_api=info,tower_http=debug"
+# Directory for log files (comment out for stdout-only in dev)
+log_dir = "var/logs"
+# Log file prefix
+log_prefix = "aos-cp"
+# Enable JSON format for log aggregation tools (default: false for human-readable)
+json_format = false
+# Rotation: "hourly", "daily", or "never"
+rotation = "daily"
+# Maximum rotated log files to keep (0 = unlimited)
+max_log_files = 30
+# Include request IDs in log output
+include_request_id = true
+# Capture panics to log file
+capture_panics = true

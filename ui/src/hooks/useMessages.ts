@@ -10,9 +10,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { logger, toError } from '../utils/logger';
-import apiClient from '../api/client';
-import { Message, CreateMessageRequest } from '../api/types';
+import { logger, toError } from '@/utils/logger';
+import apiClient from '@/api/client';
+import { Message, CreateMessageRequest } from '@/api/types';
 
 // Query keys for React Query cache management
 const QUERY_KEYS = {

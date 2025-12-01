@@ -39,7 +39,7 @@ export function deserializeSession(data: string): ChatSession {
     ...parsed,
     createdAt: new Date(parsed.createdAt),
     updatedAt: new Date(parsed.updatedAt),
-    messages: parsed.messages.map((msg: any) => ({
+    messages: parsed.messages.map((msg: { timestamp: string; [key: string]: unknown }) => ({
       ...msg,
       timestamp: new Date(msg.timestamp),
     })),

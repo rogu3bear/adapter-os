@@ -281,12 +281,18 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
 
     function startFallbackPolling() {
       clearFallback();
-      // quick polling while disconnected
+      // Fallback polling while SSE disconnected - 5s is responsive without freezing browser
       fallbackIntervalRef.current = setInterval(() => {
         if (isMountedRef.current && enabledRef.current) {
-          fetchEvents();
+          // Properly handle async errors instead of fire-and-forget
+          fetchEvents().catch((error) => {
+            logger.warn('Fallback polling failed', {
+              component: 'useActivityFeed',
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
         }
-      }, 500);
+      }, 5000);
     }
 
     function stopSSE() {
@@ -306,12 +312,22 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
     }
 
     function connectSSE() {
+      // Always cleanup previous connection first
+      if (sseRef.current) {
+        try {
+          sseRef.current.close();
+        } catch {}
+        sseRef.current = null;
+      }
+
       if (!useSSE || !isMountedRef.current) return;
+
       try {
         // Cookie-based auth - cookies are sent automatically with EventSource
-        const base = (import.meta as any)?.env?.VITE_SSE_URL
-          ? `http://${(import.meta as any).env.VITE_SSE_URL}`
-          : ((import.meta as any)?.env?.VITE_API_URL || '/api');
+        const importMeta = import.meta as { env?: { VITE_SSE_URL?: string; VITE_API_URL?: string } };
+        const base = importMeta?.env?.VITE_SSE_URL
+          ? `http://${importMeta.env.VITE_SSE_URL}`
+          : (importMeta?.env?.VITE_API_URL || '/api');
         const params = new URLSearchParams();
         params.append('limit', maxEventsRef.current.toString());
         const url = `${base}/v1/telemetry/events/recent/stream?${params.toString()}`;
@@ -324,17 +340,18 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
           try {
             const payload = JSON.parse((event as MessageEvent).data);
             const incoming = Array.isArray(payload) ? payload : [payload];
-            const normalized: ActivityEvent[] = incoming.map((raw: any) => {
+            const normalized: ActivityEvent[] = incoming.map((raw: unknown) => {
+              const rawObj = raw as Record<string, unknown>;
               const recentEvent: RecentActivityEvent = {
-                id: raw.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                timestamp: raw.timestamp ?? new Date().toISOString(),
-                event_type: raw.event_type ?? raw.type ?? 'telemetry',
-                level: raw.level ?? raw.severity ?? 'info',
-                message: raw.message ?? 'Event',
-                component: raw.component,
-                tenant_id: raw.tenant_id ?? raw.tenantId,
-                user_id: raw.user_id ?? raw.userId,
-                metadata: raw.metadata ?? null,
+                id: (rawObj.id as string) ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                timestamp: (rawObj.timestamp as string) ?? new Date().toISOString(),
+                event_type: (rawObj.event_type as string) ?? (rawObj.type as string) ?? 'telemetry',
+                level: (rawObj.level as string) ?? (rawObj.severity as string) ?? 'info',
+                message: (rawObj.message as string) ?? 'Event',
+                component: rawObj.component as string | undefined,
+                tenant_id: (rawObj.tenant_id as string) ?? (rawObj.tenantId as string),
+                user_id: (rawObj.user_id as string) ?? (rawObj.userId as string),
+                metadata: (rawObj.metadata ?? null) as Record<string, unknown>,
               };
               return mapRecentEvent(recentEvent);
             });
@@ -366,11 +383,12 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
           clearFallback();
         });
 
-        es.addEventListener('error', (evt: any) => {
+        es.addEventListener('error', (evt: Event) => {
           if (!isMountedRef.current) return;
 
           reconnectAttemptsRef.current++;
-          const unauthorized = evt?.status === 401 || evt?.code === 401;
+          const evtObj = evt as Event & { status?: number; code?: number };
+          const unauthorized = evtObj?.status === 401 || evtObj?.code === 401;
           if (unauthorized) {
             setError('Unauthorized');
             logger.error('Activity SSE unauthorized', { component: 'useActivityFeed', operation: 'sse_error' }, new Error('Unauthorized'));

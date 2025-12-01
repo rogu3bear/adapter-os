@@ -126,4 +126,4 @@ export {
   FormDescription,
   FormMessage,
   useFormField,
-} from "../../ui/form";
+} from "@/components/ui/form";

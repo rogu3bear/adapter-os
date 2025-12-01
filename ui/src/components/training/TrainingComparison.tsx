@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
-import { Checkbox } from '../ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Download,
   GitCompare,
@@ -23,7 +23,7 @@ import {
   FileSpreadsheet,
   FileText
 } from 'lucide-react';
-import { TrainingJob, TrainingConfig } from '../../api/types';
+import { TrainingJob, TrainingConfig } from '@/api/types';
 import { toast } from 'sonner';
 
 interface TrainingComparisonProps {
@@ -34,8 +34,8 @@ interface TrainingComparisonProps {
 interface ComparisonMetric {
   name: string;
   getValue: (job: TrainingJob) => string | number | undefined;
-  format?: (value: any) => string;
-  compare?: (a: any, b: any) => 'better' | 'worse' | 'equal';
+  format?: (value: string | number | undefined) => string;
+  compare?: (a: string | number | undefined, b: string | number | undefined) => 'better' | 'worse' | 'equal';
 }
 
 export function TrainingComparison({ jobs: allJobs, onClose }: TrainingComparisonProps) {
@@ -102,7 +102,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
     {
       name: 'Final Loss',
       getValue: (job) => job.current_loss,
-      format: (val) => val?.toFixed(4) || 'N/A',
+      format: (val) => (typeof val === 'number' ? val.toFixed(4) : 'N/A'),
       compare: (a, b) => {
         if (a === undefined || b === undefined) return 'equal';
         return a < b ? 'better' : a > b ? 'worse' : 'equal';
@@ -111,7 +111,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
     {
       name: 'Status',
       getValue: (job) => job.status,
-      format: (val) => val || 'unknown'
+      format: (val) => (typeof val === 'string' ? val : 'unknown')
     },
     {
       name: 'Progress',
@@ -131,12 +131,12 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
     {
       name: 'Learning Rate',
       getValue: (job) => job.learning_rate || job.config?.learning_rate,
-      format: (val) => val?.toExponential(2) || 'N/A'
+      format: (val) => (typeof val === 'number' ? val.toExponential(2) : 'N/A')
     },
     {
       name: 'Tokens/Second',
       getValue: (job) => job.tokens_per_second,
-      format: (val) => val?.toFixed(0) || 'N/A',
+      format: (val) => (typeof val === 'number' ? val.toFixed(0) : 'N/A'),
       compare: (a, b) => {
         if (a === undefined || b === undefined) return 'equal';
         return a > b ? 'better' : a < b ? 'worse' : 'equal';
@@ -152,7 +152,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
         return undefined;
       },
       format: (val) => {
-        if (val === undefined) return 'N/A';
+        if (typeof val !== 'number') return 'N/A';
         const hours = Math.floor(val / 3600);
         const minutes = Math.floor((val % 3600) / 60);
         const seconds = Math.floor(val % 60);
@@ -184,7 +184,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
   ];
 
   // Check if values are different across jobs
-  const areValuesDifferent = (values: any[]): boolean => {
+  const areValuesDifferent = (values: unknown[]): boolean => {
     if (values.length <= 1) return false;
     const first = JSON.stringify(values[0]);
     return values.some(v => JSON.stringify(v) !== first);
@@ -360,7 +360,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
                     </SelectContent>
                   </Select>
 
-                  <Select value={sortBy} onValueChange={(val) => setSortBy(val as any)}>
+                  <Select value={sortBy} onValueChange={(val) => setSortBy(val as 'date' | 'loss' | 'duration')}>
                     <SelectTrigger className="w-40">
                       <SelectValue placeholder="Sort by" />
                     </SelectTrigger>

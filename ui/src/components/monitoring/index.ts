@@ -9,10 +9,10 @@
  */
 
 // Re-export from current locations (files not moved yet)
-export { AdapterMemoryMonitor } from '../AdapterMemoryMonitor';
-export { MonitoringDashboard } from '../MonitoringDashboard';
-export { MonitoringPage } from '../MonitoringPage';
-export { ResourceMonitor } from '../ResourceMonitor';
-export { TrainingJobMonitor } from '../TrainingJobMonitor';
-export { TrainingMonitor } from '../TrainingMonitor';
-export { Telemetry } from '../Telemetry';
+export { AdapterMemoryMonitor } from '@/components/AdapterMemoryMonitor';
+export { MonitoringDashboard } from '@/components/MonitoringDashboard';
+export { MonitoringPage } from '@/components/MonitoringPage';
+export { ResourceMonitor } from '@/components/ResourceMonitor';
+export { TrainingJobMonitor } from '@/components/TrainingJobMonitor';
+export { TrainingMonitor } from '@/components/TrainingMonitor';
+export { Telemetry } from '@/components/Telemetry';

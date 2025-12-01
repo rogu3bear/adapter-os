@@ -1,12 +1,12 @@
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ArrowRight, CheckCircle, Circle, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { usePolling } from '../../hooks/usePolling';
-import { apiClient } from '../../api/client';
-import type { TrainingJob } from '../../api/types';
+import { usePolling } from '@/hooks/usePolling';
+import { apiClient } from '@/api/client';
+import type { TrainingJob } from '@/api/types';
 
 interface PipelineStage {
   id: string;

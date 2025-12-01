@@ -1,12 +1,12 @@
 import React from 'react';
-import { Button } from '../ui/button';
-import { Label } from '../ui/label';
-import { Slider } from '../ui/slider';
-import { Input } from '../ui/input';
-import { Checkbox } from '../ui/checkbox';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { Settings2, ChevronDown, HelpCircle } from 'lucide-react';
 
 export interface AdvancedOptionsValues {
@@ -53,11 +53,11 @@ export function AdvancedOptions({
           <div className="flex items-center justify-between">
             <Label className="flex items-center gap-1">
               Backend
-              <HelpTooltip helpId="inference-backend">
+              <GlossaryTooltip termId="inference-backend">
                 <span className="cursor-help text-muted-foreground hover:text-foreground">
                   <HelpCircle className="h-3 w-3" />
                 </span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </Label>
             <span className="text-xs text-muted-foreground">Auto-selects by default</span>
           </div>
@@ -84,11 +84,11 @@ export function AdvancedOptions({
           <div className="flex justify-between">
             <Label className="flex items-center gap-1">
               Max Tokens
-              <HelpTooltip helpId="inference-max-tokens">
+              <GlossaryTooltip termId="inference-max-tokens">
                 <span className="cursor-help text-muted-foreground hover:text-foreground">
                   <HelpCircle className="h-3 w-3" />
                 </span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </Label>
             <span className="text-sm text-muted-foreground">{values.max_tokens}</span>
           </div>
@@ -105,11 +105,11 @@ export function AdvancedOptions({
           <div className="flex justify-between">
             <Label className="flex items-center gap-1">
               Temperature
-              <HelpTooltip helpId="inference-temperature">
+              <GlossaryTooltip termId="inference-temperature">
                 <span className="cursor-help text-muted-foreground hover:text-foreground">
                   <HelpCircle className="h-3 w-3" />
                 </span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </Label>
             <span className="text-sm text-muted-foreground">{values.temperature?.toFixed(2)}</span>
           </div>
@@ -126,11 +126,11 @@ export function AdvancedOptions({
           <div className="flex justify-between">
             <Label className="flex items-center gap-1">
               Top K
-              <HelpTooltip helpId="inference-top-k">
+              <GlossaryTooltip termId="inference-top-k">
                 <span className="cursor-help text-muted-foreground hover:text-foreground">
                   <HelpCircle className="h-3 w-3" />
                 </span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </Label>
             <span className="text-sm text-muted-foreground">{values.top_k}</span>
           </div>
@@ -147,11 +147,11 @@ export function AdvancedOptions({
           <div className="flex justify-between">
             <Label className="flex items-center gap-1">
               Top P
-              <HelpTooltip helpId="inference-top-p">
+              <GlossaryTooltip termId="inference-top-p">
                 <span className="cursor-help text-muted-foreground hover:text-foreground">
                   <HelpCircle className="h-3 w-3" />
                 </span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </Label>
             <span className="text-sm text-muted-foreground">{values.top_p?.toFixed(2)}</span>
           </div>
@@ -167,11 +167,11 @@ export function AdvancedOptions({
         <div className="space-y-2">
           <Label htmlFor="seed" className="flex items-center gap-1">
             Seed (Optional)
-            <HelpTooltip helpId="inference-seed">
+            <GlossaryTooltip termId="inference-seed">
               <span className="cursor-help text-muted-foreground hover:text-foreground">
                 <HelpCircle className="h-3 w-3" />
               </span>
-            </HelpTooltip>
+            </GlossaryTooltip>
           </Label>
           <Input
             id="seed"
@@ -190,11 +190,11 @@ export function AdvancedOptions({
           />
           <Label htmlFor="evidence" className="flex items-center gap-1">
             Require Evidence (RAG)
-            <HelpTooltip helpId="inference-evidence">
+            <GlossaryTooltip termId="inference-evidence">
               <span className="cursor-help text-muted-foreground hover:text-foreground">
                 <HelpCircle className="h-3 w-3" />
               </span>
-            </HelpTooltip>
+            </GlossaryTooltip>
           </Label>
         </div>
       </CollapsibleContent>

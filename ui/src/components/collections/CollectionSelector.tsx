@@ -23,7 +23,7 @@ export function CollectionSelector({ collections, selectedId, onSelect, placehol
       </SelectTrigger>
       <SelectContent>
         {collections.length === 0 ? (
-          <SelectItem value="" disabled>
+          <SelectItem value="__empty__" disabled>
             No collections available
           </SelectItem>
         ) : (

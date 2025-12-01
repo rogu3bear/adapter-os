@@ -48,14 +48,15 @@ import {
   AdapterTransitionEvent,
   AdapterActivationEvent,
   AdapterEvictionEvent
-} from '../api/types';
-import apiClient from '../api/client';
-import { logger } from '../utils/logger';
+} from '@/api/types';
+import apiClient from '@/api/client';
+import { logger } from '@/utils/logger';
 
-import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
-import { useAdapterOperations } from '../hooks/useAdapterOperations';
+import { useFeatureDegradation } from '@/hooks/useFeatureDegradation';
+import { useAdapterOperations } from '@/hooks/useAdapterOperations';
 
 import { toast } from 'sonner';
+import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
 
 interface AdapterLifecycleManagerProps {
   adapters: Adapter[];
@@ -616,7 +617,7 @@ export function AdapterLifecycleManager({
                       <div className="flex items-center space-x-2">
                         {getStateIcon(adapter.current_state)}
                         <Badge className={getStateColor(adapter.current_state)}>
-                          {adapter.current_state}
+                          {LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}
                         </Badge>
                         {adapter.pinned && (
                           <Pin className="h-4 w-4 text-purple-500" />

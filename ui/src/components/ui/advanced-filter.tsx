@@ -28,7 +28,7 @@ export interface FilterConfig {
 }
 
 export interface FilterValues {
-  [filterId: string]: string | string[] | boolean | { start?: string; end?: string } | number | undefined;
+  [filterId: string]: string | string[] | boolean | { start?: string; end?: string } | number | { min?: number; max?: number } | undefined;
 }
 
 interface AdvancedFilterProps {
@@ -53,7 +53,7 @@ export function AdvancedFilter({
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
-  const updateFilter = useCallback((filterId: string, value: any) => {
+  const updateFilter = useCallback((filterId: string, value: FilterValues[string]) => {
     onChange({
       ...values,
       [filterId]: value,

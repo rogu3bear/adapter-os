@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { useTenant, useAuth } from '@/layout/LayoutProvider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { useRBAC } from '@/hooks/useRBAC';
 import { usePolling } from '@/hooks/usePolling';
 
@@ -242,32 +242,9 @@ export function BaseModelWidget() {
       showStatus('Only administrators can download base models.', 'warning');
       return;
     }
-    setIsActionLoading(true);
-    try {
-      const response = await apiClient.downloadModel(status.model_id);
-      if (!response.artifacts || response.artifacts.length === 0) {
-        showStatus('No downloadable artifacts are available for this model.', 'warning');
-        return;
-      }
-
-      const targetArtifact = response.artifacts.find((artifact) => artifact.artifact === 'weights') ?? response.artifacts[0];
-      const downloadUrl = apiClient.buildUrl(targetArtifact.download_url);
-
-      const anchor = document.createElement('a');
-      anchor.href = downloadUrl;
-      anchor.download = targetArtifact.filename;
-      anchor.rel = 'noopener noreferrer';
-      anchor.style.display = 'none';
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-
-      showStatus(`Download starting for ${targetArtifact.filename}.`, 'success');
-    } catch (err) {
-      setStatusMessage({ message: err instanceof Error ? err.message : 'Failed to download model.', variant: 'warning' });
-    } finally {
-      setIsActionLoading(false);
-    }
+    // Model download requires fetching artifact details from a separate endpoint
+    // This is a placeholder for when artifact download is fully implemented
+    showStatus('Model download is not yet available. Please use the CLI to export models.', 'info');
   };
 
   const canLoad = status && ['unloaded', 'error'].includes(status.status);
@@ -312,7 +289,7 @@ export function BaseModelWidget() {
             <CardTitle className="flex items-center gap-2">
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : getStatusIcon(status)}
               Base Model
-              <HelpTooltip helpId="base-model-status" />
+              <GlossaryTooltip termId="base-model-status" />
             </CardTitle>
             {status && (
               <Badge variant={status.is_loaded ? 'default' : 'secondary'}>
@@ -329,7 +306,7 @@ export function BaseModelWidget() {
               <div>
                 <p className="text-sm font-medium">
                   {status?.model_name || 'No Model'}
-                  <HelpTooltip helpId="base-model-name" />
+                  <GlossaryTooltip termId="base-model-name" />
                 </p>
                 <p className="text-xs text-muted-foreground">{status?.model_id || 'No model has been imported'}</p>
               </div>

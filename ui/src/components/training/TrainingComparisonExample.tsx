@@ -7,9 +7,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { TrainingComparison } from './TrainingComparison';
-import { TrainingJob } from '../../api/types';
-import apiClient from '../../api/client';
-import { logger } from '../../utils/logger';
+import { TrainingJob } from '@/api/types';
+import apiClient from '@/api/client';
+import { logger } from '@/utils/logger';
 import { toast } from 'sonner';
 
 export function TrainingComparisonExample() {
@@ -86,6 +86,7 @@ export function TrainingComparisonWithIds({ jobIds }: { jobIds: string[] }) {
 
   useEffect(() => {
     fetchSpecificJobs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchSpecificJobs is not stable, only run when jobIds changes
   }, [jobIds]);
 
   const fetchSpecificJobs = async () => {

@@ -27,7 +27,7 @@ import {
   isLineDiff,
   DiffResult,
   LineDiff,
-} from '../utils/diff';
+} from '@/utils/diff';
 
 describe('Diff Utilities', () => {
   beforeEach(() => {

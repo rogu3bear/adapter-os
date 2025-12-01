@@ -23,11 +23,12 @@ import {
   Monitor,
   Server
 } from 'lucide-react';
-import apiClient from '../api/client';
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
+import { formatBytes, formatNumber } from '@/utils/format';
 
 interface ResourceMonitorProps {
   jobId?: string;
@@ -210,25 +211,6 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
     if (usage > 90) return <AlertTriangle className="h-4 w-4 text-red-600" />;
     if (usage > 75) return <AlertTriangle className="h-4 w-4 text-yellow-600" />;
     return <CheckCircle className="h-4 w-4 text-green-600" />;
-  };
-
-  const formatBytes = (bytes: number) => {
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let size = bytes;
-    let unitIndex = 0;
-    
-    while (size >= 1024 && unitIndex < units.length - 1) {
-      size /= 1024;
-      unitIndex++;
-    }
-    
-    return `${size.toFixed(1)} ${units[unitIndex]}`;
-  };
-
-  const formatNumber = (num: number) => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num.toFixed(0);
   };
 
   if (loading) {

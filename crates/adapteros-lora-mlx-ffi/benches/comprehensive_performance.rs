@@ -17,7 +17,6 @@ use adapteros_core::B3Hash;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_mlx_ffi::{
     backend::MLXFFIBackend,
-    lora::{LoRAAdapter, LoRAConfig},
     mock::{create_mock_adapter, create_mock_config},
     tensor::MLXFFITensor,
     MLXFFIModel,
@@ -173,7 +172,7 @@ fn bench_generation_throughput(c: &mut Criterion) {
             BenchmarkId::new("token_generation", format!("{}tokens", max_tokens)),
             &max_tokens,
             |b, &tokens| {
-                let backend = create_benchmark_backend();
+                let mut backend = create_benchmark_backend();
                 let ring = create_mock_router_ring(2);
                 let mut io = IoBuffers::new(32_000);
                 io.input_ids = vec![1, 2, 3]; // Prompt
@@ -319,7 +318,7 @@ fn bench_batch_operations(c: &mut Criterion) {
             &size,
             |b, &s| {
                 let tensors: Vec<_> = (0..4)
-                    .map(|i| {
+                    .map(|_i| {
                         let d1 = create_random_input(s * s);
                         let d2 = create_random_input(s * s);
                         (

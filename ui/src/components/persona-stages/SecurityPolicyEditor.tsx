@@ -1,16 +1,17 @@
 import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Switch } from '../ui/switch';
-import { Label } from '../ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Input } from '../ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Shield, Lock, Eye, AlertTriangle, CheckCircle, Settings, Save, Loader2 } from 'lucide-react';
 import { usePolicies, usePolicyMutations } from '@/hooks/useSecurity';
 import { toast } from 'sonner';
 import type { Policy } from '@/api/adapter-types';
+import { logger, toError } from '@/utils/logger';
 
 interface PolicyRule {
   id: string;
@@ -127,7 +128,12 @@ export default function SecurityPolicyEditor() {
       refetch();
     } catch (err) {
       toast.error('Failed to update policies');
-      console.error('Policy update error:', err);
+      logger.error('Security policy update failed', {
+        component: 'SecurityPolicyEditor',
+        operation: 'updatePolicy',
+        errorType: 'policy_update_failure',
+        details: 'Failed to update security policy configuration'
+      }, toError(err));
     }
   };
 

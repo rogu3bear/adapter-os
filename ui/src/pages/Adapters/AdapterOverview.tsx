@@ -24,10 +24,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { AdapterDetailResponse, AdapterHealthResponse } from '@/api/adapter-types';
 import { getLifecycleVariant } from '@/utils/lifecycle';
 import { formatDistanceToNow, parseISO } from 'date-fns';
+import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
+import { formatBytes, formatRelativeTime } from '@/utils/format';
 
 interface AdapterOverviewProps {
   adapter: AdapterDetailResponse | null;
@@ -52,20 +54,11 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
   const metrics = adapter.metrics;
   const manifest = adapter.manifest;
 
-  // Format memory size
-  const formatBytes = (bytes: number | undefined): string => {
-    if (!bytes) return 'N/A';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  };
-
-  // Format timestamp
+  // Format timestamp helper
   const formatTime = (timestamp: string | undefined): string => {
     if (!timestamp) return 'Never';
     try {
-      return formatDistanceToNow(parseISO(timestamp), { addSuffix: true });
+      return formatRelativeTime(timestamp);
     } catch {
       return timestamp;
     }
@@ -188,7 +181,12 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
               icon={<Zap className="h-4 w-4" />}
               label="Current State"
               value={
-                <Badge>{adapter.current_state || adapterData?.current_state || 'unknown'}</Badge>
+                <Badge>
+                  {LIFECYCLE_STATE_LABELS[adapter.current_state || adapterData?.current_state || 'unknown'] || 
+                   adapter.current_state || 
+                   adapterData?.current_state || 
+                   'unknown'}
+                </Badge>
               }
             />
             <InfoRow
@@ -203,7 +201,7 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
             <InfoRow
               icon={<MemoryStick className="h-4 w-4" />}
               label="Memory Usage"
-              value={formatBytes(adapterData?.memory_bytes || adapter.memory_bytes)}
+              value={formatBytes(adapterData?.memory_bytes || adapter.memory_bytes || 0)}
             />
             <InfoRow
               icon={<TrendingUp className="h-4 w-4" />}
@@ -234,7 +232,7 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
             <CardTitle className="flex items-center gap-2">
               <User className="h-5 w-5" />
               Semantic Naming
-              <HelpTooltip content="Semantic naming follows the pattern: tenant/domain/purpose/revision" />
+              <GlossaryTooltip brief="Semantic naming follows the pattern: tenant/domain/purpose/revision" />
             </CardTitle>
             <CardDescription>Naming taxonomy and versioning</CardDescription>
           </CardHeader>
@@ -276,7 +274,7 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
               Health Status
-              <HelpTooltip content="Real-time health checks for the adapter" />
+              <GlossaryTooltip brief="Real-time health checks for the adapter" />
             </CardTitle>
             <CardDescription>Current health checks and status</CardDescription>
           </CardHeader>
@@ -382,7 +380,7 @@ function MetricCard({ icon, label, value, helpText }: MetricCardProps) {
           <div className="flex items-center gap-2 text-muted-foreground">
             {icon}
             <span className="text-sm">{label}</span>
-            {helpText && <HelpTooltip content={helpText} />}
+            {helpText && <GlossaryTooltip brief={helpText} />}
           </div>
         </div>
         <div className="text-2xl font-bold mt-2">{value}</div>

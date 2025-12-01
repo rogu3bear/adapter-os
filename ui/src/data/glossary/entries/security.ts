@@ -1,16 +1,16 @@
-import type { GlossaryEntry } from '../types';
+import type { GlossaryEntry } from '@/data/glossary/types';
 
 export const securityEntries: GlossaryEntry[] = [
   {
     id: 'policy-pack',
-    term: 'Policy Pack',
+    term: 'Guardrails',
     category: 'security',
     content: {
-      brief: 'A set of rules enforced across tenants, adapters, and execution contexts to ensure compliance and security.',
-      detailed: `Policy packs are collections of related security and operational policies that are enforced throughout the AdapterOS system. Examples include the Egress Policy (network restrictions), Determinism Policy (reproducible execution), and Router Policy (adapter selection rules). Each policy pack has a version, status (Active/Draft/Disabled), and can be cryptographically signed to ensure authenticity. Policy packs are typically grouped by Control Plane ID (CPID) and validated using schema hashes.`,
+      brief: 'Guardrails (policy packs) are sets of rules enforced across tenants, adapters, and execution contexts to ensure compliance and security.',
+      detailed: `Guardrails (technically called policy packs) are collections of related security and operational policies that are enforced throughout the AdapterOS system. Examples include the Egress Policy (network restrictions), Determinism Policy (reproducible execution), and Router Policy (adapter selection rules). Each policy pack has a version, status (Active/Draft/Disabled), and can be cryptographically signed to ensure authenticity. Policy packs are typically grouped by Control Plane ID (CPID) and validated using schema hashes.`,
     },
     relatedTerms: ['policy-name', 'policy-version', 'policy-status', 'policy-signed', 'policy-cpid', 'schema-hash'],
-    aliases: ['policy', 'policies', 'policy-packs'],
+    aliases: ['policy pack', 'policy packs', 'policy', 'policies', 'rules', 'security rules'],
   },
   {
     id: 'policy-name',

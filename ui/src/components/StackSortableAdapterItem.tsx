@@ -100,6 +100,7 @@ export function StackSortableAdapterItem<T extends FieldValues = FieldValues>({
         <Input
           type="number"
           placeholder="Gate (Q15)"
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic form field path
           {...register(`adapters.${index}.gate` as any, {
             valueAsNumber: true,
             min: { value: 0, message: 'Gate must be >= 0' },

@@ -10,9 +10,9 @@ import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, Settings, CheckCircle, RotateCcw } from 'lucide-react';
 import apiClient from '@/api/client';
 import { ImportModelRequest } from '@/api/types';
-import { useWizardPersistence } from '../hooks/useWizardPersistence';
-import { useProgressOperation } from '../hooks/useProgressOperation';
-import { useCancellableOperation } from '../hooks/useCancellableOperation';
+import { useWizardPersistence } from '@/hooks/useWizardPersistence';
+import { useProgressOperation } from '@/hooks/useProgressOperation';
+import { useCancellableOperation } from '@/hooks/useCancellableOperation';
 
 interface ModelImportWizardProps {
   onComplete: (importId: string) => void;
@@ -27,7 +27,7 @@ interface WizardState {
   configPath: string;
   tokenizerPath: string;
   tokenizerConfigPath: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 export function ModelImportWizard({ onComplete, onCancel, tenantId }: ModelImportWizardProps) {
@@ -59,7 +59,8 @@ export function ModelImportWizard({ onComplete, onCancel, tenantId }: ModelImpor
     clearState: clearPersistedState,
     hasSavedState,
     loadSavedState,
-  } = useWizardPersistence<WizardState>({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- wizard persistence needs flexible state type
+  } = useWizardPersistence<WizardState & Record<string, any>>({
     storageKey: 'model-import-wizard',
     initialState,
     onSavedStateDetected: (saved) => {

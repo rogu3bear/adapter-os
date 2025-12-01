@@ -276,7 +276,7 @@ export interface StreamingTelemetryEvent {
   action: string;
   status: 'success' | 'failure' | 'pending';
   duration_ms?: number;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
   timestamp: string;
   signature?: string;
 }
@@ -414,7 +414,7 @@ export interface StreamConfig {
   enabled?: boolean;
 
   /** Callback when event is received */
-  onMessage?: <T = any>(data: T) => void;
+  onMessage?: <T = unknown>(data: T) => void;
 
   /** Callback on stream error */
   onError?: (error: Event) => void;
@@ -445,33 +445,34 @@ export interface StreamConfig {
 /**
  * Helper to safely parse SSE event data
  */
-export function parseStreamEvent<T = any>(data: string): T {
+export function parseStreamEvent<T = unknown>(data: string): T {
   try {
     return JSON.parse(data) as T;
   } catch (e) {
-    throw new Error(`Failed to parse stream event: ${e}`);
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    throw new Error(`Failed to parse stream event: ${errorMessage}`);
   }
 }
 
 /**
  * Helper to check if event is a training progress event
  */
-export function isTrainingProgressEvent(data: any): data is TrainingProgressEvent {
-  return data && 'job_id' in data && 'progress_pct' in data;
+export function isTrainingProgressEvent(data: unknown): data is TrainingProgressEvent {
+  return typeof data === 'object' && data !== null && 'job_id' in data && 'progress_pct' in data;
 }
 
 /**
  * Helper to check if event is an adapter state transition
  */
-export function isAdapterStateTransitionEvent(data: any): data is AdapterStateTransitionEvent {
-  return data && 'adapter_id' in data && 'current_state' in data;
+export function isAdapterStateTransitionEvent(data: unknown): data is AdapterStateTransitionEvent {
+  return typeof data === 'object' && data !== null && 'adapter_id' in data && 'current_state' in data;
 }
 
 /**
  * Helper to check if event is system metrics
  */
-export function isSystemMetricsEvent(data: any): data is SystemMetricsEvent {
-  return data && 'cpu' in data && 'memory' in data && 'disk' in data;
+export function isSystemMetricsEvent(data: unknown): data is SystemMetricsEvent {
+  return typeof data === 'object' && data !== null && 'cpu' in data && 'memory' in data && 'disk' in data;
 }
 
 // ============================================================================
@@ -566,8 +567,8 @@ export interface StreamingDelta {
 /**
  * Helper to check if data is a streaming inference chunk
  */
-export function isStreamingChunk(data: any): data is StreamingChunk {
-  return data && 'object' in data && data.object === 'chat.completion.chunk' && 'choices' in data;
+export function isStreamingChunk(data: unknown): data is StreamingChunk {
+  return typeof data === 'object' && data !== null && 'object' in data && (data as StreamingChunk).object === 'chat.completion.chunk' && 'choices' in data;
 }
 
 // ============================================================================
@@ -671,20 +672,20 @@ export type StackPolicyStreamEvent =
 /**
  * Helper to check if event is a compliance change
  */
-export function isComplianceChangedEvent(data: any): data is ComplianceChangedEvent {
-  return data && data.event_type === 'compliance_changed';
+export function isComplianceChangedEvent(data: unknown): data is ComplianceChangedEvent {
+  return typeof data === 'object' && data !== null && 'event_type' in data && (data as ComplianceChangedEvent).event_type === 'compliance_changed';
 }
 
 /**
  * Helper to check if event is a violation detected
  */
-export function isViolationDetectedEvent(data: any): data is ViolationDetectedEvent {
-  return data && data.event_type === 'violation_detected';
+export function isViolationDetectedEvent(data: unknown): data is ViolationDetectedEvent {
+  return typeof data === 'object' && data !== null && 'event_type' in data && (data as ViolationDetectedEvent).event_type === 'violation_detected';
 }
 
 /**
  * Helper to check if event is a violation resolved
  */
-export function isViolationResolvedEvent(data: any): data is ViolationResolvedEvent {
-  return data && data.event_type === 'violation_resolved';
+export function isViolationResolvedEvent(data: unknown): data is ViolationResolvedEvent {
+  return typeof data === 'object' && data !== null && 'event_type' in data && (data as ViolationResolvedEvent).event_type === 'violation_resolved';
 }

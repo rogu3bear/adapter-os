@@ -38,7 +38,7 @@ import apiClient from '@/api/client';
 import { PageHeader } from '@/components/ui/page-header';
 import { KpiGrid, ContentGrid } from '@/components/ui/grid';
 import { ActionGrid } from '@/components/ui/action-grid';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { logger } from '@/utils/logger';
 import type { AuditLog, ComplianceAuditResponse } from '@/api/api-types';
 import { CANONICAL_POLICIES, PolicyCategory, POLICY_CATEGORIES } from '@/api/policyTypes';
@@ -317,11 +317,11 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
       <KpiGrid>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <HelpTooltip helpId="compliance-score">
+            <GlossaryTooltip termId="compliance-score">
               <CardTitle className="text-sm font-medium cursor-help">
                 Compliance Score
               </CardTitle>
-            </HelpTooltip>
+            </GlossaryTooltip>
             <Shield className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -343,11 +343,11 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <HelpTooltip helpId="policy-violations">
+            <GlossaryTooltip termId="policy-violations">
               <CardTitle className="text-sm font-medium cursor-help">
                 Policy Violations
               </CardTitle>
-            </HelpTooltip>
+            </GlossaryTooltip>
             <XCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -366,9 +366,9 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <HelpTooltip helpId="audit-events">
+            <GlossaryTooltip termId="audit-events">
               <CardTitle className="text-sm font-medium cursor-help">Audit Events</CardTitle>
-            </HelpTooltip>
+            </GlossaryTooltip>
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -385,11 +385,11 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <HelpTooltip helpId="compliance-trend">
+            <GlossaryTooltip termId="compliance-trend">
               <CardTitle className="text-sm font-medium cursor-help">
                 Compliance Trend
               </CardTitle>
-            </HelpTooltip>
+            </GlossaryTooltip>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -560,9 +560,9 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
       {/* Quick Actions */}
       <Card>
         <CardHeader>
-          <HelpTooltip helpId="compliance-quick-actions">
+          <GlossaryTooltip termId="compliance-quick-actions">
             <CardTitle className="cursor-help">Quick Actions</CardTitle>
-          </HelpTooltip>
+          </GlossaryTooltip>
         </CardHeader>
         <CardContent>
           <ActionGrid actions={quickActions} columns={4} />

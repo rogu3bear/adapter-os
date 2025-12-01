@@ -5,6 +5,7 @@ import { DensityProvider } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/useRBAC';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { TenantsTab } from './TenantsTab';
 import { AdapterStacksTab } from './AdapterStacksTab';
 import { UsersTab } from './UsersTab';
@@ -64,19 +65,27 @@ export default function AdminPage() {
           </TabsList>
 
           <TabsContent value="tenants" className="space-y-4">
-            <TenantsTab />
+            <SectionErrorBoundary sectionName="Organizations">
+              <TenantsTab />
+            </SectionErrorBoundary>
           </TabsContent>
 
           <TabsContent value="users" className="space-y-4">
-            <UsersTab />
+            <SectionErrorBoundary sectionName="Users">
+              <UsersTab />
+            </SectionErrorBoundary>
           </TabsContent>
 
           <TabsContent value="adapter-stacks" className="space-y-4">
-            <AdapterStacksTab />
+            <SectionErrorBoundary sectionName="Adapter Stacks">
+              <AdapterStacksTab />
+            </SectionErrorBoundary>
           </TabsContent>
 
           <TabsContent value="capacity" className="space-y-4">
-            <CapacityTab />
+            <SectionErrorBoundary sectionName="Capacity">
+              <CapacityTab />
+            </SectionErrorBoundary>
           </TabsContent>
         </Tabs>
       </FeatureLayout>

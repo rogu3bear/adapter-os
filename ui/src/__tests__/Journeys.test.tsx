@@ -1,11 +1,11 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Journeys } from '../components/Journeys';
-import * as api from '../api/client'; // Mock
+import { Journeys } from '@/components/Journeys';
+import * as api from '@/api/client'; // Mock
 import userEvent from '@testing-library/user-event'; // Add for click
 
-vi.mock('../api/client');
+vi.mock('@/api/client');
 
 describe.skip('Journeys', () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

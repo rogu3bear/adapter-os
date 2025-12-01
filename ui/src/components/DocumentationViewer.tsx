@@ -41,6 +41,7 @@ function slugifyHeading(children: React.ReactNode): string {
 }
 
 function createHeadingRenderer(Tag: keyof JSX.IntrinsicElements) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ({ node, ...props }: any) => {
     const id = slugifyHeading(props.children);
     return <Tag id={id} {...props} />;

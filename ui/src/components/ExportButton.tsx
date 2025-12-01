@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Button } from './ui/button';
 import { Download, Loader2 } from 'lucide-react';
+import { useAsyncAction } from '@/hooks/useAsyncAction';
 
 interface ExportButtonProps {
-  data?: any[];
+  data?: Record<string, unknown>[];
   format: 'csv' | 'json';
   filename?: string;
   className?: string;
@@ -21,15 +22,13 @@ export const ExportButton: React.FC<ExportButtonProps> = ({
   onExport,
   mimeType,
 }) => {
-  const [isLoading, setIsLoading] = useState(false);
-
-  const convertToCSV = (data: any[]): string => {
+  const convertToCSV = (data: Record<string, unknown>[]): string => {
     if (data.length === 0) return '';
-    
+
     const headers = Object.keys(data[0]);
     const csvHeaders = headers.join(',');
-    
-    const csvRows = data.map(row => 
+
+    const csvRows = data.map(row =>
       headers.map(header => {
         const value = row[header];
         // Escape commas and quotes in CSV
@@ -39,7 +38,7 @@ export const ExportButton: React.FC<ExportButtonProps> = ({
         return value;
       }).join(',')
     );
-    
+
     return [csvHeaders, ...csvRows].join('\n');
   };
 
@@ -59,38 +58,33 @@ export const ExportButton: React.FC<ExportButtonProps> = ({
     downloadBlob(blob, filename);
   };
 
-  const handleExport = async () => {
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-    const baseFilename = filename || `export-${timestamp}`;
-    
-    if (onExport) {
-      // API-based export
-      setIsLoading(true);
-      try {
+  const { execute: handleExport, isLoading } = useAsyncAction(
+    async () => {
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const baseFilename = filename || `export-${timestamp}`;
+
+      if (onExport) {
+        // API-based export
         const blob = await onExport(format);
         const extension = format === 'csv' ? 'csv' : 'json';
         downloadBlob(blob, `${baseFilename}.${extension}`);
-      } catch (error) {
-        // Error handling should be done by parent component
-        throw error;
-      } finally {
-        setIsLoading(false);
+      } else if (data) {
+        // Local data export
+        if (format === 'csv') {
+          const csv = convertToCSV(data);
+          downloadFile(csv, `${baseFilename}.csv`, 'text/csv');
+        } else {
+          const json = JSON.stringify(data, null, 2);
+          downloadFile(json, `${baseFilename}.json`, 'application/json');
+        }
       }
-    } else if (data) {
-      // Local data export
-      if (format === 'csv') {
-        const csv = convertToCSV(data);
-        downloadFile(csv, `${baseFilename}.csv`, 'text/csv');
-      } else {
-        const json = JSON.stringify(data, null, 2);
-        downloadFile(json, `${baseFilename}.json`, 'application/json');
-      }
-    }
-  };
+    },
+    { operationName: 'export_data' }
+  );
 
   return (
     <Button
-      onClick={handleExport}
+      onClick={() => handleExport()}
       variant="outline"
       size="sm"
       className={className}
@@ -107,7 +101,7 @@ export const ExportButton: React.FC<ExportButtonProps> = ({
 };
 
 // Specialized export buttons for common data types
-export const ExportRoutingDecisions: React.FC<{ data: any[]; className?: string }> = ({
+export const ExportRoutingDecisions: React.FC<{ data: Record<string, unknown>[]; className?: string }> = ({
   data,
   className,
 }) => {
@@ -129,7 +123,7 @@ export const ExportRoutingDecisions: React.FC<{ data: any[]; className?: string 
   );
 };
 
-export const ExportMetrics: React.FC<{ data: any[]; className?: string }> = ({
+export const ExportMetrics: React.FC<{ data: Record<string, unknown>[]; className?: string }> = ({
   data,
   className,
 }) => {

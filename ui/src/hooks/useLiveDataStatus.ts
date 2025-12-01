@@ -178,7 +178,7 @@ export function useRegisterLiveDataStream(
   React.useEffect(() => {
     registerStream(id, status);
     return () => unregisterStream(id);
-  }, [id, registerStream, unregisterStream]);
+  }, [id, status, registerStream, unregisterStream]);
 
   // Update status when it changes
   React.useEffect(() => {

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Textarea } from '../ui/textarea';
-import { Input } from '../ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Users,
   MessageSquare,
@@ -21,10 +21,10 @@ import {
   AlertTriangle,
   Loader2,
 } from 'lucide-react';
-import { logger } from '../../utils/logger';
-import { useWorkspaces } from '../../hooks/useWorkspaces';
-import apiClient from '../../api/client';
-import type { WorkspaceResource, Message } from '../../api/types';
+import { logger } from '@/utils/logger';
+import { useWorkspaces } from '@/hooks/useWorkspaces';
+import apiClient from '@/api/client';
+import type { WorkspaceResource, Message } from '@/api/types';
 
 // Shared experiment interface
 interface SharedExperiment {
@@ -513,6 +513,7 @@ export default function DataScientistCollaborationHub() {
                                 size="icon"
                                 onClick={handleAddComment}
                                 disabled={!newComment.trim() || loadingComments}
+                                aria-label="Send comment"
                               >
                                 <Send className="h-4 w-4" />
                               </Button>

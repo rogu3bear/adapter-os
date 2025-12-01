@@ -7,11 +7,13 @@
  * Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §8.3
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Progress } from './ui/progress';
 import { Badge } from './ui/badge';
-import { useTimestamp } from '../hooks/useTimestamp';
+import { useTimestamp } from '@/hooks/useTimestamp';
+import { useLiveData } from '@/hooks/useLiveData';
+import apiClient from '@/api/client';
 
 interface DiscoveryEvent {
   type: string;
@@ -39,66 +41,14 @@ interface DiscoveryStreamPageProps {
   selectedTenant: string;
 }
 
+interface DiscoveryData {
+  events: DiscoveryEvent[];
+  scans: Map<string, ScanProgress>;
+}
+
 export function DiscoveryStreamPage({ selectedTenant }: DiscoveryStreamPageProps) {
   const [events, setEvents] = useState<DiscoveryEvent[]>([]);
   const [scans, setScans] = useState<Map<string, ScanProgress>>(new Map());
-
-  // Subscribe to discovery events via SSE
-  useEffect(() => {
-    const eventSource = new EventSource(`/api/v1/streams/discovery?tenant=${selectedTenant}`);
-
-    eventSource.addEventListener('discovery', (event) => {
-      const data = JSON.parse(event.data);
-
-      setEvents((prev) => [data, ...prev].slice(0, 50));
-
-      const repoId = data.payload.repo_id;
-      if (!repoId) return;
-
-      setScans((prev) => {
-        const updated = new Map(prev);
-        const existing = updated.get(repoId) || {
-          repo_id: repoId,
-          stage: 'started',
-          progress: 0,
-          files_parsed: 0,
-          symbols: 0,
-          frameworks: [],
-        };
-
-        switch (data.type) {
-          case 'repo_scan_started':
-            existing.stage = 'parsing';
-            existing.progress = 10;
-            break;
-          case 'repo_scan_progress':
-            existing.stage = data.payload.stage || existing.stage;
-            existing.files_parsed = data.payload.files_parsed || existing.files_parsed;
-            existing.progress = getProgressByStage(existing.stage);
-            break;
-          case 'symbol_indexed':
-            existing.symbols = data.payload.symbol_count || existing.symbols;
-            existing.progress = 60;
-            break;
-          case 'framework_detected':
-            if (data.payload.framework && !existing.frameworks.includes(data.payload.framework)) {
-              existing.frameworks.push(data.payload.framework);
-            }
-            break;
-          case 'repo_scan_completed':
-            existing.stage = 'completed';
-            existing.progress = 100;
-            existing.symbols = data.payload.symbol_count || existing.symbols;
-            break;
-        }
-
-        updated.set(repoId, existing);
-        return updated;
-      });
-    });
-
-    return () => eventSource.close();
-  }, [selectedTenant]);
 
   const getProgressByStage = (stage: string): number => {
     switch (stage) {
@@ -116,6 +66,67 @@ export function DiscoveryStreamPage({ selectedTenant }: DiscoveryStreamPageProps
         return 10;
     }
   };
+
+  const handleSSEMessage = useCallback((data: unknown) => {
+    const discoveryEvent = data as DiscoveryEvent;
+
+    setEvents((prev) => [discoveryEvent, ...prev].slice(0, 50));
+
+    const repoId = discoveryEvent.payload.repo_id;
+    if (!repoId) return;
+
+    setScans((prev) => {
+      const updated = new Map(prev);
+      const existing = updated.get(repoId) || {
+        repo_id: repoId,
+        stage: 'started',
+        progress: 0,
+        files_parsed: 0,
+        symbols: 0,
+        frameworks: [],
+      };
+
+      switch (discoveryEvent.type) {
+        case 'repo_scan_started':
+          existing.stage = 'parsing';
+          existing.progress = 10;
+          break;
+        case 'repo_scan_progress':
+          existing.stage = discoveryEvent.payload.stage || existing.stage;
+          existing.files_parsed = discoveryEvent.payload.files_parsed || existing.files_parsed;
+          existing.progress = getProgressByStage(existing.stage);
+          break;
+        case 'symbol_indexed':
+          existing.symbols = discoveryEvent.payload.symbol_count || existing.symbols;
+          existing.progress = 60;
+          break;
+        case 'framework_detected':
+          if (discoveryEvent.payload.framework && !existing.frameworks.includes(discoveryEvent.payload.framework)) {
+            existing.frameworks.push(discoveryEvent.payload.framework);
+          }
+          break;
+        case 'repo_scan_completed':
+          existing.stage = 'completed';
+          existing.progress = 100;
+          existing.symbols = discoveryEvent.payload.symbol_count || existing.symbols;
+          break;
+      }
+
+      updated.set(repoId, existing);
+      return updated;
+    });
+  }, []);
+
+  // Use standardized live data hook
+  const { sseConnected } = useLiveData<DiscoveryData>({
+    sseEndpoint: `/v1/streams/discovery?tenant=${selectedTenant}`,
+    sseEventType: 'discovery',
+    fetchFn: async () => ({ events: [], scans: new Map() }),
+    pollingSpeed: 'fast',
+    enabled: true,
+    onSSEMessage: handleSSEMessage,
+    operationName: 'DiscoveryStream',
+  });
 
   return (
     <div className="p-6 space-y-6">

@@ -144,7 +144,7 @@ describe('DatasetsTab - Upload Button Permissions', () => {
       </TestWrapper>
     );
 
-    // Verify HelpTooltip is rendered (tooltip functionality itself is tested in component tests)
+    // Verify GlossaryTooltip is rendered (tooltip functionality itself is tested in component tests)
     const uploadButton = screen.getByRole('button', { name: /upload dataset/i });
     expect(uploadButton).toBeTruthy();
 

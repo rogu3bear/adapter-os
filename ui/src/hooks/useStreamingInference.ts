@@ -37,9 +37,9 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import apiClient from '../api/client';
-import { logger, toError } from '../utils/logger';
-import type { InferRequest } from '../api/types';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import type { InferRequest } from '@/api/types';
 
 // ============================================================================
 // Types

@@ -7,6 +7,7 @@ description = "Unified Memory Watchdog for AdapterOS - monitors page-outs and OS
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 

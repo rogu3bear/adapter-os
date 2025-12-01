@@ -14,11 +14,11 @@
 //! const result = await execute();
 //! ```
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useQueryClient, UseMutationOptions, useMutation } from '@tanstack/react-query';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
-import { isTransientError } from '../utils/errorMessages';
+import { isTransientError } from '@/utils/errorMessages';
 
 export interface RetryConfig {
   /** Maximum number of retry attempts (default: 3) */
@@ -148,10 +148,10 @@ export function useRetry<TData, TVariables = void>(
   operationFn: (variables: TVariables) => Promise<TData>,
   options: UseRetryOptions<TData, TVariables> = {}
 ): UseRetryReturn<TData, TVariables> {
-  const config: Required<RetryConfig> = {
+  const config: Required<RetryConfig> = useMemo(() => ({
     ...DEFAULT_CONFIG,
     ...options,
-  };
+  }), [options]);
 
   const {
     onRetry,
@@ -530,10 +530,10 @@ export function useRetryMutation<TData, TVariables = void>(
  * @returns A function that wraps async operations with retry logic
  */
 export function useRetryWrapper(config: RetryConfig = {}) {
-  const finalConfig: Required<RetryConfig> = {
+  const finalConfig: Required<RetryConfig> = useMemo(() => ({
     ...DEFAULT_CONFIG,
     ...config,
-  };
+  }), [config]);
 
   return useCallback(
     async <T>(operation: () => Promise<T>): Promise<T> => {

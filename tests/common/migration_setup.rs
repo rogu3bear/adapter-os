@@ -113,7 +113,7 @@ pub fn create_comprehensive_test_data(db_path: &Path) -> Result<(), Box<dyn std:
         ),
     ];
 
-    for (id, hash, tier, rank, acl, activation_pct, registered_at) in test_adapters {
+    for (id, hash, tier, rank, acl, activation_pct, registered_at) in &test_adapters {
         conn.execute(
             "INSERT INTO adapters (id, hash, tier, rank, acl, activation_pct, registered_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [id, hash, tier, rank, acl, activation_pct, registered_at],
@@ -127,8 +127,17 @@ pub fn create_comprehensive_test_data(db_path: &Path) -> Result<(), Box<dyn std:
     )?;
 
     conn.execute(
-        "INSERT INTO models (name, config_hash, tokenizer_hash, tokenizer_cfg_hash, weights_hash, license_hash, license_text, model_card_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ["test-model-2", "config456", "token456", "tokencfg456", "weights456", "license456", "Apache 2.0", None::<String>, "1704067300"],
+        "INSERT INTO models (name, config_hash, tokenizer_hash, tokenizer_cfg_hash, weights_hash, license_hash, license_text, model_card_hash, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8)",
+        rusqlite::params![
+            "test-model-2",
+            "config456",
+            "token456",
+            "tokencfg456",
+            "weights456",
+            "license456",
+            "Apache 2.0",
+            "1704067300"
+        ],
     )?;
 
     println!(

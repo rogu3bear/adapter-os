@@ -1,9 +1,9 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useAdapterOperations } from '../useAdapterOperations';
+import { useAdapterOperations } from '@/hooks/useAdapterOperations';
 
 // Mock the API client
-vi.mock('../../api/client', () => ({
+vi.mock('@/api/client', () => ({
   default: {
     evictAdapter: vi.fn(),
     pinAdapter: vi.fn(),
@@ -23,23 +23,23 @@ vi.mock('sonner', () => ({
 }));
 
 // Mock logger
-vi.mock('../../utils/logger', () => ({
+vi.mock('@/utils/logger', () => ({
   logger: {
     error: vi.fn(),
   },
 }));
 
 // Mock errorRecoveryTemplates
-vi.mock('../../components/ui/error-recovery', () => ({
+vi.mock('@/components/ui/error-recovery', () => ({
   errorRecoveryTemplates: {
     genericError: vi.fn(() => 'Error Recovery'),
   },
 }));
 
-import apiClient from '../../api/client';
+import apiClient from '@/api/client';
 import { toast } from 'sonner';
-import { logger } from '../../utils/logger';
-import { errorRecoveryTemplates } from '../../components/ui/error-recovery';
+import { logger } from '@/utils/logger';
+import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 
 describe('useAdapterOperations', () => {
   beforeEach(() => {

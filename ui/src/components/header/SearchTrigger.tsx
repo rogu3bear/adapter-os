@@ -22,7 +22,7 @@ export function SearchTrigger({ onClick, className }: SearchTriggerProps) {
           <span className="sr-only">Search</span>
         </Button>
       </TooltipTrigger>
-      <TooltipContent>Search (⌘K)</TooltipContent>
+      <TooltipContent className="max-w-xs">Search (⌘K)</TooltipContent>
     </Tooltip>
   );
 }

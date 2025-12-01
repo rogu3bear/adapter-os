@@ -10,7 +10,7 @@ use adapteros_telemetry::{
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use tokio::runtime::Runtime;
 
-fn create_test_event(id: u64) -> adapteros_telemetry::TelemetryEvent {
+fn create_test_event(id: u64) -> adapteros_telemetry::unified_events::TelemetryEvent {
     let identity = IdentityEnvelope::new(
         "bench".to_string(),
         "telemetry".to_string(),

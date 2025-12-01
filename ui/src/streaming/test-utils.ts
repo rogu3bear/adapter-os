@@ -29,7 +29,7 @@ import type {
   MetricsStreamEvent,
   TelemetryStreamEvent,
   AdapterStreamEvent,
-} from '../api/streaming-types';
+} from '@/api/streaming-types';
 
 // ============================================================================
 // Mock Factories
@@ -52,7 +52,7 @@ export function createMockTrainingProgressEvent(
     learning_rate: 0.001,
     tokens_per_second: 150,
     timestamp: new Date().toISOString(),
-    ...(overrides as any),
+    ...overrides,
   };
 }
 
@@ -64,7 +64,7 @@ export function createMockMetricsEvent(
   overrides: Partial<MetricsStreamEvent> = {}
 ): MetricsStreamEvent {
   // Default to MetricsSnapshotEvent format (what backend sends)
-  const defaultSnapshot: import('../api/streaming-types').MetricsSnapshotEvent = {
+  const defaultSnapshot: import('@/api/streaming-types').MetricsSnapshotEvent = {
     timestamp_ms: Date.now(),
     latency: {
       p50_ms: 10.5,
@@ -84,7 +84,7 @@ export function createMockMetricsEvent(
 
   return {
     ...defaultSnapshot,
-    ...(overrides as any),
+    ...overrides,
   };
 }
 
@@ -96,12 +96,12 @@ export function createMockAdapterStateTransitionEvent(
 ): AdapterStreamEvent {
   return {
     adapter_id: 'tenant-a/engineering/code-review/r001',
-    tenant_id: 'tenant-a',
+    adapter_name: 'code-review-adapter',
     previous_state: 'cold',
-    new_state: 'warm',
-    trigger: 'activation',
-    timestamp: new Date().toISOString(),
-    ...(overrides as any),
+    current_state: 'warm',
+    timestamp: Date.now(),
+    activation_percentage: 100,
+    ...overrides,
   } as AdapterStreamEvent;
 }
 
@@ -120,7 +120,7 @@ export function createMockDiscoveryEvent(
     tags: ['test', 'example'],
     relevance_score: 0.95,
     timestamp: new Date().toISOString(),
-    ...(overrides as any),
+    ...overrides,
   } as DiscoveryStreamEvent;
 }
 
@@ -143,7 +143,7 @@ export function createMockTelemetryEvent(
     duration_ms: 1234,
     metadata: { memory_freed_mb: 512 },
     timestamp: new Date().toISOString(),
-    ...(overrides as any),
+    ...overrides,
   } as TelemetryStreamEvent;
 }
 
@@ -160,7 +160,7 @@ export function createMockContactEvent(
     email: 'john@example.com',
     role: 'user',
     timestamp: new Date().toISOString(),
-    ...(overrides as any),
+    ...overrides,
   } as ContactStreamEvent;
 }
 
@@ -177,7 +177,7 @@ export function createMockFileChangeEvent(
     size_bytes: 1024000,
     mime_type: 'application/octet-stream',
     timestamp: new Date().toISOString(),
-    ...(overrides as any),
+    ...overrides,
   } as FileChangeStreamEvent;
 }
 
@@ -202,7 +202,7 @@ export function mockMetricsStream(
     lastUpdated: 'timestamp' in mockData ? mockData.timestamp : undefined,
   }));
 
-  vi.mock('../hooks/useStreamingEndpoints', () => ({
+  vi.mock('@/hooks/useStreamingEndpoints', () => ({
     useMetricsStream: useMetricsStreamMock,
   }));
 
@@ -226,7 +226,7 @@ export function mockTrainingStream(
     lastUpdated: mockData?.timestamp,
   }));
 
-  vi.mock('../hooks/useStreamingEndpoints', () => ({
+  vi.mock('@/hooks/useStreamingEndpoints', () => ({
     useTrainingStream: useTrainingStreamMock,
   }));
 
@@ -250,7 +250,7 @@ export function mockAdaptersStream(
     lastUpdated: mockData?.timestamp,
   }));
 
-  vi.mock('../hooks/useStreamingEndpoints', () => ({
+  vi.mock('@/hooks/useStreamingEndpoints', () => ({
     useAdaptersStream: useAdaptersStreamMock,
   }));
 
@@ -306,7 +306,7 @@ export function mockAllStreams(defaults: { error?: string; connected?: boolean }
     })),
   };
 
-  jest.mock('../hooks/useStreamingEndpoints', () => mocks);
+  jest.mock('@/hooks/useStreamingEndpoints', () => mocks);
 
   return mocks;
 }
@@ -360,7 +360,7 @@ export function mockStreamingService() {
     unsubscribeAll: jest.fn(),
   };
 
-  jest.mock('../services/StreamingService', () => ({
+  jest.mock('@/services/StreamingService', () => ({
     streamingService: mockService,
     default: mockService,
   }));
@@ -413,7 +413,7 @@ export class MockEventSource {
   /**
    * Emit an event for testing
    */
-  emitEvent(eventType: string, data: any) {
+  emitEvent(eventType: string, data: unknown) {
     const event = new MessageEvent(eventType, {
       data: JSON.stringify(data),
     });
@@ -448,11 +448,13 @@ export class MockEventSource {
 export function setupEventSourceMock() {
   const originalEventSource = global.EventSource;
 
-  (global.EventSource as any) = MockEventSource;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock requires type coercion
+  (global as any).EventSource = MockEventSource;
 
   return {
     restore: () => {
-      (global.EventSource as any) = originalEventSource;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock requires type coercion
+      (global as any).EventSource = originalEventSource;
     },
   };
 }
@@ -460,7 +462,7 @@ export function setupEventSourceMock() {
 /**
  * Create a test wrapper for streaming components
  */
-export function createStreamingTestWrapper(props: any = {}) {
+export function createStreamingTestWrapper(props: Record<string, unknown> = {}) {
   return {
     defaultProps: {
       ...props,
@@ -476,7 +478,7 @@ export function createStreamingTestWrapper(props: any = {}) {
 /**
  * Assert that a hook was called with expected stream config
  */
-export function assertStreamHookCalled(mock: jest.Mock, config?: Record<string, any>) {
+export function assertStreamHookCalled(mock: jest.Mock, config?: Record<string, unknown>) {
   expect(mock).toHaveBeenCalled();
   if (config) {
     expect(mock).toHaveBeenCalledWith(expect.objectContaining(config));
@@ -486,7 +488,7 @@ export function assertStreamHookCalled(mock: jest.Mock, config?: Record<string, 
 /**
  * Assert stream is connected
  */
-export function assertStreamConnected(result: any) {
+export function assertStreamConnected(result: { connected: boolean; error: unknown }) {
   expect(result.connected).toBe(true);
   expect(result.error).toBeNull();
 }
@@ -494,14 +496,14 @@ export function assertStreamConnected(result: any) {
 /**
  * Assert stream is disconnected
  */
-export function assertStreamDisconnected(result: any) {
+export function assertStreamDisconnected(result: { connected: boolean }) {
   expect(result.connected).toBe(false);
 }
 
 /**
  * Assert stream has data
  */
-export function assertStreamHasData(result: any) {
+export function assertStreamHasData(result: { data: unknown }) {
   expect(result.data).not.toBeNull();
   expect(result.data).toBeDefined();
 }

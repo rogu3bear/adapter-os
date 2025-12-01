@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Alert, AlertDescription } from '../ui/alert';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Textarea } from '../ui/textarea';
-import { BreadcrumbNavigation } from '../BreadcrumbNavigation';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { BreadcrumbNavigation } from '@/components/BreadcrumbNavigation';
 import {
   CheckCircle,
   XCircle,
@@ -21,9 +21,9 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '../../api/client';
-import { logger, toError } from '../../utils/logger';
-import { DensityProvider, useDensity } from '../../contexts/DensityContext';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import { DensityProvider, useDensity } from '@/contexts/DensityContext';
 
 // Types
 interface PromotionStage {
@@ -453,6 +453,7 @@ function PromotionWorkflowInner({ goldenRunId, onComplete, onCancel }: Promotion
 
   useEffect(() => {
     loadPromotionStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadPromotionStatus is not stable, only run when goldenRunId changes
   }, [goldenRunId]);
 
   const loadPromotionStatus = async () => {

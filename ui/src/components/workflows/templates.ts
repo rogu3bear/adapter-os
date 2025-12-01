@@ -159,7 +159,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         validation: {
           type: 'custom',
           message: 'Golden comparison must pass',
-          validate: (data: any) => data.comparisonPassed === true,
+          validate: (data: Record<string, unknown>) => (data.comparisonPassed as boolean) === true,
         },
       },
       {
@@ -437,7 +437,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         validation: {
           type: 'custom',
           message: 'Stack validation must pass',
-          validate: (data: any) => data.validationPassed === true,
+          validate: (data: Record<string, unknown>) => (data.validationPassed as boolean) === true,
         },
       },
       {

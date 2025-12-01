@@ -25,10 +25,10 @@ import {
   CheckCircle,
   AlertTriangle
 } from 'lucide-react';
-import apiClient from '../api/client';
-import { TrainingTemplate, TrainingConfig } from '../api/types';
+import apiClient from '@/api/client';
+import { TrainingTemplate, TrainingConfig } from '@/api/types';
 import { toast } from 'sonner';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
 interface TrainingTemplatesProps {
   onTemplateSelect: (template: TrainingTemplate) => void;
@@ -282,7 +282,7 @@ function CreateTemplateForm({ onSubmit }: { onSubmit: (template: Omit<TrainingTe
 
       <div>
         <Label htmlFor="category">Category</Label>
-        <Select value={formData.category} onValueChange={(value: any) => setFormData({...formData, category: value})}>
+        <Select value={formData.category} onValueChange={(value: string) => setFormData({...formData, category: value as 'code'})}>
           <SelectTrigger>
             <SelectValue placeholder="Select category" />
           </SelectTrigger>

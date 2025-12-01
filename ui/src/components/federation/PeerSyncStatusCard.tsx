@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import {
   CheckCircle,
   AlertTriangle,
@@ -19,6 +19,7 @@ import {
   PeerSyncStatus,
   PeerHealthStatus
 } from '@/api/federation-types';
+import { formatRelativeTime, formatDurationMs } from '@/utils/format';
 
 interface PeerSyncStatusCardProps {
   peers: PeerSyncInfo[];
@@ -101,28 +102,12 @@ export function PeerSyncStatusCard({
 
   const formatTimestamp = (timestamp?: string) => {
     if (!timestamp) return '--';
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSeconds = Math.floor(diffMs / 1000);
-    const diffMinutes = Math.floor(diffSeconds / 60);
-    const diffHours = Math.floor(diffMinutes / 60);
-
-    if (diffSeconds < 60) {
-      return `${diffSeconds}s ago`;
-    } else if (diffMinutes < 60) {
-      return `${diffMinutes}m ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours}h ago`;
-    } else {
-      return date.toLocaleString();
-    }
+    return formatRelativeTime(timestamp);
   };
 
   const formatLatency = (ms?: number) => {
     if (ms === undefined) return '--';
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
+    return formatDurationMs(ms);
   };
 
   if (isLoading) {
@@ -153,9 +138,9 @@ export function PeerSyncStatusCard({
             <CardTitle className="flex items-center gap-2">
               <Wifi className="h-5 w-5" />
               Peer Sync Status
-              <HelpTooltip helpId="peer-sync-status">
+              <GlossaryTooltip termId="peer-sync-status">
                 <span className="cursor-help text-muted-foreground">(?)</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </CardTitle>
           </CardHeader>
         )}
@@ -183,9 +168,9 @@ export function PeerSyncStatusCard({
           <CardTitle className="flex items-center gap-2">
             <Wifi className="h-5 w-5" />
             Peer Sync Status
-            <HelpTooltip helpId="peer-sync-status">
+            <GlossaryTooltip termId="peer-sync-status">
               <span className="cursor-help text-muted-foreground">(?)</span>
-            </HelpTooltip>
+            </GlossaryTooltip>
           </CardTitle>
         </CardHeader>
       )}

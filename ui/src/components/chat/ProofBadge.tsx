@@ -12,12 +12,12 @@ export function ProofBadge({ isVerified, timestamp }: Props) {
 
   return (
     <Tooltip>
-      <TooltipTrigger>
-        <div className="flex items-center gap-1 text-green-600">
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center gap-1 text-green-600 cursor-default">
           <ShieldCheck className="h-4 w-4" />
-        </div>
+        </span>
       </TooltipTrigger>
-      <TooltipContent>
+      <TooltipContent className="max-w-xs">
         <p>Response verified</p>
         {timestamp && <p className="text-xs">at {new Date(timestamp).toLocaleString()}</p>}
       </TooltipContent>

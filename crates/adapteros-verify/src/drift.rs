@@ -401,7 +401,9 @@ mod tests {
         let report = evaluator.compare(&baseline, &current).unwrap();
 
         assert!(report.drift_detected);
-        assert_eq!(report.severity, DriftSeverity::Critical);
-        assert!(report.should_block());
+        // os_build changes are Warning severity by default (allow_warnings=true)
+        assert_eq!(report.severity, DriftSeverity::Warning);
+        // Warning does not block (only Critical blocks)
+        assert!(!report.should_block());
     }
 }

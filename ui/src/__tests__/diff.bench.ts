@@ -18,7 +18,7 @@ import {
   clearDiffCache,
   getDiffStats,
   mergeDiffs,
-} from '../utils/diff';
+} from '@/utils/diff';
 
 // Test data generators
 function generateText(wordCount: number, complexity: 'simple' | 'complex' = 'simple'): string {

@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { Badge } from '@/components/ui/badge';
 import { AdapterManifest as AdapterManifestType } from '@/api/adapter-types';
 import { toast } from 'sonner';
@@ -95,7 +95,7 @@ export default function AdapterManifest({ adapterId, manifest, isLoading }: Adap
           <CardTitle className="flex items-center gap-2">
             <FileCode className="h-5 w-5" />
             Manifest Summary
-            <HelpTooltip content="Key information extracted from the adapter manifest" />
+            <GlossaryTooltip brief="Key information extracted from the adapter manifest" />
           </CardTitle>
           <CardDescription>Core configuration and metadata</CardDescription>
         </CardHeader>
@@ -135,7 +135,7 @@ export default function AdapterManifest({ adapterId, manifest, isLoading }: Adap
             <CardTitle className="flex items-center gap-2">
               <FileCode className="h-5 w-5" />
               Target Modules
-              <HelpTooltip content="Model layers/modules where LoRA adapters are applied" />
+              <GlossaryTooltip brief="Model layers/modules where LoRA adapters are applied" />
             </CardTitle>
             <CardDescription>
               {manifest.target_modules.length} modules configured for adaptation
@@ -171,7 +171,7 @@ export default function AdapterManifest({ adapterId, manifest, isLoading }: Adap
           <CardTitle className="flex items-center gap-2">
             <FileCode className="h-5 w-5" />
             Full Manifest
-            <HelpTooltip content="Complete manifest in JSON format" />
+            <GlossaryTooltip brief="Complete manifest in JSON format" />
           </CardTitle>
           <CardDescription>Raw manifest data</CardDescription>
         </CardHeader>

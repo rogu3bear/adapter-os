@@ -62,6 +62,12 @@ export interface ResourceHooksConfig<
 
   /** Additional query keys to invalidate on mutations */
   invalidatesOnMutate?: string[];
+
+  /** Error messages for centralized error handling */
+  errorMessages?: {
+    list?: string;
+    detail?: string;
+  };
 }
 
 /**
@@ -133,7 +139,7 @@ export function createResourceHooks<
   TUpdate = Partial<TDetail>,
   TCreateResult = TDetail,
 >(config: ResourceHooksConfig<TList, TDetail, TCreate, TUpdate, TCreateResult>): ResourceHooks<TList, TDetail, TCreate, TUpdate, TCreateResult> {
-  const { resourceName, api, staleTime = 30000, invalidatesOnMutate = [] } = config;
+  const { resourceName, api, staleTime = 30000, invalidatesOnMutate = [], errorMessages = {} } = config;
   const keys = createQueryKeys(resourceName);
 
   // Invalidation helper
@@ -153,6 +159,7 @@ export function createResourceHooks<
         queryFn: api.list ?? (() => Promise.resolve([] as TList[])),
         staleTime,
         enabled: !!api.list,
+        ...(errorMessages.list && { meta: { errorMessage: errorMessages.list } }),
         ...options,
       });
     },
@@ -163,6 +170,7 @@ export function createResourceHooks<
         queryFn: () => api.get!(id!),
         staleTime,
         enabled: !!id && !!api.get,
+        ...(errorMessages.detail && { meta: { errorMessage: errorMessages.detail } }),
         ...options,
       });
     },

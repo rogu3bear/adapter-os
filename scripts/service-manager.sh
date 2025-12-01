@@ -537,11 +537,13 @@ show_status() {
 
 stop_all() {
     local mode="${1:-graceful}"
+    local mode_upper
+    mode_upper=$(echo "$mode" | tr '[:lower:]' '[:upper:]')
 
     echo -e "${CYAN}
 ================================
    Stopping All Services
-   Mode: ${mode^^}
+   Mode: ${mode_upper}
 ================================${NC}"
     echo ""
 
@@ -684,6 +686,25 @@ case "$COMMAND" in
         ;;
     status)
         show_status
+        ;;
+    start-all)
+        # Start all services (backend + UI)
+        echo -e "${CYAN}
+================================
+   Starting All Services
+================================${NC}"
+        echo ""
+        start_backend && start_ui
+        echo ""
+        show_status
+        ;;
+    stop-all)
+        # Stop all services
+        stop_all "${SERVICE:-graceful}"
+        ;;
+    start-backend)
+        # Start backend only (shortcut)
+        start_backend
         ;;
     help|-h|--help)
         usage

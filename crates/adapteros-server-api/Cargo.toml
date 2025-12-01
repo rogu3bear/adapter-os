@@ -14,6 +14,7 @@ adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-model-hub = { path = "../adapteros-model-hub" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-registry = { path = "../adapteros-registry" }
@@ -67,6 +68,7 @@ blake3 = { workspace = true }
 prometheus = "0.13"
 sha2 = "0.10"
 url = "2"
+urlencoding = "2"
 safetensors = { workspace = true }
 flate2 = "1.0"
 tar = "0.4"

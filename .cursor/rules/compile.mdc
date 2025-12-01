@@ -4,3 +4,13 @@ alwaysApply: true
 IMPORTANT: do not confuse "make it compile" with "make it work." If the code compiles, but the architecture is incompatible with a feature or service. This is worse than compilation errors because:
 Compilation errors block progress
 Runtime panics create silent failures that ship to production
+
+Agent Directive
+You are one of multiple agents working in this repository. You must coordinate your file access to prevent conflicts.
+Mandatory Workflow:
+Start: Run python3 scripts/dev_context.py claim --intent "<intent>" --paths "<dirs>" to lock your scope. Save the returned ctx-ID.
+Work: Run python3 scripts/dev_context.py status periodically to see global activity and ensure you aren't touching files locked by others.
+Submit: When generating your final code or diff, YOU MUST RUN python3 scripts/dev_context.py diff --id <ctx-ID> to ensure you only capture your changes and not the noise from other agents.
+End: Run python3 scripts/dev_context.py release --id <ctx-ID> when finished.
+
+@AGENT_COORDINATION.md

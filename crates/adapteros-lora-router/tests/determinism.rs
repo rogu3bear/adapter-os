@@ -9,7 +9,7 @@
 //! Note: Router seed is used for telemetry sampling determinism, not routing decisions.
 //! Routing determinism comes from stable sorting (score desc, then index asc).
 
-use adapteros_lora_router::Router;
+use adapteros_lora_router::{Router, AdapterInfo};
 use proptest::prelude::*;
 
 #[test]
@@ -24,10 +24,16 @@ fn test_deterministic_top_k_ordering() {
 
     // Create priors with ties
     let priors = vec![0.5, 0.5, 0.5, 0.3, 0.2]; // First three tied
-
-    // Multiple calls with same inputs should produce identical results
-    let decision1 = router.route(&[], &priors);
-    let decision2 = router.route(&[], &priors);
+    let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+        .map(|i| AdapterInfo {
+            id: format!("test_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+        })
+        .collect();
+    let decision1 = router.route_with_adapter_info(&[], &priors, &adapter_info);
+    let decision2 = router.route_with_adapter_info(&[], &priors, &adapter_info);
 
     // Results should be identical (deterministic via sorting)
     assert_eq!(decision1.indices, decision2.indices);
@@ -40,7 +46,7 @@ fn test_deterministic_top_k_ordering() {
 
     // New router instance should also produce same results (determinism)
     let mut router2 = Router::new(weights_vec, 3, 1.0, 0.01, seed).expect("router creation");
-    let decision3 = router2.route(&[], &priors);
+    let decision3 = router2.route_with_adapter_info(&[], &priors, &adapter_info);
     assert_eq!(decision1.indices, decision3.indices);
     assert_eq!(decision1.gates_q15, decision3.gates_q15);
 }
@@ -52,7 +58,15 @@ fn test_q15_quantization_properties() {
     let mut router = Router::new(weights_vec, 3, 1.0, 0.01, seed).expect("router creation");
 
     let priors = vec![0.8, 0.6, 0.4, 0.3, 0.2];
-    let decision = router.route(&[], &priors);
+    let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+        .map(|i| AdapterInfo {
+            id: format!("test_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+        })
+        .collect();
+    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
 
     // Q15 gates should be non-negative (i16::MAX is 32767, so <= 32767 is guaranteed by type)
     for gate in &decision.gates_q15 {
@@ -86,7 +100,8 @@ fn test_k0_detection_empty_result() {
     let mut router = Router::new(weights_vec, 3, 1.0, 0.01, seed).expect("router creation");
 
     // Empty priors should result in empty decision
-    let decision = router.route_with_k0_detection(&[], &[]);
+    let adapter_info: Vec<AdapterInfo> = vec![];
+    let decision = router.route_with_adapter_info(&[], &[], &adapter_info);
 
     assert!(decision.indices.is_empty());
     assert!(decision.gates_q15.is_empty());
@@ -100,7 +115,15 @@ fn test_gate_normalization_and_entropy_floor() {
     let mut router = Router::new(weights_vec, 3, 1.0, eps, seed).expect("router creation");
 
     let priors = vec![0.9, 0.8, 0.1, 0.05, 0.02];
-    let decision = router.route(&[], &priors);
+    let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+        .map(|i| AdapterInfo {
+            id: format!("test_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+        })
+        .collect();
+    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
 
     // Convert gates back to f32
     let gates_f32: Vec<f32> = decision
@@ -138,13 +161,22 @@ fn test_multiple_calls_deterministic() {
     // First router instance
     let weights_vec1 = vec![1.0; 4];
     let mut router1 = Router::new(weights_vec1, 2, 1.0, 0.01, seed).expect("router creation");
-    let decision1_1 = router1.route(&[], &[0.7, 0.6, 0.5, 0.4]);
-    let decision1_2 = router1.route(&[], &[0.7, 0.6, 0.5, 0.4]);
+    let priors = vec![0.7, 0.6, 0.5, 0.4];
+    let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+        .map(|i| AdapterInfo {
+            id: format!("test_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+        })
+        .collect();
+    let decision1_1 = router1.route_with_adapter_info(&[], &priors, &adapter_info);
+    let decision1_2 = router1.route_with_adapter_info(&[], &priors, &adapter_info);
 
     // Second router instance with same seed (seed doesn't affect routing, just telemetry)
     let weights_vec2 = vec![1.0; 4];
     let mut router2 = Router::new(weights_vec2, 2, 1.0, 0.01, seed).expect("router creation");
-    let decision2_1 = router2.route(&[], &[0.7, 0.6, 0.5, 0.4]);
+    let decision2_1 = router2.route_with_adapter_info(&[], &priors, &adapter_info);
 
     // All three should produce identical results (deterministic sorting)
     assert_eq!(decision1_1.indices, decision1_2.indices);
@@ -160,7 +192,15 @@ fn test_q15_range_properties() {
     let mut router = Router::new(weights_vec, 5, 1.0, 0.001, seed).expect("router creation");
 
     let priors = vec![1.0, 0.9, 0.8, 0.7, 0.6];
-    let decision = router.route(&[], &priors);
+    let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+        .map(|i| AdapterInfo {
+            id: format!("test_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+        })
+        .collect();
+    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
 
     // All gates should be non-negative (i16::MAX is 32767, guaranteed by type system)
     for gate in &decision.gates_q15 {
@@ -179,7 +219,15 @@ fn test_router_ring_invariants() {
     let mut router = Router::new(weights_vec, 4, 1.0, 0.01, seed).expect("router creation");
 
     let priors = vec![0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
-    let decision = router.route(&[], &priors);
+    let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+        .map(|i| AdapterInfo {
+            id: format!("test_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+        })
+        .collect();
+    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
 
     // 1:1 mapping
     assert_eq!(decision.indices.len(), 4);
@@ -194,7 +242,16 @@ fn test_router_ring_invariants() {
 
     // For K=0 case
     let mut router_k0 = Router::new(vec![1.0; 8], 0, 1.0, 0.01, seed).expect("router creation");
-    let decision_k0 = router_k0.route(&[], &priors);
+    let priors = vec![0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+    let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+        .map(|i| AdapterInfo {
+            id: format!("test_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+        })
+        .collect();
+    let decision_k0 = router_k0.route_with_adapter_info(&[], &priors, &adapter_info);
     assert!(decision_k0.indices.is_empty());
     assert!(decision_k0.gates_q15.is_empty());
 }
@@ -208,7 +265,7 @@ fn test_varying_k_stability() {
     for k in 0..=8 {
         let weights_vec = vec![1.0; 8];
         let mut router = Router::new(weights_vec, k, 1.0, 0.01, seed).expect("router creation");
-        let decision = router.route(&[], &priors);
+        let decision = router.route_with_adapter_info(&[], &priors, &[]);
 
         assert_eq!(decision.indices.len(), k);
         assert_eq!(decision.gates_q15.len(), k);
@@ -227,8 +284,17 @@ proptest! {
         let mut router2 = Router::new(weights_vec, k, 1.0, 1e-6, [0u8; 32]).expect("router creation");
 
         // Same inputs should produce same outputs (determinism via stable sorting)
-        let decision1 = router1.route(&[], &priors);
-        let decision2 = router2.route(&[], &priors);
+        let priors = vec![1.0; 8];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("test_adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "warm".to_string(),
+            })
+            .collect();
+        let decision1 = router1.route_with_adapter_info(&[], &priors, &adapter_info);
+        let decision2 = router2.route_with_adapter_info(&[], &priors, &adapter_info);
 
         // Properties - check before moving values
         prop_assert_eq!(decision1.indices.len(), k);

@@ -1,10 +1,4 @@
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Modal } from '@/components/shared/Modal';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -20,14 +14,15 @@ export default function NodeDetailModal({ nodeId, open, onClose }: NodeDetailMod
   const { data: nodeDetails, isLoading } = useNodeDetails(nodeId, open);
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Node Details</DialogTitle>
-          <DialogDescription>Detailed information for node {nodeId}</DialogDescription>
-        </DialogHeader>
-
-        {isLoading ? (
+    <Modal
+      open={open}
+      onOpenChange={onClose}
+      title="Node Details"
+      description={`Detailed information for node ${nodeId}`}
+      size="xl"
+      className="max-w-3xl max-h-[80vh] overflow-y-auto"
+    >
+      {isLoading ? (
           <div className="space-y-4">
             <Skeleton className="h-24 w-full" />
             <Skeleton className="h-32 w-full" />
@@ -151,7 +146,6 @@ export default function NodeDetailModal({ nodeId, open, onClose }: NodeDetailMod
             No details available for this node
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+    </Modal>
   );
 }

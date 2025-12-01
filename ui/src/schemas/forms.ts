@@ -10,13 +10,18 @@ import { z } from 'zod';
  * Validates all training parameters for the TrainingWizard
  */
 export const TrainingConfigSchema = z.object({
-  // Basic info
+  // Basic info - uses semantic naming format: tenant/domain/purpose/revision
+  // For simple form usage, 'name' is interpreted as the 'purpose' component
+  // Full semantic name is constructed by the form handler
   name: z
     .string()
     .min(1, 'Adapter name is required')
     .min(3, 'Name must be at least 3 characters')
     .max(100, 'Name must be at most 100 characters')
-    .regex(/^[a-zA-Z0-9_-]+$/, 'Name can only contain alphanumeric characters, hyphens, and underscores'),
+    .regex(
+      /^[a-z0-9_-]+$/,
+      'Name must contain only lowercase letters, numbers, underscores, and hyphens'
+    ),
 
   description: z
     .string()

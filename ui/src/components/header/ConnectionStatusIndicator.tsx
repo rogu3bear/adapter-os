@@ -1,12 +1,12 @@
 /**
- * ConnectionStatusIndicator - Global header indicator for SSE connection status
+ * ConnectionStatusIndicator - Global header indicator for connection and model status
  *
- * Shows overall connection status for all live data streams.
+ * Shows overall connection status for all live data streams and model loading state.
  * Displayed in the app header next to the "Zero Egress" badge.
  */
 
 import * as React from 'react';
-import { Wifi, WifiOff, Activity, AlertTriangle, ChevronDown } from 'lucide-react';
+import { Wifi, WifiOff, Activity, AlertTriangle, ChevronDown, Cpu, Loader2, ServerOff, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useLiveDataStatus, type OverallConnectionStatus } from '@/hooks/useLiveDataStatus';
+import { useModelStatus, type ModelStatusState } from '@/hooks/useModelStatus';
+import { useErrorStoreSafe } from '@/stores/errorStore';
 
 // ============================================================================
 // Types
@@ -71,6 +73,53 @@ const STATUS_CONFIG: Record<
   },
 };
 
+const MODEL_STATUS_CONFIG: Record<
+  ModelStatusState,
+  {
+    label: string;
+    icon: React.ElementType;
+    badgeClass: string;
+    dotClass: string;
+  }
+> = {
+  'no-model': {
+    label: 'No Model',
+    icon: ServerOff,
+    badgeClass: 'text-gray-600 border-gray-300 bg-gray-50 hover:bg-gray-100',
+    dotClass: 'bg-gray-400',
+  },
+  loading: {
+    label: 'Loading Model',
+    icon: Loader2,
+    badgeClass: 'text-blue-700 border-blue-300 bg-blue-50 hover:bg-blue-100',
+    dotClass: 'bg-blue-500 animate-pulse',
+  },
+  loaded: {
+    label: 'Model Ready',
+    icon: Cpu,
+    badgeClass: 'text-green-700 border-green-300 bg-green-50 hover:bg-green-100',
+    dotClass: 'bg-green-500',
+  },
+  unloading: {
+    label: 'Unloading',
+    icon: Loader2,
+    badgeClass: 'text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100',
+    dotClass: 'bg-amber-500',
+  },
+  error: {
+    label: 'Model Error',
+    icon: AlertTriangle,
+    badgeClass: 'text-red-700 border-red-300 bg-red-50 hover:bg-red-100',
+    dotClass: 'bg-red-500',
+  },
+  checking: {
+    label: 'Checking',
+    icon: Loader2,
+    badgeClass: 'text-gray-600 border-gray-300 bg-gray-50 hover:bg-gray-100',
+    dotClass: 'bg-gray-400',
+  },
+};
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -80,20 +129,60 @@ export function ConnectionStatusIndicator({
   showDetails = true,
 }: ConnectionStatusIndicatorProps) {
   const { overall, streams, connectedCount, totalStreams, reconnectAll } = useLiveDataStatus();
+  const { status: modelStatus, modelName, isReady: modelReady, errorMessage: modelError } = useModelStatus();
 
-  const config = STATUS_CONFIG[overall];
-  const Icon = config.icon;
+  // Track background errors from error store (safe - may be null if outside provider)
+  const errorStore = useErrorStoreSafe();
+  const backgroundErrorCount = errorStore?.getActiveCount() ?? 0;
+  const hasBackgroundErrors = backgroundErrorCount > 0;
+
+  // Determine primary status to show
+  // Priority: Model loading > Model error > Connection status
+  const showModelStatus = modelStatus === 'loading' || modelStatus === 'error' || modelStatus === 'unloading';
+  const showNoModel = modelStatus === 'no-model' && overall === 'offline';
+  
+  let config;
+  let Icon;
+  let statusLabel;
+
+  if (showModelStatus) {
+    // Show model loading/error status prominently
+    config = MODEL_STATUS_CONFIG[modelStatus];
+    Icon = config.icon;
+    statusLabel = config.label;
+  } else if (showNoModel) {
+    // Show "No Model" instead of generic "Offline"
+    config = MODEL_STATUS_CONFIG['no-model'];
+    Icon = config.icon;
+    statusLabel = config.label;
+  } else if (modelReady && overall === 'offline') {
+    // Model is ready but streams are offline - show model ready with streams info
+    config = MODEL_STATUS_CONFIG['loaded'];
+    Icon = config.icon;
+    statusLabel = 'Ready';
+  } else {
+    // Normal connection status
+    config = STATUS_CONFIG[overall];
+    Icon = config.icon;
+    statusLabel = config.label;
+  }
 
   // Simple badge without dropdown
-  if (!showDetails || totalStreams === 0) {
+  if (!showDetails || (totalStreams === 0 && !showModelStatus && !hasBackgroundErrors)) {
     return (
       <Badge
         variant="outline"
         className={cn('gap-1.5 text-xs font-normal cursor-default', config.badgeClass, className)}
       >
         <span className={cn('h-1.5 w-1.5 rounded-full', config.dotClass)} />
-        <Icon className="h-3 w-3" />
-        {config.label}
+        <Icon className={cn('h-3 w-3', modelStatus === 'loading' && 'animate-spin')} />
+        {statusLabel}
+        {hasBackgroundErrors && (
+          <span className="ml-1 flex items-center gap-0.5 text-amber-600">
+            <AlertCircle className="h-3 w-3" />
+            {backgroundErrorCount}
+          </span>
+        )}
       </Badge>
     );
   }
@@ -106,24 +195,71 @@ export function ConnectionStatusIndicator({
           variant="outline"
           className={cn(
             'gap-1.5 text-xs font-normal cursor-pointer select-none',
+            hasBackgroundErrors && 'border-amber-300',
             config.badgeClass,
             className
           )}
         >
           <span className={cn('h-1.5 w-1.5 rounded-full', config.dotClass)} />
-          <Icon className="h-3 w-3" />
-          {config.label}
+          <Icon className={cn('h-3 w-3', modelStatus === 'loading' && 'animate-spin')} />
+          {statusLabel}
+          {hasBackgroundErrors && (
+            <span className="ml-0.5 flex items-center gap-0.5 text-amber-600">
+              <AlertCircle className="h-3 w-3" />
+              <span className="text-[10px]">{backgroundErrorCount}</span>
+            </span>
+          )}
           <ChevronDown className="h-3 w-3 opacity-50" />
         </Badge>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent align="end" className="w-72">
+        {/* Model Status Section */}
         <DropdownMenuLabel className="flex items-center justify-between">
-          <span>Connection Status</span>
-          <span className="text-xs font-normal text-muted-foreground">
-            {connectedCount}/{totalStreams} streams
+          <span>Model Status</span>
+          <span className={cn(
+            'text-xs font-normal',
+            modelReady ? 'text-green-600' : modelStatus === 'loading' ? 'text-blue-600' : 'text-muted-foreground'
+          )}>
+            {modelStatus === 'loaded' || modelStatus === 'checking' ? 'Ready' : 
+             modelStatus === 'loading' ? 'Loading...' :
+             modelStatus === 'error' ? 'Error' :
+             modelStatus === 'unloading' ? 'Unloading...' :
+             'Not Loaded'}
           </span>
         </DropdownMenuLabel>
+        
+        {/* Model name if available */}
+        {modelName && (
+          <DropdownMenuItem disabled className="text-sm">
+            <Cpu className="h-4 w-4 mr-2 text-muted-foreground" />
+            {modelName}
+          </DropdownMenuItem>
+        )}
+        
+        {/* Model error if any */}
+        {modelError && (
+          <DropdownMenuItem disabled className="text-xs text-red-600">
+            <AlertTriangle className="h-3 w-3 mr-2" />
+            {modelError}
+          </DropdownMenuItem>
+        )}
+
+        {/* No model hint */}
+        {modelStatus === 'no-model' && (
+          <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+            Import a model from Owner Home to get started
+          </DropdownMenuItem>
+        )}
+
         <DropdownMenuSeparator />
+        
+        {/* Connection Status Section */}
+        <DropdownMenuLabel className="flex items-center justify-between">
+          <span>Streams</span>
+          <span className="text-xs font-normal text-muted-foreground">
+            {connectedCount}/{totalStreams} connected
+          </span>
+        </DropdownMenuLabel>
 
         {/* Stream list */}
         {Object.entries(streams).map(([id, status]) => (
@@ -146,13 +282,13 @@ export function ConnectionStatusIndicator({
         ))}
 
         {Object.keys(streams).length === 0 && (
-          <DropdownMenuItem disabled className="text-muted-foreground">
+          <DropdownMenuItem disabled className="text-muted-foreground text-xs">
             No active streams
           </DropdownMenuItem>
         )}
 
         {/* Reconnect all button */}
-        {overall !== 'live' && (
+        {overall !== 'live' && totalStreams > 0 && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
@@ -165,6 +301,29 @@ export function ConnectionStatusIndicator({
                 <Wifi className="h-4 w-4 mr-2" />
                 Reconnect All
               </Button>
+            </DropdownMenuItem>
+          </>
+        )}
+
+        {/* Background Errors Section */}
+        {hasBackgroundErrors && errorStore && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-amber-600">
+                <AlertCircle className="h-3.5 w-3.5" />
+                Background Errors
+              </span>
+              <span className="text-xs font-normal text-amber-600">
+                {backgroundErrorCount} {backgroundErrorCount === 1 ? 'error' : 'errors'}
+              </span>
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              className="text-xs text-muted-foreground"
+              onClick={() => errorStore.clearAll()}
+            >
+              <AlertTriangle className="h-3 w-3 mr-2" />
+              Clear all errors
             </DropdownMenuItem>
           </>
         )}

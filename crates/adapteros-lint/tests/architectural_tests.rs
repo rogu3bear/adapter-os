@@ -2,7 +2,6 @@
 
 use adapteros_lint::architectural::{check_file, ArchitecturalViolation};
 use std::fs;
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 #[test]

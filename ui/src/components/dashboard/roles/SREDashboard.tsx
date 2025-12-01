@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ActionGrid } from '@/components/ui/action-grid';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { KpiGrid, ContentGrid } from '@/components/ui/grid';
 import {
@@ -62,8 +62,9 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
       try {
         const response = await apiClient.listAlerts({ limit: 10, sort: 'timestamp:desc' });
         // Return response directly if it's an array, otherwise extract alerts property
-        return Array.isArray(response) ? response : ((response as any).alerts || []);
-      } catch (err) {
+        const alertData = Array.isArray(response) ? response : ((response as { alerts?: AlertItem[] }).alerts || []);
+        return alertData as AlertItem[];
+      } catch {
         // If alerts endpoint doesn't exist, return empty array
         return [];
       }
@@ -211,9 +212,9 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
       <KpiGrid>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <HelpTooltip helpId="sre-nodes-health">
+            <GlossaryTooltip termId="sre-nodes-health">
               <CardTitle className="text-sm font-medium cursor-help">Node Health</CardTitle>
-            </HelpTooltip>
+            </GlossaryTooltip>
             <Server className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -235,9 +236,9 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <HelpTooltip helpId="sre-worker-utilization">
+            <GlossaryTooltip termId="sre-worker-utilization">
               <CardTitle className="text-sm font-medium cursor-help">Worker Pool</CardTitle>
-            </HelpTooltip>
+            </GlossaryTooltip>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -259,9 +260,9 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <HelpTooltip helpId="sre-cpu-usage">
+            <GlossaryTooltip termId="sre-cpu-usage">
               <CardTitle className="text-sm font-medium cursor-help">CPU Usage</CardTitle>
-            </HelpTooltip>
+            </GlossaryTooltip>
             <Cpu className={`h-4 w-4 ${getHealthStatusColor(cpuStatus)}`} />
           </CardHeader>
           <CardContent>
@@ -285,9 +286,9 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <HelpTooltip helpId="sre-memory-usage">
+            <GlossaryTooltip termId="sre-memory-usage">
               <CardTitle className="text-sm font-medium cursor-help">Memory Usage</CardTitle>
-            </HelpTooltip>
+            </GlossaryTooltip>
             <HardDrive className={`h-4 w-4 ${getHealthStatusColor(memStatus)}`} />
           </CardHeader>
           <CardContent>

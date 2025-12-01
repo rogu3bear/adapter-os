@@ -8,9 +8,9 @@
 //! - Plan: Data Operations Productivity Features - Undo/redo for all mutations
 
 import { useState, useCallback, useRef } from 'react';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
-export interface UndoableAction<T = any> {
+export interface UndoableAction<T = unknown> {
   id: string;
   type: string;
   description: string;

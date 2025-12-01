@@ -5,7 +5,7 @@
 //!
 //! Citation: CLAUDE.md - Security Settings (JWT Ed25519, key rotation)
 
-import { logger } from '../utils/logger';
+import { logger } from '@/utils/logger';
 
 const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
 

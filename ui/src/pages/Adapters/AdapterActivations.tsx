@@ -20,9 +20,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { EmptyState } from '@/components/ui/empty-state';
 import { AdapterActivation } from '@/api/adapter-types';
+import { formatPercent as formatPercentUtil } from '@/utils/format';
 
 interface AdapterActivationsProps {
   adapterId: string;
@@ -66,22 +67,22 @@ export default function AdapterActivations({
       case 'increasing':
         return {
           icon: <TrendingUp className="h-4 w-4" />,
-          color: 'text-green-500',
-          bgColor: 'bg-green-500/10',
+          color: 'text-success',
+          bgColor: 'bg-success-surface',
           label: 'Increasing',
         };
       case 'decreasing':
         return {
           icon: <TrendingDown className="h-4 w-4" />,
-          color: 'text-red-500',
-          bgColor: 'bg-red-500/10',
+          color: 'text-destructive',
+          bgColor: 'bg-destructive-surface',
           label: 'Decreasing',
         };
       default:
         return {
           icon: <ArrowRight className="h-4 w-4" />,
-          color: 'text-yellow-500',
-          bgColor: 'bg-yellow-500/10',
+          color: 'text-warning',
+          bgColor: 'bg-warning-surface',
           label: 'Stable',
         };
     }
@@ -89,7 +90,7 @@ export default function AdapterActivations({
 
   // Format percentage
   const formatPercent = (value: number): string => {
-    return `${(value * 100).toFixed(2)}%`;
+    return formatPercentUtil(value * 100, 2);
   };
 
   // Format timestamp
@@ -134,7 +135,7 @@ export default function AdapterActivations({
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
               <Activity className="h-4 w-4" />
               <span className="text-sm">Current Activation</span>
-              <HelpTooltip content="Current activation percentage based on recent router decisions" />
+              <GlossaryTooltip brief="Current activation percentage based on recent router decisions" />
             </div>
             <div className="text-2xl font-bold">{formatPercent(processedData.current)}</div>
           </CardContent>
@@ -145,7 +146,7 @@ export default function AdapterActivations({
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
               <BarChart3 className="h-4 w-4" />
               <span className="text-sm">Trend</span>
-              <HelpTooltip content="Direction of activation changes over the past period" />
+              <GlossaryTooltip brief="Direction of activation changes over the past period" />
             </div>
             <div className={`flex items-center gap-2 ${trendInfo.color}`}>
               {trendInfo.icon}
@@ -159,7 +160,7 @@ export default function AdapterActivations({
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
               <ArrowUp className="h-4 w-4" />
               <span className="text-sm">Peak Activation</span>
-              <HelpTooltip content="Highest activation percentage recorded" />
+              <GlossaryTooltip brief="Highest activation percentage recorded" />
             </div>
             <div className="text-2xl font-bold">{formatPercent(processedData.max)}</div>
           </CardContent>
@@ -170,7 +171,7 @@ export default function AdapterActivations({
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
               <ArrowDown className="h-4 w-4" />
               <span className="text-sm">Average</span>
-              <HelpTooltip content="Average activation percentage over the recorded period" />
+              <GlossaryTooltip brief="Average activation percentage over the recorded period" />
             </div>
             <div className="text-2xl font-bold">{formatPercent(processedData.avg)}</div>
           </CardContent>
@@ -183,7 +184,7 @@ export default function AdapterActivations({
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5" />
             Activation History
-            <HelpTooltip content="Visual representation of activation percentage over time" />
+            <GlossaryTooltip brief="Visual representation of activation percentage over time" />
           </CardTitle>
           <CardDescription>
             Activation percentage trend over the recorded period
@@ -237,7 +238,7 @@ export default function AdapterActivations({
           <CardTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5" />
             Activation Log
-            <HelpTooltip content="Detailed log of activation changes" />
+            <GlossaryTooltip brief="Detailed log of activation changes" />
           </CardTitle>
           <CardDescription>Recent activation percentage recordings</CardDescription>
         </CardHeader>
@@ -268,7 +269,7 @@ export default function AdapterActivations({
                         {change !== 0 && (
                           <Badge
                             variant={change > 0 ? 'default' : 'secondary'}
-                            className={change > 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}
+                            className={change > 0 ? 'bg-success-surface text-success' : 'bg-destructive-surface text-destructive'}
                           >
                             {change > 0 ? '+' : ''}
                             {formatPercent(change)}
@@ -347,10 +348,10 @@ interface InsightItemProps {
 
 function InsightItem({ type, message }: InsightItemProps) {
   const colors = {
-    info: 'border-blue-500/50 bg-blue-500/10',
-    warning: 'border-yellow-500/50 bg-yellow-500/10',
-    success: 'border-green-500/50 bg-green-500/10',
-    error: 'border-red-500/50 bg-red-500/10',
+    info: 'border-info/50 bg-info-surface',
+    warning: 'border-warning/50 bg-warning-surface',
+    success: 'border-success/50 bg-success-surface',
+    error: 'border-destructive/50 bg-destructive-surface',
   };
 
   return (

@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertTriangle } from 'lucide-react';
 import type { AdapterScope } from '@/api/types';
-import { useTrainingWizardContext } from '../context';
+import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
 
 export function BasicInfoStep() {
   const { state, updateState } = useTrainingWizardContext();

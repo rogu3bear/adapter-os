@@ -18,8 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { LoadingState } from '@/components/ui/loading-state';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
-import { ConceptTooltip } from '@/components/ConceptTooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import FeatureLayout from '@/layout/FeatureLayout';
 
 import { useAdapterDetail } from '@/hooks/useAdapterDetail';
@@ -323,7 +322,7 @@ export default function AdapterDetailPage() {
               Back
             </Button>
             <div className="flex items-center gap-2">
-              <ConceptTooltip concept="adapter" />
+              <GlossaryTooltip termId="adapter" variant="icon" />
               <Badge variant={getLifecycleVariant(lifecycleState)}>
                 {lifecycleState}
               </Badge>
@@ -382,7 +381,7 @@ export default function AdapterDetailPage() {
                 >
                   <Power className="h-4 w-4 mr-2" />
                   Activate Adapter
-                  <HelpTooltip content="Activate adapter - load weights into GPU memory" />
+                  <GlossaryTooltip brief="Activate adapter - load weights into GPU memory" />
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleUnload}
@@ -390,13 +389,13 @@ export default function AdapterDetailPage() {
                 >
                   <PowerOff className="h-4 w-4 mr-2" />
                   Deactivate Adapter
-                  <HelpTooltip content="Deactivate adapter - remove from GPU memory" />
+                  <GlossaryTooltip brief="Deactivate adapter - remove from GPU memory" />
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleTogglePin} disabled={!canLoad}>
                   <Pin className="h-4 w-4 mr-2" />
                   {isPinned ? 'Allow Removal' : 'Protect Adapter'}
-                  <HelpTooltip content={isPinned ? 'Allow removal when memory is needed' : 'Keep in memory always'} />
+                  <GlossaryTooltip brief={isPinned ? 'Allow removal when memory is needed' : 'Keep in memory always'} />
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => setShowAddToStackModal(true)}
@@ -404,7 +403,7 @@ export default function AdapterDetailPage() {
                 >
                   <Layers className="h-4 w-4 mr-2" />
                   Add to Stack
-                  <HelpTooltip content="Add this adapter to an existing or new stack" />
+                  <GlossaryTooltip brief="Add this adapter to an existing or new stack" />
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -414,7 +413,7 @@ export default function AdapterDetailPage() {
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete Adapter
-                  <HelpTooltip content="Permanently remove adapter" />
+                  <GlossaryTooltip brief="Permanently remove adapter" />
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

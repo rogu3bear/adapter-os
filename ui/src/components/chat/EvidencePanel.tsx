@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { EvidenceItem } from './EvidenceItem';
-import { useDocumentViewerOptional } from '../../contexts/DocumentViewerContext';
+import { useDocumentViewerOptional } from '@/contexts/DocumentViewerContext';
 
 interface EvidenceItemData {
   document_id: string;

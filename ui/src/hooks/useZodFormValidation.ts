@@ -6,7 +6,7 @@
 import { useCallback } from 'react';
 import { ZodSchema, ZodError } from 'zod';
 import { UseFormSetError, FieldValues, Path } from 'react-hook-form';
-import { formatValidationError, ValidationResult } from '../schemas/utils';
+import { formatValidationError, ValidationResult } from '@/schemas/utils';
 
 export interface UseZodValidationOptions<T extends FieldValues> {
   // react-hook-form setError function for integration
@@ -23,7 +23,7 @@ export interface UseZodValidationResult<T extends FieldValues> {
   validateOnly: (data: T) => Promise<ValidationResult>;
 
   // Validate single field
-  validateSingleField: (fieldName: Path<T>, value: any) => Promise<boolean>;
+  validateSingleField: (fieldName: Path<T>, value: unknown) => Promise<boolean>;
 }
 
 /**
@@ -109,9 +109,10 @@ export function useZodFormValidation<T extends FieldValues>(
    * Validate single field
    */
   const validateSingleField = useCallback(
-    async (fieldName: Path<T>, value: any): Promise<boolean> => {
+    async (fieldName: Path<T>, value: unknown): Promise<boolean> => {
       try {
-        const fieldSchema = (schema as any)._shape?.[fieldName];
+        const schemaObj = schema as { _shape?: Record<string, ZodSchema> };
+        const fieldSchema = schemaObj._shape?.[fieldName];
         if (!fieldSchema) {
           return true; // Field not in schema
         }

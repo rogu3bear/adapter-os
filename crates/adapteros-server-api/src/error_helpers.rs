@@ -251,3 +251,167 @@ pub fn service_unavailable(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
         Json(ErrorResponse::new(msg).with_code("SERVICE_UNAVAILABLE")),
     )
 }
+
+// ============================================================================
+// Audit-aware error helpers
+// ============================================================================
+//
+// These helpers combine error creation with audit logging for critical operations.
+// Use these when failures should be persisted to the audit_logs table.
+
+use crate::audit_helper::{log_failure, resources};
+use crate::auth::Claims;
+use adapteros_db::Db;
+
+/// Context for audit-aware error handling
+///
+/// Holds references needed to log failures to the audit system.
+/// Create once at the start of a handler and use for all error handling.
+///
+/// # Example
+/// ```ignore
+/// let audit = AuditContext::new(&state.db, &claims, actions::ADAPTER_REGISTER, resources::ADAPTER);
+///
+/// let adapter = audit.on_error(
+///     state.db.get_adapter(&id).await,
+///     db_error,
+///     Some(&id),
+/// ).await?;
+/// ```
+pub struct AuditContext<'a> {
+    pub db: &'a Db,
+    pub claims: &'a Claims,
+    pub action: &'static str,
+    pub resource_type: &'static str,
+}
+
+impl<'a> AuditContext<'a> {
+    /// Create a new audit context
+    pub fn new(
+        db: &'a Db,
+        claims: &'a Claims,
+        action: &'static str,
+        resource_type: &'static str,
+    ) -> Self {
+        Self {
+            db,
+            claims,
+            action,
+            resource_type,
+        }
+    }
+
+    /// Handle a result, logging failures to audit before converting to API error
+    ///
+    /// # Example
+    /// ```ignore
+    /// let result = audit.on_error(
+    ///     state.db.get_adapter(&id).await,
+    ///     db_error,
+    ///     Some(&id),
+    /// ).await?;
+    /// ```
+    pub async fn on_error<T, E: std::fmt::Display>(
+        &self,
+        result: Result<T, E>,
+        error_converter: impl FnOnce(E) -> (StatusCode, Json<ErrorResponse>),
+        resource_id: Option<&str>,
+    ) -> Result<T, (StatusCode, Json<ErrorResponse>)> {
+        match result {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                let error_msg = e.to_string();
+                let _ = log_failure(
+                    self.db,
+                    self.claims,
+                    self.action,
+                    self.resource_type,
+                    resource_id,
+                    &error_msg,
+                )
+                .await;
+                Err(error_converter(e))
+            }
+        }
+    }
+
+    /// Log a failure and return an error (for cases where you construct the error manually)
+    ///
+    /// # Example
+    /// ```ignore
+    /// if req.name.is_empty() {
+    ///     return Err(audit.fail(bad_request("name is required"), None).await);
+    /// }
+    /// ```
+    pub async fn fail(
+        &self,
+        error: (StatusCode, Json<ErrorResponse>),
+        resource_id: Option<&str>,
+    ) -> (StatusCode, Json<ErrorResponse>) {
+        let error_msg = &error.1 .0.error;
+        let _ = log_failure(
+            self.db,
+            self.claims,
+            self.action,
+            self.resource_type,
+            resource_id,
+            error_msg,
+        )
+        .await;
+        error
+    }
+
+    /// Log a failure with a custom message and return an error
+    ///
+    /// # Example
+    /// ```ignore
+    /// return Err(audit.fail_with_msg("validation failed", bad_request("invalid input"), None).await);
+    /// ```
+    pub async fn fail_with_msg(
+        &self,
+        msg: &str,
+        error: (StatusCode, Json<ErrorResponse>),
+        resource_id: Option<&str>,
+    ) -> (StatusCode, Json<ErrorResponse>) {
+        let _ = log_failure(
+            self.db,
+            self.claims,
+            self.action,
+            self.resource_type,
+            resource_id,
+            msg,
+        )
+        .await;
+        error
+    }
+
+    /// Log success (convenience method)
+    pub async fn success(&self, resource_id: Option<&str>) {
+        let _ = crate::audit_helper::log_success(
+            self.db,
+            self.claims,
+            self.action,
+            self.resource_type,
+            resource_id,
+        )
+        .await;
+    }
+}
+
+/// Adapter-specific audit context (common case)
+pub fn adapter_audit<'a>(
+    db: &'a Db,
+    claims: &'a Claims,
+    action: &'static str,
+) -> AuditContext<'a> {
+    AuditContext::new(db, claims, action, resources::ADAPTER)
+}
+
+/// Training-specific audit context
+pub fn training_audit<'a>(
+    db: &'a Db,
+    claims: &'a Claims,
+    action: &'static str,
+) -> AuditContext<'a> {
+    AuditContext::new(db, claims, action, resources::TRAINING_JOB)
+}

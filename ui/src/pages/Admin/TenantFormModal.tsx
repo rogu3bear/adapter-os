@@ -1,19 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { FormModalWithHookForm } from '@/components/shared/Modal';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCreateTenant, useUpdateTenant } from '@/hooks/useAdmin';
 import type { Tenant, CreateTenantRequest } from '@/api/types';
+import { TenantFormSchema, type TenantFormData } from '@/schemas/admin.schema';
 
 interface TenantFormModalProps {
   open: boolean;
@@ -21,91 +15,78 @@ interface TenantFormModalProps {
   tenant?: Tenant;
 }
 
-interface FormData {
-  name: string;
-  uid?: number;
-  gid?: number;
-  isolation_level?: string;
-}
-
 export function TenantFormModal({ open, onOpenChange, tenant }: TenantFormModalProps) {
   const isEdit = !!tenant;
   const createTenant = useCreateTenant();
   const updateTenant = useUpdateTenant();
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-    reset,
-    setValue,
-    watch,
-  } = useForm<FormData>({
+  const form = useForm<TenantFormData>({
+    resolver: zodResolver(TenantFormSchema),
     defaultValues: {
       name: tenant?.name || '',
+      description: tenant?.description || '',
       uid: tenant?.uid,
       gid: tenant?.gid,
-      isolation_level: tenant?.isolation_level || 'standard',
+      isolation_level: (tenant?.isolation_level as 'standard' | 'enhanced' | 'strict') || undefined,
     },
   });
 
+  const { register, formState: { errors }, reset, setValue, watch } = form;
   const isolationLevel = watch('isolation_level');
 
   useEffect(() => {
     if (tenant) {
       reset({
         name: tenant.name,
+        description: tenant.description || '',
         uid: tenant.uid,
         gid: tenant.gid,
-        isolation_level: tenant.isolation_level || 'standard',
+        isolation_level: (tenant.isolation_level as 'standard' | 'enhanced' | 'strict') || undefined,
       });
     } else {
       reset({
         name: '',
+        description: '',
         uid: undefined,
         gid: undefined,
-        isolation_level: 'standard',
+        isolation_level: undefined,
       });
     }
   }, [tenant, reset]);
 
-  const onSubmit = async (data: FormData) => {
-    try {
-      if (isEdit && tenant) {
-        await updateTenant.mutateAsync({
-          tenantId: tenant.id,
-          name: data.name,
-        });
-      } else {
-        const createData: CreateTenantRequest = {
-          name: data.name,
-          uid: data.uid,
-          gid: data.gid,
-          isolation_level: data.isolation_level,
-        };
-        await createTenant.mutateAsync(createData);
-      }
-      onOpenChange(false);
-      reset();
-    } catch (error) {
-      // Error handling is done in the hook
+  const onSubmit = async (data: TenantFormData) => {
+    if (isEdit && tenant) {
+      await updateTenant.mutateAsync({
+        tenantId: tenant.id,
+        name: data.name,
+      });
+    } else {
+      const createData: CreateTenantRequest = {
+        name: data.name,
+        uid: data.uid,
+        gid: data.gid,
+        isolation_level: data.isolation_level,
+      };
+      await createTenant.mutateAsync(createData);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogHeader>
-            <DialogTitle>{isEdit ? 'Edit Organization' : 'Create Organization'}</DialogTitle>
-            <DialogDescription>
-              {isEdit
-                ? 'Update organization configuration'
-                : 'Create a new organization with isolation settings'}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-4 py-4">
+    <FormModalWithHookForm
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEdit ? 'Edit Organization' : 'Create Organization'}
+      description={
+        isEdit
+          ? 'Update organization configuration'
+          : 'Create a new organization with isolation settings'
+      }
+      form={form}
+      onSubmit={onSubmit}
+      submitText={isEdit ? 'Update' : 'Create'}
+      size="lg"
+    >
+      <div className="grid gap-4">
             <div className="grid gap-2">
               <Label htmlFor="name">
                 Name <span className="text-destructive">*</span>
@@ -113,13 +94,7 @@ export function TenantFormModal({ open, onOpenChange, tenant }: TenantFormModalP
               <Input
                 id="name"
                 placeholder="acme-corp"
-                {...register('name', {
-                  required: 'Name is required',
-                  pattern: {
-                    value: /^[a-z0-9-]+$/,
-                    message: 'Name must be lowercase alphanumeric with hyphens',
-                  },
-                })}
+                {...register('name')}
               />
               {errors.name && (
                 <p className="text-sm text-destructive">{errors.name.message}</p>
@@ -132,7 +107,7 @@ export function TenantFormModal({ open, onOpenChange, tenant }: TenantFormModalP
                   <Label htmlFor="isolation_level">Isolation Level</Label>
                   <Select
                     value={isolationLevel}
-                    onValueChange={(value) => setValue('isolation_level', value)}
+                    onValueChange={(value) => setValue('isolation_level', value as 'standard' | 'enhanced' | 'strict')}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -154,10 +129,7 @@ export function TenantFormModal({ open, onOpenChange, tenant }: TenantFormModalP
                     id="uid"
                     type="number"
                     placeholder="1000"
-                    {...register('uid', {
-                      valueAsNumber: true,
-                      min: { value: 1000, message: 'UID must be >= 1000' },
-                    })}
+                    {...register('uid', { valueAsNumber: true })}
                   />
                   {errors.uid && (
                     <p className="text-sm text-destructive">{errors.uid.message}</p>
@@ -170,10 +142,7 @@ export function TenantFormModal({ open, onOpenChange, tenant }: TenantFormModalP
                     id="gid"
                     type="number"
                     placeholder="1000"
-                    {...register('gid', {
-                      valueAsNumber: true,
-                      min: { value: 1000, message: 'GID must be >= 1000' },
-                    })}
+                    {...register('gid', { valueAsNumber: true })}
                   />
                   {errors.gid && (
                     <p className="text-sm text-destructive">{errors.gid.message}</p>
@@ -182,24 +151,6 @@ export function TenantFormModal({ open, onOpenChange, tenant }: TenantFormModalP
               </>
             )}
           </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                onOpenChange(false);
-                reset();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving...' : isEdit ? 'Update' : 'Create'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </FormModalWithHookForm>
   );
 }

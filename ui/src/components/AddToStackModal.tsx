@@ -1,12 +1,5 @@
 import React, { useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { FormModal } from '@/components/shared/Modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -99,17 +92,27 @@ export function AddToStackModal({ open, onOpenChange, adapterId }: AddToStackMod
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add Adapter to Stack</DialogTitle>
-          <DialogDescription>
-            Add adapter "{adapterId}" to an existing stack or create a new one
-          </DialogDescription>
-        </DialogHeader>
+  const isValid = createNew ? newStackName.trim().length > 0 : !!selectedStackId;
+  const isPending = createStack.isPending || updateStack.isPending;
 
-        <div className="space-y-4 py-4">
+  return (
+    <FormModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Add Adapter to Stack"
+      description={`Add adapter "${adapterId}" to an existing stack or create a new one`}
+      size="md"
+      onSubmit={handleAdd}
+      submitText="Add"
+      isSubmitting={isPending}
+      isValid={isValid}
+      onCancel={() => {
+        setSelectedStackId('');
+        setNewStackName('');
+        setCreateNew(false);
+      }}
+    >
+      <div className="space-y-4">
           <div className="flex items-center gap-4">
             <Button
               variant={!createNew ? 'default' : 'outline'}
@@ -154,18 +157,8 @@ export function AddToStackModal({ open, onOpenChange, adapterId }: AddToStackMod
               />
             </div>
           )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleAdd} disabled={createStack.isPending || updateStack.isPending}>
-            {createStack.isPending || updateStack.isPending ? 'Adding...' : 'Add'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </FormModal>
   );
 }
 

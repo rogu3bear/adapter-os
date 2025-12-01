@@ -1,21 +1,21 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { MetricsChart } from '../MetricsChart';
-import { Skeleton } from '../ui/skeleton';
-import apiClient from '../../api/client';
-import { logger } from '../../utils/logger';
-import { usePolling } from '../../hooks/usePolling';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { MetricsChart } from '@/components/MetricsChart';
+import { Skeleton } from '@/components/ui/skeleton';
+import apiClient from '@/api/client';
+import { logger } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 
 interface MetricsSnapshot {
   timestamp: number;
   counters: Record<string, number>;
   gauges: Record<string, number>;
-  histograms: Record<string, any>;
+  histograms: Record<string, unknown>;
 }
 
 interface MetricsData {
   snapshot: MetricsSnapshot;
-  timeSeries: any[];
+  timeSeries: Array<{ series_name: string; points: Array<{ timestamp: number | string; value: number }> }>;
 }
 
 export function MetricsGrid() {
@@ -40,7 +40,16 @@ export function MetricsGrid() {
       end_ms: endTime.getTime(),
     });
 
-    return { snapshot: transformedSnapshot, timeSeries: seriesData };
+    // Transform MetricsSeriesResponse to match expected format
+    const transformedSeries = seriesData.map(series => ({
+      series_name: series.metric_name,
+      points: series.data_points.map(dp => ({
+        timestamp: dp.timestamp,
+        value: dp.value
+      }))
+    }));
+
+    return { snapshot: transformedSnapshot, timeSeries: transformedSeries };
   };
 
   const { data, isLoading: loading, error } = usePolling(
@@ -166,8 +175,8 @@ export function MetricsGrid() {
             <MetricsChart
               data={timeSeries
                 .filter(series => series.series_name === selectedMetric)
-                .flatMap(series => series.points.map((point: any) => ({
-                  timestamp: new Date(point.timestamp).toLocaleTimeString(),
+                .flatMap(series => series.points.map((point) => ({
+                  time: typeof point.timestamp === 'string' ? new Date(point.timestamp).toLocaleTimeString() : new Date(point.timestamp).toLocaleTimeString(),
                   value: point.value,
                 })))
               }

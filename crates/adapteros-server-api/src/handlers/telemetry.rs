@@ -89,42 +89,43 @@ pub async fn get_metrics_series(
     let registry = &state.metrics_registry;
     let mut responses = Vec::new();
 
-    let make_series_response =
-        |name: String, start: Option<u64>, end: Option<u64>| -> Option<MetricsSeriesResponse> {
-            registry.get_series(&name).map(|series| {
-                let points = series
-                    .get_points(start, end)
-                    .into_iter()
-                    .map(MetricDataPointResponse::from)
-                    .collect::<Vec<_>>();
-                MetricsSeriesResponse {
-                    series_name: name,
-                    points,
-                }
-            })
-        };
-
     match params.series_name {
-        Some(name) => match make_series_response(name.clone(), params.start_ms, params.end_ms) {
-            Some(series) => {
-                responses.push(series);
-                Ok(Json(responses))
+        Some(name) => {
+            match registry.get_series_async(&name).await {
+                Some(series) => {
+                    let points = series
+                        .get_points(params.start_ms, params.end_ms)
+                        .into_iter()
+                        .map(MetricDataPointResponse::from)
+                        .collect::<Vec<_>>();
+                    responses.push(MetricsSeriesResponse {
+                        series_name: name,
+                        points,
+                    });
+                    Ok(Json(responses))
+                }
+                None => Err((
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new("metrics series not found")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(name),
+                    ),
+                )),
             }
-            None => Err((
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("metrics series not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(name),
-                ),
-            )),
-        },
+        }
         None => {
-            for name in registry.list_series() {
-                if let Some(series) =
-                    make_series_response(name.clone(), params.start_ms, params.end_ms)
-                {
-                    responses.push(series);
+            for name in registry.list_series_async().await {
+                if let Some(series) = registry.get_series_async(&name).await {
+                    let points = series
+                        .get_points(params.start_ms, params.end_ms)
+                        .into_iter()
+                        .map(MetricDataPointResponse::from)
+                        .collect::<Vec<_>>();
+                    responses.push(MetricsSeriesResponse {
+                        series_name: name,
+                        points,
+                    });
                 }
             }
             Ok(Json(responses))

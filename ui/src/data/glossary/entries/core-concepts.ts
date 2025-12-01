@@ -1,4 +1,4 @@
-import type { GlossaryEntry } from '../types';
+import type { GlossaryEntry } from '@/data/glossary/types';
 
 export const coreConceptsEntries: GlossaryEntry[] = [
   {
@@ -58,7 +58,7 @@ Router weights are calibrated during training and can be fine-tuned based on pro
 
 The router enables dynamic specialization: different parts of a request may activate different adapters. For example, a code review request might activate "python-syntax" for Python files and "javascript-lint" for JS files based on content analysis.`,
     },
-    relatedTerms: ['stack', 'adapter', 'inference', 'k-sparse'],
+    relatedTerms: ['stack', 'adapter', 'inference', 'k-sparse-routing'],
     aliases: ['adapter router', 'gating network', 'K-sparse router'],
   },
   {
@@ -88,7 +88,7 @@ Supported base models include Qwen 2.5 (7B/14B/32B), Llama 3, and compatible arc
 
 The base model's architecture determines adapter compatibility: rank dimensions, attention heads, and layer counts must match. AdapterOS validates adapter-to-base-model compatibility during registration to prevent runtime errors.`,
     },
-    relatedTerms: ['adapter', 'lora', 'training'],
+    relatedTerms: ['adapter', 'lora', 'training-job'],
     aliases: ['foundation model', 'pretrained model', 'LLM'],
   },
   {
@@ -103,7 +103,7 @@ Key hyperparameters: rank (r, typically 8-32) controls expressiveness, alpha (α
 
 AdapterOS implements Micro-LoRA: highly efficient LoRA with quantization (Q15), sparse routing, and optimized kernels. Training completes in minutes on M-series hardware, and adapters deploy in milliseconds.`,
     },
-    relatedTerms: ['adapter', 'base-model', 'training', 'rank'],
+    relatedTerms: ['adapter', 'base-model', 'training-job', 'lora-rank'],
     aliases: ['Low-Rank Adaptation', 'LoRA fine-tuning', 'micro-LoRA'],
   },
   {
@@ -118,7 +118,7 @@ Control plane operations are exposed via REST APIs (~190 endpoints) and the CLI 
 
 The control plane runs in the \`adapteros-server-api\` crate and delegates to subsystems: lifecycle manager for adapter states, policy engine for validation, registry for metadata, and orchestrator for distributed coordination.`,
     },
-    relatedTerms: ['lifecycle', 'policy', 'rbac', 'api'],
+    relatedTerms: ['lifecycle', 'policy', 'rbac'],
     aliases: ['management plane', 'orchestration layer', 'CP'],
   },
   {
@@ -148,7 +148,7 @@ Telemetry events follow a canonical schema with strict versioning. They include:
 
 Telemetry enables: compliance auditing (who did what when), debugging (trace request flow), performance analysis (latency breakdowns), and determinism verification (replay golden runs). Events are stored in SQLite WAL mode and archived in signed bundles.`,
     },
-    relatedTerms: ['telemetry-bundle', 'merkle-chain', 'audit', 'golden-run'],
+    relatedTerms: ['telemetry-bundle', 'merkle-chain', 'audit-log', 'golden-run'],
     aliases: ['telemetry events', 'event logging', 'audit trail'],
   },
   {
@@ -163,7 +163,7 @@ Bundles enable offline analysis and regulatory compliance: export a bundle for e
 
 Bundle format: gzip-compressed NDJSON with SHA-256 manifest and Ed25519 signature. Bundles can be validated independently without access to the live system, ensuring auditability even after deployment changes.`,
     },
-    relatedTerms: ['telemetry', 'golden-run', 'replay', 'audit'],
+    relatedTerms: ['telemetry', 'golden-run', 'replay', 'audit-log'],
     aliases: ['telemetry archive', 'event bundle', 'audit bundle'],
   },
   {
@@ -171,7 +171,7 @@ Bundle format: gzip-compressed NDJSON with SHA-256 manifest and Ed25519 signatur
     term: 'Golden Run',
     category: 'core-concepts',
     content: {
-      brief: 'A golden run is a verified, deterministic inference execution whose telemetry bundle serves as a canonical reference for validating future executions through replay.',
+      brief: 'A golden run (also called a Verified Run) is a verified, deterministic inference execution whose telemetry bundle serves as a canonical reference for validating future executions through replay.',
       detailed: `Golden runs establish ground truth for determinism testing. When you create a golden run, AdapterOS executes an inference request, captures all telemetry, and stores the bundle with outputs.
 
 To verify determinism, replay the golden run: load the same adapters, execute the same input, and compare outputs byte-for-byte. Any divergence indicates non-deterministic behavior (floating-point drift, random seeding issues, etc.).
@@ -179,14 +179,14 @@ To verify determinism, replay the golden run: load the same adapters, execute th
 Golden runs are created with \`aosctl golden create\` and verified with \`aosctl replay\`. They are essential for: regression testing (ensure updates don't break determinism), compliance (prove reproducible outputs), and debugging (isolate divergence sources).`,
     },
     relatedTerms: ['replay', 'determinism', 'telemetry-bundle', 'divergence'],
-    aliases: ['golden execution', 'reference run', 'baseline execution'],
+    aliases: ['golden execution', 'reference run', 'baseline execution', 'verified run'],
   },
   {
     id: 'replay',
     term: 'Replay',
     category: 'core-concepts',
     content: {
-      brief: 'Replay re-executes a golden run using its telemetry bundle to verify determinism by comparing outputs and intermediate states byte-for-byte.',
+      brief: 'Replay (also called Run History) re-executes a golden run using its telemetry bundle to verify determinism by comparing outputs and intermediate states byte-for-byte.',
       detailed: `Replay loads a telemetry bundle, reconstructs the execution environment (same adapters, same inputs, same random seeds), and re-runs the operation. Every output tensor, every intermediate activation, and every decision must match the golden run exactly.
 
 Replay detects: kernel changes (different Metal shaders), adapter drift (weights modified), environmental differences (different hardware), or logic bugs (uninitialized state).
@@ -194,7 +194,7 @@ Replay detects: kernel changes (different Metal shaders), adapter drift (weights
 The replay system uses HKDF-seeded randomness to ensure reproducibility across runs. Divergence reports show exactly where outputs differ (layer, tensor index, bit offset), enabling rapid debugging.`,
     },
     relatedTerms: ['golden-run', 'determinism', 'divergence', 'telemetry-bundle'],
-    aliases: ['replay execution', 'determinism verification', 'golden replay'],
+    aliases: ['replay execution', 'determinism verification', 'golden replay', 'run history'],
   },
   {
     id: 'divergence',
@@ -223,7 +223,7 @@ Merkle chains provide: append-only guarantees (can't delete events), ordering gu
 
 The chain is stored in the database and included in telemetry bundles. External auditors can verify the entire chain without access to the live system, ensuring compliance with regulatory requirements for immutable audit logs.`,
     },
-    relatedTerms: ['telemetry', 'audit', 'telemetry-bundle'],
+    relatedTerms: ['telemetry', 'audit-log', 'telemetry-bundle'],
     aliases: ['event chain', 'hash chain', 'audit chain'],
   },
   {
@@ -253,7 +253,7 @@ Determinism is critical for: compliance (prove outputs are reproducible), debugg
 
 The deterministic execution subsystem (\`adapteros-deterministic-exec\`) provides \`spawn_deterministic\` for tasks requiring reproducibility. All inference, training, and routing operations use deterministic execution. Background tasks (monitoring, logging) may use non-deterministic \`tokio::spawn\`.`,
     },
-    relatedTerms: ['golden-run', 'replay', 'hkdf', 'kernel'],
+    relatedTerms: ['golden-run', 'replay'],
     aliases: ['deterministic execution', 'reproducibility', 'deterministic behavior'],
   },
   {
@@ -268,7 +268,7 @@ This prevents: model weight exfiltration, training data leakage, prompt injectio
 
 Zero-egress is validated at runtime by the egress policy pack. Violations are logged in telemetry and can trigger automatic adapter unloading. Enable with \`--enforce-zero-egress\` flag or in stack policies.`,
     },
-    relatedTerms: ['policy', 'security', 'egress-policy'],
+    relatedTerms: ['policy', 'egress-policy'],
     aliases: ['network isolation', 'air-gapped mode', 'egress blocking'],
   },
   {
@@ -303,7 +303,7 @@ Transitions are managed by the lifecycle subsystem based on usage patterns, memo
 
 Use \`aosctl adapter pin\` to keep critical adapters resident, preventing eviction. The lifecycle manager automatically promotes frequently-used adapters to hot state and demotes idle adapters to conserve memory.`,
     },
-    relatedTerms: ['adapter', 'memory-management', 'hot-swap'],
+    relatedTerms: ['adapter', 'hot-swap'],
     aliases: ['adapter lifecycle', 'state machine', 'lifecycle management'],
   },
   {
@@ -318,38 +318,17 @@ In-flight requests complete using the old version; new requests use the new vers
 
 The hot swap system (\`adapteros-lora-worker/adapter_hotswap.rs\`) manages memory pools to avoid allocation overhead. Swaps complete in <10ms. Failed swaps automatically roll back to the previous version.`,
     },
-    relatedTerms: ['lifecycle', 'adapter', 'memory-management'],
+    relatedTerms: ['lifecycle', 'adapter'],
     aliases: ['adapter swap', 'hot reload', 'zero-downtime update'],
   },
-  {
-    id: 'rbac',
-    term: 'RBAC',
-    category: 'core-concepts',
-    content: {
-      brief: 'Role-Based Access Control: authorization system with 5 roles (Admin, Operator, SRE, Compliance, Viewer) and 55 fine-grained permissions.',
-      detailed: `RBAC controls who can perform operations in AdapterOS. Users are assigned roles; roles grant permissions; permissions authorize API calls.
-
-Roles:
-- **Admin**: Full access (tenant management, policy signing, adapter deletion)
-- **Operator**: Adapter CRUD, training, inference
-- **SRE**: Adapter management, audit access, system metrics
-- **Compliance**: Read-only audit and policy access
-- **Viewer**: Read-only access to adapters, metrics, policies
-
-Permissions are enforced in API handlers via \`require_permission(&claims, Permission::AdapterRegister)?\`. JWT tokens contain role claims; the auth middleware validates them.
-
-RBAC enables: separation of duties (SRE can debug but not delete production adapters), compliance (Compliance can audit but not modify), and least-privilege access (Viewers can monitor but not change state).`,
-    },
-    relatedTerms: ['auth', 'permission', 'role', 'tenant'],
-    aliases: ['role-based access', 'authorization', 'permissions'],
-  },
+  // NOTE: 'rbac' is defined in security.ts
   {
     id: 'policy',
-    term: 'Policy',
+    term: 'Guardrails',
     category: 'core-concepts',
     content: {
-      brief: 'Policies are declarative rules enforced at runtime that govern adapter behavior, resource usage, security, and compliance.',
-      detailed: `AdapterOS includes 24 canonical policy packs: Egress (network isolation), Determinism (reproducibility), Router (K-sparse gating), Evidence (audit requirements), Memory (resource limits), Secrets (credential management), and more.
+      brief: 'Guardrails (policies) are declarative rules enforced at runtime that govern adapter behavior, resource usage, security, and compliance.',
+      detailed: `AdapterOS includes 24 canonical guardrails (technically called policy packs or policies): Egress (network isolation), Determinism (reproducibility), Router (K-sparse gating), Evidence (audit requirements), Memory (resource limits), Secrets (credential management), and more.
 
 Policies are defined in TOML, cryptographically signed (Ed25519), and enforced by the policy engine. Violations can trigger: request rejection, adapter unloading, alerts, or logging.
 
@@ -357,8 +336,8 @@ Policies are scoped to tenants or stacks. Stack policies override tenant policie
 
 Use \`aosctl policy list\` to view active policies, \`aosctl policy validate\` to check compliance, and \`aosctl policy sign\` to approve new policies (requires Admin role).`,
     },
-    relatedTerms: ['policy-pack', 'compliance', 'security', 'stack'],
-    aliases: ['policy enforcement', 'policy pack', 'governance'],
+    relatedTerms: ['policy-pack', 'compliance', 'stack'],
+    aliases: ['policy', 'policies', 'policy enforcement', 'policy pack', 'governance', 'rules', 'security rules'],
   },
   {
     id: 'inference',
@@ -395,7 +374,7 @@ The format enables zero-copy loading: mmap the file, parse the header, point to 
 
 AOS files are cryptographically signed (manifest hash + Ed25519 signature) to prevent tampering. The packaging tool (\`AdapterPackager\`) validates format compliance and generates signatures.`,
     },
-    relatedTerms: ['adapter', 'packaging', 'lifecycle'],
+    relatedTerms: ['adapter', 'lifecycle'],
     aliases: ['.aos file', 'adapter package', 'AOS container'],
   },
 ];

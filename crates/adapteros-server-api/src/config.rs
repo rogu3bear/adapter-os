@@ -15,6 +15,8 @@ pub struct Config {
     pub git: Option<adapteros_git::GitConfig>,
     #[serde(default)]
     pub policies: PoliciesConfig,
+    #[serde(default)]
+    pub logging: LoggingConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +154,61 @@ pub struct AlertingConfig {
 pub struct PoliciesConfig {
     #[serde(default)]
     pub drift: adapteros_core::DriftPolicy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    /// Log level filter (e.g., "info", "debug", "aos_cp=debug,tower_http=info")
+    #[serde(default = "default_log_level")]
+    pub level: String,
+    /// Directory for log files (None = stdout only)
+    #[serde(default)]
+    pub log_dir: Option<String>,
+    /// Log file prefix (default: "aos-cp")
+    #[serde(default = "default_log_prefix")]
+    pub log_prefix: String,
+    /// Enable JSON format for logs (useful for log aggregation)
+    #[serde(default)]
+    pub json_format: bool,
+    /// Rotation strategy: "hourly", "daily", or "never" (default: "daily")
+    #[serde(default = "default_rotation")]
+    pub rotation: String,
+    /// Maximum number of rotated log files to keep (0 = unlimited)
+    #[serde(default)]
+    pub max_log_files: usize,
+    /// Include request IDs in log output
+    #[serde(default = "default_true")]
+    pub include_request_id: bool,
+    /// Enable panic capture to log file
+    #[serde(default = "default_true")]
+    pub capture_panics: bool,
+}
+
+fn default_log_level() -> String {
+    "aos_cp=info,aos_cp_api=info,tower_http=debug".to_string()
+}
+
+fn default_log_prefix() -> String {
+    "aos-cp".to_string()
+}
+
+fn default_rotation() -> String {
+    "daily".to_string()
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            level: default_log_level(),
+            log_dir: None,
+            log_prefix: default_log_prefix(),
+            json_format: false,
+            rotation: default_rotation(),
+            max_log_files: 0,
+            include_request_id: true,
+            capture_panics: true,
+        }
+    }
 }
 
 impl Config {

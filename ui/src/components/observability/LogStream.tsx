@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Input } from '../ui/input';
-import apiClient from '../../api/client';
-import { useSSE } from '../../hooks/useSSE';
-import { logger, toError } from '../../utils/logger';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import apiClient from '@/api/client';
+import { useLiveData } from '@/hooks/useLiveData';
+import { logger, toError } from '@/utils/logger';
 
 interface LogEvent {
   id: string;
@@ -33,20 +33,51 @@ export function LogStream() {
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // SSE stream for live logs
-  const { data: streamData } = useSSE<LogEvent>('/v1/logs/stream');
+  useLiveData({
+    sseEndpoint: '/v1/logs/stream',
+    sseEventType: 'log',
+    fetchFn: async () => {
+      // Polling fallback - fetch logs
+      const queryParams: Record<string, string | number> = {
+        limit: filters.limit,
+      };
 
-  useEffect(() => {
-    if (!streamData) return;
-    setLogs((prev) => {
-      const updated = [streamData, ...prev].slice(0, filters.limit);
-      return updated;
-    });
-  }, [streamData, filters.limit]);
+      if (filters.level) queryParams.level = filters.level;
+      if (filters.component) queryParams.component = filters.component;
+      if (filters.tenant_id) queryParams.tenant_id = filters.tenant_id;
+      if (filters.event_type) queryParams.event_type = filters.event_type;
+
+      const data = await apiClient.queryLogs(queryParams);
+
+      // Transform UnifiedTelemetryEvent to LogEvent format
+      const transformedLogs: LogEvent[] = data.map(event => ({
+        id: event.id,
+        timestamp: event.timestamp,
+        event_type: event.event_type,
+        level: event.level,
+        message: event.message,
+        component: event.component,
+        tenant_id: event.tenant_id,
+        trace_id: event.trace_id,
+      }));
+
+      return transformedLogs;
+    },
+    enabled: true,
+    pollingSpeed: 'normal',
+    onSSEMessage: (event) => {
+      const logEvent = event as LogEvent;
+      setLogs((prev) => {
+        const updated = [logEvent, ...prev].slice(0, filters.limit);
+        return updated;
+      });
+    },
+  });
 
   useEffect(() => {
     const fetchLogs = async () => {
       try {
-        const queryParams: any = {
+        const queryParams: Record<string, string | number> = {
           limit: filters.limit,
         };
 

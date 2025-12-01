@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useSystemMetrics, useComputedMetrics } from '@/hooks/useSystemMetrics';
+import { METRIC_COLORS } from '@/constants/chart-colors';
 
 interface MetricDataPoint {
   timestamp: string;
@@ -109,28 +110,28 @@ export default function MetricsTab() {
                 <Line
                   type="monotone"
                   dataKey="cpuUsage"
-                  stroke="#8884d8"
+                  stroke={METRIC_COLORS.cpu}
                   name="CPU %"
                   strokeWidth={2}
                 />
                 <Line
                   type="monotone"
                   dataKey="memoryUsage"
-                  stroke="#82ca9d"
+                  stroke={METRIC_COLORS.memory}
                   name="Memory %"
                   strokeWidth={2}
                 />
                 <Line
                   type="monotone"
                   dataKey="diskUsage"
-                  stroke="#ffc658"
+                  stroke={METRIC_COLORS.disk}
                   name="Disk %"
                   strokeWidth={2}
                 />
                 <Line
                   type="monotone"
                   dataKey="gpuUsage"
-                  stroke="#ff7c7c"
+                  stroke={METRIC_COLORS.gpu}
                   name="GPU %"
                   strokeWidth={2}
                 />
@@ -164,8 +165,8 @@ export default function MetricsTab() {
                   yAxisId="left"
                   type="monotone"
                   dataKey="tokensPerSecond"
-                  stroke="#8884d8"
-                  fill="#8884d8"
+                  stroke={METRIC_COLORS.tokensPerSecond}
+                  fill={METRIC_COLORS.tokensPerSecond}
                   fillOpacity={0.6}
                   name="Tokens/sec"
                 />
@@ -173,8 +174,8 @@ export default function MetricsTab() {
                   yAxisId="right"
                   type="monotone"
                   dataKey="latencyP95Ms"
-                  stroke="#82ca9d"
-                  fill="#82ca9d"
+                  stroke={METRIC_COLORS.latency}
+                  fill={METRIC_COLORS.latency}
                   fillOpacity={0.6}
                   name="Latency (ms)"
                 />

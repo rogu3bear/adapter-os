@@ -1,11 +1,18 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '../api/client';
-import type { Adapter, Tenant, Policy, Node, WorkerResponse } from '../api/types';
-import { logger, toError } from '../utils/logger';
+import apiClient from '@/api/client';
+import type { Adapter, Tenant, Policy, Node, WorkerResponse } from '@/api/types';
+import { logger, toError } from '@/utils/logger';
 import { LucideIcon } from 'lucide-react';
-import { useTenant } from '../providers/FeatureProviders';
-import { useAuth } from '../providers/CoreProviders';
+import { useTenant } from '@/providers/FeatureProviders';
+import { useAuth } from '@/providers/CoreProviders';
+
+interface ApiError {
+  status?: number;
+  code?: string;
+  name?: string;
+  message?: string;
+}
 
 export type CommandItemType = 'page' | 'adapter' | 'tenant' | 'policy' | 'node' | 'worker' | 'action';
 
@@ -18,7 +25,7 @@ export interface CommandItem {
   icon?: React.ComponentType<{ className?: string }>;
   entityId?: string;
   group?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   actionId?: string;
   shortcut?: string;
 }
@@ -155,13 +162,14 @@ export function CommandPaletteProvider({ children, routes: providedRoutes }: Com
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         return await fn();
-      } catch (error: any) {
-        lastError = error;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const apiError = error as ApiError;
 
         // Only retry on rate limiting (429) or network errors
-        const shouldRetry = error?.status === 429 ||
-                           error?.code === 'NETWORK_ERROR' ||
-                           error?.name === 'NetworkError';
+        const shouldRetry = apiError?.status === 429 ||
+                           apiError?.code === 'NETWORK_ERROR' ||
+                           apiError?.name === 'NetworkError';
 
         if (!shouldRetry || attempt === maxRetries) {
           throw error;
@@ -202,7 +210,7 @@ export function CommandPaletteProvider({ children, routes: providedRoutes }: Com
       }));
 
       if (adapters.status === 'rejected') {
-        const adapterError = adapters.reason as any;
+        const adapterError = adapters.reason as ApiError;
         const errorObj = toError(adapters.reason);
         const isPermissionError = adapterError?.status === 403 || adapterError?.status === 401;
         const isRateLimitError = adapterError?.status === 429;
@@ -232,7 +240,7 @@ export function CommandPaletteProvider({ children, routes: providedRoutes }: Com
         }
       }
       if (tenants.status === 'rejected') {
-        const tenantError = tenants.reason as any;
+        const tenantError = tenants.reason as ApiError;
         const errorObj = toError(tenants.reason);
         const isPermissionError = tenantError?.status === 403 || tenantError?.status === 401;
         const isRateLimitError = tenantError?.status === 429;
@@ -264,7 +272,7 @@ export function CommandPaletteProvider({ children, routes: providedRoutes }: Com
         }
       }
       if (policies.status === 'rejected') {
-        const policyError = policies.reason as any;
+        const policyError = policies.reason as ApiError;
         const errorObj = toError(policies.reason);
         const isPermissionError = policyError?.status === 403 || policyError?.status === 401;
         const isRateLimitError = policyError?.status === 429;
@@ -294,7 +302,7 @@ export function CommandPaletteProvider({ children, routes: providedRoutes }: Com
         }
       }
       if (nodes.status === 'rejected') {
-        const nodeError = nodes.reason as any;
+        const nodeError = nodes.reason as ApiError;
         const errorObj = toError(nodes.reason);
         const isPermissionError = nodeError?.status === 403 || nodeError?.status === 401;
         const isRateLimitError = nodeError?.status === 429;
@@ -325,7 +333,7 @@ export function CommandPaletteProvider({ children, routes: providedRoutes }: Com
         }
       }
       if (workers.status === 'rejected') {
-        const workerError = workers.reason as any;
+        const workerError = workers.reason as ApiError;
         const errorObj = toError(workers.reason);
         const isPermissionError = workerError?.status === 403 || workerError?.status === 401;
         const isRateLimitError = workerError?.status === 429;

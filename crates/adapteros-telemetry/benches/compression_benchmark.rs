@@ -192,7 +192,7 @@ fn benchmark_compression_levels(c: &mut Criterion) {
 fn benchmark_compression_ratio(c: &mut Criterion) {
     let mut group = c.benchmark_group("compression_ratio");
 
-    let algorithms = vec![
+    let _algorithms = vec![
         CompressionAlgorithm::Zstd,
         CompressionAlgorithm::Gzip,
         CompressionAlgorithm::Lz4,

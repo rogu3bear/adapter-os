@@ -5,6 +5,7 @@ import { BaseModelStatusComponent } from '@/components/BaseModelStatus';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 export default function BaseModelsPage() {
   const { selectedTenant } = useTenant();
@@ -15,12 +16,14 @@ export default function BaseModelsPage() {
       <FeatureLayout
         title="Base Models"
         description="Manage and monitor base models"
-        helpContent="View and manage base model configurations and status"
+        brief="View and manage base model configurations and status"
       >
-        <div className="space-y-6">
-          <BaseModelWidget />
-          <BaseModelStatusComponent selectedTenant={selectedTenant} />
-        </div>
+        <SectionErrorBoundary sectionName="Base Models">
+          <div className="space-y-6">
+            <BaseModelWidget />
+            <BaseModelStatusComponent selectedTenant={selectedTenant} />
+          </div>
+        </SectionErrorBoundary>
       </FeatureLayout>
     </DensityProvider>
   );

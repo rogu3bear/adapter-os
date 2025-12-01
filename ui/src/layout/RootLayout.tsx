@@ -15,6 +15,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 import { useTheme, useAuth } from '@/providers/CoreProviders';
 import { CommandPaletteProvider, type CommandItem, useCommandPalette } from '@/contexts/CommandPaletteContext';
@@ -70,7 +71,10 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
     try {
       const saved = localStorage.getItem(COLLAPSED_GROUPS_KEY);
       return saved ? JSON.parse(saved) : {};
-    } catch {
+    } catch (e) {
+      if (import.meta.env.DEV) {
+        console.warn('[RootLayout] Failed to load collapsed groups from localStorage:', e);
+      }
       return {};
     }
   });
@@ -80,8 +84,10 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
       const next = { ...prev, [groupTitle]: !prev[groupTitle] };
       try {
         localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(next));
-      } catch {
-        // Ignore storage errors
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn('[RootLayout] Failed to save collapsed groups to localStorage:', e);
+        }
       }
       return next;
     });
@@ -180,7 +186,9 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
         {/* Content */}
         <main id="main-content" className="flex-1 p-4 md:p-6" role="main" tabIndex={-1}>
           <div className="mx-auto max-w-[1440px]">
-            <Outlet />
+            <SectionErrorBoundary sectionName="Page Content">
+              <Outlet />
+            </SectionErrorBoundary>
           </div>
         </main>
       </SidebarInset>
@@ -292,13 +300,13 @@ export default function RootLayout() {
     return <Navigate to="/login" replace />;
   }
 
-  // Login page without sidebar/navigation
+  // Login page without sidebar/navigation - LoginForm handles its own layout
   if (location.pathname === '/login') {
     return (
-      <div className="min-h-screen bg-background p-6">
+      <>
         <Outlet />
         <Toaster position="top-right" className="z-40" />
-      </div>
+      </>
     );
   }
 

@@ -4,11 +4,19 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
-import { CheckCircle, XCircle, AlertTriangle, Download, Code } from 'lucide-react';
+import { Progress } from './ui/progress';
+import { CheckCircle, XCircle, AlertTriangle, Download, Loader2, Copy, Terminal, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '../api/client';
-import type { ModelValidationResponse, ModelWithStatsResponse } from '../api/types';
-import { logger } from '../utils/logger';
+import apiClient from '@/api/client';
+import type { ModelValidationResponse, ModelWithStatsResponse } from '@/api/types';
+import { logger } from '@/utils/logger';
+
+interface DownloadState {
+  isDownloading: boolean;
+  progress: number;
+  status: string;
+  error?: string;
+}
 
 interface ModelInfo extends ModelWithStatsResponse {
   validation?: ModelValidationResponse;
@@ -21,11 +29,34 @@ interface ModelSelectorProps {
   disabled?: boolean;
 }
 
+// Generate download commands based on model ID (typically a HuggingFace repo like "org/model-name")
+function generateDownloadCommands(modelId: string): string[] {
+  // Check if it looks like a HuggingFace repo ID (contains /)
+  if (modelId.includes('/')) {
+    return [
+      `huggingface-cli download ${modelId} --local-dir ./var/model-cache/models/${modelId.split('/').pop()}`,
+    ];
+  }
+  // For simple model names, provide generic instructions
+  return [
+    `# Model path: ./var/model-cache/models/${modelId}`,
+    `# Ensure model files are downloaded to this directory`,
+  ];
+}
+
 export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps) {
   const [models, setModels] = React.useState<ModelInfo[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [showValidationDialog, setShowValidationDialog] = React.useState(false);
   const [selectedModelForDetails, setSelectedModelForDetails] = React.useState<ModelInfo | null>(null);
+  const [downloadState, setDownloadState] = React.useState<DownloadState>({
+    isDownloading: false,
+    progress: 0,
+    status: '',
+  });
+  const [selectedModelId, setSelectedModelId] = React.useState<string | undefined>(value);
+  const [isLoadingModel, setIsLoadingModel] = React.useState(false);
+  const [modelStatus, setModelStatus] = React.useState<'loaded' | 'unloaded' | 'loading' | 'unloading'>('unloaded');
 
   React.useEffect(() => {
     let mounted = true;
@@ -94,7 +125,89 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
   }, []);
 
   const handleChange = (val: string) => {
+    setSelectedModelId(val);
     onChange?.(val);
+
+    // Auto-show setup dialog for models that need setup
+    const selectedModel = models.find(m => m.id === val);
+    if (selectedModel && !selectedModel.validation?.can_load) {
+      setSelectedModelForDetails(selectedModel);
+      setShowValidationDialog(true);
+    }
+  };
+
+  // Fetch model status periodically
+  React.useEffect(() => {
+    if (!selectedModelId) return;
+    
+    const fetchStatus = async () => {
+      try {
+        const status = await apiClient.getModelStatus(selectedModelId);
+        setModelStatus(status.is_loaded ? 'loaded' : 'unloaded');
+      } catch {
+        // Ignore errors - model might not exist yet
+      }
+    };
+    
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 3000); // Poll every 3 seconds
+    return () => clearInterval(interval);
+  }, [selectedModelId]);
+
+  const handleLoadModel = async () => {
+    if (!selectedModelId) {
+      toast.error('Please select a model first');
+      return;
+    }
+
+    const selectedModel = models.find(m => m.id === selectedModelId);
+    if (selectedModel && !selectedModel.validation?.can_load) {
+      setSelectedModelForDetails(selectedModel);
+      setShowValidationDialog(true);
+      return;
+    }
+
+    setIsLoadingModel(true);
+    setModelStatus('loading');
+    try {
+      await apiClient.loadBaseModel(selectedModelId);
+      toast.success(`Model "${selectedModelId}" loaded successfully`);
+      setModelStatus('loaded');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to load model: ${errorMsg}`);
+      setModelStatus('unloaded');
+      logger.error('Failed to load model', {
+        component: 'ModelSelector',
+        modelId: selectedModelId,
+        error: errorMsg,
+      });
+    } finally {
+      setIsLoadingModel(false);
+    }
+  };
+
+  const handleUnloadModel = async () => {
+    if (!selectedModelId) return;
+
+    setIsLoadingModel(true);
+    setModelStatus('unloading');
+    try {
+      await apiClient.unloadBaseModel(selectedModelId);
+      toast.success(`Model "${selectedModelId}" unloaded`);
+      setModelStatus('unloaded');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to unload model: ${errorMsg}`);
+      setModelStatus('loaded');
+      logger.error('Failed to unload model', {
+        component: 'ModelSelector',
+        modelId: selectedModelId,
+        error: errorMsg,
+      });
+    } finally {
+      setIsLoadingModel(false);
+    }
   };
 
   const getStatusIcon = (model: ModelInfo) => {
@@ -121,11 +234,6 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
       <Badge variant="destructive">Needs Setup</Badge>;
   };
 
-  const handleShowDetails = (model: ModelInfo) => {
-    setSelectedModelForDetails(model);
-    setShowValidationDialog(true);
-  };
-
   const copyCommand = async (command: string) => {
     try {
       await navigator.clipboard.writeText(command);
@@ -135,106 +243,222 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
     }
   };
 
+  const handleDownloadModel = async () => {
+    if (!selectedModelForDetails) return;
+
+    setDownloadState({
+      isDownloading: true,
+      progress: 0,
+      status: 'Starting download...',
+    });
+
+    try {
+      // Try to start the download via API
+      const response = await apiClient.downloadModel(selectedModelForDetails.id);
+
+      // Poll for progress if we get a job ID back
+      if (response && 'job_id' in response) {
+        // TODO: Implement polling when backend supports it
+        setDownloadState({
+          isDownloading: false,
+          progress: 100,
+          status: 'Download started - check server logs for progress',
+        });
+        toast.success('Download started successfully');
+      } else {
+        setDownloadState({
+          isDownloading: false,
+          progress: 100,
+          status: 'Complete',
+        });
+        toast.success('Model downloaded successfully');
+        // Refresh validation status
+        setShowValidationDialog(false);
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('Failed to download model', {
+        component: 'ModelSelector',
+        modelId: selectedModelForDetails.id,
+        error: errorMsg,
+      });
+
+      setDownloadState({
+        isDownloading: false,
+        progress: 0,
+        status: '',
+        error: errorMsg,
+      });
+
+      // Show helpful message if download endpoint isn't available
+      if (errorMsg.includes('404') || errorMsg.includes('not found')) {
+        toast.error('Download not available - use the CLI commands below');
+      } else {
+        toast.error(`Download failed: ${errorMsg}`);
+      }
+    }
+  };
+
+  // Get download commands - prefer backend-provided ones, fall back to generated
+  const getDownloadCommands = (model: ModelInfo): string[] => {
+    if (model.validation?.download_commands && model.validation.download_commands.length > 0) {
+      return model.validation.download_commands;
+    }
+    return generateDownloadCommands(model.name || model.id);
+  };
+
+  const isModelLoaded = modelStatus === 'loaded';
+  const isModelBusy = modelStatus === 'loading' || modelStatus === 'unloading';
+
   return (
     <>
-      <Select value={value} onValueChange={handleChange} disabled={disabled || loading}>
-        <SelectTrigger className="w-[280px]" aria-label="Model selector">
-          <SelectValue placeholder={loading ? 'Loading models…' : 'Select model'} />
-        </SelectTrigger>
-        <SelectContent>
-          {models.map((m) => (
-            <div key={m.id} className="flex items-center justify-between p-2 hover:bg-gray-50 cursor-pointer">
-              <div className="flex items-center gap-2 flex-1" onClick={() => handleChange(m.id)}>
-                {getStatusIcon(m)}
-                <div className="flex-1">
-                  <div className="font-medium">{m.id}</div>
-                  <div className="text-xs text-gray-500">{getStatusBadge(m)}</div>
+      <div className="flex items-center gap-2">
+        <Select value={selectedModelId} onValueChange={handleChange} disabled={disabled || loading}>
+          <SelectTrigger className="w-[200px]" aria-label="Model selector">
+            <SelectValue placeholder={loading ? 'Loading models…' : 'Select model'} />
+          </SelectTrigger>
+          <SelectContent>
+            {models.map((m) => (
+              <SelectItem key={m.id} value={m.id}>
+                <div className="flex items-center gap-2">
+                  {getStatusIcon(m)}
+                  <div>
+                    <div className="font-medium">{m.name}</div>
+                    <div className="text-xs text-gray-500">{getStatusBadge(m)}</div>
+                  </div>
                 </div>
+              </SelectItem>
+            ))}
+            {models.length === 0 && !loading && (
+              <div className="p-2 text-center text-gray-500">
+                No models available
               </div>
-              {!m.validation?.can_load && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleShowDetails(m);
-                  }}
-                  className="ml-2"
-                >
-                  <Code className="w-4 h-4" />
-                </Button>
+            )}
+          </SelectContent>
+        </Select>
+
+        {/* Load/Unload Button */}
+        {selectedModelId && (
+          isModelLoaded ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleUnloadModel}
+              disabled={isLoadingModel || isModelBusy}
+              className="gap-1"
+            >
+              {isModelBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Square className="h-4 w-4" />
               )}
-            </div>
-          ))}
-          {models.length === 0 && !loading && (
-            <div className="p-2 text-center text-gray-500">
-              No models available
-            </div>
-          )}
-        </SelectContent>
-      </Select>
+              Unload
+            </Button>
+          ) : (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleLoadModel}
+              disabled={isLoadingModel || isModelBusy}
+              className="gap-1"
+            >
+              {isModelBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              {modelStatus === 'loading' ? 'Loading...' : 'Load'}
+            </Button>
+          )
+        )}
+
+        {/* Status indicator */}
+        {selectedModelId && (
+          <Badge variant={isModelLoaded ? 'default' : 'secondary'} className="ml-1">
+            {isModelLoaded ? '● Loaded' : '○ Unloaded'}
+          </Badge>
+        )}
+      </div>
 
       <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {selectedModelForDetails && getStatusIcon(selectedModelForDetails)}
-              Model Setup: {selectedModelForDetails?.id}
+              Model Setup: {selectedModelForDetails?.name}
             </DialogTitle>
           </DialogHeader>
 
-          {selectedModelForDetails?.validation && (
+          {selectedModelForDetails && (
             <div className="space-y-4">
               <Alert>
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>
-                  {selectedModelForDetails.validation.reason || 'This model requires setup before it can be used.'}
+                  {selectedModelForDetails.validation?.reason || 'This model needs to be downloaded before it can be used.'}
                 </AlertDescription>
               </Alert>
 
-              {selectedModelForDetails.validation.download_commands && (
-                <div>
-                  <h4 className="font-medium mb-2">Setup Commands:</h4>
-                  <div className="space-y-2">
-                    {selectedModelForDetails.validation.download_commands.map((command, index) => (
-                      <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded font-mono text-sm">
-                        <code className="flex-1">{command}</code>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => copyCommand(command)}
-                          className="shrink-0"
-                        >
-                          Copy
-                        </Button>
-                      </div>
-                    ))}
+              {/* Download Button */}
+              {downloadState.isDownloading ? (
+                <div className="space-y-2 p-4 bg-blue-50 rounded-lg">
+                  <div className="flex items-center gap-2 text-blue-700">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="font-medium">{downloadState.status}</span>
                   </div>
+                  <Progress value={downloadState.progress} className="h-2" />
                 </div>
+              ) : downloadState.error ? (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Download failed: {downloadState.error}
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Button
+                  onClick={handleDownloadModel}
+                  className="w-full"
+                  size="lg"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Model
+                </Button>
               )}
 
-              <div className="flex gap-2 pt-4">
+              {/* CLI Commands Section */}
+              <div className="border-t pt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Terminal className="h-4 w-4 text-muted-foreground" />
+                  <h4 className="font-medium text-sm text-muted-foreground">Or use CLI:</h4>
+                </div>
+                <div className="space-y-2">
+                  {getDownloadCommands(selectedModelForDetails).map((command, index) => (
+                    <div key={index} className="flex items-center gap-2 p-2 bg-muted/50 rounded font-mono text-xs">
+                      <code className="flex-1 break-all">{command}</code>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copyCommand(command)}
+                        className="shrink-0 h-6 w-6 p-0"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
                 <Button
-                  onClick={() => setShowValidationDialog(false)}
+                  variant="outline"
+                  onClick={() => {
+                    setShowValidationDialog(false);
+                    setDownloadState({ isDownloading: false, progress: 0, status: '' });
+                  }}
                   className="flex-1"
                 >
                   Close
                 </Button>
-                {selectedModelForDetails.validation.download_commands?.some(cmd => cmd.includes('huggingface-cli') || cmd.includes('git lfs')) && (
-                  <Button
-                    variant="outline"
-                    onClick={async () => {
-                      const downloadCmd = selectedModelForDetails.validation?.download_commands?.find(cmd =>
-                        cmd.includes('huggingface-cli download')
-                      );
-                      if (downloadCmd) await copyCommand(downloadCmd);
-                    }}
-                    className="flex-1"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Copy Download Command
-                  </Button>
-                )}
               </div>
             </div>
           )}

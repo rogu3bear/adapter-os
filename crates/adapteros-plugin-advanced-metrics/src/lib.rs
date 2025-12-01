@@ -44,7 +44,7 @@ use tracing::{debug, info, warn};
 mod endpoints;
 mod metrics;
 
-pub use endpoints::metrics_endpoint;
+pub use endpoints::{metrics_endpoint, metrics_json};
 pub use metrics::MetricsCollector;
 
 /// Advanced Metrics Plugin

@@ -6,6 +6,7 @@ import { useRBAC } from '@/hooks/useRBAC';
 import { PERMISSIONS } from '@/utils/rbac';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ShieldAlert } from 'lucide-react';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 export default function MetricsPage() {
   const { user } = useAuth();
@@ -24,7 +25,9 @@ export default function MetricsPage() {
             </AlertDescription>
           </Alert>
         ) : (
-          <MonitoringPage />
+          <SectionErrorBoundary sectionName="Metrics">
+            <MonitoringPage />
+          </SectionErrorBoundary>
         )}
       </FeatureLayout>
     </DensityProvider>

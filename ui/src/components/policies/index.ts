@@ -9,7 +9,7 @@
  */
 
 // Re-export from current locations (files not moved yet)
-export { Policies } from '../Policies';
-export { PolicyEditor } from '../PolicyEditor';
-export { default as PolicyPreflightDialog } from '../PolicyPreflightDialog';
-export { PolicyViolationAlert } from '../PolicyViolationAlert';
+export { Policies } from '@/components/Policies';
+export { PolicyEditor } from '@/components/PolicyEditor';
+export { default as PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
+export { PolicyViolationAlert } from '@/components/PolicyViolationAlert';

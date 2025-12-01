@@ -83,8 +83,8 @@ fn test_multi_stack_rapid_switching_under_load() {
         .collect();
 
     let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
-    let priors = skewed_priors(adapter_count);
-    let features = python_features();
+    let _priors = skewed_priors(adapter_count);
+    let _features = python_features();
 
     // Define stacks for switching
     let stacks = vec![

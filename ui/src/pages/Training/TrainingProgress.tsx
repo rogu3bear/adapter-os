@@ -27,6 +27,7 @@ import { toast } from 'sonner';
 import apiClient from '@/api/client';
 import type { TrainingJob, TrainingStatus, TrainingArtifact } from '@/api/training-types';
 import { isTrainingProgressEvent, TrainingProgressEvent } from '@/api/streaming-types';
+import { formatTimestamp } from '@/utils/format';
 
 interface TrainingProgressProps {
   jobId: string;
@@ -185,15 +186,6 @@ export function TrainingProgress({ jobId, onClose }: TrainingProgressProps) {
   const statusConfig = effectiveJob ? STATUS_CONFIG[effectiveJob.status] : STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
 
-  const formatDate = (dateString?: string): string => {
-    if (!dateString) return '-';
-    try {
-      return new Date(dateString).toLocaleString();
-    } catch {
-      return dateString;
-    }
-  };
-
   const handleDownloadArtifact = useCallback(async (artifact: TrainingArtifact) => {
     setDownloadingArtifacts((prev) => new Set(prev).add(artifact.id));
 
@@ -302,19 +294,19 @@ export function TrainingProgress({ jobId, onClose }: TrainingProgressProps) {
             {effectiveJob.created_at && (
               <div>
                 <span className="text-muted-foreground">Created</span>
-                <p>{formatDate(effectiveJob.created_at)}</p>
+                <p>{formatTimestamp(effectiveJob.created_at, 'long')}</p>
               </div>
             )}
             {effectiveJob.started_at && (
               <div>
                 <span className="text-muted-foreground">Started</span>
-                <p>{formatDate(effectiveJob.started_at)}</p>
+                <p>{formatTimestamp(effectiveJob.started_at, 'long')}</p>
               </div>
             )}
             {effectiveJob.completed_at && (
               <div>
                 <span className="text-muted-foreground">Completed</span>
-                <p>{formatDate(effectiveJob.completed_at)}</p>
+                <p>{formatTimestamp(effectiveJob.completed_at, 'long')}</p>
               </div>
             )}
           </CardContent>

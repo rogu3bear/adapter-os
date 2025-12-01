@@ -77,10 +77,10 @@ export default function AdapterUsage() {
               </div>
             </div>
             <div className="space-y-2">
-              <div className="text-sm font-medium text-muted-foreground">Average Gate Value</div>
+              <div className="text-sm font-medium text-muted-foreground">Average Confidence Score</div>
               <div className="text-3xl font-bold">{data.average_gate_value.toFixed(4)}</div>
               <div className="text-xs text-muted-foreground">
-                Average gate value when adapter was selected (0-1 range)
+                Average confidence score when adapter was selected (0-1 range)
               </div>
             </div>
             <div className="space-y-2">

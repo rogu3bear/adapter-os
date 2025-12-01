@@ -3,7 +3,17 @@
 //
 // 【2025-01-20†rectification†api_types】
 
-import { Policy } from './adapter-types';
+import { Policy } from '@/api/adapter-types';
+
+/** Generic paginated response wrapper used by list endpoints */
+export interface PaginatedResponse<T> {
+  schema_version?: string;
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
+}
 
 export interface ModelWithStatsResponse {
   id: string;
@@ -29,8 +39,8 @@ export interface UpdateMonitoringRuleRequest {
   name?: string;
   description?: string;
   enabled?: boolean;
-  conditions?: any;
-  actions?: any;
+  conditions?: Record<string, unknown>;
+  actions?: Record<string, unknown>;
   severity?: 'low' | 'medium' | 'high' | 'critical';
 }
 
@@ -845,13 +855,14 @@ export interface ImportModelResponse {
 }
 
 export interface ModelValidationResponse {
-  schema_version: string; // Required by backend API
   model_id: string;
+  status: string; // "ready" | "needs_setup" | "invalid"
   valid: boolean;
-  issues: Array<{ type: string; message: string }>;
-  download_commands?: string[];
-  can_load?: boolean;
+  can_load: boolean;
   reason?: string;
+  issues: Array<{ type: string; message: string }>;
+  errors?: string[]; // Legacy field for backwards compatibility
+  download_commands?: string[];
 }
 
 export interface ModelDownloadArtifact {
@@ -868,6 +879,19 @@ export interface ModelDownloadResponse {
   expires_at: string;
   size_bytes: number;
   artifacts?: ModelDownloadArtifact[];
+}
+
+/**
+ * Response from starting a model download job
+ */
+export interface DownloadJobResponse {
+  job_id: string;
+  model_id: string;
+  status: 'queued' | 'downloading' | 'completed' | 'failed';
+  progress_percent: number;
+  downloaded_bytes: number;
+  total_bytes: number;
+  error?: string;
 }
 
 export interface AllModelsStatusResponse {
@@ -992,6 +1016,9 @@ export interface PromotionHistoryEntry {
   status: string;
   requested_by: string;
   created_at: string;
+  cpid?: string;
+  promoted_by?: string;
+  promoted_at?: string;
 }
 
 // Telemetry response types

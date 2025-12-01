@@ -18,7 +18,7 @@
 //! use std::path::PathBuf;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let manager = DownloadManager::new(PathBuf::from("/tmp/downloads"), 3)?;
+//! let manager = DownloadManager::new(PathBuf::from("./var/downloads"), 3)?;
 //!
 //! let task = DownloadTask {
 //!     model_id: "llama-2-7b".to_string(),

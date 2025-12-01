@@ -1,7 +1,7 @@
 import React from 'react';
-import { Button } from '../button';
+import { Button } from '@/components/ui/button';
 import { LucideIcon } from 'lucide-react';
-import { cn } from '../utils';
+import { cn } from '@/components/ui/utils';
 
 export interface ToolPageHeaderProps {
   title: string;

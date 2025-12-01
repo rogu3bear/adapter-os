@@ -42,8 +42,10 @@ fn extract_token_from_cookie(headers: &HeaderMap) -> Option<String> {
         })
 }
 
+pub mod audit;
 pub mod caching;
 pub mod compression;
+pub mod context;
 pub mod policy_enforcement;
 pub mod request_id;
 pub mod versioning;

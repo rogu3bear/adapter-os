@@ -1,11 +1,12 @@
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Progress } from '../ui/progress';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { ScrollArea } from '../ui/scroll-area';
-import { usePolling } from '../../hooks/usePolling';
-import { apiClient } from '../../api/client';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { usePolling } from '@/hooks/usePolling';
+import { apiClient } from '@/api/client';
+import { formatBytes as formatBytesUtil, formatRelativeTime } from '@/utils/format';
 
 interface ServiceStatus {
   name: string;
@@ -220,17 +221,12 @@ function getSeverityVariant(severity: string): 'default' | 'secondary' | 'destru
 }
 
 function formatBytes(gb: number): string {
-  return `${gb.toFixed(1)} GB`;
+  // Convert GB to bytes for the shared utility
+  return formatBytesUtil(gb * 1024 * 1024 * 1024);
 }
 
 function formatTimeAgo(isoDate: string): string {
-  const diff = Date.now() - new Date(isoDate).getTime();
-  const mins = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-
-  if (hours > 0) return `${hours}h ago`;
-  if (mins > 0) return `${mins}m ago`;
-  return 'Just now';
+  return formatRelativeTime(isoDate);
 }
 
 export default function DevOpsMonitoringDashboard() {

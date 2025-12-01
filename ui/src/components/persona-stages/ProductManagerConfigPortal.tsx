@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Switch } from '../ui/switch';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Progress } from '../ui/progress';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
   DialogContent,
@@ -17,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '../ui/dialog';
+} from '@/components/ui/dialog';
 import {
   Flag,
   FlaskConical,
@@ -35,6 +35,7 @@ import {
 
 interface FeatureFlag {
   id: string;
+  key: string;
   name: string;
   description: string;
   enabled: boolean;
@@ -68,7 +69,8 @@ interface Release {
 const initialFeatureFlags: FeatureFlag[] = [
   {
     id: 'ff-1',
-    name: 'dark_mode_v2',
+    key: 'dark_mode_v2',
+    name: 'Dark Mode V2',
     description: 'Enhanced dark mode with improved contrast',
     enabled: true,
     rolloutPercentage: 100,
@@ -78,7 +80,8 @@ const initialFeatureFlags: FeatureFlag[] = [
   },
   {
     id: 'ff-2',
-    name: 'new_adapter_ui',
+    key: 'new_adapter_ui',
+    name: 'New Adapter UI',
     description: 'Redesigned adapter management interface',
     enabled: true,
     rolloutPercentage: 50,
@@ -88,7 +91,8 @@ const initialFeatureFlags: FeatureFlag[] = [
   },
   {
     id: 'ff-3',
-    name: 'experimental_routing',
+    key: 'experimental_routing',
+    name: 'Experimental Routing',
     description: 'New K-sparse routing algorithm',
     enabled: false,
     rolloutPercentage: 0,
@@ -98,7 +102,8 @@ const initialFeatureFlags: FeatureFlag[] = [
   },
   {
     id: 'ff-4',
-    name: 'batch_inference',
+    key: 'batch_inference',
+    name: 'Batch Inference',
     description: 'Enable batch inference processing',
     enabled: true,
     rolloutPercentage: 25,
@@ -214,7 +219,8 @@ export default function ProductManagerConfigPortal() {
     if (!newFlagName.trim()) return;
     const newFlag: FeatureFlag = {
       id: `ff-${Date.now()}`,
-      name: newFlagName.toLowerCase().replace(/\s+/g, '_'),
+      key: newFlagName.toLowerCase().replace(/\s+/g, '_'),
+      name: newFlagName,
       description: newFlagDescription,
       enabled: false,
       rolloutPercentage: 0,
@@ -411,13 +417,14 @@ export default function ProductManagerConfigPortal() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon">
+                          <Button variant="ghost" size="icon" aria-label={`Edit ${flag.key}`}>
                             <Pencil className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => deleteFeatureFlag(flag.id)}
+                            aria-label={`Delete ${flag.key}`}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -491,10 +498,10 @@ export default function ProductManagerConfigPortal() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon">
+                          <Button variant="ghost" size="icon" aria-label={`View analytics for ${test.name}`}>
                             <BarChart3 className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon">
+                          <Button variant="ghost" size="icon" aria-label={`Edit ${test.name}`}>
                             <Pencil className="h-4 w-4" />
                           </Button>
                         </div>

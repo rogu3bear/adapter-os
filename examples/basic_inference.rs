@@ -18,7 +18,7 @@
 //! ```
 
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
-use mplora_mlx::{LoRAAdapter, LoRAConfig, MLXBackend, MLXModel};
+use adapteros_lora_mlx_ffi::{LoRAAdapter, LoRAConfig, MLXBackend, MLXModel}; // Fix to correct module
 
 #[cfg(not(feature = "extended-tests"))]
 fn main() {

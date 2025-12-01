@@ -1,13 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { FormModalWithHookForm } from '@/components/shared/Modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,6 +32,7 @@ import {
 } from '@dnd-kit/sortable';
 import { StackSortableAdapterItem } from '@/components/StackSortableAdapterItem';
 import { useStackUpdateNotifications } from '@/hooks/useTrainingNotifications';
+import { StackFormSchema, type StackFormData } from '@/schemas/admin.schema';
 
 interface StackFormModalProps {
   open: boolean;
@@ -45,15 +40,6 @@ interface StackFormModalProps {
   stack?: AdapterStack;
   initialAdapterId?: string;
   onStackCreated?: (stackId: string) => void;
-}
-
-interface FormData {
-  name: string;
-  description?: string;
-  adapters: Array<{
-    adapter_id: string;
-    gate: number;
-  }>;
 }
 
 export function StackFormModal({ open, onOpenChange, stack, initialAdapterId, onStackCreated }: StackFormModalProps) {
@@ -76,13 +62,8 @@ export function StackFormModal({ open, onOpenChange, stack, initialAdapterId, on
     enabled: open,
   });
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-    reset,
-    control,
-  } = useForm<FormData>({
+  const form = useForm<StackFormData>({
+    resolver: zodResolver(StackFormSchema),
     defaultValues: {
       name: stack?.name || '',
       description: stack?.description || '',
@@ -92,6 +73,8 @@ export function StackFormModal({ open, onOpenChange, stack, initialAdapterId, on
       })) || [],
     },
   });
+
+  const { register, formState: { errors }, reset, control } = form;
 
   const { fields, append, remove, move } = useFieldArray({
     control,
@@ -212,61 +195,51 @@ export function StackFormModal({ open, onOpenChange, stack, initialAdapterId, on
     return result;
   }, [currentAdapterIds, calculateMemoryWarnings]);
 
-  const onSubmit = async (data: FormData) => {
-    try {
-      // Calculate memory warnings before submission
-      const adapterIds = data.adapters.map(a => a.adapter_id);
-      const { warnings: memoryWarnings, isCritical } = calculateMemoryWarnings(adapterIds);
-      
-      // Prevent submission if critical warning exists
-      if (isCritical) {
-        setWarnings(memoryWarnings);
-        setHasCriticalWarning(true);
-        return; // Don't submit
-      }
-      
+  const onSubmit = async (data: StackFormData) => {
+    // Calculate memory warnings before submission
+    const adapterIds = data.adapters.map(a => a.adapter_id);
+    const { warnings: memoryWarnings, isCritical } = calculateMemoryWarnings(adapterIds);
+
+    // Prevent submission if critical warning exists
+    if (isCritical) {
       setWarnings(memoryWarnings);
-      setHasCriticalWarning(false);
+      setHasCriticalWarning(true);
+      throw new Error('Memory usage exceeds safe limits'); // Throw to prevent form from closing
+    }
 
-      const createData: CreateAdapterStackRequest = {
-        name: data.name,
-        description: data.description,
-        adapters: data.adapters.map((a) => ({
-          adapter_id: a.adapter_id,
-          gate: a.gate,
-        })) as ActiveAdapter[],
-      };
+    setWarnings(memoryWarnings);
+    setHasCriticalWarning(false);
 
-      if (isEdit && stack) {
-        const updatedStack = await updateStack.mutateAsync({
-          stackId: stack.id,
-          data: {
-            name: data.name,
-            description: data.description,
-            adapters: data.adapters.map((a) => ({
-              adapter_id: a.adapter_id,
-              gate: a.gate,
-            })),
-          },
-        });
-        notifyStackUpdate(stack.id, data.name);
-        onOpenChange(false);
-        reset();
-      } else {
-        const newStack = await createStack.mutateAsync(createData);
-        // Show memory warnings if any
-        if (memoryWarnings.length > 0) {
-          setWarnings(memoryWarnings);
-          // Don't close modal if there are warnings - let user see them
-        } else {
-          notifyStackUpdate(newStack.stack.id, data.name);
-          onStackCreated?.(newStack.stack.id);
-          onOpenChange(false);
-          reset();
-        }
+    const createData: CreateAdapterStackRequest = {
+      name: data.name,
+      description: data.description,
+      adapters: data.adapters.map((a) => ({
+        adapter_id: a.adapter_id,
+        gate: a.gate,
+      })) as ActiveAdapter[],
+    };
+
+    if (isEdit && stack) {
+      await updateStack.mutateAsync({
+        stackId: stack.id,
+        data: {
+          name: data.name,
+          description: data.description,
+          adapters: data.adapters.map((a) => ({
+            adapter_id: a.adapter_id,
+            gate: a.gate,
+          })),
+        },
+      });
+      notifyStackUpdate(stack.id, data.name);
+    } else {
+      const newStack = await createStack.mutateAsync(createData);
+      // Show memory warnings if any (but don't block closing)
+      if (memoryWarnings.length > 0) {
+        setWarnings(memoryWarnings);
       }
-    } catch (error) {
-      // Error handling is done in the hook
+      notifyStackUpdate(newStack.stack.id, data.name);
+      onStackCreated?.(newStack.stack.id);
     }
   };
 
@@ -275,19 +248,22 @@ export function StackFormModal({ open, onOpenChange, stack, initialAdapterId, on
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogHeader>
-            <DialogTitle>{isEdit ? 'Edit Adapter Stack' : 'Create Adapter Stack'}</DialogTitle>
-            <DialogDescription>
-              {isEdit
-                ? 'Update adapter stack configuration'
-                : 'Create a new reusable adapter combination'}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-4 py-4">
+    <FormModalWithHookForm
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEdit ? 'Edit Adapter Stack' : 'Create Adapter Stack'}
+      description={
+        isEdit
+          ? 'Update adapter stack configuration'
+          : 'Create a new reusable adapter combination'
+      }
+      form={form}
+      onSubmit={onSubmit}
+      submitText={isEdit ? 'Update' : 'Create'}
+      size="lg"
+      className="sm:max-w-[600px]"
+    >
+      <div className="grid gap-4">
             {/* Show memory warnings prominently (memoized) */}
             {currentWarnings.warnings.length > 0 && (
               <Alert variant={currentWarnings.isCritical ? "destructive" : "default"} className={currentWarnings.isCritical ? "border-2" : ""}>
@@ -335,13 +311,7 @@ export function StackFormModal({ open, onOpenChange, stack, initialAdapterId, on
               <Input
                 id="name"
                 placeholder="my-stack"
-                {...register('name', {
-                  required: 'Name is required',
-                  pattern: {
-                    value: /^[a-z0-9-]+$/,
-                    message: 'Name must be lowercase alphanumeric with hyphens',
-                  },
-                })}
+                {...register('name')}
               />
               {errors.name && (
                 <p className="text-sm text-destructive">{errors.name.message}</p>
@@ -412,28 +382,10 @@ export function StackFormModal({ open, onOpenChange, stack, initialAdapterId, on
               )}
 
               <p className="text-xs text-muted-foreground">
-                Gate value is Q15 quantized (0-32767). Higher values give the adapter more weight.
+                Confidence score is Q15 quantized (0-32767). Higher values give the adapter more weight.
               </p>
             </div>
           </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                onOpenChange(false);
-                reset();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isSubmitting || fields.length === 0}>
-              {isSubmitting ? 'Saving...' : isEdit ? 'Update' : 'Create'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </FormModalWithHookForm>
   );
 }

@@ -12,7 +12,6 @@ use adapteros_policy::{
     compute_blake3_hash, PolicyIntegrityMetadata, PolicyIntegrityVerifier, RecoveryAction,
 };
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 use tempfile::TempDir;
 

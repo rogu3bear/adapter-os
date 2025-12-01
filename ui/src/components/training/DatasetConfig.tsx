@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Textarea } from '../ui/textarea';
-import { Checkbox } from '../ui/checkbox';
-import { Badge } from '../ui/badge';
-import { Slider } from '../ui/slider';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { Slider } from '@/components/ui/slider';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../ui/select';
-import { Separator } from '../ui/separator';
+} from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
 import { Settings, FileText, Filter, Sparkles } from 'lucide-react';
 
 interface PreprocessingOptions {
@@ -148,7 +148,7 @@ export const DatasetConfig: React.FC<DatasetConfigProps> = ({
             <Label htmlFor="dataset-format">Output Format</Label>
             <Select
               value={config.format}
-              onValueChange={(value: any) => updateConfig({ format: value })}
+              onValueChange={(value) => updateConfig({ format: value as 'patches' | 'jsonl' | 'txt' | 'custom' })}
               disabled={disabled}
             >
               <SelectTrigger id="dataset-format">

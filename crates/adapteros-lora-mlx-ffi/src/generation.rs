@@ -1003,8 +1003,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut generator = MLXGenerator::new(base_seed, config);
-        let logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let generator = MLXGenerator::new(base_seed, config);
 
         // This should:
         // 1. Apply temperature (no-op for 0)

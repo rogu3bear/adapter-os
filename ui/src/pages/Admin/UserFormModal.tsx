@@ -1,14 +1,7 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { FormModalWithHookForm } from '@/components/shared/Modal';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -20,19 +13,12 @@ import {
 } from '@/components/ui/select';
 import { useCreateUser, useUpdateUser, useTenants } from '@/hooks/useAdmin';
 import type { User, UserRole, RegisterUserRequest, UpdateUserRequest } from '@/api/types';
+import { UserFormSchema, type UserFormData } from '@/schemas/admin.schema';
 
 interface UserFormModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   user?: User;
-}
-
-interface FormData {
-  email: string;
-  password?: string;
-  display_name?: string;
-  role: UserRole;
-  tenant_id?: string;
 }
 
 const ROLE_OPTIONS: { value: UserRole; label: string; description: string }[] = [
@@ -50,14 +36,8 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
   const updateUser = useUpdateUser();
   const { data: tenants } = useTenants();
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-    reset,
-    setValue,
-    watch,
-  } = useForm<FormData>({
+  const form = useForm<UserFormData>({
+    resolver: zodResolver(UserFormSchema),
     defaultValues: {
       email: user?.email || '',
       display_name: user?.display_name || '',
@@ -66,6 +46,7 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
     },
   });
 
+  const { register, formState: { errors }, reset, setValue, watch } = form;
   const selectedRole = watch('role');
   const selectedTenantId = watch('tenant_id');
 
@@ -88,55 +69,51 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
     }
   }, [user, reset]);
 
-  const onSubmit = async (data: FormData) => {
-    try {
-      if (isEdit && user) {
-        const userId = user.user_id || user.id;
-        if (!userId) {
-          throw new Error('User ID is required for update');
-        }
-        const updateData: UpdateUserRequest = {
-          display_name: data.display_name,
-          role: data.role,
-        };
-        await updateUser.mutateAsync({
-          userId,
-          data: updateData,
-        });
-      } else {
-        if (!data.password) {
-          throw new Error('Password is required for new users');
-        }
-        const createData: RegisterUserRequest = {
-          email: data.email,
-          password: data.password,
-          display_name: data.display_name,
-          role: data.role,
-          tenant_id: data.tenant_id || undefined,
-        };
-        await createUser.mutateAsync(createData);
+  const onSubmit = async (data: UserFormData) => {
+    if (isEdit && user) {
+      const userId = user.user_id || user.id;
+      if (!userId) {
+        throw new Error('User ID is required for update');
       }
-      onOpenChange(false);
-      reset();
-    } catch (_error) {
-      // Error handling is done in the hook
+      const updateData: UpdateUserRequest = {
+        display_name: data.display_name,
+        role: data.role,
+      };
+      await updateUser.mutateAsync({
+        userId,
+        data: updateData,
+      });
+    } else {
+      if (!data.password) {
+        throw new Error('Password is required for new users');
+      }
+      const createData: RegisterUserRequest = {
+        email: data.email,
+        password: data.password,
+        display_name: data.display_name,
+        role: data.role,
+        tenant_id: data.tenant_id || undefined,
+      };
+      await createUser.mutateAsync(createData);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogHeader>
-            <DialogTitle>{isEdit ? 'Edit User' : 'Create User'}</DialogTitle>
-            <DialogDescription>
-              {isEdit
-                ? 'Update user details and role assignment'
-                : 'Create a new user account with role assignment'}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-4 py-4">
+    <FormModalWithHookForm
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEdit ? 'Edit User' : 'Create User'}
+      description={
+        isEdit
+          ? 'Update user details and role assignment'
+          : 'Create a new user account with role assignment'
+      }
+      form={form}
+      onSubmit={onSubmit}
+      submitText={isEdit ? 'Update' : 'Create'}
+      size="lg"
+    >
+      <div className="grid gap-4">
             {/* Email */}
             <div className="grid gap-2">
               <Label htmlFor="email">
@@ -147,13 +124,7 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
                 type="email"
                 placeholder="user@example.com"
                 disabled={isEdit}
-                {...register('email', {
-                  required: 'Email is required',
-                  pattern: {
-                    value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                    message: 'Invalid email address',
-                  },
-                })}
+                {...register('email')}
               />
               {errors.email && (
                 <p className="text-sm text-destructive">{errors.email.message}</p>
@@ -170,13 +141,7 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
                   id="password"
                   type="password"
                   placeholder="Enter a strong password"
-                  {...register('password', {
-                    required: !isEdit ? 'Password is required' : false,
-                    minLength: {
-                      value: 8,
-                      message: 'Password must be at least 8 characters',
-                    },
-                  })}
+                  {...register('password')}
                 />
                 {errors.password && (
                   <p className="text-sm text-destructive">{errors.password.message}</p>
@@ -235,14 +200,14 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
               <div className="grid gap-2">
                 <Label htmlFor="tenant_id">Organization</Label>
                 <Select
-                  value={selectedTenantId || ''}
-                  onValueChange={(value) => setValue('tenant_id', value || undefined)}
+                  value={selectedTenantId || '__none__'}
+                  onValueChange={(value) => setValue('tenant_id', value === '__none__' ? undefined : value)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select an organization (optional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">
+                    <SelectItem value="__none__">
                       <span className="text-muted-foreground">Global (no organization)</span>
                     </SelectItem>
                     {tenants.map((tenant) => (
@@ -258,31 +223,6 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
               </div>
             )}
           </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                onOpenChange(false);
-                reset();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={isSubmitting || createUser.isPending || updateUser.isPending}
-            >
-              {isSubmitting || createUser.isPending || updateUser.isPending
-                ? 'Saving...'
-                : isEdit
-                ? 'Update'
-                : 'Create'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </FormModalWithHookForm>
   );
 }

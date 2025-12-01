@@ -7,9 +7,9 @@
 //! - Merge activity_events with telemetry events
 
 import { useState, useEffect, useCallback } from 'react';
-import { logger, toError } from '../utils/logger';
-import apiClient from '../api/client';
-import { ActivityEvent, CreateActivityEventRequest } from '../api/types';
+import { logger, toError } from '@/utils/logger';
+import apiClient from '@/api/client';
+import { ActivityEvent, CreateActivityEventRequest } from '@/api/types';
 
 export interface UseActivityEventsOptions {
   enabled?: boolean;

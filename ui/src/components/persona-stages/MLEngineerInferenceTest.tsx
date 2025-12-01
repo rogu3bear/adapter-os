@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Textarea } from '../ui/textarea';
-import { Label } from '../ui/label';
-import { Switch } from '../ui/switch';
-import { Alert, AlertDescription } from '../ui/alert';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../ui/select';
+} from '@/components/ui/select';
 import {
   LineChart,
   Line,
@@ -39,9 +39,9 @@ import {
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '../../api/client';
-import { Adapter, InferRequest, InferResponse, BatchInferRequest, BatchInferResponse } from '../../api/types';
-import { logger } from '../../utils/logger';
+import apiClient from '@/api/client';
+import { Adapter, InferRequest, InferResponse, BatchInferRequest, BatchInferResponse } from '@/api/types';
+import { logger } from '@/utils/logger';
 
 interface LatencyBucket {
   range: string;
@@ -258,7 +258,7 @@ export default function MLEngineerInferenceTest() {
     } finally {
       setIsRunning(false);
     }
-  }, [prompts, model, maxTokens, temperature, seed, selectedAdapter, verifyDeterminism, determinismRuns, calculateLatencyHistogram, calculateTokenDistribution]);
+  }, [prompts, model, maxTokens, temperature, seed, selectedAdapter, verifyDeterminism, determinismRuns, calculateLatencyHistogram, calculateTokenDistribution, results]);
 
   // Update metrics when results change
   useEffect(() => {
@@ -458,6 +458,7 @@ export default function MLEngineerInferenceTest() {
                   size="icon"
                   onClick={() => removePrompt(index)}
                   className="shrink-0"
+                  aria-label="Remove prompt"
                 >
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>

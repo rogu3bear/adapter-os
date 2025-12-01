@@ -30,9 +30,9 @@ import {
   AdapterState,
   EvictionPriority,
   MemoryUsageByCategory
-} from '../api/types';
-import apiClient from '../api/client';
-import { logger } from '../utils/logger';
+} from '@/api/types';
+import apiClient from '@/api/client';
+import { logger } from '@/utils/logger';
 
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 

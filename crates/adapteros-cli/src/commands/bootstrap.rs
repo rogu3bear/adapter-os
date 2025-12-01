@@ -43,7 +43,7 @@ pub async fn run(
     // Prepare checkpoint file argument
     let checkpoint_arg = checkpoint_file
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "/tmp/adapteros_install.state".to_string());
+        .unwrap_or_else(|| "./var/adapteros_install.state".to_string());
 
     // Build command arguments
     let air_gapped_str = if air_gapped { "true" } else { "false" };

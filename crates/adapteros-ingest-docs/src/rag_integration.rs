@@ -223,11 +223,9 @@ pub async fn prepare_documents_for_rag(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embeddings::SimpleEmbeddingModel;
     use crate::types::DocumentSource;
     use adapteros_core::B3Hash;
     use std::path::PathBuf;
-    use tokenizers::Tokenizer;
 
     struct MockEmbeddingModel {
         dimension: usize,

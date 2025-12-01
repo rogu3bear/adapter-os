@@ -21,7 +21,7 @@ import {
   Layers,
   Zap,
 } from 'lucide-react';
-import apiClient from '../api/client';
+import apiClient from '@/api/client';
 
 import {
   Repository,
@@ -29,10 +29,10 @@ import {
   TrainingConfig,
   AdapterCategory,
   AdapterScope,
-} from '../api/types';
-import { logger, toError } from '../utils/logger';
+} from '@/api/types';
+import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
-import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
+import { ACTIVITY_EVENT_TYPES } from '@/api/activityEventTypes';
 
 interface CodeIntelligenceTrainingProps {
   tenantId: string;

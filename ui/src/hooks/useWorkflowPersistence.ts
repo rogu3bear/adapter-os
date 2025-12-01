@@ -1,8 +1,8 @@
 // useWorkflowPersistence hook - Persist and resume workflow state
 
 import { useState, useEffect, useCallback } from 'react';
-import { SavedWorkflowState, WorkflowExecution } from '../components/workflows/types';
-import { logger } from '../utils/logger';
+import { SavedWorkflowState, WorkflowExecution } from '@/components/workflows/types';
+import { logger } from '@/utils/logger';
 
 interface UseWorkflowPersistenceOptions {
   storageKey: string;
@@ -14,12 +14,6 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
   const { storageKey, autoSave = true, saveInterval = 5000 } = options;
   const [savedState, setSavedState] = useState<SavedWorkflowState | null>(null);
   const [executions, setExecutions] = useState<WorkflowExecution[]>([]);
-
-  // Load saved state on mount
-  useEffect(() => {
-    loadSavedState();
-    loadExecutions();
-  }, [storageKey]);
 
   const loadSavedState = useCallback(() => {
     try {
@@ -34,6 +28,26 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
     }
     return null;
   }, [storageKey]);
+
+  const loadExecutions = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(`workflow-executions`);
+      if (saved) {
+        const execs = JSON.parse(saved) as WorkflowExecution[];
+        setExecutions(execs);
+        return execs;
+      }
+    } catch (error) {
+      logger.error('Failed to load workflow executions', { error, component: 'useWorkflowPersistence' });
+    }
+    return [];
+  }, []);
+
+  // Load saved state on mount
+  useEffect(() => {
+    loadSavedState();
+    loadExecutions();
+  }, [loadSavedState, loadExecutions]);
 
   const saveState = useCallback(
     (state: SavedWorkflowState) => {
@@ -55,20 +69,6 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
       logger.error('Failed to clear workflow state', { error, component: 'useWorkflowPersistence' });
     }
   }, [storageKey]);
-
-  const loadExecutions = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(`workflow-executions`);
-      if (saved) {
-        const execs = JSON.parse(saved) as WorkflowExecution[];
-        setExecutions(execs);
-        return execs;
-      }
-    } catch (error) {
-      logger.error('Failed to load workflow executions', { error, component: 'useWorkflowPersistence' });
-    }
-    return [];
-  }, []);
 
   const saveExecution = useCallback((execution: WorkflowExecution) => {
     try {

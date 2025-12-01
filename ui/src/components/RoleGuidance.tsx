@@ -13,8 +13,8 @@ import {
   User,
   Info
 } from 'lucide-react';
-import { UserRole } from '../api/types';
-import { getRoleGuidance } from '../data/role-guidance';
+import { UserRole } from '@/api/types';
+import { getRoleGuidance } from '@/data/role-guidance';
 
 interface RoleGuidanceProps {
   userRole: UserRole;

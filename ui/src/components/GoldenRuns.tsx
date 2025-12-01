@@ -1,15 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Alert, AlertDescription } from './ui/alert';
-import apiClient from '../api/client';
-import { GoldenRunSummary, GoldenCompareResult } from '../api/types';
-import { logger, toError } from '../utils/logger';
+import apiClient from '@/api/client';
+import { GoldenRunSummary, GoldenCompareResult } from '@/api/types';
+import { logger, toError } from '@/utils/logger';
 import { errorRecoveryTemplates } from './ui/error-recovery';
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { useRBAC } from '@/hooks/useRBAC';
 
 export function GoldenRuns() {
@@ -134,7 +133,7 @@ export function GoldenRuns() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             Golden Baselines
-            <HelpTooltip helpId="golden-run" />
+            <GlossaryTooltip termId="golden-run" />
           </h1>
           <p className="text-sm text-muted-foreground">Browse baselines and epsilon summaries</p>
         </div>
@@ -181,7 +180,7 @@ export function GoldenRuns() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Baselines
-              <ConceptTooltip concept="goldenRun" />
+              <GlossaryTooltip termId="goldenRun" variant="icon" />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -191,7 +190,7 @@ export function GoldenRuns() {
               <div className="space-y-2">
                 <div className="flex items-center gap-1 mb-1">
                   <span className="text-xs font-medium">Select Baseline</span>
-                  <HelpTooltip helpId="golden-baseline" />
+                  <GlossaryTooltip termId="golden-baseline" />
                 </div>
                 <select
                   className="w-full p-2 border rounded"
@@ -206,7 +205,7 @@ export function GoldenRuns() {
                 <div className="border rounded p-2 space-y-1">
                   <div className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-1">
                     Compare Runs
-                    <HelpTooltip helpId="golden-comparison" />
+                    <GlossaryTooltip termId="golden-comparison" />
                   </div>
                   {names.map((runName) => (
                     <label key={runName} className="flex items-center gap-2 text-sm">
@@ -302,7 +301,7 @@ export function GoldenRuns() {
       </div>
       <Button onClick={handleCompare} disabled={selectedRuns.length !== 2 || !canCompareGolden}>
         Compare Selected
-        <HelpTooltip helpId="golden-comparison" />
+        <GlossaryTooltip termId="golden-comparison" />
       </Button>
       {!canCompareGolden && (
         <Alert className="mt-2">

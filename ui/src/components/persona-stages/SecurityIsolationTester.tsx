@@ -1,14 +1,14 @@
 import React, { useState, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../ui/select';
+} from '@/components/ui/select';
 import {
   Shield,
   Play,
@@ -22,10 +22,10 @@ import {
   RefreshCw,
   AlertTriangle,
 } from 'lucide-react';
-import apiClient from '../../api/client';
-import { IsolationTestResult, IsolationTestScenario } from '../../api/types';
+import apiClient from '@/api/client';
+import { IsolationTestResult, IsolationTestScenario } from '@/api/types';
 import { toast } from 'sonner';
-import { logger } from '../../utils/logger';
+import { logger } from '@/utils/logger';
 
 interface SecurityIsolationTesterProps {
   tenantId?: string;

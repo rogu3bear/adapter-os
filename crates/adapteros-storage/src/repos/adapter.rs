@@ -599,8 +599,6 @@ impl AdapterRepository {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     // Tests would go here - testing CRUD operations, lineage traversal,
     // pagination, index management, etc.
 }

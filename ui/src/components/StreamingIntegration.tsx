@@ -18,9 +18,16 @@ import {
   useAdaptersStream,
   useDiscoveryStream,
   useAllStreamsStatus,
-} from '../hooks/useStreamingEndpoints';
-import { streamingService } from '../services/StreamingService';
-import { logger } from '../utils/logger';
+} from '@/hooks/useStreamingEndpoints';
+import { streamingService } from '@/services/StreamingService';
+import { logger } from '@/utils/logger';
+import type {
+  TrainingProgressEvent,
+  SystemMetricsEvent,
+  AdapterStreamEvent,
+  AdapterStateTransitionEvent,
+} from '@/api/streaming-types';
+import { hasProperty } from '@/types/utilities';
 
 // ============================================================================
 // Types
@@ -47,7 +54,7 @@ function TrainingProgressDisplay() {
       logger.debug('Training event', {
         component: 'TrainingProgressDisplay',
         job_id: event.job_id,
-        progress: (event as any).progress_pct,
+        progress: hasProperty(event, 'progress_pct') ? event.progress_pct : undefined,
       });
     },
   });
@@ -61,7 +68,7 @@ function TrainingProgressDisplay() {
     );
   }
 
-  const trainingData = data as any;
+  const trainingData = data as TrainingProgressEvent | null;
   return (
     <div className="training-stream">
       <h3>Training Progress</h3>
@@ -96,8 +103,12 @@ function MetricsDisplay() {
     onMessage: (event) => {
       logger.debug('Metrics event', {
         component: 'MetricsDisplay',
-        cpu: (event as any).cpu?.usage_percent,
-        memory: (event as any).memory?.usage_percent,
+        cpu: hasProperty(event, 'cpu') && hasProperty(event.cpu, 'usage_percent')
+          ? event.cpu.usage_percent
+          : undefined,
+        memory: hasProperty(event, 'memory') && hasProperty(event.memory, 'usage_percent')
+          ? event.memory.usage_percent
+          : undefined,
       });
     },
   });
@@ -111,7 +122,7 @@ function MetricsDisplay() {
     );
   }
 
-  const metricsData = data as any;
+  const metricsData = data as SystemMetricsEvent | null;
   return (
     <div className="metrics-stream">
       <h3>System Metrics</h3>
@@ -148,14 +159,15 @@ function MetricsDisplay() {
  * Displays adapter state transitions in real-time
  */
 function AdapterStateDisplay() {
-  const [recentEvents, setRecentEvents] = useState<Array<{ id: string; event: any }>>(
+  const [recentEvents, setRecentEvents] = useState<Array<{ id: string; event: AdapterStreamEvent }>>(
     []
   );
 
   const { data, error, connected } = useAdaptersStream({
     enabled: true,
     onMessage: (event) => {
-      const id = `${(event as any).adapter_id}-${Date.now()}`;
+      const adapterId = hasProperty(event, 'adapter_id') ? String(event.adapter_id) : 'unknown';
+      const id = `${adapterId}-${Date.now()}`;
       setRecentEvents((prev) => [{ id, event }, ...prev.slice(0, 9)]);
     },
   });
@@ -175,17 +187,18 @@ function AdapterStateDisplay() {
       {recentEvents.length > 0 ? (
         <div className="event-list">
           {recentEvents.map((item) => {
-            const evt = item.event as any;
+            const evt = item.event;
             if ('previous_state' in evt) {
+              const stateEvent = evt as AdapterStateTransitionEvent;
               return (
                 <div key={item.id} className="event-item state-change">
                   <p>
-                    <strong>{evt.adapter_id}</strong>
+                    <strong>{stateEvent.adapter_id}</strong>
                   </p>
                   <p>
-                    {evt.previous_state} → {evt.new_state}
+                    {stateEvent.previous_state} → {stateEvent.new_state || stateEvent.current_state}
                   </p>
-                  <small>{evt.timestamp}</small>
+                  <small>{new Date(stateEvent.timestamp).toLocaleString()}</small>
                 </div>
               );
             }
@@ -194,7 +207,13 @@ function AdapterStateDisplay() {
                 <p>
                   <strong>{evt.adapter_id}</strong>
                 </p>
-                <small>{evt.timestamp}</small>
+                <small>
+                  {hasProperty(evt, 'timestamp')
+                    ? typeof evt.timestamp === 'number'
+                      ? new Date(evt.timestamp).toLocaleString()
+                      : evt.timestamp
+                    : 'N/A'}
+                </small>
               </div>
             );
           })}

@@ -32,7 +32,7 @@ import {
   QueryKey,
   InfiniteData,
 } from '@tanstack/react-query';
-import { logger } from '../utils/logger';
+import { logger } from '@/utils/logger';
 
 export interface PageParam {
   /** Cursor for cursor-based pagination */

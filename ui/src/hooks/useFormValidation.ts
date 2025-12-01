@@ -6,7 +6,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { ZodSchema, ZodError } from 'zod';
-import { formatValidationError, ValidationResult, validateField } from '../schemas/utils';
+import { formatValidationError, ValidationResult, validateField } from '@/schemas/utils';
 
 export interface UseFormValidationOptions {
   // Enable real-time validation on every change
@@ -23,10 +23,10 @@ export interface UseFormValidationResult {
   hasErrors: boolean;
 
   // Validate entire form
-  validate: (data: any) => Promise<ValidationResult>;
+  validate: (data: unknown) => Promise<ValidationResult>;
 
   // Validate single field
-  validateField: (fieldName: string, value: any) => void;
+  validateField: (fieldName: string, value: unknown) => void;
 
   // Get error for specific field
   getFieldError: (fieldName: string) => string | undefined;
@@ -60,7 +60,7 @@ export function useFormValidation(
   /**
    * Validate entire form data
    */
-  const validate = useCallback(async (data: any): Promise<ValidationResult> => {
+  const validate = useCallback(async (data: unknown): Promise<ValidationResult> => {
     try {
       await schema.parseAsync(data);
       const result: ValidationResult = {
@@ -92,7 +92,7 @@ export function useFormValidation(
   /**
    * Validate single field with real-time support
    */
-  const validateFieldValue = useCallback((fieldName: string, value: any) => {
+  const validateFieldValue = useCallback((fieldName: string, value: unknown) => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }

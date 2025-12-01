@@ -7,12 +7,14 @@
  */
 
 import { useMutation, useQueryClient, UseMutationOptions } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
+import { apiClient } from '@/api/client';
 import { createResourceHooks } from './factories/createApiHooks';
 import type {
   Adapter,
   RegisterAdapterRequest,
-} from '../api/adapter-types';
+  AdapterStateResponse,
+  LifecycleTransitionResponse,
+} from '@/api/adapter-types';
 
 // Create base resource hooks using the factory
 const baseHooks = createResourceHooks<
@@ -124,11 +126,11 @@ export function useEvictAdapter(
  * Hook for promoting adapter state (lifecycle operation)
  */
 export function usePromoteAdapter(
-  options?: UseMutationOptions<any, Error, string, unknown>
+  options?: UseMutationOptions<AdapterStateResponse, Error, string, unknown>
 ) {
   const queryClient = useQueryClient();
   const { onSuccess, ...restOptions } = options ?? {};
-  return useMutation<any, Error, string>({
+  return useMutation<AdapterStateResponse, Error, string>({
     mutationFn: (adapterId: string) => apiClient.promoteAdapterState(adapterId),
     ...restOptions,
     onSuccess: async (data, adapterId, ...rest) => {
@@ -163,11 +165,11 @@ export function useImportAdapter(
  * Hook for promoting adapter lifecycle state
  */
 export function usePromoteAdapterLifecycle(
-  options?: UseMutationOptions<any, Error, { adapterId: string; reason: string }, unknown>
+  options?: UseMutationOptions<LifecycleTransitionResponse, Error, { adapterId: string; reason: string }, unknown>
 ) {
   const queryClient = useQueryClient();
   const { onSuccess, ...restOptions } = options ?? {};
-  return useMutation<any, Error, { adapterId: string; reason: string }>({
+  return useMutation<LifecycleTransitionResponse, Error, { adapterId: string; reason: string }>({
     mutationFn: ({ adapterId, reason }: { adapterId: string; reason: string }) =>
       apiClient.promoteAdapterLifecycle(adapterId, reason),
     ...restOptions,
@@ -183,11 +185,11 @@ export function usePromoteAdapterLifecycle(
  * Hook for demoting adapter lifecycle state
  */
 export function useDemoteAdapterLifecycle(
-  options?: UseMutationOptions<any, Error, { adapterId: string; reason: string }, unknown>
+  options?: UseMutationOptions<LifecycleTransitionResponse, Error, { adapterId: string; reason: string }, unknown>
 ) {
   const queryClient = useQueryClient();
   const { onSuccess, ...restOptions } = options ?? {};
-  return useMutation<any, Error, { adapterId: string; reason: string }>({
+  return useMutation<LifecycleTransitionResponse, Error, { adapterId: string; reason: string }>({
     mutationFn: ({ adapterId, reason }: { adapterId: string; reason: string }) =>
       apiClient.demoteAdapterLifecycle(adapterId, reason),
     ...restOptions,

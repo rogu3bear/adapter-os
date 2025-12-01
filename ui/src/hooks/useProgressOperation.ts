@@ -9,8 +9,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { usePolling } from './usePolling';
-import apiClient from '../api/client';
-import { logger } from '../utils/logger';
+import apiClient from '@/api/client';
+import { logger } from '@/utils/logger';
 
 export interface ProgressState {
   progress: number; // 0-100
@@ -163,7 +163,7 @@ function saveOperations(operations: Record<string, ProgressOperation>) {
 export function useProgressOperation(operationId?: string): UseProgressOperationReturn {
   const [operations, setOperations] = useState<Record<string, ProgressOperation>>(loadOperations);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(operationId || null);
-  const pollingRef = useRef<any>(null);
+  const pollingRef = useRef<(() => void) | null>(null);
 
   const activeOperation = activeOperationId ? operations[activeOperationId] : null;
 
@@ -173,7 +173,7 @@ export function useProgressOperation(operationId?: string): UseProgressOperation
       if (!activeOperation) return null;
 
       try {
-        let progressData: any = null;
+        let progressData: Partial<ProgressState> | null = null;
 
         switch (activeOperation.type) {
           case 'adapter_load':

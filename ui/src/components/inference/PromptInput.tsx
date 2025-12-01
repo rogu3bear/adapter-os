@@ -1,8 +1,8 @@
 import React from 'react';
-import { Textarea } from '../ui/textarea';
-import { Label } from '../ui/label';
-import { Alert, AlertDescription } from '../ui/alert';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { AlertTriangle, HelpCircle } from 'lucide-react';
 
 export const MAX_PROMPT_LENGTH = 50000;
@@ -148,11 +148,11 @@ export function PromptInput({
       <div className="flex items-center justify-between">
         <Label htmlFor="prompt" className="flex items-center gap-1">
           Prompt
-          <HelpTooltip helpId="inference-prompt">
+          <GlossaryTooltip termId="inference-prompt">
             <span className="cursor-help text-muted-foreground hover:text-foreground">
               <HelpCircle className="h-3 w-3" />
             </span>
-          </HelpTooltip>
+          </GlossaryTooltip>
           <span className="sr-only">
             Use Ctrl+G or Cmd+G to generate, Ctrl+S or Cmd+S to toggle streaming mode, Ctrl+B or Cmd+B to toggle batch mode, Escape to cancel
           </span>

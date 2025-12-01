@@ -14,7 +14,6 @@ import { getFriendlyTerm, getTermDescription, LIFECYCLE_STATE_LABELS } from '@/c
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
@@ -53,25 +52,23 @@ function ConfidenceIndicator({ value }: { value: number }) {
   };
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="space-y-1">
-            <div className="flex justify-between text-sm">
-              <span>{getFriendlyTerm('entropy')}</span>
-              <span className="font-medium">{value}%</span>
-            </div>
-            <Progress value={value} className={getColor(value)} />
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="space-y-1 cursor-default">
+          <div className="flex justify-between text-sm">
+            <span>{getFriendlyTerm('entropy')}</span>
+            <span className="font-medium">{value}%</span>
           </div>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{getLabel(value)}</p>
-          <p className="text-xs text-muted-foreground">
-            {getTermDescription('entropy')}
-          </p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+          <Progress value={value} className={getColor(value)} />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{getLabel(value)}</p>
+        <p className="text-xs text-muted-foreground">
+          {getTermDescription('entropy')}
+        </p>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -106,18 +103,16 @@ export default function RouterSummaryView({
                   </Badge>
                 )}
               </div>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Badge variant="secondary">
-                      {Math.round(adapter.score * 100)}%
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Match score for this adapter</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="secondary" className="cursor-default">
+                    {Math.round(adapter.score * 100)}%
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Match score for this adapter</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
           ))}
         </div>

@@ -20,10 +20,10 @@ import {
   BarChart3,
   Filter
 } from 'lucide-react';
-import apiClient from '../api/client';
-import { Policy, TelemetryBundle, PromotionGate, ComplianceControl, PolicyViolationRecord } from '../api/types';
+import apiClient from '@/api/client';
+import { Policy, TelemetryBundle, PromotionGate, ComplianceControl, PolicyViolationRecord } from '@/api/types';
 import { toast } from 'sonner';
-import { logger } from '../utils/logger';
+import { logger } from '@/utils/logger';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { ExportDialog, ExportOptions } from './ui/export-dialog';
 

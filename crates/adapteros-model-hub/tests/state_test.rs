@@ -1,6 +1,6 @@
 //! Integration tests for state persistence
 
-use adapteros_model_hub::state::{DownloadState, FileDownloadState, FileStatus, StateManager};
+use adapteros_model_hub::state::{DownloadState, FileDownloadState, StateManager};
 use std::time::Duration;
 use tempfile::TempDir;
 

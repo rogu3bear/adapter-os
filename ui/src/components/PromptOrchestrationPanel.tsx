@@ -10,12 +10,12 @@ import { Separator } from './ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { toast } from 'sonner';
-import { logger, toError } from '../utils/logger';
-import apiClient from '../api/client';
+import { logger, toError } from '@/utils/logger';
+import apiClient from '@/api/client';
 import {
   OrchestrationMetrics,
   PromptAnalysisResult
-} from '../api/types';
+} from '@/api/types';
 
 // Local interface for prompt orchestration config
 // [source: ui/src/components/PromptOrchestrationPanel.tsx L15-L30]
@@ -744,7 +744,7 @@ export default function PromptOrchestrationPanel() {
                           checked={config.fallbackStrategy === strategy.value}
                           onChange={(e) => setConfig(prev => ({
                             ...prev,
-                            fallbackStrategy: e.target.value as any
+                            fallbackStrategy: e.target.value as PromptOrchestrationConfig['fallbackStrategy']
                           }))}
                           className="text-blue-600"
                         />

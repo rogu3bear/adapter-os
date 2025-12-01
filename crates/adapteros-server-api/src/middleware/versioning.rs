@@ -10,7 +10,7 @@
 
 use axum::{
     extract::Request,
-    http::{HeaderValue, StatusCode},
+    http::{header, HeaderValue, StatusCode},
     middleware::Next,
     response::Response,
 };
@@ -163,7 +163,7 @@ pub async fn versioning_middleware(req: Request, next: Next) -> Response {
     // Extract version from Accept header (secondary method)
     let accept_version = req
         .headers()
-        .get("accept")
+        .get(header::ACCEPT)
         .and_then(|h| h.to_str().ok())
         .and_then(ApiVersion::from_accept_header);
 
@@ -205,10 +205,11 @@ pub async fn versioning_middleware(req: Request, next: Next) -> Response {
     }
 
     // Add Content-Type with version if not already set
-    if !headers.contains_key("content-type") && status == StatusCode::OK {
+    // SSE responses already have text/event-stream set, so this preserves them
+    if headers.get(header::CONTENT_TYPE).is_none() && status == StatusCode::OK {
         let content_type = format!("application/vnd.aos.{}+json", version.as_str());
         if let Ok(content_type_header) = HeaderValue::from_str(&content_type) {
-            headers.insert("Content-Type", content_type_header);
+            headers.insert(header::CONTENT_TYPE, content_type_header);
         }
     }
 

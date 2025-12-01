@@ -28,14 +28,14 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
-import apiClient from '../api/client';
-import { Repository, Commit, User, RepositoryReportResponse } from '../api/types';
+import apiClient from '@/api/client';
+import { Repository, Commit, User, RepositoryReportResponse } from '@/api/types';
 import { GitFolderPicker } from './GitFolderPicker';
 import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';
 
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 import { errorRecoveryTemplates } from './ui/error-recovery';
-import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
+import { ACTIVITY_EVENT_TYPES } from '@/api/activityEventTypes';
 import { toast } from 'sonner';
 
 interface CodeIntelligenceProps {
@@ -208,7 +208,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
     }
   };
 
-  const handleFolderSelect = (folderPath: string, repoInfo: any) => {
+  const handleFolderSelect = (folderPath: string, repoInfo: { name: string; path: string }) => {
     setShowFolderPicker(false);
     setShowTrainingDialog(true);
 
@@ -495,14 +495,17 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
               <div>
                 <Label>Languages</Label>
                 <div className="space-y-2 mt-2">
-                  {Object.entries(reportData.languages).map(([lang, stats]) => (
-                    <div key={lang} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                      <span className="font-medium">{lang}</span>
-                      <span className="text-sm text-muted-foreground">
-                        {(stats as any).files} files, {(stats as any).lines} lines
-                      </span>
-                    </div>
-                  ))}
+                  {Object.entries(reportData.languages).map(([lang, stats]) => {
+                    const langStats = stats as unknown as { files: number; lines: number };
+                    return (
+                      <div key={lang} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                        <span className="font-medium">{lang}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {langStats.files} files, {langStats.lines} lines
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               <div>

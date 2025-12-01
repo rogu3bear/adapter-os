@@ -86,7 +86,7 @@ export interface ServiceConfiguration {
   quarantineAfter: number;        // Quarantine after N failures
   quarantineDuration: number;     // Quarantine duration in milliseconds
   maintenanceMode: boolean;       // Is service in maintenance mode?
-  configOverrides: Record<string, any>; // Environment-specific config
+  configOverrides: Record<string, unknown>; // Environment-specific config
 }
 
 export interface Service {
@@ -132,7 +132,7 @@ export interface Service {
   // State and Data
   logs: ServiceLogEntry[];
   metrics: ServiceMetrics;
-  metadata: Record<string, any>;   // Additional service-specific data
+  metadata: Record<string, unknown>;   // Additional service-specific data
 
   // UI Configuration
   icon: string;                    // Icon identifier
@@ -146,7 +146,7 @@ export interface ServiceLogEntry {
   level: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
   message: string;
   component?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   source: 'system' | 'service' | 'lifecycle' | 'health' | 'user';
 }
 
@@ -160,7 +160,7 @@ export interface LifecycleEvent {
   phase: LifecyclePhase;
   previousStatus?: ServiceStatus;
   newStatus: ServiceStatus;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   error?: string;
 }
 

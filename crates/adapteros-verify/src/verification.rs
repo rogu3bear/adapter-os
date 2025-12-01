@@ -1,7 +1,10 @@
 //! Verification against golden run baselines
 
 use crate::{
-    archive::GoldenRunArchive, epsilon::EpsilonComparison, metadata::GoldenRunMetadata,
+    archive::GoldenRunArchive,
+    epsilon::EpsilonComparison,
+    metadata::GoldenRunMetadata,
+    routing::{compare_routing_decisions, RoutingDivergence},
     ComparisonConfig, VerifyError, VerifyResult,
 };
 use adapteros_core::B3Hash;
@@ -31,6 +34,12 @@ pub struct VerificationReport {
     pub adapters_compatible: bool,
     /// Device compatibility (optional check)
     pub device_compatible: bool,
+    /// Routing decisions match
+    pub routing_decisions_match: bool,
+    /// Routing decision divergences
+    pub routing_divergences: Vec<RoutingDivergence>,
+    /// Total routing decisions compared
+    pub routing_decision_count: usize,
     /// Detailed messages
     pub messages: Vec<String>,
 }
@@ -54,6 +63,9 @@ impl VerificationReport {
             toolchain_compatible: false,
             adapters_compatible: false,
             device_compatible: false,
+            routing_decisions_match: false,
+            routing_divergences: Vec::new(),
+            routing_decision_count: 0,
             messages: Vec::new(),
         }
     }
@@ -86,6 +98,11 @@ impl VerificationReport {
 
         if config.verify_signature && !self.signature_verified {
             checks.push("signature verification failed");
+        }
+
+        // Routing decisions check (always checked if available)
+        if self.routing_decision_count > 0 && !self.routing_decisions_match {
+            checks.push("routing decisions mismatch");
         }
 
         self.passed = checks.is_empty();
@@ -180,6 +197,47 @@ impl VerificationReport {
                     div.layer_id, div.relative_error, div.golden.l2_error, div.current.l2_error
                 ));
             }
+        }
+
+        // Routing verification
+        if self.routing_decision_count > 0 {
+            lines.push(String::new());
+            lines.push(format!(
+                "  Routing: {} ({} decisions)",
+                if self.routing_decisions_match {
+                    "✓ match"
+                } else {
+                    "✗ mismatch"
+                },
+                self.routing_decision_count
+            ));
+
+            if !self.routing_divergences.is_empty() {
+                lines.push(format!(
+                    "    {} divergences at steps: {:?}",
+                    self.routing_divergences.len(),
+                    self.routing_divergences
+                        .iter()
+                        .take(10)
+                        .map(|d| d.step)
+                        .collect::<Vec<_>>()
+                ));
+
+                // Show first few divergences
+                for div in self.routing_divergences.iter().take(3) {
+                    lines.push(format!("    {}", div.format()));
+                }
+
+                if self.routing_divergences.len() > 3 {
+                    lines.push(format!(
+                        "    ... and {} more",
+                        self.routing_divergences.len() - 3
+                    ));
+                }
+            }
+        } else {
+            lines.push(String::new());
+            lines.push("  Routing: no decisions to compare (backwards compatible)".to_string());
         }
 
         if !self.messages.is_empty() {
@@ -306,6 +364,42 @@ pub async fn verify_against_golden<P1: AsRef<Path>, P2: AsRef<Path>>(
         ));
     }
 
+    // Compare routing decisions
+    let current_routing_decisions =
+        adapteros_telemetry::replay::extract_router_decisions(&current_replay);
+
+    report.routing_decision_count = golden_archive.routing_decisions.len();
+
+    if !golden_archive.routing_decisions.is_empty() {
+        let (routing_match, routing_divs) = compare_routing_decisions(
+            &golden_archive.routing_decisions,
+            &current_routing_decisions,
+            config,
+        );
+
+        report.routing_decisions_match = routing_match;
+        report.routing_divergences = routing_divs;
+
+        if routing_match {
+            report.add_message(format!(
+                "Routing decisions match: {} steps verified",
+                report.routing_decision_count
+            ));
+        } else {
+            report.add_message(format!(
+                "Routing decisions diverged: {} mismatches in {} steps",
+                report.routing_divergences.len(),
+                report.routing_decision_count
+            ));
+        }
+    } else {
+        // No routing decisions in golden run (backwards compatibility)
+        report.routing_decisions_match = true;
+        report.add_message(
+            "No routing decisions in golden run (backwards compatibility)".to_string(),
+        );
+    }
+
     // Compute overall pass/fail
     report.compute_passed(config);
 
@@ -323,7 +417,7 @@ mod tests {
             "test-plan".to_string(),
             "1.75.0".to_string(),
             vec!["adapter-001".to_string()],
-            B3Hash::from_hex("b3:1111111111111111111111111111111111111111111111111111111111111111")
+            B3Hash::from_hex("1111111111111111111111111111111111111111111111111111111111111111")
                 .unwrap(),
         );
 
@@ -333,5 +427,41 @@ mod tests {
         assert!(summary.contains("Golden Run:"));
         assert!(summary.contains("Current Run:"));
         assert!(summary.contains("Verification Results:"));
+    }
+
+    #[test]
+    fn test_verification_report_with_routing() {
+        use crate::routing::{create_test_decision, RoutingDivergence};
+
+        let metadata = GoldenRunMetadata::new(
+            "test-cpid".to_string(),
+            "test-plan".to_string(),
+            "1.75.0".to_string(),
+            vec!["adapter-001".to_string()],
+            B3Hash::from_hex("1111111111111111111111111111111111111111111111111111111111111111")
+                .unwrap(),
+        );
+
+        let mut report = VerificationReport::new(metadata.clone(), metadata);
+
+        // Add routing decision counts
+        report.routing_decision_count = 10;
+        report.routing_decisions_match = false;
+
+        // Add sample divergence
+        let golden = create_test_decision(5, vec![(0, 16384)], 0.5);
+        let current = create_test_decision(5, vec![(1, 16384)], 0.5);
+        report.routing_divergences = vec![RoutingDivergence::new(
+            5,
+            &golden,
+            &current,
+            "Adapter selection mismatch",
+        )];
+
+        let summary = report.summary();
+
+        assert!(summary.contains("Routing:"));
+        assert!(summary.contains("10 decisions"));
+        assert!(summary.contains("divergences"));
     }
 }

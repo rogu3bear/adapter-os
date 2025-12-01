@@ -87,3 +87,4 @@ pub mod verify_determinism_loop;
 // Legacy federation command - consolidated into federation.rs
 // pub mod verify_federation;  // Consolidated into federation.rs
 pub mod verify_gpu;
+pub mod behavior_export;

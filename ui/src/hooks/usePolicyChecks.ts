@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
-import { PolicyCheck, PolicyStatus, PolicyCategory, PolicySeverity } from '../components/golden/PolicyCheckDisplay';
-import apiClient from '../api/client';
-import { Policy } from '../api/types';
-import { logger } from '../utils/logger';
+import { PolicyCheck, PolicyStatus, PolicyCategory, PolicySeverity } from '@/components/golden/PolicyCheckDisplay';
+import apiClient from '@/api/client';
+import { Policy } from '@/api/types';
+import { logger } from '@/utils/logger';
 
 // Transform API Policy to UI PolicyCheck
 function policyToPolicyCheck(policy: Policy): PolicyCheck {

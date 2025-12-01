@@ -18,7 +18,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use common::test_harness::ApiTestHarness;
-use futures::future::join_all;
+use futures_util::future::join_all;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -152,15 +152,16 @@ async fn test_simultaneous_training_jobs() {
         let adapter_id = format!("stress-adapter-{}", i);
 
         let task = tokio::spawn(async move {
-            let result = sqlx::query!(
-                "INSERT INTO training_jobs (id, dataset_id, adapter_id, status, progress_pct, created_at)
-                 VALUES (?, ?, ?, ?, ?, datetime('now'))",
-                format!("stress-job-{}", i),
-                dataset_id,
-                adapter_id,
-                "running",
-                0
+            let result = sqlx::query(
+                "INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by)
+                 VALUES (?, ?, ?, ?, ?, ?)"
             )
+            .bind(format!("stress-job-{}", i))
+            .bind(&dataset_id)
+            .bind("{}")
+            .bind("running")
+            .bind("{\"progress_pct\": 0}")
+            .bind("test-user")
             .execute(db.pool())
             .await;
 
@@ -376,20 +377,19 @@ async fn test_memory_pressure_simulation() {
     let adapter_count = 100;
 
     for i in 0..adapter_count {
-        let result = sqlx::query!(
-            "INSERT INTO adapters (id, tenant_id, hash, tier, rank, activation_pct, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-            format!("memory-pressure-adapter-{}", i),
-            "default",
-            format!("{:0<64}", i),
-            if i % 3 == 0 {
-                "persistent"
-            } else {
-                "ephemeral"
-            },
-            8,
-            (i as f64) / (adapter_count as f64) * 100.0
+        let tier = if i % 3 == 0 { "persistent" } else { "ephemeral" };
+        let result = sqlx::query(
+            "INSERT INTO adapters (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))"
         )
+        .bind(format!("memory-pressure-adapter-{}", i))
+        .bind("default")
+        .bind(format!("Memory Pressure Adapter {}", i))
+        .bind(tier)
+        .bind(format!("{:0>64}", i))
+        .bind(8)
+        .bind(1.0)
+        .bind("[]")
         .execute(harness.db().pool())
         .await;
 
@@ -413,21 +413,21 @@ async fn test_memory_pressure_simulation() {
         "At least 90% of adapters should be created"
     );
 
-    // Test that we can query adapters by activation percentage (for eviction)
-    let low_activation = sqlx::query!(
+    // Test that we can query adapters by rank (for eviction priority)
+    let low_rank = sqlx::query(
         "SELECT id FROM adapters
          WHERE id LIKE 'memory-pressure-adapter-%'
-         ORDER BY activation_pct ASC
+         ORDER BY rank ASC
          LIMIT 10"
     )
     .fetch_all(harness.db().pool())
     .await
-    .expect("Should be able to query low-activation adapters");
+    .expect("Should be able to query adapters by rank");
 
     assert_eq!(
-        low_activation.len(),
+        low_rank.len(),
         10,
-        "Should be able to find 10 low-activation adapters"
+        "Should be able to find 10 adapters"
     );
 
     println!("✓ Memory pressure simulation test passed");

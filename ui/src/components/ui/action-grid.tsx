@@ -1,12 +1,12 @@
 import React from 'react';
 import { Button } from './button';
-import { HelpTooltip } from './help-tooltip';
+import { GlossaryTooltip } from './glossary-tooltip';
 
 interface ActionItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   color?: string;
-  helpId?: string;
+  termId?: string;
   disabled?: boolean;
   disabledTitle?: string;
   onClick: () => void;
@@ -45,11 +45,11 @@ export function ActionGrid({ actions, columns = 4 }: ActionGridProps) {
           </Button>
         );
 
-        if (action.helpId) {
+        if (action.termId) {
           return (
-            <HelpTooltip key={`${action.label}-${index}`} helpId={action.helpId}>
+            <GlossaryTooltip key={`${action.label}-${index}`} termId={action.termId}>
               {button}
-            </HelpTooltip>
+            </GlossaryTooltip>
           );
         }
 

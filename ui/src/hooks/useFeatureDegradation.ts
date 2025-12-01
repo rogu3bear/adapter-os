@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
 export interface FeatureDegradationConfig {
   /** Feature identifier */

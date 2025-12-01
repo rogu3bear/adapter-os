@@ -12,10 +12,11 @@ import React, { useState } from 'react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Check, AlertTriangle, MessageSquare, Activity, Share, AtSign, Bell, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
-import { Notification } from '../api/types';
-import { useRelativeTime } from '../hooks/useTimestamp';
+import { Notification } from '@/api/types';
+import { useRelativeTime } from '@/hooks/useTimestamp';
 import { useNavigate } from 'react-router-dom';
-import { logger } from '../utils/logger';
+import { logger } from '@/utils/logger';
+import { formatTimestamp } from '@/utils/format';
 
 interface NotificationItemProps {
   notification: Notification;
@@ -165,13 +166,6 @@ export function NotificationItem({ notification, onMarkRead }: NotificationItemP
     }
   };
 
-  const formatTimestamp = (isoString: string) => {
-    try {
-      return new Date(isoString).toLocaleString();
-    } catch {
-      return isoString;
-    }
-  };
 
   return (
     <div
@@ -266,12 +260,12 @@ export function NotificationItem({ notification, onMarkRead }: NotificationItemP
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div>
                 <span className="text-muted-foreground">Created:</span>{' '}
-                <span className="text-foreground">{formatTimestamp(notification.created_at)}</span>
+                <span className="text-foreground">{formatTimestamp(notification.created_at, 'long')}</span>
               </div>
               {notification.read_at && (
                 <div>
                   <span className="text-muted-foreground">Read:</span>{' '}
-                  <span className="text-foreground">{formatTimestamp(notification.read_at)}</span>
+                  <span className="text-foreground">{formatTimestamp(notification.read_at, 'long')}</span>
                 </div>
               )}
               {notification.workspace_id && (

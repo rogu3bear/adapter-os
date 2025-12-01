@@ -8,7 +8,7 @@ import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Slider } from './ui/slider';
 
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 
 import {
@@ -26,14 +26,15 @@ import {
   Target,
   Zap
 } from 'lucide-react';
-import apiClient from '../api/client';
-import { SystemMetrics } from '../api/types';
+import apiClient from '@/api/client';
+import { SystemMetrics } from '@/api/types';
 import { toast } from 'sonner';
 
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { useTenant } from '@/layout/LayoutProvider';
 import type { Alert } from '@/api/types';
+import { useLiveData } from '@/hooks/useLiveData';
 
 interface AlertsPageProps {
   selectedTenant?: string;
@@ -140,125 +141,49 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
     }
   }, [effectiveTenant]);
 
-  // Real-time alert streaming using EventSource
-  //
-  // Citations:
-  // - SSE pattern: [source: ui/src/hooks/useActivityFeed.ts L350-L437]
-  // - Backend endpoint: [source: crates/adapteros-server-api/src/handlers.rs L12929-12935]
-  // - Event format: [source: crates/adapteros-server-api/src/types.rs L1732-1760]
-  useEffect(() => {
-    const base = (import.meta as any)?.env?.VITE_SSE_URL
-      ? `http://${(import.meta as any).env.VITE_SSE_URL}`
-      : ((import.meta as any)?.env?.VITE_API_URL || '/api');
-    const url = `${base}/v1/monitoring/alerts/stream`;
-    
-    let eventSource: EventSource | null = null;
-    let reconnectAttempts = 0;
-    const maxReconnect = 5;
-    const baseDelay = 1000;
+  const handleSSEMessage = useCallback((eventData: unknown) => {
+    try {
+      const alert = eventData as Alert;
+      setAlerts((prev) => {
+        // Update existing alert or add new one
+        const existingIndex = prev.findIndex(a => a.id === alert.id);
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          updated[existingIndex] = alert;
+          return updated;
+        } else {
+          return [alert, ...prev].slice(0, 100); // Keep last 100 alerts
+        }
+      });
+    } catch (err) {
+      logger.error('Failed to process alert SSE payload', {
+        component: 'AlertsPage',
+        operation: 'sse_alert_parse',
+      }, toError(err));
+    }
+  }, []);
 
-    const connectSSE = () => {
-      try {
-        eventSource = new EventSource(url);
-        
-        eventSource.addEventListener('alert', (event) => {
-          try {
-            const alert = JSON.parse((event as MessageEvent).data);
-            setAlerts((prev) => {
-              // Update existing alert or add new one
-              const existingIndex = prev.findIndex(a => a.id === alert.id);
-              if (existingIndex >= 0) {
-                const updated = [...prev];
-                updated[existingIndex] = alert;
-                return updated;
-              } else {
-                return [alert, ...prev].slice(0, 100); // Keep last 100 alerts
-              }
-            });
-            reconnectAttempts = 0;
-          } catch (err) {
-            logger.error('Failed to parse alert SSE payload', {
-              component: 'AlertsPage',
-              operation: 'sse_alert_parse',
-            }, toError(err));
-          }
-        });
-        
-        eventSource.addEventListener('open', () => {
-          reconnectAttempts = 0;
-          logger.info('Alert SSE stream connected', {
-            component: 'AlertsPage',
-            operation: 'sse_connect',
-          });
-        });
-        
-        eventSource.addEventListener('error', (evt: any) => {
-          reconnectAttempts++;
-          const unauthorized = evt?.status === 401 || evt?.code === 401;
-          if (unauthorized) {
-            logger.error('Alert SSE unauthorized', {
-              component: 'AlertsPage',
-              operation: 'sse_error',
-            }, new Error('Unauthorized'));
-            if (eventSource) {
-              eventSource.close();
-              eventSource = null;
-            }
-            return;
-          }
-          
-          if (reconnectAttempts >= maxReconnect) {
-            logger.error('Max SSE reconnect threshold reached (alerts)', {
-              component: 'AlertsPage',
-              operation: 'sse_reconnect',
-              reconnectAttempts,
-              maxReconnect,
-            });
-            if (eventSource) {
-              eventSource.close();
-              eventSource = null;
-            }
-            // Fallback to polling
-            const fallbackInterval = setInterval(() => {
-              void loadAlerts();
-            }, 5000);
-            return () => clearInterval(fallbackInterval);
-          }
-          
-          const delay = Math.min(baseDelay * Math.pow(2, reconnectAttempts - 1), 30000);
-          if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-          }
-          
-          setTimeout(() => {
-            if (eventSource === null) {
-              connectSSE();
-            }
-          }, delay);
-        });
-      } catch (err) {
-        logger.error('Failed to initialize alert SSE', {
-          component: 'AlertsPage',
-          operation: 'sse_init',
-        }, toError(err));
-      }
-    };
-    
-    // Initial load
-    void loadAlerts();
-    
-    // Connect to SSE stream
-    connectSSE();
-    
-    // Cleanup
-    return () => {
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-      }
-    };
-  }, [effectiveTenant, loadAlerts]);
+  // Use standardized live data hook for real-time alert streaming
+  const { sseConnected } = useLiveData<Alert[]>({
+    sseEndpoint: '/v1/monitoring/alerts/stream',
+    sseEventType: 'alert',
+    fetchFn: async () => {
+      await loadAlerts();
+      return alerts;
+    },
+    pollingSpeed: 'fast',
+    enabled: true,
+    onSSEMessage: handleSSEMessage,
+    onError: (err, source) => {
+      logger.error('Alert streaming error', {
+        component: 'AlertsPage',
+        operation: source === 'sse' ? 'sse_error' : 'loadAlerts',
+        tenantId: effectiveTenant,
+        source,
+      }, err);
+    },
+    operationName: 'AlertStream',
+  });
 
   // Update metrics and evaluate alert rules when polling data arrives
   useEffect(() => {
@@ -377,7 +302,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
               enabled: true,
             };
             return acc;
-          }, {} as Record<string, any>),
+          }, {} as Record<string, { type: string; enabled: boolean }>),
         };
 
         await apiClient.createMonitoringRule(createRequest);
@@ -713,7 +638,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                       id="rule-condition"
                       value={editingRule?.condition || ''}
                       onChange={(e) =>
-                        setEditingRule(prev => prev ? { ...prev, condition: e.target.value as any } : null)
+                        setEditingRule(prev => prev ? { ...prev, condition: e.target.value as 'gt' | 'lt' | 'eq' } : null)
                       }
                       className="w-full rounded-md border border-input bg-background px-3 py-2"
                     >
@@ -754,9 +679,9 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Label>Notification Channels</Label>
-                  <HelpTooltip helpId="alerts">
+                  <GlossaryTooltip termId="alerts">
                     <span className="text-xs text-muted-foreground">What are channels?</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {CHANNEL_OPTIONS.map((ch) => {
@@ -790,7 +715,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                     id="rule-severity"
                     value={editingRule?.severity || ''}
                     onChange={(e) =>
-                      setEditingRule(prev => prev ? { ...prev, severity: e.target.value as any } : null)
+                      setEditingRule(prev => prev ? { ...prev, severity: e.target.value as AlertRule['severity'] } : null)
                     }
                     className="w-full rounded-md border border-input bg-background px-3 py-2"
                   >

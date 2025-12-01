@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { ChevronLeft, ChevronRight, Users } from 'lucide-react';
-import { personas, getPersonaById } from '../data/persona-journeys';
+import { personas, getPersonaById } from '@/data/persona-journeys';
 import { PersonaSlider } from './PersonaSlider';
 import { StageViewer } from './StageViewer';
 import { StageInfoPanels } from './StageInfoPanels';

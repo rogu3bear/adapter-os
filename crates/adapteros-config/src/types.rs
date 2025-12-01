@@ -228,7 +228,7 @@ impl Default for ConfigSchema {
             FieldDefinition {
                 field_type: "string".to_string(),
                 required: false,
-                default_value: Some("./models/default".to_string()),
+                default_value: Some("./var/model-cache/models/qwen2.5-7b-instruct-bf16".to_string()),
                 description: Some("Path to the model directory".to_string()),
                 validation_rules: None,
             },

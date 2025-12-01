@@ -609,6 +609,9 @@ impl StateManager {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests use tempfile::TempDir for actual isolation.
+    //! Fixture strings like "/tmp/..." are dummy data, not real paths.
+    //! Production code should use ./var/ paths - see CLAUDE.md "Storage Paths".
     use super::*;
     use tempfile::TempDir;
 

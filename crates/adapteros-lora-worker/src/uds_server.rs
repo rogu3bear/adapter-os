@@ -133,8 +133,14 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
     ) -> Result<()> {
         let start = std::time::Instant::now();
 
-        // Parse HTTP request from UDS stream
-        let request = Self::parse_request(&mut stream).await?;
+        // Parse HTTP request from UDS stream with timeout to prevent infinite blocking
+        let request = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            Self::parse_request(&mut stream),
+        )
+        .await
+        .map_err(|_| AosError::Worker("Request parse timeout (30s)".to_string()))?
+        .map_err(|e| AosError::Worker(format!("Request parse failed: {}", e)))?;
         let path = request.path.clone();
 
         // Check if client wants signal streaming
@@ -228,13 +234,19 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
         let mut buffer = Vec::new();
         let mut line_buffer = Vec::new();
 
-        // Read request line by line
+        // Read request line by line with per-byte timeout to prevent infinite blocking
+        let per_byte_timeout = std::time::Duration::from_secs(5);
         loop {
             let mut byte = [0u8; 1];
-            stream
-                .read_exact(&mut byte)
-                .await
-                .map_err(|e| AosError::Worker(format!("Failed to read from stream: {}", e)))?;
+            match tokio::time::timeout(per_byte_timeout, stream.read_exact(&mut byte)).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    return Err(AosError::Worker(format!("Failed to read from stream: {}", e)));
+                }
+                Err(_) => {
+                    return Err(AosError::Worker("Timeout reading request byte".to_string()));
+                }
+            }
 
             if byte[0] == b'\n' {
                 let line = String::from_utf8_lossy(&line_buffer);
@@ -283,14 +295,23 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
             }
         }
 
-        // Read body if present
+        // Read body if present with timeout to prevent infinite blocking
         let mut body = String::new();
         if content_length > 0 {
             let mut body_buffer = vec![0u8; content_length];
-            stream
-                .read_exact(&mut body_buffer)
-                .await
-                .map_err(|e| AosError::Worker(format!("Failed to read request body: {}", e)))?;
+            let body_timeout = std::time::Duration::from_secs(30);
+            match tokio::time::timeout(body_timeout, stream.read_exact(&mut body_buffer)).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    return Err(AosError::Worker(format!("Failed to read request body: {}", e)));
+                }
+                Err(_) => {
+                    return Err(AosError::Worker(format!(
+                        "Timeout reading request body ({} bytes)",
+                        content_length
+                    )));
+                }
+            }
             body = String::from_utf8_lossy(&body_buffer).to_string();
         }
 
@@ -392,5 +413,213 @@ mod tests {
     async fn test_uds_server_creation() {
         // This test would require a mock worker and temp directory setup
         // The core UDS server functionality is tested via integration tests
+    }
+
+    // ========================================================================
+    // Timeout Configuration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_request_parse_timeout_constant() {
+        // Verify the timeout constants are reasonable
+        let request_timeout = std::time::Duration::from_secs(30);
+        let per_byte_timeout = std::time::Duration::from_secs(5);
+        let body_timeout = std::time::Duration::from_secs(30);
+
+        // Request timeout should be >= per-byte timeout
+        assert!(request_timeout >= per_byte_timeout);
+        // Body timeout should be reasonable for large payloads
+        assert!(body_timeout.as_secs() >= 10);
+    }
+
+    #[test]
+    fn test_http_request_structure() {
+        // Test HttpRequest struct can be created
+        let request = HttpRequest {
+            _method: "POST".to_string(),
+            path: "/inference".to_string(),
+            headers: std::collections::HashMap::from([
+                ("Content-Type".to_string(), "application/json".to_string()),
+                ("Content-Length".to_string(), "42".to_string()),
+            ]),
+            body: r#"{"prompt": "test"}"#.to_string(),
+        };
+
+        assert_eq!(request.path, "/inference");
+        assert_eq!(request.headers.get("Content-Type"), Some(&"application/json".to_string()));
+    }
+
+    #[test]
+    fn test_http_request_with_signal_header() {
+        // Test X-Signal-Stream header parsing
+        let headers = std::collections::HashMap::from([
+            ("X-Signal-Stream".to_string(), "true".to_string()),
+        ]);
+
+        let wants_signals = headers
+            .get("X-Signal-Stream")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        assert!(wants_signals);
+    }
+
+    #[test]
+    fn test_http_request_without_signal_header() {
+        let headers: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        let wants_signals = headers
+            .get("X-Signal-Stream")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        assert!(!wants_signals);
+    }
+
+    // ========================================================================
+    // HTTP Response Format Tests
+    // ========================================================================
+
+    #[test]
+    fn test_http_response_format_200() {
+        let json_body = r#"{"status":"ok"}"#;
+        let http_response = format!(
+            "HTTP/1.1 200 OK\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             \r\n\
+             {}",
+            json_body.len(),
+            json_body
+        );
+
+        assert!(http_response.contains("HTTP/1.1 200 OK"));
+        assert!(http_response.contains("Content-Type: application/json"));
+        assert!(http_response.contains(&format!("Content-Length: {}", json_body.len())));
+        assert!(http_response.ends_with(json_body));
+    }
+
+    #[test]
+    fn test_http_response_format_404() {
+        let status_code = 404u16;
+        let message = "Not Found";
+        let error_body = format!("{{\"error\": \"{}\"}}", message);
+        let http_response = format!(
+            "HTTP/1.1 {} {}\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             \r\n\
+             {}",
+            status_code,
+            message,
+            error_body.len(),
+            error_body
+        );
+
+        assert!(http_response.contains("HTTP/1.1 404 Not Found"));
+        assert!(http_response.contains(r#"{"error": "Not Found"}"#));
+    }
+
+    #[test]
+    fn test_http_response_format_500() {
+        let status_code = 500u16;
+        let message = "Internal Server Error";
+        let error_body = format!("{{\"error\": \"{}\"}}", message);
+        let http_response = format!(
+            "HTTP/1.1 {} {}\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             \r\n\
+             {}",
+            status_code,
+            message,
+            error_body.len(),
+            error_body
+        );
+
+        assert!(http_response.contains("HTTP/1.1 500 Internal Server Error"));
+    }
+
+    // ========================================================================
+    // Path Routing Tests
+    // ========================================================================
+
+    #[test]
+    fn test_path_routing_inference() {
+        let path = "/inference";
+        assert!(matches!(path, "/inference"));
+    }
+
+    #[test]
+    fn test_path_routing_patch_proposal() {
+        let path = "/patch_proposal";
+        assert!(matches!(path, "/patch_proposal"));
+    }
+
+    #[test]
+    fn test_path_routing_health() {
+        let path = "/health";
+        assert!(matches!(path, "/health"));
+    }
+
+    #[test]
+    fn test_path_routing_unknown() {
+        let path = "/unknown";
+        assert!(!matches!(path, "/inference" | "/patch_proposal" | "/health"));
+    }
+
+    // ========================================================================
+    // Backoff Configuration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_backoff_config_defaults() {
+        use crate::backoff::BackoffConfig;
+
+        let config = BackoffConfig::new(
+            std::time::Duration::from_millis(100),
+            std::time::Duration::from_secs(10),
+            2.0,
+            5,
+        );
+
+        // delay = initial * multiplier^attempt
+        // attempt=0: 100 * 2^0 = 100ms
+        let delay0 = config.next_delay(0);
+        assert_eq!(delay0.as_millis(), 100);
+
+        // attempt=1: 100 * 2^1 = 200ms
+        let delay1 = config.next_delay(1);
+        assert_eq!(delay1.as_millis(), 200);
+
+        // attempt=2: 100 * 2^2 = 400ms
+        let delay2 = config.next_delay(2);
+        assert_eq!(delay2.as_millis(), 400);
+
+        // Should not exceed max delay
+        let delay_max = config.next_delay(100);
+        assert!(delay_max <= std::time::Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_circuit_breaker_threshold() {
+        use crate::backoff::CircuitBreaker;
+
+        let cb = CircuitBreaker::new(5, std::time::Duration::from_secs(60));
+
+        // Should start closed
+        assert!(!cb.is_open());
+
+        // Record failures
+        for _ in 0..5 {
+            cb.record_failure();
+        }
+
+        // Should be open after threshold
+        assert!(cb.is_open());
+
+        // Record success should reset
+        cb.record_success();
+        assert!(!cb.is_open());
     }
 }

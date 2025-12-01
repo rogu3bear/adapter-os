@@ -24,7 +24,7 @@ pub enum BackendChoice {
     CoreML,
     /// MLX backend (research, training)
     Mlx,
-    /// Automatic selection based on capabilities (CoreML -> Metal -> MLX fallback)
+    /// Automatic selection based on capabilities (CoreML -> MLX -> Metal fallback)
     Auto,
 }
 

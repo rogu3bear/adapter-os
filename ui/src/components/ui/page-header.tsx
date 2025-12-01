@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from './button';
 import { Badge } from './badge';
-import { HelpTooltip } from './help-tooltip';
+import { GlossaryTooltip } from './glossary-tooltip';
 import { cn } from './utils';
 import { LucideIcon, ChevronRight } from 'lucide-react';
 import { useDensity } from '@/contexts/DensityContext';
@@ -32,8 +32,8 @@ export interface PageHeaderBreadcrumb {
 export interface PageHeaderProps {
   title: string;
   description?: string;
-  helpId?: string;
-  helpContent?: string;
+  termId?: string;
+  brief?: string;
   primaryAction?: PageHeaderAction;
   secondaryActions?: PageHeaderAction[];
   badges?: PageHeaderBadge[];
@@ -45,8 +45,8 @@ export interface PageHeaderProps {
 export function PageHeader({
   title,
   description,
-  helpId,
-  helpContent,
+  termId,
+  brief,
   primaryAction,
   secondaryActions,
   badges,
@@ -111,8 +111,8 @@ export function PageHeader({
             <h1 className={cn(textSizes.title, "font-bold tracking-tight truncate")}>
               {title}
             </h1>
-            {(helpId || helpContent) && (
-              <HelpTooltip helpId={helpId} content={helpContent} />
+            {(termId || brief) && (
+              <GlossaryTooltip termId={termId} brief={brief} />
             )}
             {badges && badges.length > 0 && (
               <div className="hidden sm:flex items-center gap-2 ml-2">

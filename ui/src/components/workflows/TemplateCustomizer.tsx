@@ -1,14 +1,14 @@
 // TemplateCustomizer component - Customize and save workflow templates
 
 import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Textarea } from '../ui/textarea';
-import { Badge } from '../ui/badge';
-import { Switch } from '../ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../ui/dialog';
+} from '@/components/ui/dialog';
 import {
   Save,
   Copy,
@@ -28,7 +28,7 @@ import {
   ArrowDown,
   Edit,
 } from 'lucide-react';
-import { WorkflowTemplate, WorkflowStep, WorkflowInput } from './types';
+import { WorkflowTemplate, WorkflowStep, WorkflowInput, WorkflowCategory } from './types';
 import { toast } from 'sonner';
 
 interface TemplateCustomizerProps {
@@ -184,7 +184,7 @@ export function TemplateCustomizer({ template, onSave, onCancel }: TemplateCusto
               <Label htmlFor="category">Category</Label>
               <Select
                 value={customTemplate.category}
-                onValueChange={(value: any) => updateTemplate({ category: value })}
+                onValueChange={(value) => updateTemplate({ category: value as WorkflowCategory })}
               >
                 <SelectTrigger id="category">
                   <SelectValue />
@@ -227,7 +227,7 @@ export function TemplateCustomizer({ template, onSave, onCancel }: TemplateCusto
               <Label htmlFor="difficulty">Difficulty</Label>
               <Select
                 value={customTemplate.difficulty}
-                onValueChange={(value: any) => updateTemplate({ difficulty: value })}
+                onValueChange={(value) => updateTemplate({ difficulty: value as 'beginner' | 'intermediate' | 'advanced' })}
               >
                 <SelectTrigger id="difficulty">
                   <SelectValue />

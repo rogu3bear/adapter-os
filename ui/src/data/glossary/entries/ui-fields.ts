@@ -1,4 +1,4 @@
-import type { GlossaryEntry } from '../types';
+import type { GlossaryEntry } from '@/data/glossary/types';
 
 /**
  * UI Fields Glossary Entries
@@ -9,61 +9,12 @@ import type { GlossaryEntry } from '../types';
 
 export const uiFieldsEntries: GlossaryEntry[] = [
   // ===== Core System Fields =====
-  {
-    id: 'cpid',
-    term: 'Control Plane ID',
-    category: 'ui-fields',
-    content: {
-      brief: 'Control Plane ID: identifier that groups policies, plans, and telemetry.',
-      detailed: 'Unique identifier for a control plane instance. The CPID groups related policies, execution plans, and telemetry bundles together for governance and audit purposes. Used in promotion workflows and policy management.',
-    },
-    relatedTerms: ['policy-cpid', 'promotion-cpid'],
-    aliases: ['cpid', 'control plane id'],
-  },
-  {
-    id: 'merkle-root',
-    term: 'Merkle Root',
-    category: 'ui-fields',
-    content: {
-      brief: 'Root hash of a Merkle tree used to attest integrity of bundled events.',
-      detailed: 'Cryptographic hash at the root of a Merkle tree structure. Provides tamper-evident integrity verification for bundled telemetry events and audit logs. Any modification to underlying events changes the root hash.',
-    },
-    relatedTerms: ['telemetry-event', 'audit-events'],
-    aliases: ['merkle root', 'root hash'],
-  },
-  {
-    id: 'schema-hash',
-    term: 'Schema Hash',
-    category: 'ui-fields',
-    content: {
-      brief: 'Content hash of the policy schema version applied to a policy pack.',
-      detailed: 'BLAKE3 hash of the policy schema definition. Ensures that policies are validated against the correct schema version. Used to detect schema drift and enforce policy compatibility.',
-    },
-    relatedTerms: ['policy-schema-hash', 'policy-version'],
-    aliases: ['schema hash', 'policy schema'],
-  },
-  {
-    id: 'tokens-per-second',
-    term: 'Tokens Per Second',
-    category: 'ui-fields',
-    content: {
-      brief: 'Throughput: number of tokens processed per second across the system.',
-      detailed: 'System-wide or per-adapter metric measuring token processing throughput. Higher values indicate better performance. Typical values: 100-500 tokens/sec for inference, 1000+ for training on GPU.',
-    },
-    relatedTerms: ['training-tokens-per-sec', 'inference-max-tokens'],
-    aliases: ['throughput', 'tokens/sec', 'tps'],
-  },
-  {
-    id: 'latency-p95',
-    term: 'Latency P95',
-    category: 'ui-fields',
-    content: {
-      brief: 'Latency p95: 95th percentile end-to-end response latency in milliseconds.',
-      detailed: '95th percentile latency measurement - 95% of requests complete faster than this value. More representative of user experience than average latency. Target: <100ms for interactive, <500ms for batch.',
-    },
-    relatedTerms: ['routing-latency', 'routing-overhead'],
-    aliases: ['p95', '95th percentile', 'latency'],
-  },
+  // NOTE: 'cpid' defined in domain file - removed duplicate
+  // NOTE: 'merkle-root' defined in domain file - removed duplicate
+  // NOTE: 'schema-hash' defined in domain file - removed duplicate
+  // NOTE: 'tokens-per-second' defined in domain file - removed duplicate
+  // NOTE: 'latency-p95' defined in domain file - removed duplicate
+
   {
     id: 'adapter-count',
     term: 'Adapter Count',
@@ -75,31 +26,9 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     relatedTerms: ['adapter-state', 'tenant-adapters', 'node-adapters'],
     aliases: ['active adapters', 'loaded adapters'],
   },
-  {
-    id: 'active-sessions',
-    term: 'Active Sessions',
-    category: 'ui-fields',
-    content: {
-      brief: 'Concurrent active user or service sessions currently using the system.',
-      detailed: 'Number of authenticated sessions with recent activity. Includes user UI sessions, API clients, and service-to-service connections. Used for capacity planning and license compliance.',
-    },
-    relatedTerms: ['tenant-users', 'audit-user'],
-    aliases: ['sessions', 'concurrent users'],
-  },
-
+  // NOTE: 'active-sessions' defined in domain file - removed duplicate
   // ===== Permission and Access =====
-  {
-    id: 'requires-admin',
-    term: 'Requires Admin',
-    category: 'ui-fields',
-    content: {
-      brief: 'This action requires the Admin role. Contact an administrator for access.',
-      detailed: 'Admin-only operation. Only users with the Admin role (full system access) can perform this action. If you need access, contact your system administrator to review your role assignment.',
-    },
-    relatedTerms: ['tenant-actions', 'node-actions'],
-    aliases: ['admin only', 'admin required'],
-  },
-
+  // NOTE: 'requires-admin' defined in domain file - removed duplicate
   // ===== Navigation and Settings =====
   {
     id: 'operations',
@@ -145,85 +74,15 @@ export const uiFieldsEntries: GlossaryEntry[] = [
   },
 
   // ===== Data Classification and Compliance =====
-  {
-    id: 'data-classification',
-    term: 'Data Classification',
-    category: 'ui-fields',
-    content: {
-      brief: 'Sensitivity level of data (Public, Internal, Confidential, Restricted) that determines access controls and handling requirements.',
-      detailed: 'Data sensitivity classification following industry standards:\n- **Public**: No restrictions, can be shared externally\n- **Internal**: Internal use only, not for external sharing\n- **Confidential**: Sensitive business data, restricted access\n- **Restricted**: Highly sensitive, strictest controls and audit\n\nClassification drives policy enforcement and access controls.',
-    },
-    relatedTerms: ['itar-compliance', 'tenant-isolation'],
-    aliases: ['classification', 'data sensitivity'],
-  },
-  {
-    id: 'itar-compliance',
-    term: 'ITAR Compliance',
-    category: 'ui-fields',
-    content: {
-      brief: 'International Traffic in Arms Regulations compliance flag. When enabled, enforces strict US export control requirements for defense-related data.',
-      detailed: 'ITAR flag indicates data subject to US export control laws (defense articles, technical data). When enabled:\n- Restricts access to US persons only\n- Enforces additional audit logging\n- Applies egress controls\n- Requires special handling procedures\n\nConsult legal/compliance before enabling.',
-    },
-    relatedTerms: ['data-classification', 'policy-compliance'],
-    aliases: ['itar', 'export control'],
-  },
-
+  // NOTE: 'data-classification' defined in domain file - removed duplicate
+  // NOTE: 'itar-compliance' defined in domain file - removed duplicate
   // ===== Policy Fields =====
-  {
-    id: 'policy-name',
-    term: 'Policy Name',
-    category: 'ui-fields',
-    content: {
-      brief: 'Human-readable name for the policy pack identifying its purpose and scope.',
-      detailed: 'Descriptive name following convention: {domain}-{purpose}-{version} (e.g., egress-prod-v2, determinism-strict-v1). Should clearly indicate what the policy governs.',
-    },
-    relatedTerms: ['policy-version', 'policy-cpid'],
-    aliases: ['policy identifier'],
-  },
-  {
-    id: 'policy-version',
-    term: 'Policy Version',
-    category: 'ui-fields',
-    content: {
-      brief: 'Semantic version number (e.g., v1.2.3) tracking policy revisions and updates.',
-      detailed: 'Semantic version (MAJOR.MINOR.PATCH):\n- **MAJOR**: Breaking changes, incompatible with previous version\n- **MINOR**: New rules added, backward compatible\n- **PATCH**: Bug fixes, clarifications\n\nVersion history is immutable for audit compliance.',
-    },
-    relatedTerms: ['policy-name', 'schema-hash'],
-    aliases: ['version'],
-  },
-  {
-    id: 'policy-status',
-    term: 'Policy Status',
-    category: 'ui-fields',
-    content: {
-      brief: 'Current state of the policy: Active (enforced), Draft (pending review), or Disabled.',
-      detailed: 'Policy lifecycle state:\n- **Active**: Currently enforced on matching tenants/adapters\n- **Draft**: Under review, not yet enforced\n- **Disabled**: Temporarily deactivated, not enforced\n- **Archived**: Retired, read-only for audit\n\nOnly Active policies are enforced at runtime.',
-    },
-    relatedTerms: ['policy-signed', 'policy-actions'],
-    aliases: ['status', 'state'],
-  },
-  {
-    id: 'policy-signed',
-    term: 'Policy Signed',
-    category: 'ui-fields',
-    content: {
-      brief: 'Cryptographic signature status: indicates if the policy has been digitally signed for authenticity.',
-      detailed: 'Digital signature using Ed25519 cryptography. Signed policies:\n- Cannot be modified without invalidating signature\n- Provide non-repudiation (proof of authorship)\n- Required for production deployment\n\nSigning requires Admin or Compliance role.',
-    },
-    relatedTerms: ['policy-status', 'policy-actions'],
-    aliases: ['signature', 'signed'],
-  },
-  {
-    id: 'policy-cpid',
-    term: 'Policy CPID',
-    category: 'ui-fields',
-    content: {
-      brief: 'Control Plane ID: unique identifier that groups policies, plans, and telemetry.',
-      detailed: 'Control Plane ID linking this policy to execution plans and telemetry. Used for end-to-end tracking of policy enforcement and compliance reporting.',
-    },
-    relatedTerms: ['cpid', 'policy-schema-hash'],
-    aliases: ['policy control plane id'],
-  },
+  // NOTE: 'policy-name' defined in domain file - removed duplicate
+  // NOTE: 'policy-version' defined in domain file - removed duplicate
+  // NOTE: 'policy-status' defined in domain file - removed duplicate
+  // NOTE: 'policy-signed' defined in domain file - removed duplicate
+  // NOTE: 'policy-cpid' defined in domain file - removed duplicate
+
   {
     id: 'policy-schema-hash',
     term: 'Policy Schema Hash',
@@ -248,128 +107,17 @@ export const uiFieldsEntries: GlossaryEntry[] = [
   },
 
   // ===== Inference Playground Fields =====
-  {
-    id: 'inference-model',
-    term: 'Inference Model',
-    category: 'ui-fields',
-    content: {
-      brief: 'Select the base model for inference. Different models have varying capabilities, context lengths, and performance characteristics.',
-      detailed: 'Base language model powering inference. Available models:\n- **Qwen2.5 7B**: Fast, efficient, 32K context\n- **Llama 3.1 8B**: Balanced performance, 128K context\n- **Mistral 7B**: Strong reasoning, 32K context\n\nChoose based on latency requirements and task complexity.',
-    },
-    relatedTerms: ['base-model-name', 'inference-adapter-stack'],
-    aliases: ['base model', 'model selection'],
-  },
-  {
-    id: 'inference-adapter-stack',
-    term: 'Inference Adapter Stack',
-    category: 'ui-fields',
-    content: {
-      brief: 'Select a trained LoRA adapter to customize model behavior. Adapters add domain-specific knowledge without retraining the base model.',
-      detailed: 'LoRA adapter stack to apply on top of base model. Adapters:\n- Add domain-specific knowledge (code, docs, etc.)\n- Fine-tune behavior for specific tasks\n- Stack multiple adapters via K-sparse routing\n\nLeave empty for base model only (no adaptation).',
-    },
-    relatedTerms: ['adapter-name', 'adapter-tier'],
-    aliases: ['adapter stack', 'lora adapter'],
-  },
-  {
-    id: 'inference-prompt',
-    term: 'Inference Prompt',
-    category: 'ui-fields',
-    content: {
-      brief: 'The input text or question for the model. Clear, specific prompts produce better results. Supports multi-turn conversations.',
-      detailed: 'Text input to the model. Best practices:\n- Be specific and clear about desired output\n- Provide examples for complex tasks\n- Use system prompts for behavior/persona\n- Keep context within model limits\n\nSupports markdown and code blocks.',
-    },
-    relatedTerms: ['inference-max-tokens', 'inference-temperature'],
-    aliases: ['prompt', 'input'],
-  },
-  {
-    id: 'inference-max-tokens',
-    term: 'Inference Max Tokens',
-    category: 'ui-fields',
-    content: {
-      brief: 'Maximum number of tokens to generate in the response. Higher values allow longer responses but increase latency and cost.',
-      detailed: 'Maximum output length in tokens (roughly 4 chars/token):\n- **100-500**: Short answers, summaries\n- **500-1000**: Detailed explanations\n- **1000-2000**: Long-form content\n- **2000+**: Documents, extensive code\n\nHigher limits increase latency and memory usage.',
-    },
-    relatedTerms: ['tokens-per-second', 'inference-temperature'],
-    aliases: ['max tokens', 'output length'],
-  },
-  {
-    id: 'inference-temperature',
-    term: 'Inference Temperature',
-    category: 'ui-fields',
-    content: {
-      brief: 'Controls output randomness. Lower values (0.0-0.3) for factual tasks, higher values (0.7-1.5) for creative tasks.',
-      detailed: 'Sampling temperature controlling randomness:\n- **0.0**: Deterministic (always same output)\n- **0.1-0.3**: Factual, focused (code, data extraction)\n- **0.5-0.7**: Balanced (general QA, summaries)\n- **0.8-1.2**: Creative (writing, brainstorming)\n- **1.3+**: Very diverse, potentially incoherent\n\nDefault: 0.7 for most tasks.',
-    },
-    relatedTerms: ['inference-top-k', 'inference-top-p', 'inference-seed'],
-    aliases: ['temperature', 'sampling temperature'],
-  },
-  {
-    id: 'inference-top-k',
-    term: 'Inference Top-K',
-    category: 'ui-fields',
-    content: {
-      brief: 'Limits token selection to top K most probable tokens. Lower values (10-50) make output more focused and deterministic.',
-      detailed: 'Top-K sampling: consider only K most probable tokens:\n- **1**: Greedy (always most probable)\n- **10-50**: Focused, coherent\n- **50-100**: Balanced diversity\n- **100+**: High diversity\n\nCombined with temperature for fine-grained control.',
-    },
-    relatedTerms: ['inference-top-p', 'inference-temperature'],
-    aliases: ['top k', 'top-k sampling'],
-  },
-  {
-    id: 'inference-top-p',
-    term: 'Inference Top-P',
-    category: 'ui-fields',
-    content: {
-      brief: 'Nucleus sampling threshold. Selects from smallest set of tokens whose cumulative probability exceeds P. Typically 0.9-0.95.',
-      detailed: 'Top-P (nucleus) sampling: include tokens until cumulative probability reaches P:\n- **0.9**: Focused, excludes unlikely tokens\n- **0.95**: Balanced (recommended default)\n- **0.98**: More diverse\n- **1.0**: No filtering (all tokens considered)\n\nAlternative to top-K, often more stable.',
-    },
-    relatedTerms: ['inference-top-k', 'inference-temperature'],
-    aliases: ['top p', 'nucleus sampling'],
-  },
-  {
-    id: 'inference-seed',
-    term: 'Inference Seed',
-    category: 'ui-fields',
-    content: {
-      brief: 'Fixed random seed for reproducible outputs. Same seed with identical parameters produces consistent results for testing.',
-      detailed: 'Random seed for HKDF-based determinism:\n- Set seed for reproducible outputs (testing, debugging)\n- Same seed + params = identical output\n- Leave empty for varied outputs\n\nRequired for golden run testing and determinism audits.',
-    },
-    relatedTerms: ['inference-temperature', 'testing-epsilon'],
-    aliases: ['random seed', 'deterministic seed'],
-  },
-  {
-    id: 'inference-evidence',
-    term: 'Inference Evidence',
-    category: 'ui-fields',
-    content: {
-      brief: 'Enable retrieval-augmented generation (RAG). Requires evidence spans from indexed documents to support the response.',
-      detailed: 'RAG mode: augment responses with document evidence:\n- Retrieves relevant document chunks\n- Grounds responses in factual data\n- Provides citation spans\n- Reduces hallucination\n\nRequires documents indexed in collections.',
-    },
-    relatedTerms: ['inference-prompt'],
-    aliases: ['rag', 'evidence mode', 'retrieval'],
-  },
-  {
-    id: 'inference-stream',
-    term: 'Inference Stream',
-    category: 'ui-fields',
-    content: {
-      brief: 'Enable streaming mode to receive tokens as they are generated. Provides faster perceived response for interactive use.',
-      detailed: 'Streaming mode (SSE):\n- Tokens arrive progressively as generated\n- Lower perceived latency for long outputs\n- Better UX for interactive chat\n- Allows early cancellation\n\nDisable for batch processing or when full response needed.',
-    },
-    relatedTerms: ['inference-max-tokens'],
-    aliases: ['streaming', 'sse'],
-  },
-  {
-    id: 'inference-compare-mode',
-    term: 'Inference Compare Mode',
-    category: 'ui-fields',
-    content: {
-      brief: 'Run inference with two different configurations side-by-side to compare outputs, latency, and quality.',
-      detailed: 'A/B comparison mode:\n- Run same prompt with different adapters/params\n- Compare outputs, latency, quality metrics\n- Useful for adapter evaluation\n- Golden run validation\n\nHelps choose best adapter/configuration for task.',
-    },
-    relatedTerms: ['golden-comparison', 'inference-adapter-stack'],
-    aliases: ['compare', 'a/b test'],
-  },
-
+  // NOTE: 'inference-model' defined in domain file - removed duplicate
+  // NOTE: 'inference-adapter-stack' defined in domain file - removed duplicate
+  // NOTE: 'inference-prompt' defined in domain file - removed duplicate
+  // NOTE: 'inference-max-tokens' defined in domain file - removed duplicate
+  // NOTE: 'inference-temperature' defined in domain file - removed duplicate
+  // NOTE: 'inference-top-k' defined in domain file - removed duplicate
+  // NOTE: 'inference-top-p' defined in domain file - removed duplicate
+  // NOTE: 'inference-seed' defined in domain file - removed duplicate
+  // NOTE: 'inference-evidence' defined in domain file - removed duplicate
+  // NOTE: 'inference-stream' defined in domain file - removed duplicate
+  // NOTE: 'inference-compare-mode' defined in domain file - removed duplicate
   // ===== Adapter Fields =====
   {
     id: 'adapter-name',
@@ -382,17 +130,8 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     relatedTerms: ['adapter-version', 'adapter-category'],
     aliases: ['adapter id', 'name'],
   },
-  {
-    id: 'adapter-tier',
-    term: 'Adapter Tier',
-    category: 'ui-fields',
-    content: {
-      brief: 'Adapter tier (tier_1, tier_2, tier_3) determines priority for routing and resource allocation.',
-      detailed: 'Performance tier hierarchy:\n- **Tier 1**: Critical, highest priority, pinned to GPU\n- **Tier 2**: Important, frequently used, fast loading\n- **Tier 3**: Standard, loaded on-demand\n\nTier determines eviction order (tier 3 evicted first) and routing priority.',
-    },
-    relatedTerms: ['adapter-state', 'adapter-activation'],
-    aliases: ['tier', 'priority tier'],
-  },
+  // NOTE: 'adapter-tier' defined in domain file - removed duplicate
+
   {
     id: 'adapter-rank',
     term: 'Adapter Rank',
@@ -404,17 +143,8 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     relatedTerms: ['trainer-rank', 'adapter-memory'],
     aliases: ['rank', 'lora rank'],
   },
-  {
-    id: 'adapter-lifecycle',
-    term: 'Adapter Lifecycle',
-    category: 'ui-fields',
-    content: {
-      brief: 'Current lifecycle state: active (in use), deprecated (phasing out), or archived (read-only).',
-      detailed: 'Lifecycle management state:\n- **Active**: Production use, available for inference\n- **Deprecated**: Phasing out, still usable but warning shown\n- **Archived**: Read-only, no inference, kept for compliance\n\nTransitions controlled by adapter owners/admins.',
-    },
-    relatedTerms: ['adapter-state', 'adapter-status'],
-    aliases: ['lifecycle'],
-  },
+  // NOTE: 'adapter-lifecycle' defined in domain file - removed duplicate
+
   {
     id: 'adapter-state',
     term: 'Adapter State',
@@ -505,50 +235,11 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     relatedTerms: ['training-status', 'training-dataset'],
     aliases: ['job id', 'training id'],
   },
-  {
-    id: 'training-dataset',
-    term: 'Training Dataset',
-    category: 'ui-fields',
-    content: {
-      brief: 'The dataset used for training this adapter.',
-      detailed: 'Dataset reference:\n- Links to dataset ID in dataset registry\n- Contains training examples (prompt/completion pairs)\n- Must pass validation before training\n- Immutable once training starts',
-    },
-    relatedTerms: ['training-job-id', 'trainer-file-upload'],
-    aliases: ['dataset'],
-  },
-  {
-    id: 'training-status',
-    term: 'Training Status',
-    category: 'ui-fields',
-    content: {
-      brief: 'Current state of the training job: queued, running, completed, failed, or cancelled.',
-      detailed: 'Training lifecycle status:\n- **Queued**: Waiting for worker resources\n- **Running**: Active training in progress\n- **Paused**: Temporarily suspended\n- **Completed**: Successfully finished\n- **Failed**: Error occurred (check logs)\n- **Cancelled**: User-initiated stop\n\nStatus transitions logged for audit.',
-    },
-    relatedTerms: ['training-progress', 'training-actions'],
-    aliases: ['status', 'state'],
-  },
-  {
-    id: 'training-progress',
-    term: 'Training Progress',
-    category: 'ui-fields',
-    content: {
-      brief: 'Percentage of training epochs completed.',
-      detailed: 'Progress metric:\n- Calculated as (completed_epochs / total_epochs) × 100\n- Updates in real-time during training\n- Used for ETA estimation\n- Includes current epoch and batch progress',
-    },
-    relatedTerms: ['training-status', 'trainer-epochs'],
-    aliases: ['progress', 'completion'],
-  },
-  {
-    id: 'training-loss',
-    term: 'Training Loss',
-    category: 'ui-fields',
-    content: {
-      brief: 'Current loss value - lower indicates better model fit. Target varies by task.',
-      detailed: 'Loss function value:\n- Measures prediction error\n- Should decrease over time\n- Target loss varies by task (typically <1.0 for convergence)\n- Plateau indicates convergence or learning rate issues\n- Divergence (increasing) indicates instability',
-    },
-    relatedTerms: ['training-progress', 'trainer-learning-rate'],
-    aliases: ['loss', 'training error'],
-  },
+  // NOTE: 'training-dataset' defined in domain file - removed duplicate
+  // NOTE: 'training-status' defined in domain file - removed duplicate
+  // NOTE: 'training-progress' defined in domain file - removed duplicate
+  // NOTE: 'training-loss' defined in domain file - removed duplicate
+
   {
     id: 'training-learning-rate',
     term: 'Training Learning Rate',
@@ -663,39 +354,10 @@ export const uiFieldsEntries: GlossaryEntry[] = [
   },
 
   // ===== Audit Fields =====
-  {
-    id: 'audit-timestamp',
-    term: 'Audit Timestamp',
-    category: 'ui-fields',
-    content: {
-      brief: 'When the audit event occurred (local time). All timestamps are recorded in UTC and converted to your local timezone.',
-      detailed: 'Event occurrence time:\n- Stored in UTC in database\n- Displayed in browser local timezone\n- Precision: milliseconds\n- Immutable (tamper-evident)',
-    },
-    relatedTerms: ['audit-event', 'audit-date-range'],
-    aliases: ['timestamp', 'event time'],
-  },
-  {
-    id: 'audit-level',
-    term: 'Audit Level',
-    category: 'ui-fields',
-    content: {
-      brief: 'Severity level of the audit event: debug (detailed diagnostics), info (general events), warn (attention needed), error (failures), critical (urgent issues).',
-      detailed: 'Severity classification:\n- **Debug**: Detailed diagnostics (dev/troubleshooting)\n- **Info**: Normal operations (adapter load, policy apply)\n- **Warn**: Attention needed (deprecated API, quota warning)\n- **Error**: Operation failures (inference error, auth failure)\n- **Critical**: Urgent issues (security violation, data corruption)\n\nFilter logs by level for focused investigation.',
-    },
-    relatedTerms: ['audit-filter-level', 'audit-event'],
-    aliases: ['severity', 'log level'],
-  },
-  {
-    id: 'audit-event',
-    term: 'Audit Event',
-    category: 'ui-fields',
-    content: {
-      brief: 'The type of audit event (e.g., adapter.register, policy.apply, user.login). Events follow a hierarchical naming convention.',
-      detailed: 'Event type identifier:\n- Hierarchical naming: `category.action`\n- Examples: `adapter.load`, `user.login`, `policy.sign`\n- Indexed for fast filtering\n- Immutable event taxonomy',
-    },
-    relatedTerms: ['audit-timestamp', 'audit-search'],
-    aliases: ['event type', 'event'],
-  },
+  // NOTE: 'audit-timestamp' defined in domain file - removed duplicate
+  // NOTE: 'audit-level' defined in domain file - removed duplicate
+  // NOTE: 'audit-event' defined in domain file - removed duplicate
+
   {
     id: 'audit-user',
     term: 'Audit User',
@@ -830,94 +492,15 @@ export const uiFieldsEntries: GlossaryEntry[] = [
   },
 
   // ===== Node Management Fields =====
-  {
-    id: 'node-name',
-    term: 'Node Name',
-    category: 'ui-fields',
-    content: {
-      brief: 'Unique hostname identifier for this compute node in the cluster.',
-      detailed: 'Node identifier:\n- Typically hostname or FQDN\n- Must be unique across cluster\n- Used for routing workloads\n- Shown in metrics and logs',
-    },
-    relatedTerms: ['node-status', 'compute-nodes'],
-    aliases: ['hostname', 'node id'],
-  },
-  {
-    id: 'node-status',
-    term: 'Node Status',
-    category: 'ui-fields',
-    content: {
-      brief: 'Current health status: healthy (online and responsive), offline (unreachable), or error (experiencing issues).',
-      detailed: 'Node health state:\n- **Healthy**: Passing health checks, ready for workloads\n- **Offline**: Unreachable, no heartbeat received\n- **Error**: Errors reported, degraded performance\n- **Draining**: Gracefully removing workloads before shutdown\n\nBased on heartbeat and health check results.',
-    },
-    relatedTerms: ['node-last-seen', 'node-actions'],
-    aliases: ['status', 'health'],
-  },
-  {
-    id: 'node-cpu',
-    term: 'Node CPU',
-    category: 'ui-fields',
-    content: {
-      brief: 'Current CPU utilization percentage across all cores on this node.',
-      detailed: 'CPU metrics:\n- Average utilization across all cores\n- Real-time (updated every 5-10s)\n- High utilization (>80%) may indicate overload\n- Used for scheduling decisions',
-    },
-    relatedTerms: ['cpu-usage', 'node-memory'],
-    aliases: ['cpu utilization', 'cpu %'],
-  },
-  {
-    id: 'node-memory',
-    term: 'Node Memory',
-    category: 'ui-fields',
-    content: {
-      brief: 'Total available system memory in gigabytes for running workloads.',
-      detailed: 'Memory capacity:\n- Total RAM available for adapters and models\n- Excludes OS reserved memory\n- System maintains 15% headroom\n- Used for capacity planning',
-    },
-    relatedTerms: ['memory-usage', 'adapter-memory'],
-    aliases: ['ram', 'memory capacity'],
-  },
-  {
-    id: 'node-gpu',
-    term: 'Node GPU',
-    category: 'ui-fields',
-    content: {
-      brief: 'Number of GPU devices available for inference and training acceleration.',
-      detailed: 'GPU resources:\n- Count of GPUs on this node\n- Includes discrete GPUs and integrated GPUs\n- Used for inference and training acceleration\n- 0 = CPU-only node',
-    },
-    relatedTerms: ['node-memory', 'adapter-state'],
-    aliases: ['gpu count', 'gpus'],
-  },
-  {
-    id: 'node-adapters',
-    term: 'Node Adapters',
-    category: 'ui-fields',
-    content: {
-      brief: 'Count of adapters currently loaded and running on this node.',
-      detailed: 'Loaded adapter count:\n- Adapters in Warm/Hot/Resident states\n- Used for load balancing\n- High count may indicate memory pressure\n- View adapter list in node details',
-    },
-    relatedTerms: ['adapter-count', 'adapter-state'],
-    aliases: ['loaded adapters'],
-  },
-  {
-    id: 'node-last-seen',
-    term: 'Node Last Seen',
-    category: 'ui-fields',
-    content: {
-      brief: 'Timestamp of the most recent heartbeat received from this node.',
-      detailed: 'Heartbeat timestamp:\n- Updated every 10-30 seconds\n- Used to detect offline nodes\n- Stale (>2 minutes) triggers offline status\n- Shows in local timezone',
-    },
-    relatedTerms: ['node-status'],
-    aliases: ['last heartbeat', 'last seen'],
-  },
-  {
-    id: 'node-endpoint',
-    term: 'Node Endpoint',
-    category: 'ui-fields',
-    content: {
-      brief: 'Network endpoint URL where the node agent is listening for commands.',
-      detailed: 'Node agent endpoint:\n- UDS socket path or HTTP URL\n- Used for control plane communication\n- Typically: `unix:///var/run/aos/node.sock`\n- Egress policy enforced',
-    },
-    relatedTerms: ['node-name'],
-    aliases: ['endpoint', 'agent url'],
-  },
+  // NOTE: 'node-name' defined in domain file - removed duplicate
+  // NOTE: 'node-status' defined in domain file - removed duplicate
+  // NOTE: 'node-cpu' defined in domain file - removed duplicate
+  // NOTE: 'node-memory' defined in domain file - removed duplicate
+  // NOTE: 'node-gpu' defined in domain file - removed duplicate
+  // NOTE: 'node-adapters' defined in domain file - removed duplicate
+  // NOTE: 'node-last-seen' defined in domain file - removed duplicate
+  // NOTE: 'node-endpoint' defined in domain file - removed duplicate
+
   {
     id: 'node-actions',
     term: 'Node Actions',
@@ -953,51 +536,10 @@ export const uiFieldsEntries: GlossaryEntry[] = [
   },
 
   // ===== Dashboard System Resources =====
-  {
-    id: 'cpu-usage',
-    term: 'CPU Usage',
-    category: 'ui-fields',
-    content: {
-      brief: 'Current CPU utilization percentage across all cores in the system.',
-      detailed: 'System-wide CPU metric:\n- Aggregate across all nodes\n- Updated every 5-10 seconds\n- Threshold alerts: >80% warning, >95% critical\n- Includes inference, training, and system overhead',
-    },
-    relatedTerms: ['node-cpu', 'memory-usage'],
-    aliases: ['cpu utilization'],
-  },
-  {
-    id: 'memory-usage',
-    term: 'Memory Usage',
-    category: 'ui-fields',
-    content: {
-      brief: 'Current RAM utilization percentage including system and application memory.',
-      detailed: 'System-wide memory metric:\n- Aggregate across all nodes\n- Includes: adapters, base models, buffers, OS\n- System maintains 15% headroom\n- Alerts: >85% warning, >95% critical',
-    },
-    relatedTerms: ['node-memory', 'adapter-memory'],
-    aliases: ['ram usage', 'memory utilization'],
-  },
-  {
-    id: 'disk-usage',
-    term: 'Disk Usage',
-    category: 'ui-fields',
-    content: {
-      brief: 'Current disk space utilization percentage on the primary storage volume.',
-      detailed: 'Storage metric:\n- Primary volume usage (adapters, datasets, models)\n- Includes: registry, checkpoints, telemetry\n- Alerts: >80% warning, >90% critical\n- Cleanup threshold: 85%',
-    },
-    relatedTerms: ['memory-usage'],
-    aliases: ['storage usage', 'disk utilization'],
-  },
-  {
-    id: 'network-bandwidth',
-    term: 'Network Bandwidth',
-    category: 'ui-fields',
-    content: {
-      brief: 'Current network throughput in megabytes per second for incoming traffic.',
-      detailed: 'Network ingress metric:\n- MB/s incoming traffic\n- Typically low (UDS primary transport)\n- Spikes during: dataset uploads, adapter syncs\n- Egress policy limits outbound',
-    },
-    relatedTerms: ['disk-usage'],
-    aliases: ['network throughput', 'bandwidth'],
-  },
-
+  // NOTE: 'cpu-usage' defined in domain file - removed duplicate
+  // NOTE: memory-usage is defined in system.ts - do not duplicate here
+  // NOTE: 'disk-usage' defined in domain file - removed duplicate
+  // NOTE: 'network-bandwidth' defined in domain file - removed duplicate
   // ===== Dashboard Activity and Actions =====
   {
     id: 'recent-activity',
@@ -1425,17 +967,8 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     relatedTerms: ['promotion-execute', 'promotion-history'],
     aliases: ['rollback', 'revert'],
   },
-  {
-    id: 'golden-run',
-    term: 'Golden Run',
-    category: 'ui-fields',
-    content: {
-      brief: 'A golden run is a reference baseline capturing model outputs under controlled conditions. Used to verify determinism and detect regressions.',
-      detailed: 'Golden run:\n- Reference baseline for deterministic validation\n- Captures: inputs, outputs, latency, loss\n- Used for: regression testing, promotion gates\n- Created with fixed seed for reproducibility',
-    },
-    relatedTerms: ['golden-baseline', 'testing-epsilon'],
-    aliases: ['baseline', 'reference run'],
-  },
+  // NOTE: 'golden-run' defined in domain file - removed duplicate
+
   {
     id: 'golden-baseline',
     term: 'Golden Baseline',
@@ -1837,48 +1370,9 @@ export const uiFieldsEntries: GlossaryEntry[] = [
   },
 
   // ===== Routing Inspector Fields =====
-  {
-    id: 'routing-k-value',
-    term: 'Routing K Value',
-    category: 'ui-fields',
-    content: {
-      brief: 'Number of adapters selected by K-sparse routing. Higher K increases expressiveness but adds compute overhead.',
-      detailed: 'K-sparse parameter:\n- K = number of adapters activated per request\n- Typical: K=1-4\n- Higher K = more expressive, slower\n- Lower K = faster, less flexible\n- Budget: 8% routing overhead',
-    },
-    relatedTerms: ['routing-entropy', 'routing-overhead'],
-    aliases: ['k value', 'k-sparse'],
-  },
-  {
-    id: 'routing-entropy',
-    term: 'Routing Entropy',
-    category: 'ui-fields',
-    content: {
-      brief: 'Shannon entropy of gate distribution. Higher entropy indicates more uniform adapter selection. Low entropy may indicate collapsed routing.',
-      detailed: 'Gate entropy:\n- Shannon entropy of routing probabilities\n- High (>2.0): uniform, diverse routing\n- Low (<0.5): collapsed, few adapters used\n- Used to detect: routing collapse, bias',
-    },
-    relatedTerms: ['routing-k-value', 'adapter-activation'],
-    aliases: ['entropy'],
-  },
-  {
-    id: 'routing-overhead',
-    term: 'Routing Overhead',
-    category: 'ui-fields',
-    content: {
-      brief: 'Routing overhead as percentage of inference time. Budget limit is 8%. Values above indicate performance issues.',
-      detailed: 'Overhead metric:\n- Percentage: (routing_time / total_time) × 100\n- Target: <8%\n- High overhead: optimize router, reduce K\n- Includes: gate computation, adapter loading',
-    },
-    relatedTerms: ['routing-latency', 'latency-p95'],
-    aliases: ['overhead'],
-  },
-  {
-    id: 'routing-latency',
-    term: 'Routing Latency',
-    category: 'ui-fields',
-    content: {
-      brief: 'Router decision latency in microseconds. Lower values indicate faster adapter selection.',
-      detailed: 'Router latency:\n- Time to compute gate probabilities + select adapters\n- Target: <1ms (1000μs)\n- Typical: 100-500μs\n- High latency: simplify gates, reduce adapters',
-    },
-    relatedTerms: ['routing-overhead', 'latency-p95'],
-    aliases: ['latency', 'decision time'],
-  },
+  // NOTE: 'routing-k-value' defined in domain file - removed duplicate
+  // NOTE: 'routing-entropy' defined in domain file - removed duplicate
+  // NOTE: 'routing-overhead' defined in domain file - removed duplicate
+  // NOTE: 'routing-latency' defined in domain file - removed duplicate
+
 ];

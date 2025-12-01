@@ -1,7 +1,7 @@
-import { createActor } from './actor';
+import { createActor } from '@/services/actor';
 import { sanitizeStatus, verifyStatusSignature, type SignatureVerificationResult, type StatusOperationRecord, type StatusV2 } from '@/api/status';
-import { TenantVM, type TenantSnapshot } from './TenantVM';
-import { OpVM, type OperationSnapshot } from './OpVM';
+import { TenantVM, type TenantSnapshot } from '@/services/TenantVM';
+import { OpVM, type OperationSnapshot } from '@/services/OpVM';
 import type { OperationState } from '@/api/status';
 import { logger } from '@/utils/logger';
 

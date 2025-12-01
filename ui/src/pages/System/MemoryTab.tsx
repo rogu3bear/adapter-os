@@ -41,7 +41,7 @@ export default function MemoryTab() {
   const { evictAdapter } = useMemoryOperations();
   const { toast } = useToast();
 
-  const handleEvict = async (adapterId: string) => {
+  const handleEvict = useCallback(async (adapterId: string) => {
     if (!confirm(`Are you sure you want to remove adapter ${adapterId} from memory?`)) {
       return;
     }
@@ -60,7 +60,7 @@ export default function MemoryTab() {
         variant: 'destructive',
       });
     }
-  };
+  }, [evictAdapter, toast, refetch]);
 
   const memoryUsagePercent = useMemo(() => {
     // Use live SSE data if available and connected
@@ -147,7 +147,7 @@ export default function MemoryTab() {
         },
       },
     ],
-    [evictAdapter.isLoading]
+    [evictAdapter.isLoading, handleEvict]
   );
 
   if (isLoading) {

@@ -75,7 +75,7 @@ pub async fn new_auto(
 ```
 
 **Characteristics:**
-- Fallback chain: CoreML → Metal → MLX
+- Fallback chain: CoreML → MLX → Metal
 - Platform-aware compilation via `#[cfg]` attributes
 - Comprehensive error messages
 - No panics, all errors propagated as `Result`

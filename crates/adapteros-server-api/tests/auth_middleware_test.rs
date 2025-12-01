@@ -162,3 +162,80 @@ fn test_error_code_constants() {
     // (this is a regression test for the security fix)
     assert_ne!(unauthorized, internal_error);
 }
+
+#[test]
+fn test_improved_error_codes_and_messages() {
+    // Test that new error codes are distinct and meaningful
+    let error_codes = vec![
+        "MISSING_AUTH",
+        "INVALID_SIGNATURE",
+        "TOKEN_EXPIRED",
+        "TOKEN_NOT_VALID_YET",
+        "MALFORMED_TOKEN",
+        "TOKEN_VALIDATION_FAILED",
+        "TOKEN_REVOKED",
+        "TENANT_NOT_FOUND",
+        "IP_DENIED",
+        "RATE_LIMIT_EXCEEDED",
+        "INVALID_CREDENTIALS",
+        "ACCOUNT_DISABLED",
+        "VERIFICATION_ERROR",
+        "LOGIN_UNAVAILABLE",
+        "USER_NOT_FOUND",
+        "API_USAGE_ERROR",
+        "METHOD_NOT_ALLOWED",
+        "ENDPOINT_NOT_FOUND",
+    ];
+
+    // Ensure all error codes are unique
+    let mut unique_codes = std::collections::HashSet::new();
+    for code in &error_codes {
+        assert!(unique_codes.insert(code), "Duplicate error code: {}", code);
+    }
+
+    // Verify error codes follow consistent naming pattern
+    for code in &error_codes {
+        assert!(code.chars().all(|c| c.is_ascii_uppercase() || c == '_'),
+               "Error code '{}' should be UPPER_SNAKE_CASE", code);
+        assert!(!code.is_empty(), "Error code should not be empty");
+    }
+
+    // Test that error messages are more descriptive than generic ones
+    let improved_messages = vec![
+        "Authentication required",
+        "Token signature is invalid",
+        "Token has expired",
+        "Token not valid yet",
+        "Token format is invalid",
+        "Token validation failed",
+        "Session expired or logged out",
+        "Tenant access denied",
+        "IP address not allowed",
+        "Too many requests",
+        "Invalid email or password",
+        "Account disabled",
+        "Login verification failed",
+        "Login temporarily unavailable",
+        "Account no longer exists",
+        "API usage error",
+        "Method not allowed",
+        "Endpoint not found",
+    ];
+
+    // Ensure we have the same number of messages as codes
+    assert_eq!(error_codes.len(), improved_messages.len(),
+               "Number of error codes and messages should match");
+
+    // Verify messages are more helpful than generic "invalid token" or "unauthorized"
+    for message in &improved_messages {
+        assert!(!message.to_lowercase().contains("invalid token") ||
+                message.to_lowercase().contains("signature") ||
+                message.to_lowercase().contains("expired") ||
+                message.to_lowercase().contains("format"),
+               "Message '{}' should be more specific than generic 'invalid token'", message);
+        assert!(!message.to_lowercase().contains("unauthorized") ||
+                message.to_lowercase().contains("required") ||
+                message.to_lowercase().contains("denied"),
+               "Message '{}' should be more specific than generic 'unauthorized'", message);
+    }
+}

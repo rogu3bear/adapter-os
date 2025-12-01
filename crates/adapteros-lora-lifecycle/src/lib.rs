@@ -982,6 +982,23 @@ impl LifecycleManager {
                         },
                     )?;
                 }
+
+                // Log behavior event for training data
+                if let Some(ref db) = self.db {
+                    let _ = db
+                        .insert_behavior_event(
+                            "pinned",
+                            &record.adapter_id,
+                            tenant_id,
+                            &old_state.to_string(),
+                            "resident",
+                            old_state.priority_boost(),
+                            memory_bytes as u64,
+                            "manual_pin",
+                            None,
+                        )
+                        .await;
+                }
             } else {
                 return Err(AosError::Lifecycle(format!(
                     "Adapter {} not found",
@@ -1268,6 +1285,9 @@ impl LifecycleManager {
                     // Unload from memory
                     let mut loader = self.loader.write();
                     loader.unload_adapter(adapter_id)?;
+
+                    // Note: DB behavior event logging skipped in sync context
+                    // The telemetry log above captures the eviction event
 
                     return Ok(()); // Evicted one, check if enough
                 }
@@ -1787,6 +1807,23 @@ impl LifecycleManager {
                     memory_freed,
                 },
             )?;
+        }
+
+        // Log behavior event for training data
+        if let Some(ref db) = self.db {
+            let _ = db
+                .insert_behavior_event(
+                    "evicted",
+                    &adapter_id_str,
+                    "system", // Eviction is system-initiated
+                    &old_state.to_string(),
+                    "unloaded",
+                    old_state.priority_boost(),
+                    memory_freed as u64,
+                    "lru_eviction",
+                    None,
+                )
+                .await;
         }
 
         Ok(())
@@ -2507,6 +2544,19 @@ pub struct KReductionEvent {
     pub old_k: usize,
     pub new_k: usize,
     pub reason: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BehaviorEvent {
+    pub event_type: String,
+    pub adapter_id: String,
+    pub tenant_id: String,
+    pub from_state: String,
+    pub to_state: String,
+    pub activation_pct: f32,
+    pub memory_mb: u64,
+    pub reason: String,
+    pub metadata: Option<String>,
 }
 
 

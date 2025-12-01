@@ -13,11 +13,10 @@
 //! Run with: cargo test -p adapteros-deterministic-exec --test determinism_validation -- --nocapture
 
 use adapteros_deterministic_exec::{
-    DeterministicExecutor, DeterministicExecutorError, ExecutorConfig, ExecutorEvent, TaskId,
+    DeterministicExecutor, DeterministicExecutorError, ExecutorConfig, ExecutorEvent,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 // ============================================================================
 // Test Helpers
@@ -36,6 +35,7 @@ fn create_executor(global_seed: [u8; 32]) -> DeterministicExecutor {
 }
 
 /// Helper to join all handles
+#[allow(dead_code)]
 async fn join_all<T>(
     handles: Vec<tokio::task::JoinHandle<T>>,
 ) -> Vec<std::result::Result<T, tokio::task::JoinError>> {

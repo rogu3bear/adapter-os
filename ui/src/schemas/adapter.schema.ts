@@ -59,7 +59,7 @@ const tenantValidator = z.string()
     'Tenant must contain only lowercase letters, numbers, underscores, and hyphens'
   )
   .refine(
-    (val) => !ReservedTenants.includes(val as any),
+    (val) => !ReservedTenants.includes(val as typeof ReservedTenants[number]),
     'This tenant name is reserved'
   );
 
@@ -71,7 +71,7 @@ const domainValidator = z.string()
     'Domain must contain only lowercase letters, numbers, underscores, and hyphens'
   )
   .refine(
-    (val) => !ReservedDomains.includes(val as any),
+    (val) => !ReservedDomains.includes(val as typeof ReservedDomains[number]),
     'This domain name is reserved'
   );
 

@@ -94,7 +94,7 @@ AdapterOS uses multiple production-ready ML backends via FFI:
 - Health monitoring, circuit breakers, and auto-recovery
 - Multi-adapter routing with K-sparse selection
 
-**Metal Backend** (Production):
+**Metal Backend** (Incomplete - Legacy Fallback):
 - Precompiled Metal kernels for GPU acceleration
 - Deterministic execution guarantees
 - Memory pool integration
@@ -627,7 +627,7 @@ pub fn load(path: &Path) -> Result<Self> {
 | CoreML | `crates/adapteros-lora-kernel-coreml/` | ObjC++ | ANE acceleration | ✅ Production |
 | MLX | `crates/adapteros-lora-mlx-ffi/` | C++ | Production ML backend | ✅ Production |
 | Metal Observers | `crates/adapteros-memory/` | ObjC++ | Memory monitoring | ✅ Production |
-| Metal Shaders | `metal/src/kernels/` | Metal | GPU kernels | ✅ Production |
+| Metal Shaders | `metal/src/kernels/` | Metal | GPU kernels | ⚠️ Incomplete |
 
 ### Common FFI Patterns
 
@@ -729,12 +729,12 @@ FFI in AdapterOS:
 - ✅ **Minimal overhead** (< 0.001% of execution time)
 - ✅ **Secure by design** (hardware-only, no network egress)
 - ✅ **Well-audited** (< 1% unsafe code, isolated boundaries)
-- ✅ **Production-ready backends** (CoreML, MLX, and Metal are all fully implemented and operational)
+- ✅ **Production-ready backends** (CoreML and MLX are fully implemented; Metal has incomplete model loading)
 
 **Backend Status:**
 - **CoreML**: Fully implemented, operational, ANE acceleration with guaranteed determinism
 - **MLX**: Fully implemented, production-ready with enterprise resilience features
-- **Metal**: Production-ready with deterministic GPU kernels
+- **Metal**: Incomplete (model loading issues), deterministic GPU kernels when working
 
 **The FFI "tax" is worth paying** - it unlocks Apple's world-class ML hardware (ANE, GPU) through production-ready backends while maintaining Rust's safety guarantees where possible.
 

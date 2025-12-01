@@ -20,9 +20,9 @@ import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { ScrollArea } from './ui/scroll-area';
-import { useNotifications } from '../hooks/useNotifications';
+import { useNotifications } from '@/hooks/useNotifications';
 import { NotificationItem } from './NotificationItem';
-import { logger } from '../utils/logger';
+import { logger } from '@/utils/logger';
 import { CheckCheck, RefreshCw } from 'lucide-react';
 
 type NotificationType = 'all' | 'system_alert' | 'user_message' | 'activity_event' | 'resource_share' | 'mention';

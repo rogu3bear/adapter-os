@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'; // Add Accordion
 import { Input } from '@/components/ui/input'; // Add Input
 import { Button } from '@/components/ui/button'; // Add Button for pagination
@@ -88,8 +88,7 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
   };
 
   return (
-    <TooltipProvider>
-      <div className="space-y-6">
+    <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>User Journeys Dashboard</CardTitle>
@@ -112,12 +111,12 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
               <TabsList>
-                <TabsTrigger value="adapter-lifecycle">
-                  <Tooltip>
-                    <TooltipTrigger>Adapter Lifecycle</TooltipTrigger>
-                    <TooltipContent>Track adapter states from unloaded to hot</TooltipContent>
-                  </Tooltip>
-                </TabsTrigger>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <TabsTrigger value="adapter-lifecycle">Adapter Lifecycle</TabsTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">Track adapter states from unloaded to hot</TooltipContent>
+                </Tooltip>
                 <TabsTrigger value="promotion-pipeline">Promotion Pipeline</TabsTrigger>
                 <TabsTrigger value="monitoring-flow">Monitoring Flow</TabsTrigger>
               </TabsList>
@@ -158,7 +157,6 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
             </Tabs>
           </CardContent>
         </Card>
-      </div>
-    </TooltipProvider>
+    </div>
   );
 }

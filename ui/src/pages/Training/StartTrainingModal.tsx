@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { FormModal } from '@/components/shared/Modal';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -13,7 +12,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { useTraining } from '@/hooks/useTraining';
-import { Brain, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import type { StartTrainingRequest, TrainingConfigRequest } from '@/api/training-types';
 
 interface StartTrainingModalProps {
@@ -56,9 +55,7 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
     setAlpha('32');
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const handleSubmit = async () => {
     // Check dataset validation status
     if (datasetId && selectedDataset && selectedDataset.validation_status !== 'valid') {
       return; // Will be prevented by disabled button, but add check for safety
@@ -89,25 +86,25 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
   const isDatasetValid = !datasetId || selectedDataset?.validation_status === 'valid';
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Brain className="h-5 w-5" />
-            Start New Training Job
-          </DialogTitle>
-        </DialogHeader>
-
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Failed to start training: {error.message}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
+    <FormModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Start New Training Job"
+      size="xl"
+      onSubmit={handleSubmit}
+      submitText="Start Training"
+      isSubmitting={isPending}
+      isValid={isDatasetValid}
+      onCancel={resetForm}
+    >
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Failed to start training: {error.message}
+          </AlertDescription>
+        </Alert>
+      )}
           <div>
             <Label htmlFor="adapterName">
               Adapter Name <span className="text-destructive">*</span>
@@ -126,12 +123,12 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
 
           <div>
             <Label htmlFor="datasetId">Dataset</Label>
-            <Select value={datasetId} onValueChange={setDatasetId}>
+            <Select value={datasetId || "__none__"} onValueChange={(v) => setDatasetId(v === "__none__" ? "" : v)}>
               <SelectTrigger id="datasetId">
                 <SelectValue placeholder="Select dataset (optional)" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">None</SelectItem>
+                <SelectItem value="__none__">None</SelectItem>
                 {datasets.map((dataset) => (
                   <SelectItem key={dataset.id} value={dataset.id}>
                     <div className="flex items-center gap-2">
@@ -156,12 +153,12 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
 
           <div>
             <Label htmlFor="templateId">Template</Label>
-            <Select value={templateId} onValueChange={setTemplateId}>
+            <Select value={templateId || "__none__"} onValueChange={(v) => setTemplateId(v === "__none__" ? "" : v)}>
               <SelectTrigger id="templateId">
                 <SelectValue placeholder="Select template (optional)" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">None</SelectItem>
+                <SelectItem value="__none__">None</SelectItem>
                 {templates.map((template) => (
                   <SelectItem key={template.id} value={template.id}>
                     {template.name}
@@ -252,39 +249,6 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
               />
             </div>
           </div>
-
-          <div className="flex justify-end gap-2 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                onOpenChange(false);
-                resetForm();
-              }}
-              disabled={isPending}
-            >
-              Cancel
-            </Button>
-            <Button 
-              type="submit" 
-              disabled={isPending || !isDatasetValid}
-              title={!isDatasetValid ? 'Dataset must be validated before training' : undefined}
-            >
-              {isPending ? (
-                <>
-                  <Brain className="h-4 w-4 mr-2 animate-pulse" />
-                  Starting...
-                </>
-              ) : (
-                <>
-                  <Brain className="h-4 w-4 mr-2" />
-                  Start Training
-                </>
-              )}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </FormModal>
   );
 }

@@ -103,15 +103,15 @@ export function parseValidationErrors(error: ZodError): Record<string, { message
  * Validate a single field against a schema
  * Useful for real-time field validation
  */
-export function validateField<T extends Record<string, any>>(
+export function validateField<T extends Record<string, unknown>>(
   schema: ZodSchema,
   fieldName: string,
-  value: any,
+  value: unknown,
   context?: T
 ): { valid: boolean; error?: string; suggestion?: string } {
   try {
     // Extract the field schema from the parent schema
-    const fieldSchema = (schema as any)._shape?.[fieldName];
+    const fieldSchema = (schema as { _shape?: Record<string, ZodSchema> })._shape?.[fieldName];
     if (!fieldSchema) {
       return { valid: true }; // Field not found in schema, skip validation
     }
@@ -159,7 +159,7 @@ export function formatFieldError(fieldName: string, error: string, suggestion?: 
  * Batch validate multiple fields
  * Useful for validating entire forms
  */
-export async function validateForm<T extends Record<string, any>>(
+export async function validateForm<T extends Record<string, unknown>>(
   schema: ZodSchema,
   data: T
 ): Promise<ValidationResult> {

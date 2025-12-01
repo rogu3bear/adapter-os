@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../ui/select';
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -17,7 +17,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '../ui/table';
+} from '@/components/ui/table';
 import {
   FileText,
   Download,
@@ -31,10 +31,10 @@ import {
   XCircle,
   AlertCircle,
 } from 'lucide-react';
-import apiClient from '../../api/client';
-import { AuditLog, AuditLogFilters } from '../../api/types';
+import apiClient from '@/api/client';
+import { AuditLog, AuditLogFilters } from '@/api/types';
 import { toast } from 'sonner';
-import { logger } from '../../utils/logger';
+import { logger } from '@/utils/logger';
 
 interface SecurityAuditTrailProps {
   tenantId?: string;

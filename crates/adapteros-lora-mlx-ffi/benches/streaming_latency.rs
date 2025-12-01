@@ -148,10 +148,6 @@ impl TokenSimulator {
         self.current_index += 1;
         Some((*id, text.as_str()))
     }
-
-    fn reset(&mut self) {
-        self.current_index = 0;
-    }
 }
 
 // =============================================================================

@@ -10,6 +10,7 @@ import type { SystemOverview, Adapter } from '@/api/types';
 import type { BaseModelStatus } from '@/api/api-types';
 import type { AdapterStack } from '@/api/adapter-types';
 import type { OwnerChatContext } from '@/api/owner-types';
+import { logger, toError } from '@/utils/logger';
 
 interface ChatMessage {
   id: string;
@@ -125,7 +126,14 @@ export function SystemChatWidget({ systemOverview, adapters, baseModelStatus, ac
 
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
-      console.error('Chat API error:', error);
+      logger.error('System chat API request failed', {
+        component: 'SystemChatWidget',
+        operation: 'sendMessage',
+        errorType: 'chat_api_failure',
+        details: 'Failed to send message to system chat API',
+        messageLength: userMessage.content.length,
+        messagePreview: userMessage.content.substring(0, 100)
+      }, toError(error));
 
       // Categorize error for better user feedback
       const isNetworkError = error instanceof TypeError ||

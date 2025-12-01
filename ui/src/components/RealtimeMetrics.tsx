@@ -15,13 +15,14 @@ import {
   GitBranch,
   RefreshCw
 } from 'lucide-react';
-import { SystemMetrics, User } from '../api/types';
+import { SystemMetrics, User } from '@/api/types';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
-import apiClient from '../api/client';
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
+import { METRIC_COLORS } from '@/constants/chart-colors';
 
 interface RealtimeMetricsProps {
   user: User;
@@ -266,9 +267,9 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
                 <XAxis dataKey="time" hide />
                 <YAxis domain={[0, 100]} />
                 <Tooltip />
-                <Area type="monotone" dataKey="CPU" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.6} />
-                <Area type="monotone" dataKey="Memory" stackId="1" stroke="#10b981" fill="#10b981" fillOpacity={0.6} />
-                <Area type="monotone" dataKey="GPU" stackId="1" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.6} />
+                <Area type="monotone" dataKey="CPU" stackId="1" stroke={METRIC_COLORS.cpu} fill={METRIC_COLORS.cpu} fillOpacity={0.6} />
+                <Area type="monotone" dataKey="Memory" stackId="1" stroke={METRIC_COLORS.memory} fill={METRIC_COLORS.memory} fillOpacity={0.6} />
+                <Area type="monotone" dataKey="GPU" stackId="1" stroke={METRIC_COLORS.gpu} fill={METRIC_COLORS.gpu} fillOpacity={0.6} />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>
@@ -286,8 +287,8 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
                 <YAxis yAxisId="left" />
                 <YAxis yAxisId="right" orientation="right" />
                 <Tooltip />
-                <Line yAxisId="left" type="monotone" dataKey="Tokens/s" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                <Line yAxisId="right" type="monotone" dataKey="Latency" stroke="#ef4444" strokeWidth={2} dot={false} />
+                <Line yAxisId="left" type="monotone" dataKey="Tokens/s" stroke={METRIC_COLORS.tokensPerSecond} strokeWidth={2} dot={false} />
+                <Line yAxisId="right" type="monotone" dataKey="Latency" stroke={METRIC_COLORS.latency} strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>

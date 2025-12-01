@@ -7,15 +7,15 @@
 //! - docs/Smashing Design Techniques.md L1-L50 - Trust-building UX patterns
 //! - ui/src/utils/errorMessages.ts L1-L50 - Error classification for retry decisions
 
-import { isTransientError } from './errorMessages';
-import { logger } from '../utils/logger';
+import { isTransientError } from '@/utils/errorMessages';
+import { logger } from '@/utils/logger';
 import { toast } from 'sonner';
 
 // Lazy import to avoid circular dependencies
-let retryNotificationManager: any = null;
+let retryNotificationManager: { show: (operation: string, attempt: number, maxAttempts: number, delayMs: number) => void } | null = null;
 const getRetryNotificationManager = async () => {
   if (!retryNotificationManager) {
-    const { retryNotificationManager: manager } = await import('../components/ui/retry-notification');
+    const { retryNotificationManager: manager } = await import('@/components/ui/retry-notification');
     retryNotificationManager = manager;
   }
   return retryNotificationManager;
@@ -27,7 +27,7 @@ export interface RetryConfig {
   maxDelay: number; // Maximum delay in milliseconds
   backoffMultiplier: number; // Exponential backoff multiplier
   jitter: number; // Jitter factor (0-1, e.g., 0.1 = ±10% jitter)
-  retryableErrors?: (error: any) => boolean; // Custom function to determine if error is retryable
+  retryableErrors?: (error: unknown) => boolean; // Custom function to determine if error is retryable
 }
 
 export type RetryResult<T> =
@@ -38,7 +38,7 @@ export type RetryResult<T> =
     }
   | {
       success: false;
-      error: any;
+      error: unknown;
       attempts: number;
     };
 
@@ -75,11 +75,11 @@ function sleep(ms: number): Promise<void> {
 export async function retryWithBackoff<T>(
   operation: () => Promise<T>,
   config: Partial<RetryConfig> = {},
-  onRetry?: (attempt: number, error: any, delay: number) => void,
+  onRetry?: (attempt: number, error: unknown, delay: number) => void,
   operationName: string = 'operation'
 ): Promise<RetryResult<T>> {
   const finalConfig = { ...DEFAULT_RETRY_CONFIG, ...config };
-  let lastError: any;
+  let lastError: unknown;
   let attempt = 0;
 
   while (attempt < finalConfig.maxAttempts) {
@@ -213,7 +213,7 @@ export function createRetryWrapper(config: Partial<RetryConfig> = {}) {
     if (result.success) {
       return result.value;
     }
-    throw (result as { success: false; error: any; attempts: number }).error;
+    throw (result as { success: false; error: unknown; attempts: number }).error;
   };
 }
 

@@ -4,7 +4,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Settings, FileText, Database, Zap, Folder } from 'lucide-react';
-import { useTrainingWizardContext } from '../context';
+import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
 
 export function ReviewStep() {
   const { state } = useTrainingWizardContext();

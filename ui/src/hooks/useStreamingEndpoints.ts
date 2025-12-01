@@ -29,7 +29,7 @@ import {
   TelemetryStreamEvent,
   AdapterStreamEvent,
   StackPolicyStreamEvent,
-} from '../api/streaming-types';
+} from '@/api/streaming-types';
 
 /**
  * Extended SSE hook result with additional metadata
@@ -46,9 +46,10 @@ export interface StreamHookResult<T> {
  * Factory function to create streaming hooks with consistent behavior
  * Eliminates duplication across all stream endpoint hooks
  */
-function createStreamHook<T extends Record<string, any>>(endpoint: string) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createStreamHook<T = any>(endpoint: string) {
   return function useStream(options: UseSSEOptions<T> = {}): StreamHookResult<T> {
-    const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
+    const memoizedOptions = useMemo(() => options, [options]);
     const { data, error, connected, reconnect } = useSSE<T>(endpoint, memoizedOptions);
 
     return useMemo(
@@ -57,7 +58,7 @@ function createStreamHook<T extends Record<string, any>>(endpoint: string) {
         error,
         connected,
         reconnect,
-        lastUpdated: data && 'timestamp' in data ? String(data.timestamp) : undefined,
+        lastUpdated: data && typeof data === 'object' && data !== null && 'timestamp' in data ? String((data as any).timestamp) : undefined,
       }),
       [data, error, connected, reconnect]
     );
@@ -198,7 +199,7 @@ export function useStackPolicyStream(
   stackId: string,
   options: UseSSEOptions<StackPolicyStreamEvent> = {}
 ): StreamHookResult<StackPolicyStreamEvent> {
-  const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
+  const memoizedOptions = useMemo(() => options, [options]);
   const endpoint = stackId ? `/v1/stream/stack-policies/${encodeURIComponent(stackId)}` : '';
 
   const { data, error, connected, reconnect } = useSSE<StackPolicyStreamEvent>(

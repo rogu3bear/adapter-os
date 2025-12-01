@@ -166,14 +166,14 @@ async fn test_dataset_validation() {
         .expect("Failed to initialize test harness");
 
     // Create invalid dataset
-    let invalid_result = sqlx::query!(
+    let invalid_result = sqlx::query(
         "INSERT INTO training_datasets (id, hash_b3, name, validation_status, created_at)
-         VALUES (?, ?, ?, ?, datetime('now'))",
-        "invalid-dataset",
-        "0".repeat(64),
-        "Invalid Dataset",
-        "invalid"
+         VALUES (?, ?, ?, ?, datetime('now'))"
     )
+    .bind("invalid-dataset")
+    .bind("0".repeat(64))
+    .bind("Invalid Dataset")
+    .bind("invalid")
     .execute(harness.db().pool())
     .await;
 
@@ -189,30 +189,30 @@ async fn test_dataset_validation() {
         .expect("Failed to create valid dataset");
 
     // Query and verify validation statuses
-    let invalid = sqlx::query!(
-        "SELECT validation_status FROM training_datasets WHERE id = ?",
-        "invalid-dataset"
+    let invalid: (Option<String>,) = sqlx::query_as(
+        "SELECT validation_status FROM training_datasets WHERE id = ?"
     )
+    .bind("invalid-dataset")
     .fetch_one(harness.db().pool())
     .await
     .unwrap();
 
     assert_eq!(
-        invalid.validation_status.as_deref(),
+        invalid.0.as_deref(),
         Some("invalid"),
         "Invalid dataset should have invalid status"
     );
 
-    let valid = sqlx::query!(
-        "SELECT validation_status FROM training_datasets WHERE id = ?",
-        "valid-dataset"
+    let valid: (Option<String>,) = sqlx::query_as(
+        "SELECT validation_status FROM training_datasets WHERE id = ?"
     )
+    .bind("valid-dataset")
     .fetch_one(harness.db().pool())
     .await
     .unwrap();
 
     assert_eq!(
-        valid.validation_status.as_deref(),
+        valid.0.as_deref(),
         Some("valid"),
         "Valid dataset should have valid status"
     );
@@ -237,77 +237,110 @@ async fn test_training_job_states() {
         .await
         .expect("Failed to create adapter");
 
-    // Test pending state
-    sqlx::query!(
-        "INSERT INTO training_jobs (id, dataset_id, adapter_id, status, progress_pct, created_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))",
-        "pending-job",
-        "job-test-dataset",
-        "job-test-adapter",
-        "pending",
-        0
+    // Create a git repository first (required for FK)
+    sqlx::query(
+        "INSERT INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
+    .bind("test-repo-1")
+    .bind("job-test-dataset")
+    .bind("/tmp/test")
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind("active")
+    .bind("test-user")
+    .execute(harness.db().pool())
+    .await
+    .unwrap();
+
+    // Test pending state
+    sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    .bind("pending-job")
+    .bind("job-test-dataset")
+    .bind("{}")
+    .bind("pending")
+    .bind("{\"progress_pct\": 0}")
+    .bind("test-user")
     .execute(harness.db().pool())
     .await
     .unwrap();
 
     // Test running state
-    sqlx::query!(
-        "INSERT INTO training_jobs (id, dataset_id, adapter_id, status, progress_pct, created_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))",
-        "running-job",
-        "job-test-dataset",
-        "job-test-adapter",
-        "running",
-        50
+    sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)"
     )
+    .bind("running-job")
+    .bind("job-test-dataset")
+    .bind("{}")
+    .bind("running")
+    .bind("{\"progress_pct\": 50}")
+    .bind("test-user")
     .execute(harness.db().pool())
     .await
     .unwrap();
 
     // Test completed state
-    harness
-        .create_test_training_job("completed-job", "job-test-dataset", "job-test-adapter")
-        .await
-        .expect("Failed to create completed job");
+    sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    .bind("completed-job")
+    .bind("job-test-dataset")
+    .bind("{}")
+    .bind("completed")
+    .bind("{\"progress_pct\": 100}")
+    .bind("test-user")
+    .execute(harness.db().pool())
+    .await
+    .unwrap();
 
     // Test failed state
-    sqlx::query!(
-        "INSERT INTO training_jobs (id, dataset_id, adapter_id, status, progress_pct, created_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))",
-        "failed-job",
-        "job-test-dataset",
-        "job-test-adapter",
-        "failed",
-        75
+    sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)"
     )
+    .bind("failed-job")
+    .bind("job-test-dataset")
+    .bind("{}")
+    .bind("failed")
+    .bind("{\"progress_pct\": 75}")
+    .bind("test-user")
     .execute(harness.db().pool())
     .await
     .unwrap();
 
     // Test cancelled state
-    sqlx::query!(
-        "INSERT INTO training_jobs (id, dataset_id, adapter_id, status, progress_pct, created_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))",
-        "cancelled-job",
-        "job-test-dataset",
-        "job-test-adapter",
-        "cancelled",
-        25
+    sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)"
     )
+    .bind("cancelled-job")
+    .bind("job-test-dataset")
+    .bind("{}")
+    .bind("cancelled")
+    .bind("{\"progress_pct\": 25}")
+    .bind("test-user")
     .execute(harness.db().pool())
     .await
     .unwrap();
 
     // Verify all states exist
-    let jobs = sqlx::query!("SELECT id, status, progress_pct FROM training_jobs ORDER BY id")
-        .fetch_all(harness.db().pool())
-        .await
-        .unwrap();
+    let jobs: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, status FROM repository_training_jobs ORDER BY id"
+    )
+    .fetch_all(harness.db().pool())
+    .await
+    .unwrap();
 
     assert_eq!(jobs.len(), 5, "Should have 5 training jobs");
 
-    let statuses: Vec<_> = jobs.iter().map(|j| j.status.as_str()).collect();
+    let statuses: Vec<_> = jobs.iter().map(|j| j.1.as_str()).collect();
     assert!(statuses.contains(&"pending"), "Should have pending job");
     assert!(statuses.contains(&"running"), "Should have running job");
     assert!(statuses.contains(&"completed"), "Should have completed job");
@@ -334,45 +367,65 @@ async fn test_training_progress_tracking() {
         .await
         .expect("Failed to create adapter");
 
-    // Create job with initial progress
-    sqlx::query!(
-        "INSERT INTO training_jobs (id, dataset_id, adapter_id, status, progress_pct, loss, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-        "progress-job",
-        "progress-dataset",
-        "progress-adapter",
-        "running",
-        0,
-        1.0
+    // Create a git repository first (required for FK)
+    sqlx::query(
+        "INSERT INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
+    .bind("test-repo-progress")
+    .bind("progress-dataset")
+    .bind("/tmp/test")
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind("active")
+    .bind("test-user")
     .execute(harness.db().pool())
     .await
     .unwrap();
 
-    // Simulate progress updates
+    // Create job with initial progress
+    sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    .bind("progress-job")
+    .bind("progress-dataset")
+    .bind("{}")
+    .bind("running")
+    .bind("{\"progress_pct\": 0, \"loss\": 1.0}")
+    .bind("test-user")
+    .execute(harness.db().pool())
+    .await
+    .unwrap();
+
+    // Simulate progress updates using progress_json
     let progress_steps = vec![(25, 0.75), (50, 0.50), (75, 0.25), (100, 0.05)];
 
     for (progress, loss) in progress_steps {
-        sqlx::query!(
-            "UPDATE training_jobs SET progress_pct = ?, loss = ? WHERE id = ?",
-            progress,
-            loss,
-            "progress-job"
+        let progress_json = format!("{{\"progress_pct\": {}, \"loss\": {}}}", progress, loss);
+        sqlx::query(
+            "UPDATE repository_training_jobs SET progress_json = ? WHERE id = ?"
         )
+        .bind(&progress_json)
+        .bind("progress-job")
         .execute(harness.db().pool())
         .await
         .unwrap();
 
-        let result = sqlx::query!(
-            "SELECT progress_pct, loss FROM training_jobs WHERE id = ?",
-            "progress-job"
+        let result: (String,) = sqlx::query_as(
+            "SELECT progress_json FROM repository_training_jobs WHERE id = ?"
         )
+        .bind("progress-job")
         .fetch_one(harness.db().pool())
         .await
         .unwrap();
 
-        assert_eq!(result.progress_pct, progress, "Progress should match");
-        assert_eq!(result.loss, Some(loss), "Loss should match");
+        // Parse JSON and verify
+        let parsed: serde_json::Value = serde_json::from_str(&result.0).unwrap();
+        assert_eq!(parsed["progress_pct"].as_i64().unwrap(), progress as i64, "Progress should match");
+        assert!((parsed["loss"].as_f64().unwrap() - loss).abs() < 0.001, "Loss should match");
     }
 
     println!("✓ Training progress tracking test passed");
@@ -400,16 +453,35 @@ async fn test_training_job_cancellation() {
         .await
         .expect("Failed to create adapter");
 
-    // Create running job
-    sqlx::query!(
-        "INSERT INTO training_jobs (id, dataset_id, adapter_id, status, progress_pct, created_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))",
-        "cancel-job",
-        "cancel-dataset",
-        "cancel-adapter",
-        "running",
-        30
+    // Create a git repository first (required for FK)
+    sqlx::query(
+        "INSERT INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
+    .bind("test-repo-cancel")
+    .bind("cancel-dataset")
+    .bind("/tmp/test")
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind("active")
+    .bind("test-user")
+    .execute(harness.db().pool())
+    .await
+    .unwrap();
+
+    // Create running job
+    sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    .bind("cancel-job")
+    .bind("cancel-dataset")
+    .bind("{}")
+    .bind("running")
+    .bind("{\"progress_pct\": 30}")
+    .bind("test-user")
     .execute(harness.db().pool())
     .await
     .unwrap();

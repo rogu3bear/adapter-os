@@ -1,8 +1,12 @@
 #[cfg(feature = "mmap")]
 use adapteros_aos::AosLoader;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+#[cfg(feature = "mmap")]
+use criterion::black_box;
+use criterion::{criterion_group, criterion_main, Criterion};
+#[cfg(feature = "mmap")]
 use std::path::PathBuf;
 
+#[cfg(feature = "mmap")]
 fn find_test_adapter() -> Option<PathBuf> {
     let adapters_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()?

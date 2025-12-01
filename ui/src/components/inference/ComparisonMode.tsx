@@ -1,9 +1,9 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Textarea } from '../ui/textarea';
-import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Play,
   Copy,
@@ -18,9 +18,9 @@ import {
   Info,
   HelpCircle,
 } from 'lucide-react';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
-import { InferResponse, InferenceConfig } from '../../api/types';
-import { TraceVisualizer } from '../TraceVisualizer';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
+import { InferResponse, InferenceConfig } from '@/api/types';
+import { TraceVisualizer } from '@/components/TraceVisualizer';
 
 export interface ComparisonModeProps {
   prompt: string;
@@ -101,7 +101,7 @@ export function ComparisonMode({
               <div className="flex gap-2">
                 <Badge variant="outline" className="gap-1">
                   <Clock className="h-3 w-3" />
-                  {response.latency_ms || ('trace' in response && response.trace && 'latency_ms' in response.trace ? (response.trace as any).latency_ms : 0)}ms
+                  {response.latency_ms || ('trace' in response && response.trace && typeof response.trace === 'object' && response.trace !== null && 'latency_ms' in response.trace ? (response.trace as { latency_ms: number }).latency_ms : 0)}ms
                 </Badge>
                 <Badge variant="outline" className="gap-1">
                   <FileText className="h-3 w-3" />
@@ -134,8 +134,8 @@ export function ComparisonMode({
         </Card>
 
         {/* Trace Information */}
-        {response.trace && 'latency_ms' in response.trace && (
-          <TraceVisualizer trace={response.trace as any} />
+        {response.trace && typeof response.trace === 'object' && response.trace !== null && 'latency_ms' in response.trace && (
+          <TraceVisualizer trace={response.trace as { latency_ms: number }} />
         )}
 
         {/* Enhanced Metadata */}
@@ -145,9 +145,9 @@ export function ComparisonMode({
             <div>
               <div className="text-sm font-medium flex items-center gap-1">
                 Finish Reason
-                <HelpTooltip content="Indicates why generation stopped - 'stop' (complete), 'length' (max tokens reached), 'error' (failure)">
+                <GlossaryTooltip brief="Indicates why generation stopped - 'stop' (complete), 'length' (max tokens reached), 'error' (failure)">
                   <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                </HelpTooltip>
+                </GlossaryTooltip>
               </div>
               <div className="text-xs text-muted-foreground">{response.finish_reason || 'unknown'}</div>
             </div>
@@ -157,9 +157,9 @@ export function ComparisonMode({
             <div>
               <div className="text-sm font-medium flex items-center gap-1">
                 Router Decisions
-                <HelpTooltip content="Number of adapter selection decisions made during inference. Each token may trigger routing to select which adapters to use.">
+                <GlossaryTooltip brief="Number of adapter selection decisions made during inference. Each token may trigger routing to select which adapters to use.">
                   <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                </HelpTooltip>
+                </GlossaryTooltip>
               </div>
               <div className="text-xs text-muted-foreground">
                 {response.trace?.router_decisions?.length || 0} steps
@@ -171,9 +171,9 @@ export function ComparisonMode({
             <div>
               <div className="text-sm font-medium flex items-center gap-1">
                 Evidence Spans
-                <HelpTooltip content="Document excerpts used to support the answer (RAG - Retrieval-Augmented Generation)">
+                <GlossaryTooltip brief="Document excerpts used to support the answer (RAG - Retrieval-Augmented Generation)">
                   <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                </HelpTooltip>
+                </GlossaryTooltip>
               </div>
               <div className="text-xs text-muted-foreground">
                 {response.trace?.evidence_spans?.length || 0} found
@@ -300,15 +300,15 @@ export function ComparisonMode({
               <div>
                 <p className="text-sm font-medium">Latency</p>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline">A: {responseA.latency_ms || responseA.trace?.latency_ms || 0}ms</Badge>
-                  <Badge variant="outline">B: {responseB.latency_ms || responseB.trace?.latency_ms || 0}ms</Badge>
+                  <Badge variant="outline">A: {responseA.latency_ms || (responseA.trace && typeof responseA.trace === 'object' && 'latency_ms' in responseA.trace ? (responseA.trace as { latency_ms: number }).latency_ms : 0)}ms</Badge>
+                  <Badge variant="outline">B: {responseB.latency_ms || (responseB.trace && typeof responseB.trace === 'object' && 'latency_ms' in responseB.trace ? (responseB.trace as { latency_ms: number }).latency_ms : 0)}ms</Badge>
                 </div>
               </div>
               <div>
                 <p className="text-sm font-medium">Tokens</p>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline">A: {responseA.token_count || responseA.tokens || 0}</Badge>
-                  <Badge variant="outline">B: {responseB.token_count || responseB.tokens || 0}</Badge>
+                  <Badge variant="outline">A: {responseA.token_count || ('tokens' in responseA ? responseA.tokens : 0) || 0}</Badge>
+                  <Badge variant="outline">B: {responseB.token_count || ('tokens' in responseB ? responseB.tokens : 0) || 0}</Badge>
                 </div>
               </div>
               <div>
@@ -321,7 +321,7 @@ export function ComparisonMode({
               <div>
                 <p className="text-sm font-medium">Winner</p>
                 <Badge className="mt-1">
-                  {((responseA.latency_ms || responseA.trace?.latency_ms || 0) < (responseB.latency_ms || responseB.trace?.latency_ms || 0)) ? 'A (Faster)' : 'B (Faster)'}
+                  {((responseA.latency_ms || (responseA.trace && typeof responseA.trace === 'object' && 'latency_ms' in responseA.trace ? (responseA.trace as { latency_ms: number }).latency_ms : 0)) < (responseB.latency_ms || (responseB.trace && typeof responseB.trace === 'object' && 'latency_ms' in responseB.trace ? (responseB.trace as { latency_ms: number }).latency_ms : 0))) ? 'A (Faster)' : 'B (Faster)'}
                 </Badge>
               </div>
             </div>

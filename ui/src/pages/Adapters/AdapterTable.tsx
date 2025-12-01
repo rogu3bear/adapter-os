@@ -393,15 +393,15 @@ function getStateBadgeVariant(state: AdapterState): 'default' | 'secondary' | 'o
 function getStateDisplayName(state: AdapterState): string {
   switch (state) {
     case 'unloaded':
-      return 'Unloaded';
+      return 'Not Loaded';
     case 'cold':
-      return 'Cold (stored)';
+      return 'Ready';
     case 'warm':
-      return 'Warm (ready)';
+      return 'Standby';
     case 'hot':
-      return 'Hot (active)';
+      return 'Loaded';
     case 'resident':
-      return 'Resident (pinned)';
+      return 'Pinned';
     default:
       return state;
   }

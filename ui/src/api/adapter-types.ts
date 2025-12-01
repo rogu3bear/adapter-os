@@ -5,6 +5,47 @@
 
 import React from 'react';
 
+// Behavior training types
+export interface BehaviorEvent {
+  id: string;
+  event_type: 'promoted' | 'demoted' | 'evicted' | 'pinned' | 'recovered' | 'ttl_expired';
+  adapter_id: string;
+  tenant_id: string;
+  from_state: string;
+  to_state: string;
+  activation_pct: number;
+  memory_mb: number;
+  reason: string;
+  created_at: string;
+  metadata?: string;
+}
+
+export interface BehaviorEventFilters {
+  event_type?: string;
+  adapter_id?: string;
+  tenant_id?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface BehaviorExportRequest {
+  categories?: string[];
+  since?: string;
+  until?: string;
+  synthetic_count?: number;
+  min_per_category?: number;
+  tenant_id?: string;
+  adapter_id?: string;
+}
+
+export interface BehaviorStats {
+  total_events: number;
+  by_category: Record<string, number>;
+  by_state_transition: Array<{ from: string; to: string; count: number }>;
+}
+
 export interface StageContent {
   id: string;
   title: string;

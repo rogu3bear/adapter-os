@@ -12,7 +12,7 @@ import { VirtualizedTableRows } from '@/components/ui/virtualized-table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import {
   Activity,
   CheckCircle,
@@ -27,7 +27,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { TrainingJob, TrainingStatus } from '@/api/training-types';
-import { formatDurationSeconds } from '@/utils/format';
+import { formatDurationSeconds, formatTimestamp } from '@/utils/format';
 
 interface TrainingJobTableProps {
   jobs: TrainingJob[];
@@ -80,25 +80,16 @@ function StatusBadge({ status }: { status: TrainingStatus }) {
   const Icon = config.icon;
 
   return (
-    <HelpTooltip helpId={`status-${status}`} side="right">
+    <GlossaryTooltip termId={`status-${status}`} side="right">
       <Badge variant="outline" className="gap-1" title={config.description}>
         <Icon className={`h-3 w-3 ${config.className}`} />
         <span className="capitalize">{status}</span>
       </Badge>
-    </HelpTooltip>
+    </GlossaryTooltip>
   );
 }
 
 // formatDuration replaced by shared formatDurationSeconds from @/utils/format
-
-function formatDate(dateString?: string): string {
-  if (!dateString) return '-';
-  try {
-    return new Date(dateString).toLocaleString();
-  } catch {
-    return dateString;
-  }
-}
 
 export function TrainingJobTable({
   jobs,
@@ -133,28 +124,28 @@ export function TrainingJobTable({
         <TableHeader>
           <TableRow role="row">
             <TableHead role="columnheader" scope="col">
-              <HelpTooltip helpId="training-job-id">Job ID / Name</HelpTooltip>
+              <GlossaryTooltip termId="training-job-id">Job ID / Name</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <HelpTooltip helpId="training-dataset">Dataset</HelpTooltip>
+              <GlossaryTooltip termId="training-dataset">Dataset</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <HelpTooltip helpId="training-status">Status</HelpTooltip>
+              <GlossaryTooltip termId="training-status">Status</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <HelpTooltip helpId="training-progress">Progress</HelpTooltip>
+              <GlossaryTooltip termId="training-progress">Progress</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <HelpTooltip helpId="training-loss">Loss</HelpTooltip>
+              <GlossaryTooltip termId="training-loss">Loss</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <HelpTooltip helpId="training-epoch">Epoch</HelpTooltip>
+              <GlossaryTooltip termId="training-epoch">Epoch</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <HelpTooltip helpId="training-created">Created</HelpTooltip>
+              <GlossaryTooltip termId="training-created">Created</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <HelpTooltip helpId="training-actions">Actions</HelpTooltip>
+              <GlossaryTooltip termId="training-actions">Actions</GlossaryTooltip>
             </TableHead>
           </TableRow>
         </TableHeader>
@@ -208,7 +199,7 @@ export function TrainingJobTable({
                       : '-'}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {formatDate(typedJob.created_at || typedJob.started_at)}
+                    {formatTimestamp(typedJob.created_at || typedJob.started_at || '', 'long')}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">

@@ -1,8 +1,8 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { TraceVisualizer } from '../TraceVisualizer';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { TraceVisualizer } from '@/components/TraceVisualizer';
 import {
   Zap,
   Copy,
@@ -15,8 +15,8 @@ import {
   Radio,
   HelpCircle
 } from 'lucide-react';
-import { HelpTooltip } from '@/components/ui/help-tooltip';
-import { InferResponse } from '../../api/types';
+import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
+import { InferResponse } from '@/api/types';
 
 export interface InferenceMetrics {
   latency: number;
@@ -85,7 +85,7 @@ export function InferenceOutput({
             <div className="flex gap-2">
               <Badge variant="outline" className="gap-1">
                 <Clock className="h-3 w-3" />
-                {response.latency_ms || ('trace' in response && response.trace && 'latency_ms' in response.trace ? (response.trace as any).latency_ms : 0)}ms
+                {response.latency_ms || ('trace' in response && response.trace && typeof response.trace === 'object' && response.trace !== null && 'latency_ms' in response.trace ? (response.trace as { latency_ms: number }).latency_ms : 0)}ms
               </Badge>
               <Badge variant="outline" className="gap-1">
                 <FileText className="h-3 w-3" />
@@ -121,8 +121,8 @@ export function InferenceOutput({
         </CardContent>
       </Card>
 
-      {response.trace && 'latency_ms' in response.trace && (
-        <TraceVisualizer trace={response.trace as any} />
+      {response.trace && typeof response.trace === 'object' && response.trace !== null && 'latency_ms' in response.trace && (
+        <TraceVisualizer trace={response.trace as { latency_ms: number }} />
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -131,9 +131,9 @@ export function InferenceOutput({
           <div>
             <div className="text-sm font-medium flex items-center gap-1">
               Finish Reason
-              <HelpTooltip content="Indicates why generation stopped - 'stop' (complete), 'length' (max tokens reached), 'error' (failure)">
+              <GlossaryTooltip brief="Indicates why generation stopped - 'stop' (complete), 'length' (max tokens reached), 'error' (failure)">
                 <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-              </HelpTooltip>
+              </GlossaryTooltip>
             </div>
             <div className="text-xs text-muted-foreground">{response.finish_reason || 'unknown'}</div>
           </div>
@@ -143,9 +143,9 @@ export function InferenceOutput({
           <div>
             <div className="text-sm font-medium flex items-center gap-1">
               Router Decisions
-              <HelpTooltip content="Number of adapter selection decisions made during inference. Each token may trigger routing to select which adapters to use.">
+              <GlossaryTooltip brief="Number of adapter selection decisions made during inference. Each token may trigger routing to select which adapters to use.">
                 <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-              </HelpTooltip>
+              </GlossaryTooltip>
             </div>
             <div className="text-xs text-muted-foreground">
               {response.trace?.router_decisions?.length || 0} steps
@@ -157,9 +157,9 @@ export function InferenceOutput({
           <div>
             <div className="text-sm font-medium flex items-center gap-1">
               Evidence Spans
-              <HelpTooltip content="Document excerpts used to support the answer (RAG - Retrieval-Augmented Generation)">
+              <GlossaryTooltip brief="Document excerpts used to support the answer (RAG - Retrieval-Augmented Generation)">
                 <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-              </HelpTooltip>
+              </GlossaryTooltip>
             </div>
             <div className="text-xs text-muted-foreground">
               {response.trace?.evidence_spans?.length || 0} found

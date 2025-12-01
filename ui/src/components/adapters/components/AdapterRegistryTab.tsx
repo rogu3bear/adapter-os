@@ -17,7 +17,7 @@ import {
 import type { Adapter } from '@/api/types';
 import { ExportScope } from '@/components/ui/export-dialog';
 import { Pin, Play, Pause, MoreHorizontal, ArrowUp, Download, Activity, Trash2, Code, Target, Clock } from 'lucide-react';
-import { getCategoryIcon, getStateIcon } from '../helpers';
+import { getCategoryIcon, getStateIcon } from '@/components/adapters/helpers';
 import { getLifecycleVariant } from '@/utils/lifecycle';
 
 interface AdapterRegistryTabProps {

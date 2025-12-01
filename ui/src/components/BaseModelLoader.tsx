@@ -4,11 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Play, Pause, Upload, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '../api/client';
-import { ModelStatusResponse } from '../api/types';
+import apiClient from '@/api/client';
+import { ModelStatusResponse } from '@/api/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { ModelImportWizard } from './ModelImportWizard';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
+import { useAsyncAction } from '@/hooks/useAsyncAction';
 
 interface BaseModelLoaderProps {
   status: ModelStatusResponse | null;
@@ -16,50 +17,40 @@ interface BaseModelLoaderProps {
 }
 
 export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
-  const [isLoading, setIsLoading] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
-  const [loadError, setLoadError] = useState<Error | null>(null);
-  const [unloadError, setUnloadError] = useState<Error | null>(null);
 
-  const handleLoad = async () => {
-    if (!status?.model_id) {
-      setLoadError(new Error('No model to load'));
-      return;
-    }
-
-    setLoadError(null);
-    setIsLoading(true);
-    try {
+  const loadAction = useAsyncAction(
+    async () => {
+      if (!status?.model_id) {
+        throw new Error('No model to load');
+      }
       await apiClient.loadBaseModel(status.model_id);
-      toast.success('Base model loaded successfully');
-      onRefresh();
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to load model');
-      setLoadError(error);
-    } finally {
-      setIsLoading(false);
+    },
+    {
+      successToast: 'Base model loaded successfully',
+      onSuccess: () => onRefresh(),
+      componentName: 'BaseModelLoader',
+      operationName: 'loadModel',
     }
-  };
+  );
 
-  const handleUnload = async () => {
-    if (!status?.model_id) {
-      setUnloadError(new Error('No model to unload'));
-      return;
-    }
-
-    setUnloadError(null);
-    setIsLoading(true);
-    try {
+  const unloadAction = useAsyncAction(
+    async () => {
+      if (!status?.model_id) {
+        throw new Error('No model to unload');
+      }
       await apiClient.unloadBaseModel(status.model_id);
-      toast.success('Base model unloaded successfully');
-      onRefresh();
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to unload model');
-      setUnloadError(error);
-    } finally {
-      setIsLoading(false);
+    },
+    {
+      successToast: 'Base model unloaded successfully',
+      onSuccess: () => onRefresh(),
+      componentName: 'BaseModelLoader',
+      operationName: 'unloadModel',
     }
-  };
+  );
+
+  const handleLoad = () => loadAction.execute();
+  const handleUnload = () => unloadAction.execute();
 
   const handleImportComplete = (importId: string) => {
     setShowImportWizard(false);
@@ -82,6 +73,7 @@ export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
 
   const canLoad = status && ['unloaded', 'error'].includes(status.status);
   const canUnload = status && ['loaded'].includes(status.status);
+  const isLoading = loadAction.isLoading || unloadAction.isLoading;
 
   return (
     <>
@@ -98,15 +90,15 @@ export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {loadError && (
+          {loadAction.error && (
             <ErrorRecovery
-              error={loadError.message}
+              error={loadAction.error.message}
               onRetry={handleLoad}
             />
           )}
-          {unloadError && (
+          {unloadAction.error && (
             <ErrorRecovery
-              error={unloadError.message}
+              error={unloadAction.error.message}
               onRetry={handleUnload}
             />
           )}

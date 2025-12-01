@@ -2,7 +2,7 @@
 
 **Purpose:** Detailed documentation of adapter lifecycle states and transitions
 
-**Last Updated:** 2025-01-19
+**Last Updated:** 2025-12-01
 
 ---
 
@@ -328,6 +328,148 @@ db.unpin_adapter(tenant_id, adapter_id).await?;
 - Returns `AosError::PolicyViolation` if active pins exist
 
 **Location:** `crates/adapteros-db/src/adapters.rs:517-553`
+
+---
+
+## State Field Conventions (CRITICAL)
+
+### Database Field Naming
+
+The `adapters` table has TWO distinct state-related fields:
+
+| Field | Purpose | Valid Values |
+|-------|---------|--------------|
+| `current_state` | Runtime lifecycle state | `unloaded`, `cold`, `warm`, `hot`, `resident` |
+| `lifecycle_state` | Metadata/registration status | `draft`, `active`, `deprecated`, `retired` |
+
+**CRITICAL:** Always use `current_state` for runtime state checks. Using `lifecycle_state` is a bug.
+
+### State String Case
+
+All state values are **lowercase**:
+
+```rust
+// ✅ Correct
+adapter.current_state == "warm"
+
+// ❌ WRONG - will never match
+adapter.current_state == "Warm"
+```
+
+### State Checking Methods
+
+Use the `AdapterState` enum methods for reliable state checks:
+
+```rust
+use adapteros_lora_lifecycle::AdapterState;
+
+let state: AdapterState = adapter.current_state.parse()?;
+
+// Check if adapter can serve inference
+if state.is_available() {  // warm, hot, or resident
+    // OK to infer
+}
+
+// Check if adapter is loaded at all
+if state.is_loaded() {  // cold, warm, hot, or resident
+    // In memory
+}
+```
+
+### Available State Check Methods
+
+| Method | Returns true for | Use case |
+|--------|-----------------|----------|
+| `is_loaded()` | cold, warm, hot, resident | Check if adapter is in memory |
+| `is_available()` | warm, hot, resident | Check if adapter can serve inference |
+| `is_pinned()` | resident | Check if adapter is protected from eviction |
+
+---
+
+## TOCTOU Protection (Compare-And-Swap)
+
+State transitions use Compare-And-Swap (CAS) to prevent Time-of-Check-to-Time-of-Use race conditions:
+
+### Problem
+
+```
+Thread A                    Thread B
+────────                    ────────
+Read state: "cold"
+                            Read state: "cold"
+Calculate: cold → warm
+                            Calculate: cold → warm
+Write: "warm"
+                            Write: "warm"  ← WRONG! Should fail
+```
+
+### Solution: CAS Pattern
+
+```rust
+// Use update_adapter_state_cas() instead of update_adapter_state_tx()
+let updated = db.update_adapter_state_cas(
+    adapter_id,
+    "cold",      // Expected current state
+    "warm",      // New state
+    "warming up for inference"
+).await?;
+
+if !updated {
+    // State changed between read and write - retry or handle conflict
+    return Err(AosError::Validation("State transition conflict"));
+}
+```
+
+**Location:** `crates/adapteros-db/src/adapters.rs:1134-1250`
+
+---
+
+## Observability
+
+### Prometheus Metrics
+
+State transitions emit the following metrics:
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `adapteros_adapter_state_transitions_total` | Counter | `old_state`, `new_state`, `tenant_id` | Successful transitions |
+| `adapteros_adapter_state_transition_failures_total` | Counter | `old_state`, `new_state`, `reason` | Failed transitions (CAS conflicts, validation errors) |
+| `adapteros_adapter_state_transition_duration_seconds` | Histogram | `old_state`, `new_state` | Transition latency |
+| `adapteros_adapters_by_state` | Gauge | `state`, `tenant_id` | Current adapter count per state |
+
+**Location:** `crates/adapteros-metrics-exporter/src/lib.rs`
+
+### Tracing Spans
+
+State transitions are instrumented with tracing spans:
+
+```
+promote_lifecycle{adapter.id=..., tenant.id=..., transition.direction="promote"}
+├── transition.old_state: "cold"
+├── transition.new_state: "warm"
+└── transition.duration_ms: 12.5
+```
+
+**Location:** `crates/adapteros-server-api/src/services/adapter_service.rs`
+
+### Telemetry Events
+
+Canonical JSON events for audit trail:
+
+```json
+{
+  "event_type": "adapter.lifecycle.promoted",
+  "component": "adapteros-server-api",
+  "metadata": {
+    "adapter_id": "my-adapter",
+    "old_state": "cold",
+    "new_state": "warm",
+    "actor": "user@example.com",
+    "reason": "inference request",
+    "duration_ms": 12.5
+  }
+}
+```
 
 ---
 

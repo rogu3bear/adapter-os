@@ -20,19 +20,20 @@ import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
-} from '../ui/resizable';
-import { Button } from '../ui/button';
+} from '@/components/ui/resizable';
+import { Button } from '@/components/ui/button';
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
-} from '../ui/sheet';
-import { ChatInterface } from '../ChatInterface';
+} from '@/components/ui/sheet';
+import { ChatInterface } from '@/components/ChatInterface';
 import PDFViewerEmbedded, { PDFViewerEmbeddedRef } from './PDFViewerEmbedded';
-import { DocumentViewerProvider, useDocumentViewer } from '../../contexts/DocumentViewerContext';
-import { useDocumentsApi } from '../../hooks/useDocumentsApi';
-import type { Document } from '../../api/document-types';
+import { DocumentViewerProvider, useDocumentViewer } from '@/contexts/DocumentViewerContext';
+import { useDocumentsApi } from '@/hooks/useDocumentsApi';
+import type { Document } from '@/api/document-types';
+import { logger, toError } from '@/utils/logger';
 
 const STORAGE_KEY = 'document-chat-panel-sizes';
 const STORAGE_KEY_COLLAPSED = 'document-chat-pdf-collapsed';
@@ -109,7 +110,13 @@ function DocumentChatLayoutInner({
           setPdfUrl(url);
         }
       } catch (error) {
-        console.error('Failed to fetch PDF:', error);
+        logger.error('Document chat PDF fetch failed', {
+          component: 'DocumentChatLayout',
+          operation: 'fetchPDF',
+          errorType: 'pdf_fetch_failure',
+          details: 'Failed to fetch PDF document for chat context',
+          documentId: document.document_id
+        }, toError(error));
       }
     }
 

@@ -398,3 +398,101 @@ fn calculate_eviction_priority(activation_rate: f32, last_access: &str) -> f32 {
     // Calculate priority: lower activation rate + longer time since access = higher priority
     (100.0 - activation_rate) + (days_since_access * 10.0)
 }
+
+/// Combined memory usage response for frontend dashboard
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct CombinedMemoryUsageResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub adapters: Vec<CombinedAdapterMemoryInfo>,
+    pub total_memory_mb: f64,
+    pub available_memory_mb: f64,
+    pub memory_pressure_level: String,
+}
+
+/// Adapter memory info for combined response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct CombinedAdapterMemoryInfo {
+    pub id: String,
+    pub name: String,
+    pub memory_usage_mb: f64,
+    pub state: String,
+    pub pinned: bool,
+    pub category: String,
+}
+
+/// Get combined memory usage for frontend dashboard
+#[utoipa::path(
+    get,
+    path = "/v1/memory/usage",
+    responses(
+        (status = 200, description = "Memory usage retrieved successfully", body = CombinedMemoryUsageResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "memory"
+)]
+pub async fn get_combined_memory_usage(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<CombinedMemoryUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::MetricsView)?;
+
+    // Get system memory info
+    use sysinfo::System;
+    let sys = System::new_all();
+    let total_memory_mb = sys.total_memory() as f64 / 1_048_576.0;
+    let available_memory_mb = sys.available_memory() as f64 / 1_048_576.0;
+    let used_pct = ((total_memory_mb - available_memory_mb) / total_memory_mb) * 100.0;
+
+    let memory_pressure_level = if used_pct > 90.0 {
+        "critical"
+    } else if used_pct > 80.0 {
+        "high"
+    } else if used_pct > 60.0 {
+        "medium"
+    } else {
+        "low"
+    };
+
+    // Get adapter memory info
+    let adapters = state
+        .db
+        .get_adapter_memory_info()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch adapter memory info")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let adapter_infos: Vec<CombinedAdapterMemoryInfo> = adapters
+        .into_iter()
+        .map(|a| {
+            let size_mb = estimate_adapter_size_mb(a.rank) as f64;
+            CombinedAdapterMemoryInfo {
+                id: a.adapter_id.clone().unwrap_or_default(),
+                name: a.name,
+                memory_usage_mb: size_mb,
+                state: a.current_state,
+                pinned: a.pinned != 0,
+                category: a.category.unwrap_or_else(|| "code".to_string()),
+            }
+        })
+        .collect();
+
+    Ok(Json(CombinedMemoryUsageResponse {
+        schema_version: API_SCHEMA_VERSION.to_string(),
+        adapters: adapter_infos,
+        total_memory_mb,
+        available_memory_mb,
+        memory_pressure_level: memory_pressure_level.to_string(),
+    }))
+}

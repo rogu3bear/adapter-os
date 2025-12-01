@@ -40,7 +40,7 @@ import {
   Upload,
   FileText,
 } from 'lucide-react';
-import { PromptTemplate, usePromptTemplates } from '../hooks/usePromptTemplates';
+import { PromptTemplate, usePromptTemplates } from '@/hooks/usePromptTemplates';
 import { toast } from 'sonner';
 
 interface PromptTemplateManagerProps {
@@ -305,7 +305,7 @@ export function PromptTemplateManager({
                     </SelectContent>
                   </Select>
 
-                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
+                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'recent' | 'name' | 'favorite')}>
                     <SelectTrigger className="w-40">
                       <SelectValue />
                     </SelectTrigger>

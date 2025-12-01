@@ -6,7 +6,7 @@ export type ActionType = 'create' | 'update' | 'delete' | 'load' | 'unload' | 's
 export type ResourceType = 'adapter' | 'stack' | 'training' | 'model' | 'policy' | 'node' | 'tenant' | 'other';
 export type ActionStatus = 'pending' | 'success' | 'failed' | 'cancelled';
 
-export interface ActionHistoryItem<T = any> {
+export interface ActionHistoryItem<T = Record<string, unknown>> {
   id: string;
   action: ActionType;
   resource: ResourceType;

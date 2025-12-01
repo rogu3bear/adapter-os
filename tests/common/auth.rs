@@ -1,12 +1,13 @@
-use super::fixtures_consolidated::{TestAppStateBuilder, TestAuth, TestDbBuilder, TestUser};
+use super::fixtures_consolidated::{TestAppStateBuilder, TestDbBuilder, TestUser};
 use adapteros_db::users::Role;
-use adapteros_server_api::types::{ErrorResponse, LoginRequest, LoginResponse};
+use adapteros_server_api::types::{ErrorResponse, LoginResponse};
 use adapteros_server_api::AppState;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
     Router,
 };
+use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
 pub const DEFAULT_TENANT_ID: &str = "default";
@@ -21,6 +22,14 @@ pub const DEFAULT_METRIC_SERIES: [&str; 4] = [
     "tokens_per_second",
     "memory_usage_mb",
 ];
+
+/// Local login request struct matching the API expectations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TestLoginRequest {
+    pub username: Option<String>,
+    pub email: String,
+    pub password: String,
+}
 
 /// Create test app state using consolidated fixtures
 pub async fn create_test_app_state() -> AppState {
@@ -47,22 +56,25 @@ pub async fn create_test_app_state() -> AppState {
         .await
         .expect("failed to build test app state");
 
-    // Register default metric series
+    // Initialize default metric series by recording an initial data point
+    // MetricsRegistry creates series on first record_metric call
     for name in DEFAULT_METRIC_SERIES {
         state
-            .metrics_registry()
-            .get_or_create_series(name.to_string(), 1_000, 1_024);
+            .metrics_registry
+            .record_metric(name.to_string(), 0.0)
+            .await;
     }
 
     state
 }
 
 pub async fn login_user(
-    app: &Router<AppState>,
+    app: &Router,
     email: &str,
     password: &str,
 ) -> Result<LoginResponse, String> {
-    let payload = LoginRequest {
+    let payload = TestLoginRequest {
+        username: Some(email.to_string()),
         email: email.to_string(),
         password: password.to_string(),
     };
@@ -107,7 +119,7 @@ pub async fn login_user(
 }
 
 pub async fn make_authenticated_request(
-    app: &Router<AppState>,
+    app: &Router,
     path: &str,
     token: &str,
 ) -> Result<String, String> {

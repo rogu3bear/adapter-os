@@ -7,7 +7,7 @@
  * Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §8.1
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -17,6 +17,7 @@ import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 import { errorRecoveryTemplates } from './ui/error-recovery';
 import { Contact } from '@/api/types';
+import { useLiveData } from '@/hooks/useLiveData';
 
 interface ContactsPageProps {
   selectedTenant: string;
@@ -26,70 +27,51 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [filter, setFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [loading, setLoading] = useState(true);
-  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
-  const fetchContacts = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Citation: ui/src/api/client.ts L57-L105
+  const handleSSEMessage = useCallback((eventData: unknown) => {
+    const data = eventData as { type: string; payload: Partial<Contact> & { name: string } };
+    if (data.type === 'contact_discovered') {
+      // Add or update contact in real-time
+      setContacts((prev) => {
+        const existing = prev.find((c) => c.name === data.payload.name);
+        if (existing) {
+          return prev.map((c) =>
+            c.name === data.payload.name
+              ? { ...c, ...data.payload, interaction_count: c.interaction_count + 1 }
+              : c
+          );
+        }
+        return [...prev, { id: data.payload.name, ...data.payload, interaction_count: 1 }] as Contact[];
+      });
+    }
+  }, []);
+
+  // Use standardized live data hook
+  const { data, isLoading, error, refetch, sseConnected } = useLiveData<Contact[]>({
+    sseEndpoint: `/v1/streams/contacts?tenant=${selectedTenant}`,
+    sseEventType: 'contact',
+    fetchFn: async () => {
       const data = await apiClient.listContacts(selectedTenant);
       setContacts(data);
-      setErrorRecovery(null);
-    } catch (error) {
+      return data;
+    },
+    pollingSpeed: 'normal',
+    enabled: true,
+    onSSEMessage: handleSSEMessage,
+    onError: (err, source) => {
       logger.error('Failed to fetch contacts', {
         component: 'ContactsPage',
         operation: 'listContacts',
         tenantId: selectedTenant,
-      }, toError(error));
-      setContacts([]);
-      setErrorRecovery(
-        errorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to load contacts'),
-          () => {
-            setErrorRecovery(null);
-            fetchContacts();
-          }
-        )
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedTenant]);
+        source,
+      }, err);
+    },
+    operationName: 'ContactsStream',
+  });
 
-  // Fetch initial contacts
-  useEffect(() => {
-    fetchContacts();
-  }, [fetchContacts, filter]);
-
-  // Subscribe to contact updates via SSE
-  useEffect(() => {
-    const eventSource = new EventSource(
-      `/api/v1/streams/contacts?tenant=${selectedTenant}`
-    );
-
-    eventSource.addEventListener('contact', (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'contact_discovered') {
-        // Add or update contact in real-time
-        setContacts((prev) => {
-          const existing = prev.find((c) => c.name === data.payload.name);
-          if (existing) {
-            return prev.map((c) =>
-              c.name === data.payload.name
-                ? { ...c, ...data.payload, interaction_count: c.interaction_count + 1 }
-                : c
-            );
-          }
-          return [...prev, { id: data.payload.name, ...data.payload, interaction_count: 1 }];
-        });
-      }
-    });
-
-    return () => {
-      eventSource.close();
-    };
-  }, [selectedTenant]);
+  const errorRecovery = error
+    ? errorRecoveryTemplates.genericError(error, () => refetch())
+    : null;
 
   const filteredContacts = contacts.filter(
     (c) =>
@@ -130,7 +112,7 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
             Discovered during inference • {contacts.length} total
           </p>
         </div>
-        <Button onClick={fetchContacts}>Refresh</Button>
+        <Button onClick={() => refetch()}>Refresh</Button>
       </div>
 
       {/* Filters */}
@@ -172,7 +154,7 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
       </div>
 
       {/* Contact List */}
-      {loading ? (
+      {isLoading ? (
         <div className="text-center py-12">Loading...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

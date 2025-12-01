@@ -317,7 +317,7 @@ pub async fn streaming_infer_with_progress(
     .await;
 
     // Create the loading progress stream
-    let stream = stream_with_loading_progress(&state, req, adapter_id).await;
+    let stream = stream_with_loading_progress(&state, req, adapter_id, claims.tenant_id.clone()).await;
 
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
@@ -662,12 +662,14 @@ pub async fn stream_with_loading_progress(
     state: &AppState,
     request: StreamingInferRequest,
     adapter_id: String,
+    tenant_id: String,
 ) -> impl Stream<Item = Result<Event, Infallible>> {
     let state_clone = state.clone();
     let adapter_id_clone = adapter_id.clone();
+    let tenant_id_clone = tenant_id.clone();
 
     stream::unfold(
-        LoadingStreamState::new(state_clone, request, adapter_id_clone),
+        LoadingStreamState::new(state_clone, request, adapter_id_clone, tenant_id_clone),
         |mut loading_state| async move {
             match loading_state.next_loading_event().await {
                 Some(event) => {
@@ -685,6 +687,7 @@ struct LoadingStreamState {
     state: AppState,
     request: StreamingInferRequest,
     adapter_id: String,
+    tenant_id: String,
     phase: LoadingPhase,
     start_time: std::time::Instant,
     token_count: usize,
@@ -700,11 +703,12 @@ enum LoadingPhase {
 }
 
 impl LoadingStreamState {
-    fn new(state: AppState, request: StreamingInferRequest, adapter_id: String) -> Self {
+    fn new(state: AppState, request: StreamingInferRequest, adapter_id: String, tenant_id: String) -> Self {
         Self {
             state,
             request,
             adapter_id,
+            tenant_id,
             phase: LoadingPhase::CheckingState,
             start_time: std::time::Instant::now(),
             token_count: 0,
@@ -814,23 +818,25 @@ impl LoadingStreamState {
     }
 
     async fn check_adapter_state(&self) -> Result<bool, String> {
-        // Query database to check if adapter is in Warm, Hot, or Resident state
-        // For now, we assume "default" tenant - in production, this should be extracted from the request
+        // Query database to check if adapter is in warm, hot, or resident state
         match self
             .state
             .db
-            .get_adapter_by_id("default", &self.adapter_id)
+            .get_adapter_by_id(&self.tenant_id, &self.adapter_id)
             .await
         {
             Ok(Some(adapter)) => {
-                // Check if adapter is in a ready state
+                // Check if adapter is in a ready state (runtime state, not lifecycle state)
+                // current_state tracks runtime memory state: unloaded, cold, warm, hot, resident
+                // lifecycle_state tracks metadata state: draft, active, deprecated, retired
                 let is_ready = matches!(
-                    adapter.lifecycle_state.as_str(),
-                    "Warm" | "Hot" | "Resident"
+                    adapter.current_state.as_str(),
+                    "warm" | "hot" | "resident"
                 );
                 info!(
                     adapter_id = %self.adapter_id,
-                    state = %adapter.lifecycle_state,
+                    tenant_id = %self.tenant_id,
+                    current_state = %adapter.current_state,
                     is_ready = is_ready,
                     "Checked adapter state"
                 );

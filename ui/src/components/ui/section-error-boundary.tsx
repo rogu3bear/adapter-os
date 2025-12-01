@@ -3,7 +3,7 @@ import { ErrorBoundary as ReactErrorBoundary } from 'react-error-boundary';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from './button';
 import { Card, CardContent } from './card';
-import { logger } from '../../utils/logger';
+import { logger } from '@/utils/logger';
 
 interface SectionErrorFallbackProps {
   error: Error;

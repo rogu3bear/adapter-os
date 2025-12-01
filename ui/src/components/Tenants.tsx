@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
@@ -17,8 +16,8 @@ import { Checkbox } from './ui/checkbox';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
 import { ExportDialog, ExportOptions } from './ui/export-dialog';
-import { useUndoRedoContext } from '../contexts/UndoRedoContext';
-import { useModalManager } from '../contexts/ModalContext';
+import { useUndoRedoContext } from '@/contexts/UndoRedoContext';
+import { useModalManager } from '@/contexts/ModalContext';
 import { TenantImportWizard } from './TenantImportWizard';
 import { useRBAC } from '@/hooks/useRBAC';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
@@ -36,7 +35,7 @@ const MODAL_IDS = {
 } as const;
 import { usePolling } from '@/hooks/usePolling';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import { HelpTooltip } from './ui/help-tooltip';
+import { GlossaryTooltip } from './ui/glossary-tooltip';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,11 +66,11 @@ import {
   Download,
   Upload
 } from 'lucide-react';
-import apiClient from '../api/client';
-import * as types from '../api/types';
-import { Tenant as ApiTenant, User, Policy, Adapter, TenantUsageResponse } from '../api/types';
+import apiClient from '@/api/client';
+import * as types from '@/api/types';
+import { Tenant as ApiTenant, User, Policy, Adapter, TenantUsageResponse } from '@/api/types';
 
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 import { BookmarkButton } from './ui/bookmark-button';
 
 import { toast } from 'sonner';
@@ -97,7 +96,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
-  const [errorRecovery, setErrorRecovery] = useState<any>(null);
+  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [confirmationOptions, setConfirmationOptions] = useState<ConfirmationOptions | null>(null);
   const [pendingBulkAction, setPendingBulkAction] = useState<(() => Promise<void>) | null>(null);
@@ -165,7 +164,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       }
     };
     fetchData();
-  }, [userId]);
+  }, [userId, user.id]);
 
   const handleEdit = async () => {
     if (!selectedTenantForAction) return;
@@ -526,11 +525,11 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
           <p className="text-muted-foreground">
             Organization management requires Administrator privileges.
           </p>
-          <HelpTooltip helpId="requires-admin">
+          <GlossaryTooltip termId="requires-admin">
             <Button variant="ghost" size="sm" className="text-muted-foreground">
               Why am I seeing this?
             </Button>
-          </HelpTooltip>
+          </GlossaryTooltip>
         </div>
       </div>
     );
@@ -582,12 +581,12 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         </div>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
-            <HelpTooltip helpId="create-tenant-button">
+            <GlossaryTooltip termId="create-tenant-button">
               <Button disabled={!can('tenant:manage')}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Organization
               </Button>
-            </HelpTooltip>
+            </GlossaryTooltip>
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
@@ -597,9 +596,9 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
               <div className="mb-4">
                 <div className="flex items-center gap-1 mb-1">
                   <Label htmlFor="name" className="font-medium text-sm">Organization Name</Label>
-                  <HelpTooltip helpId="tenant-name">
+                  <GlossaryTooltip termId="tenant-name">
                     <span className="cursor-help text-muted-foreground">(?)</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </div>
                 <Input
                   id="name"
@@ -612,9 +611,9 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
               <div className="mb-4">
                 <div className="flex items-center gap-1 mb-1">
                   <Label htmlFor="description" className="font-medium text-sm">Description</Label>
-                  <HelpTooltip helpId="tenant-description">
+                  <GlossaryTooltip termId="tenant-description">
                     <span className="cursor-help text-muted-foreground">(?)</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </div>
                 <Textarea
                   id="description"
@@ -627,13 +626,13 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
               <div className="mb-4">
                 <div className="flex items-center gap-1 mb-1">
                   <Label htmlFor="classification" className="font-medium text-sm">Data Classification</Label>
-                  <HelpTooltip helpId="data-classification">
+                  <GlossaryTooltip termId="data-classification">
                     <span className="cursor-help text-muted-foreground">(?)</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </div>
                 <Select
                   value={newTenant.dataClassification}
-                  onValueChange={(value: any) => setNewTenant({ ...newTenant, dataClassification: value })}
+                  onValueChange={(value: string) => setNewTenant({ ...newTenant, dataClassification: value as 'internal' })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -650,9 +649,9 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1">
                   <Label htmlFor="itar" className="font-medium text-sm">ITAR Compliance Required</Label>
-                  <HelpTooltip helpId="itar-compliance">
+                  <GlossaryTooltip termId="itar-compliance">
                     <span className="cursor-help text-muted-foreground">(?)</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </div>
                 <Switch
                   id="itar"
@@ -665,11 +664,11 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                 <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                   Cancel
                 </Button>
-                <HelpTooltip helpId="create-tenant-action">
+                <GlossaryTooltip termId="create-tenant-action">
                   <Button onClick={handleCreateTenant} disabled={!newTenant.name.trim() || !can('tenant:manage')}>
                     Create Organization
                   </Button>
-                </HelpTooltip>
+                </GlossaryTooltip>
               </div>
             </div>
           </DialogContent>
@@ -733,13 +732,13 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               Active Organizations
-              <ConceptTooltip concept="tenant" />
-              <HelpTooltip helpId="active-tenants">
+              <GlossaryTooltip termId="tenant" variant="icon" />
+              <GlossaryTooltip termId="active-tenants">
                 <span className="cursor-help text-muted-foreground text-sm">(Help)</span>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </CardTitle>
             <div className="flex gap-2">
-              <HelpTooltip helpId="import-tenants">
+              <GlossaryTooltip termId="import-tenants">
                 <Button
                   variant="outline"
                   size="sm"
@@ -749,8 +748,8 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                   <Upload className="h-4 w-4 mr-2" />
                   Import
                 </Button>
-              </HelpTooltip>
-              <HelpTooltip helpId="export-tenants">
+              </GlossaryTooltip>
+              <GlossaryTooltip termId="export-tenants">
                 <Button
                   variant="outline"
                   size="sm"
@@ -759,7 +758,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                   <Download className="h-4 w-4 mr-2" />
                   Export
                 </Button>
-              </HelpTooltip>
+              </GlossaryTooltip>
             </div>
           </div>
         </CardHeader>
@@ -791,39 +790,39 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                   />
                 </TableHead>
                 <TableHead className="table-cell-standard">
-                  <HelpTooltip helpId="tenant-name">
+                  <GlossaryTooltip termId="tenant-name">
                     <span className="cursor-help">Name</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead className="table-cell-standard">
-                  <HelpTooltip helpId="tenant-id">
+                  <GlossaryTooltip termId="tenant-id">
                     <span className="cursor-help">ID</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead className="table-cell-standard">
-                  <HelpTooltip helpId="tenant-isolation">
+                  <GlossaryTooltip termId="tenant-isolation">
                     <span className="cursor-help">Isolation</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead className="table-cell-standard">
-                  <HelpTooltip helpId="tenant-users">
+                  <GlossaryTooltip termId="tenant-users">
                     <span className="cursor-help">Users</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead className="table-cell-standard">
-                  <HelpTooltip helpId="tenant-adapters">
+                  <GlossaryTooltip termId="tenant-adapters">
                     <span className="cursor-help">Adapters</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead className="table-cell-standard">
-                  <HelpTooltip helpId="tenant-status">
+                  <GlossaryTooltip termId="tenant-status">
                     <span className="cursor-help">Status</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
                 <TableHead className="table-cell-standard">
-                  <HelpTooltip helpId="tenant-actions">
+                  <GlossaryTooltip termId="tenant-actions">
                     <span className="cursor-help">Actions</span>
-                  </HelpTooltip>
+                  </GlossaryTooltip>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -969,9 +968,9 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             <div>
               <div className="flex items-center gap-1 mb-1">
                 <Label>Organization Name</Label>
-                <HelpTooltip helpId="tenant-name">
+                <GlossaryTooltip termId="tenant-name">
                   <span className="cursor-help text-muted-foreground">(?)</span>
-                </HelpTooltip>
+                </GlossaryTooltip>
               </div>
               <Input
                 value={editName}
@@ -984,11 +983,11 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             <Button variant="outline" onClick={closeModal} aria-label="Cancel tenant edit">
               Cancel
             </Button>
-            <HelpTooltip helpId="save-tenant-changes">
+            <GlossaryTooltip termId="save-tenant-changes">
               <Button onClick={handleEdit} aria-label="Save tenant changes" disabled={!can('tenant:manage')}>
                 Save Changes
               </Button>
-            </HelpTooltip>
+            </GlossaryTooltip>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1032,11 +1031,11 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             }}>
               Cancel
             </Button>
-            <HelpTooltip helpId="assign-policies-action">
+            <GlossaryTooltip termId="assign-policies-action">
               <Button onClick={handleAssignPolicies} disabled={selectedPolicies.length === 0 || !can('tenant:manage')}>
                 Assign {selectedPolicies.length} Policies
               </Button>
-            </HelpTooltip>
+            </GlossaryTooltip>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1080,11 +1079,11 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             }}>
               Cancel
             </Button>
-            <HelpTooltip helpId="assign-adapters-action">
+            <GlossaryTooltip termId="assign-adapters-action">
               <Button onClick={handleAssignAdapters} disabled={selectedAdapters.length === 0 || !can('tenant:manage')}>
                 Assign {selectedAdapters.length} Adapters
               </Button>
-            </HelpTooltip>
+            </GlossaryTooltip>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1124,7 +1123,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
           )}
           <DialogFooter>
             {usageData && (
-              <HelpTooltip helpId="export-usage-csv">
+              <GlossaryTooltip termId="export-usage-csv">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -1148,7 +1147,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                 >
                   Export CSV
                 </Button>
-              </HelpTooltip>
+              </GlossaryTooltip>
             )}
             <Button onClick={closeModal}>Close</Button>
           </DialogFooter>
@@ -1175,11 +1174,11 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             }}>
               Cancel
             </Button>
-            <HelpTooltip helpId="archive-tenant-action">
+            <GlossaryTooltip termId="archive-tenant-action">
               <Button variant="destructive" onClick={handleArchive} disabled={!can('tenant:manage')}>
                 Archive Organization
               </Button>
-            </HelpTooltip>
+            </GlossaryTooltip>
           </DialogFooter>
         </DialogContent>
       </Dialog>

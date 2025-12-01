@@ -28,7 +28,6 @@ export * from './useDocumentsApi';
 export * from './useCollectionsApi';
 export * from './useEvidenceApi';
 export * from './useSettings';
-export * from './useStreamingInference';
 export * from './useSSE';
 
 // Data Management Hooks
@@ -85,3 +84,9 @@ export * from './useZodFormValidation';
 // Notification Hooks
 export * from './useBatchedTrainingNotifications';
 export * from './useTrainingNotifications';
+
+// Inference Hooks (organized in subdirectory)
+export * from './inference';
+
+// Adapter Hooks (organized in subdirectory)
+export * from './adapters';

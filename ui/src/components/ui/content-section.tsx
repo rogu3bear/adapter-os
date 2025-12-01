@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Separator } from './separator';
 import { cn } from './utils';
-import { getContentSectionClasses, getCardHierarchyClasses } from '../../utils/visual-hierarchy';
+import { getContentSectionClasses, getCardHierarchyClasses } from '@/utils/visual-hierarchy';
 
 interface ContentSectionProps {
   title?: string;
@@ -117,7 +117,7 @@ interface ContentListProps {
   }>;
   level?: 'primary' | 'secondary' | 'tertiary';
   className?: string;
-  onItemClick?: (item: any) => void;
+  onItemClick?: (item: { id: string; title: string; subtitle?: string; icon?: React.ReactNode; actions?: React.ReactNode }) => void;
 }
 
 export function ContentList({

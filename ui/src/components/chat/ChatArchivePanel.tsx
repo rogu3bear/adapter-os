@@ -25,6 +25,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/components/ui/utils';
 import type { ChatSessionWithStatus } from '@/api/chat-types';
+import { formatTimestamp } from '@/utils/format';
 
 interface ChatArchivePanelProps {
   className?: string;
@@ -44,14 +45,7 @@ function SessionCard({ session, onRestore, onDelete, isRestoring, isDeleting }: 
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'Unknown';
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(date);
+    return formatTimestamp(dateString, 'long');
   };
 
   const isArchived = session.status === 'archived';

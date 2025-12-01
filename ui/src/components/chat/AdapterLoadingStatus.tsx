@@ -10,7 +10,7 @@ import { Flame, Thermometer, Snowflake, Pin, CircleOff, Loader2, CheckCircle } f
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useSSE } from '@/hooks/useSSE';
+import { useLiveData } from '@/hooks/useLiveData';
 import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
 
 // ============================================================================
@@ -146,11 +146,19 @@ export function AdapterLoadingStatus({
   }, [adapters]);
 
   // Subscribe to adapter state transitions via SSE
-  const { data: sseEvent } = useSSE<AdapterStreamEvent>('/v1/stream/adapters', {
+  useLiveData({
+    sseEndpoint: '/v1/stream/adapters',
+    sseEventType: 'adapters',
+    fetchFn: async () => {
+      // No polling fallback for adapter state transitions - SSE only
+      return null;
+    },
     enabled: !!stackId,
-    onMessage: (event) => {
-      if (event && 'current_state' in event) {
-        const transition = event as AdapterStateTransitionEvent;
+    pollingSpeed: 'fast',
+    onSSEMessage: (event) => {
+      const adapterEvent = event as AdapterStreamEvent;
+      if (adapterEvent && 'current_state' in adapterEvent) {
+        const transition = adapterEvent as AdapterStateTransitionEvent;
         setAdapterStates((prev) => {
           const updated = new Map(prev);
           const existing = updated.get(transition.adapter_id);

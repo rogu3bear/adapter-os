@@ -1,29 +1,31 @@
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(222.2 84% 4.9%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(222.2 84% 4.9%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(222.2 84% 4.9%);
+  --primary: hsl(222.2 47.4% 11.2%);
+  --primary-foreground: hsl(210 40% 98%);
+  --secondary: hsl(210 40% 96%);
+  --secondary-foreground: hsl(222.2 47.4% 11.2%);
+  --muted: hsl(210 40% 96%);
+  --muted-foreground: hsl(215.4 16.3% 46.9%);
+  --accent: hsl(210 40% 96%);
+  --accent-foreground: hsl(222.2 47.4% 11.2%);
+  --destructive: hsl(0 84.2% 60.2%);
+  --destructive-foreground: hsl(210 40% 98%);
+  --border: hsl(214.3 31.8% 91.4%);
+  --input: hsl(214.3 31.8% 91.4%);
+  --ring: hsl(222.2 84% 4.9%);
   --radius: 0.5rem;
-  --chart-1: 12 76% 61%;
-  --chart-2: 173 58% 39%;
-  --chart-3: 197 37% 24%;
-  --chart-4: 43 74% 66%;
-  --chart-5: 27 87% 67%;
+
+  /* Chart colors - semantic mapping to status colors */
+  --chart-1: 222.2 47.4% 11.2%;  /* Primary/Accent */
+  --chart-2: 142 76% 36%;         /* Success green */
+  --chart-3: 45 93% 47%;          /* Warning amber */
+  --chart-4: 0 72% 51%;           /* Error red */
+  --chart-5: 199 89% 48%;         /* Info blue */
 }
 
 /* AdapterOS Design System - Mathematical Visual System */
@@ -162,21 +164,21 @@
   --accent-500: var(--gray-500);
   --accent-600: var(--gray-600);
 
-  --success: var(--gray-600);
-  --success-surface: var(--surface-2);
-  --success-border: var(--gray-300);
+  --success: #059669;
+  --success-surface: #ecfdf5;
+  --success-border: #6ee7b7;
 
-  --warning: var(--gray-500);
-  --warning-surface: var(--surface-2);
-  --warning-border: var(--gray-300);
+  --warning: #d97706;
+  --warning-surface: #fef3c7;
+  --warning-border: #fbbf24;
 
-  --error: var(--gray-700);
-  --error-surface: var(--surface-2);
-  --error-border: var(--gray-400);
+  --error: #dc2626;
+  --error-surface: #fee2e2;
+  --error-border: #f87171;
 
-  --info: var(--gray-600);
-  --info-surface: var(--surface-2);
-  --info-border: var(--gray-300);
+  --info: #2563eb;
+  --info-surface: #dbeafe;
+  --info-border: #60a5fa;
 
   --surface-1: var(--gray-0);
   --surface-2: #fafafa;
@@ -213,61 +215,60 @@
   --navbar-padding-x: var(--space-4);
 }
 
-/* Dark mode overrides */
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* Surfaces - dark backgrounds */
-    --surface-1: #171717;
-    --surface-2: #262626;
-    --surface-3: #404040;
+/* Dark mode overrides - activated via .dark class on html element */
+/* Note: Using class-based dark mode instead of prefers-color-scheme for explicit user control */
+.dark {
+  /* Surfaces - dark backgrounds */
+  --surface-1: #171717;
+  --surface-2: #262626;
+  --surface-3: #404040;
 
-    /* Gray scale - inverted for dark mode */
-    --gray-0: #fafafa;
-    --gray-100: #f5f5f5;
-    --gray-200: #e5e5e5;
-    --gray-300: #d4d4d4;
-    --gray-400: #a3a3a3;
-    --gray-500: #737373;
-    --gray-600: #525252;
-    --gray-700: #404040;
-    --gray-800: #262626;
-    --gray-900: #171717;
+  /* Gray scale - inverted for dark mode */
+  --gray-0: #fafafa;
+  --gray-100: #f5f5f5;
+  --gray-200: #e5e5e5;
+  --gray-300: #d4d4d4;
+  --gray-400: #a3a3a3;
+  --gray-500: #737373;
+  --gray-600: #525252;
+  --gray-700: #404040;
+  --gray-800: #262626;
+  --gray-900: #171717;
 
-    /* Accent colors - brighter for dark backgrounds */
-    --accent-300: #c4b5fd;
-    --accent-400: #a78bfa;
-    --accent-500: #8b5cf6;
-    --accent-600: #7c3aed;
+  /* Accent colors - brighter for dark backgrounds */
+  --accent-300: #c4b5fd;
+  --accent-400: #a78bfa;
+  --accent-500: #8b5cf6;
+  --accent-600: #7c3aed;
 
-    /* Status colors - adjusted for dark mode contrast */
-    --success: #34d399;
-    --success-surface: #064e3b;
-    --success-border: #059669;
+  /* Status colors - adjusted for dark mode contrast */
+  --success: #34d399;
+  --success-surface: #064e3b;
+  --success-border: #059669;
 
-    --warning: #fbbf24;
-    --warning-surface: #78350f;
-    --warning-border: #d97706;
+  --warning: #fbbf24;
+  --warning-surface: #78350f;
+  --warning-border: #d97706;
 
-    --error: #f87171;
-    --error-surface: #7f1d1d;
-    --error-border: #dc2626;
+  --error: #f87171;
+  --error-surface: #7f1d1d;
+  --error-border: #dc2626;
 
-    --info: #60a5fa;
-    --info-surface: #1e3a5f;
-    --info-border: #2563eb;
+  --info: #60a5fa;
+  --info-surface: #1e3a5f;
+  --info-border: #2563eb;
 
-    /* Chart colors - optimized for dark backgrounds */
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 49%;
-    --chart-3: 197 47% 44%;
-    --chart-4: 43 84% 66%;
-    --chart-5: 27 87% 67%;
+  /* Chart colors - optimized for dark backgrounds */
+  --chart-1: 210 40% 70%;   /* Primary/Accent (lighter for dark) */
+  --chart-2: 142 76% 46%;   /* Success green (lighter) */
+  --chart-3: 45 93% 57%;    /* Warning amber (lighter) */
+  --chart-4: 0 72% 61%;     /* Error red (lighter) */
+  --chart-5: 199 89% 58%;   /* Info blue (lighter) */
 
-    /* Shadows - lighter for dark mode */
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.5);
-  }
+  /* Shadows - stronger for dark mode visibility */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.5);
 }
 
 /* ===== ACCESSIBILITY SUPPORT ===== */

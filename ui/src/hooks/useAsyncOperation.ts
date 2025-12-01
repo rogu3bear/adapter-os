@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
 export interface AsyncOperationState<T> {
   data: T | null;

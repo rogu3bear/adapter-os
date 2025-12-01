@@ -9,6 +9,6 @@
  */
 
 // Re-export from current locations (files not moved yet)
-export { Nodes } from '../Nodes';
-export { WorkersTab } from '../WorkersTab';
-export { ProcessDebugger } from '../ProcessDebugger';
+export { Nodes } from '@/components/Nodes';
+export { WorkersTab } from '@/components/WorkersTab';
+export { ProcessDebugger } from '@/components/ProcessDebugger';

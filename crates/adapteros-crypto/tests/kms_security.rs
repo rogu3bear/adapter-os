@@ -34,6 +34,7 @@ struct MockKmsServer {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct MockKeyData {
     algorithm: String,
     public_key: Vec<u8>,

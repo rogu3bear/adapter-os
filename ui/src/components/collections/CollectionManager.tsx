@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { TERMS } from '@/constants/terminology';
 import { useCollections, useCollectionsApi } from '@/hooks/useCollectionsApi';
 import type { Collection } from '@/api/document-types';
+import { logger, toError } from '@/utils/logger';
 
 interface Props {
   onSelectCollection?: (collection: Collection) => void;
@@ -38,7 +39,14 @@ export function CollectionManager({ onSelectCollection, selectedCollectionId }: 
       setNewName('');
       setNewDescription('');
     } catch (error) {
-      console.error('Failed to create collection:', error);
+      logger.error('Collection creation failed', {
+        component: 'CollectionManager',
+        operation: 'handleCreateCollection',
+        errorType: 'collection_create_failure',
+        details: 'Failed to create new document collection',
+        collectionName: newName,
+        collectionDescription: newDescription
+      }, toError(error));
     }
   };
 
@@ -48,7 +56,13 @@ export function CollectionManager({ onSelectCollection, selectedCollectionId }: 
     try {
       await deleteCollectionMutation(id);
     } catch (error) {
-      console.error('Failed to delete collection:', error);
+      logger.error('Collection deletion failed', {
+        component: 'CollectionManager',
+        operation: 'handleDeleteCollection',
+        errorType: 'collection_delete_failure',
+        details: 'Failed to delete document collection',
+        collectionId: id
+      }, toError(error));
     }
   };
 

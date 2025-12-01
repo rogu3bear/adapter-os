@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 
 export interface WizardPersistenceConfig<T> {
   /** Unique key for localStorage */
@@ -45,7 +45,7 @@ export interface WizardPersistenceReturn<T> {
  * });
  * ```
  */
-export function useWizardPersistence<T extends Record<string, any>>(
+export function useWizardPersistence<T extends Record<string, unknown>>(
   config: WizardPersistenceConfig<T>
 ): WizardPersistenceReturn<T> {
   const {
@@ -108,9 +108,10 @@ export function useWizardPersistence<T extends Record<string, any>>(
       try {
         localStorage.setItem(fullStorageKey, JSON.stringify(stateToSave));
         setHasSavedState(true);
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Handle quota exceeded or other storage errors
-        if (err?.name === 'QuotaExceededError' || err?.code === 22) {
+        const error = err as { name?: string; code?: number };
+        if (error?.name === 'QuotaExceededError' || error?.code === 22) {
           logger.warn(
             'localStorage quota exceeded - clearing old wizard states',
             { component: 'useWizardPersistence', operation: 'save', storageKey }

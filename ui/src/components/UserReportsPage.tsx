@@ -3,9 +3,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import apiClient from '../api/client';
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
+import { usePolling } from '@/hooks/usePolling';
 import { useTenant } from '@/layout/LayoutProvider';
 import { LastUpdated } from './ui/last-updated';
 import {

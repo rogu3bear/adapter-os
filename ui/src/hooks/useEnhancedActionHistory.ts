@@ -4,7 +4,7 @@
 //! Extends useActionHistory with production-grade features.
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { logger, toError } from '../utils/logger';
+import { logger, toError } from '@/utils/logger';
 import {
   ActionHistoryItem,
   ActionType,
@@ -18,7 +18,7 @@ import {
   ReplayResult,
   ActionStats,
   HistoryStorageOptions,
-} from '../types/history';
+} from '@/types/history';
 
 interface EnhancedHistoryState {
   actions: ActionHistoryItem[];

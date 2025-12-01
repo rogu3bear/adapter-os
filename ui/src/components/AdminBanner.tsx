@@ -3,9 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Button } from './ui/button';
 import { AlertTriangle, CheckCircle2, XCircle, ExternalLink } from 'lucide-react';
-import apiClient from '../api/client';
+import apiClient from '@/api/client';
 import { formatDistanceToNow } from 'date-fns';
-import type { DeterminismStatusResponse, AdapterQuarantineStatusResponse } from '../api/types';
+import type { DeterminismStatusResponse, AdapterQuarantineStatusResponse } from '@/api/types';
 
 export function AdminBanner() {
   const { data: determinismStatus } = useQuery<DeterminismStatusResponse>({
