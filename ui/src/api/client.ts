@@ -1414,9 +1414,10 @@ class ApiClient {
   }
 
   // List models with stats for ModelSelector
+  // DEFENSIVE: Use extractArrayFromResponse to handle potential PaginatedResponse migration
   async listModels(): Promise<apiTypes.ModelWithStatsResponse[]> {
-    const resp = await this.request<apiTypes.ModelListResponse>(`/v1/models`);
-    return resp.models;
+    const resp = await this.request<unknown>(`/v1/models`);
+    return extractArrayFromResponse<apiTypes.ModelWithStatsResponse>(resp);
   }
 
   // Base Model Management API Methods - Citation: IMPLEMENTATION_PLAN.md Phase 2
@@ -2272,8 +2273,10 @@ class ApiClient {
     if (filters?.tenant_id) params.append('tenant_id', filters.tenant_id);
     const query = params.toString() ? `?${params.toString()}` : '';
 
-    const response = await this.request<types.AuditLogsResponse>(`/v1/audit/logs${query}`);
-    return response.logs.map((log) => ({
+    // DEFENSIVE: Use extractArrayFromResponse to handle potential PaginatedResponse migration
+    const rawResponse = await this.request<unknown>(`/v1/audit/logs${query}`);
+    const logs = extractArrayFromResponse<types.AuditLogEntry>(rawResponse);
+    return logs.map((log) => ({
       id: log.id,
       user_id: log.user_id,
       action: log.action,

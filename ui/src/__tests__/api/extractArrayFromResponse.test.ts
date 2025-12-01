@@ -136,6 +136,32 @@ describe('extractArrayFromResponse', () => {
     });
   });
 
+  describe('Domain-specific wrappers', () => {
+    it('extracts models array from { models: T[] } wrapper', () => {
+      const response = {
+        models: [{ id: 'model-1', name: 'GPT' }, { id: 'model-2', name: 'Claude' }],
+      };
+
+      const result = extractArrayFromResponse<{ id: string; name: string }>(response);
+      expect(result).toEqual([
+        { id: 'model-1', name: 'GPT' },
+        { id: 'model-2', name: 'Claude' },
+      ]);
+    });
+
+    it('extracts logs array from { logs: T[] } wrapper', () => {
+      const response = {
+        logs: [{ id: 'log-1', action: 'create' }, { id: 'log-2', action: 'delete' }],
+      };
+
+      const result = extractArrayFromResponse<{ id: string; action: string }>(response);
+      expect(result).toEqual([
+        { id: 'log-1', action: 'create' },
+        { id: 'log-2', action: 'delete' },
+      ]);
+    });
+  });
+
   describe('Priority of formats', () => {
     it('prefers PaginatedResponse (data) over legacy (items)', () => {
       const response = {

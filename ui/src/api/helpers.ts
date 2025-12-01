@@ -232,9 +232,10 @@ export function validateRequestId(response: Response, sentRequestId: string): vo
  * DEFENSIVE: Handles multiple response formats to prevent future bugs when
  * backend endpoints migrate to PaginatedResponse.
  *
- * Supported formats:
+ * Supported formats (checked in order):
  * - PaginatedResponse: { data: T[], total, page, limit, pages }
  * - Legacy wrapper: { items: T[] }
+ * - Domain wrappers: { models: T[] }, { logs: T[] }
  * - Direct array: T[]
  *
  * @param response - Unknown response that may be array or wrapper
@@ -257,6 +258,22 @@ export function extractArrayFromResponse<T>(response: unknown): T[] {
     const legacy = response as { items: T[] };
     if (Array.isArray(legacy.items)) {
       return legacy.items;
+    }
+  }
+
+  // Domain-specific wrappers: { models: T[] }
+  if (response && typeof response === 'object' && 'models' in response) {
+    const wrapper = response as { models: T[] };
+    if (Array.isArray(wrapper.models)) {
+      return wrapper.models;
+    }
+  }
+
+  // Domain-specific wrappers: { logs: T[] }
+  if (response && typeof response === 'object' && 'logs' in response) {
+    const wrapper = response as { logs: T[] };
+    if (Array.isArray(wrapper.logs)) {
+      return wrapper.logs;
     }
   }
 
