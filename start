@@ -365,10 +365,23 @@ show_status() {
 
     # Check worker
     local worker_sock="$AOS_VAR_DIR/run/worker.sock"
+    local worker_pid_file="$AOS_VAR_DIR/worker.pid"
     if [ -S "$worker_sock" ] && lsof "$worker_sock" >/dev/null 2>&1; then
         local worker_pid
         worker_pid=$(lsof -t "$worker_sock" 2>/dev/null | head -1)
-        print_step "success" "Worker          ${FG_GREEN}RUNNING${FG_RESET}  (PID $worker_pid, socket)"
+        if [ -n "$worker_pid" ] && kill -0 "$worker_pid" 2>/dev/null; then
+            print_step "success" "Worker          ${FG_GREEN}RUNNING${FG_RESET}  (PID $worker_pid, socket)"
+        else
+            print_step "error" "Worker          ${FG_RED}STALE${FG_RESET}    (socket exists but process dead)"
+        fi
+    elif [ -f "$worker_pid_file" ]; then
+        local worker_pid
+        worker_pid=$(cat "$worker_pid_file" 2>/dev/null)
+        if [ -n "$worker_pid" ] && kill -0 "$worker_pid" 2>/dev/null; then
+            print_step "running" "Worker          ${FG_YELLOW}STARTING${FG_RESET} (PID $worker_pid, socket pending)"
+        else
+            print_step "error" "Worker          ${FG_RED}STOPPED${FG_RESET}  (stale PID file)"
+        fi
     else
         print_step "pending" "Worker          ${FG_YELLOW}STOPPED${FG_RESET}  (optional)"
     fi
@@ -554,9 +567,31 @@ start_all() {
     # Start services
     local backend_ok=0
     local ui_ok=0
+    local worker_ok=0
 
     start_backend_animated && backend_ok=1
     start_ui_animated && ui_ok=1
+    
+    # Start worker (optional, won't fail if missing)
+    print_step "running" "Starting Inference Worker..."
+    if scripts/service-manager.sh start worker >/dev/null 2>&1; then
+        # Wait for socket
+        local waited=0
+        while [ $waited -lt 15 ]; do
+            if [ -S "$AOS_VAR_DIR/run/worker.sock" ]; then
+                update_step "success" "Worker          ${FG_GREEN}READY${FG_RESET}  (socket created)"
+                worker_ok=1
+                break
+            fi
+            sleep 1
+            ((waited++))
+        done
+        if [ $worker_ok -eq 0 ]; then
+            update_step "pending" "Worker          ${FG_YELLOW}STARTING${FG_RESET} (socket pending)"
+        fi
+    else
+        update_step "pending" "Worker          ${FG_YELLOW}SKIPPED${FG_RESET}  (optional, binary/manifest not found)"
+    fi
 
     echo ""
 
@@ -567,6 +602,11 @@ start_all() {
         echo ""
         echo "  API: http://localhost:$AOS_SERVER_PORT"
         echo "  UI:  http://localhost:$AOS_UI_PORT"
+        if [ $worker_ok -eq 1 ]; then
+            echo "  Worker: ${FG_GREEN}Ready${FG_RESET} (socket: $AOS_VAR_DIR/run/worker.sock)"
+        else
+            echo "  Worker: ${FG_YELLOW}Optional${FG_RESET} (not started)"
+        fi
         echo ""
         echo -e "${FG_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
     elif [ $backend_ok -eq 1 ]; then

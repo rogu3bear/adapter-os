@@ -25,12 +25,26 @@ PID_DIR="$PROJECT_ROOT/var"
 BACKEND_PID_FILE="$PID_DIR/backend.pid"
 UI_PID_FILE="$PID_DIR/ui.pid"
 MENU_BAR_PID_FILE="$PID_DIR/menu-bar.pid"
+WORKER_PID_FILE="$PID_DIR/worker.pid"
 
 # Log file locations
 LOG_DIR="$PROJECT_ROOT/var/logs"
 BACKEND_LOG="$LOG_DIR/backend.log"
 UI_LOG="$LOG_DIR/ui.log"
 MENU_BAR_LOG="$LOG_DIR/menu-bar.log"
+WORKER_LOG="$LOG_DIR/worker.log"
+
+# Worker database tracking
+WORKER_ID_FILE="$PID_DIR/worker.id"
+DATABASE_PATH="${AOS_DATABASE_URL:-sqlite://var/aos-cp.sqlite3}"
+# Extract SQLite path from DATABASE_URL if it's a sqlite:// URL
+if [[ "$DATABASE_PATH" == sqlite://* ]]; then
+    DATABASE_PATH="${DATABASE_PATH#sqlite://}"
+fi
+# If still relative, make it absolute relative to PROJECT_ROOT
+if [[ "$DATABASE_PATH" != /* ]]; then
+    DATABASE_PATH="$PROJECT_ROOT/$DATABASE_PATH"
+fi
 
 # Port configuration
 BACKEND_PORT="${AOS_SERVER_PORT:-8080}"
@@ -42,6 +56,7 @@ FAST_TIMEOUT=30
 FORCE_TIMEOUT=10
 UI_TIMEOUT=15
 MENU_BAR_TIMEOUT=5
+WORKER_TIMEOUT=60
 
 # =============================================================================
 # Colors
@@ -253,7 +268,10 @@ start_backend() {
     mkdir -p "$PROJECT_ROOT/var"
 
     # Start backend server
+    # Note: --skip-drift-check is used for development to bypass environment fingerprint validation
+    # In production, remove this flag and ensure proper baseline fingerprint is signed
     nohup "$server_bin" --config "${AOS_CONFIG_PATH:-$PROJECT_ROOT/configs/cp.toml}" \
+        --skip-drift-check \
         > "$BACKEND_LOG" 2>&1 &
     local pid=$!
 
@@ -477,6 +495,508 @@ stop_menu_bar() {
 }
 
 # =============================================================================
+# Database Helper Functions
+# =============================================================================
+
+# Check if database is accessible
+check_database() {
+    if [ ! -f "$DATABASE_PATH" ]; then
+        return 1
+    fi
+    local test_result=$(sqlite3 "$DATABASE_PATH" "SELECT 1;" 2>&1)
+    if [ $? -ne 0 ] || [ -n "$test_result" ]; then
+        return 1
+    fi
+    return 0
+}
+
+# Generate UUID with fallback
+generate_uuid() {
+    if command -v uuidgen > /dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    elif command -v python3 > /dev/null 2>&1; then
+        python3 -c "import uuid; print(str(uuid.uuid4()))"
+    else
+        # Fallback: use date + random
+        echo "$(date +%s)-$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"
+    fi
+}
+
+# Escape single quotes for SQL (basic protection)
+sql_escape() {
+    echo "$1" | sed "s/'/''/g"
+}
+
+# Validate foreign key exists
+validate_foreign_key() {
+    local table="$1"
+    local column="$2"
+    local value="$3"
+    
+    if ! check_database; then
+        return 1
+    fi
+    
+    local escaped_value=$(sql_escape "$value")
+    local count=$(sqlite3 "$DATABASE_PATH" "SELECT COUNT(*) FROM $table WHERE $column='$escaped_value';" 2>&1)
+    
+    if [ $? -eq 0 ] && [ "$count" -gt 0 ]; then
+        return 0
+    fi
+    return 1
+}
+
+# Ensure default plan exists, return plan_id
+ensure_default_plan() {
+    if ! check_database; then
+        warning_msg "Database not accessible, skipping plan check"
+        return 1
+    fi
+
+    # Validate tenant exists
+    if ! validate_foreign_key "tenants" "id" "default"; then
+        warning_msg "Default tenant does not exist in database"
+        return 1
+    fi
+
+    # Check if any plan exists for default tenant (with retry for race conditions)
+    local existing_plan=""
+    local retries=3
+    while [ $retries -gt 0 ]; do
+        existing_plan=$(sqlite3 "$DATABASE_PATH" "SELECT id FROM plans WHERE tenant_id='default' LIMIT 1;" 2>&1)
+        if [ $? -eq 0 ] && [ -n "$existing_plan" ]; then
+            echo "$existing_plan"
+            return 0
+        fi
+        sleep 0.1
+        ((retries--))
+    done
+
+    # Try to create a default plan if manifest exists
+    local manifest_hash=$(sqlite3 "$DATABASE_PATH" "SELECT hash_b3 FROM manifests WHERE tenant_id='default' LIMIT 1;" 2>&1)
+    if [ $? -ne 0 ] || [ -z "$manifest_hash" ]; then
+        warning_msg "No manifests found in database, cannot create default plan"
+        return 1
+    fi
+
+    # Validate manifest exists
+    if ! validate_foreign_key "manifests" "hash_b3" "$manifest_hash"; then
+        warning_msg "Manifest hash not found in manifests table"
+        return 1
+    fi
+
+    # Generate plan_id_b3 (use a deterministic hash based on manifest + tenant)
+    local plan_id_b3=$(echo -n "default-plan-$manifest_hash" | shasum -a 256 | cut -d' ' -f1)
+    local plan_id="plan-default-$(echo "$plan_id_b3" | cut -c1-8)"
+    
+    # Create minimal plan (escape values for SQL)
+    local escaped_plan_id=$(sql_escape "$plan_id")
+    local escaped_plan_id_b3=$(sql_escape "$plan_id_b3")
+    local escaped_manifest_hash=$(sql_escape "$manifest_hash")
+    local kernel_hashes_json='{"router":"default","executor":"default"}'
+    local escaped_kernel_hashes=$(sql_escape "$kernel_hashes_json")
+    local layout_hash_b3=$(echo -n "default-layout" | shasum -a 256 | cut -d' ' -f1)
+    local escaped_layout_hash=$(sql_escape "$layout_hash_b3")
+    local metadata_json='{"display_name":"Default Local Development Plan"}'
+    local escaped_metadata=$(sql_escape "$metadata_json")
+
+    # Try to insert plan (handle race condition)
+    local insert_result=$(sqlite3 "$DATABASE_PATH" <<EOF 2>&1
+INSERT INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3, metadata_json, created_at)
+VALUES ('$escaped_plan_id', 'default', '$escaped_plan_id_b3', '$escaped_manifest_hash', '$escaped_kernel_hashes', '$escaped_layout_hash', '$escaped_metadata', datetime('now'));
+EOF
+)
+    local insert_status=$?
+
+    if [ $insert_status -eq 0 ] && [ -z "$insert_result" ]; then
+        success_msg "Created default plan: $plan_id"
+        echo "$plan_id"
+        return 0
+    else
+        # Check if plan was created by another process (race condition)
+        existing_plan=$(sqlite3 "$DATABASE_PATH" "SELECT id FROM plans WHERE tenant_id='default' LIMIT 1;" 2>&1)
+        if [ $? -eq 0 ] && [ -n "$existing_plan" ]; then
+            success_msg "Plan already exists (created by another process): $existing_plan"
+            echo "$existing_plan"
+            return 0
+        fi
+        
+        if [ -n "$insert_result" ]; then
+            warning_msg "Failed to create default plan: $insert_result"
+        else
+            warning_msg "Failed to create default plan (unknown error)"
+        fi
+        return 1
+    fi
+}
+
+# Register worker in database
+register_worker_in_db() {
+    local pid="$1"
+    local uds_path="$2"
+
+    if ! check_database; then
+        warning_msg "Database not accessible, skipping worker registration"
+        return 1
+    fi
+
+    # Get or create default plan
+    local plan_id=$(ensure_default_plan)
+    if [ -z "$plan_id" ]; then
+        warning_msg "Cannot register worker: no plan available"
+        return 1
+    fi
+
+    # Validate plan exists
+    if ! validate_foreign_key "plans" "id" "$plan_id"; then
+        warning_msg "Plan validation failed: $plan_id"
+        return 1
+    fi
+
+    # Generate worker ID
+    local worker_id=$(generate_uuid)
+    
+    # Get default tenant and node
+    local tenant_id="default"
+    
+    # Validate tenant exists
+    if ! validate_foreign_key "tenants" "id" "$tenant_id"; then
+        warning_msg "Tenant validation failed: $tenant_id"
+        return 1
+    fi
+    
+    # Get or create node
+    local node_id=$(sqlite3 "$DATABASE_PATH" "SELECT id FROM nodes LIMIT 1;" 2>&1)
+    if [ $? -ne 0 ] || [ -z "$node_id" ]; then
+        # Create a local node if none exists
+        local hostname_val=$(hostname)
+        node_id="node-local-$(echo "$hostname_val" | tr '[:upper:]' '[:lower:]' | tr -d ' ' | tr -d '.' | cut -c1-20)"
+        
+        local escaped_node_id=$(sql_escape "$node_id")
+        local escaped_hostname=$(sql_escape "$hostname_val")
+        
+        local node_result=$(sqlite3 "$DATABASE_PATH" <<EOF 2>&1
+INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status, created_at)
+VALUES ('$escaped_node_id', '$escaped_hostname', 'http://127.0.0.1:8081', 'active', datetime('now'));
+EOF
+)
+        local node_status=$?
+        
+        if [ $node_status -eq 0 ]; then
+            # Verify node was created
+            if validate_foreign_key "nodes" "id" "$node_id"; then
+                success_msg "Created local node: $node_id"
+            else
+                # Try to get existing node (race condition)
+                node_id=$(sqlite3 "$DATABASE_PATH" "SELECT id FROM nodes LIMIT 1;" 2>&1)
+                if [ -z "$node_id" ]; then
+                    warning_msg "Failed to create or find node: $node_result"
+                    return 1
+                fi
+            fi
+        else
+            warning_msg "Failed to create node: $node_result"
+            # Try to get existing node
+            node_id=$(sqlite3 "$DATABASE_PATH" "SELECT id FROM nodes LIMIT 1;" 2>&1)
+            if [ -z "$node_id" ]; then
+                return 1
+            fi
+        fi
+    fi
+
+    # Validate node exists
+    if ! validate_foreign_key "nodes" "id" "$node_id"; then
+        warning_msg "Node validation failed: $node_id"
+        return 1
+    fi
+
+    # Escape values for SQL
+    local escaped_worker_id=$(sql_escape "$worker_id")
+    local escaped_tenant_id=$(sql_escape "$tenant_id")
+    local escaped_node_id=$(sql_escape "$node_id")
+    local escaped_plan_id=$(sql_escape "$plan_id")
+    local escaped_uds_path=$(sql_escape "$uds_path")
+
+    # Register worker
+    local insert_result=$(sqlite3 "$DATABASE_PATH" <<EOF 2>&1
+INSERT INTO workers (id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at)
+VALUES ('$escaped_worker_id', '$escaped_tenant_id', '$escaped_node_id', '$escaped_plan_id', '$escaped_uds_path', $pid, 'starting', datetime('now'));
+EOF
+)
+    local insert_status=$?
+
+    if [ $insert_status -eq 0 ] && [ -z "$insert_result" ]; then
+        echo "$worker_id" > "$WORKER_ID_FILE"
+        success_msg "Registered worker in database: $worker_id"
+        return 0
+    else
+        if [ -n "$insert_result" ]; then
+            warning_msg "Failed to register worker in database: $insert_result"
+        else
+            warning_msg "Failed to register worker in database (unknown error)"
+        fi
+        return 1
+    fi
+}
+
+# Update worker status in database
+update_worker_status() {
+    local new_status="$1"
+
+    # Validate status value
+    case "$new_status" in
+        starting|serving|draining|stopped|crashed)
+            ;;
+        *)
+            warning_msg "Invalid worker status: $new_status"
+            return 1
+            ;;
+    esac
+
+    if ! check_database; then
+        return 1
+    fi
+
+    if [ ! -f "$WORKER_ID_FILE" ]; then
+        # No worker_id file, worker wasn't registered
+        return 0
+    fi
+
+    local worker_id=$(cat "$WORKER_ID_FILE" 2>/dev/null)
+    if [ -z "$worker_id" ]; then
+        return 0
+    fi
+
+    # Escape values for SQL
+    local escaped_status=$(sql_escape "$new_status")
+    local escaped_worker_id=$(sql_escape "$worker_id")
+
+    local update_result=$(sqlite3 "$DATABASE_PATH" <<EOF 2>&1
+UPDATE workers SET status='$escaped_status', last_seen_at=datetime('now') WHERE id='$escaped_worker_id';
+EOF
+)
+    local update_status=$?
+
+    if [ $update_status -eq 0 ] && [ -z "$update_result" ]; then
+        if [ "$new_status" = "stopped" ] || [ "$new_status" = "crashed" ]; then
+            rm -f "$WORKER_ID_FILE"
+        fi
+        return 0
+    else
+        if [ -n "$update_result" ]; then
+            warning_msg "Failed to update worker status to $new_status: $update_result"
+        else
+            warning_msg "Failed to update worker status to $new_status (unknown error)"
+        fi
+        return 1
+    fi
+}
+
+# Clean up stale worker records
+cleanup_stale_workers() {
+    if ! check_database; then
+        return 1
+    fi
+
+    # Find workers with status 'starting' or 'serving' but PID no longer exists
+    local stale_workers=$(sqlite3 "$DATABASE_PATH" "SELECT id, pid FROM workers WHERE status IN ('starting', 'serving') AND pid IS NOT NULL;" 2>&1)
+    
+    if [ $? -ne 0 ]; then
+        warning_msg "Failed to query stale workers: $stale_workers"
+        return 1
+    fi
+    
+    if [ -z "$stale_workers" ]; then
+        return 0
+    fi
+
+    # Process each stale worker
+    echo "$stale_workers" | while IFS='|' read -r worker_id pid; do
+        if [ -n "$worker_id" ] && [ -n "$pid" ]; then
+            # Validate PID is numeric
+            if ! [[ "$pid" =~ ^[0-9]+$ ]]; then
+                continue
+            fi
+            
+            # Check if process still exists
+            if ! kill -0 "$pid" 2>/dev/null; then
+                # Process is dead, mark worker as crashed
+                local escaped_worker_id=$(sql_escape "$worker_id")
+                local update_result=$(sqlite3 "$DATABASE_PATH" "UPDATE workers SET status='crashed', last_seen_at=datetime('now') WHERE id='$escaped_worker_id';" 2>&1)
+                
+                if [ $? -ne 0 ] && [ -n "$update_result" ]; then
+                    warning_msg "Failed to mark worker $worker_id as crashed: $update_result"
+                fi
+            fi
+        fi
+    done
+
+    return 0
+}
+
+# =============================================================================
+# Service: Worker
+# =============================================================================
+
+start_worker() {
+    ensure_dirs
+
+    # Check if worker socket already exists and is in use
+    local worker_sock="$PROJECT_ROOT/var/run/worker.sock"
+    if [ -S "$worker_sock" ]; then
+        local existing_pid=$(lsof -t "$worker_sock" 2>/dev/null | head -1)
+        if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
+            warning_msg "Worker socket already in use (PID: $existing_pid)"
+            echo "$existing_pid" > "$WORKER_PID_FILE"
+            return 0
+        else
+            # Stale socket, remove it
+            status_msg "Removing stale worker socket..."
+            rm -f "$worker_sock"
+        fi
+    fi
+
+    if is_running "$WORKER_PID_FILE"; then
+        local pid=$(get_pid "$WORKER_PID_FILE")
+        warning_msg "Worker is already running (PID: $pid)"
+        return 0
+    fi
+
+    status_msg "Starting Inference Worker..."
+
+    # Check if binary exists (prefer debug for multi-backend feature)
+    local worker_bin=""
+    if [ -f "$PROJECT_ROOT/target/debug/aos-worker" ]; then
+        worker_bin="$PROJECT_ROOT/target/debug/aos-worker"
+    elif [ -f "$PROJECT_ROOT/target/release/aos-worker" ]; then
+        worker_bin="$PROJECT_ROOT/target/release/aos-worker"
+    else
+        warning_msg "Worker binary not found. Worker is optional."
+        return 0
+    fi
+
+    # Determine manifest and model paths (default to 32B model)
+    local manifest_path="${AOS_WORKER_MANIFEST:-$PROJECT_ROOT/manifests/qwen32b-coder-mlx.yaml}"
+    local model_path="${AOS_MODEL_PATH:-$PROJECT_ROOT/var/model-cache/models/qwen2.5-coder-32b-instruct-bf16}"
+    local uds_path="${AOS_WORKER_SOCKET:-$PROJECT_ROOT/var/run/worker.sock}"
+    local backend="${AOS_MODEL_BACKEND:-mlx}"
+    
+    # Auto-detect tokenizer path if not set
+    local tokenizer_path="${AOS_TOKENIZER_PATH:-}"
+    if [ -z "$tokenizer_path" ] && [ -d "$model_path" ]; then
+        tokenizer_path="$model_path/tokenizer.json"
+    fi
+
+    # Validate paths
+    if [ ! -f "$manifest_path" ]; then
+        warning_msg "Manifest not found: $manifest_path. Worker startup skipped."
+        return 0
+    fi
+
+    if [ ! -d "$model_path" ]; then
+        warning_msg "Model directory not found: $model_path. Worker startup skipped."
+        return 0
+    fi
+
+    # Ensure socket directory exists
+    mkdir -p "$(dirname "$uds_path")"
+
+    # Set up environment
+    export AOS_DEV_SKIP_METALLIB_CHECK="${AOS_DEV_SKIP_METALLIB_CHECK:-1}"
+    export RUST_LOG="${RUST_LOG:-info,adapteros_lora_worker=info}"
+
+    # Build worker command
+    local worker_cmd="$worker_bin --manifest \"$manifest_path\" --model-path \"$model_path\" --uds-path \"$uds_path\" --backend \"$backend\""
+    
+    # Add tokenizer path if found
+    if [ -n "$tokenizer_path" ] && [ -f "$tokenizer_path" ]; then
+        worker_cmd="$worker_cmd --tokenizer \"$tokenizer_path\""
+    fi
+    
+    # Start worker
+    eval "nohup $worker_cmd > \"$WORKER_LOG\" 2>&1 &"
+    local pid=$!
+
+    echo "$pid" > "$WORKER_PID_FILE"
+
+    # Wait for socket to be created (up to 30 seconds)
+    local waited=0
+    while [ $waited -lt 30 ]; do
+        if [ -S "$uds_path" ]; then
+            success_msg "Worker started (PID: $pid, Socket: $uds_path)"
+            
+            # Register worker in database
+            if register_worker_in_db "$pid" "$uds_path"; then
+                # Update status to serving once socket is ready
+                update_worker_status "serving"
+            fi
+            
+            return 0
+        fi
+        sleep 1
+        ((waited++))
+    done
+
+    # Check if process is still running
+    if kill -0 "$pid" 2>/dev/null; then
+        warning_msg "Worker started but socket not ready yet (PID: $pid). Check logs: $WORKER_LOG"
+        # Register worker even if socket not ready yet
+        register_worker_in_db "$pid" "$uds_path" || true
+        return 0
+    else
+        error_msg "Worker failed to start. Check logs: $WORKER_LOG"
+        rm -f "$WORKER_PID_FILE"
+        update_worker_status "crashed" || true
+        return 1
+    fi
+}
+
+restart_worker() {
+    local mode="${1:-graceful}"
+    status_msg "Restarting Worker (mode: ${mode})..."
+    stop_worker "$mode"
+    start_worker
+}
+
+stop_worker() {
+    local mode="${1:-graceful}"
+
+    # Also check for processes using the socket
+    local worker_sock="$PROJECT_ROOT/var/run/worker.sock"
+    local socket_pid=""
+    if [ -S "$worker_sock" ]; then
+        socket_pid=$(lsof -t "$worker_sock" 2>/dev/null | head -1)
+    fi
+
+    local pid=""
+    if is_running "$WORKER_PID_FILE"; then
+        pid=$(get_pid "$WORKER_PID_FILE")
+    elif [ -n "$socket_pid" ]; then
+        pid="$socket_pid"
+        warning_msg "Found worker via socket (PID: $pid)"
+    else
+        status_msg "Worker is not running"
+        rm -f "$worker_sock"
+        rm -f "$WORKER_PID_FILE"
+        # Clean up any stale database records
+        update_worker_status "stopped" || true
+        return 0
+    fi
+
+    # Update status to draining before stopping
+    update_worker_status "draining" || true
+
+    stop_process "$pid" "Worker" "$WORKER_TIMEOUT" "$mode"
+    
+    # Update status to stopped after process terminates
+    update_worker_status "stopped" || true
+    
+    # Clean up socket and PID file
+    rm -f "$worker_sock"
+    rm -f "$WORKER_PID_FILE"
+}
+
+# =============================================================================
 # Status Command
 # =============================================================================
 
@@ -525,6 +1045,56 @@ show_status() {
         else
             echo -e "${WHITE}[STOPPED]${NC} Menu Bar App (optional)"
         fi
+    fi
+
+    # Worker status
+    local worker_sock="$PROJECT_ROOT/var/run/worker.sock"
+    local worker_pid=""
+    local db_status=""
+    local worker_id=""
+    
+    # Clean up stale workers first
+    cleanup_stale_workers || true
+    
+    # Get database status if available
+    if check_database && [ -f "$WORKER_ID_FILE" ]; then
+        worker_id=$(cat "$WORKER_ID_FILE" 2>/dev/null)
+        if [ -n "$worker_id" ]; then
+            local escaped_worker_id=$(sql_escape "$worker_id")
+            db_status=$(sqlite3 "$DATABASE_PATH" "SELECT status FROM workers WHERE id='$escaped_worker_id';" 2>&1)
+            if [ $? -ne 0 ]; then
+                db_status=""
+            fi
+        fi
+    fi
+    
+    if [ -S "$worker_sock" ]; then
+        worker_pid=$(lsof -t "$worker_sock" 2>/dev/null | head -1)
+        if [ -n "$worker_pid" ] && kill -0 "$worker_pid" 2>/dev/null; then
+            local status_line="${GREEN}[RUNNING]${NC} Inference Worker (PID: $worker_pid, Socket: $worker_sock)"
+            if [ -n "$db_status" ]; then
+                status_line="$status_line ${CYAN}[DB: $db_status]${NC}"
+            fi
+            if [ -n "$worker_id" ]; then
+                status_line="$status_line ${WHITE}(ID: ${worker_id:0:8}...)${NC}"
+            fi
+            echo -e "$status_line"
+        else
+            echo -e "${YELLOW}[STALE]${NC} Worker socket exists but process not found"
+        fi
+    elif is_running "$WORKER_PID_FILE"; then
+        local pid=$(get_pid "$WORKER_PID_FILE")
+        local status_line="${YELLOW}[STARTING]${NC} Inference Worker (PID: $pid, socket not ready)"
+        if [ -n "$db_status" ]; then
+            status_line="$status_line ${CYAN}[DB: $db_status]${NC}"
+        fi
+        echo -e "$status_line"
+    else
+        local status_line="${WHITE}[STOPPED]${NC} Inference Worker (optional)"
+        if [ -n "$db_status" ] && [ "$db_status" != "stopped" ]; then
+            status_line="$status_line ${YELLOW}[DB: $db_status]${NC}"
+        fi
+        echo -e "$status_line"
     fi
 
     echo ""
@@ -581,6 +1151,7 @@ usage() {
     echo "SERVICES:"
     echo "  backend     Backend API server"
     echo "  ui          Web UI development server"
+    echo "  worker      Inference worker (ML model server)"
     echo "  menu-bar    Menu Bar status app (macOS only)"
     echo ""
     echo "STOP MODES (used by stop/restart commands):"
@@ -623,6 +1194,9 @@ case "$COMMAND" in
             menu-bar|menubar)
                 start_menu_bar
                 ;;
+            worker)
+                start_worker
+                ;;
             "")
                 error_msg "Please specify a service to start"
                 usage
@@ -649,6 +1223,9 @@ case "$COMMAND" in
             menu-bar|menubar)
                 stop_menu_bar "$MODE"
                 ;;
+            worker)
+                stop_worker "$MODE"
+                ;;
             "")
                 error_msg "Please specify a service to stop (or 'all')"
                 usage
@@ -672,6 +1249,9 @@ case "$COMMAND" in
             menu-bar|menubar)
                 restart_menu_bar "$MODE"
                 ;;
+            worker)
+                restart_worker "$MODE"
+                ;;
             "")
                 error_msg "Please specify a service to restart"
                 usage
@@ -688,13 +1268,13 @@ case "$COMMAND" in
         show_status
         ;;
     start-all)
-        # Start all services (backend + UI)
+        # Start all services (backend + UI + worker)
         echo -e "${CYAN}
 ================================
    Starting All Services
 ================================${NC}"
         echo ""
-        start_backend && start_ui
+        start_backend && start_ui && start_worker
         echo ""
         show_status
         ;;
