@@ -133,14 +133,17 @@ export interface SystemMetrics {
 }
 
 export interface BaseModelStatus {
-  schema_version: string; // Required for ModelStatusResponse compatibility
-  status: 'loading' | 'error' | 'unloaded' | 'ready' | 'loaded' | 'unloading';
-  model_name: string;
+  schema_version?: string; // Optional for backward compatibility
   model_id: string;
+  model_name: string;
+  model_path?: string | null;
+  status: 'loading' | 'error' | 'unloaded' | 'ready' | 'loaded' | 'unloading';
+  loaded_at?: string | null;
+  unloaded_at?: string | null;
+  error_message?: string | null;
   memory_usage_mb?: number;
-  loaded_at?: string;
-  error_message?: string;
-  is_loaded?: boolean;
+  is_loaded: boolean; // Required in backend
+  updated_at: string; // Required in backend
 }
 
 export interface ReplaySession {
@@ -701,9 +704,12 @@ export interface BackendCapabilitiesResponse {
 }
 
 export interface ComponentHealth {
+  component?: string;
   status: 'healthy' | 'degraded' | 'unhealthy';
   message?: string;
-  last_check: string;
+  details?: Record<string, unknown>;
+  timestamp?: number;
+  last_check?: string;
 }
 
 export interface MetaResponse {
@@ -788,6 +794,7 @@ export interface ModelStatusResponse {
   is_loaded?: boolean;
   error_message?: string;
   model_name?: string;
+  model_path?: string | null;
 }
 
 // Auth config types
@@ -896,7 +903,7 @@ export interface DownloadJobResponse {
 
 export interface AllModelsStatusResponse {
   schema_version: string; // Required by backend API
-  models: ModelStatusResponse[];
+  models: BaseModelStatus[]; // Uses BaseModelStatus which includes model_path
   total_memory_mb: number;
   available_memory_mb?: number;
   active_model_count: number;
@@ -1584,6 +1591,9 @@ export interface AuditLogsResponse {
   limit: number;
   offset: number;
 }
+
+// Type alias for backward compatibility - matches AuditLogResponse structure
+export type AuditLogEntry = AuditLogResponse;
 
 export interface AuditLogFilters {
   action?: string;

@@ -124,8 +124,13 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
         if (metaRes.status === 'fulfilled') {
           setMetaInfo(metaRes.value);
         }
+        // Handle model status gracefully - 401 is expected before login
         if (modelStatusRes.status === 'fulfilled') {
           setModelStatus(modelStatusRes.value);
+        } else if (modelStatusRes.status === 'rejected') {
+          // Don't log 401 errors - they're expected when not authenticated
+          // Set modelStatus to null to indicate we need authentication
+          setModelStatus(null);
         }
       } else {
         setBackendState('loading');
@@ -450,10 +455,31 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Cpu className="h-3.5 w-3.5" />
-                <span>
-                  {modelStatus?.model_name
-                    ? modelStatus.model_name.split('/').pop()?.substring(0, 15)
-                    : 'No Model'}
+                <span
+                  title={modelStatus?.model_path || modelStatus?.model_name || undefined}
+                >
+                  {(() => {
+                    // If we have model_name and it's not the placeholder, use it
+                    if (modelStatus?.model_name && modelStatus.model_name !== 'No Model Loaded') {
+                      return modelStatus.model_name.split('/').pop()?.substring(0, 15);
+                    }
+                    // If model_name is placeholder but we have model_path, use that
+                    if (modelStatus?.model_path && modelStatus.model_path.trim()) {
+                      return modelStatus.model_path.split('/').pop()?.substring(0, 15);
+                    }
+                    // If modelStatus is null (401 error), show "Login Required"
+                    if (modelStatus === null) {
+                      return 'Login for status';
+                    }
+                    // Fallback to checking worker availability
+                    if (!systemHealth?.components) return 'No Model';
+                    const components = Object.values(systemHealth.components);
+                    const kernelComponent = components.find((c) => c.component === 'kernel');
+                    const workerAvailable = kernelComponent?.details && typeof kernelComponent.details === 'object' && 'worker_available' in kernelComponent.details
+                      ? (kernelComponent.details as Record<string, unknown>).worker_available === true
+                      : false;
+                    return workerAvailable ? 'Worker Ready' : 'No Model';
+                  })()}
                 </span>
               </div>
               {systemHealth?.uptime_seconds && (
@@ -725,12 +751,23 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
                         {healthSummary.degraded > 0 && `, ${healthSummary.degraded} degraded`}
                       </span>
                     </div>
-                    {modelStatus?.model_name && (
+                    {modelStatus !== null && (modelStatus.model_name || modelStatus.model_path) && (
                       <div className="flex justify-between">
                         <span className="text-muted-foreground/70">Model:</span>
-                        <span className="truncate max-w-[180px]" title={modelStatus.model_name}>
-                          {modelStatus.model_name.split('/').pop()}
+                        <span
+                          className="truncate max-w-[180px]"
+                          title={modelStatus.model_path || modelStatus.model_name}
+                        >
+                          {modelStatus.model_name && modelStatus.model_name !== 'No Model Loaded'
+                            ? modelStatus.model_name.split('/').pop()
+                            : modelStatus.model_path?.split('/').pop() || 'Unknown'}
                         </span>
+                      </div>
+                    )}
+                    {modelStatus === null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground/70">Model:</span>
+                        <span className="text-warning/70">Login required</span>
                       </div>
                     )}
                     <div className="flex justify-between">

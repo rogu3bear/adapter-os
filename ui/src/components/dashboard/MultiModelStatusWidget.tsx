@@ -110,10 +110,17 @@ export const MultiModelStatusWidget: React.FC = () => {
                   className="flex items-center justify-between p-3 rounded-lg border bg-card"
                 >
                   <div className="flex-1">
-                    <p className="font-medium text-sm">{model.model_name}</p>
+                    <p className="font-medium text-sm" title={model.model_path || undefined}>
+                      {model.model_name}
+                    </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       ID: {model.model_id}
                     </p>
+                    {model.model_path && (
+                      <p className="text-xs text-muted-foreground/70 mt-0.5 truncate" title={model.model_path}>
+                        📁 {model.model_path}
+                      </p>
+                    )}
                     {model.error_message && (
                       <p className="text-xs text-destructive mt-1">
                         {model.error_message}

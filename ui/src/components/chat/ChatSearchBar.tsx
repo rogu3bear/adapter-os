@@ -35,6 +35,16 @@ export interface ChatSearchBarProps {
    * @default 20
    */
   maxResults?: number;
+
+  /**
+   * Controlled value for the search input (for filtering local sessions)
+   */
+  value?: string;
+
+  /**
+   * Callback when search input changes (for controlled mode)
+   */
+  onChange?: (value: string) => void;
 }
 
 /**
@@ -64,14 +74,20 @@ export function ChatSearchBar({
   className,
   placeholder = 'Search chat sessions and messages...',
   maxResults = 20,
+  value: controlledValue,
+  onChange: controlledOnChange,
 }: ChatSearchBarProps) {
-  const [query, setQuery] = useState('');
+  const [internalQuery, setInternalQuery] = useState('');
   const [scope, setScope] = useState<'sessions' | 'messages' | 'all'>('all');
   const [isOpen, setIsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Use the chat search hook with debouncing
+  // Use controlled value if provided, otherwise use internal state
+  const query = controlledValue !== undefined ? controlledValue : internalQuery;
+  const setQuery = controlledOnChange || setInternalQuery;
+
+  // Use the chat search hook with debouncing (only if query length >= 2)
   const { results, isSearching, isPending, isValidQuery } = useChatSearch(query, {
     scope,
     limit: maxResults,
@@ -91,21 +107,21 @@ export function ChatSearchBar({
     setIsOpen(false);
     setQuery('');
     inputRef.current?.blur();
-  }, [onSelectSession, onSelectMessage]);
+  }, [onSelectSession, onSelectMessage, setQuery]);
 
   // Handle input change
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setQuery(value);
     setIsOpen(value.length >= 2);
-  }, []);
+  }, [setQuery]);
 
   // Handle clear button
   const handleClear = useCallback(() => {
     setQuery('');
     setIsOpen(false);
     inputRef.current?.focus();
-  }, []);
+  }, [setQuery]);
 
   // Close dropdown when clicking outside
   useEffect(() => {

@@ -2,13 +2,15 @@
  * PreChatAdapterPrompt - Dialog shown before chat when adapters need loading
  *
  * Prompts the user to load cold/unloaded adapters before sending messages.
+ * Can also prompt for model loading if base model is not ready.
  */
 
 import * as React from 'react';
-import { AlertTriangle, Loader2, CheckCircle, Flame, Snowflake, CircleOff, Thermometer, Pin } from 'lucide-react';
+import { AlertTriangle, Loader2, CheckCircle, Flame, Snowflake, CircleOff, Thermometer, Pin, Server } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
   DialogContent,
@@ -44,6 +46,23 @@ export interface PreChatAdapterPromptProps {
 
   /** Whether loading is in progress */
   isLoading?: boolean;
+
+  // ---- Model Loading Support ----
+
+  /** Model status (if undefined, no model section shown) */
+  modelStatus?: 'loaded' | 'loading' | 'unloaded' | 'error';
+
+  /** Name of the base model */
+  modelName?: string;
+
+  /** Model loading progress (0-100) */
+  modelLoadProgress?: number;
+
+  /** Whether model is currently loading */
+  isModelLoading?: boolean;
+
+  /** Called when user clicks "Load and Chat" (loads model + adapters) */
+  onLoadAndChat?: () => void;
 }
 
 // ============================================================================
@@ -93,16 +112,25 @@ export function PreChatAdapterPrompt({
   onContinueAnyway,
   onChangeStack,
   isLoading = false,
+  modelStatus,
+  modelName,
+  modelLoadProgress,
+  isModelLoading = false,
+  onLoadAndChat,
 }: PreChatAdapterPromptProps) {
   const readyAdapters = adapters.filter((a) => isReady(a.state));
   const notReadyAdapters = adapters.filter((a) => !isReady(a.state));
 
-  // Calculate total estimated load time
+  // Check if model needs loading
+  const modelNeedsLoading = modelStatus && modelStatus !== 'loaded';
+  const showModelSection = modelStatus !== undefined;
+
+  // Calculate total estimated load time (include model if needed)
   const estimatedTotalTime = notReadyAdapters.reduce((acc, a) => {
     if (a.state === 'unloaded') return acc + 10;
     if (a.state === 'cold') return acc + 5;
     return acc;
-  }, 0);
+  }, 0) + (modelNeedsLoading ? 30 : 0); // Estimate 30s for model loading
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -110,15 +138,77 @@ export function PreChatAdapterPrompt({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-500" />
-            Some adapters need loading
+            {modelNeedsLoading ? 'Model and adapters need loading' : 'Some adapters need loading'}
           </DialogTitle>
           <DialogDescription>
-            {notReadyAdapters.length} of {adapters.length} adapters are not ready for inference.
-            Would you like to load them now?
+            {modelNeedsLoading ? (
+              <>
+                The base model needs to be loaded before chatting.
+                {notReadyAdapters.length > 0 && ` ${notReadyAdapters.length} adapter${notReadyAdapters.length > 1 ? 's' : ''} also need loading.`}
+              </>
+            ) : (
+              <>
+                {notReadyAdapters.length} of {adapters.length} adapters are not ready for inference.
+                Would you like to load them now?
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 py-4">
+          {/* Model status section (if applicable) */}
+          {showModelSection && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Base Model</p>
+              <div
+                className={cn(
+                  'flex items-center justify-between px-3 py-2 rounded-md border',
+                  modelStatus === 'loaded' && 'bg-green-50 border-green-200',
+                  modelStatus === 'loading' && 'bg-blue-50 border-blue-200',
+                  modelStatus === 'unloaded' && 'bg-amber-50 border-amber-200',
+                  modelStatus === 'error' && 'bg-red-50 border-red-200'
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  {modelStatus === 'loaded' ? (
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                  ) : modelStatus === 'loading' || isModelLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                  ) : (
+                    <Server className="h-4 w-4 text-amber-600" />
+                  )}
+                  <span className="text-sm font-medium">{modelName || 'Base Model'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'text-xs',
+                      modelStatus === 'loaded' && 'text-green-700 border-green-300',
+                      modelStatus === 'loading' && 'text-blue-700 border-blue-300',
+                      modelStatus === 'unloaded' && 'text-amber-700 border-amber-300',
+                      modelStatus === 'error' && 'text-red-700 border-red-300'
+                    )}
+                  >
+                    {modelStatus === 'loading' || isModelLoading ? 'Loading...' : modelStatus}
+                  </Badge>
+                  {modelStatus === 'unloaded' && !isModelLoading && (
+                    <span className="text-xs text-muted-foreground">Est. ~30s</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Model loading progress bar */}
+              {isModelLoading && modelLoadProgress !== undefined && (
+                <div className="px-3 space-y-1">
+                  <Progress value={modelLoadProgress} className="h-1.5" />
+                  <p className="text-xs text-muted-foreground text-center">
+                    {modelLoadProgress}% complete
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           {/* Ready adapters */}
           {readyAdapters.length > 0 && (
             <div className="space-y-1">
@@ -189,19 +279,24 @@ export function PreChatAdapterPrompt({
 
         <DialogFooter className="flex-col sm:flex-row gap-2">
           {onChangeStack && (
-            <Button variant="outline" onClick={onChangeStack} disabled={isLoading}>
+            <Button variant="outline" onClick={onChangeStack} disabled={isLoading || isModelLoading}>
               Change Stack
             </Button>
           )}
-          <Button variant="outline" onClick={onContinueAnyway} disabled={isLoading}>
+          <Button variant="outline" onClick={onContinueAnyway} disabled={isLoading || isModelLoading}>
             Continue Anyway
           </Button>
-          <Button onClick={onLoadAll} disabled={isLoading}>
-            {isLoading ? (
+          <Button
+            onClick={modelNeedsLoading && onLoadAndChat ? onLoadAndChat : onLoadAll}
+            disabled={isLoading || isModelLoading}
+          >
+            {isLoading || isModelLoading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 Loading...
               </>
+            ) : modelNeedsLoading && onLoadAndChat ? (
+              'Load and Chat'
             ) : (
               'Load All Now'
             )}

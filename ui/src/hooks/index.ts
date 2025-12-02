@@ -65,6 +65,7 @@ export * from './useBulkActions';
 export * from './useCancellableOperation';
 export * from './useDebouncedValue';
 export * from './useFeatureDegradation';
+export * from './useFeatureFlags';
 export * from './useFilter';
 export * from './useFirstRunRedirect';
 export * from './useFormValidation';

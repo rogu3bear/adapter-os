@@ -143,14 +143,16 @@ export default function SecurityPage() {
         {/* Fallback for disabled tabs */}
         {!canViewPolicies && activeTab === 'policies' && (
           <TabsContent value="policies" className="mt-6">
-            <Card>
-              <CardContent className="p-6">
-                <ErrorRecovery
-                  error="You do not have permission to view policies."
-                  onRetry={() => setActiveTab('audit')}
-                />
-              </CardContent>
-            </Card>
+            <SectionErrorBoundary sectionName="Policies">
+              <Card>
+                <CardContent className="p-6">
+                  <ErrorRecovery
+                    error="You do not have permission to view policies."
+                    onRetry={() => setActiveTab('audit')}
+                  />
+                </CardContent>
+              </Card>
+            </SectionErrorBoundary>
           </TabsContent>
         )}
       </Tabs>

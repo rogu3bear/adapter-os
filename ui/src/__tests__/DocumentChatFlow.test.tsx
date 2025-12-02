@@ -143,6 +143,8 @@ vi.mock('@/api/client', () => ({
     getCollection: (...args: unknown[]) => mockGetCollection(...args),
     uploadDocument: (...args: unknown[]) => mockUploadDocument(...args),
     getDocument: (...args: unknown[]) => mockGetDocument(...args),
+    getToken: vi.fn(() => 'test-token'),
+    setToken: vi.fn(),
   },
   apiClient: {
     streamInfer: (...args: unknown[]) => mockStreamInfer(...args),
@@ -152,6 +154,8 @@ vi.mock('@/api/client', () => ({
     getCollection: (...args: unknown[]) => mockGetCollection(...args),
     uploadDocument: (...args: unknown[]) => mockUploadDocument(...args),
     getDocument: (...args: unknown[]) => mockGetDocument(...args),
+    getToken: vi.fn(() => 'test-token'),
+    setToken: vi.fn(),
   },
 }));
 
@@ -189,6 +193,15 @@ vi.mock('sonner', () => ({
     error: vi.fn(),
     info: vi.fn(),
   },
+}));
+
+// Mock useSSE hook
+vi.mock('@/hooks/useSSE', () => ({
+  useSSE: vi.fn(() => ({
+    data: null,
+    error: null,
+    connected: false,
+  })),
 }));
 
 // Mock logger

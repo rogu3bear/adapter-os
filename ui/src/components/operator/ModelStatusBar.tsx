@@ -81,7 +81,7 @@ function formatMemory(mb: number | null): string {
 }
 
 export function ModelStatusBar({ tenantId }: ModelStatusBarProps) {
-  const { status, modelName, modelId, memoryUsageMb, errorMessage, refresh } =
+  const { status, modelName, modelId, modelPath, memoryUsageMb, errorMessage, refresh } =
     useModelStatus(tenantId);
   const {
     isAutoLoading,
@@ -134,9 +134,22 @@ export function ModelStatusBar({ tenantId }: ModelStatusBarProps) {
           <Skeleton className="h-5 w-32" />
         ) : (
           <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">
-              {modelName || (status === 'no-model' ? 'No model loaded' : 'Model')}
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="font-medium text-sm">
+                  {modelName || (status === 'no-model' ? 'No model loaded' : 'Model')}
+                </span>
+              </TooltipTrigger>
+              {modelName && (
+                <TooltipContent>
+                  <div className="space-y-1">
+                    <div className="font-medium">{modelName}</div>
+                    {modelId && <div className="text-xs text-muted-foreground">ID: {modelId}</div>}
+                    {modelPath && <div className="text-xs text-muted-foreground">Path: {modelPath}</div>}
+                  </div>
+                </TooltipContent>
+              )}
+            </Tooltip>
 
             <Badge variant={config.variant} className="flex items-center gap-1">
               {config.icon}

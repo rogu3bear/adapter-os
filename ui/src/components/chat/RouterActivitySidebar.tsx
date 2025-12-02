@@ -8,10 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { X, Layers, Clock, Zap, AlertCircle, ChevronDown } from 'lucide-react';
+import { X, Layers, Clock, Zap, AlertCircle, ChevronDown, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '@/api/client';
 import type { RoutingDecision } from '@/api/types';
+import type { RouterDecision } from '@/hooks/chat/useChatRouterDecisions';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 
 interface RouterActivitySidebarProps {
@@ -19,9 +20,23 @@ interface RouterActivitySidebarProps {
   onClose: () => void;
   stackId?: string;
   limit?: number;
+  /** Local decision history from useChatRouterDecisions hook */
+  decisions?: RouterDecision[];
+  /** Most recent decision */
+  lastDecision?: RouterDecision | null;
+  /** Callback to clear local decision history */
+  onClear?: () => void;
 }
 
-export function RouterActivitySidebar({ open, onClose, stackId, limit = 20 }: RouterActivitySidebarProps) {
+export function RouterActivitySidebar({ 
+  open, 
+  onClose, 
+  stackId, 
+  limit = 20,
+  decisions = [],
+  lastDecision,
+  onClear,
+}: RouterActivitySidebarProps) {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
@@ -41,6 +56,33 @@ export function RouterActivitySidebar({ open, onClose, stackId, limit = 20 }: Ro
     return routingHistory;
   }, [routingHistory, stackId]);
 
+  // Combine local decisions with API history, prioritizing local decisions
+  const allDecisions = useMemo(() => {
+    const localDecisions = decisions.map(decision => ({
+      id: decision.messageId,
+      timestamp: decision.timestamp.toISOString(),
+      adapters: decision.routingPath || [],
+      adapterId: decision.adapterId,
+      adapterName: decision.adapterName,
+      confidence: decision.confidence,
+      isLocal: true,
+    }));
+    
+    const apiDecisions = filteredHistory.map(decision => ({
+      id: decision.request_id,
+      timestamp: decision.timestamp,
+      adapters: decision.selected_adapters || [],
+      latency: decision.latency_ms,
+      entropy: decision.entropy,
+      isLocal: false,
+    }));
+
+    // Combine and sort by timestamp (most recent first)
+    return [...localDecisions, ...apiDecisions].sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+  }, [decisions, filteredHistory]);
+
   const handleLoadMore = () => {
     setPage(prev => prev + 1);
     // In a real implementation, this would fetch more data
@@ -56,14 +98,27 @@ export function RouterActivitySidebar({ open, onClose, stackId, limit = 20 }: Ro
           <Layers className="h-4 w-4" />
           Router Activity
         </h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClose}
-          aria-label="Close router activity"
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          {onClear && decisions.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClear}
+              aria-label="Clear decision history"
+              title="Clear local decision history"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            aria-label="Close router activity"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       <ScrollArea className="flex-1">
@@ -82,14 +137,14 @@ export function RouterActivitySidebar({ open, onClose, stackId, limit = 20 }: Ro
             <div className="text-center py-8 text-sm text-muted-foreground">
               Loading router decisions...
             </div>
-          ) : filteredHistory.length === 0 ? (
+          ) : allDecisions.length === 0 ? (
             <div className="text-center py-8 text-sm text-muted-foreground">
               {stackId ? 'No router activity for this stack yet' : 'No router activity yet'}
             </div>
           ) : (
             <>
-              {filteredHistory.map((decision: RoutingDecision) => (
-              <Card key={decision.request_id} className="p-3">
+              {allDecisions.map((decision) => (
+              <Card key={decision.id} className="p-3">
                 <CardContent className="p-0 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -97,29 +152,52 @@ export function RouterActivitySidebar({ open, onClose, stackId, limit = 20 }: Ro
                       <span className="text-xs text-muted-foreground">
                         {formatDistanceToNow(parseISO(decision.timestamp), { addSuffix: true })}
                       </span>
+                      {decision.isLocal && (
+                        <Badge variant="secondary" className="text-xs">
+                          Local
+                        </Badge>
+                      )}
                     </div>
-                    {decision.latency_ms !== undefined && (
-                      <Badge variant="outline" className="text-xs">
-                        <Zap className="h-3 w-3 mr-1" />
-                        {decision.latency_ms.toFixed(1)}ms
-                      </Badge>
-                    )}
+                    <div className="flex items-center gap-1">
+                      {decision.latency !== undefined && (
+                        <Badge variant="outline" className="text-xs">
+                          <Zap className="h-3 w-3 mr-1" />
+                          {decision.latency.toFixed(1)}ms
+                        </Badge>
+                      )}
+                      {decision.confidence !== undefined && (
+                        <Badge variant="outline" className="text-xs">
+                          {Math.round(decision.confidence * 100)}%
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   
                   <div className="space-y-1">
                     <p className="text-xs font-medium">Selected Adapters:</p>
                     <div className="flex flex-wrap gap-1">
-                      {decision.selected_adapters.slice(0, 3).map((adapterId) => (
-                        <Badge key={adapterId} variant="secondary" className="text-xs font-mono">
-                          {adapterId.length > 15 ? `${adapterId.slice(0, 15)}...` : adapterId}
-                        </Badge>
-                      ))}
-                      {decision.selected_adapters.length > 3 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{decision.selected_adapters.length - 3}
-                        </Badge>
+                      {decision.adapters && decision.adapters.length > 0 ? (
+                        <>
+                          {decision.adapters.slice(0, 3).map((adapterId, idx) => (
+                            <Badge key={`${decision.id}-${idx}`} variant="secondary" className="text-xs font-mono">
+                              {adapterId.length > 15 ? `${adapterId.slice(0, 15)}...` : adapterId}
+                            </Badge>
+                          ))}
+                          {decision.adapters.length > 3 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{decision.adapters.length - 3}
+                            </Badge>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No adapters</span>
                       )}
                     </div>
+                    {decision.adapterName && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Primary: {decision.adapterName}
+                      </p>
+                    )}
                   </div>
 
                   {decision.entropy !== undefined && (
@@ -129,12 +207,12 @@ export function RouterActivitySidebar({ open, onClose, stackId, limit = 20 }: Ro
                   )}
 
                   <div className="text-xs font-mono text-muted-foreground pt-1 border-t">
-                    {decision.request_id.slice(0, 16)}...
+                    {decision.id.slice(0, 16)}...
                   </div>
                 </CardContent>
               </Card>
               ))}
-              {hasMore && filteredHistory.length >= limit * page && (
+              {hasMore && allDecisions.length >= limit * page && (
                 <div className="flex justify-center pt-4">
                   <Button variant="outline" size="sm" onClick={handleLoadMore}>
                     <ChevronDown className="h-4 w-4 mr-2" />

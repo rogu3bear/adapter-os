@@ -164,6 +164,11 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
             <p className="text-sm text-gray-500">
               {status.model_name} ({status.model_id})
               <GlossaryTooltip termId="base-model-name" />
+              {status.model_path && (
+                <span className="ml-2 text-xs text-muted-foreground" title={status.model_path}>
+                  📁 {status.model_path.split('/').pop()}
+                </span>
+              )}
             </p>
 
             {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}

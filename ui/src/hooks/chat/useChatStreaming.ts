@@ -18,6 +18,9 @@ export interface UseChatStreamingOptions {
   /** Collection ID for RAG-enhanced inference */
   collectionId?: string;
 
+  /** Document ID for document-specific chat (not yet supported by API, but stored for future use) */
+  documentId?: string;
+
   /** Callback invoked when a user message is successfully sent */
   onMessageSent?: (message: ChatMessage) => void;
 
@@ -106,6 +109,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
   const {
     sessionId,
     collectionId,
+    documentId,
     onMessageSent,
     onStreamComplete,
     onError
@@ -221,12 +225,15 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
     setCurrentRequestId(requestId);
 
     // Prepare request
+    // Note: documentId is accepted in options but not yet supported by StreamingInferRequest API
+    // It's stored here for future API support. Currently, collectionId provides document scoping.
     const request: StreamingInferRequest = {
       prompt: validatedContent,
       max_tokens: 500,
       temperature: 0.7,
       adapter_stack: adapterIds,
       ...(collectionId && { collection_id: collectionId }),
+      // TODO: Add document_id when API supports it: ...(documentId && { document_id: documentId }),
     };
 
     try {
@@ -325,6 +332,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
   }, [
     isStreaming,
     collectionId,
+    documentId,
     sessionId,
     validateMessage,
     resetStream,

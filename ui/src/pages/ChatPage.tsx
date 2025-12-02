@@ -8,6 +8,8 @@ import { PERMISSIONS } from '@/utils/rbac';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ShieldAlert } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
+import { CollapsibleSidebar } from '@/pages/OwnerHome/components/CollapsibleSidebar';
+import { SimplifiedChatWidget } from '@/components/chat/SimplifiedChatWidget';
 
 export default function ChatPage() {
   const { user } = useAuth();
@@ -29,10 +31,18 @@ export default function ChatPage() {
             </AlertDescription>
           </Alert>
         ) : (
-          <div className="h-[calc(100vh-200px)] border rounded-lg overflow-hidden">
-            <ChatErrorBoundary>
-              <ChatInterface selectedTenant={selectedTenant} initialStackId={initialStackId} />
-            </ChatErrorBoundary>
+          <div className="flex h-[calc(100vh-200px)] gap-4">
+            {/* Main Chat Interface */}
+            <div className="flex-1 border rounded-lg overflow-hidden min-w-0">
+              <ChatErrorBoundary>
+                <ChatInterface selectedTenant={selectedTenant} initialStackId={initialStackId} />
+              </ChatErrorBoundary>
+            </div>
+
+            {/* Slide-out Chat Widget */}
+            <CollapsibleSidebar defaultExpanded={false} className="h-full">
+              <SimplifiedChatWidget selectedTenant={selectedTenant} />
+            </CollapsibleSidebar>
           </div>
         )}
       </FeatureLayout>

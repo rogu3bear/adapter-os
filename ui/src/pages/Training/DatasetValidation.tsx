@@ -62,12 +62,55 @@ export default function DatasetValidation({ dataset, onValidate, isValidating }:
     message: string;
   } | null>(null);
 
-  // Subscribe to validation progress events
+  // Track polling cycle for progress estimation
+  const pollCountRef = React.useRef(0);
+
+  // Subscribe to validation progress events with polling fallback
   useLiveData({
     sseEndpoint: `/v1/datasets/upload/progress?dataset_id=${dataset.id}`,
     sseEventType: 'validation',
     fetchFn: async () => {
-      // No polling fallback for validation progress - SSE only
+      // Polling fallback: fetch dataset status when SSE unavailable
+      try {
+        const response = await fetch(`/v1/datasets/${dataset.id}`);
+        if (!response.ok) return null;
+        const data = await response.json();
+
+        // Check validation status and provide appropriate progress
+        if (data.validation_status === 'validating') {
+          // Increment poll count for time-based progress estimation
+          pollCountRef.current += 1;
+          // Estimate progress: starts at 10%, increases 5% per poll, caps at 90%
+          const estimatedProgress = Math.min(10 + pollCountRef.current * 5, 90);
+
+          return {
+            dataset_id: dataset.id,
+            event_type: 'validation',
+            percentage_complete: estimatedProgress,
+            message: `Validating dataset (${data.example_count || 0} examples)...`,
+          } as DatasetProgressEvent;
+        } else if (data.validation_status === 'valid') {
+          // Reset poll counter and return completed
+          pollCountRef.current = 0;
+          return {
+            dataset_id: dataset.id,
+            event_type: 'validation',
+            percentage_complete: 100,
+            message: 'Validation complete',
+          } as DatasetProgressEvent;
+        } else if (data.validation_status === 'invalid') {
+          // Validation failed
+          pollCountRef.current = 0;
+          return {
+            dataset_id: dataset.id,
+            event_type: 'validation',
+            percentage_complete: 100,
+            message: data.validation_errors || 'Validation failed',
+          } as DatasetProgressEvent;
+        }
+      } catch {
+        // Ignore fetch errors - SSE is primary
+      }
       return null;
     },
     enabled: isValidating || dataset.validation_status === 'validating',

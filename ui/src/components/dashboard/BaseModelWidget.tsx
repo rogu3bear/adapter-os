@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Play, Pause, Upload, Download, CheckCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
 import apiClient from '@/api/client';
-import { ModelStatusResponse } from '@/api/types';
+import { BaseModelStatus } from '@/api/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ModelImportWizard } from '@/components/ModelImportWizard';
 import { Button } from '@/components/ui/button';
@@ -85,7 +85,7 @@ function cleanupStaleOperations() {
   }
 }
 
-function getStatusIcon(status: ModelStatusResponse | null) {
+function getStatusIcon(status: BaseModelStatus | null) {
   if (!status) return <XCircle className="h-5 w-5 text-gray-400" />;
   switch (status.status) {
     case 'loaded':
@@ -309,6 +309,11 @@ export function BaseModelWidget() {
                   <GlossaryTooltip termId="base-model-name" />
                 </p>
                 <p className="text-xs text-muted-foreground">{status?.model_id || 'No model has been imported'}</p>
+                {status?.model_path && (
+                  <p className="text-xs text-muted-foreground/70 mt-1 truncate" title={status.model_path}>
+                    📁 {status.model_path}
+                  </p>
+                )}
               </div>
               <div className="flex gap-2">
                 <Button onClick={handleLoad} disabled={!canLoad || isActionLoading} className="flex-1">

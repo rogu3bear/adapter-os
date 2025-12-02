@@ -115,6 +115,15 @@ function TooltipContent({
   hideArrow = false,
   ...props
 }: TooltipContentProps) {
+  // Normalize children to prevent duplicate rendering
+  // Wrap string children in a fragment to ensure single rendering
+  const content = React.useMemo(() => {
+    if (typeof children === 'string') {
+      return <>{children}</>;
+    }
+    return children;
+  }, [children]);
+
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
@@ -127,7 +136,7 @@ function TooltipContent({
         )}
         {...props}
       >
-        {children}
+        {content}
         {!hideArrow && (
           <TooltipPrimitive.Arrow className="fill-popover/90 z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
         )}

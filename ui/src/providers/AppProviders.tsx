@@ -4,6 +4,7 @@ import { CoreProviders } from './CoreProviders';
 import { FeatureProviders } from './FeatureProviders';
 import { PersistentNotificationProvider } from '@/components/PersistentNotifications';
 import { ErrorStoreProvider } from '@/stores/errorStore';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 // Create a QueryClient instance with default options
 const queryClient = new QueryClient({
@@ -29,11 +30,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <CoreProviders>
         <FeatureProviders>
-          <PersistentNotificationProvider>
-            <DevProviders>
-              {children}
-            </DevProviders>
-          </PersistentNotificationProvider>
+          <TooltipProvider delayDuration={0}>
+            <PersistentNotificationProvider>
+              <DevProviders>
+                {children}
+              </DevProviders>
+            </PersistentNotificationProvider>
+          </TooltipProvider>
         </FeatureProviders>
       </CoreProviders>
     </QueryClientProvider>

@@ -15,11 +15,9 @@ export default function TenantsPage() {
         description="Manage organization configurations and settings"
         brief="Configure and manage organization settings and isolation"
       >
-        <div className="space-y-6">
-          <SectionErrorBoundary sectionName="Tenants">
-            <Tenants user={user} selectedTenant={selectedTenant} />
-          </SectionErrorBoundary>
-        </div>
+        <SectionErrorBoundary sectionName="Tenants">
+          <Tenants user={user} selectedTenant={selectedTenant} />
+        </SectionErrorBoundary>
       </FeatureLayout>
     </DensityProvider>
   );

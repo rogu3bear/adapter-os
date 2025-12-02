@@ -3,9 +3,26 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import apiClient from '@/api/client';
 import { useLiveData } from '@/hooks/useLiveData';
 import { logger, toError } from '@/utils/logger';
+
+const LOG_LEVELS = ['', 'error', 'warn', 'info', 'debug', 'trace'] as const;
+const LOG_LEVEL_LABELS: Record<string, string> = {
+  '': 'All Levels',
+  'error': 'Error',
+  'warn': 'Warning',
+  'info': 'Info',
+  'debug': 'Debug',
+  'trace': 'Trace',
+};
 
 interface LogEvent {
   id: string;
@@ -115,16 +132,28 @@ export function LogStream() {
     }
   }, [logs, autoScroll]);
 
-  const getLevelColor = (level: string) => {
-    switch (level) {
-      case 'Error':
-      case 'Critical':
+  const getLevelColor = (level: string): "destructive" | "default" | "secondary" | "outline" => {
+    const normalizedLevel = level.toLowerCase();
+    switch (normalizedLevel) {
+      case 'error':
+      case 'critical':
         return 'destructive';
-      case 'Warn':
+      case 'warn':
+      case 'warning':
         return 'default';
+      case 'info':
+        return 'secondary';
+      case 'debug':
+      case 'trace':
+        return 'outline';
       default:
         return 'secondary';
     }
+  };
+
+  const getLevelLabel = (level: string): string => {
+    const normalizedLevel = level.toLowerCase();
+    return LOG_LEVEL_LABELS[normalizedLevel] || level.toUpperCase();
   };
 
   return (
@@ -147,11 +176,47 @@ export function LogStream() {
         <div className="space-y-4">
           {/* Filters */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
-            <Input
-              placeholder="Filter by level..."
+            <Select
               value={filters.level}
-              onChange={(e) => setFilters({ ...filters, level: e.target.value })}
-            />
+              onValueChange={(value) => setFilters({ ...filters, level: value === 'all' ? '' : value })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="All Levels" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Levels</SelectItem>
+                <SelectItem value="error">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-red-500" />
+                    Error
+                  </span>
+                </SelectItem>
+                <SelectItem value="warn">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-yellow-500" />
+                    Warning
+                  </span>
+                </SelectItem>
+                <SelectItem value="info">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-blue-500" />
+                    Info
+                  </span>
+                </SelectItem>
+                <SelectItem value="debug">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-gray-500" />
+                    Debug
+                  </span>
+                </SelectItem>
+                <SelectItem value="trace">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-gray-400" />
+                    Trace
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
             <Input
               placeholder="Filter by component..."
               value={filters.component}
@@ -167,12 +232,21 @@ export function LogStream() {
               value={filters.event_type}
               onChange={(e) => setFilters({ ...filters, event_type: e.target.value })}
             />
-            <Input
-              type="number"
-              placeholder="Limit"
-              value={filters.limit}
-              onChange={(e) => setFilters({ ...filters, limit: parseInt(e.target.value) || 100 })}
-            />
+            <Select
+              value={filters.limit.toString()}
+              onValueChange={(value) => setFilters({ ...filters, limit: parseInt(value) })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Limit" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="25">25 entries</SelectItem>
+                <SelectItem value="50">50 entries</SelectItem>
+                <SelectItem value="100">100 entries</SelectItem>
+                <SelectItem value="250">250 entries</SelectItem>
+                <SelectItem value="500">500 entries</SelectItem>
+              </SelectContent>
+            </Select>
             <Input
               type="datetime-local"
               placeholder="Start time"
@@ -209,8 +283,8 @@ export function LogStream() {
                 key={log.id}
                 className="flex items-start gap-2 p-2 rounded hover:bg-muted/50"
               >
-                <Badge variant={getLevelColor(log.level)} className="shrink-0">
-                  {log.level}
+                <Badge variant={getLevelColor(log.level)} className="shrink-0 min-w-[60px] justify-center">
+                  {getLevelLabel(log.level)}
                 </Badge>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">

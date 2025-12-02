@@ -290,6 +290,23 @@ const ERROR_CODE_MAP: Record<string, (context?: ErrorContext) => UserFriendlyErr
     actionText: 'Try Again',
     helpUrl: '/docs/support',
     variant: 'warning'
+  }),
+
+  // Chat-specific errors
+  'WORKER_UNAVAILABLE': () => ({
+    title: 'Inference Service Unavailable',
+    message: 'The inference service is temporarily unavailable. This might be due to high load or maintenance.',
+    actionText: 'Try Again',
+    helpUrl: '/docs/chat#inference-service',
+    variant: 'warning'
+  }),
+
+  'LOADING_TIMEOUT': () => ({
+    title: 'Loading Timeout',
+    message: 'The request took too long to complete. This might be due to loading large models or high server load.',
+    actionText: 'Try Again',
+    helpUrl: '/docs/chat#timeouts',
+    variant: 'warning'
   })
 };
 
@@ -415,9 +432,25 @@ export function enhanceError(
 ): Error & { userFriendly: UserFriendlyError; originalError: unknown } {
   const errorCode = (originalError as { code?: string }).code;
   const httpStatus = (originalError as { status?: number }).status;
-  const userFriendly = getUserFriendlyError(errorCode, httpStatus, context);
+  const backendMessage = (originalError as { message?: string }).message;
+  
+  // Get user-friendly error template
+  const userFriendlyTemplate = getUserFriendlyError(errorCode, httpStatus, context);
+  
+  // Prefer backend error message if it's more specific than the generic HTTP status message
+  // Check if backend message exists and is different from the generic template message
+  const finalMessage = backendMessage && 
+    backendMessage !== userFriendlyTemplate.message &&
+    !backendMessage.startsWith('HTTP ') // Skip generic HTTP status messages
+    ? backendMessage
+    : userFriendlyTemplate.message;
 
-  const enhancedError = new Error(userFriendly.message) as Error & {
+  const userFriendly: UserFriendlyError = {
+    ...userFriendlyTemplate,
+    message: finalMessage,
+  };
+
+  const enhancedError = new Error(finalMessage) as Error & {
     userFriendly: UserFriendlyError;
     originalError: unknown;
     code?: string;

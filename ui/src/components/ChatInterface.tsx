@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, useRef as useReactRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,24 +8,19 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChatMessageComponent, type ChatMessage, type EvidenceItem } from './chat/ChatMessage';
-import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
-import { Send, Loader2, Layers, History, X, ChevronLeft, ChevronRight, Plus, Trash2, Edit2, Activity, Database, Archive } from 'lucide-react';
+import { Send, Loader2, Layers, History, X, ChevronLeft, Plus, Activity, Database, Archive, Trash2, FileText } from 'lucide-react';
 import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
 import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
 import { useCollections } from '@/hooks/useCollectionsApi';
-import { useQueryClient } from '@tanstack/react-query';
 import { useDebouncedCallback } from '@/hooks/useDebouncedValue';
-import type { AdapterStack, RoutingDecision, RouterCandidateInfo, ExtendedRouterDecision } from '@/api/types';
+import type { ExtendedRouterDecision } from '@/api/types';
 import type { ChatSession } from '@/types/chat';
 import { RouterActivitySidebar } from './chat/RouterActivitySidebar';
-import { AdapterLoadingStatus, type AdapterState, type AdapterLifecycleState } from './chat/AdapterLoadingStatus';
+import { AdapterLoadingStatus } from './chat/AdapterLoadingStatus';
 import { PreChatAdapterPrompt } from './chat/PreChatAdapterPrompt';
-import { AdapterLoadingProgress, type AdapterLoadingItem } from './chat/AdapterLoadingProgress';
-import { useSSE } from '@/hooks/useSSE';
-import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
 import { ChatSearchBar } from './chat/ChatSearchBar';
 import { ChatSessionActions } from './chat/ChatSessionActions';
 import { ChatTagsManager } from './chat/ChatTagsManager';
@@ -36,6 +31,15 @@ import {
   useChatAdapterState,
   useChatRouterDecisions
 } from '@/hooks/chat';
+import { useChatAutoLoadModels } from '@/hooks/useFeatureFlags';
+import {
+  useModelLoadingState,
+  useModelLoader,
+  useChatLoadingPersistence,
+  useLoadingAnnouncements,
+} from '@/hooks/model-loading';
+import { ChatLoadingOverlay } from './chat/ChatLoadingOverlay';
+import { ChatErrorDisplay } from './chat/ChatErrorDisplay';
 
 interface ChatInterfaceProps {
   selectedTenant: string;
@@ -63,6 +67,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   const [newSessionName, setNewSessionName] = useState('');
   const [showContext, setShowContext] = useState(true);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const stackSelectorRef = useRef<HTMLButtonElement>(null);
 
   // New state for chat features
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,20 +75,21 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   const [shareDialogSessionId, setShareDialogSessionId] = useState<string | null>(null);
   const [tagsDialogSessionId, setTagsDialogSessionId] = useState<string | null>(null);
 
+  // Feature flags
+  const autoLoadEnabled = useChatAutoLoadModels();
+
   // Use selectedTenant for API hooks that support undefined (default stack)
   // Keep tenantId fallback for other hooks that require a string
   const tenantId = selectedTenant || 'default';
   const { data: stacks = [] } = useAdapterStacks();
   const { data: defaultStack } = useGetDefaultStack(selectedTenant);
   const { data: collections = [] } = useCollections();
-  const queryClient = useQueryClient();
   const {
     sessions,
     isLoading: isLoadingSessions,
     createSession,
     updateSession,
     addMessage,
-    updateMessage,
     deleteSession,
     getSession,
     updateSessionCollection,
@@ -98,6 +104,12 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   // Streaming message state (for in-progress messages)
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
 
+  // Compute effective collection ID (reacts to documentContext changes)
+  const effectiveCollectionId = useMemo(
+    () => documentContext?.collectionId || selectedCollectionId || undefined,
+    [documentContext?.collectionId, selectedCollectionId]
+  );
+
   // Chat streaming hook
   const {
     isStreaming,
@@ -105,13 +117,13 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     currentRequestId,
     sendMessage,
     cancelStream,
-    resetStream,
     tokensReceived,
-    streamDuration
+    streamDuration,
   } = useChatStreaming({
     sessionId: currentSessionId,
     stackId: selectedStackId,
-    collectionId: selectedCollectionId || undefined,
+    collectionId: effectiveCollectionId,
+    documentId: documentContext?.documentId,
     onMessageSent: (message) => {
       // Add user message to messages
       setMessages(prev => [...prev, message]);
@@ -172,30 +184,103 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     },
   });
 
-  // Adapter state tracking hook
+  // Adapter state tracking hook (legacy - used when feature flag is off)
   const {
     adapterStates,
     isCheckingAdapters,
     allAdaptersReady,
-    unreadyAdapters,
     loadAllAdapters,
-    checkAdapterReadiness,
     showAdapterPrompt,
     dismissAdapterPrompt,
-    continueWithUnready
+    continueWithUnready,
   } = useChatAdapterState({
     stackId: selectedStackId,
-    enabled: true,
+    enabled: !autoLoadEnabled, // Disable legacy hook when feature flag is on
   });
+
+  // New model loading hooks (enabled when feature flag is on)
+  const newModelLoadingState = useModelLoadingState({
+    stackId: selectedStackId,
+    tenantId,
+    enabled: autoLoadEnabled,
+  });
+
+  const newModelLoader = useModelLoader();
+
+  // Loading persistence for recovery after page refresh
+  const {
+    persistedState,
+    persist: persistLoadingState,
+    clear: clearLoadingState,
+    isRecoverable,
+  } = useChatLoadingPersistence({
+    stackId: selectedStackId,
+    enabled: autoLoadEnabled,
+  });
+
+  // Track if we've started loading (to persist only on start, not every update)
+  const wasLoadingRef = useRef(false);
+
+  // Auto-recover loading state after page refresh
+  useEffect(() => {
+    if (autoLoadEnabled && isRecoverable && persistedState && selectedStackId === persistedState.stackId) {
+      logger.info('Recovering loading state after page refresh', {
+        component: 'ChatInterface',
+        stackId: persistedState.stackId,
+        adaptersToLoad: persistedState.adaptersToLoad.length,
+      });
+      // Resume loading with the same stack
+      newModelLoader.loadModels(persistedState.stackId);
+    }
+  }, [autoLoadEnabled, isRecoverable, persistedState, selectedStackId]); // Intentionally exclude newModelLoader to avoid re-triggering
+
+  // Persist loading state only when loading starts (not on every update)
+  useEffect(() => {
+    const isCurrentlyLoading = newModelLoadingState.isLoading && !newModelLoadingState.error;
+
+    if (autoLoadEnabled && isCurrentlyLoading && !wasLoadingRef.current) {
+      // Loading just started
+      persistLoadingState({
+        stackId: selectedStackId,
+        startedAt: Date.now(),
+        adaptersToLoad: newModelLoadingState.loadingAdapters.map(a => a.adapterId),
+        lastUpdated: Date.now(),
+      });
+    }
+
+    wasLoadingRef.current = isCurrentlyLoading;
+  }, [autoLoadEnabled, newModelLoadingState.isLoading, newModelLoadingState.error, selectedStackId, persistLoadingState, newModelLoadingState.loadingAdapters]);
+
+  // Clear persistence when loading completes or errors
+  useEffect(() => {
+    if (autoLoadEnabled && (newModelLoadingState.overallReady || newModelLoadingState.error)) {
+      clearLoadingState();
+    }
+  }, [autoLoadEnabled, newModelLoadingState.overallReady, newModelLoadingState.error, clearLoadingState]);
+
+  // Screen reader announcements for loading state
+  const { announcement: loadingAnnouncement } = useLoadingAnnouncements({
+    state: {
+      isLoading: newModelLoadingState.isLoading,
+      progress: newModelLoadingState.progress,
+      error: newModelLoadingState.error?.message ?? null,
+      partialFailureCount: newModelLoadingState.failedAdapters.length,
+      totalItems: newModelLoadingState.loadingAdapters.length + newModelLoadingState.readyAdapters.length + newModelLoadingState.failedAdapters.length,
+    },
+    enabled: autoLoadEnabled,
+  });
+
+  // Select which state to use based on feature flag
+  const allReady = autoLoadEnabled ? newModelLoadingState.overallReady : allAdaptersReady;
+  const isLoadingModels = autoLoadEnabled ? newModelLoadingState.isLoading : isCheckingAdapters;
 
   // Router decisions hook
   const {
-    decisions,
     isLoadingDecision,
-    lastDecision,
     fetchDecision,
+    decisionHistory,
+    lastDecision,
     clearDecisions,
-    decisionHistory
   } = useChatRouterDecisions({
     stackId: selectedStackId,
   });
@@ -291,8 +376,8 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   const handleSend = useCallback(async () => {
     if (!input.trim() || isStreaming) return;
 
-    // Check if adapters are ready before sending
-    if (!allAdaptersReady && adapterStates.size > 0) {
+    // Check if adapters are ready before sending (use allReady which is feature-flag aware)
+    if (!allReady && (autoLoadEnabled ? newModelLoadingState.adapterStates.size > 0 : adapterStates.size > 0)) {
       // Show adapter prompt if not ready
       // The PreChatAdapterPrompt component will handle showing the prompt
       toast.warning('Some adapters are not ready. Please load them first.');
@@ -313,7 +398,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
 
     // Send message using the streaming hook
     await sendMessage(messageContent, adapterIds);
-  }, [input, isStreaming, selectedStack, allAdaptersReady, adapterStates, sendMessage]);
+  }, [input, isStreaming, selectedStack, allReady, autoLoadEnabled, newModelLoadingState.adapterStates, adapterStates, sendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -464,9 +549,21 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
 
   return (
     <div className="flex flex-col h-full relative">
+      {/* Screen reader announcements for loading state */}
+      {autoLoadEnabled && loadingAnnouncement && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {loadingAnnouncement}
+        </div>
+      )}
+
       {/* Pre-Chat Adapter Loading Prompt */}
       <PreChatAdapterPrompt
-        open={showAdapterPrompt}
+        open={autoLoadEnabled ? false : showAdapterPrompt} // Don't show legacy prompt when feature flag is on
         onOpenChange={dismissAdapterPrompt}
         adapters={Array.from(adapterStates.values()).map(state => ({
           id: state.adapterId,
@@ -478,7 +575,84 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
         onLoadAll={loadAllAdapters}
         onContinueAnyway={continueWithUnready}
         isLoading={isCheckingAdapters}
+        // Model loading props (when feature flag is enabled)
+        modelStatus={autoLoadEnabled ? (
+          newModelLoadingState.baseModelStatus === 'no-model' ? 'unloaded' :
+          newModelLoadingState.baseModelStatus === 'checking' ? 'loading' :
+          newModelLoadingState.baseModelStatus === 'unloading' ? 'loading' :
+          newModelLoadingState.baseModelStatus
+        ) : undefined}
+        modelName={autoLoadEnabled ? newModelLoadingState.baseModelName || undefined : undefined}
+        isModelLoading={autoLoadEnabled ? newModelLoadingState.baseModelStatus === 'loading' : undefined}
+        onLoadAndChat={autoLoadEnabled ? () => newModelLoader.loadModels(selectedStackId) : undefined}
       />
+
+      {/* Chat Loading Overlay (when feature flag is enabled) */}
+      {autoLoadEnabled && isLoadingModels && (
+        <ChatLoadingOverlay
+          loadingState={{
+            adapters: [
+              // Map loading adapters
+              ...newModelLoadingState.loadingAdapters.map(adapter => ({
+                id: adapter.adapterId,
+                name: adapter.name,
+                status: 'loading' as const,
+                error: adapter.errorMessage,
+                progress: 50, // Approximate progress for loading adapters
+                estimatedTimeRemaining: 8, // Use constant from types
+              })),
+              // Map ready adapters
+              ...newModelLoadingState.readyAdapters.map(adapter => ({
+                id: adapter.adapterId,
+                name: adapter.name,
+                status: 'ready' as const,
+                error: undefined,
+                progress: 100,
+                estimatedTimeRemaining: undefined,
+              })),
+              // Map failed adapters
+              ...newModelLoadingState.failedAdapters.map(adapter => ({
+                id: adapter.adapterId,
+                name: adapter.name,
+                status: 'failed' as const,
+                error: adapter.errorMessage,
+                progress: undefined,
+                estimatedTimeRemaining: undefined,
+              })),
+            ],
+            overallProgress: newModelLoadingState.progress,
+            estimatedTimeRemaining: newModelLoadingState.estimatedTimeRemaining ?? undefined,
+          }}
+          onLoadAll={() => newModelLoader.loadModels(selectedStackId)}
+          onCancel={() => newModelLoader.cancelLoading()}
+        />
+      )}
+
+      {/* Chat Error Display (when feature flag is enabled and error occurred) */}
+      {autoLoadEnabled && newModelLoadingState.error && !isLoadingModels && (
+        <div className="absolute inset-x-4 top-4 z-20">
+          <ChatErrorDisplay
+            error={newModelLoadingState.error}
+            onRetry={() => newModelLoader.loadModels(selectedStackId)}
+            currentRetry={newModelLoadingState.error.retryCount}
+            maxRetries={newModelLoadingState.error.maxRetries}
+            alternativeActions={[
+              {
+                label: 'Change Stack',
+                onClick: () => {
+                  // Focus and click the stack selector to open it
+                  if (stackSelectorRef.current) {
+                    stackSelectorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    stackSelectorRef.current.focus();
+                    stackSelectorRef.current.click();
+                  }
+                },
+                variant: 'outline',
+              },
+            ]}
+          />
+        </div>
+      )}
 
       {/* History Sidebar */}
       {isHistoryOpen && (
@@ -511,8 +685,13 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
             </div>
 
             {/* Search Bar */}
+            {/* Note: ChatSearchBar supports both controlled mode (for local filtering) and 
+                API-based search (via useChatSearch hook). The value prop filters local sessions
+                via recentSessions memo, while the component also provides API search results. */}
             <div className="px-4 py-2 border-b">
               <ChatSearchBar
+                value={searchQuery}
+                onChange={setSearchQuery}
                 onSelectSession={(sessionId) => handleLoadSession(sessionId)}
                 onSelectMessage={(sessionId, messageId) => {
                   handleLoadSession(sessionId);
@@ -554,7 +733,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
                   recentSessions.map(session => (
                     <div
                       key={session.id}
-                      className={`p-3 rounded-lg border cursor-pointer transition-colors hover:bg-muted ${
+                      className={`group p-3 rounded-lg border cursor-pointer transition-colors hover:bg-muted ${
                         currentSessionId === session.id ? 'bg-muted border-primary' : ''
                       }`}
                       onClick={() => handleLoadSession(session.id)}
@@ -588,6 +767,15 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
                               <div className="flex items-center justify-between">
                                 <p className="text-sm font-medium truncate">{session.name}</p>
                                 <div className="flex items-center gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={(e) => handleDeleteSession(session.id, e)}
+                                    aria-label={`Delete session ${session.name}`}
+                                  >
+                                    <Trash2 className="h-3 w-3 text-destructive" />
+                                  </Button>
                                   <ChatSessionActions
                                     sessionId={session.id}
                                     tenantId={tenantId}
@@ -635,6 +823,9 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
           open={isRouterActivityOpen}
           onClose={() => setIsRouterActivityOpen(false)}
           stackId={selectedStackId}
+          decisions={decisionHistory}
+          lastDecision={lastDecision}
+          onClear={clearDecisions}
         />
       </SectionErrorBoundary>
 
@@ -705,15 +896,21 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
             )}
           </Button>
           <Layers className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+          {documentContext && (
+            <Badge variant="secondary" className="gap-1">
+              <FileText className="h-3 w-3" />
+              {documentContext.documentName}
+            </Badge>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Stack:</span>
-            <Select 
-              value={selectedStackId} 
+            <Select
+              value={selectedStackId}
               onValueChange={setSelectedStackId}
               aria-label="Select adapter stack"
               aria-describedby={stacks.length === 0 ? "no-stacks-hint" : undefined}
             >
-              <SelectTrigger className="w-[300px]">
+              <SelectTrigger ref={stackSelectorRef} className="w-[300px]">
                 <SelectValue placeholder="Select a stack" />
               </SelectTrigger>
               <SelectContent>
@@ -822,7 +1019,9 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
                   <Layers className="h-12 w-12 mx-auto mb-4 opacity-50" aria-hidden="true" />
                   <p className="text-lg font-medium">Start a conversation</p>
                   <p className="text-sm mt-1">
-                    Select a stack and send a message to begin
+                    {documentContext
+                      ? `I'm ready to help you with "${documentContext.documentName}". Ask me anything about this document.`
+                      : 'Select a stack and send a message to begin'}
                   </p>
                 </div>
               </div>
@@ -871,10 +1070,21 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
               Please select an adapter stack before sending messages
             </span>
           )}
+          {isStreaming && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={cancelStream}
+              aria-label="Cancel response"
+              className="mr-2"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             type="submit"
             onClick={handleSend}
-            disabled={isStreaming || !input.trim() || !selectedStackId}
+            disabled={isStreaming || !input.trim() || !selectedStackId || (autoLoadEnabled && !allReady)}
             size="lg"
             aria-label={isStreaming ? "Sending message..." : "Send message"}
           >
@@ -889,6 +1099,11 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
           <p className="text-xs text-muted-foreground mt-2">
             Please select a stack to start chatting
           </p>
+        )}
+        {!isStreaming && tokensReceived > 0 && streamDuration && (
+          <div className="text-xs text-muted-foreground mt-2 px-4" role="status" aria-live="polite">
+            {tokensReceived} tokens · {(streamDuration / 1000).toFixed(1)}s
+          </div>
         )}
       </div>
 

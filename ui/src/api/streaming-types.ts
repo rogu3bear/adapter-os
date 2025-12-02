@@ -689,3 +689,121 @@ export function isViolationDetectedEvent(data: unknown): data is ViolationDetect
 export function isViolationResolvedEvent(data: unknown): data is ViolationResolvedEvent {
   return typeof data === 'object' && data !== null && 'event_type' in data && (data as ViolationResolvedEvent).event_type === 'violation_resolved';
 }
+
+// ============================================================================
+// Boot Progress Stream Events
+// Endpoint: /v1/stream/boot-progress
+// ============================================================================
+
+/**
+ * Loading phase during boot process
+ */
+export type BootLoadingPhase = 'initializing' | 'downloading' | 'loading' | 'ready';
+
+/**
+ * Boot state change event
+ * Emitted when system transitions between boot states
+ */
+export interface StateChangedEvent {
+  event_type: 'StateChanged';
+  previous: string;
+  current: string;
+  elapsed_ms: number;
+  models_pending: number;
+  models_ready: number;
+}
+
+/**
+ * Model download progress event
+ * Emitted during model downloads from HuggingFace registry
+ */
+export interface DownloadProgressEvent {
+  event_type: 'DownloadProgress';
+  model_id: string;
+  repo_id: string;
+  downloaded_bytes: number;
+  total_bytes: number;
+  speed_mbps: number;
+  eta_seconds: number;
+  files_completed: number;
+  files_total: number;
+}
+
+/**
+ * Model loading progress event
+ * Emitted during model weight loading and backend initialization
+ */
+export interface LoadProgressEvent {
+  event_type: 'LoadProgress';
+  model_id: string;
+  phase: BootLoadingPhase;
+  progress_pct: number;
+  memory_allocated_mb: number;
+}
+
+/**
+ * Model ready event
+ * Emitted when a model completes loading and warmup
+ */
+export interface ModelReadyEvent {
+  event_type: 'ModelReady';
+  model_id: string;
+  warmup_latency_ms: number;
+  memory_usage_mb: number;
+}
+
+/**
+ * Fully ready event
+ * Emitted when all models are loaded and system is ready
+ */
+export interface FullyReadyEvent {
+  event_type: 'FullyReady';
+  total_models: number;
+  total_download_mb: number;
+  total_load_time_ms: number;
+}
+
+/**
+ * Union of all boot progress stream events
+ */
+export type BootProgressEvent =
+  | StateChangedEvent
+  | DownloadProgressEvent
+  | LoadProgressEvent
+  | ModelReadyEvent
+  | FullyReadyEvent;
+
+/**
+ * Helper to check if event is a state change
+ */
+export function isStateChangedEvent(data: unknown): data is StateChangedEvent {
+  return typeof data === 'object' && data !== null && 'event_type' in data && (data as StateChangedEvent).event_type === 'StateChanged';
+}
+
+/**
+ * Helper to check if event is download progress
+ */
+export function isDownloadProgressEvent(data: unknown): data is DownloadProgressEvent {
+  return typeof data === 'object' && data !== null && 'event_type' in data && (data as DownloadProgressEvent).event_type === 'DownloadProgress';
+}
+
+/**
+ * Helper to check if event is load progress
+ */
+export function isLoadProgressEvent(data: unknown): data is LoadProgressEvent {
+  return typeof data === 'object' && data !== null && 'event_type' in data && (data as LoadProgressEvent).event_type === 'LoadProgress';
+}
+
+/**
+ * Helper to check if event is model ready
+ */
+export function isModelReadyEvent(data: unknown): data is ModelReadyEvent {
+  return typeof data === 'object' && data !== null && 'event_type' in data && (data as ModelReadyEvent).event_type === 'ModelReady';
+}
+
+/**
+ * Helper to check if event is fully ready
+ */
+export function isFullyReadyEvent(data: unknown): data is FullyReadyEvent {
+  return typeof data === 'object' && data !== null && 'event_type' in data && (data as FullyReadyEvent).event_type === 'FullyReady';
+}
