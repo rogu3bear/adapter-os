@@ -1,6 +1,6 @@
 //! Database abstraction traits for supporting multiple backends
 //!
-//! This module provides traits that abstract over SQLite and PostgreSQL
+//! This module provides traits that abstract database backends
 //! differences, allowing the application to work with either backend
 //! without code changes.
 
@@ -86,7 +86,7 @@ pub struct CreateStackRequest {
 /// Database backend abstraction trait
 ///
 /// This trait defines operations that must be implemented by both
-/// SQLite and PostgreSQL backends. It handles differences in:
+/// Currently supports SQLite backend. It handles differences in:
 /// - SQL syntax (? vs $1 placeholders)
 /// - Date/time functions (datetime('now') vs NOW())
 /// - UUID generation (randomblob(16) vs gen_random_uuid())
@@ -148,7 +148,7 @@ pub trait FromRow<R> {
 /// Database configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
-    /// Backend type: "sqlite" or "postgres"
+    /// Backend type: "sqlite"
     pub backend: DatabaseBackendType,
     /// Connection URL or path
     pub url: String,
@@ -163,7 +163,6 @@ pub struct DatabaseConfig {
 #[serde(rename_all = "lowercase")]
 pub enum DatabaseBackendType {
     Sqlite,
-    Postgres,
 }
 
 impl DatabaseBackendType {
@@ -171,7 +170,6 @@ impl DatabaseBackendType {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "sqlite" => Some(Self::Sqlite),
-            "postgres" | "postgresql" => Some(Self::Postgres),
             _ => None,
         }
     }
@@ -180,18 +178,12 @@ impl DatabaseBackendType {
     pub fn is_sqlite(&self) -> bool {
         matches!(self, Self::Sqlite)
     }
-
-    /// Check if this is PostgreSQL
-    pub fn is_postgres(&self) -> bool {
-        matches!(self, Self::Postgres)
-    }
 }
 
 impl std::fmt::Display for DatabaseBackendType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Sqlite => write!(f, "sqlite"),
-            Self::Postgres => write!(f, "postgres"),
         }
     }
 }
@@ -203,15 +195,5 @@ pub async fn create_database_backend(config: &DatabaseConfig) -> Result<Box<dyn 
             let backend = super::sqlite_backend::SqliteBackend::new(&config.url).await?;
             Ok(Box::new(backend))
         }
-        #[cfg(feature = "postgres")]
-        DatabaseBackendType::Postgres => {
-            let backend = super::postgres_backend::PostgresBackend::new(&config.url).await?;
-            Ok(Box::new(backend))
-        }
-        #[cfg(not(feature = "postgres"))]
-        DatabaseBackendType::Postgres => Err(anyhow::anyhow!(
-            "PostgreSQL support not enabled. Recompile with 'postgres' feature."
-        )
-        .into()),
     }
 }

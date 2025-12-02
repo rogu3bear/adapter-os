@@ -17,8 +17,6 @@ use tracing::{debug, warn};
 pub mod constants;
 
 // Database abstraction layer
-#[cfg(feature = "postgres")]
-pub mod postgres_backend;
 pub mod sqlite_backend;
 pub mod traits;
 pub mod kv_backend;
@@ -46,11 +44,6 @@ pub use tenant_policies::{
     TenantPolicyCustomization, TenantPolicyCustomizationOps,
 };
 
-// PostgreSQL backend for production (legacy - to be deprecated)
-#[cfg(feature = "postgres")]
-pub mod postgres;
-#[cfg(feature = "postgres")]
-pub use postgres::PostgresDb;
 
 /// Storage mode for database operations
 ///

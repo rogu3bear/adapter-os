@@ -1,22 +1,16 @@
--- Migration: pgvector RAG Integration
--- Purpose: Add PostgreSQL pgvector support for production RAG deployments
+-- Migration: RAG Vector Integration
+-- Purpose: Add RAG document storage with vector embeddings for SQLite
 -- Policy Compliance: RAG Index Ruleset (#7) - per-tenant isolation, deterministic ordering
 -- Determinism: Score DESC, doc_id ASC tie-breaking
 
--- Enable pgvector extension (requires superuser or rds_superuser on AWS RDS)
--- Note: This may need to be run separately with elevated privileges:
--- CREATE EXTENSION IF NOT EXISTS vector;
-
--- RAG documents table with pgvector embeddings
+-- RAG documents table with vector embeddings
 CREATE TABLE IF NOT EXISTS rag_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     doc_id TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
     text TEXT NOT NULL,
-    -- Note: SQLite doesn't support pgvector's vector type directly
-    -- For SQLite: store as JSON array, for PostgreSQL: use vector type
-    -- This migration supports dual backend: SQLite (dev) and PostgreSQL (prod)
-    embedding_json TEXT NOT NULL, -- JSON array for SQLite
+    -- Store embeddings as JSON array (SQLite-compatible)
+    embedding_json TEXT NOT NULL,
     rev TEXT NOT NULL,
     effectivity TEXT NOT NULL,
     source_type TEXT NOT NULL,
@@ -38,7 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_rag_documents_doc_id
 CREATE INDEX IF NOT EXISTS idx_rag_documents_tenant_superseded 
     ON rag_documents(tenant_id, superseded_by);
 
--- Index for deterministic ordering (score desc handled by pgvector, doc_id asc for ties)
+-- Index for deterministic ordering (score desc handled by in-memory calculation, doc_id asc for ties)
 CREATE INDEX IF NOT EXISTS idx_rag_documents_tenant_doc_id_sorted 
     ON rag_documents(tenant_id, doc_id ASC);
 
@@ -102,31 +96,4 @@ CREATE INDEX IF NOT EXISTS idx_rag_retrieval_audit_tenant
 
 CREATE INDEX IF NOT EXISTS idx_rag_retrieval_audit_query 
     ON rag_retrieval_audit(query_hash);
-
--- PostgreSQL-specific setup (to be run manually on PostgreSQL backend):
--- 
--- For PostgreSQL deployment:
--- 1. Enable pgvector extension:
---    CREATE EXTENSION IF NOT EXISTS vector;
---
--- 2. Alter rag_documents to add vector column:
---    ALTER TABLE rag_documents ADD COLUMN embedding vector(3584);
---
--- 3. Create IVFFlat or HNSW index for fast similarity search:
---    CREATE INDEX rag_documents_embedding_idx 
---    ON rag_documents USING ivfflat (embedding vector_cosine_ops)
---    WITH (lists = 100);
---    
---    -- Or for HNSW (better quality, slower build):
---    CREATE INDEX rag_documents_embedding_hnsw_idx 
---    ON rag_documents USING hnsw (embedding vector_cosine_ops);
---
--- 4. Migrate data from embedding_json to embedding column:
---    UPDATE rag_documents 
---    SET embedding = embedding_json::vector 
---    WHERE embedding IS NULL;
---
--- 5. Drop embedding_json column (after verification):
---    ALTER TABLE rag_documents DROP COLUMN embedding_json;
-
 

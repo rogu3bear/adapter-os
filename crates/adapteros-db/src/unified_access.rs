@@ -116,12 +116,6 @@ pub enum DatabaseType {
     /// SQLite database
     Sqlite,
 
-    /// PostgreSQL database
-    Postgres,
-
-    /// MySQL database
-    Mysql,
-
     /// In-memory database
     InMemory,
 }
