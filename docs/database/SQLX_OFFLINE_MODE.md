@@ -147,18 +147,11 @@ If the build script fails:
 
 1. Check that migrations are valid: `cargo run --bin run_migrations`
 2. Verify DATABASE_URL is set correctly
-3. Ensure SQLite/PostgreSQL tools are available
+3. Ensure SQLite tools are available
 
-## Multi-Database Support
+## Database Support
 
-AdapterOS supports both SQLite (development) and PostgreSQL (production). The offline cache is generated for SQLite but queries work with both backends due to SQLX's cross-database compatibility.
-
-For PostgreSQL-specific features, maintain separate cache generation:
-
-```bash
-export DATABASE_URL="postgresql://localhost/adapteros"
-make sqlx-setup
-```
+AdapterOS uses SQLite for all database operations. The offline cache is generated for SQLite and provides compile-time query validation.
 
 ## Best Practices
 

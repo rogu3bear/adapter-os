@@ -2,7 +2,7 @@
 
 ## Overview
 
-Production PostgreSQL deployments **must** use separate database users for application operations and administrative tasks. This provides defense-in-depth security by limiting the scope of potential credential compromise.
+**Note:** This document describes PostgreSQL user isolation patterns. AdapterOS currently uses SQLite only. This document is kept for reference in case PostgreSQL support is re-added in the future.
 
 ## Required Users
 

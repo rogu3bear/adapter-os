@@ -117,11 +117,22 @@ The dev server runs on http://localhost:3200 and proxies API requests to the bac
 
 ### Environment Variables
 
-Create a `.env` file for development (see `.env.example`):
+Create a `.env` file for development:
 
 ```bash
+# API Configuration
 VITE_API_BASE=/api
+
+# Feature Flags
+VITE_CHAT_AUTO_LOAD_MODELS=false  # Enable automatic model loading in chat (default: false)
 ```
+
+Available environment variables:
+- `VITE_API_BASE`: API base path (default: `/api`)
+- `VITE_API_URL`: Backend API URL (default: `http://127.0.0.1:8080/api`)
+- `VITE_SSE_URL`: Server-Sent Events endpoint for real-time updates
+- `VITE_METRICS_INTERVAL`: Polling interval in milliseconds (default: `50`)
+- `VITE_CHAT_AUTO_LOAD_MODELS`: Auto-load models in chat interface (default: `false`)
 
 For production builds, API calls use relative paths (`/api`). The API client automatically sends credentials with requests for cookie-based authentication.
 

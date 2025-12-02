@@ -57,7 +57,6 @@ pub trait DatabaseBackend: Send + Sync {
 
 **Supported Backends:**
 - **SQLite**: Default backend with WAL mode for concurrent reads
-- **PostgreSQL**: Production backend with advanced features (requires `postgres` feature flag)
 
 ### Migration System
 
@@ -1338,9 +1337,8 @@ postgresql://user:pass@localhost:5432/adapteros
 - pgvector extension for embeddings (migration 0029)
 
 **Compatibility Notes:**
-- Migration files use conditional SQL for backend-specific syntax
-- Some features (like pgvector) are PostgreSQL-only
-- The `DatabaseBackend` trait abstracts differences
+- Migration files use SQLite-compatible syntax
+- The `DatabaseBackend` trait provides abstraction for future backend support
 
 ---
 

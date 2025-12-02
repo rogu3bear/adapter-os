@@ -62,7 +62,7 @@ AdapterOS CLI commands operate at five distinct architectural layers:
 
 ### 2. Control Plane Database
 
-**What it is**: PostgreSQL/SQLite database with full tenant management and lifecycle tracking.
+**What it is**: SQLite database with full tenant management and lifecycle tracking.
 
 **Characteristics**:
 - Full multi-tenant support

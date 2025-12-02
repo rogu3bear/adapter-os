@@ -1,6 +1,6 @@
 # CLAUDE.md - AdapterOS Developer Guide
 
-**Single source of truth** for AI assistants and developers. Last updated: 2025-12-01
+**Single source of truth** for AI assistants and developers. Last updated: 2025-12-02
 **Copyright:** 2025 JKCA / James KC Auchterlonie | **Version:** v0.3-alpha
 
 ---
@@ -273,6 +273,122 @@ cd ui && pnpm dev
 
 ---
 
+## Boot System
+
+AdapterOS uses a unified boot system via `./start` for managing services.
+
+### Quick Start
+
+```bash
+./start              # Start all services (API + UI)
+./start down         # Graceful shutdown
+./start status       # Show service status
+./start backend      # Start backend only (no UI)
+./start preflight    # Run system checks without starting
+```
+
+### Boot Components
+
+| Component | Script | Purpose |
+|-----------|--------|---------|
+| Unified entry | `./start` | User-facing boot script with animations |
+| Service manager | `scripts/service-manager.sh` | Process lifecycle (start/stop/restart) |
+| Freeze guard | `scripts/lib/freeze-guard.sh` | Port conflict detection, never auto-kills |
+| PID files | `var/*.pid` | Process tracking |
+
+### Boot State Machine
+
+The control plane tracks boot progress via `BootStateManager` (`boot_state.rs`):
+
+```
+stopped → booting → initializing-db → loading-policies → starting-backend →
+  → loading-base-models → loading-adapters → ready → fully-ready → draining → stopping
+```
+
+| State | Description | Health Check |
+|-------|-------------|--------------|
+| `stopped` | Server not running | N/A |
+| `booting` | PID lock, config load | `/healthz` returns 503 |
+| `initializing-db` | Migrations, WAL recovery | `/healthz` returns 503 |
+| `loading-policies` | Policy hash verification | `/healthz` returns 503 |
+| `starting-backend` | MLX/CoreML/Metal init | `/healthz` returns 503 |
+| `loading-base-models` | Manifest validation | `/healthz` returns 503 |
+| `loading-adapters` | Heartbeat recovery | `/healthz` returns 503 |
+| `ready` | Accepting requests | `/readyz` returns 200 |
+| `fully-ready` | All models loaded | `/readyz` returns 200 |
+| `draining` | Rejecting new requests | `/readyz` returns 503 |
+| `stopping` | Ordered termination | N/A |
+
+Each transition is logged to both stdout and audit trail with elapsed time.
+
+### Freeze Guard Behavior
+
+The freeze guard (`scripts/lib/freeze-guard.sh`) **never auto-kills external processes**:
+
+| Scenario | Behavior |
+|----------|----------|
+| Port in use by AdapterOS | Prompts `[y/N]` to kill (default: No) |
+| Port in use by external process | Reports diagnostics, suggests alternatives, **freezes** |
+| Port in TIME_WAIT | Reports, suggests waiting 60s or different port |
+| Stale PID file | Prompts to remove |
+| Database locked | Reports holder PID, does not interfere |
+
+### Shutdown Modes
+
+```bash
+./start down              # Graceful (120s timeout, full cleanup)
+scripts/service-manager.sh stop all fast      # Fast (30s timeout)
+scripts/service-manager.sh stop all immediate # Immediate (SIGUSR2)
+```
+
+| Mode | Backend Signal | Timeout | Use Case |
+|------|----------------|---------|----------|
+| `graceful` | SIGTERM | 120s | Normal shutdown, drains in-flight requests |
+| `fast` | SIGUSR1 | 30s | Quick restart, reduced cleanup |
+| `immediate` | SIGUSR2 | 10s | Emergency, minimal cleanup |
+
+### Logging Configuration
+
+Logging is configured in `configs/cp.toml`:
+
+```toml
+[logging]
+level = "aos_cp=info,aos_cp_api=info,tower_http=debug"
+log_dir = "var/logs"           # Directory for log files (comment out for stdout-only)
+log_prefix = "aos-cp"          # Log file prefix
+rotation = "daily"             # "hourly", "daily", or "never"
+max_log_files = 30             # Rotated files to keep (0 = unlimited)
+json_format = false            # JSON for log aggregation tools
+capture_panics = true          # Capture panics to log file
+```
+
+**Log files:**
+- `var/logs/aos-cp.YYYY-MM-DD` - Backend API logs (daily rotation)
+- `var/logs/backend.log` - Service manager stdout capture
+- `var/logs/ui.log` - UI dev server logs
+
+**Environment override:** `RUST_LOG=debug` takes precedence over config.
+
+### Service Ports
+
+| Service | Port | PID File |
+|---------|------|----------|
+| Backend API | 8080 (`AOS_SERVER_PORT`) | `var/backend.pid` |
+| UI Server | 3200 (`AOS_UI_PORT`) | `var/ui.pid` |
+| Worker | UDS only (`var/run/worker.sock`) | N/A |
+
+### SSE Boot Progress Stream
+
+The UI can subscribe to boot progress via SSE:
+
+```bash
+curl -N http://localhost:8080/api/v1/stream/boot-progress
+```
+
+Returns real-time state transitions for progress indicators.
+
+---
+
 ## Database
 
 **Core Tables:** adapters, tenants, adapter_stacks, repository_training_jobs, training_datasets, pinned_adapters, audit_logs, chat_sessions, chat_messages, documents, document_chunks, document_collections, inference_evidence
@@ -299,7 +415,11 @@ See [docs/DATABASE_REFERENCE.md](docs/DATABASE_REFERENCE.md)
 
 ## Storage Paths
 
-All runtime data is stored under `var/` relative to the working directory. Use `PlatformUtils` from `adapteros-platform` for path resolution.
+All runtime data is stored under `var/` relative to the working directory. 
+
+**For adapter paths, use `AdapterPaths` from `adapteros-core` as the single source of truth.** It provides consistent path resolution with precedence: ENV > Config > Default.
+
+For other paths, use `PlatformUtils` from `adapteros-platform`.
 
 ### Directory Structure
 
@@ -354,13 +474,26 @@ var/
 
 ### Path Resolution
 
+**Adapter Paths (Single Source of Truth):**
+
+```rust
+use adapteros_core::paths::AdapterPaths;
+
+// Use centralized adapter path resolution (ENV > Config > Default)
+let adapters_paths = AdapterPaths::from_config(config.paths.adapters_root.as_deref());
+let adapter_path = adapters_paths.get_adapter_path("my-adapter");  // {root}/my-adapter.aos
+adapters_paths.ensure_exists_async().await?;  // Create directory if needed
+```
+
+**Other Paths:**
+
 ```rust
 use adapteros_platform::common::PlatformUtils;
 
 // Runtime data (relative to cwd)
 let var_dir = PlatformUtils::aos_var_dir();           // var/
 let cache = PlatformUtils::aos_model_cache_dir();     // var/model-cache
-let adapters = PlatformUtils::aos_adapters_dir();     // var/adapters
+let adapters = PlatformUtils::aos_adapters_dir();     // var/adapters (delegates to AdapterPaths)
 let artifacts = PlatformUtils::aos_artifacts_dir();   // var/artifacts
 
 // Path expansion for user paths (tilde expansion)
