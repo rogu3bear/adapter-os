@@ -151,11 +151,13 @@ impl PlatformUtils {
     /// Get the adapters directory
     ///
     /// Returns the directory where LoRA adapter weights are stored.
+    /// Delegates to `AdapterPaths` for consistent path resolution.
     /// Respects `AOS_ADAPTERS_DIR` env var, defaults to `var/adapters`.
+    ///
+    /// Note: For config-aware path resolution, use `AdapterPaths::from_config()` directly.
     pub fn aos_adapters_dir() -> PathBuf {
-        std::env::var("AOS_ADAPTERS_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| Self::aos_var_dir().join("adapters"))
+        use adapteros_core::paths::AdapterPaths;
+        AdapterPaths::from_config(None).root().to_path_buf()
     }
 
     /// Get the artifacts directory

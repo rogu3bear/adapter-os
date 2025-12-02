@@ -5,7 +5,7 @@ use crate::handlers::domain_adapters;
 use crate::middleware::audit::audit_middleware;
 use crate::middleware::context::context_middleware;
 use crate::middleware::policy_enforcement::policy_enforcement_middleware;
-use crate::middleware::{auth_middleware, client_ip_middleware};
+use crate::middleware::{auth_middleware, client_ip_middleware, optional_auth_middleware};
 use crate::middleware_security::{
     cors_layer, drain_middleware, rate_limiting_middleware, request_size_limit_middleware,
     request_tracking_middleware, security_headers_middleware,
@@ -160,6 +160,9 @@ use utoipa_swagger_ui::SwaggerUi;
         // Trace handlers
         handlers::telemetry::search_traces,
         handlers::telemetry::get_trace,
+        // Recent activity handlers
+        handlers::telemetry::get_recent_activity,
+        handlers::telemetry::recent_activity_stream,
         // Dataset handlers
         handlers::datasets::upload_dataset,
         handlers::datasets::initiate_chunked_upload,
@@ -583,6 +586,28 @@ pub fn build(state: AppState) -> Router {
             policy_enforcement_middleware,
         ));
 
+    // Routes with optional authentication (work with or without auth)
+    // These routes provide enhanced functionality when authenticated but still work anonymously
+    let optional_auth_routes = Router::new()
+        .route("/v1/models/status", get(handlers::get_base_model_status))
+        .with_state(state.clone())
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    policy_enforcement_middleware,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    audit_middleware,
+                )) // Automatic audit logging (needs RequestContext)
+                .layer(middleware::from_fn(context_middleware)) // Consolidate request context after auth
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    optional_auth_middleware,
+                )),
+        );
+
     // Protected routes (require auth)
     let protected_routes = Router::new()
         .route("/v1/auth/logout", post(auth::auth_logout))
@@ -677,7 +702,6 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/models", get(handlers::models::list_models_with_stats))
         .route("/v1/models/import", post(handlers::models::import_model))
-        .route("/v1/models/status", get(handlers::get_base_model_status))
         .route("/v1/models/status/all", get(handlers::models::get_all_models_status))
         .route(
             "/v1/models/{model_id}/load",
@@ -1377,6 +1401,15 @@ pub fn build(state: AppState) -> Router {
         // Logs routes
         .route("/v1/logs/query", get(handlers::telemetry::query_logs))
         .route("/v1/logs/stream", get(handlers::telemetry::stream_logs))
+        // Recent activity events routes
+        .route(
+            "/v1/telemetry/events/recent",
+            get(handlers::telemetry::get_recent_activity),
+        )
+        .route(
+            "/v1/telemetry/events/recent/stream",
+            get(handlers::telemetry::recent_activity_stream),
+        )
         // Metrics snapshot/series routes
         .route(
             "/v1/metrics/snapshot",
@@ -1641,6 +1674,7 @@ pub fn build(state: AppState) -> Router {
     Router::new()
         .merge(public_routes)
         .merge(metrics_route)
+        .merge(optional_auth_routes)
         .merge(protected_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // Apply layers (innermost to outermost):

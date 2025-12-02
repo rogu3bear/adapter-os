@@ -13,11 +13,12 @@
 //! ```
 
 use crate::auth::Claims;
+use crate::security::check_tenant_access;
 use crate::state::AppState;
 use crate::types::*;
 use crate::uds_client::UdsClient;
 use adapteros_core::identity::IdentityEnvelope;
-use adapteros_lora_rag::{pgvector::PgVectorIndex, EmbeddingModel};
+use adapteros_lora_rag::{PgVectorIndex, EmbeddingModel};
 use axum::{
     extract::{Extension, State},
     http::StatusCode,
@@ -413,7 +414,7 @@ pub async fn streaming_infer(
     if let Some(session_id) = &req.session_id {
         match state.db.get_chat_session(session_id).await {
             Ok(Some(session)) => {
-                if session.tenant_id != claims.tenant_id {
+                if !check_tenant_access(&claims, &session.tenant_id) {
                     warn!(
                         request_id = %request_id,
                         session_id = %session_id,

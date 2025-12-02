@@ -602,6 +602,7 @@ async fn main() -> Result<()> {
             },
             git: None,
             policies: Default::default(),
+            logging: Default::default(),
         };
 
         RuntimeModeResolver::resolve(&api_cfg, &db)
@@ -678,6 +679,7 @@ async fn main() -> Result<()> {
             },
             git: None,
             policies: Default::default(),
+            logging: Default::default(),
         };
 
         RuntimeModeResolver::validate(runtime_mode, &api_cfg, &db)

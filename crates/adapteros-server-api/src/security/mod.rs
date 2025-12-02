@@ -28,8 +28,80 @@ use adapteros_core::Result;
 use adapteros_db::Db;
 use axum::{http::StatusCode, Json};
 use chrono::Utc;
+use std::env;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+/// Check if dev no-auth bypass is enabled (compile-time restricted to debug builds)
+///
+/// SECURITY: This function is only available in debug builds. Release builds always return false.
+#[cfg(debug_assertions)]
+fn dev_no_auth_enabled() -> bool {
+    env::var("AOS_DEV_NO_AUTH")
+        .map(|v| {
+            let lower = v.to_ascii_lowercase();
+            matches!(lower.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
+/// SECURITY: In release builds, dev_no_auth is NEVER enabled
+#[cfg(not(debug_assertions))]
+fn dev_no_auth_enabled() -> bool {
+    // SECURITY: Always return false in release builds, regardless of environment variable
+    if env::var("AOS_DEV_NO_AUTH").is_ok() {
+        tracing::error!(
+            "AOS_DEV_NO_AUTH detected in release build - this flag is ignored in production"
+        );
+    }
+    false
+}
+
+/// Core tenant access check logic (shared by all validation functions)
+///
+/// This is the single source of truth for tenant isolation logic.
+/// Returns `true` if access is allowed, `false` otherwise.
+fn check_tenant_access_core(claims: &Claims, resource_tenant_id: &str) -> bool {
+    // Same tenant - always allowed
+    if claims.tenant_id == resource_tenant_id {
+        return true;
+    }
+
+    // Dev mode bypass: Allow admin role in dev mode to access any tenant
+    // SECURITY: This only works in debug builds, release builds ignore AOS_DEV_NO_AUTH
+    if dev_no_auth_enabled() && claims.role == "admin" {
+        return true;
+    }
+
+    // Admin with explicit access
+    if claims.role == "admin"
+        && claims
+            .admin_tenants
+            .contains(&resource_tenant_id.to_string())
+    {
+        return true;
+    }
+
+    false
+}
+
+/// Check if tenant access is allowed (includes dev mode bypass)
+///
+/// This is a helper function for direct tenant_id comparisons in handlers.
+/// In dev mode with admin role, allows access to any tenant.
+///
+/// **Best Practice:** Use this for simple boolean checks in handlers.
+/// For endpoints that need proper error responses, use `validate_tenant_isolation()` instead.
+///
+/// # Arguments
+/// * `claims` - The user's JWT claims
+/// * `resource_tenant_id` - The tenant ID of the resource being accessed
+///
+/// # Returns
+/// `true` if access is allowed, `false` otherwise
+pub fn check_tenant_access(claims: &Claims, resource_tenant_id: &str) -> bool {
+    check_tenant_access_core(claims, resource_tenant_id)
+}
 
 /// Validate that the tenant_id in JWT claims matches the requested resource
 ///
@@ -40,6 +112,11 @@ use uuid::Uuid;
 /// - Admins can only access tenants listed in their `admin_tenants` claim
 /// - Empty `admin_tenants` = can only access their own tenant
 /// - All cross-tenant access attempts are logged for audit
+///
+/// **Dev Mode (2025-12-02):**
+/// - In debug builds with `AOS_DEV_NO_AUTH=1`, admin role can access any tenant
+/// - This bypass is compile-time restricted to debug builds only
+/// - Release builds ignore `AOS_DEV_NO_AUTH` completely for security
 ///
 /// # Example
 /// ```no_run
@@ -56,27 +133,31 @@ pub fn validate_tenant_isolation(
     claims: &Claims,
     resource_tenant_id: &str,
 ) -> std::result::Result<(), (StatusCode, Json<ErrorResponse>)> {
-    // Check if accessing own tenant (always allowed)
-    if claims.tenant_id == resource_tenant_id {
-        return Ok(());
-    }
-
-    // For cross-tenant access, check if user is admin with explicit access
-    if claims.role == "admin"
-        && claims
-            .admin_tenants
-            .contains(&resource_tenant_id.to_string())
-    {
-        // Admin has explicit access to this tenant - allow and log
-        info!(
-            user_id = %claims.sub,
-            user_email = %claims.email,
-            user_role = %claims.role,
-            user_tenant = %claims.tenant_id,
-            resource_tenant = %resource_tenant_id,
-            admin_tenants = ?claims.admin_tenants,
-            "Cross-tenant access granted via admin_tenants"
-        );
+    // Use shared core logic for consistency
+    if check_tenant_access_core(claims, resource_tenant_id) {
+        // Log successful access (only for cross-tenant, not same-tenant)
+        if claims.tenant_id != resource_tenant_id {
+            if dev_no_auth_enabled() && claims.role == "admin" {
+                info!(
+                    user_id = %claims.sub,
+                    user_email = %claims.email,
+                    user_role = %claims.role,
+                    user_tenant = %claims.tenant_id,
+                    resource_tenant = %resource_tenant_id,
+                    "Dev mode: Admin cross-tenant access granted"
+                );
+            } else {
+                info!(
+                    user_id = %claims.sub,
+                    user_email = %claims.email,
+                    user_role = %claims.role,
+                    user_tenant = %claims.tenant_id,
+                    resource_tenant = %resource_tenant_id,
+                    admin_tenants = ?claims.admin_tenants,
+                    "Cross-tenant access granted via admin_tenants"
+                );
+            }
+        }
         return Ok(());
     }
 
@@ -149,16 +230,8 @@ pub async fn validate_tenant_isolation_with_audit(
     resource_tenant_id: &str,
     request_path: Option<&str>,
 ) -> std::result::Result<(), (StatusCode, Json<ErrorResponse>)> {
-    // Check if accessing own tenant (always allowed)
-    if claims.tenant_id == resource_tenant_id {
-        return Ok(());
-    }
-
-    // For cross-tenant access, check if user is admin with explicit access
-    let access_granted = claims.role == "admin"
-        && claims
-            .admin_tenants
-            .contains(&resource_tenant_id.to_string());
+    // Use shared core logic for consistency
+    let access_granted = check_tenant_access_core(claims, resource_tenant_id);
 
     // Log the attempt (ignore logging errors to not block the request)
     let reason = if access_granted {

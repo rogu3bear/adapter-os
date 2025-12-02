@@ -5,8 +5,9 @@ use adapteros_core::{AosError, Result};
 use clap::Subcommand;
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::Path;
+use std::process::{Command, Stdio};
+use tokio::process::Command as TokioCommand;
 use tracing::{error, info, warn};
 
 const PID_DIR: &str = "./var/run";
@@ -127,13 +128,13 @@ async fn dev_up(
 
     // Step 2: Start API server
     output.progress("Starting API server...");
-    start_api_server(output)?;
+    start_api_server(output).await?;
     output.progress_done(true);
 
     // Step 3: Start UI server (if requested)
     if ui {
         output.progress("Starting UI dev server...");
-        start_ui_server(output)?;
+        start_ui_server(output).await?;
         output.progress_done(true);
     }
 
@@ -321,53 +322,103 @@ fn run_migrations(output: &OutputWriter) -> Result<()> {
 }
 
 /// Start API server
-fn start_api_server(output: &OutputWriter) -> Result<()> {
-    let mut child = Command::new("cargo")
+async fn start_api_server(output: &OutputWriter) -> Result<()> {
+    // Ensure log directory exists
+    fs::create_dir_all("./var/logs")
+        .map_err(|e| AosError::Io(format!("Failed to create log directory: {}", e)))?;
+
+    // Redirect output to log file
+    // Open separate handles for stdout and stderr (both write to same file)
+    let stdout_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("./var/logs/api-server.log")
+        .map_err(|e| AosError::Io(format!("Failed to open log file: {}", e)))?;
+    let stderr_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("./var/logs/api-server.log")
+        .map_err(|e| AosError::Io(format!("Failed to open log file: {}", e)))?;
+
+    let mut child = TokioCommand::new("cargo")
         .args(&["run", "--release", "-p", "adapteros-server-api"])
         .env("RUST_LOG", "info")
         .env("DATABASE_URL", "sqlite://var/aos-cp.sqlite3")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
         .spawn()
         .map_err(|e| AosError::Io(format!("Failed to start API server: {}", e)))?;
 
-    let pid = child.id();
+    let pid = child.id().ok_or_else(|| {
+        AosError::Io("Failed to get child process ID".to_string())
+    })?;
     write_pid_file(API_SERVER_PID, pid)?;
 
-    // Detach the process (don't wait for it)
-    std::mem::forget(child);
+    // Spawn background task to wait for the child process to prevent zombie processes
+    // This allows the OS to properly reap the process when it exits
+    let child_pid = pid;
+    tokio::spawn(async move {
+        if let Err(e) = child.wait().await {
+            warn!(pid = child_pid, error = %e, "Error waiting for API server process");
+        }
+    });
 
     output.verbose(&format!("API server started (PID: {})", pid));
     Ok(())
 }
 
 /// Start UI dev server
-fn start_ui_server(output: &OutputWriter) -> Result<()> {
+async fn start_ui_server(output: &OutputWriter) -> Result<()> {
     let ui_dir = Path::new("./ui");
     if !ui_dir.exists() {
         return Err(AosError::Io("UI directory not found: ./ui".to_string()));
     }
 
-    let mut child = Command::new("pnpm")
+    // Ensure log directory exists
+    fs::create_dir_all("./var/logs")
+        .map_err(|e| AosError::Io(format!("Failed to create log directory: {}", e)))?;
+
+    // Redirect output to log file
+    // Open separate handles for stdout and stderr (both write to same file)
+    let stdout_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("./var/logs/ui-server.log")
+        .map_err(|e| AosError::Io(format!("Failed to open log file: {}", e)))?;
+    let stderr_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("./var/logs/ui-server.log")
+        .map_err(|e| AosError::Io(format!("Failed to open log file: {}", e)))?;
+
+    let mut child = TokioCommand::new("pnpm")
         .args(&["dev"])
         .current_dir(ui_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
         .spawn()
         .map_err(|e| AosError::Io(format!("Failed to start UI server: {}", e)))?;
 
-    let pid = child.id();
+    let pid = child.id().ok_or_else(|| {
+        AosError::Io("Failed to get child process ID".to_string())
+    })?;
     write_pid_file(UI_SERVER_PID, pid)?;
 
-    // Detach the process
-    std::mem::forget(child);
+    // Spawn background task to wait for the child process to prevent zombie processes
+    // This allows the OS to properly reap the process when it exits
+    let child_pid = pid;
+    tokio::spawn(async move {
+        if let Err(e) = child.wait().await {
+            warn!(pid = child_pid, error = %e, "Error waiting for UI server process");
+        }
+    });
 
     output.verbose(&format!("UI server started (PID: {})", pid));
     Ok(())
 }
 
 /// Service status
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct ServiceStatus {
     running: bool,
     pid: Option<u32>,

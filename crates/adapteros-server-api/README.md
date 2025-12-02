@@ -70,7 +70,7 @@ Features:
 
 1. **`new(pool, signing_keypair)`**
    - Create workflow manager
-   - Requires PostgreSQL pool + Ed25519 keypair
+   - Requires SQLite pool + Ed25519 keypair
 
 2. **`promote_cpid(cpid, approver)`** → `PromotionResult`
    - Execute complete 4-step promotion
@@ -96,10 +96,10 @@ Features:
 ```rust
 use adapteros_server_api::cab_workflow::CABWorkflow;
 use adapteros_crypto::Keypair;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePool;
 
 // Connect to database
-let pool = PgPool::connect("postgresql://aos:aos@localhost/aos").await?;
+let pool = SqlitePool::connect("sqlite:var/aos-cp.sqlite3").await?;
 
 // Generate or load signing keypair
 let keypair = Keypair::generate();
@@ -232,7 +232,7 @@ use adapteros_server_api::cab_workflow::CABWorkflow;
 ### Integration Tests
 
 ```bash
-# Requires PostgreSQL test database
+# Requires SQLite test database
 cargo test --package adapteros-server-api test_cab_workflow_promotion -- --ignored
 ```
 
@@ -240,9 +240,7 @@ cargo test --package adapteros-server-api test_cab_workflow_promotion -- --ignor
 
 ```bash
 # 1. Setup test database
-createdb adapteros_test
-psql adapteros_test -c "CREATE EXTENSION vector;"
-sqlx migrate run --database-url postgresql://aos:aos@localhost/adapteros_test
+sqlx migrate run --database-url sqlite:var/test-cp.sqlite3
 
 # 2. Run test promotion
 cargo run --bin test_cab_promotion

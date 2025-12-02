@@ -352,25 +352,73 @@ pub async fn start_training(
 
     // Use service to check if training can start (capacity + memory pressure)
     if let Err(e) = service.can_start_training().await {
-        let error_message = e.to_string();
-        let (status_code, error_code) = if error_message.contains("concurrent training jobs") {
-            (StatusCode::SERVICE_UNAVAILABLE, "TRAINING_CAPACITY_LIMIT")
-        } else if error_message.contains("memory pressure") {
-            (StatusCode::SERVICE_UNAVAILABLE, "MEMORY_PRESSURE_CRITICAL")
-        } else {
-            (StatusCode::INTERNAL_SERVER_ERROR, "CAPACITY_CHECK_ERROR")
+        let (status_code, error_code, user_message) = match &e {
+            // Validation errors: check message for capacity or memory pressure
+            // Keep original message for Validation errors (user-friendly and actionable)
+            AosError::Validation(msg) => {
+                if msg.contains("concurrent training jobs") {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "TRAINING_CAPACITY_LIMIT",
+                        msg.clone(),
+                    )
+                } else if msg.contains("memory pressure") {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "MEMORY_PRESSURE_CRITICAL",
+                        msg.clone(),
+                    )
+                } else {
+                    // Other validation errors
+                    (
+                        StatusCode::BAD_REQUEST,
+                        "VALIDATION_ERROR",
+                        msg.clone(),
+                    )
+                }
+            }
+            // Database errors: service temporarily unavailable
+            // Preserve original error details for debugging via with_string_details()
+            AosError::Database(_) | AosError::Sqlx(_) | AosError::Sqlite(_) => {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "DATABASE_ERROR",
+                    "Unable to check training capacity: database temporarily unavailable".to_string(),
+                )
+            }
+            // Other errors: internal server error (includes config lock failures)
+            // Note: Config lock failures return AosError::Other, not AosError::Config
+            AosError::Other(_) => {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "INTERNAL_ERROR",
+                    "Unable to check training capacity: internal error".to_string(),
+                )
+            }
+            // Fallback for any other error variants
+            _ => {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "CAPACITY_CHECK_ERROR",
+                    "Unable to check training capacity".to_string(),
+                )
+            }
         };
 
         warn!(
             user_id = %claims.sub,
             adapter_name = %request.adapter_name,
-            error = %error_message,
-            "Training job rejected due to capacity or memory constraints"
+            error = %e,
+            "Training job rejected due to capacity check failure"
         );
 
         return Err((
             status_code,
-            Json(ErrorResponse::new(&error_message).with_code(error_code)),
+            Json(
+                ErrorResponse::new(&user_message)
+                    .with_code(error_code)
+                    .with_string_details(e.to_string()),
+            ),
         ));
     }
 

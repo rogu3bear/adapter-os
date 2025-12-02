@@ -305,6 +305,7 @@ impl Db {
             parent_id: adapter.parent_id.clone(),
             fork_type: adapter.fork_type.clone(),
             fork_reason: adapter.fork_reason.clone(),
+            base_model_id: None, // Not available during KV migration
         };
 
         // Register in KV

@@ -199,6 +199,8 @@ pub struct ImportModelRequest {
 pub struct BaseModelStatusResponse {
     pub model_id: String,
     pub model_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
     pub status: String,
     pub loaded_at: Option<String>,
     pub unloaded_at: Option<String>,

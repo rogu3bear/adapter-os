@@ -717,6 +717,7 @@ impl From<&adapteros_core::AosError> for ExitCode {
             AosError::Job(_) => ExitCode::Job,
             AosError::Node(_) => ExitCode::Node,
             AosError::Lifecycle(_) => ExitCode::Lifecycle,
+            AosError::AdapterNotLoaded { .. } => ExitCode::Worker,
 
             // Subsystem errors (90-99)
             AosError::Io(_) => ExitCode::Io,

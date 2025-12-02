@@ -452,6 +452,40 @@ impl UdsClient {
             .map_err(|e| UdsClientError::SerializationError(e.to_string()))
     }
 
+    /// Load a model via the worker UDS
+    ///
+    /// Sends a request to the worker to verify/load a model.
+    /// Returns the model load status including memory usage.
+    pub async fn load_model(
+        &self,
+        uds_path: &Path,
+        model_id: &str,
+        model_path: &str,
+    ) -> Result<ModelLoadResponse, UdsClientError> {
+        let request = serde_json::json!({
+            "model_id": model_id,
+            "model_path": model_path
+        });
+
+        let response = self
+            .send_http_request(uds_path, "POST", "/model/load", Some(request))
+            .await?;
+
+        serde_json::from_value(response)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))
+    }
+
+    /// Get model status from worker via UDS
+    ///
+    /// Returns the current model status without triggering a load.
+    pub async fn get_model_status(
+        &self,
+        uds_path: &Path,
+    ) -> Result<serde_json::Value, UdsClientError> {
+        self.send_http_request(uds_path, "GET", "/model/status", None)
+            .await
+    }
+
     /// Send an adapter command to worker via UDS
     pub async fn adapter_command(
         &self,
@@ -511,6 +545,21 @@ impl Default for UdsClient {
     fn default() -> Self {
         Self::new(Duration::from_secs(30))
     }
+}
+
+/// Response from model load operation
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModelLoadResponse {
+    /// Status of the operation: "loaded", "already_loaded", "error"
+    pub status: String,
+    /// Model ID that was loaded
+    pub model_id: String,
+    /// Estimated memory usage in MB
+    pub memory_usage_mb: Option<i32>,
+    /// Error message if status is "error"
+    pub error: Option<String>,
+    /// Timestamp of when model was loaded
+    pub loaded_at: Option<String>,
 }
 
 #[cfg(test)]
@@ -649,5 +698,66 @@ mod tests {
         let response = "HTTP/1.1 200 OK\r\n\r\nX";
         let json = extract_json_body(response);
         assert_eq!(json, "X");
+    }
+
+    // ========================================================================
+    // Model Loading Tests
+    // ========================================================================
+
+    #[test]
+    fn test_model_load_response_serialization() {
+        let response = ModelLoadResponse {
+            status: "loaded".to_string(),
+            model_id: "test-model-123".to_string(),
+            memory_usage_mb: Some(4096),
+            error: None,
+            loaded_at: Some("2025-12-01T00:00:00Z".to_string()),
+        };
+
+        let serialized = serde_json::to_string(&response).expect("Should serialize");
+        let deserialized: ModelLoadResponse =
+            serde_json::from_str(&serialized).expect("Should deserialize");
+
+        assert_eq!(deserialized.status, "loaded");
+        assert_eq!(deserialized.model_id, "test-model-123");
+        assert_eq!(deserialized.memory_usage_mb, Some(4096));
+        assert!(deserialized.error.is_none());
+        assert!(deserialized.loaded_at.is_some());
+    }
+
+    #[test]
+    fn test_model_load_response_with_error() {
+        let response = ModelLoadResponse {
+            status: "error".to_string(),
+            model_id: "test-model".to_string(),
+            memory_usage_mb: None,
+            error: Some("Model path does not exist".to_string()),
+            loaded_at: None,
+        };
+
+        let serialized = serde_json::to_string(&response).expect("Should serialize");
+        let deserialized: ModelLoadResponse =
+            serde_json::from_str(&serialized).expect("Should deserialize");
+
+        assert_eq!(deserialized.status, "error");
+        assert!(deserialized.memory_usage_mb.is_none());
+        assert_eq!(
+            deserialized.error,
+            Some("Model path does not exist".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_load_model_request_format() {
+        // Test that the request JSON is properly formatted
+        let request = serde_json::json!({
+            "model_id": "test-model",
+            "model_path": "/path/to/model"
+        });
+
+        // Verify it can be serialized/deserialized
+        let serialized = serde_json::to_string(&request).expect("Should serialize");
+        assert!(serialized.contains("model_id"));
+        assert!(serialized.contains("model_path"));
     }
 }

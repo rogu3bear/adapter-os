@@ -98,7 +98,6 @@ result_large_err = "warn"
 default = []
 mlx-ffi-backend = ["adapteros-lora-mlx-ffi"]
 embeddings = ["adapteros-ingest-docs/multi-backend"]
-postgres = []
 redis = []
 metrics = []
 dev-bypass = []

@@ -8,7 +8,10 @@ use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use crate::uds_client::UdsClient;
 use adapteros_db::users::Role;
+use std::path::PathBuf;
+use std::time::Duration;
 
 /// Resource type for model audit logs
 const RESOURCE_MODEL: &str = "model";
@@ -61,6 +64,8 @@ pub struct ImportModelResponse {
 pub struct ModelStatusResponse {
     pub model_id: String,
     pub model_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
     pub status: String,
     pub loaded_at: Option<String>,
     pub memory_usage_mb: Option<i32>,
@@ -97,15 +102,25 @@ pub struct ModelRuntimeHealthResponse {
 
 /// Load a base model into memory
 ///
-/// Loads a base model specified by model_id into GPU/memory. The model must exist in the
-/// database before loading. Returns current status including memory usage.
+/// # Endpoint
+/// POST /v1/models/{model_id}/load
 ///
-/// **Permissions:** Requires `admin` or `operator` role.
+/// # Authentication
+/// Required
 ///
-/// **Errors:**
+/// # Permissions
+/// Requires one of: Admin, Operator
+///
+/// # Response
+/// Returns current model load status including memory usage and load timestamp.
+/// If model is already loaded, returns success with current status.
+///
+/// # Errors
+/// - `FORBIDDEN` (403): User lacks required role
 /// - `NOT_FOUND` (404): Model does not exist in database
-/// - `BAD_REQUEST` (400): Model already loaded
-/// - `INTERNAL_ERROR` (500): Memory pressure, load failure
+/// - `WORKER_UNAVAILABLE` (503): No worker available to load the model
+/// - `WORKER_ERROR` (500): Worker failed to load model
+/// - `INTERNAL_ERROR` (500): Database error, memory pressure, load failure
 ///
 /// # Example
 /// ```
@@ -190,6 +205,7 @@ pub async fn load_model(
             return Ok(Json(ModelStatusResponse {
                 model_id: model_id.clone(),
                 model_name: model.name.clone(),
+                model_path: model.model_path.clone(),
                 status: "loaded".to_string(),
                 memory_usage_mb: status.memory_usage_mb,
                 loaded_at: status.loaded_at.clone(),
@@ -242,22 +258,77 @@ pub async fn load_model(
             )
         })?;
 
-    // Estimate memory usage (typically 7B model = 4-8GB, using conservative estimate)
-    let estimated_memory_mb: i32 = 4096;
+    // Get worker socket path - try from workers table first, then env var fallback
+    let uds_path = get_worker_socket_path(&state, tenant_id).await.ok_or_else(|| {
+        error!("No worker available for model loading");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                ErrorResponse::new("no worker available")
+                    .with_code("WORKER_UNAVAILABLE")
+                    .with_string_details("No worker is available to load the model".to_string()),
+            ),
+        )
+    })?;
 
-    // Update status to "loaded"
+    // Get model path from database
+    let model_path = model.model_path.clone().unwrap_or_else(|| {
+        // Fallback to var/model-cache if no explicit path
+        format!("var/model-cache/models/{}", model.name)
+    });
+
+    // Call worker via UDS to actually load the model
+    let uds_client = UdsClient::new(Duration::from_secs(120)); // Model loading can take time
+    let load_result = uds_client
+        .load_model(&uds_path, &model_id, &model_path)
+        .await;
+
+    let (final_status, memory_mb, load_error) = match load_result {
+        Ok(response) => {
+            if response.status == "loaded" || response.status == "already_loaded" {
+                info!(
+                    model_id = %model_id,
+                    memory_mb = ?response.memory_usage_mb,
+                    "Worker confirmed model is loaded"
+                );
+                ("loaded", response.memory_usage_mb, None)
+            } else {
+                warn!(
+                    model_id = %model_id,
+                    status = %response.status,
+                    error = ?response.error,
+                    "Worker returned non-loaded status"
+                );
+                ("error", None, response.error)
+            }
+        }
+        Err(e) => {
+            // UDS call failed - worker is down or not responding
+            // Report this as a real error instead of silently succeeding
+            error!(
+                model_id = %model_id,
+                error = %e,
+                "Failed to communicate with worker for model loading"
+            );
+            ("error", None, Some(format!("Worker communication failed: {}", e)))
+        }
+    };
+
+    let estimated_memory_mb = memory_mb.unwrap_or(4096);
+
+    // Update status based on worker response
     if let Err(e) = state
         .db
         .update_base_model_status(
             tenant_id,
             &model_id,
-            "loaded",
-            None,
+            final_status,
+            load_error.as_deref(),
             Some(estimated_memory_mb),
         )
         .await
     {
-        error!("Failed to update model status to loaded: {}", e);
+        error!("Failed to update model status to {}: {}", final_status, e);
         // Log operation failure
         let _ = state
             .db
@@ -279,6 +350,31 @@ pub async fn load_model(
                 ErrorResponse::new("failed to update model status")
                     .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
+            ),
+        ));
+    }
+
+    // If worker returned an error, report it
+    if let Some(error_msg) = load_error {
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&error_msg), Some(&now), None)
+            .await;
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_MODEL_LOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &format!("Worker failed to load model: {}", error_msg),
+        )
+        .await;
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("worker failed to load model")
+                    .with_code("WORKER_ERROR")
+                    .with_string_details(error_msg),
             ),
         ));
     }
@@ -310,6 +406,7 @@ pub async fn load_model(
     Ok(Json(ModelStatusResponse {
         model_id,
         model_name: model.name,
+        model_path: model.model_path,
         status: "loaded".to_string(),
         loaded_at: Some(chrono::Utc::now().to_rfc3339()),
         memory_usage_mb: Some(estimated_memory_mb),
@@ -319,15 +416,23 @@ pub async fn load_model(
 
 /// Unload a base model from memory
 ///
-/// Unloads a previously loaded model from GPU/memory. Frees memory resources and marks
-/// the model as unloaded in the database.
+/// # Endpoint
+/// POST /v1/models/{model_id}/unload
 ///
-/// **Permissions:** Requires `admin` or `operator` role.
+/// # Authentication
+/// Required
 ///
-/// **Errors:**
+/// # Permissions
+/// Requires one of: Admin, Operator
+///
+/// # Response
+/// Returns updated model status confirming the model is unloaded. Frees GPU/memory resources.
+///
+/// # Errors
+/// - `FORBIDDEN` (403): User lacks required role
 /// - `NOT_FOUND` (404): Model does not exist in database
 /// - `BAD_REQUEST` (400): Model not currently loaded
-/// - `INTERNAL_ERROR` (500): Unload failure
+/// - `INTERNAL_ERROR` (500): Database error, unload failure
 ///
 /// # Example
 /// ```
@@ -507,6 +612,7 @@ pub async fn unload_model(
     Ok(Json(ModelStatusResponse {
         model_id,
         model_name: model.name,
+        model_path: model.model_path,
         status: "unloaded".to_string(),
         loaded_at: None,
         memory_usage_mb: None,
@@ -516,12 +622,26 @@ pub async fn unload_model(
 
 /// Get model status
 ///
-/// Returns the current load status of a model, including memory usage, load timestamp,
-/// and whether the model is currently in memory.
+/// # Endpoint
+/// GET /v1/models/{model_id}/status
 ///
-/// **Permissions:** All authenticated users.
+/// # Authentication
+/// Required
 ///
-/// **Errors:**
+/// # Permissions
+/// All authenticated users
+///
+/// # Response
+/// Returns the current load status of a model, including:
+/// - `model_id`: Model identifier
+/// - `model_name`: Human-readable model name
+/// - `model_path`: Filesystem path to model files
+/// - `status`: Load status (loaded, unloaded, loading, error)
+/// - `loaded_at`: Timestamp when model was loaded (if loaded)
+/// - `memory_usage_mb`: Memory consumption in MB (if loaded)
+/// - `is_loaded`: Boolean flag indicating if model is currently in memory
+///
+/// # Errors
 /// - `NOT_FOUND` (404): Model does not exist in database
 /// - `INTERNAL_ERROR` (500): Database query failure
 ///
@@ -605,6 +725,7 @@ pub async fn get_model_status(
     Ok(Json(ModelStatusResponse {
         model_id,
         model_name: model.name,
+        model_path: model.model_path,
         status: status_str,
         loaded_at,
         memory_usage_mb: memory_mb,
@@ -614,19 +735,36 @@ pub async fn get_model_status(
 
 /// Validate a model
 ///
-/// Validates model integrity by checking stored BLAKE3 hashes. Verifies that:
-/// - Model weights file matches stored hash
-/// - Config file matches stored hash
-/// - Tokenizer files match stored hashes
+/// # Endpoint
+/// GET /v1/models/{model_id}/validate
 ///
-/// This is a logical validation (hash comparison) - does not require actual file access.
-/// Returns list of any validation errors found.
+/// # Authentication
+/// Required
 ///
-/// **Permissions:** All authenticated users.
+/// # Permissions
+/// All authenticated users
 ///
-/// **Errors:**
+/// # Response
+/// Validates model integrity by checking stored BLAKE3 hashes. Returns:
+/// - `model_id`: Model identifier
+/// - `status`: Validation status (ready, invalid)
+/// - `valid`: Boolean indicating if all hashes are valid
+/// - `can_load`: Boolean indicating if model can be loaded
+/// - `reason`: Description of validation failure (if any)
+/// - `issues`: List of validation issues with type and message
+/// - `errors`: Legacy field for backwards compatibility
+///
+/// Validates:
+/// - Model weights file hash (BLAKE3)
+/// - Config file hash (BLAKE3)
+/// - Tokenizer files hashes (BLAKE3)
+/// - Metadata JSON format
+///
+/// This is a logical validation (hash comparison) and does not require actual file access.
+///
+/// # Errors
 /// - `NOT_FOUND` (404): Model does not exist in database
-/// - `INTERNAL_ERROR` (500): Validation failure
+/// - `INTERNAL_ERROR` (500): Database query failure
 ///
 /// # Example
 /// ```
@@ -792,14 +930,40 @@ pub async fn validate_model(
 
 /// Import a model from a path on disk
 ///
-/// Imports a model by scanning a directory path and registering it in the database.
-/// Computes file hashes, detects format, and validates model structure.
+/// # Endpoint
+/// POST /v1/models/import
 ///
-/// **Permissions:** Requires `admin` or `operator` role.
+/// # Authentication
+/// Required
 ///
-/// **Errors:**
-/// - `BAD_REQUEST` (400): Invalid path or format
-/// - `INTERNAL_ERROR` (500): Import failure
+/// # Permissions
+/// Requires one of: Admin, Operator
+///
+/// # Request Body
+/// - `model_name`: Name for the imported model
+/// - `model_path`: Filesystem path to model directory
+/// - `format`: Model format (mlx, safetensors, pytorch, gguf)
+/// - `backend`: Backend to use (mlx-ffi, metal)
+/// - `capabilities`: Optional list of capabilities (chat, completion, embeddings)
+/// - `metadata`: Optional JSON metadata
+///
+/// # Response
+/// Returns import status with:
+/// - `import_id`: Unique identifier for the imported model
+/// - `status`: Import status (available, in_progress, failed)
+/// - `message`: Human-readable status message
+/// - `progress`: Import progress percentage (0-100)
+///
+/// The import process:
+/// 1. Validates path exists and format is supported
+/// 2. Scans directory and computes BLAKE3 hashes for all files
+/// 3. Detects model structure and configuration
+/// 4. Registers model in database with metadata
+///
+/// # Errors
+/// - `FORBIDDEN` (403): User lacks required role
+/// - `BAD_REQUEST` (400): Invalid path, unsupported format, or unsupported backend
+/// - `INTERNAL_ERROR` (500): Import failure, database error
 ///
 /// # Example
 /// ```
@@ -967,11 +1131,33 @@ pub struct ModelWithStatsResponse {
 
 /// List all models with statistics
 ///
-/// Returns a list of all models with counts of adapters and training jobs.
+/// # Endpoint
+/// GET /v1/models
 ///
-/// **Permissions:** All authenticated users.
+/// # Authentication
+/// Required
 ///
-/// **Errors:**
+/// # Permissions
+/// All authenticated users
+///
+/// # Response
+/// Returns a list of all models with associated statistics:
+/// - `models`: Array of model records with:
+///   - `id`: Unique model identifier
+///   - `name`: Model name
+///   - `format`: Model format (mlx, safetensors, pytorch, gguf)
+///   - `backend`: Backend type (mlx-ffi, metal)
+///   - `size_bytes`: Total size of model files
+///   - `import_status`: Import status (available, in_progress, failed)
+///   - `model_path`: Filesystem path to model files
+///   - `capabilities`: List of supported capabilities
+///   - `adapter_count`: Number of adapters using this model
+///   - `training_job_count`: Number of training jobs for this model
+///   - `imported_at`: Import timestamp
+///   - `updated_at`: Last update timestamp
+/// - `total`: Total number of models
+///
+/// # Errors
 /// - `INTERNAL_ERROR` (500): Database query failure
 ///
 /// # Example
@@ -1037,9 +1223,44 @@ pub async fn list_models_with_stats(
 
 /// Get all models status
 ///
-/// Returns status for all base models across all tenants, including memory usage and active count.
+/// # Endpoint
+/// GET /v1/models/status/all
 ///
-/// **Permissions:** Operator, Admin, Compliance roles.
+/// # Authentication
+/// Required
+///
+/// # Permissions
+/// Requires one of: Operator, Admin, Compliance
+///
+/// # Query Parameters
+/// - `tenant_id`: Optional tenant filter to show only models for specific tenant
+///
+/// # Response
+/// Returns aggregated status for all base models:
+/// - `schema_version`: API schema version
+/// - `models`: Array of model status records with:
+///   - `model_id`: Model identifier
+///   - `model_name`: Model name
+///   - `model_path`: Filesystem path
+///   - `status`: Load status (loaded, unloaded, loading, error)
+///   - `loaded_at`: Load timestamp
+///   - `unloaded_at`: Unload timestamp
+///   - `error_message`: Error message if status is error
+///   - `memory_usage_mb`: Memory consumption in MB
+///   - `is_loaded`: Boolean flag
+///   - `updated_at`: Last status update
+/// - `total_memory_mb`: Total memory used by all loaded models
+/// - `available_memory_mb`: Available memory (currently null)
+/// - `active_model_count`: Number of currently loaded models
+///
+/// # Errors
+/// - `FORBIDDEN` (403): User lacks required role
+/// - `INTERNAL_ERROR` (500): Database query failure
+///
+/// # Example
+/// ```
+/// GET /v1/models/status/all?tenant_id=default
+/// ```
 #[utoipa::path(
     get,
     path = "/v1/models/status/all",
@@ -1116,6 +1337,7 @@ pub async fn get_all_models_status(
         model_responses.push(crate::types::BaseModelStatusResponse {
             model_id: status.model_id,
             model_name: model.name,
+            model_path: model.model_path,
             status: status.status,
             loaded_at: status.loaded_at,
             unloaded_at: status.unloaded_at,
@@ -1133,4 +1355,34 @@ pub async fn get_all_models_status(
         available_memory_mb: None, // Not available from current data
         active_model_count,
     }))
+}
+
+/// Helper function to get the worker socket path
+///
+/// Tries to get the socket path from:
+/// 1. Workers table in database (production path)
+/// 2. AOS_WORKER_SOCKET environment variable (development fallback)
+/// 3. Default path var/run/worker.sock (local development)
+async fn get_worker_socket_path(state: &AppState, _tenant_id: &str) -> Option<PathBuf> {
+    // Try to get from workers table first
+    if let Ok(workers) = state.db.list_all_workers().await {
+        if let Some(worker) = workers.first() {
+            return Some(PathBuf::from(&worker.uds_path));
+        }
+    }
+
+    // Try environment variable fallback
+    if let Ok(socket_path) = std::env::var("AOS_WORKER_SOCKET") {
+        if !socket_path.is_empty() {
+            return Some(PathBuf::from(socket_path));
+        }
+    }
+
+    // Default development path
+    let default_path = PathBuf::from("var/run/worker.sock");
+    if default_path.exists() {
+        return Some(default_path);
+    }
+
+    None
 }

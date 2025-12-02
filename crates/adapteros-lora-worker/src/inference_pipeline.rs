@@ -453,7 +453,7 @@ impl InferencePipeline {
                         "step": step,
                         "token": next_token,
                         "kernel_latency_us": kernel_latency.as_micros(),
-                        "adapters": decision.indices,
+                        "adapters": decision.indices.to_vec(),
                     }),
                 );
             }

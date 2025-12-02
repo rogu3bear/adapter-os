@@ -7,6 +7,7 @@
 
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
+use crate::security::check_tenant_access;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::{
@@ -293,8 +294,8 @@ pub async fn get_chat_session(
             )
         })?;
 
-    // Verify tenant access
-    if session.tenant_id != claims.tenant_id {
+    // Verify tenant access (includes dev mode bypass)
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -357,7 +358,7 @@ pub async fn add_chat_message(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -468,7 +469,7 @@ pub async fn get_chat_messages(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -551,7 +552,7 @@ pub async fn get_session_summary(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -628,7 +629,7 @@ pub async fn delete_chat_session(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -773,7 +774,7 @@ pub async fn update_session_collection(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -1129,7 +1130,7 @@ pub async fn assign_tags_to_session(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -1202,7 +1203,7 @@ pub async fn get_session_tags(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -1260,7 +1261,7 @@ pub async fn remove_tag_from_session(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -1599,7 +1600,7 @@ pub async fn set_session_category(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -1673,7 +1674,7 @@ pub async fn archive_session(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -1739,7 +1740,7 @@ pub async fn restore_session(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -1802,7 +1803,7 @@ pub async fn hard_delete_session(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -2037,7 +2038,7 @@ pub async fn share_session(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -2142,7 +2143,7 @@ pub async fn get_session_shares(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
@@ -2208,7 +2209,7 @@ pub async fn revoke_session_share(
             )
         })?;
 
-    if session.tenant_id != claims.tenant_id {
+    if !check_tenant_access(&claims, &session.tenant_id) {
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),

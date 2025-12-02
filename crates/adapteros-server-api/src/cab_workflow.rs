@@ -15,18 +15,18 @@ use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
+use sqlx::{sqlite::SqlitePool, Row};
 use tracing;
 
 /// CAB Workflow Manager
 pub struct CABWorkflow {
-    pool: PgPool,
+    pool: SqlitePool,
     signing_keypair: Keypair,
 }
 
 impl CABWorkflow {
     /// Create a new CAB workflow manager
-    pub fn new(pool: PgPool, signing_keypair: Keypair) -> Self {
+    pub fn new(pool: SqlitePool, signing_keypair: Keypair) -> Self {
         Self {
             pool,
             signing_keypair,
@@ -452,12 +452,12 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "Requires PostgreSQL test database - run with: cargo test --release -- --ignored"]
+    #[ignore = "Requires SQLite test database - run with: cargo test --release -- --ignored"]
     async fn test_cab_workflow_promotion() {
         // Note: This test requires a test database with proper schema
         // Run with: cargo test --package adapteros-server-api test_cab_workflow_promotion -- --ignored
 
-        let pool = PgPool::connect("postgresql://aos:aos@localhost/adapteros_test")
+        let pool = SqlitePool::connect("sqlite::memory:")
             .await
             .expect("Failed to connect to test database");
 

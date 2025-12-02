@@ -445,7 +445,11 @@ pub async fn get_combined_memory_usage(
     let sys = System::new_all();
     let total_memory_mb = sys.total_memory() as f64 / 1_048_576.0;
     let available_memory_mb = sys.available_memory() as f64 / 1_048_576.0;
-    let used_pct = ((total_memory_mb - available_memory_mb) / total_memory_mb) * 100.0;
+    let used_pct = if total_memory_mb > 0.0 {
+        ((total_memory_mb - available_memory_mb) / total_memory_mb) * 100.0
+    } else {
+        0.0
+    };
 
     let memory_pressure_level = if used_pct > 90.0 {
         "critical"
@@ -463,6 +467,11 @@ pub async fn get_combined_memory_usage(
         .get_adapter_memory_info()
         .await
         .map_err(|e| {
+            tracing::error!(
+                error = %e,
+                user_id = %claims.sub,
+                "Failed to fetch adapter memory info"
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(

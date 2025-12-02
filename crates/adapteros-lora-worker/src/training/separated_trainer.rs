@@ -455,6 +455,7 @@ mod tests {
             preferred_backend: None,
             require_gpu: false,
             max_gpu_memory_mb: 0,
+            checkpoint_interval: None,
         };
 
         let trainer = SeparatedLoRATrainer::new(config).unwrap();

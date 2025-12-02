@@ -1150,7 +1150,7 @@ pub enum Commands {
     #[command(after_help = r#"Examples:
   # Index PDFs in RAG for a tenant
   aosctl ingest-docs document.pdf manual.pdf --tenant dev --index-rag \
-    --db-url postgresql://localhost/adapteros
+    --db-url sqlite://var/aos-cp.sqlite3
 
   # Generate training data from Markdown
   aosctl ingest-docs docs/*.md --generate-training \

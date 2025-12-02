@@ -5,10 +5,12 @@
 //!
 //! # Path Resolution Priority
 //!
-//! 1. Explicit path provided by caller (highest priority)
-//! 2. Environment variable `AOS_ADAPTERS_DIR`
-//! 3. Configuration file `paths.adapters_root`
-//! 4. Default: `./var/adapters/`
+//! When using `from_config()`, precedence is:
+//! 1. Environment variable `AOS_ADAPTERS_DIR` (highest priority)
+//! 2. Configuration file `paths.adapters_root`
+//! 3. Default: `./var/adapters/`
+//!
+//! Explicit paths provided via `new()` always take precedence over all other sources.
 //!
 //! # Examples
 //!
@@ -67,14 +69,20 @@ impl AdapterPaths {
 
     /// Create AdapterPaths with config value, falling back to env/default
     ///
-    /// Resolution order:
-    /// 1. Provided config value (if Some)
-    /// 2. `AOS_ADAPTERS_DIR` environment variable
+    /// Resolution order (following standard precedence):
+    /// 1. `AOS_ADAPTERS_DIR` environment variable (highest priority)
+    /// 2. Provided config value (if Some)
     /// 3. Default: `./var/adapters/`
     pub fn from_config(config_value: Option<&str>) -> Self {
+        // Check ENV first (highest priority)
+        if let Ok(env_path) = std::env::var(AOS_ADAPTERS_DIR_ENV) {
+            return Self::new(env_path);
+        }
+        // Fall back to config if provided
         if let Some(path) = config_value {
             return Self::new(path);
         }
+        // Default fallback
         Self::from_env()
     }
 
@@ -206,6 +214,8 @@ mod tests {
 
     #[test]
     fn test_from_config_with_value() {
+        // Without ENV set, config should be used
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
         let paths = AdapterPaths::from_config(Some("/custom/path"));
         assert_eq!(paths.root(), Path::new("/custom/path"));
     }
@@ -213,7 +223,42 @@ mod tests {
     #[test]
     fn test_from_config_without_value() {
         // Should fall back to env or default
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
         let paths = AdapterPaths::from_config(None);
         assert!(paths.root().to_str().is_some());
+    }
+
+    #[test]
+    fn test_from_config_env_precedence() {
+        // ENV should take precedence over config
+        std::env::set_var(AOS_ADAPTERS_DIR_ENV, "/env/path");
+        let paths = AdapterPaths::from_config(Some("/config/path"));
+        assert_eq!(paths.root(), Path::new("/env/path"));
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+    }
+
+    #[test]
+    fn test_from_config_env_only() {
+        // ENV without config should work
+        std::env::set_var(AOS_ADAPTERS_DIR_ENV, "/env/only");
+        let paths = AdapterPaths::from_config(None);
+        assert_eq!(paths.root(), Path::new("/env/only"));
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+    }
+
+    #[test]
+    fn test_from_config_config_only() {
+        // Config without ENV should work
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+        let paths = AdapterPaths::from_config(Some("/config/only"));
+        assert_eq!(paths.root(), Path::new("/config/only"));
+    }
+
+    #[test]
+    fn test_from_config_default_fallback() {
+        // Neither ENV nor config should use default
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+        let paths = AdapterPaths::from_config(None);
+        assert_eq!(paths.root(), PathBuf::from(DEFAULT_ADAPTERS_DIR));
     }
 }

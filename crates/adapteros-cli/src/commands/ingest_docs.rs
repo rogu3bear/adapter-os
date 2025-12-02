@@ -55,7 +55,7 @@ pub struct IngestDocsArgs {
     #[arg(long, default_value = "128")]
     overlap_tokens: usize,
 
-    /// Database URL for RAG indexing (PostgreSQL or SQLite)
+    /// Database URL for RAG indexing (SQLite)
     #[arg(long)]
     db_url: Option<String>,
 
@@ -207,7 +207,7 @@ impl IngestDocsArgs {
         } else {
             warn!("No database URL provided, skipping actual database insertion");
             info!(
-                "To index documents, provide --db-url with PostgreSQL or SQLite connection string"
+                "To index documents, provide --db-url with SQLite connection string"
             );
         }
 
@@ -222,60 +222,18 @@ impl IngestDocsArgs {
     ) -> Result<()> {
         info!("Connecting to database: {}", db_url);
 
-        // Determine database type from URL
-        let is_postgres = db_url.starts_with("postgres://") || db_url.starts_with("postgresql://");
+        // Determine database type from URL (SQLite only)
         let is_sqlite =
             db_url.starts_with("sqlite://") || db_url.contains(".db") || db_url.contains(".sqlite");
 
-        if is_postgres {
-            self.insert_into_postgres(db_url, rag_params, embedding_hash)
-                .await
-        } else if is_sqlite {
+        if is_sqlite {
             self.insert_into_sqlite(db_url, rag_params, embedding_hash)
                 .await
         } else {
             Err(AosError::Config(
-                "Database URL must be either PostgreSQL (postgres://) or SQLite (sqlite:// or .db file)".to_string(),
+                "Database URL must be SQLite (sqlite:// or .db file)".to_string(),
             ))
         }
-    }
-
-    async fn insert_into_postgres(
-        &self,
-        db_url: &str,
-        rag_params: &[adapteros_ingest_docs::RagChunkParams],
-        embedding_hash: adapteros_core::B3Hash,
-    ) -> Result<()> {
-        use sqlx::postgres::PgPool;
-
-        let pool = PgPool::connect(db_url)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to connect to PostgreSQL: {}", e)))?;
-
-        // Create PgVectorIndex with actual embedding model hash
-        let index = PgVectorIndex::new_postgres(pool, embedding_hash, EMBEDDING_DIMENSION);
-
-        // Insert each chunk
-        for params in rag_params {
-            index
-                .add_document(
-                    &params.tenant_id,
-                    params.doc_id.clone(),
-                    params.text.clone(),
-                    params.embedding.clone(),
-                    params.rev.clone(),
-                    params.effectivity.clone(),
-                    params.source_type.clone(),
-                    None, // superseded_by
-                )
-                .await?;
-        }
-
-        info!(
-            "Successfully indexed {} chunks in PostgreSQL",
-            rag_params.len()
-        );
-        Ok(())
     }
 
     async fn insert_into_sqlite(

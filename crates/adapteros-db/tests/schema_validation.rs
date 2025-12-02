@@ -845,9 +845,8 @@ async fn test_migration_history_recorded() -> Result<()> {
 ///    c) Verify: Run schema validation tests on restored database
 ///    d) Monitor: Check for data consistency issues post-restore
 ///
-/// 4. ZERO-DOWNTIME ROLLBACK (PostgreSQL only):
-///    - For production: Switch to PostgresDb backend
-///    - PostgreSQL supports DDL rollback via transactions
+/// 4. ZERO-DOWNTIME ROLLBACK:
+///    - SQLite supports DDL rollback via transactions
 ///    - Implementation requires separate pg-specific test suite
 ///
 /// 5. DATA MIGRATION ROLLBACK:
@@ -874,7 +873,7 @@ async fn test_rollback_procedures_documented() -> Result<()> {
     // No actual rollback is implemented - it would destroy data integrity
     println!("✓ Rollback procedures documented (see test code for details)");
     println!("  - Rollback in SQLite requires backup restoration");
-    println!("  - PostgreSQL backend supports transactional rollback");
+    println!("  - SQLite backend supports transactional rollback");
     println!("  - All schema changes should have pre-migration backups");
     Ok(())
 }

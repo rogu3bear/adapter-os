@@ -5,6 +5,7 @@
 //! and integrates with GPU backends (CoreML, MLX, Metal) for deterministic training.
 
 pub use super::dataset::TrainingExample;
+use super::checkpoint::{CheckpointManager, TrainingCheckpoint};
 use adapteros_core::{derive_seed, AosError, Result};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_telemetry::TelemetryWriter;
@@ -82,6 +83,8 @@ pub struct MicroLoRATrainer {
     training_seed: u64,
     /// Performance metrics for GPU utilization tracking
     performance_metrics: Arc<RwLock<TrainingPerformanceMetrics>>,
+    /// Optional checkpoint manager for saving/resuming training
+    checkpoint_manager: Option<CheckpointManager>,
 }
 
 /// Training configuration with GPU support
@@ -110,6 +113,9 @@ pub struct TrainingConfig {
     /// Maximum GPU memory to use in MB (0 = unlimited)
     #[serde(skip)]
     pub max_gpu_memory_mb: u64,
+    /// Checkpoint interval in epochs (None = no checkpoints, default = 5)
+    #[serde(default)]
+    pub checkpoint_interval: Option<u32>,
 }
 
 impl Default for TrainingConfig {
@@ -125,6 +131,7 @@ impl Default for TrainingConfig {
             preferred_backend: None,
             require_gpu: false,
             max_gpu_memory_mb: 0,
+            checkpoint_interval: None, // Disabled by default
         }
     }
 }
@@ -145,6 +152,12 @@ impl TrainingConfig {
     /// Set maximum GPU memory usage
     pub fn with_max_gpu_memory(mut self, max_mb: u64) -> Self {
         self.max_gpu_memory_mb = max_mb;
+        self
+    }
+
+    /// Enable checkpoint saving every N epochs
+    pub fn with_checkpoint_interval(mut self, interval: u32) -> Self {
+        self.checkpoint_interval = Some(interval);
         self
     }
 }
@@ -217,6 +230,7 @@ impl MicroLoRATrainer {
                 total_batches: 0,
                 throughput_examples_per_sec: 0.0,
             })),
+            checkpoint_manager: None,
         })
     }
 
@@ -511,6 +525,64 @@ impl MicroLoRATrainer {
         self.training_seed
     }
 
+    /// Enable checkpoint saving for resumable training
+    ///
+    /// This configures the trainer to save checkpoints periodically during training.
+    /// Checkpoints allow training to be resumed from interruptions.
+    ///
+    /// # Arguments
+    /// * `checkpoint_dir` - Directory to store checkpoint files
+    /// * `adapter_id` - Adapter ID for naming checkpoint files
+    /// * `max_checkpoints` - Maximum number of checkpoints to retain (older ones are deleted)
+    pub fn enable_checkpointing<P: AsRef<std::path::Path>>(
+        &mut self,
+        checkpoint_dir: P,
+        adapter_id: &str,
+        max_checkpoints: usize,
+    ) {
+        let interval = self.config.checkpoint_interval.unwrap_or(5);
+        self.checkpoint_manager = Some(CheckpointManager::new(
+            checkpoint_dir,
+            interval,
+            max_checkpoints,
+            adapter_id.to_string(),
+        ));
+        info!(
+            adapter_id = %adapter_id,
+            interval = interval,
+            max_checkpoints = max_checkpoints,
+            "Checkpoint saving enabled"
+        );
+    }
+
+    /// Resume training from a checkpoint
+    ///
+    /// Loads the latest checkpoint and returns the starting epoch and weights.
+    /// Returns None if no checkpoint exists.
+    pub async fn try_resume_from_checkpoint(&self) -> Option<(u32, LoRAWeights, f32)> {
+        let manager = self.checkpoint_manager.as_ref()?;
+
+        if !manager.has_checkpoint().await {
+            info!("No checkpoint found, starting fresh training");
+            return None;
+        }
+
+        match manager.load_latest().await {
+            Ok(checkpoint) => {
+                info!(
+                    epoch = checkpoint.epoch,
+                    loss = checkpoint.loss,
+                    "Resuming training from checkpoint"
+                );
+                Some((checkpoint.epoch, checkpoint.weights, checkpoint.best_loss))
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to load checkpoint, starting fresh training");
+                None
+            }
+        }
+    }
+
     /// Train LoRA adapter on examples with GPU acceleration (if available)
     ///
     /// This method provides backward compatibility with automatic progress callback.
@@ -518,6 +590,134 @@ impl MicroLoRATrainer {
     pub async fn train(&mut self, examples: &[TrainingExample]) -> Result<TrainingResult> {
         // Backward-compatible behavior: no external progress callback
         self.train_with_callback(examples, |_epoch, _loss| {}).await
+    }
+
+    /// Train with automatic checkpoint resume
+    ///
+    /// If a checkpoint exists, resumes from the saved state. Otherwise starts fresh.
+    /// This method automatically enables checkpointing if configured.
+    pub async fn train_with_resume<C>(
+        &mut self,
+        examples: &[TrainingExample],
+        on_epoch: C,
+    ) -> Result<TrainingResult>
+    where
+        C: FnMut(usize, f32),
+    {
+        // Try to resume from checkpoint
+        let resume_state = self.try_resume_from_checkpoint().await;
+
+        if let Some((start_epoch, weights, _best_loss)) = resume_state {
+            info!(
+                start_epoch = start_epoch,
+                "Resuming training from checkpoint"
+            );
+            self.train_from_epoch(examples, start_epoch as usize, Some(weights), on_epoch)
+                .await
+        } else {
+            self.train_with_callback(examples, on_epoch).await
+        }
+    }
+
+    /// Train starting from a specific epoch with optional initial weights
+    async fn train_from_epoch<C>(
+        &mut self,
+        examples: &[TrainingExample],
+        start_epoch: usize,
+        initial_weights: Option<LoRAWeights>,
+        mut on_epoch: C,
+    ) -> Result<TrainingResult>
+    where
+        C: FnMut(usize, f32),
+    {
+        let backend_name = self.backend_info().unwrap_or("CPU");
+
+        info!(
+            "Resuming LoRA training from epoch {}: rank={}, epochs={}, examples={}, backend={}, seed={}",
+            start_epoch,
+            self.config.rank,
+            self.config.epochs,
+            examples.len(),
+            backend_name,
+            self.training_seed
+        );
+
+        self.telemetry.log(
+            "training.resumed",
+            serde_json::json!({
+                "start_epoch": start_epoch,
+                "total_epochs": self.config.epochs,
+                "examples": examples.len(),
+                "backend": backend_name,
+            }),
+        )?;
+
+        let start = Instant::now();
+        let adapter_id = Self::generate_adapter_id();
+
+        // Use provided weights or initialize fresh
+        let mut weights = initial_weights
+            .unwrap_or_else(|| self.initialize_weights_deterministic().unwrap());
+
+        // Training loop starting from resume point
+        let mut final_loss = 0.0;
+        for epoch in start_epoch..self.config.epochs {
+            debug!("Epoch {}/{}", epoch + 1, self.config.epochs);
+
+            let epoch_loss = self.train_epoch_deterministic(&mut weights, examples, epoch)?;
+            final_loss = epoch_loss;
+
+            info!("Epoch {} loss: {:.4}", epoch + 1, epoch_loss);
+
+            self.telemetry.log(
+                "training.epoch_completed",
+                serde_json::json!({
+                    "epoch": epoch + 1,
+                    "loss": epoch_loss,
+                    "adapter_id": adapter_id
+                }),
+            )?;
+
+            on_epoch(epoch + 1, epoch_loss);
+
+            // Save checkpoint if configured
+            if let Some(ref manager) = self.checkpoint_manager {
+                let epoch_u32 = (epoch + 1) as u32;
+                if manager.should_save(epoch_u32) {
+                    let checkpoint = TrainingCheckpoint::new(
+                        epoch_u32,
+                        0,
+                        epoch_loss,
+                        self.config.learning_rate,
+                        self.config.clone(),
+                        weights.clone(),
+                    );
+                    if let Err(e) = manager.save_checkpoint(&checkpoint).await {
+                        warn!(
+                            epoch = epoch + 1,
+                            error = %e,
+                            "Failed to save checkpoint (non-fatal)"
+                        );
+                    } else {
+                        info!(epoch = epoch + 1, loss = epoch_loss, "Checkpoint saved");
+                    }
+                }
+            }
+
+            if epoch_loss < 0.01 {
+                info!("Early stopping: loss below threshold");
+                break;
+            }
+        }
+
+        let training_time_us = start.elapsed().as_micros() as u64;
+
+        Ok(TrainingResult {
+            adapter_id,
+            final_loss,
+            training_time_us,
+            weights,
+        })
     }
 
     /// Train with a per-epoch progress callback and GPU acceleration
@@ -597,6 +797,38 @@ impl MicroLoRATrainer {
 
             // Notify orchestrator/UI via callback
             on_epoch(epoch + 1, epoch_loss);
+
+            // Save checkpoint if configured
+            if let Some(ref manager) = self.checkpoint_manager {
+                let epoch_u32 = (epoch + 1) as u32;
+                if manager.should_save(epoch_u32) {
+                    let checkpoint = TrainingCheckpoint::new(
+                        epoch_u32,
+                        0, // step within epoch (not tracked at epoch granularity)
+                        epoch_loss,
+                        self.config.learning_rate,
+                        self.config.clone(),
+                        weights.clone(),
+                    );
+                    if let Err(e) = manager.save_checkpoint(&checkpoint).await {
+                        warn!(
+                            epoch = epoch + 1,
+                            error = %e,
+                            "Failed to save checkpoint (non-fatal, training continues)"
+                        );
+                    } else {
+                        info!(epoch = epoch + 1, loss = epoch_loss, "Checkpoint saved");
+                        self.telemetry.log(
+                            "training.checkpoint_saved",
+                            serde_json::json!({
+                                "epoch": epoch + 1,
+                                "loss": epoch_loss,
+                                "adapter_id": adapter_id
+                            }),
+                        ).ok();
+                    }
+                }
+            }
 
             // Early stopping if loss is very low
             if epoch_loss < 0.01 {
@@ -1245,5 +1477,136 @@ mod tests {
         {
             assert_eq!(selected, TrainingBackend::Metal);
         }
+    }
+
+    // ========================================================================
+    // Checkpoint Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_checkpoint_interval_config() {
+        let config = TrainingConfig::default().with_checkpoint_interval(5);
+        assert_eq!(config.checkpoint_interval, Some(5));
+    }
+
+    #[test]
+    fn test_checkpoint_interval_default_none() {
+        let config = TrainingConfig::default();
+        assert_eq!(config.checkpoint_interval, None);
+    }
+
+    #[tokio::test]
+    async fn test_enable_checkpointing() {
+        let config = TrainingConfig {
+            rank: 2,
+            hidden_dim: 32,
+            epochs: 10,
+            checkpoint_interval: Some(2),
+            ..Default::default()
+        };
+        let mut trainer = MicroLoRATrainer::new(config).unwrap();
+
+        // Create temp dir for checkpoints
+        let temp_dir = tempfile::TempDir::new().unwrap();
+
+        // Enable checkpointing
+        trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
+
+        // Verify checkpoint manager is configured
+        assert!(trainer.checkpoint_manager.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_train_with_checkpointing() {
+        let config = TrainingConfig {
+            rank: 2,
+            hidden_dim: 32,
+            batch_size: 1,
+            epochs: 6,
+            learning_rate: 0.01,
+            checkpoint_interval: Some(2), // Save every 2 epochs
+            ..Default::default()
+        };
+        let mut trainer = MicroLoRATrainer::new(config).unwrap();
+
+        // Create temp dir for checkpoints
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
+
+        let examples = vec![TrainingExample {
+            input: vec![1, 2],
+            target: vec![3, 4],
+            metadata: HashMap::new(),
+            weight: 1.0,
+        }];
+
+        // Train - checkpoints should be saved at epochs 2, 4, 6
+        let result = trainer.train(&examples).await;
+        assert!(result.is_ok());
+
+        // Verify checkpoint files were created
+        let checkpoint_files: Vec<_> = std::fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "ckpt"))
+            .collect();
+
+        // Should have at least the latest checkpoint
+        assert!(!checkpoint_files.is_empty(), "Expected checkpoint files to be created");
+    }
+
+    #[tokio::test]
+    async fn test_try_resume_from_checkpoint_no_checkpoint() {
+        let config = TrainingConfig {
+            checkpoint_interval: Some(5),
+            ..Default::default()
+        };
+        let trainer = MicroLoRATrainer::new(config).unwrap();
+
+        // No checkpoint manager configured, should return None
+        let resume_state = trainer.try_resume_from_checkpoint().await;
+        assert!(resume_state.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_try_resume_from_checkpoint_with_checkpoint() {
+        use crate::training::checkpoint::TrainingCheckpoint;
+
+        let config = TrainingConfig {
+            rank: 2,
+            hidden_dim: 32,
+            checkpoint_interval: Some(2),
+            ..Default::default()
+        };
+        let mut trainer = MicroLoRATrainer::new(config.clone()).unwrap();
+
+        // Create temp dir and save a checkpoint
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
+
+        // Manually create a checkpoint
+        let weights = LoRAWeights {
+            lora_a: vec![vec![1.0, 2.0]],
+            lora_b: vec![vec![3.0, 4.0]],
+        };
+        let checkpoint = TrainingCheckpoint::new(
+            5, // epoch 5
+            0,
+            0.5, // loss
+            0.001,
+            config,
+            weights,
+        );
+
+        // Save checkpoint using the manager
+        let manager = trainer.checkpoint_manager.as_ref().unwrap();
+        manager.save_checkpoint(&checkpoint).await.unwrap();
+
+        // Now try to resume
+        let resume_state = trainer.try_resume_from_checkpoint().await;
+        assert!(resume_state.is_some());
+
+        let (epoch, _weights, _best_loss) = resume_state.unwrap();
+        assert_eq!(epoch, 5);
     }
 }

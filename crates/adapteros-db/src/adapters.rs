@@ -51,6 +51,8 @@ pub struct AdapterRegistrationBuilder {
     parent_id: Option<String>,
     fork_type: Option<String>,
     fork_reason: Option<String>,
+    // Base model reference (from migration 0098)
+    base_model_id: Option<String>,
 }
 
 /// Parameters for adapter registration
@@ -87,6 +89,8 @@ pub struct AdapterRegistrationParams {
     pub parent_id: Option<String>,
     pub fork_type: Option<String>,
     pub fork_reason: Option<String>,
+    // Base model reference (from migration 0098)
+    pub base_model_id: Option<String>,
 }
 
 impl AdapterRegistrationBuilder {
@@ -271,6 +275,13 @@ impl AdapterRegistrationBuilder {
         self
     }
 
+    /// Set the base model ID (optional, from migration 0098)
+    /// Links this adapter to the base model it was trained from
+    pub fn base_model_id(mut self, base_model_id: Option<impl Into<String>>) -> Self {
+        self.base_model_id = base_model_id.map(|s| s.into());
+        self
+    }
+
     /// Build the adapter registration parameters
     pub fn build(self) -> Result<AdapterRegistrationParams> {
         let rank = self
@@ -325,6 +336,7 @@ impl AdapterRegistrationBuilder {
             parent_id: self.parent_id,
             fork_type: self.fork_type,
             fork_reason: self.fork_reason,
+            base_model_id: self.base_model_id,
         })
     }
 }
@@ -527,8 +539,8 @@ impl Db {
 
         // Write to SQL (primary storage)
         sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
+            "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
         )
         .bind(&id)
         .bind(&params.tenant_id)
@@ -560,6 +572,7 @@ impl Db {
         .bind(&params.fork_reason)
         .bind(&params.aos_file_path)
         .bind(&params.aos_file_hash)
+        .bind(&params.base_model_id)
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;

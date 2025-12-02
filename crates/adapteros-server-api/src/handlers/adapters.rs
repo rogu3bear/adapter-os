@@ -26,7 +26,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use utoipa::ToSchema;
@@ -1714,8 +1713,9 @@ pub async fn import_adapter(
 
     let auto_load = params.get("load").map(|v| v == "true").unwrap_or(false);
 
-    // Get adapters root from config
-    let adapters_root = {
+    // Get adapters root using centralized path resolution (ENV > Config > Default)
+    use adapteros_core::paths::AdapterPaths;
+    let adapters_paths = {
         let config = state.config.read().map_err(|_| {
             error!("Config lock poisoned");
             (
@@ -1723,24 +1723,32 @@ pub async fn import_adapter(
                 Json(ErrorResponse::new("config lock poisoned").with_code("INTERNAL_ERROR")),
             )
         })?;
-        config.paths.adapters_root.clone()
+        // adapters_root is String, convert to Option<&str> for from_config
+        let config_value = if config.paths.adapters_root.is_empty() {
+            None
+        } else {
+            Some(config.paths.adapters_root.as_str())
+        };
+        AdapterPaths::from_config(config_value)
     };
 
     // Create adapters directory if needed
-    let adapters_path = PathBuf::from(&adapters_root);
-    tokio::fs::create_dir_all(&adapters_path)
-        .await
-        .map_err(|e| {
-            error!("Failed to create adapters directory: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to create adapters directory")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let adapters_path = adapters_paths.root().to_path_buf();
+    if !adapters_path.exists() {
+        tokio::fs::create_dir_all(&adapters_path)
+            .await
+            .map_err(|e| {
+                error!("Failed to create adapters directory: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to create adapters directory")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+    }
 
     // === STREAMING UPLOAD (Issue 6) ===
     // Stream to temp file while computing whole-file hash
@@ -2035,7 +2043,7 @@ pub async fn import_adapter(
 
     // === TRANSACTIONAL SAFETY (Issue 1) ===
     // Step 1: Atomic rename from temp to final path
-    let file_path = adapters_path.join(format!("{}.aos", adapter_id));
+    let file_path = adapters_paths.get_adapter_path(&adapter_id);
     let file_path_str = file_path.to_string_lossy().to_string();
 
     if let Err(e) = tokio::fs::rename(&temp_path, &file_path).await {

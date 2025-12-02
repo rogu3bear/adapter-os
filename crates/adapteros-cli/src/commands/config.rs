@@ -883,14 +883,12 @@ fn validate_url(value: &str) -> std::result::Result<(), String> {
 
 fn validate_database_url(value: &str) -> std::result::Result<(), String> {
     if value.starts_with("sqlite:")
-        || value.starts_with("postgres://")
-        || value.starts_with("mysql://")
         || value.contains(".sqlite")
     {
         Ok(())
     } else {
         Err(format!(
-            "Invalid database URL: '{}'. Expected sqlite:, postgres://, or mysql://",
+            "Invalid database URL: '{}'. Expected sqlite: or .sqlite file",
             value
         ))
     }
@@ -1849,8 +1847,6 @@ mod tests {
     #[test]
     fn test_validate_database_url() {
         assert!(validate_database_url("sqlite:var/aos.db").is_ok());
-        assert!(validate_database_url("postgres://localhost/db").is_ok());
-        assert!(validate_database_url("mysql://localhost/db").is_ok());
         assert!(validate_database_url("/path/to/file.sqlite3").is_ok());
         assert!(validate_database_url("redis://localhost").is_err());
     }

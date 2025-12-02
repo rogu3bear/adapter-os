@@ -661,12 +661,7 @@ pub fn describe_available_backends() -> String {
 
     if caps.has_coreml {
         desc.push_str(&format!(
-            "  - CoreML: {} (ANE {})\n",
-            if caps.has_coreml {
-                "Available"
-            } else {
-                "Not available"
-            },
+            "  - CoreML: Available (ANE {})\n",
             if caps.has_ane {
                 "available"
             } else {

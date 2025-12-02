@@ -225,6 +225,7 @@ impl TrainingService {
         let storage_for_run = self.storage_root.clone();
         let category_for_run = category;
         let post_actions_for_run = post_actions_json;
+        let base_model_id_for_run = job.base_model_id.clone();
         if let Err(e) =
             spawn_deterministic(format!("training-job:{}", job_id_for_run), async move {
                 if let Err(err) = run_training_job(
@@ -238,6 +239,7 @@ impl TrainingService {
                     storage_for_run,
                     category_for_run,
                     post_actions_for_run,
+                    base_model_id_for_run,
                 )
                 .await
                 {
@@ -441,6 +443,7 @@ async fn run_training_job(
     storage_root: Option<PathBuf>,
     category: Option<String>,
     post_actions_json: Option<String>,
+    base_model_id: Option<String>,
 ) -> Result<()> {
     use adapteros_lora_worker::training::{
         AdapterPackager, LoRAQuantizer, TrainingConfig as WorkerTrainingConfigType,
@@ -452,12 +455,21 @@ async fn run_training_job(
         .and_then(|json| serde_json::from_str(json).ok())
         .unwrap_or_default();
 
-    // Determine adapters root from post_actions or storage_root
-    let adapters_root = post_actions
-        .adapters_root
-        .as_ref()
-        .map(PathBuf::from)
-        .or_else(|| storage_root.clone().map(|s| s.join("adapters")));
+    // Determine adapters root using centralized path resolution (ENV > Config > Default)
+    use adapteros_core::paths::AdapterPaths;
+    let adapters_root = {
+        // Use post_actions.adapters_root as config value, or derive from storage_root
+        // Convert storage_root PathBuf to String if needed (stored in variable to avoid lifetime issues)
+        let storage_adapters_str = storage_root.as_ref().map(|s| {
+            s.join("adapters").to_string_lossy().to_string()
+        });
+        let config_value = post_actions
+            .adapters_root
+            .as_deref()
+            .or_else(|| storage_adapters_str.as_deref());
+        // AdapterPaths::from_config() will respect ENV > Config > Default precedence
+        AdapterPaths::from_config(config_value).root().to_path_buf()
+    };
 
     // Transition to running
     {
@@ -480,6 +492,7 @@ async fn run_training_job(
         preferred_backend: None, // auto-select
         require_gpu: false,
         max_gpu_memory_mb: 0, // unlimited
+        checkpoint_interval: Some(5), // Save checkpoint every 5 epochs
     };
 
     // Clone db for later use in packaging/registration
@@ -521,11 +534,39 @@ async fn run_training_job(
 
     let mut trainer = WorkerTrainer::new(worker_cfg.clone())?;
 
-    // Run with per-epoch callback to update progress
+    // Enable checkpointing if checkpoint_interval is configured
+    if worker_cfg.checkpoint_interval.is_some() {
+        let checkpoint_dir = storage_root
+            .clone()
+            .map(|s| s.join("checkpoints").join(&job_id))
+            .unwrap_or_else(|| PathBuf::from("var/checkpoints").join(&job_id));
+
+        // Create checkpoint directory if it doesn't exist
+        if let Err(e) = std::fs::create_dir_all(&checkpoint_dir) {
+            tracing::warn!(
+                job_id = %job_id,
+                error = %e,
+                "Failed to create checkpoint directory, checkpoints disabled"
+            );
+        } else {
+            trainer.enable_checkpointing(
+                &checkpoint_dir,
+                &job_id,
+                3, // Keep last 3 checkpoints
+            );
+            tracing::info!(
+                job_id = %job_id,
+                checkpoint_dir = %checkpoint_dir.display(),
+                "Checkpointing enabled"
+            );
+        }
+    }
+
+    // Run with per-epoch callback to update progress (with checkpoint resume support)
     let job_id_clone = job_id.clone();
     let jobs_ref_clone = jobs_ref.clone();
     let result = trainer
-        .train_with_callback(&examples, move |epoch, loss| {
+        .train_with_resume(&examples, move |epoch, loss| {
             let jobs_ref_inner = jobs_ref_clone.clone();
             let job_id_inner = job_id_clone.clone();
             // Deterministic progress update (part of training execution)
@@ -593,11 +634,8 @@ async fn run_training_job(
             let quantized_weights = LoRAQuantizer::quantize_to_q15(&training_result.weights);
 
             // Step 2: Package the adapter
-            // Use adapters_root from post_actions or fallback to default
-            let packager = match &adapters_root {
-                Some(root) => AdapterPackager::new(root.clone()),
-                None => AdapterPackager::with_default_path(),
-            };
+            // Use adapters_root (already resolved with ENV > Config > Default precedence)
+            let packager = AdapterPackager::new(adapters_root.clone());
 
             // Create worker training config for packaging
             let packager_cfg = WorkerTrainingConfigType {
@@ -611,6 +649,7 @@ async fn run_training_job(
                 preferred_backend: None,
                 require_gpu: false,
                 max_gpu_memory_mb: 0,
+                checkpoint_interval: worker_cfg.checkpoint_interval,
             };
 
             // Generate unique adapter ID from job_id
@@ -681,6 +720,7 @@ async fn run_training_job(
                     .alpha(orchestrator_cfg.alpha as f64)
                     .category(adapter_category)
                     .scope("global")
+                    .base_model_id(base_model_id.as_deref())
                     .build()
                     .map_err(|e| anyhow::anyhow!("Failed to build registration params: {}", e))?;
 

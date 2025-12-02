@@ -52,7 +52,7 @@ pub async fn log_rag_retrieval_sqlite(
     Ok(())
 }
 
-// Postgres functions disabled - SQLite only for now
+// SQLite-only implementation
 
 // ========== QUERIES ==========
 

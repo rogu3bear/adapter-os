@@ -12,13 +12,13 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{header, Method, Request, StatusCode},
+    http::{header, HeaderValue, Method, Request, StatusCode},
     middleware::Next,
     response::Response,
     Json,
 };
 use std::sync::atomic::Ordering;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tracing::{debug, warn};
 
 use crate::security::rate_limiting::check_rate_limit;
@@ -260,57 +260,57 @@ pub async fn request_size_limit_middleware(
 
 /// CORS configuration layer
 ///
-/// Configures Cross-Origin Resource Sharing based on environment:
-/// - Development: Allow all origins
-/// - Production: Restrict to allowed domains
+/// Configures Cross-Origin Resource Sharing based on runtime environment:
+/// - If ALLOWED_ORIGINS is set: use those origins (production deployment)
+/// - If AOS_PRODUCTION_MODE=true: use production defaults (adapteros.com)
+/// - Otherwise: allow localhost origins for development
+///
+/// Always uses explicit origins with credentials support (required for cookie auth).
 pub fn cors_layer() -> CorsLayer {
-    #[cfg(debug_assertions)]
-    {
-        // Development: Allow all origins
-        CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::PATCH,
-                Method::OPTIONS,
-            ])
-            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
-            .max_age(std::time::Duration::from_secs(86400))
-    }
+    use std::collections::HashSet;
 
-    #[cfg(not(debug_assertions))]
-    {
-        use std::collections::HashSet;
-
-        // Production: Restrict origins
-        let allowed_origins: HashSet<String> = std::env::var("ALLOWED_ORIGINS")
-            .unwrap_or_else(|_| "https://adapteros.com,https://app.adapteros.com".to_string())
+    let origins: Vec<HeaderValue> = if let Ok(allowed) = std::env::var("ALLOWED_ORIGINS") {
+        // Explicit origins from environment (highest priority)
+        allowed
             .split(',')
             .map(|s| s.trim().to_string())
-            .collect();
-
-        let origins: Vec<_> = allowed_origins
+            .collect::<HashSet<_>>()
             .into_iter()
             .filter_map(|origin| origin.parse().ok())
-            .collect();
+            .collect()
+    } else if std::env::var("AOS_PRODUCTION_MODE")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false)
+    {
+        // Production mode: require explicit ALLOWED_ORIGINS (privacy-first, no public domains)
+        tracing::warn!("AOS_PRODUCTION_MODE=true but ALLOWED_ORIGINS not set - CORS will block all origins");
+        Vec::new()
+    } else {
+        // Development mode: localhost origins
+        [
+            "http://localhost:3200",
+            "http://localhost:8080",
+            "http://127.0.0.1:3200",
+            "http://127.0.0.1:8080",
+        ]
+        .into_iter()
+        .filter_map(|o| o.parse().ok())
+        .collect()
+    };
 
-        CorsLayer::new()
-            .allow_origin(origins)
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::PATCH,
-                Method::OPTIONS,
-            ])
-            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
-            .allow_credentials(true)
-            .max_age(std::time::Duration::from_secs(86400))
-    }
+    CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::PATCH,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+        .allow_credentials(true)
+        .max_age(std::time::Duration::from_secs(86400))
 }
 
 #[cfg(test)]

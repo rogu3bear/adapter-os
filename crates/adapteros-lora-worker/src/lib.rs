@@ -398,7 +398,8 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         );
 
         // Initialize lifecycle manager
-        // Use centralized adapter path from environment or default (var/adapters/)
+        // Use centralized adapter path resolution (ENV > Default)
+        // Note: Worker doesn't have access to server config, so ENV variables are the standard way to configure paths
         let adapters_path = AdapterPaths::default().root().to_path_buf();
 
         // Build adapter hashes map from manifest
@@ -1464,6 +1465,19 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
     /// Get current adapter states
     pub fn get_adapter_states(&self) -> Vec<adapter_hotswap::AdapterState> {
         self.hotswap.table().get_active()
+    }
+
+    /// Get current memory usage in bytes
+    ///
+    /// Returns the memory currently used by the worker, including model weights
+    /// and adapter buffers. Returns 0 if memory tracking is unavailable.
+    pub fn get_memory_usage_bytes(&self) -> u64 {
+        self.health_monitor.get_memory_usage().unwrap_or(0)
+    }
+
+    /// Get current memory usage in MB
+    pub fn get_memory_usage_mb(&self) -> i32 {
+        (self.get_memory_usage_bytes() / (1024 * 1024)) as i32
     }
 
     /// Execute a workflow using real kernel backend

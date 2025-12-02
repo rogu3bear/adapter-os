@@ -417,8 +417,6 @@ pub fn validate_value(
                 "file://",
                 "unix://",
                 "sqlite://",
-                "postgres://",
-                "mysql://",
             ];
             if !valid_schemes.iter().any(|s| value.starts_with(s)) {
                 return Err(ValidationError {
@@ -760,7 +758,7 @@ pub fn default_schema() -> ConfigSchema {
         ConfigVariable::new("AOS_DATABASE_URL")
             .config_type(ConfigType::Url)
             .default_value("sqlite://var/aos-cp.sqlite3")
-            .description("Database connection URL (SQLite, PostgreSQL, MySQL)")
+            .description("Database connection URL (SQLite)")
             .category("DATABASE")
             .build(),
     );
@@ -1473,7 +1471,6 @@ mod tests {
             .build();
 
         assert!(validate_value(&var, "sqlite://test.db").is_ok());
-        assert!(validate_value(&var, "postgres://localhost/db").is_ok());
         assert!(validate_value(&var, "http://localhost:8080").is_ok());
         assert!(validate_value(&var, "https://example.com").is_ok());
         assert!(validate_value(&var, "file:///path/to/file").is_ok());

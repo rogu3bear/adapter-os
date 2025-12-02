@@ -174,7 +174,7 @@ fn test_url_validation_http_valid() {
 }
 
 #[test]
-fn test_url_validation_postgres_valid() {
+fn test_url_validation_sqlite_valid() {
     let mut schema = ConfigSchema::default();
     schema.fields.insert(
         "database.url".to_string(),
@@ -191,7 +191,7 @@ fn test_url_validation_postgres_valid() {
         .with_schema(schema)
         .add_value(
             "database.url".to_string(),
-            "postgres://user:pass@localhost:5432/dbname".to_string(),
+            "sqlite://var/aos-cp.sqlite3".to_string(),
             adapteros_config::types::PrecedenceLevel::Manifest,
             "test".to_string(),
         )
@@ -199,7 +199,7 @@ fn test_url_validation_postgres_valid() {
 
     assert!(
         config.is_ok(),
-        "Valid PostgreSQL URL should pass validation"
+            "Valid SQLite URL should pass validation"
     );
 }
 

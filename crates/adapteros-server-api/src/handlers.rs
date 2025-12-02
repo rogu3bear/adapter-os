@@ -212,8 +212,8 @@ pub async fn upsert_directory_adapter(
     let root_str = req.root;
     let path_str = req.path;
 
-    // Read timeout from config
-    let timeout_secs = {
+    // Read timeout and adapter path from config
+    let (timeout_secs, adapters_root) = {
         let config = state.config.read().map_err(|e| {
             error!("Failed to acquire config read lock: {}", e);
             (
@@ -221,7 +221,16 @@ pub async fn upsert_directory_adapter(
                 Json(ErrorResponse::new("Configuration unavailable").with_code("INTERNAL_ERROR")),
             )
         })?;
-        config.directory_analysis_timeout_secs
+        // Use centralized adapter path resolution (ENV > Config > Default)
+        use adapteros_core::paths::AdapterPaths;
+        // adapters_root is String, convert to Option<&str> for from_config
+        let config_value = if config.paths.adapters_root.is_empty() {
+            None
+        } else {
+            Some(config.paths.adapters_root.as_str())
+        };
+        let adapters_paths = AdapterPaths::from_config(config_value);
+        (config.directory_analysis_timeout_secs, adapters_paths.root().to_path_buf())
     };
 
     let (adapter_id, hash_hex, hash_b3, analysis) = tokio::time::timeout(
@@ -287,9 +296,9 @@ pub async fn upsert_directory_adapter(
             let hash_b3 = format!("b3:{}", hash_hex);
 
             // Phase 3: Ensure placeholder artifact (blocking filesystem I/O)
+            // Use centralized adapter path resolution
             let _artifact_span = info_span!("artifact_creation", hash = %hash_hex).entered();
-            let artifact_dir = std::path::PathBuf::from("./adapters");
-            let artifact_path = artifact_dir.join(format!("{}.safetensors", hash_hex));
+            let artifact_path = adapters_root.join(format!("{}.safetensors", hash_hex));
             if !artifact_path.exists() {
                 if let Some(parent) = artifact_path.parent() {
                     if let Err(e) = std::fs::create_dir_all(parent) {
@@ -1715,6 +1724,54 @@ pub async fn get_node_details(
 }
 
 /// Get base model status
+///
+/// # Endpoint
+/// GET /v1/models/status
+///
+/// # Authentication
+/// Optional - unauthenticated requests receive limited response
+///
+/// # Permissions (when authenticated)
+/// Requires one of: Operator, Admin, Compliance
+///
+/// # Query Parameters
+/// - `tenant_id`: Optional tenant ID filter (defaults to "default", only applies when authenticated)
+///
+/// # Response
+/// Returns the current base model load status. Response varies by authentication:
+///
+/// **Unauthenticated response (limited data):**
+/// - `model_id`: "none"
+/// - `model_name`: "No Model Loaded"
+/// - `model_path`: null
+/// - `status`: "unloaded"
+/// - `loaded_at`: null
+/// - `unloaded_at`: null
+/// - `error_message`: null
+/// - `memory_usage_mb`: null
+/// - `is_loaded`: false
+/// - `updated_at`: Current timestamp
+///
+/// **Authenticated response (full data):**
+/// - `model_id`: Identifier of the loaded model (or "none")
+/// - `model_name`: Human-readable model name (or "No Model Loaded")
+/// - `model_path`: Filesystem path to model files
+/// - `status`: Load status (loaded, unloaded, loading, error)
+/// - `loaded_at`: Timestamp when model was loaded
+/// - `unloaded_at`: Timestamp when model was unloaded
+/// - `error_message`: Error message if status is error
+/// - `memory_usage_mb`: Memory consumption in MB
+/// - `is_loaded`: Boolean flag indicating if model is currently in memory
+/// - `updated_at`: Last status update timestamp
+///
+/// # Errors
+/// - `NOT_FOUND` (404): Model referenced in status record not found in database (authenticated only)
+/// - `INTERNAL_ERROR` (500): Database query failure (authenticated only)
+///
+/// # Example
+/// ```
+/// GET /v1/models/status?tenant_id=default
+/// ```
 #[utoipa::path(
     tag = "system",
     get,
@@ -1729,11 +1786,34 @@ pub async fn get_node_details(
 )]
 pub async fn get_base_model_status(
     State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
+    claims: Option<Extension<Claims>>,
     Query(query): Query<ListJobsQuery>,
 ) -> Result<Json<BaseModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin, Role::Compliance])?;
+    // Check if user is authenticated
+    let is_authenticated = if let Some(Extension(ref claims_inner)) = claims {
+        // Verify user has one of the required roles
+        require_any_role(claims_inner, &[Role::Operator, Role::Admin, Role::Compliance]).is_ok()
+    } else {
+        false
+    };
 
+    // When unauthenticated, return basic limited data only
+    if !is_authenticated {
+        return Ok(Json(BaseModelStatusResponse {
+            model_id: "none".to_string(),
+            model_name: "No Model Loaded".to_string(),
+            model_path: None,
+            status: "unloaded".to_string(),
+            loaded_at: None,
+            unloaded_at: None,
+            error_message: None,
+            memory_usage_mb: None,
+            is_loaded: false,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        }));
+    }
+
+    // Authenticated path - return full data
     let tenant_id = query.tenant_id.unwrap_or_else(|| "default".to_string());
 
     // Get base model status from database
@@ -1781,6 +1861,7 @@ pub async fn get_base_model_status(
         Ok(Json(BaseModelStatusResponse {
             model_id: status_record.model_id,
             model_name: model.name,
+            model_path: model.model_path,
             status: status_record.status,
             loaded_at: status_record.loaded_at,
             unloaded_at: status_record.unloaded_at,
@@ -1794,6 +1875,7 @@ pub async fn get_base_model_status(
         Ok(Json(BaseModelStatusResponse {
             model_id: "none".to_string(),
             model_name: "No Model Loaded".to_string(),
+            model_path: None,
             status: "unloaded".to_string(),
             loaded_at: None,
             unloaded_at: None,

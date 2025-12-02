@@ -331,6 +331,101 @@ pub async fn dual_auth_middleware(
     ))
 }
 
+/// Optional authentication middleware - validates token if present, allows request if not
+///
+/// Unlike `auth_middleware`, this middleware does not reject unauthenticated requests.
+/// It validates and injects Claims if a valid token is provided, but proceeds without
+/// Claims if no token is present or token is invalid.
+///
+/// This is useful for endpoints that provide enhanced functionality when authenticated
+/// but still work for anonymous users (e.g., public status endpoints with optional
+/// tenant-specific data).
+pub async fn optional_auth_middleware(
+    State(state): State<AppState>,
+    mut req: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    if dev_no_auth_enabled() {
+        let claims = dev_no_auth_claims();
+        let tenant_id = claims.tenant_id.clone();
+        tracing::debug!("Dev no-auth bypass enabled; injecting dev claims");
+        req.extensions_mut().insert(claims);
+        let identity = IdentityEnvelope::new(
+            tenant_id,
+            "api".to_string(),
+            "middleware".to_string(),
+            IdentityEnvelope::default_revision(),
+        );
+        req.extensions_mut().insert(identity);
+        return next.run(req).await;
+    }
+
+    // Extract client IP address from headers for audit logging
+    if let Some(ip) = extract_client_ip(req.headers()) {
+        req.extensions_mut().insert(ClientIp(ip));
+    }
+
+    let auth_header = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|header| header.to_str().ok());
+
+    let query_token = req.uri().query().and_then(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .find(|(key, _)| key == "token")
+            .map(|(_, value)| value.into_owned())
+    });
+
+    // Also try to extract token from cookies for browser-based authentication
+    let cookie_token = extract_token_from_cookie(req.headers());
+
+    let token = auth_header
+        .and_then(|header| header.strip_prefix("Bearer "))
+        .or(query_token.as_deref())
+        .or(cookie_token.as_deref());
+
+    if let Some(token) = token {
+        // Use Ed25519 or HMAC validation based on server configuration
+        let claims_result = if state.use_ed25519 {
+            validate_token_ed25519(token, &state.ed25519_public_key)
+        } else {
+            validate_token(token, &state.jwt_secret)
+        };
+
+        match claims_result {
+            Ok(claims) => {
+                // Check if token has been revoked
+                let is_revoked = is_token_revoked(&state.db, &claims.jti)
+                    .await
+                    .unwrap_or(false);
+
+                if is_revoked {
+                    tracing::debug!(jti = %claims.jti, "Token is revoked, proceeding without authentication");
+                    // Don't inject claims for revoked tokens
+                } else {
+                    // Valid token - inject claims and identity
+                    let tenant_id = claims.tenant_id.clone();
+                    req.extensions_mut().insert(claims);
+                    let identity = IdentityEnvelope::new(
+                        tenant_id,
+                        "api".to_string(),
+                        "middleware".to_string(),
+                        IdentityEnvelope::default_revision(),
+                    );
+                    req.extensions_mut().insert(identity);
+                }
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "Token validation failed, proceeding without authentication");
+                // Invalid token - proceed without claims
+            }
+        }
+    }
+
+    // Always proceed with request, regardless of authentication status
+    next.run(req).await
+}
+
 /// Require specific role for access
 pub fn require_role(
     claims: &Claims,

@@ -17,8 +17,9 @@
 //! cargo run --example basic_inference
 //! ```
 
-use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
-use adapteros_lora_mlx_ffi::{LoRAAdapter, LoRAConfig, MLXBackend, MLXModel}; // Fix to correct module
+use std::fs;
+use adapteros_core::{AosError, Result};
+use adapteros_manifest::ManifestV3;
 
 #[cfg(not(feature = "extended-tests"))]
 fn main() {
