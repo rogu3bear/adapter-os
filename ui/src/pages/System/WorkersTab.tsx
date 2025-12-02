@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { useWorkers } from '@/hooks/useSystemMetrics';
+import { useWorkers, useWorkersHealthSummary } from '@/hooks/useSystemMetrics';
 import WorkerTable from './WorkerTable';
 import WorkerLogsModal from './WorkerLogsModal';
+import WorkerIncidentsModal from './WorkerIncidentsModal';
 import { Card, CardContent } from '@/components/ui/card';
 
 export default function WorkersTab() {
   const { workers, isLoading, error, refetch } = useWorkers(undefined, undefined, 'normal');
+  const { data: healthSummaries } = useWorkersHealthSummary('normal', true);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
+  const [incidentsWorkerId, setIncidentsWorkerId] = useState<string | null>(null);
 
   if (error) {
     return (
@@ -38,8 +41,10 @@ export default function WorkersTab() {
         <div className="space-y-6">
           <WorkerTable
             workers={workers}
+            healthSummaries={healthSummaries}
             isLoading={isLoading}
             onWorkerSelect={setSelectedWorkerId}
+            onIncidentsSelect={setIncidentsWorkerId}
             onRefresh={refetch}
           />
 
@@ -48,6 +53,14 @@ export default function WorkersTab() {
               workerId={selectedWorkerId}
               open={!!selectedWorkerId}
               onClose={() => setSelectedWorkerId(null)}
+            />
+          )}
+
+          {incidentsWorkerId && (
+            <WorkerIncidentsModal
+              workerId={incidentsWorkerId}
+              open={!!incidentsWorkerId}
+              onClose={() => setIncidentsWorkerId(null)}
             />
           )}
         </div>

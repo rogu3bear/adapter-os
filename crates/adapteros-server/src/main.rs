@@ -15,6 +15,7 @@ use adapteros_server::status_writer;
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
 use adapteros_server_api::runtime_mode::RuntimeModeResolver;
+use adapteros_server_api::worker_health::{HealthConfig, WorkerHealthMonitor};
 use adapteros_server_api::{routes, AppState};
 use anyhow::Result;
 use clap::Parser;
@@ -1061,6 +1062,18 @@ async fn main() -> Result<()> {
     uma_monitor.start_polling().await;
     let uma_monitor = Arc::new(uma_monitor);
 
+    // Initialize worker health monitor for PRD-09: Worker Health, Hung Detection & Log Centralization
+    info!("Initializing worker health monitor");
+    let health_monitor = Arc::new(WorkerHealthMonitor::with_defaults(db.clone()));
+    let health_polling_handle = Arc::clone(&health_monitor).start_polling();
+    shutdown_coordinator.register_task(health_polling_handle);
+    info!(
+        polling_interval_secs = 30,
+        latency_threshold_ms = 5000,
+        consecutive_slow_count = 5,
+        "Worker health monitor started"
+    );
+
     // Create metrics collector and registry for AppState
     let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new(
         adapteros_telemetry::MetricsConfig::default(),
@@ -1082,7 +1095,8 @@ async fn main() -> Result<()> {
     .with_dataset_progress(dataset_progress_tx)
     .with_boot_state(boot_state.clone())
     .with_runtime_mode(runtime_mode)
-    .with_tick_ledger(tick_ledger.clone());
+    .with_tick_ledger(tick_ledger.clone())
+    .with_health_monitor(health_monitor.clone());
 
     state = state.with_plugin_registry(Arc::new(adapteros_server_api::PluginRegistry::new(
         db.clone(),

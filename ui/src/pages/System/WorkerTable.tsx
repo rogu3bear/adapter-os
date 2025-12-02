@@ -1,5 +1,5 @@
 import { useMemo, useCallback } from 'react';
-import { type WorkerResponse } from '@/api/api-types';
+import { type WorkerResponse, type WorkerHealthSummary } from '@/api/api-types';
 import { DataTable } from '@/components/shared/DataTable/DataTable';
 import { type Column } from '@/components/shared/DataTable/types';
 import { Badge } from '@/components/ui/badge';
@@ -10,20 +10,56 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, FileText, Bug, StopCircle } from 'lucide-react';
+import { MoreHorizontal, FileText, Bug, StopCircle, AlertTriangle } from 'lucide-react';
 import { useWorkerOperations } from '@/hooks/useSystemMetrics';
 import { useToast } from '@/hooks/use-toast';
 
 interface WorkerTableProps {
   workers: WorkerResponse[];
+  healthSummaries?: WorkerHealthSummary[];
   isLoading: boolean;
   onWorkerSelect: (workerId: string) => void;
+  onIncidentsSelect?: (workerId: string) => void;
   onRefresh: () => void;
 }
 
-export default function WorkerTable({ workers, isLoading, onWorkerSelect, onRefresh }: WorkerTableProps) {
+export default function WorkerTable({
+  workers,
+  healthSummaries = [],
+  isLoading,
+  onWorkerSelect,
+  onIncidentsSelect,
+  onRefresh
+}: WorkerTableProps) {
   const { stopWorker } = useWorkerOperations();
   const { toast } = useToast();
+
+  // Create a map of worker health data for quick lookup
+  const healthMap = useMemo(() => {
+    const map = new Map<string, WorkerHealthSummary>();
+    healthSummaries.forEach(health => {
+      map.set(health.worker_id, health);
+    });
+    return map;
+  }, [healthSummaries]);
+
+  const getHealthBadge = useCallback((status: string) => {
+    const variant =
+      status === 'healthy'
+        ? 'default'
+        : status === 'degraded'
+        ? 'warning'
+        : status === 'crashed'
+        ? 'destructive'
+        : 'secondary';
+    return <Badge variant={variant}>{status.charAt(0).toUpperCase() + status.slice(1)}</Badge>;
+  }, []);
+
+  const handleViewIncidents = useCallback((workerId: string) => {
+    if (onIncidentsSelect) {
+      onIncidentsSelect(workerId);
+    }
+  }, [onIncidentsSelect]);
 
   const handleStopWorker = useCallback(async (workerId: string) => {
     if (!confirm(`Are you sure you want to stop worker ${workerId}?`)) {
@@ -110,6 +146,24 @@ export default function WorkerTable({ workers, isLoading, onWorkerSelect, onRefr
         cell: ({ row }) => row.plan_id ?? '--',
       },
       {
+        id: 'manifest_hash',
+        accessorKey: 'manifest_hash',
+        header: 'Manifest Hash',
+        cell: ({ row }) => {
+          const hash = row.manifest_hash;
+          if (!hash) return <span className="text-muted-foreground">--</span>;
+          // Show first 12 characters of hash with tooltip
+          return (
+            <span
+              className="font-mono text-xs cursor-help"
+              title={hash}
+            >
+              {hash.slice(0, 12)}...
+            </span>
+          );
+        },
+      },
+      {
         id: 'memory_mb',
         accessorKey: 'memory_mb',
         header: 'Memory',
@@ -125,6 +179,49 @@ export default function WorkerTable({ workers, isLoading, onWorkerSelect, onRefr
         cell: ({ row }) => {
           const cpu = row.cpu_percent;
           return cpu ? `${cpu.toFixed(1)}%` : '--';
+        },
+      },
+      {
+        id: 'health_status',
+        header: 'Health',
+        cell: ({ row }) => {
+          const health = healthMap.get(row.worker_id);
+          if (!health) return <span className="text-muted-foreground">--</span>;
+          return getHealthBadge(health.health_status);
+        },
+      },
+      {
+        id: 'avg_latency',
+        header: 'Avg Latency',
+        cell: ({ row }) => {
+          const health = healthMap.get(row.worker_id);
+          if (!health || health.avg_latency_ms === 0) {
+            return <span className="text-muted-foreground">--</span>;
+          }
+          const latency = health.avg_latency_ms;
+          const className = latency > 1000 ? 'text-destructive font-semibold' : latency > 500 ? 'text-warning' : '';
+          return <span className={className}>{latency.toFixed(0)}ms</span>;
+        },
+      },
+      {
+        id: 'incidents',
+        header: 'Incidents',
+        cell: ({ row }) => {
+          const health = healthMap.get(row.worker_id);
+          if (!health || health.total_failures === 0) {
+            return <span className="text-muted-foreground">--</span>;
+          }
+          return (
+            <Button
+              variant="link"
+              size="sm"
+              className="p-0 h-auto text-destructive"
+              onClick={() => handleViewIncidents(row.worker_id)}
+            >
+              <AlertTriangle className="h-4 w-4 mr-1" />
+              {health.total_failures}
+            </Button>
+          );
         },
       },
       {
@@ -171,7 +268,7 @@ export default function WorkerTable({ workers, isLoading, onWorkerSelect, onRefr
         },
       },
     ],
-    [onWorkerSelect, stopWorker.isLoading, handleStopWorker]
+    [onWorkerSelect, stopWorker.isLoading, handleStopWorker, healthMap, getHealthBadge, handleViewIncidents]
   );
 
   return (

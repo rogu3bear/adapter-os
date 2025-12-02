@@ -1,0 +1,552 @@
+//! Worker Health Monitor for PRD-09: Worker Health, Hung Detection & Log Centralization
+//!
+//! Provides active and passive health monitoring for workers, including:
+//! - Latency tracking with moving averages
+//! - Degraded/crashed state detection
+//! - Health-aware worker selection for routing
+//! - Background polling for idle worker crash detection
+
+use crate::uds_client::UdsClient;
+use adapteros_db::Db;
+use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info, warn};
+
+/// Health status for a worker
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkerHealthStatus {
+    /// Worker is responding quickly and reliably
+    Healthy,
+    /// Worker is responding slowly (latency > threshold for consecutive requests)
+    Degraded,
+    /// Worker is not responding (connection failed or timeout)
+    Crashed,
+    /// Worker has never been contacted
+    Unknown,
+}
+
+impl std::fmt::Display for WorkerHealthStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WorkerHealthStatus::Healthy => write!(f, "healthy"),
+            WorkerHealthStatus::Degraded => write!(f, "degraded"),
+            WorkerHealthStatus::Crashed => write!(f, "crashed"),
+            WorkerHealthStatus::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+impl From<&str> for WorkerHealthStatus {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "healthy" => WorkerHealthStatus::Healthy,
+            "degraded" => WorkerHealthStatus::Degraded,
+            "crashed" => WorkerHealthStatus::Crashed,
+            _ => WorkerHealthStatus::Unknown,
+        }
+    }
+}
+
+/// Configuration for health monitoring thresholds
+#[derive(Debug, Clone)]
+pub struct HealthConfig {
+    /// Latency threshold in milliseconds (responses above this are "slow")
+    pub latency_threshold_ms: u64,
+    /// Number of consecutive slow responses to trigger degraded status
+    pub slow_response_count: usize,
+    /// Number of consecutive fast responses to recover from degraded
+    pub recovery_count: usize,
+    /// Number of samples for moving average calculation
+    pub moving_avg_window: usize,
+    /// Interval between active health polls
+    pub polling_interval: Duration,
+    /// Timeout for health check requests
+    pub polling_timeout: Duration,
+}
+
+impl Default for HealthConfig {
+    fn default() -> Self {
+        Self {
+            latency_threshold_ms: 5000,                // 5 seconds
+            slow_response_count: 5,                    // 5 consecutive slow responses
+            recovery_count: 5,                         // 5 consecutive fast responses to recover
+            moving_avg_window: 10,                     // 10 samples for moving average
+            polling_interval: Duration::from_secs(30), // Poll every 30 seconds
+            polling_timeout: Duration::from_secs(3),   // 3 second timeout for health checks
+        }
+    }
+}
+
+/// Per-worker health metrics tracked in memory
+#[derive(Debug, Clone)]
+pub struct WorkerMetrics {
+    /// Ring buffer of recent latencies in milliseconds
+    pub recent_latencies: VecDeque<u64>,
+    /// Calculated average latency
+    pub avg_latency_ms: f64,
+    /// Count of consecutive slow responses
+    pub consecutive_slow: usize,
+    /// Count of consecutive fast responses (for recovery tracking)
+    pub consecutive_fast: usize,
+    /// Count of consecutive failures (connection errors)
+    pub consecutive_failures: usize,
+    /// Timestamp of last successful response
+    pub last_response_at: Option<Instant>,
+    /// Current health status
+    pub health_status: WorkerHealthStatus,
+    /// Total requests processed (for statistics)
+    pub total_requests: u64,
+    /// Total failures (for statistics)
+    pub total_failures: u64,
+}
+
+impl Default for WorkerMetrics {
+    fn default() -> Self {
+        Self {
+            recent_latencies: VecDeque::with_capacity(10),
+            avg_latency_ms: 0.0,
+            consecutive_slow: 0,
+            consecutive_fast: 0,
+            consecutive_failures: 0,
+            last_response_at: None,
+            health_status: WorkerHealthStatus::Unknown,
+            total_requests: 0,
+            total_failures: 0,
+        }
+    }
+}
+
+/// Worker health monitor with background polling
+pub struct WorkerHealthMonitor {
+    /// Database handle for persisting health data
+    db: Db,
+    /// Configuration for thresholds and timing
+    config: HealthConfig,
+    /// Per-worker metrics stored in memory
+    worker_metrics: DashMap<String, WorkerMetrics>,
+    /// Shutdown signal for the polling task
+    shutdown: CancellationToken,
+}
+
+impl WorkerHealthMonitor {
+    /// Create a new health monitor with the given database and config
+    pub fn new(db: Db, config: HealthConfig) -> Self {
+        Self {
+            db,
+            config,
+            worker_metrics: DashMap::new(),
+            shutdown: CancellationToken::new(),
+        }
+    }
+
+    /// Create a new health monitor with default configuration
+    pub fn with_defaults(db: Db) -> Self {
+        Self::new(db, HealthConfig::default())
+    }
+
+    /// Get the shutdown token for this monitor
+    pub fn shutdown_token(&self) -> CancellationToken {
+        self.shutdown.clone()
+    }
+
+    /// Start the background health polling task
+    ///
+    /// Returns a JoinHandle that can be awaited for shutdown
+    pub fn start_polling(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let monitor = self.clone();
+        tokio::spawn(async move {
+            monitor.run_polling_loop().await;
+        })
+    }
+
+    /// Main polling loop that runs in the background
+    async fn run_polling_loop(&self) {
+        info!(
+            interval_secs = self.config.polling_interval.as_secs(),
+            "Starting worker health polling loop"
+        );
+
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(self.config.polling_interval) => {
+                    if let Err(e) = self.poll_all_workers().await {
+                        error!(error = %e, "Error polling workers");
+                    }
+                }
+                _ = self.shutdown.cancelled() => {
+                    info!("Worker health polling loop shutting down");
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Poll all workers and update their health status
+    async fn poll_all_workers(&self) -> Result<(), adapteros_core::AosError> {
+        let workers = self.db.list_all_workers().await?;
+        debug!(count = workers.len(), "Polling workers for health");
+
+        for worker in workers {
+            if worker.status == "stopped" {
+                continue; // Skip stopped workers
+            }
+
+            let uds_path = PathBuf::from(&worker.uds_path);
+            let result = self.health_check(&uds_path).await;
+
+            match result {
+                Ok(latency_ms) => {
+                    self.record_response(&worker.id, latency_ms).await;
+                }
+                Err(e) => {
+                    debug!(worker_id = %worker.id, error = %e, "Health check failed");
+                    self.record_failure(&worker.id, &e.to_string()).await;
+                }
+            }
+        }
+
+        // Sync metrics to database periodically
+        if let Err(e) = self.sync_to_db().await {
+            warn!(error = %e, "Failed to sync health metrics to database");
+        }
+
+        Ok(())
+    }
+
+    /// Perform a health check on a worker and return latency in ms
+    async fn health_check(
+        &self,
+        uds_path: &PathBuf,
+    ) -> Result<u64, crate::uds_client::UdsClientError> {
+        let client = UdsClient::new(self.config.polling_timeout);
+        let start = Instant::now();
+
+        client.health_check(uds_path).await?;
+
+        Ok(start.elapsed().as_millis() as u64)
+    }
+
+    /// Record a successful response and update metrics
+    pub async fn record_response(&self, worker_id: &str, latency_ms: u64) {
+        let is_slow = latency_ms >= self.config.latency_threshold_ms;
+
+        let mut metrics = self
+            .worker_metrics
+            .entry(worker_id.to_string())
+            .or_default();
+        let metrics = metrics.value_mut();
+
+        // Update latency ring buffer
+        if metrics.recent_latencies.len() >= self.config.moving_avg_window {
+            metrics.recent_latencies.pop_front();
+        }
+        metrics.recent_latencies.push_back(latency_ms);
+
+        // Recalculate moving average
+        if !metrics.recent_latencies.is_empty() {
+            let sum: u64 = metrics.recent_latencies.iter().sum();
+            metrics.avg_latency_ms = sum as f64 / metrics.recent_latencies.len() as f64;
+        }
+
+        // Update consecutive counts
+        if is_slow {
+            metrics.consecutive_slow += 1;
+            metrics.consecutive_fast = 0;
+        } else {
+            metrics.consecutive_fast += 1;
+            metrics.consecutive_slow = 0;
+        }
+
+        // Reset failure count on successful response
+        metrics.consecutive_failures = 0;
+        metrics.last_response_at = Some(Instant::now());
+        metrics.total_requests += 1;
+
+        // Determine new health status
+        let old_status = metrics.health_status;
+        metrics.health_status = self.calculate_health_status(metrics);
+
+        // Log status transitions
+        if old_status != metrics.health_status {
+            match metrics.health_status {
+                WorkerHealthStatus::Degraded => {
+                    warn!(
+                        worker_id = %worker_id,
+                        avg_latency_ms = metrics.avg_latency_ms,
+                        consecutive_slow = metrics.consecutive_slow,
+                        "Worker marked as degraded"
+                    );
+                    // Create incident for degradation
+                    self.create_incident_async(
+                        worker_id,
+                        "degraded",
+                        &format!(
+                            "Worker marked degraded: {} consecutive slow responses (avg {}ms)",
+                            metrics.consecutive_slow, metrics.avg_latency_ms as u64
+                        ),
+                        Some(latency_ms as f64),
+                    );
+                }
+                WorkerHealthStatus::Healthy => {
+                    info!(
+                        worker_id = %worker_id,
+                        consecutive_fast = metrics.consecutive_fast,
+                        "Worker recovered to healthy"
+                    );
+                    // Create incident for recovery
+                    self.create_incident_async(
+                        worker_id,
+                        "recovered",
+                        &format!(
+                            "Worker recovered: {} consecutive fast responses",
+                            metrics.consecutive_fast
+                        ),
+                        Some(latency_ms as f64),
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        debug!(
+            worker_id = %worker_id,
+            latency_ms = latency_ms,
+            avg_latency_ms = metrics.avg_latency_ms,
+            health_status = %metrics.health_status,
+            "Recorded response"
+        );
+    }
+
+    /// Record a failed request (connection error, timeout)
+    pub async fn record_failure(&self, worker_id: &str, error: &str) {
+        let mut metrics = self
+            .worker_metrics
+            .entry(worker_id.to_string())
+            .or_default();
+        let metrics = metrics.value_mut();
+
+        metrics.consecutive_failures += 1;
+        metrics.consecutive_slow = 0;
+        metrics.consecutive_fast = 0;
+        metrics.total_failures += 1;
+
+        let old_status = metrics.health_status;
+        metrics.health_status = self.calculate_health_status(metrics);
+
+        // Log crash detection
+        if old_status != WorkerHealthStatus::Crashed
+            && metrics.health_status == WorkerHealthStatus::Crashed
+        {
+            error!(
+                worker_id = %worker_id,
+                consecutive_failures = metrics.consecutive_failures,
+                error = %error,
+                "Worker marked as crashed"
+            );
+            // Create incident for crash
+            self.create_incident_async(
+                worker_id,
+                "crash",
+                &format!(
+                    "Worker crashed: {} consecutive failures. Last error: {}",
+                    metrics.consecutive_failures, error
+                ),
+                None,
+            );
+        }
+    }
+
+    /// Calculate health status based on current metrics
+    fn calculate_health_status(&self, metrics: &WorkerMetrics) -> WorkerHealthStatus {
+        // Crashed: 3+ consecutive failures
+        if metrics.consecutive_failures >= 3 {
+            return WorkerHealthStatus::Crashed;
+        }
+
+        // Degraded: 5+ consecutive slow responses
+        if metrics.consecutive_slow >= self.config.slow_response_count {
+            return WorkerHealthStatus::Degraded;
+        }
+
+        // Recovery from degraded: 5+ consecutive fast responses
+        if metrics.health_status == WorkerHealthStatus::Degraded
+            && metrics.consecutive_fast >= self.config.recovery_count
+        {
+            return WorkerHealthStatus::Healthy;
+        }
+
+        // If previously degraded but not recovered yet, stay degraded
+        if metrics.health_status == WorkerHealthStatus::Degraded {
+            return WorkerHealthStatus::Degraded;
+        }
+
+        // If we have recent data, we're healthy
+        if metrics.last_response_at.is_some() {
+            return WorkerHealthStatus::Healthy;
+        }
+
+        WorkerHealthStatus::Unknown
+    }
+
+    /// Get the best worker for routing from a list of workers
+    ///
+    /// Selection logic:
+    /// 1. Filter out crashed workers
+    /// 2. Prefer healthy over degraded
+    /// 3. Among same status, pick lowest average latency
+    pub fn get_best_worker<'a>(
+        &self,
+        workers: &'a [adapteros_db::models::Worker],
+    ) -> Option<&'a adapteros_db::models::Worker> {
+        if workers.is_empty() {
+            return None;
+        }
+
+        // Get health status and latency for each worker
+        let mut candidates: Vec<(&adapteros_db::models::Worker, WorkerHealthStatus, f64)> = workers
+            .iter()
+            .map(|w| {
+                let (status, latency) = self
+                    .worker_metrics
+                    .get(&w.id)
+                    .map(|m| (m.health_status, m.avg_latency_ms))
+                    .unwrap_or((WorkerHealthStatus::Unknown, 0.0));
+                (w, status, latency)
+            })
+            .collect();
+
+        // Filter out crashed workers
+        candidates.retain(|(_, status, _)| *status != WorkerHealthStatus::Crashed);
+
+        if candidates.is_empty() {
+            // All workers crashed, return None
+            return None;
+        }
+
+        // Sort by: healthy first, then by lowest latency
+        candidates.sort_by(|(_, status_a, latency_a), (_, status_b, latency_b)| {
+            // Healthy < Degraded < Unknown
+            let priority_a = match status_a {
+                WorkerHealthStatus::Healthy => 0,
+                WorkerHealthStatus::Degraded => 1,
+                WorkerHealthStatus::Unknown => 2,
+                WorkerHealthStatus::Crashed => 3,
+            };
+            let priority_b = match status_b {
+                WorkerHealthStatus::Healthy => 0,
+                WorkerHealthStatus::Degraded => 1,
+                WorkerHealthStatus::Unknown => 2,
+                WorkerHealthStatus::Crashed => 3,
+            };
+
+            priority_a.cmp(&priority_b).then_with(|| {
+                latency_a
+                    .partial_cmp(latency_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
+
+        candidates.first().map(|(w, _, _)| *w)
+    }
+
+    /// Get health metrics for a specific worker
+    pub fn get_worker_metrics(&self, worker_id: &str) -> Option<WorkerMetrics> {
+        self.worker_metrics.get(worker_id).map(|m| m.clone())
+    }
+
+    /// Get health status for a specific worker
+    pub fn get_worker_health(&self, worker_id: &str) -> WorkerHealthStatus {
+        self.worker_metrics
+            .get(worker_id)
+            .map(|m| m.health_status)
+            .unwrap_or(WorkerHealthStatus::Unknown)
+    }
+
+    /// Get health summary for all tracked workers
+    pub fn get_health_summary(&self) -> Vec<WorkerHealthSummary> {
+        self.worker_metrics
+            .iter()
+            .map(|entry| WorkerHealthSummary {
+                worker_id: entry.key().clone(),
+                health_status: entry.value().health_status,
+                avg_latency_ms: entry.value().avg_latency_ms,
+                total_requests: entry.value().total_requests,
+                total_failures: entry.value().total_failures,
+                consecutive_slow: entry.value().consecutive_slow,
+                consecutive_failures: entry.value().consecutive_failures,
+            })
+            .collect()
+    }
+
+    /// Sync health metrics to database
+    async fn sync_to_db(&self) -> Result<(), adapteros_core::AosError> {
+        for entry in self.worker_metrics.iter() {
+            let worker_id = entry.key();
+            let metrics = entry.value();
+
+            self.db
+                .update_worker_health_metrics(
+                    worker_id,
+                    &metrics.health_status.to_string(),
+                    metrics.avg_latency_ms,
+                    metrics.recent_latencies.len() as i32,
+                    metrics.consecutive_slow as i32,
+                    metrics.consecutive_failures as i32,
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Create an incident asynchronously (fire-and-forget)
+    fn create_incident_async(
+        &self,
+        worker_id: &str,
+        incident_type: &str,
+        reason: &str,
+        latency_ms: Option<f64>,
+    ) {
+        let db = self.db.clone();
+        let worker_id = worker_id.to_string();
+        let incident_type = incident_type.to_string();
+        let reason = reason.to_string();
+
+        tokio::spawn(async move {
+            // Get tenant_id from worker
+            if let Ok(Some(worker)) = db.get_worker(&worker_id).await {
+                if let Err(e) = db
+                    .insert_worker_incident(
+                        &worker_id,
+                        &worker.tenant_id,
+                        &incident_type,
+                        &reason,
+                        None, // backtrace
+                        latency_ms,
+                    )
+                    .await
+                {
+                    warn!(error = %e, "Failed to insert worker incident");
+                }
+            }
+        });
+    }
+}
+
+/// Summary of worker health for API responses
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerHealthSummary {
+    pub worker_id: String,
+    pub health_status: WorkerHealthStatus,
+    pub avg_latency_ms: f64,
+    pub total_requests: u64,
+    pub total_failures: u64,
+    pub consecutive_slow: usize,
+    pub consecutive_failures: usize,
+}

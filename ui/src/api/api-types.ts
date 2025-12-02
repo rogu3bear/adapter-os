@@ -301,6 +301,7 @@ export interface WorkerResponse {
   pid?: number;
   plan_id?: string;
   started_at?: string;
+  manifest_hash?: string;  // PRD-09: Manifest hash for worker binding verification
 }
 
 export interface WorkerDetailsResponse extends WorkerResponse {
@@ -1767,4 +1768,24 @@ export interface UpdateAnomalyStatusRequest {
   notes?: string;
   assigned_to?: string;
   tags?: string[];
+}
+
+// Worker health and incident types
+export interface WorkerIncident {
+  id: string;
+  worker_id: string;
+  tenant_id: string;
+  incident_type: 'fatal' | 'crash' | 'hung' | 'degraded' | 'recovered';
+  reason: string;
+  backtrace_snippet?: string;
+  latency_at_incident_ms?: number;
+  created_at: string;
+}
+
+export interface WorkerHealthSummary {
+  worker_id: string;
+  health_status: 'healthy' | 'degraded' | 'crashed' | 'unknown';
+  avg_latency_ms: number;
+  total_requests: number;
+  total_failures: number;
 }

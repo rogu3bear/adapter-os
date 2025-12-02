@@ -17,9 +17,86 @@ use adapteros_manifest::ManifestV3;
 use adapteros_telemetry::TelemetryWriter;
 use clap::Parser;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
+
+// PRD-09: Worker panic hook support
+// Global state for panic hook (must be static for panic handler access)
+static WORKER_IDENTITY: OnceLock<WorkerIdentity> = OnceLock::new();
+
+#[derive(Debug, Clone)]
+struct WorkerIdentity {
+    worker_id: String,
+    cp_url: String,
+}
+
+/// Set up panic hook to report fatal errors to the control plane (PRD-09)
+fn setup_panic_hook() {
+    let default_hook = std::panic::take_hook();
+
+    std::panic::set_hook(Box::new(move |panic_info| {
+        // Extract panic message
+        let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic".to_string()
+        };
+
+        // Extract location
+        let location = panic_info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Capture backtrace (first 2000 chars to avoid oversized messages)
+        let backtrace = std::backtrace::Backtrace::capture();
+        let backtrace_str = format!("{}", backtrace);
+        let backtrace_snippet = if backtrace_str.len() > 2000 {
+            format!("{}...(truncated)", &backtrace_str[..2000])
+        } else {
+            backtrace_str
+        };
+
+        // Attempt to notify CP of fatal error
+        if let Some(identity) = WORKER_IDENTITY.get() {
+            // Build fatal error payload
+            let fatal_payload = serde_json::json!({
+                "worker_id": identity.worker_id,
+                "reason": format!("PANIC at {}: {}", location, message),
+                "backtrace_snippet": backtrace_snippet,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            });
+
+            // Use blocking HTTP client (ureq) since we're in panic context
+            // and can't use async. Best-effort delivery with short timeout.
+            let url = format!("{}/api/v1/workers/fatal", identity.cp_url);
+            let agent = ureq::Agent::config_builder()
+                .timeout_global(Some(std::time::Duration::from_secs(3)))
+                .build()
+                .new_agent();
+            let result = agent.post(&url)
+                .header("Content-Type", "application/json")
+                .send(fatal_payload.to_string().as_bytes());
+
+            match result {
+                Ok(_) => {
+                    eprintln!("[PANIC HOOK] Fatal error reported to CP");
+                }
+                Err(e) => {
+                    eprintln!("[PANIC HOOK] Failed to report fatal to CP: {}", e);
+                }
+            }
+        } else {
+            eprintln!("[PANIC HOOK] Worker identity not set, cannot report to CP");
+        }
+
+        // Call default hook for normal panic handling
+        default_hook(panic_info);
+    }));
+}
 
 /// AdapterOS Inference Worker
 #[derive(Parser, Debug)]
@@ -55,6 +132,14 @@ struct Args {
     /// Backend choice (auto, metal, coreml, mlx)
     #[arg(long, default_value = "auto")]
     backend: String,
+
+    /// Worker ID (auto-generated if not provided)
+    #[arg(long, env = "WORKER_ID")]
+    worker_id: Option<String>,
+
+    /// Control plane URL for fatal error reporting (PRD-09)
+    #[arg(long, env = "AOS_CP_URL", default_value = "http://127.0.0.1:8080")]
+    cp_url: String,
 }
 
 #[tokio::main]
@@ -69,6 +154,22 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+
+    // PRD-09: Set up panic hook for fatal error reporting
+    let worker_id = args
+        .worker_id
+        .clone()
+        .unwrap_or_else(|| format!("worker-{}", uuid::Uuid::now_v7()));
+
+    // Store worker identity for panic hook access
+    let _ = WORKER_IDENTITY.set(WorkerIdentity {
+        worker_id: worker_id.clone(),
+        cp_url: args.cp_url.clone(),
+    });
+
+    // Install panic hook
+    setup_panic_hook();
+    info!(worker_id = %worker_id, cp_url = %args.cp_url, "Panic hook installed for fatal error reporting");
 
     // Resolve UDS path with fallback logic
     let uds_path = args.uds_path.unwrap_or_else(|| {

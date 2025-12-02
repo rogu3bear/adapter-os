@@ -251,6 +251,20 @@ pub struct SpawnWorkerRequest {
     pub gid: u32,
 }
 
+/// Worker fatal error message (PRD-09 Phase 4)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct WorkerFatal {
+    /// Worker identifier
+    pub worker_id: String,
+    /// Fatal error reason/message
+    pub reason: String,
+    /// Optional backtrace snippet for debugging
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backtrace_snippet: Option<String>,
+    /// Timestamp when the error occurred (RFC3339)
+    pub timestamp: String,
+}
+
 fn default_uid() -> u32 {
     1000
 }
@@ -2375,4 +2389,612 @@ pub struct TrainingProvenanceExportResponse {
     pub export_timestamp: String,
     /// BLAKE3 hash of the entire export for integrity verification
     pub export_hash: String,
+}
+
+// ===== Inference Core Types (PRD-05) =====
+
+/// Internal unified inference request used by all handlers.
+///
+/// This is the canonical representation that flows through `route_and_infer()`.
+/// All HTTP handlers map their external request types into this internal model.
+#[derive(Debug, Clone)]
+pub struct InferenceRequestInternal {
+    // === Core Fields ===
+    /// Unique request ID for tracing and correlation
+    pub request_id: String,
+    /// Control plane ID (tenant identifier)
+    pub cpid: String,
+    /// Input prompt text
+    pub prompt: String,
+
+    // === Delivery Mode ===
+    /// Whether to stream tokens via SSE
+    pub stream: bool,
+    /// Batch item ID (for batch requests only)
+    pub batch_item_id: Option<String>,
+
+    // === RAG Options ===
+    /// Enable RAG context retrieval
+    pub rag_enabled: bool,
+    /// Collection ID for scoped RAG retrieval
+    pub rag_collection_id: Option<String>,
+
+    // === Adapter Selection ===
+    /// Adapter stack to use for inference
+    pub adapter_stack: Option<Vec<String>>,
+    /// Specific adapters to use (alternative to adapter_stack)
+    pub adapters: Option<Vec<String>>,
+
+    // === Sampling Parameters ===
+    /// Maximum tokens to generate
+    pub max_tokens: usize,
+    /// Sampling temperature
+    pub temperature: f32,
+    /// Top-K sampling
+    pub top_k: Option<usize>,
+    /// Top-P (nucleus) sampling
+    pub top_p: Option<f32>,
+    /// Random seed for reproducibility
+    pub seed: Option<u64>,
+
+    // === Evidence & Session ===
+    /// Require evidence recording
+    pub require_evidence: bool,
+    /// Chat session ID for trace linkage
+    pub session_id: Option<String>,
+
+    // === Model Selection ===
+    /// Model identifier (if specific model requested)
+    pub model: Option<String>,
+
+    // === Timing ===
+    /// Request creation timestamp
+    pub created_at: std::time::Instant,
+}
+
+impl InferenceRequestInternal {
+    /// Create a new internal request with generated ID
+    pub fn new(cpid: String, prompt: String) -> Self {
+        Self {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            cpid,
+            prompt,
+            stream: false,
+            batch_item_id: None,
+            rag_enabled: false,
+            rag_collection_id: None,
+            adapter_stack: None,
+            adapters: None,
+            max_tokens: 100,
+            temperature: 0.7,
+            top_k: None,
+            top_p: None,
+            seed: None,
+            require_evidence: false,
+            session_id: None,
+            model: None,
+            created_at: std::time::Instant::now(),
+        }
+    }
+
+    /// Set streaming mode
+    pub fn with_stream(mut self, stream: bool) -> Self {
+        self.stream = stream;
+        self
+    }
+
+    /// Set RAG options
+    pub fn with_rag(mut self, collection_id: String) -> Self {
+        self.rag_enabled = true;
+        self.rag_collection_id = Some(collection_id);
+        self
+    }
+}
+
+/// Result from inference execution via InferenceCore
+#[derive(Debug, Clone)]
+pub struct InferenceResult {
+    /// Generated text
+    pub text: String,
+    /// Number of tokens generated
+    pub tokens_generated: usize,
+    /// Reason for stopping (e.g., "stop", "length", "error")
+    pub finish_reason: String,
+    /// Adapters used during inference
+    pub adapters_used: Vec<String>,
+    /// Router decisions made during inference
+    pub router_decisions: Vec<RouterDecisionRecord>,
+    /// RAG evidence if RAG was used
+    pub rag_evidence: Option<RagEvidence>,
+    /// Total latency in milliseconds
+    pub latency_ms: u64,
+    /// Request ID for correlation
+    pub request_id: String,
+}
+
+/// Router decision record for audit trail (PRD-05)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouterDecisionRecord {
+    /// Token generation step
+    pub step: usize,
+    /// Input token ID that triggered this decision
+    pub input_token_id: Option<u32>,
+    /// Candidate adapters considered
+    pub candidates: Vec<RouterCandidateRecord>,
+    /// Shannon entropy of gate distribution
+    pub entropy: f64,
+    /// Selected adapter IDs
+    pub selected_adapters: Vec<String>,
+}
+
+/// Router candidate record for decision audit
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouterCandidateRecord {
+    /// Adapter index
+    pub adapter_idx: u16,
+    /// Raw score before softmax
+    pub raw_score: f32,
+    /// Quantized gate value (Q15)
+    pub gate_q15: i16,
+}
+
+/// RAG evidence for provenance tracking (PRD-05)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagEvidence {
+    /// Collection ID used for retrieval
+    pub collection_id: String,
+    /// Chunks used for context
+    pub chunks_used: Vec<ChunkReference>,
+    /// BLAKE3 hash of the combined context
+    pub context_hash: String,
+}
+
+/// Reference to a document chunk used in RAG
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkReference {
+    /// Document ID
+    pub document_id: String,
+    /// Chunk ID within document
+    pub chunk_id: String,
+    /// Page number (if applicable)
+    pub page_number: Option<i32>,
+    /// Relevance score
+    pub relevance_score: f32,
+    /// Rank in retrieval results
+    pub rank: usize,
+}
+
+/// Error type for inference operations (PRD-05)
+#[derive(Debug, Clone)]
+pub enum InferenceError {
+    /// Prompt validation failed
+    ValidationError(String),
+    /// Worker not available
+    WorkerNotAvailable(String),
+    /// Worker communication failed
+    WorkerError(String),
+    /// Request timeout
+    Timeout(String),
+    /// RAG retrieval failed
+    RagError(String),
+    /// Permission denied
+    PermissionDenied(String),
+    /// Memory pressure too high
+    BackpressureError(String),
+    /// Routing was bypassed (should never happen)
+    RoutingBypass(String),
+}
+
+impl std::fmt::Display for InferenceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+            Self::WorkerNotAvailable(msg) => write!(f, "Worker not available: {}", msg),
+            Self::WorkerError(msg) => write!(f, "Worker error: {}", msg),
+            Self::Timeout(msg) => write!(f, "Timeout: {}", msg),
+            Self::RagError(msg) => write!(f, "RAG error: {}", msg),
+            Self::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
+            Self::BackpressureError(msg) => write!(f, "Backpressure: {}", msg),
+            Self::RoutingBypass(msg) => write!(f, "Routing bypass: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for InferenceError {}
+
+impl InferenceError {
+    /// Convert to HTTP status code
+    pub fn status_code(&self) -> axum::http::StatusCode {
+        use axum::http::StatusCode;
+        match self {
+            Self::ValidationError(_) => StatusCode::BAD_REQUEST,
+            Self::WorkerNotAvailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+            Self::WorkerError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Timeout(_) => StatusCode::REQUEST_TIMEOUT,
+            Self::RagError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::PermissionDenied(_) => StatusCode::FORBIDDEN,
+            Self::BackpressureError(_) => StatusCode::SERVICE_UNAVAILABLE,
+            Self::RoutingBypass(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    /// Convert to error code string
+    pub fn error_code(&self) -> &'static str {
+        match self {
+            Self::ValidationError(_) => "VALIDATION_ERROR",
+            Self::WorkerNotAvailable(_) => "SERVICE_UNAVAILABLE",
+            Self::WorkerError(_) => "INTERNAL_ERROR",
+            Self::Timeout(_) => "REQUEST_TIMEOUT",
+            Self::RagError(_) => "RAG_ERROR",
+            Self::PermissionDenied(_) => "PERMISSION_DENIED",
+            Self::BackpressureError(_) => "BACKPRESSURE",
+            Self::RoutingBypass(_) => "ROUTING_BYPASS",
+        }
+    }
+}
+
+// ===== From Implementations for InferenceRequestInternal =====
+
+use crate::auth::Claims;
+
+/// Convert from standard InferRequest + Claims to internal format
+impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
+    fn from((req, claims): (&InferRequest, &Claims)) -> Self {
+        Self {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            cpid: claims.tenant_id.clone(),
+            prompt: req.prompt.clone(),
+            stream: req.stream.unwrap_or(false),
+            batch_item_id: None,
+            rag_enabled: req.rag_enabled.unwrap_or(false),
+            rag_collection_id: req.collection_id.clone(),
+            adapter_stack: req.adapter_stack.clone(),
+            adapters: req.adapters.clone(),
+            max_tokens: req.max_tokens.unwrap_or(100),
+            temperature: req.temperature.unwrap_or(0.7),
+            top_k: req.top_k,
+            top_p: req.top_p,
+            seed: req.seed,
+            require_evidence: req.require_evidence.unwrap_or(false),
+            session_id: req.session_id.clone(),
+            model: req.model.clone(),
+            created_at: std::time::Instant::now(),
+        }
+    }
+}
+
+/// Convert from batch item + Claims to internal format
+impl From<(&BatchInferItemRequest, &Claims)> for InferenceRequestInternal {
+    fn from((item, claims): (&BatchInferItemRequest, &Claims)) -> Self {
+        let mut internal = Self::from((&item.request, claims));
+        internal.batch_item_id = Some(item.id.clone());
+        internal
+    }
+}
+
+/// Convert InferenceResult to InferResponse for API compatibility
+impl From<InferenceResult> for InferResponse {
+    fn from(result: InferenceResult) -> Self {
+        Self {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            id: result.request_id,
+            text: result.text,
+            tokens: vec![],
+            tokens_generated: result.tokens_generated,
+            finish_reason: result.finish_reason,
+            latency_ms: result.latency_ms,
+            adapters_used: result.adapters_used.clone(),
+            trace: InferenceTrace {
+                adapters_used: result.adapters_used,
+                router_decisions: result
+                    .router_decisions
+                    .into_iter()
+                    .map(|rd| {
+                        RouterDecision {
+                            step: rd.step,
+                            input_token_id: rd.input_token_id,
+                            candidate_adapters: rd
+                                .candidates
+                                .into_iter()
+                                .map(|c| RouterCandidate {
+                                    adapter_idx: c.adapter_idx,
+                                    raw_score: c.raw_score,
+                                    gate_q15: c.gate_q15,
+                                })
+                                .collect(),
+                            entropy: rd.entropy as f32,
+                            tau: 1.0,            // Default tau
+                            entropy_floor: 0.02, // Default entropy floor
+                            stack_hash: None,
+                        }
+                    })
+                    .collect(),
+                latency_ms: result.latency_ms,
+            },
+            model: None,
+            prompt_tokens: None,
+            error: None,
+        }
+    }
+}
+
+/// Convert InferenceError to ErrorResponse for API compatibility
+impl From<InferenceError> for (axum::http::StatusCode, axum::Json<ErrorResponse>) {
+    fn from(err: InferenceError) -> Self {
+        let status = err.status_code();
+        let code = err.error_code();
+        let message = err.to_string();
+        (
+            status,
+            axum::Json(ErrorResponse::new(&message).with_code(code)),
+        )
+    }
+}
+
+// ============================================================================
+// Deterministic Replay Types (PRD-02)
+// ============================================================================
+
+/// Current sampling algorithm version for replay compatibility checking
+pub const SAMPLING_ALGORITHM_VERSION: &str = "v1.0.0";
+
+/// Maximum size for stored prompt/response text (64KB)
+pub const MAX_REPLAY_TEXT_SIZE: usize = 64 * 1024;
+
+/// Sampling parameters for inference replay
+///
+/// Captures all parameters that affect token generation for reproducibility.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+pub struct SamplingParams {
+    /// Sampling temperature (0.0 - 2.0)
+    pub temperature: f32,
+    /// Top-K sampling (None to disable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<usize>,
+    /// Top-P nucleus sampling (None to disable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    /// Maximum tokens to generate
+    pub max_tokens: usize,
+    /// Random seed for reproducibility (None for non-deterministic)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+}
+
+impl Default for SamplingParams {
+    fn default() -> Self {
+        Self {
+            temperature: 0.7,
+            top_k: Some(50),
+            top_p: Some(0.95),
+            max_tokens: 512,
+            seed: None,
+        }
+    }
+}
+
+/// Replay key containing all inputs needed for deterministic reproduction
+///
+/// This is the "recipe" for recreating an inference operation exactly.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReplayKey {
+    /// BLAKE3 hash of the manifest used
+    pub manifest_hash: String,
+    /// Router seed for deterministic adapter selection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub router_seed: Option<String>,
+    /// Sampling parameters used
+    pub sampler_params: SamplingParams,
+    /// Backend used (CoreML, MLX, Metal)
+    pub backend: String,
+    /// Version of the sampling algorithm
+    pub sampling_algorithm_version: String,
+    /// BLAKE3 hash of sorted RAG document hashes (null if no RAG)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rag_snapshot_hash: Option<String>,
+    /// Adapter IDs selected by router
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_ids: Option<Vec<String>>,
+}
+
+/// Replay availability status
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplayStatus {
+    /// Exact replay possible (all conditions match)
+    Available,
+    /// RAG context changed but documents exist
+    Approximate,
+    /// Some RAG documents are missing
+    Degraded,
+    /// Critical components missing (manifest, backend)
+    Unavailable,
+}
+
+impl std::fmt::Display for ReplayStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Available => write!(f, "available"),
+            Self::Approximate => write!(f, "approximate"),
+            Self::Degraded => write!(f, "degraded"),
+            Self::Unavailable => write!(f, "unavailable"),
+        }
+    }
+}
+
+/// Match status after replay execution
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplayMatchStatus {
+    /// Token-for-token identical output
+    Exact,
+    /// Semantically similar but not identical
+    Semantic,
+    /// Significantly different output
+    Divergent,
+    /// Error during replay execution
+    Error,
+}
+
+impl std::fmt::Display for ReplayMatchStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exact => write!(f, "exact"),
+            Self::Semantic => write!(f, "semantic"),
+            Self::Divergent => write!(f, "divergent"),
+            Self::Error => write!(f, "error"),
+        }
+    }
+}
+
+/// Request to execute a deterministic replay
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReplayRequest {
+    /// Inference ID to replay (lookup metadata by ID)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_id: Option<String>,
+    /// Alternatively, provide full replay key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_key: Option<ReplayKey>,
+    /// Override prompt (uses stored prompt if not provided)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    /// Allow approximate/degraded replay (default: false)
+    #[serde(default)]
+    pub allow_approximate: bool,
+    /// Skip RAG retrieval (test pure model determinism)
+    #[serde(default)]
+    pub skip_rag: bool,
+}
+
+/// RAG reproducibility details
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RagReproducibility {
+    /// Score from 0.0 (no overlap) to 1.0 (all docs available)
+    pub score: f32,
+    /// Number of original documents still available
+    pub matching_docs: usize,
+    /// Total number of documents in original inference
+    pub total_original_docs: usize,
+    /// Document IDs that are no longer available
+    pub missing_doc_ids: Vec<String>,
+}
+
+/// Details about response divergence
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DivergenceDetails {
+    /// Character position where divergence was detected (None if exact match)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub divergence_position: Option<usize>,
+    /// Whether the backend changed from original
+    pub backend_changed: bool,
+    /// Whether the manifest hash changed
+    pub manifest_changed: bool,
+    /// Human-readable reasons for approximation
+    pub approximation_reasons: Vec<String>,
+}
+
+/// Statistics from replay execution
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReplayStats {
+    /// Number of tokens generated in replay
+    pub tokens_generated: usize,
+    /// Replay latency in milliseconds
+    pub latency_ms: u64,
+    /// Original inference latency (if recorded)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_latency_ms: Option<u64>,
+}
+
+/// Response from replay execution
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReplayResponse {
+    /// Unique ID for this replay execution
+    pub replay_id: String,
+    /// Original inference ID that was replayed
+    pub original_inference_id: String,
+    /// Mode used for replay (exact, approximate, degraded)
+    pub replay_mode: String,
+    /// Generated response text
+    pub response: String,
+    /// Whether response was truncated to 64KB limit
+    pub response_truncated: bool,
+    /// Match status compared to original
+    pub match_status: ReplayMatchStatus,
+    /// RAG reproducibility details (if RAG was used)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rag_reproducibility: Option<RagReproducibility>,
+    /// Divergence details (if not exact match)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub divergence: Option<DivergenceDetails>,
+    /// Original response for comparison
+    pub original_response: String,
+    /// Execution statistics
+    pub stats: ReplayStats,
+}
+
+/// Response from checking replay availability
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReplayAvailabilityResponse {
+    /// Inference ID checked
+    pub inference_id: String,
+    /// Current replay status
+    pub status: ReplayStatus,
+    /// Whether exact replay is possible
+    pub can_replay_exact: bool,
+    /// Whether approximate replay is possible
+    pub can_replay_approximate: bool,
+    /// Reasons why replay is unavailable (if applicable)
+    pub unavailable_reasons: Vec<String>,
+    /// Warnings about approximations (if approximate)
+    pub approximation_warnings: Vec<String>,
+    /// The replay key (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_key: Option<ReplayKey>,
+}
+
+/// Single replay execution record for history
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReplayExecutionRecord {
+    /// Replay execution ID
+    pub id: String,
+    /// Original inference ID
+    pub original_inference_id: String,
+    /// Mode used (exact, approximate, degraded)
+    pub replay_mode: String,
+    /// Match status result
+    pub match_status: ReplayMatchStatus,
+    /// RAG reproducibility score (if RAG used)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rag_reproducibility_score: Option<f32>,
+    /// Execution timestamp (RFC3339)
+    pub executed_at: String,
+    /// User who executed the replay
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executed_by: Option<String>,
+    /// Error message if match_status is Error
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+}
+
+/// Response containing replay execution history
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReplayHistoryResponse {
+    /// Original inference ID
+    pub inference_id: String,
+    /// List of replay executions
+    pub executions: Vec<ReplayExecutionRecord>,
+    /// Total count of executions
+    pub total_count: usize,
+}
+
+// ===== Tenant Token Revocation (PRD-03) =====
+
+/// Response from tenant-wide token revocation operation
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TokenRevocationResponse {
+    /// Timestamp when revocation was executed (RFC3339)
+    pub revoked_at: String,
+    /// Human-readable message explaining the effect
+    pub message: String,
 }

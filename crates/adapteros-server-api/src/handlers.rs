@@ -57,8 +57,11 @@ pub mod owner_chat;
 pub mod owner_cli;
 pub mod plugins;
 pub mod promotion;
+pub mod rag_common;
 pub mod replay;
+pub mod replay_inference;
 pub mod routing_decisions;
+pub mod runtime;
 pub mod services;
 pub mod settings;
 pub mod storage;
@@ -68,12 +71,14 @@ pub mod system_info;
 pub mod system_overview;
 pub mod system_state;
 pub mod telemetry;
+pub mod tenant_policies;
 pub mod tenants;
 pub mod training;
 pub mod tutorials;
-pub mod worker_detail;
-pub mod workspaces;
 pub mod utils;
+pub mod worker_detail;
+pub mod workers;
+pub mod workspaces;
 
 // Re-export utils for error handling
 use utils::aos_error_to_response;
@@ -83,6 +88,12 @@ pub use adapters::*;
 
 // Re-export tenant handlers
 pub use tenants::*;
+
+// Re-export tenant policy handlers
+pub use tenant_policies::{
+    list_tenant_policy_bindings, query_policy_decisions, toggle_tenant_policy,
+    verify_policy_audit_chain,
+};
 
 // Re-export auth handlers (including utoipa path types)
 pub use auth::{__path_auth_login, auth_login, auth_logout, auth_me};
@@ -230,7 +241,10 @@ pub async fn upsert_directory_adapter(
             Some(config.paths.adapters_root.as_str())
         };
         let adapters_paths = AdapterPaths::from_config(config_value);
-        (config.directory_analysis_timeout_secs, adapters_paths.root().to_path_buf())
+        (
+            config.directory_analysis_timeout_secs,
+            adapters_paths.root().to_path_buf(),
+        )
     };
 
     let (adapter_id, hash_hex, hash_b3, analysis) = tokio::time::timeout(
@@ -1792,7 +1806,11 @@ pub async fn get_base_model_status(
     // Check if user is authenticated
     let is_authenticated = if let Some(Extension(ref claims_inner)) = claims {
         // Verify user has one of the required roles
-        require_any_role(claims_inner, &[Role::Operator, Role::Admin, Role::Compliance]).is_ok()
+        require_any_role(
+            claims_inner,
+            &[Role::Operator, Role::Admin, Role::Compliance],
+        )
+        .is_ok()
     } else {
         false
     };
@@ -2593,6 +2611,277 @@ pub async fn stop_worker(
         previous_status,
         stopped_at,
     }))
+}
+
+/// Receive fatal error report from worker (PRD-09 Phase 4)
+///
+/// Called by workers via the fatal error channel to report critical errors.
+/// This endpoint records the incident in the database and logs it.
+///
+/// **Permissions:** Internal endpoint - typically called via UDS, but can be exposed for testing.
+///
+/// # Example
+/// ```
+/// POST /v1/workers/fatal
+/// {
+///   "worker_id": "worker-123",
+///   "reason": "Out of memory",
+///   "backtrace_snippet": "...",
+///   "timestamp": "2025-01-15T10:30:00Z"
+/// }
+/// ```
+pub async fn receive_worker_fatal(
+    State(state): State<AppState>,
+    Json(fatal_msg): Json<crate::types::WorkerFatal>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // Log the fatal error at the control plane
+    tracing::error!(
+        event = "worker.fatal.received",
+        worker_id = %fatal_msg.worker_id,
+        reason = %fatal_msg.reason,
+        timestamp = %fatal_msg.timestamp,
+        has_backtrace = fatal_msg.backtrace_snippet.is_some(),
+        "Control plane received worker fatal error"
+    );
+
+    // Get worker record to retrieve tenant_id
+    let worker = state
+        .db
+        .get_worker(&fatal_msg.worker_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("worker not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Worker ID: {}", fatal_msg.worker_id)),
+                ),
+            )
+        })?;
+
+    // Insert worker incident with incident_type = "fatal"
+    let incident_id = uuid::Uuid::now_v7().to_string();
+    state
+        .db
+        .insert_worker_incident(
+            &incident_id,
+            &fatal_msg.worker_id,
+            &worker.tenant_id,
+            "fatal",
+            &fatal_msg.reason,
+            fatal_msg.backtrace_snippet.as_deref(),
+            None, // latency_at_incident_ms
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to record incident")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Log successful incident recording
+    tracing::info!(
+        event = "worker.incident.recorded",
+        incident_id = %incident_id,
+        worker_id = %fatal_msg.worker_id,
+        tenant_id = %worker.tenant_id,
+        incident_type = "fatal",
+        "Worker fatal error recorded in database"
+    );
+
+    // Return success response
+    Ok(Json(serde_json::json!({
+        "status": "recorded",
+        "incident_id": incident_id,
+        "worker_id": fatal_msg.worker_id,
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    })))
+}
+
+/// List worker incidents (PRD-09)
+///
+/// Returns a list of incidents for a specific worker, ordered by creation time (newest first).
+///
+/// **Permissions:** Operator, Admin, SRE
+///
+/// # Path Parameters
+/// - `worker_id` - The ID of the worker
+///
+/// # Query Parameters
+/// - `limit` - Maximum number of incidents to return (default: 50)
+#[utoipa::path(
+    get,
+    path = "/v1/workers/{worker_id}/incidents",
+    tag = "workers",
+    params(
+        ("worker_id" = String, Path, description = "Worker ID"),
+        ("limit" = Option<i32>, Query, description = "Maximum incidents to return")
+    ),
+    responses(
+        (status = 200, description = "List of worker incidents"),
+        (status = 404, description = "Worker not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn list_worker_incidents(
+    State(state): State<AppState>,
+    Path(worker_id): Path<String>,
+    Query(params): Query<ListIncidentsParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // Verify worker exists
+    state
+        .db
+        .get_worker(&worker_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("worker not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Worker ID: {}", worker_id)),
+                ),
+            )
+        })?;
+
+    // Get incidents for the worker
+    let incidents = state
+        .db
+        .list_worker_incidents(&worker_id, params.limit)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(serde_json::json!({
+        "worker_id": worker_id,
+        "incidents": incidents,
+        "count": incidents.len()
+    })))
+}
+
+/// Query parameters for list_worker_incidents
+#[derive(Debug, serde::Deserialize)]
+pub struct ListIncidentsParams {
+    pub limit: Option<i32>,
+}
+
+/// Get worker health summary (PRD-09)
+///
+/// Returns a summary of health status for all workers, including counts by status
+/// and a list of workers with their current health metrics.
+///
+/// **Permissions:** Operator, Admin, SRE
+#[utoipa::path(
+    get,
+    path = "/v1/workers/health-summary",
+    tag = "workers",
+    responses(
+        (status = 200, description = "Worker health summary"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn get_worker_health_summary(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // Get all workers with health metrics
+    let workers = state.db.list_all_workers().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Get health records for workers that have them
+    let mut health_records = Vec::new();
+    let mut healthy_count = 0;
+    let mut degraded_count = 0;
+    let mut crashed_count = 0;
+    let mut unknown_count = 0;
+
+    for worker in &workers {
+        let health = state.db.get_worker_health(&worker.id).await.ok().flatten();
+
+        let status = health
+            .as_ref()
+            .map(|h| h.health_status.as_str())
+            .unwrap_or("unknown");
+
+        match status {
+            "healthy" => healthy_count += 1,
+            "degraded" => degraded_count += 1,
+            "crashed" => crashed_count += 1,
+            _ => unknown_count += 1,
+        }
+
+        // Get recent incident count (last 24 hours)
+        let recent_incidents = state
+            .db
+            .get_recent_incident_count(&worker.id, 24)
+            .await
+            .unwrap_or(0);
+
+        health_records.push(serde_json::json!({
+            "worker_id": worker.id,
+            "tenant_id": worker.tenant_id,
+            "status": worker.status,
+            "health_status": status,
+            "avg_latency_ms": health.as_ref().and_then(|h| h.avg_latency_ms),
+            "last_response_at": health.as_ref().and_then(|h| h.last_response_at.clone()),
+            "consecutive_slow": health.as_ref().and_then(|h| h.consecutive_slow_responses),
+            "consecutive_failures": health.as_ref().and_then(|h| h.consecutive_failures),
+            "recent_incidents_24h": recent_incidents
+        }));
+    }
+
+    Ok(Json(serde_json::json!({
+        "summary": {
+            "total": workers.len(),
+            "healthy": healthy_count,
+            "degraded": degraded_count,
+            "crashed": crashed_count,
+            "unknown": unknown_count
+        },
+        "workers": health_records,
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    })))
 }
 
 /// Logout endpoint (stateless JWT - just return success)
@@ -3404,7 +3693,10 @@ pub async fn verify_policy_signature(
             Json(
                 ErrorResponse::new("Invalid signature length")
                     .with_code("INVALID_SIGNATURE")
-                    .with_string_details(format!("Expected 64 bytes, got {}", signature_bytes.len())),
+                    .with_string_details(format!(
+                        "Expected 64 bytes, got {}",
+                        signature_bytes.len()
+                    )),
             ),
         ));
     }
@@ -3456,7 +3748,11 @@ pub async fn verify_policy_signature(
         is_valid,
         public_key: format!("ed25519:{}", public_key_hex),
         verified_at: chrono::Utc::now().to_rfc3339(),
-        error: if is_valid { None } else { Some("Signature verification failed".to_string()) },
+        error: if is_valid {
+            None
+        } else {
+            Some("Signature verification failed".to_string())
+        },
     }))
 }
 
@@ -3725,7 +4021,10 @@ pub async fn list_policy_assignments(
 
     // Filter by tenant if non-admin
     let is_admin = claims.roles.contains(&"admin".to_string());
-    let target_type = params.get("target_type").map(|s| s.as_str()).unwrap_or("tenant");
+    let target_type = params
+        .get("target_type")
+        .map(|s| s.as_str())
+        .unwrap_or("tenant");
     let target_id = if is_admin {
         params.get("target_id").map(|s| s.as_str())
     } else {
@@ -4788,16 +5087,20 @@ pub async fn list_adapters(
     // Role check: all roles can list adapters
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterList)?;
 
-    let adapters = state.db.list_adapters_for_tenant(&claims.tenant_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to list adapters")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let adapters = state
+        .db
+        .list_adapters_for_tenant(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list adapters")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     let mut responses = Vec::new();
     for adapter in adapters {
@@ -6040,7 +6343,7 @@ pub async fn promote_adapter_state(
 /// Download adapter manifest as JSON
 pub async fn download_adapter_manifest(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterManifest>, (StatusCode, Json<ErrorResponse>)> {
     let adapter = state
@@ -6063,6 +6366,9 @@ pub async fn download_adapter_manifest(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // CRITICAL: Validate tenant isolation - PRD-03
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     let manifest = AdapterManifest {
         adapter_id: adapter
@@ -6091,9 +6397,34 @@ pub async fn download_adapter_manifest(
 /// Get adapter health (activation logs, memory usage, policy violations)
 pub async fn get_adapter_health(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // CRITICAL: Fetch adapter first to validate tenant isolation - PRD-03
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // CRITICAL: Validate tenant isolation - PRD-03
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
     // Get adapter activations (last 100)
     let activations = state
         .db
@@ -6281,16 +6612,20 @@ pub async fn get_adapter_metrics(
     // Role check: All roles can view metrics
     crate::permissions::require_permission(&claims, crate::permissions::Permission::MetricsView)?;
 
-    let adapters = state.db.list_adapters_for_tenant(&claims.tenant_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to list adapters")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let adapters = state
+        .db
+        .list_adapters_for_tenant(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list adapters")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     let mut performances = Vec::new();
     for adapter in adapters {
@@ -6617,17 +6952,21 @@ pub async fn debug_routing(
     let code_features = CodeFeatures::from_context(&combined_context);
 
     // Fetch all adapters from database
-    let adapters = state.db.list_adapters_for_tenant(&claims.tenant_id).await.map_err(|e| {
-        tracing::error!("Failed to list adapters: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to fetch adapters for routing debug")
-                    .with_code("ADAPTER_FETCH_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let adapters = state
+        .db
+        .list_adapters_for_tenant(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list adapters: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to fetch adapters for routing debug")
+                        .with_code("ADAPTER_FETCH_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     // Convert database adapters to router AdapterInfo
     let adapter_infos: Vec<AdapterInfo> = adapters
@@ -7313,7 +7652,10 @@ pub async fn adapter_state_stream(
             }
         };
 
-        Some((Ok(Event::default().event("adapters").data(json)), (state, tenant_id)))
+        Some((
+            Ok(Event::default().event("adapters").data(json)),
+            (state, tenant_id),
+        ))
     });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
@@ -8014,9 +8356,10 @@ pub async fn create_training_session(
     let config = req.config.into();
 
     // Serialize post_actions to JSON if provided
-    let post_actions_json = req.post_actions.as_ref().and_then(|pa| {
-        serde_json::to_string(pa).ok()
-    });
+    let post_actions_json = req
+        .post_actions
+        .as_ref()
+        .and_then(|pa| serde_json::to_string(pa).ok());
 
     let job = state
         .training_service
@@ -10035,9 +10378,7 @@ pub struct ComplianceControl {
 // ============================================================================
 
 use adapteros_core::{AdapterName, StackName};
-use adapteros_policy::{
-    AdapterNameValidation, NamingConfig, NamingPolicy, StackNameValidation,
-};
+use adapteros_policy::{AdapterNameValidation, NamingConfig, NamingPolicy, StackNameValidation};
 
 /// Request to validate an adapter name
 #[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
@@ -10264,9 +10605,10 @@ pub async fn get_next_revision(
     use crate::error_helpers::internal_error;
 
     // Get registry from database
-    let registry = state.registry.as_ref().ok_or_else(|| {
-        internal_error("Registry not available")
-    })?;
+    let registry = state
+        .registry
+        .as_ref()
+        .ok_or_else(|| internal_error("Registry not available"))?;
 
     // Get next revision number
     let next_rev = registry

@@ -12,6 +12,7 @@ pub mod errors;
 pub mod event_bus;
 pub mod handlers;
 pub mod health;
+pub mod inference_core;
 pub mod ip_extraction;
 pub mod lifecycle;
 pub mod load_coordinator;
@@ -35,6 +36,7 @@ pub mod types;
 pub mod uds_client;
 pub mod validation;
 pub mod versioning;
+pub mod worker_health;
 
 pub use auth::Claims;
 pub use event_bus::EventBus;
@@ -42,6 +44,7 @@ pub use load_coordinator::{LoadCoordinator, LoadCoordinatorMetrics};
 pub use plugin_registry::PluginRegistry;
 
 pub use config::PathsConfig;
+pub use inference_core::InferenceCore;
 pub use lifecycle::{
     LifecycleContext, LifecycleHook, LifecycleHookRegistry, LifecyclePhase, ShutdownConfig,
     ShutdownCoordinator, ShutdownError, ShutdownProgress, ShutdownStatus,
@@ -53,7 +56,10 @@ pub use telemetry::{
 };
 pub use telemetry_ext::StackMetadataExt;
 pub use types::*;
-pub use uds_client::{UdsClient, UdsClientError};
+pub use uds_client::{enter_routed_context, exit_routed_context, UdsClient, UdsClientError};
+pub use worker_health::{
+    HealthConfig, WorkerHealthMonitor, WorkerHealthStatus, WorkerHealthSummary,
+};
 
 // Export the router builder function
 pub use routes::build as create_app;

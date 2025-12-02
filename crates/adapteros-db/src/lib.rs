@@ -44,6 +44,10 @@ pub use tenant_policies::{
     TenantPolicyCustomization, TenantPolicyCustomizationOps,
 };
 
+// Re-export tenant policy binding types (PRD-06)
+pub mod tenant_policy_bindings;
+pub use tenant_policy_bindings::{TenantPolicyBinding, CORE_POLICIES, ALL_POLICIES};
+
 
 /// Storage mode for database operations
 ///
@@ -1595,6 +1599,12 @@ pub mod crypto_audit;
 pub use adapter_snapshots::{AdapterTrainingSnapshot, CreateSnapshotParams};
 pub mod inference_evidence;
 pub use inference_evidence::{CreateEvidenceParams, InferenceEvidence};
+pub mod replay_metadata;
+pub use replay_metadata::{CreateReplayMetadataParams, InferenceReplayMetadata};
+pub mod replay_executions;
+pub use replay_executions::{
+    CreateReplayExecutionParams, ReplayExecution, UpdateReplayExecutionParams,
+};
 pub mod query_performance;
 pub use query_performance::{QueryMetrics, QueryPerformanceMonitor, QueryStats};
 pub mod adapter_record;
@@ -1613,6 +1623,8 @@ pub mod artifacts;
 pub mod audit;
 pub use audit::AuditLog;
 pub mod audits;
+pub mod policy_audit;
+pub use policy_audit::{ChainVerificationResult, PolicyAuditDecision, PolicyDecisionFilters};
 pub mod chat_sessions;
 pub use chat_sessions::{
     AddMessageParams, ChatCategory, ChatMessage, ChatSearchResult, ChatSession, ChatSessionTrace,
@@ -1644,7 +1656,7 @@ pub mod incidents;
 pub mod jobs;
 pub use jobs::Job;
 pub mod training_jobs;
-pub use training_jobs::{TrainingJobRecord, TrainingProgress};
+pub use training_jobs::{TrainingJobRecord, TrainingMetricRow, TrainingProgress};
 pub mod training_datasets;
 pub use training_datasets::{
     DatasetAdapterLink, DatasetFile, DatasetStatistics, EvidenceEntry, TrainingDataset,
@@ -1678,6 +1690,7 @@ pub use policy_hash::PolicyHashRecord;
 pub use tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
 pub use stacks_kv::{StackKvRepository, StackKvOps};
 pub mod process_monitoring;
+pub mod rag_retrieval_audit;
 pub mod replay_sessions;
 pub mod repositories;
 pub mod routing_decisions;
@@ -1699,7 +1712,7 @@ pub use user_tenant_access::{
 };
 pub mod workers;
 pub use models::Worker;
-pub use workers::TrainingTask;
+pub use workers::{TrainingTask, WorkerHealthRecord, WorkerIncident};
 
 // Document management modules
 pub mod collections;
@@ -1724,6 +1737,8 @@ pub use federation::{QuarantineDetails, QuarantineRecord};
 // Authentication sessions module
 pub mod auth_sessions;
 pub use auth_sessions::AuthSession;
+pub mod runtime_sessions;
+pub use runtime_sessions::RuntimeSession;
 pub use dashboard_configs::DashboardWidgetConfig;
 pub use notifications::{Notification, NotificationType};
 pub use tutorials::TutorialStatus;

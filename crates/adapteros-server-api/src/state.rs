@@ -380,6 +380,8 @@ pub struct AppState {
     pub embedding_model: Option<Arc<dyn EmbeddingModel + Send + Sync>>,
     // Global tick ledger for inference tracking (optional, for deterministic execution)
     pub tick_ledger: Option<Arc<GlobalTickLedger>>,
+    // Worker health monitor for health-aware routing (optional, initialized at startup)
+    pub health_monitor: Option<Arc<crate::worker_health::WorkerHealthMonitor>>,
 }
 
 impl AppState {
@@ -462,6 +464,8 @@ impl AppState {
             embedding_model: None,
             // Tick ledger initialized via with_tick_ledger
             tick_ledger: None,
+            // Health monitor initialized via with_health_monitor
+            health_monitor: None,
         }
     }
 
@@ -590,6 +594,15 @@ impl AppState {
     /// Set global tick ledger for inference tracking
     pub fn with_tick_ledger(mut self, tick_ledger: Arc<GlobalTickLedger>) -> Self {
         self.tick_ledger = Some(tick_ledger);
+        self
+    }
+
+    /// Set worker health monitor for health-aware routing
+    pub fn with_health_monitor(
+        mut self,
+        monitor: Arc<crate::worker_health::WorkerHealthMonitor>,
+    ) -> Self {
+        self.health_monitor = Some(monitor);
         self
     }
 

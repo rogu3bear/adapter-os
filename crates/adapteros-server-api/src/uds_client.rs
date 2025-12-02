@@ -10,10 +10,33 @@
 
 use serde_json;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tracing::warn;
+
+// ============================================================================
+// Routing Guard - Ensures all inference goes through the router
+// ============================================================================
+
+thread_local! {
+    static ROUTING_GUARD: std::cell::Cell<bool> = std::cell::Cell::new(false);
+}
+
+/// Mark that we're in a routed context (called by InferenceCore)
+pub fn enter_routed_context() {
+    ROUTING_GUARD.with(|g| g.set(true));
+}
+
+/// Clear routed context after request completes
+pub fn exit_routed_context() {
+    ROUTING_GUARD.with(|g| g.set(false));
+}
+
+/// Check if currently in routed context
+pub fn is_routed_context() -> bool {
+    ROUTING_GUARD.with(|g| g.get())
+}
 
 /// Error types for UDS client operations
 #[derive(Debug, thiserror::Error)]
@@ -28,6 +51,8 @@ pub enum UdsClientError {
     Timeout(String),
     #[error("Worker not available: {0}")]
     WorkerNotAvailable(String),
+    #[error("Routing bypass detected: {0}")]
+    RoutingBypass(String),
 }
 
 /// UDS client for communicating with workers
@@ -47,6 +72,18 @@ impl UdsClient {
         uds_path: &Path,
         request: crate::types::WorkerInferRequest,
     ) -> Result<crate::types::WorkerInferResponse, UdsClientError> {
+        // GUARD: Fail hard if not in routed context
+        if !is_routed_context() {
+            tracing::error!(
+                kind = "ROUTING_BYPASS",
+                "Inference call attempted without routing; this is a bug. Use InferenceCore::route_and_infer()"
+            );
+            return Err(UdsClientError::RoutingBypass(
+                "Inference call attempted without routing. Use InferenceCore::route_and_infer()"
+                    .into(),
+            ));
+        }
+
         // Connect to UDS
         let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
             .await
@@ -125,6 +162,21 @@ impl UdsClient {
         Ok(response)
     }
 
+    /// Send an inference request to a worker via UDS with latency tracking
+    ///
+    /// Returns both the response and the round-trip latency in milliseconds.
+    /// This is useful for monitoring worker performance and reporting metrics.
+    pub async fn infer_timed(
+        &self,
+        uds_path: &Path,
+        request: crate::types::WorkerInferRequest,
+    ) -> Result<(crate::types::WorkerInferResponse, u64), UdsClientError> {
+        let start = Instant::now();
+        let response = self.infer(uds_path, request).await?;
+        let latency_ms = start.elapsed().as_millis() as u64;
+        Ok((response, latency_ms))
+    }
+
     /// Check if a worker is healthy via UDS
     pub async fn health_check(&self, uds_path: &Path) -> Result<bool, UdsClientError> {
         // Connect to UDS
@@ -151,6 +203,17 @@ impl UdsClient {
         // Check if response contains 200 OK
         let response_str = String::from_utf8_lossy(&response_buffer);
         Ok(response_str.contains("200 OK"))
+    }
+
+    /// Check if a worker is healthy via UDS with latency tracking
+    ///
+    /// Returns both the health status and the round-trip latency in milliseconds.
+    /// This is useful for monitoring worker responsiveness and detecting degradation.
+    pub async fn health_check_timed(&self, uds_path: &Path) -> Result<(bool, u64), UdsClientError> {
+        let start = Instant::now();
+        let is_healthy = self.health_check(uds_path).await?;
+        let latency_ms = start.elapsed().as_millis() as u64;
+        Ok((is_healthy, latency_ms))
     }
 
     /// Send a patch proposal request to a worker via UDS
@@ -252,6 +315,18 @@ impl UdsClient {
     where
         F: FnMut(Signal) + Send,
     {
+        // GUARD: Fail hard if not in routed context
+        if !is_routed_context() {
+            tracing::error!(
+                kind = "ROUTING_BYPASS",
+                "Inference call attempted without routing; this is a bug. Use InferenceCore::route_and_infer()"
+            );
+            return Err(UdsClientError::RoutingBypass(
+                "Inference call attempted without routing. Use InferenceCore::route_and_infer()"
+                    .into(),
+            ));
+        }
+
         // Connect to UDS
         let stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
             .await
@@ -303,7 +378,11 @@ impl UdsClient {
                     }
                 }
                 Ok(Err(e)) => return Err(UdsClientError::RequestFailed(e.to_string())),
-                Err(_) => return Err(UdsClientError::Timeout("SSE header read timeout".to_string())),
+                Err(_) => {
+                    return Err(UdsClientError::Timeout(
+                        "SSE header read timeout".to_string(),
+                    ))
+                }
             }
         }
 
@@ -314,10 +393,14 @@ impl UdsClient {
         let sse_result = tokio::time::timeout(sse_timeout, async {
             loop {
                 line.clear();
-                let n = match tokio::time::timeout(per_line_timeout, reader.read_line(&mut line)).await {
+                let n = match tokio::time::timeout(per_line_timeout, reader.read_line(&mut line))
+                    .await
+                {
                     Ok(Ok(n)) => n,
                     Ok(Err(e)) => return Err(UdsClientError::RequestFailed(e.to_string())),
-                    Err(_) => return Err(UdsClientError::Timeout("SSE line read timeout".to_string())),
+                    Err(_) => {
+                        return Err(UdsClientError::Timeout("SSE line read timeout".to_string()))
+                    }
                 };
 
                 if n == 0 {
@@ -363,13 +446,18 @@ impl UdsClient {
                 }
             }
             Ok(())
-        }).await;
+        })
+        .await;
 
         // Handle overall timeout
         match sse_result {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return Err(e),
-            Err(_) => return Err(UdsClientError::Timeout("SSE stream timeout (5 minutes)".to_string())),
+            Err(_) => {
+                return Err(UdsClientError::Timeout(
+                    "SSE stream timeout (5 minutes)".to_string(),
+                ))
+            }
         }
 
         response.ok_or_else(|| UdsClientError::RequestFailed("No response received".to_string()))
@@ -524,6 +612,71 @@ impl UdsClient {
 
         Ok(())
     }
+
+    /// Cancel a training job via UDS
+    ///
+    /// Sends a cancellation request to the worker and waits for confirmation.
+    pub async fn cancel_training_job(
+        &self,
+        uds_path: &Path,
+        job_id: &str,
+        reason: Option<&str>,
+    ) -> Result<CancelTrainingResponse, UdsClientError> {
+        let request = serde_json::json!({
+            "job_id": job_id,
+            "reason": reason,
+        });
+
+        let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
+            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
+
+        let request_json = serde_json::to_string(&request)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+
+        let http_request = format!(
+            "POST /training/cancel HTTP/1.1\r\n\
+             Host: worker\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             \r\n\
+             {}",
+            request_json.len(),
+            request_json
+        );
+
+        // Send request
+        tokio::time::timeout(self.timeout, stream.write_all(http_request.as_bytes()))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        // Read response
+        let mut response_buffer = Vec::new();
+        tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        // Parse HTTP response
+        let response_str = String::from_utf8_lossy(&response_buffer);
+        if !response_str.contains("200 OK") {
+            return Err(UdsClientError::RequestFailed(format!(
+                "Worker returned error: {}",
+                response_str.lines().next().unwrap_or("Unknown error")
+            )));
+        }
+
+        // Extract JSON body
+        let json_str = match response_str.find("\r\n\r\n") {
+            Some(pos) => response_str.get(pos + 4..).unwrap_or(""),
+            None => "",
+        };
+
+        serde_json::from_str(json_str)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))
+    }
 }
 
 /// Signal type for client consumption
@@ -560,6 +713,21 @@ pub struct ModelLoadResponse {
     pub error: Option<String>,
     /// Timestamp of when model was loaded
     pub loaded_at: Option<String>,
+}
+
+/// Response from training job cancellation
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CancelTrainingResponse {
+    /// Job ID that was cancelled
+    pub job_id: String,
+    /// Current status: "cancelled", "stopping", "error"
+    pub status: String,
+    /// Number of tokens processed before cancellation
+    pub tokens_processed: Option<u64>,
+    /// Final loss value if available
+    pub final_loss: Option<f32>,
+    /// Epoch number where training was stopped
+    pub stopped_at_epoch: Option<u32>,
 }
 
 #[cfg(test)]
@@ -620,7 +788,8 @@ mod tests {
 
     #[test]
     fn test_safe_slicing_normal_response() {
-        let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\"}";
+        let response =
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\"}";
         let json = extract_json_body(response);
         assert_eq!(json, "{\"status\":\"ok\"}");
     }

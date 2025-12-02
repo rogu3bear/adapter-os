@@ -83,6 +83,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_training_job,
         handlers::start_training,
         handlers::cancel_training,
+        handlers::retry_training,
         handlers::create_training_session,
         handlers::get_training_logs,
         handlers::get_training_metrics,
@@ -157,6 +158,9 @@ use utoipa_swagger_ui::SwaggerUi;
         // Storage handlers
         handlers::storage::get_storage_mode,
         handlers::storage::get_storage_stats,
+        // Runtime handlers
+        handlers::runtime::get_current_session,
+        handlers::runtime::list_sessions,
         // Trace handlers
         handlers::telemetry::search_traces,
         handlers::telemetry::get_trace,
@@ -249,6 +253,12 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_default_stack,
         handlers::set_default_stack,
         handlers::clear_default_stack,
+        handlers::tenants::revoke_tenant_tokens,
+        // Tenant policy binding handlers
+        handlers::list_tenant_policy_bindings,
+        handlers::toggle_tenant_policy,
+        handlers::query_policy_decisions,
+        handlers::verify_policy_audit_chain,
         // Policy assignment handlers (PRD-RBAC-01)
         handlers::assign_policy,
         handlers::list_policy_assignments,
@@ -285,6 +295,7 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::CreateTenantRequest,
         crate::types::SetDefaultStackRequest,
         crate::types::DefaultStackResponse,
+        crate::types::TokenRevocationResponse,
         handlers::adapter_stacks::StackResponse,
         handlers::adapter_stacks::CreateStackRequest,
         handlers::adapter_stacks::WorkflowType,
@@ -370,6 +381,13 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::AssignPolicyRequest,
         crate::types::PolicyAssignmentResponse,
         crate::types::PolicyViolationResponse,
+        // Tenant policy binding types (PRD-06)
+        handlers::tenant_policies::TenantPolicyBindingResponse,
+        handlers::tenant_policies::TogglePolicyRequest,
+        handlers::tenant_policies::PolicyAuditDecision,
+        handlers::tenant_policies::PolicyDecisionsQuery,
+        handlers::tenant_policies::ChainVerificationResult,
+        handlers::tenant_policies::BrokenLink,
         // Worker stop types
         crate::types::WorkerStopResponse,
         // Contacts and Streams types - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
@@ -498,6 +516,12 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::storage::StorageStatsResponse,
         handlers::storage::TableCounts,
         handlers::storage::KvCounts,
+        // Runtime types
+        handlers::runtime::RuntimeSessionResponse,
+        handlers::runtime::ListSessionsParams,
+        handlers::runtime::DriftSummaryResponse,
+        handlers::runtime::DriftFieldResponse,
+        handlers::runtime::RuntimePathsResponse,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -527,6 +551,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "tutorials", description = "Tutorial management and progress tracking"),
         (name = "cli", description = "Owner CLI command execution"),
         (name = "storage", description = "Storage mode and statistics visibility"),
+        (name = "runtime", description = "Runtime session and configuration tracking"),
         (name = "journeys", description = "Journey visualization and workflow tracking"),
     )
 )]
@@ -657,6 +682,18 @@ pub fn build(state: AppState) -> Router {
                 .put(handlers::set_default_stack)
                 .delete(handlers::clear_default_stack),
         )
+        .route(
+            "/v1/tenants/{tenant_id}/policy-bindings",
+            get(handlers::list_tenant_policy_bindings),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/policy-bindings/{policy_pack_id}/toggle",
+            post(handlers::toggle_tenant_policy),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/revoke-all-tokens",
+            post(handlers::tenants::revoke_tenant_tokens),
+        )
         .route("/v1/nodes", get(handlers::list_nodes))
         .route("/v1/nodes/register", post(handlers::register_node))
         .route(
@@ -702,7 +739,10 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/models", get(handlers::models::list_models_with_stats))
         .route("/v1/models/import", post(handlers::models::import_model))
-        .route("/v1/models/status/all", get(handlers::models::get_all_models_status))
+        .route(
+            "/v1/models/status/all",
+            get(handlers::models::get_all_models_status),
+        )
         .route(
             "/v1/models/{model_id}/load",
             post(handlers::models::load_model),
@@ -759,6 +799,24 @@ pub fn build(state: AppState) -> Router {
         )
         // Worker stop route
         .route("/v1/workers/{worker_id}/stop", post(handlers::stop_worker))
+        // Worker fatal error channel (PRD-09 Phase 4)
+        .route("/v1/workers/fatal", post(handlers::receive_worker_fatal))
+        // Worker health & incidents (PRD-09)
+        .route(
+            "/v1/workers/{worker_id}/incidents",
+            get(handlers::list_worker_incidents),
+        )
+        .route(
+            "/v1/workers/health-summary",
+            get(handlers::get_worker_health_summary),
+        )
+        // PRD-01: Worker Registration & Lifecycle
+        .route("/v1/workers/register", post(handlers::workers::register_worker))
+        .route("/v1/workers/status", post(handlers::workers::notify_worker_status))
+        .route(
+            "/v1/workers/{worker_id}/history",
+            get(handlers::workers::get_worker_history),
+        )
         .route(
             "/v1/workers/{worker_id}/detail",
             get(handlers::worker_detail::get_worker_detail),
@@ -771,7 +829,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/monitoring/rules",
             post(handlers::create_process_monitoring_rule),
         )
-        .route("/v1/monitoring/alerts", get(handlers::monitoring::list_alerts))
+        .route(
+            "/v1/monitoring/alerts",
+            get(handlers::monitoring::list_alerts),
+        )
         .route(
             "/v1/monitoring/alerts/{alert_id}/acknowledge",
             post(handlers::acknowledge_process_alert),
@@ -862,6 +923,23 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/replay/sessions/{id}/verify",
             post(handlers::replay::verify_replay_session),
+        )
+        .route(
+            "/v1/replay/sessions/{id}/execute",
+            post(handlers::replay::execute_replay_session),
+        )
+        // Deterministic replay inference routes (PRD-02)
+        .route(
+            "/v1/replay/check/{inference_id}",
+            get(handlers::replay_inference::check_availability),
+        )
+        .route(
+            "/v1/replay",
+            post(handlers::replay_inference::execute_replay),
+        )
+        .route(
+            "/v1/replay/history/{inference_id}",
+            get(handlers::replay_inference::get_replay_history),
         )
         .route("/v1/patch/propose", post(handlers::propose_patch))
         .route("/v1/infer", post(handlers::infer))
@@ -1431,6 +1509,10 @@ pub fn build(state: AppState) -> Router {
             post(handlers::cancel_training),
         )
         .route(
+            "/v1/training/jobs/{job_id}/retry",
+            post(handlers::retry_training),
+        )
+        .route(
             "/v1/training/sessions",
             post(handlers::create_training_session),
         )
@@ -1499,6 +1581,14 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/audit/federation", get(handlers::get_federation_audit))
         .route("/v1/audit/compliance", get(handlers::get_compliance_audit))
         .route("/v1/audit/logs", get(handlers::query_audit_logs))
+        .route(
+            "/v1/audit/policy-decisions",
+            get(handlers::query_policy_decisions),
+        )
+        .route(
+            "/v1/audit/policy-decisions/verify-chain",
+            get(handlers::verify_policy_audit_chain),
+        )
         // Agent D contract endpoints
         .route("/v1/audits", get(handlers::list_audits_extended))
         .route("/v1/promotions/{id}", get(handlers::get_promotion))
@@ -1644,13 +1734,19 @@ pub fn build(state: AppState) -> Router {
             post(handlers::dashboard::reset_dashboard_config),
         )
         // Storage visibility routes (admin only)
-        .route(
-            "/v1/storage/mode",
-            get(handlers::storage::get_storage_mode),
-        )
+        .route("/v1/storage/mode", get(handlers::storage::get_storage_mode))
         .route(
             "/v1/storage/stats",
             get(handlers::storage::get_storage_stats),
+        )
+        // Runtime session routes
+        .route(
+            "/v1/runtime/session",
+            get(handlers::runtime::get_current_session),
+        )
+        .route(
+            "/v1/runtime/sessions",
+            get(handlers::runtime::list_sessions),
         )
         .layer(
             ServiceBuilder::new()
