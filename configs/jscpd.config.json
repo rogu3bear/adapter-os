@@ -26,7 +26,6 @@
     "**/ai_slop_reports/**",
     "**/test_data/**",
     "**/adapters/**",
-    "**/migrations_postgres/**",
     "**/artifacts/**",
     "**/ui/node_modules/**",
     "**/ui/.next/**",
