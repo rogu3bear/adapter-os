@@ -60,6 +60,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         max_gpu_memory_mb: 0,
         preferred_backend: None,
         require_gpu: false,
+        checkpoint_interval: None,
     };
 
     let mut trainer = MicroLoRATrainer::new(config.clone())?;
@@ -86,6 +87,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         max_gpu_memory_mb: 0,
         preferred_backend: None,
         require_gpu: false,
+        checkpoint_interval: None,
     };
 
     let mut large_trainer = MicroLoRATrainer::new(large_config.clone())?;
@@ -141,6 +143,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
             max_gpu_memory_mb: 0,
             preferred_backend: None,
             require_gpu: false,
+            checkpoint_interval: None,
         };
 
         let mut adapter_trainer = MicroLoRATrainer::new(adapter_config.clone())?;

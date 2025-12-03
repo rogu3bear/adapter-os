@@ -1038,6 +1038,7 @@ async fn run_training_job(
                                 )),
                                 adapter_ids: vec![packaged.adapter_id.clone()],
                                 workflow_type: Some("Sequential".to_string()),
+                                determinism_mode: None, // Use global default
                             };
 
                             match database.insert_stack(&stack_request).await {

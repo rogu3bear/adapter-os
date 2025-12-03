@@ -199,6 +199,7 @@ fn test_training_templates() {
         preferred_backend: None,
         require_gpu: false,
         max_gpu_memory_mb: 0,
+        checkpoint_interval: None,
     };
     assert_eq!(quick.rank, 8);
     assert_eq!(quick.epochs, 1);
@@ -214,6 +215,7 @@ fn test_training_templates() {
         preferred_backend: None,
         require_gpu: true,
         max_gpu_memory_mb: 8192,
+        checkpoint_interval: None,
     };
     assert_eq!(deep.rank, 32);
     assert_eq!(deep.epochs, 5);
@@ -255,6 +257,7 @@ fn test_training_config_with_advanced_features() {
         preferred_backend: Some(adapteros_lora_worker::training::TrainingBackend::Mlx),
         require_gpu: true,
         max_gpu_memory_mb: 2048,
+        checkpoint_interval: None,
     };
 
     assert_eq!(config.rank, 16);

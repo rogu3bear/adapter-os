@@ -36,6 +36,7 @@ async fn test_gpu_training_with_optional_backend() {
         require_gpu: false,
         preferred_backend: None,
         max_gpu_memory_mb: 0,
+        checkpoint_interval: None,
     };
 
     let mut trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config)
@@ -118,6 +119,7 @@ async fn test_gpu_training_with_custom_backend() {
         require_gpu: false,
         preferred_backend: Some(TrainingBackend::Cpu),
         max_gpu_memory_mb: 0,
+        checkpoint_interval: None,
     };
 
     let mut trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config).unwrap();

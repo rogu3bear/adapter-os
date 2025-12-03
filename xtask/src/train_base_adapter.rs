@@ -168,6 +168,7 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         preferred_backend: None,
         require_gpu: false,
         max_gpu_memory_mb: 0,
+        checkpoint_interval: None,
     };
 
     // Train positive adapter

@@ -149,6 +149,10 @@ async fn insert_adapter_to_kv(
         lifecycle_state: "active".to_string(),
         load_state: "unloaded".to_string(),
         version: "1.0".to_string(),
+        archived_at: None,
+        archived_by: None,
+        archive_reason: None,
+        purged_at: None,
     };
 
     let repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());

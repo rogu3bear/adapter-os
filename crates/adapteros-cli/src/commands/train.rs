@@ -127,6 +127,7 @@ impl TrainArgs {
                 max_gpu_memory_mb: 0,
                 preferred_backend: None,
                 require_gpu: false,
+                checkpoint_interval: None,
             };
 
             info!("Using command-line training configuration");
