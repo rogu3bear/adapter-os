@@ -579,6 +579,9 @@ export interface InferResponse {
   prompt_tokens?: number;
   error?: string;
   response?: string;
+  // PRD-6A: Pinned adapter fallback tracking
+  unavailable_pinned_adapters?: string[];
+  pinned_routing_fallback?: 'stack_only' | 'partial' | null;
 }
 
 export interface BatchInferRequest {
@@ -1550,6 +1553,9 @@ export interface ExtendedRouterDecision {
   candidates?: RouterCandidateInfo[]; // Extended: detailed candidate info instead of string[]
   k_value?: number; // Extended: K-sparse value
   adapter_map?: Map<number, string>; // Extended: For debugging: maps adapter_idx to adapter_id
+  // PRD-6A: Pinned adapter fallback tracking
+  unavailable_pinned_adapters?: string[];
+  pinned_routing_fallback?: 'stack_only' | 'partial' | null;
 }
 
 // Audit log entry

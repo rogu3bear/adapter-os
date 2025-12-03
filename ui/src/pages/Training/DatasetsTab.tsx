@@ -187,7 +187,7 @@ export function DatasetsTab() {
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            Tip: Training Wizard handles simple uploads; use this builder for complex/large collections.
+            Tip: Train an adapter for consistent, repeatable responses. Use document collections for one-time lookups.
           </p>
         </div>
 

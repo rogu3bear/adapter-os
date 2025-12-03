@@ -28,6 +28,22 @@ export function PackagingStep() {
         <Label htmlFor="registerAfter">Register adapter after packaging</Label>
       </div>
 
+      {state.registerAfter && (
+        <div className="ml-6 space-y-2">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="createStack"
+              checked={state.createStack !== false}
+              onCheckedChange={(checked) => updateState({ createStack: !!checked })}
+            />
+            <Label htmlFor="createStack">Create new stack with this adapter</Label>
+          </div>
+          <p className="text-xs text-muted-foreground ml-6">
+            A new stack will be created but won&apos;t be set as your default
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="adaptersRoot">Adapters Root</Label>

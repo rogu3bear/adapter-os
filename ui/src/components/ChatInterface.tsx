@@ -40,6 +40,7 @@ import {
 } from '@/hooks/model-loading';
 import { ChatLoadingOverlay } from './chat/ChatLoadingOverlay';
 import { ChatErrorDisplay } from './chat/ChatErrorDisplay';
+import { MissingPinnedAdaptersBanner } from './chat/MissingPinnedAdaptersBanner';
 
 interface ChatInterfaceProps {
   selectedTenant: string;
@@ -74,6 +75,9 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   const [isArchivePanelOpen, setIsArchivePanelOpen] = useState(false);
   const [shareDialogSessionId, setShareDialogSessionId] = useState<string | null>(null);
   const [tagsDialogSessionId, setTagsDialogSessionId] = useState<string | null>(null);
+
+  // Pinned adapters banner state
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // Feature flags
   const autoLoadEnabled = useChatAutoLoadModels();
@@ -547,6 +551,35 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     return collection?.name || 'Unknown';
   }, [selectedCollectionId, collections]);
 
+  // Compute unavailable pinned adapters from messages
+  const { unavailablePinnedAdapters, pinnedRoutingFallback } = useMemo(() => {
+    // Find the latest assistant message with unavailable pinned adapters
+    const affectedMessages = messages.filter(
+      msg => msg.role === 'assistant' && msg.unavailablePinnedAdapters && msg.unavailablePinnedAdapters.length > 0
+    );
+
+    if (affectedMessages.length === 0) {
+      return { unavailablePinnedAdapters: [], pinnedRoutingFallback: undefined };
+    }
+
+    // Get the latest affected message
+    const latestMessage = affectedMessages[affectedMessages.length - 1];
+
+    return {
+      unavailablePinnedAdapters: latestMessage.unavailablePinnedAdapters || [],
+      pinnedRoutingFallback: latestMessage.pinnedRoutingFallback,
+    };
+  }, [messages]);
+
+  // Reset banner dismissed state when new affected messages arrive
+  useEffect(() => {
+    if (unavailablePinnedAdapters.length > 0 && bannerDismissed) {
+      // Check if we have new messages since banner was dismissed
+      // For simplicity, we reset on any change to unavailable adapters
+      setBannerDismissed(false);
+    }
+  }, [unavailablePinnedAdapters]); // Intentionally exclude bannerDismissed to avoid loop
+
   return (
     <div className="flex flex-col h-full relative">
       {/* Screen reader announcements for loading state */}
@@ -997,6 +1030,17 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
           </div>
         )}
       </div>
+
+      {/* Missing Pinned Adapters Banner */}
+      {unavailablePinnedAdapters.length > 0 && !bannerDismissed && (
+        <div className={`px-4 pt-3 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
+          <MissingPinnedAdaptersBanner
+            unavailablePinnedAdapters={unavailablePinnedAdapters}
+            pinnedRoutingFallback={pinnedRoutingFallback}
+            onDismiss={() => setBannerDismissed(true)}
+          />
+        </div>
+      )}
 
       {/* Messages area */}
       <ScrollArea

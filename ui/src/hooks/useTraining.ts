@@ -1,4 +1,4 @@
-import { useQuery, useMutation, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
 import apiClient from '@/api/client';
 import type {
   TrainingJob,
@@ -11,6 +11,7 @@ import type {
   DatasetResponse,
   ListTrainingJobsResponse,
   TrainingArtifactsResponse,
+  CreateDatasetFromDocumentsResponse,
 } from '@/api/training-types';
 
 type TrainingMetrics = {
@@ -184,6 +185,37 @@ export function useDeleteDataset(
   return useMutation<void, Error, string>({
     mutationFn: (datasetId) => apiClient.deleteDataset(datasetId),
     ...options,
+  });
+}
+
+/**
+ * Create a training dataset from existing documents or a document collection.
+ * Converts RAG documents into JSONL training format.
+ * Automatically invalidates the datasets cache on success.
+ */
+export function useCreateDatasetFromDocuments(
+  options?: UseMutationOptions<
+    CreateDatasetFromDocumentsResponse,
+    Error,
+    { documentId?: string; collectionId?: string; name?: string; description?: string }
+  >
+) {
+  const queryClient = useQueryClient();
+  const { onSuccess, ...restOptions } = options ?? {};
+
+  return useMutation<
+    CreateDatasetFromDocumentsResponse,
+    Error,
+    { documentId?: string; collectionId?: string; name?: string; description?: string }
+  >({
+    mutationFn: (params) => apiClient.createDatasetFromDocuments(params),
+    ...restOptions,
+    onSuccess: async (data, variables, context, mutation) => {
+      // Invalidate datasets cache so the list refreshes
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.datasets });
+      // Call user-provided onSuccess if any
+      await onSuccess?.(data, variables, context, mutation);
+    },
   });
 }
 

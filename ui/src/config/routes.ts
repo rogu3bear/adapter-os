@@ -38,6 +38,7 @@ import {
   Network,
   Globe,
   Bug,
+  Map,
 } from 'lucide-react';
 
 // Lazy-loaded page components for code splitting
@@ -95,6 +96,7 @@ const HelpCenterPage = lazy(() => import('@/pages/HelpCenterPage'));
 const RouterConfigPage = lazy(() => import('@/pages/RouterConfigPage'));
 const FederationPage = lazy(() => import('@/pages/FederationPage'));
 const DevErrorsPage = lazy(() => import('@/pages/DevErrorsPage'));
+const RoutesDebugPage = lazy(() => import('@/pages/Dev/RoutesDebugPage'));
 
 export interface RouteConfig {
   path: string;
@@ -702,6 +704,17 @@ export const routes: RouteConfig[] = [
           navOrder: 1,
           skeletonVariant: 'default' as const,
           breadcrumb: 'Error Inspector',
+        },
+        {
+          path: '/_dev/routes',
+          component: RoutesDebugPage,
+          requiresAuth: false,
+          navGroup: 'Dev Tools',
+          navTitle: 'Routes Manifest',
+          navIcon: Map,
+          navOrder: 2,
+          skeletonVariant: 'table' as const,
+          breadcrumb: 'Routes Manifest',
         },
       ]
     : []),

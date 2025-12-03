@@ -260,6 +260,17 @@ export function ReviewStep() {
                   {state.registerAfter ? 'Yes' : 'No'}
                 </Badge>
               </div>
+              {state.registerAfter && (
+                <div className="flex items-center gap-2 ml-4">
+                  <p className="font-medium">Create Stack:</p>
+                  <Badge variant={state.createStack !== false ? 'default' : 'outline'}>
+                    {state.createStack !== false ? 'Yes' : 'No'}
+                  </Badge>
+                  {state.createStack !== false && (
+                    <span className="text-xs text-muted-foreground">(not set as default)</span>
+                  )}
+                </div>
+              )}
               {state.adaptersRoot && (
                 <div>
                   <p className="font-medium">Adapters Root</p>

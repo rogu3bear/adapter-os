@@ -23,7 +23,7 @@ export default function AdaptersPage() {
           disabled: !can('TrainingStart'),
           size: 'sm'
         }}
-        brief="Train a new LoRA adapter from your documents"
+        brief="Train an adapter to learn patterns from your documents for consistent responses"
       >
         <AdaptersComponent />
       </FeatureLayout>

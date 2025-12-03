@@ -253,6 +253,37 @@ export function useWorkerCrashes(workerId: string | null, enabled = true) {
   );
 }
 
+export function useWorkerIncidents(workerId: string | null, enabled = true, limit?: number) {
+  const fetchIncidents = useCallback(async () => {
+    if (!workerId) return [];
+    return apiClient.getWorkerIncidents(workerId, limit);
+  }, [workerId, limit]);
+
+  return usePolling(
+    fetchIncidents,
+    'slow',
+    {
+      enabled: enabled && !!workerId,
+      operationName: 'getWorkerIncidents',
+    }
+  );
+}
+
+export function useWorkersHealthSummary(speed: PollingSpeed = 'normal', enabled = true) {
+  const fetchHealthSummary = useCallback(async () => {
+    return apiClient.getWorkersHealthSummary();
+  }, []);
+
+  return usePolling(
+    fetchHealthSummary,
+    speed,
+    {
+      enabled,
+      operationName: 'getWorkersHealthSummary',
+    }
+  );
+}
+
 // Worker Operations Hook
 export function useWorkerOperations() {
   const spawnWorker = useAsyncOperation<WorkerResponse>(

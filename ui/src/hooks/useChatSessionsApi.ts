@@ -46,6 +46,8 @@ function toLocalMessage(backendMessage: ChatMessage): LocalChatMessage {
     content: backendMessage.content,
     timestamp: new Date(backendMessage.timestamp),
     routerDecision: metadata?.routerDecision,
+    unavailablePinnedAdapters: metadata?.unavailablePinnedAdapters,
+    pinnedRoutingFallback: metadata?.pinnedRoutingFallback,
   };
 }
 
@@ -138,6 +140,8 @@ async function migrateLocalStorageSessions(tenantId: string): Promise<number> {
             {
               originalTimestamp: msgTimestamp.toISOString(),
               routerDecision: msg.routerDecision,
+              unavailablePinnedAdapters: msg.unavailablePinnedAdapters,
+              pinnedRoutingFallback: msg.pinnedRoutingFallback,
             }
           );
         }
@@ -346,6 +350,8 @@ export function useChatSessionsApi(tenantId: string) {
     mutationFn: async (params: { sessionId: string; message: LocalChatMessage }) => {
       const metadata = {
         routerDecision: params.message.routerDecision,
+        unavailablePinnedAdapters: params.message.unavailablePinnedAdapters,
+        pinnedRoutingFallback: params.message.pinnedRoutingFallback,
       };
       return await apiClient.addChatMessage(
         params.sessionId,

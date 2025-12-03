@@ -23,7 +23,9 @@ import { TrainingConfig, TrainingTemplate, Repository } from '@/api/types';
 import { StartTrainingRequest } from '@/api/training-types';
 import { ZodError } from 'zod';
 import { FILE_VALIDATION } from './TrainingWizard/constants';
-import { TrainingWizardProvider } from './TrainingWizard/context';
+import { TrainingWizardProvider, SimpleDatasetMode, ConversionStatus } from './TrainingWizard/context';
+import { useDocuments } from '@/hooks/useDocumentsApi';
+import { useCollections } from '@/hooks/useCollectionsApi';
 import { CategoryStep } from './TrainingWizard/steps/CategoryStep';
 import { BasicInfoStep } from './TrainingWizard/steps/BasicInfoStep';
 import { SimpleDatasetStep } from './TrainingWizard/steps/SimpleDatasetStep';
@@ -79,7 +81,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [savedState, setSavedState] = useState<WizardState | null>(null);
   const [simpleMode, setSimpleMode] = useState(true); // Default to simple mode for MVP
-  const [simpleDatasetMode, setSimpleDatasetMode] = useState<'existing' | 'upload'>('existing');
+  const [simpleDatasetMode, setSimpleDatasetMode] = useState<SimpleDatasetMode>('existing');
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [createStatus, setCreateStatus] = useState<'idle' | 'creating' | 'validating'>('idle');
@@ -87,6 +89,16 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
   const [validationResult, setValidationResult] = useState<{ status: string; errors?: string[]; warnings?: string[] } | null>(null);
   const [datasetName, setDatasetName] = useState('');
   const dataSourceLocked = Boolean(initialDatasetId && lockDatasetId);
+
+  // Document/collection mode state
+  const { data: documentsData } = useDocuments();
+  const { data: collectionsData } = useCollections();
+  const documents = documentsData ?? [];
+  const collections = collectionsData ?? [];
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
+  const [conversionStatus, setConversionStatus] = useState<ConversionStatus>('idle');
+  const [conversionError, setConversionError] = useState<string | null>(null);
 
   const initialState: WizardState = {
     currentStep: 0,
@@ -104,6 +116,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     batchSize: 4,
     packageAfter: true,
     registerAfter: true,
+    createStack: true,
     adaptersRoot: './adapters',
     tier: 'warm',
   };
@@ -191,6 +204,24 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     setCreatedDatasetId(null);
     setShowResumeDialog(false);
   };
+
+  // Wrapper to reset conversion state when switching modes
+  const handleSimpleDatasetModeChange = useCallback((mode: SimpleDatasetMode | ((prev: SimpleDatasetMode) => SimpleDatasetMode)) => {
+    setSimpleDatasetMode(mode);
+    // Reset conversion state to prevent stale data between mode switches
+    setConversionStatus('idle');
+    setConversionError(null);
+    setCreatedDatasetId(null);
+    // Reset selections when switching away from document/collection modes
+    if (typeof mode === 'string') {
+      if (mode !== 'document') {
+        setSelectedDocumentId(null);
+      }
+      if (mode !== 'collection') {
+        setSelectedCollectionId(null);
+      }
+    }
+  }, []);
 
   const updateState = useCallback((updates: Partial<WizardState>) => {
     setPersistedState(updates);
@@ -290,6 +321,69 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     navigate(`/training/datasets/${datasetId}`, { state: { focus: 'validation' } });
   }, [navigate]);
 
+  // Convert document or collection to JSONL dataset
+  const handleConvertToDataset = useCallback(async () => {
+    if (!selectedDocumentId && !selectedCollectionId) {
+      setConversionError('Please select a document or collection first');
+      return;
+    }
+
+    setConversionStatus('converting');
+    setConversionError(null);
+
+    try {
+      // Determine name based on source type
+      let sourceName = '';
+      if (selectedDocumentId) {
+        const doc = documents.find(d => d.document_id === selectedDocumentId);
+        sourceName = doc?.name || 'Untitled Document';
+      } else if (selectedCollectionId) {
+        const col = collections.find(c => c.collection_id === selectedCollectionId);
+        sourceName = col?.name || 'Untitled Collection';
+      }
+
+      const response = await apiClient.createDatasetFromDocuments({
+        documentId: selectedDocumentId || undefined,
+        collectionId: selectedCollectionId || undefined,
+        name: selectedDocumentId
+          ? `Training from doc: ${sourceName}`
+          : `Training from collection: ${sourceName}`,
+      });
+
+      // Use dataset_id directly from flat response (not wrapped in .dataset)
+      const newDatasetId = response.dataset_id;
+
+      // Update state with new dataset
+      updateState({
+        datasetId: newDatasetId,
+        dataSourceType: 'dataset',
+        name: state.name || sourceName,
+      });
+
+      // Add to datasets list for the dropdown
+      setDatasets(prev => [
+        {
+          id: newDatasetId,
+          name: response.name,
+          validation_status: response.validation_status || 'valid',
+          file_count: response.file_count || 1,
+          total_size_bytes: response.total_size_bytes || 0,
+        },
+        ...prev.filter(d => d.id !== newDatasetId),
+      ]);
+
+      setCreatedDatasetId(newDatasetId);
+      setConversionStatus('done');
+      toast.success('Dataset created from documents');
+    } catch (error) {
+      const err = toError(error);
+      setConversionError(err.message);
+      setConversionStatus('error');
+      logger.error('Failed to convert documents to dataset', { component: 'TrainingWizard' }, err);
+      toast.error('Failed to create dataset: ' + err.message);
+    }
+  }, [selectedDocumentId, selectedCollectionId, documents, collections, state.name, updateState]);
+
   const trainingWizardContextValue = useMemo(() => ({
     state,
     updateState,
@@ -297,7 +391,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     repositories,
     templates,
     simpleDatasetMode,
-    setSimpleDatasetMode,
+    setSimpleDatasetMode: handleSimpleDatasetModeChange,
     uploadFiles,
     uploadError,
     createStatus,
@@ -309,6 +403,16 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     handleCreateAndValidateDataset,
     handleOpenDatasetTools,
     dataSourceLocked,
+    // Document/collection mode
+    documents,
+    collections,
+    selectedDocumentId,
+    setSelectedDocumentId,
+    selectedCollectionId,
+    setSelectedCollectionId,
+    conversionStatus,
+    conversionError,
+    handleConvertToDataset,
   }), [
     state,
     updateState,
@@ -316,7 +420,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     repositories,
     templates,
     simpleDatasetMode,
-    setSimpleDatasetMode,
+    handleSimpleDatasetModeChange,
     uploadFiles,
     uploadError,
     createStatus,
@@ -328,6 +432,15 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     handleCreateAndValidateDataset,
     handleOpenDatasetTools,
     dataSourceLocked,
+    documents,
+    collections,
+    selectedDocumentId,
+    setSelectedDocumentId,
+    selectedCollectionId,
+    setSelectedCollectionId,
+    conversionStatus,
+    conversionError,
+    handleConvertToDataset,
   ]);
 
     // Step components lifted into separate files (see TrainingWizard/steps)
@@ -375,6 +488,9 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         }
         if (stateToValidate.registerAfter === undefined) {
           stateToValidate.registerAfter = true;
+        }
+        if (stateToValidate.createStack === undefined) {
+          stateToValidate.createStack = true;
         }
         if (!stateToValidate.adaptersRoot) {
           stateToValidate.adaptersRoot = './adapters';
@@ -439,6 +555,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         maxSeqLength: stateToValidate.maxSeqLength,
         packageAfter: stateToValidate.packageAfter,
         registerAfter: stateToValidate.registerAfter,
+        createStack: stateToValidate.createStack,
         adaptersRoot: stateToValidate.adaptersRoot,
         adapterId: stateToValidate.adapterId,
         tier: stateToValidate.tier,
@@ -470,6 +587,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         post_actions: {
           package: stateToValidate.packageAfter ?? true,
           register: stateToValidate.registerAfter ?? true,
+          create_stack: stateToValidate.createStack ?? true, // Default true: create stack but NOT set as default
           tier: stateToValidate.tier || 'warm',
           adapters_root: stateToValidate.adaptersRoot || undefined,
         },
@@ -814,6 +932,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
                       dataSourceType: 'dataset',
                       packageAfter: true,
                       registerAfter: true,
+                      createStack: true,
                       adaptersRoot: './adapters',
                       tier: 'warm',
                       targets: ['q_proj', 'v_proj'], // Default targets for simple mode

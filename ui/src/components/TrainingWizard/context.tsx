@@ -1,10 +1,13 @@
 import React, { createContext, useContext } from 'react';
 import { Repository, TrainingTemplate } from '@/api/types';
+import { Document, Collection } from '@/api/document-types';
 import { DatasetSummary, WizardState } from './types';
 
-export type SimpleDatasetMode = 'existing' | 'upload';
+export type SimpleDatasetMode = 'existing' | 'upload' | 'document' | 'collection';
 
 export type UploadStatus = 'idle' | 'creating' | 'validating';
+
+export type ConversionStatus = 'idle' | 'converting' | 'done' | 'error';
 
 export interface TrainingWizardContextValue {
   state: WizardState;
@@ -25,6 +28,16 @@ export interface TrainingWizardContextValue {
   handleCreateAndValidateDataset: () => Promise<void>;
   handleOpenDatasetTools: (datasetId?: string | null) => void;
   dataSourceLocked: boolean;
+  // Document/collection mode fields
+  documents: Document[];
+  collections: Collection[];
+  selectedDocumentId: string | null;
+  setSelectedDocumentId: React.Dispatch<React.SetStateAction<string | null>>;
+  selectedCollectionId: string | null;
+  setSelectedCollectionId: React.Dispatch<React.SetStateAction<string | null>>;
+  conversionStatus: ConversionStatus;
+  conversionError: string | null;
+  handleConvertToDataset: () => Promise<void>;
 }
 
 const TrainingWizardContext = createContext<TrainingWizardContextValue | null>(null);

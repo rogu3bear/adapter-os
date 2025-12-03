@@ -27,7 +27,7 @@ export function BasicInfoStep() {
         <Label htmlFor="description">Description</Label>
         <Textarea
           id="description"
-          placeholder="Describe the purpose and use case for this adapter..."
+          placeholder="What should this adapter be good at? (e.g., 'Answer questions about our API documentation')"
           value={state.description}
           onChange={(e) => updateState({ description: e.target.value })}
           rows={3}

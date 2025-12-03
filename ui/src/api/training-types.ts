@@ -134,6 +134,7 @@ export interface StartTrainingRequest {
 export interface PostActionsRequest {
   package?: boolean;              // Package adapter after training (default: true)
   register?: boolean;             // Register adapter in registry (default: true)
+  create_stack?: boolean;         // Create new stack with adapter (default: true, NOT set as default)
   tier?: string;                  // Tier to assign: persistent, warm, ephemeral (default: warm)
   adapters_root?: string;         // Custom adapters root directory
 }
@@ -250,6 +251,38 @@ export interface DatasetResponse {
   schema_version: string;
   dataset: Dataset;
   upload_url?: string;
+}
+
+/**
+ * Request to create a dataset from documents or a collection.
+ * Exactly one of document_id or collection_id must be provided.
+ */
+export interface CreateDatasetFromDocumentsRequest {
+  document_id?: string;
+  collection_id?: string;
+  name?: string;
+  description?: string;
+}
+
+/**
+ * Response from creating a dataset from documents.
+ * Returns flat dataset fields (not wrapped in `dataset`).
+ */
+export interface CreateDatasetFromDocumentsResponse {
+  schema_version: string;
+  dataset_id: string;
+  name: string;
+  description?: string;
+  file_count: number;
+  total_size_bytes: number;
+  format: string;
+  hash: string;
+  storage_path: string;
+  validation_status: string;
+  validation_errors?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ListDatasetsResponse {

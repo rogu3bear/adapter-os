@@ -27,6 +27,8 @@ export { RouterIndicator } from './RouterIndicator';
 export { default as RouterTechnicalView } from './RouterTechnicalView';
 export { default as RouterSummaryView } from './RouterSummaryView';
 export type { RouterDecisionSummary } from './RouterSummaryView';
+export { MissingPinnedAdaptersWarning } from './MissingPinnedAdaptersWarning';
+export { MissingPinnedAdaptersBanner } from './MissingPinnedAdaptersBanner';
 
 // Chat Management Components
 export { ChatShareDialog } from './ChatShareDialog';

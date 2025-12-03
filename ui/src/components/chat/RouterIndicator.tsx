@@ -8,8 +8,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { RouterDetailsModal } from './RouterDetailsModal';
-import { Layers, ChevronDown, Info } from 'lucide-react';
+import { Layers, ChevronDown, Info, AlertTriangle } from 'lucide-react';
 import type { ExtendedRouterDecision } from '@/api/types';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '@/api/client';
@@ -18,14 +24,17 @@ import { logger } from '@/utils/logger';
 interface RouterIndicatorProps {
   decision: ExtendedRouterDecision | null;
   className?: string;
+  unavailablePinnedAdapters?: string[];
 }
 
-export function RouterIndicator({ decision, className }: RouterIndicatorProps) {
+export function RouterIndicator({ decision, className, unavailablePinnedAdapters }: RouterIndicatorProps) {
   const [showDetails, setShowDetails] = useState(false);
 
   if (!decision || !decision.selected_adapters || decision.selected_adapters.length === 0) {
     return null;
   }
+
+  const hasUnavailablePinned = unavailablePinnedAdapters && unavailablePinnedAdapters.length > 0;
 
   // Fetch adapter details efficiently - batch fetch only the ones we need
   const adapterIds = decision.selected_adapters.slice(0, 3); // Only fetch names for displayed adapters
@@ -73,7 +82,25 @@ export function RouterIndicator({ decision, className }: RouterIndicatorProps) {
           {/* Prominent adapter badges */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <Layers className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium text-muted-foreground">Using:</span>
+            <div className="flex items-center gap-1">
+              <span className="text-sm font-medium text-muted-foreground">Using:</span>
+              {hasUnavailablePinned && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 h-5">
+                        <AlertTriangle className="h-3 w-3" />
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">
+                        {unavailablePinnedAdapters!.length} pinned adapter{unavailablePinnedAdapters!.length > 1 ? 's' : ''} unavailable
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
             {selectedAdapters.map((adapterId, idx) => {
               const adapterName = adapterNameMap.get(adapterId) || (isLoadingNames ? '...' : adapterId);
               const displayName = adapterName.length > 20 ? `${adapterName.slice(0, 20)}...` : adapterName;

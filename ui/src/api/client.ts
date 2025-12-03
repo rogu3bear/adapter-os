@@ -19,6 +19,7 @@ import * as policyTypes from '@/api/policyTypes';
 import * as ownerTypes from '@/api/owner-types';
 import * as systemStateTypes from '@/api/system-state-types';
 import * as adapterTypes from '@/api/adapter-types';
+import * as replayTypes from '@/api/replay-types';
 import { logger, toError } from '@/utils/logger';
 import { SystemMetrics } from '@/api/types';
 import { enhanceError, isTransientError, isTimeoutError } from '@/utils/errorMessages';
@@ -1231,6 +1232,28 @@ class ApiClient {
     });
   }
 
+  /**
+   * Create a training dataset from existing documents or a document collection.
+   * Converts RAG documents into JSONL training format.
+   * Either documentId or collectionId must be provided (mutually exclusive).
+   */
+  async createDatasetFromDocuments(params: {
+    documentId?: string;
+    collectionId?: string;
+    name?: string;
+    description?: string;
+  }): Promise<trainingTypes.CreateDatasetFromDocumentsResponse> {
+    return this.request<trainingTypes.CreateDatasetFromDocumentsResponse>('/v1/datasets/from-documents', {
+      method: 'POST',
+      body: JSON.stringify({
+        document_id: params.documentId,
+        collection_id: params.collectionId,
+        name: params.name,
+        description: params.description,
+      }),
+    });
+  }
+
   // Adapter lifecycle management
   // Supports both boolean and advanced pinning modes
   async pinAdapter(adapterId: string, pinnedOrTtlHours: boolean | number, reason?: string): Promise<void> {
@@ -1535,7 +1558,7 @@ class ApiClient {
     data: types.StreamingInferRequest,
     callbacks: {
       onToken: (token: string, chunk: types.StreamingChunk) => void;
-      onComplete: (fullText: string, finishReason: string | null) => void;
+      onComplete: (fullText: string, finishReason: string | null, metadata?: { unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string }) => void;
       onError: (error: Error) => void;
     },
     cancelToken?: AbortSignal
@@ -1585,6 +1608,8 @@ class ApiClient {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let finishReason: string | null = null;
+      let unavailablePinnedAdapters: string[] | undefined = undefined;
+      let pinnedRoutingFallback: string | undefined = undefined;
       let buffer = '';
 
       while (true) {
@@ -1616,7 +1641,11 @@ class ApiClient {
 
             // Check for stream termination
             if (data === '[DONE]') {
-              callbacks.onComplete(fullText, finishReason);
+              const metadata = (unavailablePinnedAdapters || pinnedRoutingFallback) ? {
+                unavailable_pinned_adapters: unavailablePinnedAdapters,
+                pinned_routing_fallback: pinnedRoutingFallback,
+              } : undefined;
+              callbacks.onComplete(fullText, finishReason, metadata);
               return;
             }
 
@@ -1645,25 +1674,39 @@ class ApiClient {
                 }
               }
             } catch (parseError) {
-              logger.warn('Failed to parse streaming chunk', {
-                component: 'ApiClient',
-                operation: 'streamInfer',
-                data,
-              });
+              // Try parsing as a Done event with pinned adapter metadata
+              try {
+                const event = JSON.parse(data) as { event?: string; unavailable_pinned_adapters?: string[]; pinned_routing_fallback?: string };
+                if (event.event === 'Done') {
+                  unavailablePinnedAdapters = event.unavailable_pinned_adapters;
+                  pinnedRoutingFallback = event.pinned_routing_fallback;
+                }
+              } catch {
+                // Not a Done event, log the original parse error
+                logger.warn('Failed to parse streaming chunk', {
+                  component: 'ApiClient',
+                  operation: 'streamInfer',
+                  data,
+                });
+              }
             }
           }
         }
       }
 
       // Stream ended normally (without [DONE])
-      callbacks.onComplete(fullText, finishReason);
+      const metadata = (unavailablePinnedAdapters || pinnedRoutingFallback) ? {
+        unavailable_pinned_adapters: unavailablePinnedAdapters,
+        pinned_routing_fallback: pinnedRoutingFallback,
+      } : undefined;
+      callbacks.onComplete(fullText, finishReason, metadata);
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         logger.info('Streaming inference cancelled', {
           component: 'ApiClient',
           operation: 'streamInfer',
         });
-        callbacks.onComplete(fullText || '', 'cancelled');
+        callbacks.onComplete(fullText || '', 'cancelled', undefined);
         return;
       }
 
@@ -2379,6 +2422,17 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(step),
     });
+  }
+
+  async getWorkerIncidents(workerId: string, limit?: number): Promise<types.WorkerIncident[]> {
+    const params = new URLSearchParams();
+    if (limit !== undefined) params.append('limit', limit.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.requestList<types.WorkerIncident>(`/v1/workers/${workerId}/incidents${query}`);
+  }
+
+  async getWorkersHealthSummary(): Promise<types.WorkerHealthSummary[]> {
+    return this.requestList<types.WorkerHealthSummary>('/v1/workers/health/summary');
   }
 
   // Routing methods
@@ -5328,6 +5382,53 @@ class ApiClient {
     }
 
     return response.blob();
+  }
+
+  // ============================================================================
+  // Deterministic Replay API (PRD-02)
+  // ============================================================================
+
+  /**
+   * Check if replay is available for an inference
+   *
+   * GET /v1/replay/check/{inference_id}
+   *
+   * @param inferenceId - ID of the inference to check
+   * @returns Replay availability information
+   */
+  async checkReplayAvailability(inferenceId: string): Promise<replayTypes.ReplayAvailabilityResponse> {
+    return this.request<replayTypes.ReplayAvailabilityResponse>(
+      `/v1/replay/check/${inferenceId}`
+    );
+  }
+
+  /**
+   * Execute a deterministic replay
+   *
+   * POST /v1/replay
+   *
+   * @param request - Replay execution request
+   * @returns Replay execution result
+   */
+  async executeReplay(request: replayTypes.ReplayRequest): Promise<replayTypes.ReplayResponse> {
+    return this.request<replayTypes.ReplayResponse>('/v1/replay', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Get replay execution history for an inference
+   *
+   * GET /v1/replay/history/{inference_id}
+   *
+   * @param inferenceId - ID of the inference
+   * @returns History of replay executions
+   */
+  async getReplayHistory(inferenceId: string): Promise<replayTypes.ReplayHistoryResponse> {
+    return this.request<replayTypes.ReplayHistoryResponse>(
+      `/v1/replay/history/${inferenceId}`
+    );
   }
 }
 

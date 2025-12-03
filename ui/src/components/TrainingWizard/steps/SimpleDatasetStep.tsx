@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { TERMS } from '@/constants/terminology';
 import { formatBytes } from '@/utils/format';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, FileText, FolderOpen, Check, Loader2 } from 'lucide-react';
 import { FILE_VALIDATION } from '@/components/TrainingWizard/constants';
 import { useTrainingWizardContext } from '@/components/TrainingWizard/context';
 
@@ -29,12 +29,25 @@ export function SimpleDatasetStep() {
     createdDatasetId,
     handleOpenDatasetTools,
     createStatus,
+    // Document/collection mode
+    documents,
+    collections,
+    selectedDocumentId,
+    setSelectedDocumentId,
+    selectedCollectionId,
+    setSelectedCollectionId,
+    conversionStatus,
+    conversionError,
+    handleConvertToDataset,
   } = useTrainingWizardContext();
+
+  // Filter to indexed documents only
+  const indexedDocuments = documents.filter(d => d.status === 'indexed');
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Pick an existing validated collection or upload documents to create a new one. The wizard will auto-validate uploads.
+        Choose your training data source: use an existing collection, create from a document, or upload new files.
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -42,15 +55,41 @@ export function SimpleDatasetStep() {
           type="button"
           variant={simpleDatasetMode === 'existing' ? 'default' : 'outline'}
           onClick={() => setSimpleDatasetMode('existing')}
+          disabled={conversionStatus === 'converting'}
         >
-          Use existing collection
+          Existing collection
+        </Button>
+        <Button
+          type="button"
+          variant={simpleDatasetMode === 'document' ? 'default' : 'outline'}
+          onClick={() => {
+            setSimpleDatasetMode('document');
+            setSelectedCollectionId(null);
+          }}
+          disabled={conversionStatus === 'converting'}
+        >
+          <FileText className="h-4 w-4 mr-1" />
+          From document
+        </Button>
+        <Button
+          type="button"
+          variant={simpleDatasetMode === 'collection' ? 'default' : 'outline'}
+          onClick={() => {
+            setSimpleDatasetMode('collection');
+            setSelectedDocumentId(null);
+          }}
+          disabled={conversionStatus === 'converting'}
+        >
+          <FolderOpen className="h-4 w-4 mr-1" />
+          From collection
         </Button>
         <Button
           type="button"
           variant={simpleDatasetMode === 'upload' ? 'default' : 'outline'}
           onClick={() => setSimpleDatasetMode('upload')}
+          disabled={conversionStatus === 'converting'}
         >
-          Upload new documents
+          Upload new
         </Button>
       </div>
 
@@ -128,6 +167,168 @@ export function SimpleDatasetStep() {
             }
             return null;
           })()}
+        </div>
+      )}
+
+      {simpleDatasetMode === 'document' && (
+        <div className="space-y-3 border rounded-lg p-4">
+          <div className="space-y-2">
+            <Label htmlFor="document-select">Select a document</Label>
+            <Select
+              value={selectedDocumentId || ''}
+              onValueChange={(value) => setSelectedDocumentId(value)}
+            >
+              <SelectTrigger id="document-select">
+                <SelectValue placeholder="Choose a document..." />
+              </SelectTrigger>
+              <SelectContent>
+                {indexedDocuments.length === 0 ? (
+                  <SelectItem value="__empty__" disabled>
+                    No indexed documents available
+                  </SelectItem>
+                ) : (
+                  indexedDocuments.map((doc) => (
+                    <SelectItem key={doc.document_id} value={doc.document_id}>
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span>{doc.name}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {doc.status}
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Only indexed documents can be converted to training data.
+            </p>
+          </div>
+
+          {conversionError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{conversionError}</AlertDescription>
+            </Alert>
+          )}
+
+          {conversionStatus === 'done' && createdDatasetId && (
+            <Alert>
+              <Check className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-700">
+                Dataset created successfully! You can proceed to the next step.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              onClick={handleConvertToDataset}
+              disabled={!selectedDocumentId || conversionStatus === 'converting'}
+            >
+              {conversionStatus === 'converting' ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Converting...
+                </>
+              ) : (
+                'Convert to dataset'
+              )}
+            </Button>
+            {createdDatasetId && conversionStatus === 'done' && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleOpenDatasetTools(createdDatasetId)}
+              >
+                View dataset
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {simpleDatasetMode === 'collection' && (
+        <div className="space-y-3 border rounded-lg p-4">
+          <div className="space-y-2">
+            <Label htmlFor="collection-select">Select a document collection</Label>
+            <Select
+              value={selectedCollectionId || ''}
+              onValueChange={(value) => setSelectedCollectionId(value)}
+            >
+              <SelectTrigger id="collection-select">
+                <SelectValue placeholder="Choose a collection..." />
+              </SelectTrigger>
+              <SelectContent>
+                {collections.length === 0 ? (
+                  <SelectItem value="__empty__" disabled>
+                    No collections available
+                  </SelectItem>
+                ) : (
+                  collections.map((col) => (
+                    <SelectItem key={col.collection_id} value={col.collection_id}>
+                      <div className="flex items-center gap-2">
+                        <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                        <span>{col.name}</span>
+                        {col.document_count !== undefined && (
+                          <span className="text-xs text-muted-foreground">
+                            ({col.document_count} docs)
+                          </span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              All indexed documents in the collection will be converted to training data.
+            </p>
+          </div>
+
+          {conversionError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{conversionError}</AlertDescription>
+            </Alert>
+          )}
+
+          {conversionStatus === 'done' && createdDatasetId && (
+            <Alert>
+              <Check className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-700">
+                Dataset created successfully! You can proceed to the next step.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              onClick={handleConvertToDataset}
+              disabled={!selectedCollectionId || conversionStatus === 'converting'}
+            >
+              {conversionStatus === 'converting' ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Converting...
+                </>
+              ) : (
+                'Convert to dataset'
+              )}
+            </Button>
+            {createdDatasetId && conversionStatus === 'done' && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleOpenDatasetTools(createdDatasetId)}
+              >
+                View dataset
+              </Button>
+            )}
+          </div>
         </div>
       )}
 

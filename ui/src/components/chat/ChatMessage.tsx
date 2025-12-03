@@ -1,9 +1,13 @@
-import React, { memo } from 'react';
+import React, { memo, useState, useCallback } from 'react';
 import { cn } from '@/components/ui/utils';
 import { RouterIndicator } from './RouterIndicator';
 import { EvidencePanel } from './EvidencePanel';
 import { ProofBadge } from './ProofBadge';
+import { ReplayButton } from './ReplayButton';
+import { ReplayResultDialog } from './ReplayResultDialog';
+import { MissingPinnedAdaptersWarning } from './MissingPinnedAdaptersWarning';
 import type { ExtendedRouterDecision } from '@/api/types';
+import type { ReplayResponse } from '@/api/replay-types';
 
 export interface EvidenceItem {
   document_id: string;
@@ -26,6 +30,8 @@ export interface ChatMessage {
   evidence?: EvidenceItem[];
   isVerified?: boolean;
   verifiedAt?: string;
+  unavailablePinnedAdapters?: string[];
+  pinnedRoutingFallback?: 'stack_only' | 'partial';
 }
 
 interface ChatMessageProps {
@@ -49,6 +55,7 @@ function areMessagesEqual(prevProps: ChatMessageProps, nextProps: ChatMessagePro
     prev.requestId === next.requestId &&
     prev.isVerified === next.isVerified &&
     prev.verifiedAt === next.verifiedAt &&
+    prev.pinnedRoutingFallback === next.pinnedRoutingFallback &&
     // Deep compare router decision
     (prev.routerDecision === next.routerDecision ||
      (prev.routerDecision && next.routerDecision &&
@@ -59,12 +66,24 @@ function areMessagesEqual(prevProps: ChatMessageProps, nextProps: ChatMessagePro
      (prev.evidence && next.evidence &&
       prev.evidence.length === next.evidence.length &&
       prev.evidence.every((e, i) => e.chunk_id === next.evidence![i].chunk_id))) &&
+    // Deep compare unavailable pinned adapters
+    (prev.unavailablePinnedAdapters === next.unavailablePinnedAdapters ||
+     (prev.unavailablePinnedAdapters && next.unavailablePinnedAdapters &&
+      prev.unavailablePinnedAdapters.length === next.unavailablePinnedAdapters.length &&
+      prev.unavailablePinnedAdapters.every((a, i) => a === next.unavailablePinnedAdapters![i]))) &&
     prevProps.className === nextProps.className
   );
 }
 
 export const ChatMessageComponent = memo(function ChatMessageComponent({ message, className, onViewDocument }: ChatMessageProps) {
   const isUser = message.role === 'user';
+  const [replayDialogOpen, setReplayDialogOpen] = useState(false);
+  const [replayResponse, setReplayResponse] = useState<ReplayResponse | null>(null);
+
+  const handleReplayComplete = useCallback((response: ReplayResponse) => {
+    setReplayResponse(response);
+    setReplayDialogOpen(true);
+  }, []);
 
   return (
     <div
@@ -78,7 +97,20 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
     >
       {/* Router indicator for assistant messages */}
       {!isUser && message.routerDecision && (
-        <RouterIndicator decision={message.routerDecision} />
+        <RouterIndicator
+          decision={message.routerDecision}
+          unavailablePinnedAdapters={message.unavailablePinnedAdapters}
+        />
+      )}
+
+      {/* Pinned adapter warning for assistant messages */}
+      {!isUser && message.unavailablePinnedAdapters && message.unavailablePinnedAdapters.length > 0 && (
+        <div className="max-w-[80%] w-full">
+          <MissingPinnedAdaptersWarning
+            unavailableAdapters={message.unavailablePinnedAdapters}
+            fallbackMode={message.pinnedRoutingFallback}
+          />
+        </div>
       )}
 
       {/* Message bubble */}
@@ -117,7 +149,7 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
         </div>
       )}
 
-      {/* Timestamp with verification badge */}
+      {/* Timestamp with verification badge and replay button */}
       <div className="flex items-center gap-2">
         <time
           className="text-xs text-muted-foreground px-1"
@@ -129,7 +161,21 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
         {!isUser && message.isVerified && (
           <ProofBadge isVerified={message.isVerified} timestamp={message.verifiedAt} />
         )}
+        {/* Replay button for assistant messages with request ID (PRD-02) */}
+        {!isUser && message.requestId && !message.isStreaming && (
+          <ReplayButton
+            inferenceId={message.requestId}
+            onReplayComplete={handleReplayComplete}
+          />
+        )}
       </div>
+
+      {/* Replay result dialog */}
+      <ReplayResultDialog
+        open={replayDialogOpen}
+        onOpenChange={setReplayDialogOpen}
+        replayResponse={replayResponse}
+      />
     </div>
   );
 }, areMessagesEqual);

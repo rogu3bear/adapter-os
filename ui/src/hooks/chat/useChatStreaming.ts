@@ -250,7 +250,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
             setTokensReceived(tokenCount);
           },
 
-          onComplete: async (completedText: string, finishReason: string | null) => {
+          onComplete: async (completedText: string, finishReason: string | null, metadata?: { unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string }) => {
             // Calculate final duration
             const duration = streamStartTimeRef.current
               ? Date.now() - streamStartTimeRef.current
@@ -265,6 +265,8 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
               timestamp: new Date(),
               requestId,
               isStreaming: false,
+              unavailablePinnedAdapters: metadata?.unavailable_pinned_adapters,
+              pinnedRoutingFallback: metadata?.pinned_routing_fallback as 'stack_only' | 'partial' | undefined,
             };
 
             logger.info('Stream completed', {
@@ -274,6 +276,8 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
               duration,
               finishReason,
               sessionId: sessionId ?? undefined,
+              unavailablePinnedAdapters: metadata?.unavailable_pinned_adapters,
+              pinnedRoutingFallback: metadata?.pinned_routing_fallback,
             });
 
             setIsStreaming(false);
