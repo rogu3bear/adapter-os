@@ -17,9 +17,9 @@
 //! cargo run --example basic_inference
 //! ```
 
-use std::fs;
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::ManifestV3;
+use std::fs;
 
 #[cfg(not(feature = "extended-tests"))]
 fn main() {

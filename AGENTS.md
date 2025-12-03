@@ -1,1400 +1,520 @@
-# AGENTS.md
+# AdapterOS Assistant Guide
 
-This file provides guidance to AGENTS Code (AGENTS.ai/code) when working with code in this repository.
+## 1. Purpose & Scope
 
----
+### What is AdapterOS?
 
-# AdapterOS Developer Guide
+AdapterOS is an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems, targeting Mac/Metal environments and unified memory machines. It provides:
 
-**Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
+- **Control Plane** (`adapteros-server`): HTTP API with SQLite, JWT auth, and policy enforcement
+- **Worker Processes** (`aos-worker`): LoRA-based inference and training over Unix Domain Sockets (UDS)
+- **K-Sparse Router**: Multi-adapter mixing with Q15 quantization
+- **Multi-Backend**: Metal, CoreML/ANE, and MLX support
 
-**Purpose:** Quick reference for developers. For detailed architecture, see [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md)
-**Last Updated:** 2025-11-25 (System information accuracy updates: migration count, crate count, endpoint count, feature status)
-**Version:** v0.3-alpha
-**Maintained by:** James KC Auchterlonie
+**Key Characteristics:**
+- Single-node by default (future: "bunch of Macs" topology)
+- Multi-tenant at logical level: tenants own datasets, documents, adapters, stacks, and policies
+- Base models and workers are shared resources
+- Strongly focused on determinism, replay, tenant isolation, and auditable policies
+- Adapters hot-swap as an alternative to stuffing tokens into context
 
-**AI Assistant Integration:** This file (AGENTS.md) serves as the single source of truth for both human developers and AI assistants. No separate rule files exist - all standards and protocols are documented here.
+### Scope of This Assistant
 
----
-
-## AI Assistant Integration Protocol
-
-**🚨 SINGLE SOURCE OF TRUTH:** This AGENTS.md file contains ALL standards, protocols, and requirements for AI assistants. No external rule files exist. AI assistants must reference this file exclusively for all development work.
-
-### Cursor AI Workflow Requirements
-
-**Pre-Conversation Checklist:**
-- [ ] Reference AGENTS.md standards before any code changes
-- [ ] Verify compliance with documented patterns and conventions
-- [ ] Check current version status (currently: v0.3-alpha)
-- [ ] Review applicable policy packs and RBAC permissions
-
-**During Code Changes:**
-- [ ] Cross-reference against specific AGENTS.md sections
-- [ ] Follow documented error handling patterns
-- [ ] Use approved logging and tracing standards
-- [ ] Maintain deterministic execution requirements
-
-**Post-Change Updates:**
-- [ ] Update AGENTS.md if new patterns emerge
-- [ ] Document any standard modifications
-- [ ] Ensure documentation reflects current implementation
-- [ ] Flag inconsistencies between code and documentation
-
-### Quality Assurance Gates
-
-**Mandatory Checks:**
-- Code style matches AGENTS.md conventions
-- Error handling follows established patterns
-- Logging uses `tracing` macros with structured fields
-- Tests follow deterministic execution requirements
-- Documentation updated for any API changes
-
-**Documentation Updates:**
-- New crates require AGENTS.md architecture pattern entries
-- Policy changes must update the 24 canonical policies section
-- RBAC modifications need permission matrix updates
-- New endpoints require API reference updates
-
-### Memory and Context Management
-
-**Single Source of Truth:** AGENTS.md is the authoritative reference for all AdapterOS standards and patterns.
-
-**Update Protocol:** Any deviation from documented standards requires immediate AGENTS.md updates.
-
-**Version Tracking:** AGENTS.md must reflect current implementation version (v0.3-alpha).
+This assistant can:
+- Read and edit Rust, TypeScript, SQL, and configuration code
+- Run tests and build commands
+- Reason about architecture, invariants, and design decisions
+- Help implement features, fix bugs, and refactor code
 
 ---
 
-## Critical Development Rules
+## 2. Core Principles & Invariants
 
-### Compilation Quality
-**IMPORTANT:** Do not confuse "make it compile" with "make it work." If code compiles but the architecture is incompatible with a feature or service, this is worse than compilation errors because:
-- Compilation errors block progress visibly
-- Runtime panics create silent failures that ship to production
-- Always verify runtime correctness, not just compilation success
+### 2.1 Determinism and Replay
 
-### Duplication Prevention
-**CRITICAL:** Always prevent code duplication - this is a core codebase requirement.
+**Seed Derivation:**
+- Uses HKDF-SHA256 with BLAKE3 global seed
+- Full entropy isolation: `manifest_hash + adapter_dir_hash + worker_id + label + nonce`
+- Location: `crates/adapteros-core/src/seed.rs`
 
-**Before writing code:**
-1. Search for existing patterns in the codebase
-2. Look for existing utilities/services/components
-3. Prefer reusing over creating new code
+**Router Determinism:**
+- IEEE 754 deterministic softmax (f64 intermediate precision intended)
+- Sorted by score DESC, then index ASC for tie-breaking
+- Q15 gate quantization: `gate_f32 = q15 / 32767.0` (denominator is 32767, NOT 32768)
+- BLAKE3 decision hashing for audit trail
+- Location: `crates/adapteros-lora-router/src/lib.rs`
 
-**Extract proactively if:**
-- Code appears 3+ times
-- String literal >50 chars used 2+ times
-- Function logic >10 lines duplicated
-- Similar validation logic in multiple handlers
-- Test setup code duplicated across test files
+**Replay Metadata (Stored per inference):**
+- `manifest_hash`, `router_seed`, `sampling_params_json`, `backend`
+- `rag_snapshot_hash` (BLAKE3 of sorted doc hashes), `adapter_ids_json`
+- `prompt_text`, `response_text` (64KB limit with truncation flag)
+- Location: `crates/adapteros-db/src/replay_metadata.rs`
 
-**Common extraction locations:**
-- Rust services: `crates/*/src/services/`
-- Test utilities: `tests/common/`
+**Critical: `router_seed` is stored for AUDIT onlyrouting is deterministic by algorithm, not RNG.**
 
-**Before committing:**
+### 2.2 Tenant Isolation
+
+**Handler-Level (security/mod.rs):**
+```rust
+validate_tenant_isolation(claims, resource_tenant_id)
+```
+- Same tenant: always allowed
+- Admin cross-tenant: requires explicit `admin_tenants` claim
+- Dev mode bypass: debug builds only (`AOS_DEV_NO_AUTH`)
+
+**Database-Level (migration 0131):**
+- Composite FKs: `FOREIGN KEY (tenant_id, document_id) REFERENCES documents(tenant_id, id)`
+- 15+ triggers prevent cross-tenant references
+- Orphan detection fails migration if data integrity is broken
+
+**CRITICAL: All queries involving tenant-scoped resources MUST include `tenant_id` filter.**
+
+### 2.3 Policy & Audit
+
+**Hook Points:**
+- `OnRequestBeforeRouting`  before adapter selection
+- `OnBeforeInference`  after routing, before inference
+- `OnAfterInference`  after inference completes
+
+**24 Canonical Policy Packs:**
+Core (always enabled): Egress, Determinism, Isolation, Evidence
+
+Additional: Router, Refusal, Numeric, RAG, Telemetry, Retention, Performance, Memory, Artifacts, Secrets, Build_Release, Compliance, Incident, Output, Adapters, Deterministic_IO, Drift, MPLoRA, Naming, Dependency_Security
+
+**Merkle Chain Audit:**
+- BLAKE3 hash chaining: `entry_hash = BLAKE3(entry_data + previous_hash)`
+- Ed25519 signatures per audit entry
+- Chain verification detects tampering
+- Location: `crates/adapteros-db/src/policy_audit.rs`
+
+### 2.4 Egress & Offline Posture
+
+**Default Egress Config:**
+```rust
+mode: DenyAll
+serve_requires_pf: true  // PF firewall required in production
+allow_tcp: false
+allow_udp: false
+uds_paths: ["/var/run/aos"]
+```
+
+**Runtime Modes:**
+- Dev: `allows_egress: true`
+- Staging: `allows_egress: false`, requires allowlist
+- Prod: `denies_egress: true` (zero egress)
+
+**Workers have zero network egress (UDS only).**
+
+### 2.5 Critical Invariants (DO NOT BREAK)
+
+| Invariant | Location | Risk |
+|-----------|----------|------|
+| All inference routes through `InferenceCore` | `inference_core.rs:83` (`route_and_infer`) | Bypassing breaks auditability |
+| Routing guard must fail hard | `inference_core.rs:106` (`enter_routed_context`) | Silent failures break audit trail |
+| Merkle chain write lock BEFORE read | `deterministic-exec/src/global_ledger.rs:85` (`GlobalTickLedger`) | Race conditions break determinism |
+| Q15 denominator is 32767.0 | `lora-router/src/lib.rs:1022,1397` | Precision-critical for gate values |
+| FK constraints enabled | `db/lib.rs:466` | `foreign_keys=true` required |
+| Tenant FK triggers | Migration 0131 | Cross-tenant leakage risk |
+
+---
+
+## 3. Repository Map
+
+### 3.1 Binaries
+
+| Binary | Crate | Source | Purpose |
+|--------|-------|--------|---------|
+| `adapteros-server` | adapteros-server | `crates/adapteros-server/src/main.rs` | Control plane HTTP API server |
+| `aos-worker` | adapteros-lora-worker | `crates/adapteros-lora-worker/src/bin/aos_worker.rs` | Inference worker process (UDS) |
+| `aosctl` | adapteros-cli | `crates/adapteros-cli/src/main.rs` | CLI tool for all operations |
+
+### 3.2 Control Plane Crates
+
+| Crate | Purpose |
+|-------|---------|
+| `adapteros-server` | HTTP server bootstrap, shutdown coordination |
+| `adapteros-server-api` | 300+ REST endpoints, handlers, middleware |
+| `adapteros-orchestrator` | Training job orchestration |
+| `adapteros-registry` | Adapter/model registry |
+| `adapteros-federation` | Cross-node communication (future) |
+
+### 3.3 Worker/Data Plane Crates
+
+| Crate | Purpose |
+|-------|---------|
+| `adapteros-lora-worker` | Core worker: UDS server, inference pipeline |
+| `adapteros-lora-router` | K-sparse routing with Q15 gates |
+| `adapteros-lora-kernel-mtl` | Metal GPU backend |
+| `adapteros-lora-kernel-coreml` | CoreML/ANE backend |
+| `adapteros-lora-mlx-ffi` | MLX backend (experimental) |
+| `adapteros-lora-lifecycle` | Adapter state machine |
+
+### 3.4 Shared Libraries
+
+| Crate | Purpose |
+|-------|---------|
+| `adapteros-core` | Domain types, errors, BLAKE3/HKDF, seed derivation |
+| `adapteros-types` | Base type definitions |
+| `adapteros-api-types` | Request/response types |
+| `adapteros-db` | SQLite abstraction, 137 migrations |
+| `adapteros-config` | Config loading with precedence (CLI > env > manifest) |
+| `adapteros-crypto` | Ed25519, BLAKE3, HKDF, AES-GCM |
+| `adapteros-policy` | 24 policy packs, enforcement hooks |
+| `adapteros-telemetry` | Event collection, Merkle bundles |
+| `adapteros-manifest` | Adapter manifest V3 format |
+
+### 3.5 UI
+
+| Location | Purpose |
+|----------|---------|
+| `ui/` | React 18 + TypeScript + Vite + TanStack Query |
+| `ui/src/api/client.ts` | API client (5,395 lines) |
+| `ui/src/components/` | 139+ component directories |
+| `ui/src/hooks/` | 108 custom hooks |
+
+---
+
+## 4. Working Process for Changes
+
+### 4.1 Before Making Changes
+
+1. **Identify the subsystem**: inference, replay, RAG, training, worker health, policies, config, UI
+2. **Read relevant code**: Don't propose changes to code you haven't read
+3. **Check for invariants**: Look for `CRITICAL`, `INVARIANT`, `SECURITY` comments
+4. **Understand test coverage**: Find related tests in `tests/` and `crates/*/tests/`
+
+### 4.2 Making Changes
+
+1. **Make minimal, targeted changes** that preserve invariants
+2. **Avoid over-engineering**: Don't add features, refactor, or "improve" beyond what's asked
+3. **Security-first**: Be careful not to introduce OWASP Top 10 vulnerabilities
+4. **Preserve determinism**: Any change touching inference/routing must maintain reproducibility
+
+### 4.3 After Making Changes
+
+1. **Run appropriate tests**:
+   ```bash
+   cargo test -p <crate>           # Crate-specific
+   cargo test --workspace          # All tests
+   make determinism-check          # Determinism suite
+   ```
+
+2. **Check formatting and lints**:
+   ```bash
+   cargo fmt --all
+   cargo clippy --workspace
+   ```
+
+3. **Verify migrations** (if schema changed):
+   ```bash
+   cargo sqlx migrate run
+   # Verify signatures if needed
+   ```
+
+4. **Summarize impact**: Document effects on determinism, isolation, policy auditability, egress posture
+
+---
+
+## 5. Tools & Commands
+
+### 5.1 Development
+
 ```bash
-make dup  # Run duplication check
-# Extract any detected duplicates
-# Verify reduction with another make dup
+make dev               # Start control plane (port 8080, NO_AUTH=1)
+make ui-dev            # Start UI (port 3200)
+make test              # Run all tests (excluding MLX)
+make determinism-check # Determinism test suite
+make check             # fmt + clippy + test
+make metal             # Build Metal shaders
+make security-audit    # Vulnerabilities, licenses, SBOM
 ```
 
-All code extractions require citations: `【YYYY-MM-DD†category†identifier】` (see CITATIONS.md)
+### 5.2 Database
 
-**References:**
-- [CITATIONS.md](CITATIONS.md)
+```bash
+cargo sqlx migrate run    # Apply migrations
+./scripts/migrate.sh      # Migration helper script
+```
 
-**Note:** For duplication prevention guidelines, see the "Duplication Prevention" section above and follow the extraction patterns documented in CITATIONS.md.
+### 5.3 Testing
+
+```bash
+cargo test -p adapteros-lora-router          # Router tests
+cargo test -p adapteros-db                   # DB tests
+cargo test -p adapteros-server-api           # API tests
+cargo test -- --test-threads=1               # Sequential (debugging)
+cargo test -- --nocapture                    # With output
+LOOM_MAX_PREEMPTIONS=3 cargo test test_name  # Concurrency tests
+```
+
+### 5.4 Environment Assumptions
+
+- **Platform**: macOS with Metal GPU (Linux supported without GPU acceleration)
+- **Memory**: Unified Memory Architecture (UMA) assumed
+- **Database**: SQLite at `var/aos-cp.sqlite3`
+- **Default Model**: Qwen2.5-7B
 
 ---
 
-## Current Implementation Status (v0.3-alpha)
+## 6. Change Safety Guidelines
 
--### ✅ **Implemented Features**
-- Multi-backend architecture (CoreML, MLX, Metal)
-- K-sparse LoRA routing with Q15 quantization
-- Deterministic execution with HKDF seeding
-- 24 canonical policy packs enforcement
-- REST API with streaming inference support
-- SQLite database with comprehensive migrations
-- CLI tools (`aosctl`) with full feature set
-- Training pipeline and dataset management (all 5 steps: ingest, generate, dataset, train, package)
-- Federation system for cross-node synchronization (peer discovery, signatures, consensus)
+### 6.1 NEVER Do These
 
-### 🔄 **In Development**
-- Advanced UI with real-time monitoring
-- Production deployment hardening
+- **Bypass `InferenceCore` routing guard**  all inference must go through it
+- **Change Q15 denominator** from 32767.0  precision-critical
+- **Use `unwrap()`/`expect()` in crypto code**  handle errors properly
+- **Skip `tenant_id` validation** in DB queries  tenant isolation is critical
+- **Move types across crate boundaries** without handling migrations/API impact
+- **Modify Merkle chain logic** without proper locking
+- **Store secrets in code or config files**
+- **Renumber migrations**  `migration_conflicts.rs` enforces this
+- **Use `-ffast-math`** or similar compiler flags  breaks determinism
 
-**Completion Plan:** See [docs/PRD-COMPLETION-V03-ALPHA.md](docs/PRD-COMPLETION-V03-ALPHA.md) for the comprehensive 12-week plan to complete all features (70 tasks, 6-7 teams, 15-19 engineers)
+### 6.2 ALWAYS Do These
 
-### 📊 **Architecture Scale**
-- 70 crates in workspace (plus xtask, fuzz)
-- 422,000+ lines of Rust code
-- 340+ documentation files
-- 97 migrations (0001-0097)
-- 24 canonical policy packs
-- 55 permissions (5 roles)
-- ~190 REST API endpoints
-- 16 active CI/CD workflows
+- **Run `cargo fmt --all` and `cargo clippy --workspace`**
+- **Include `tenant_id` filters** in all multi-tenant queries
+- **Use `Result`-based error handling** in security code
+- **Verify migration signatures** after schema changes
+- **Add tests** for new functionality, especially determinism-related
+- **Document impact** on determinism, isolation, and auditability
+
+### 6.3 When Uncertain
+
+- **Fail loudly** rather than silently
+- **Add tests** to verify assumptions
+- **Document limitations** clearly
+- **Ask for clarification** before making risky changes
 
 ---
 
-## Standards & Conventions
+## 7. Style & Conventions
 
-### Code Style
+### 7.1 Error Handling
+
 ```rust
-// Standard Rust conventions: PascalCase (types), snake_case (functions/modules), SCREAMING_SNAKE_CASE (constants)
-// Run: cargo fmt --all && cargo clippy --workspace -- -D warnings
-```
+// Use thiserror for error enums
+use thiserror::Error;
 
-### Documentation
-```rust
-/// Brief description. Args: `path` - description. Errors: `AosError::NotFound` if missing.
-pub async fn load_from_path(path: &Path) -> Result<Adapter> { /* ... */ }
-```
-
-### Error Handling
-```rust
-use adapteros_core::{AosError, Result};
-
-// Use Result<T>, never Option<T> for errors. Add context with map_err.
-pub async fn load(&self, path: &Path) -> Result<Data> {
-    std::fs::read(path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => AosError::NotFound(format!("File not found: {}", path.display())),
-        _ => AosError::Io(format!("Failed to read {}: {}", path.display(), e))
-    })?;
-    // ...
+#[derive(Error, Debug)]
+pub enum MyError {
+    #[error("description: {0}")]
+    Variant(String),
 }
+
+// Use Result alias
+pub type Result<T> = std::result::Result<T, AosError>;
 ```
 
-**Common `AosError` variants:** `PolicyViolation`, `DeterminismViolation`, `EgressViolation`, `IsolationViolation`, `Validation`, `Config`, `Io`, `Database`, `Crypto`, `Network`
+### 7.2 Logging
 
-**Error Type Requirements:**
-- **Production code:** MUST use `AosError` (handlers, services, core logic)
-- **Test code:** May use `Box<dyn std::error::Error>` if test framework requires it
-- **Example code:** Should use `AosError` for consistency
-- **CLI error display:** May use `anyhow::Error` for user-friendly error messages
-
-**Conversion Pattern:**
 ```rust
-// Convert generic errors to AosError
-.map_err(|e| AosError::Database(format!("Operation failed: {}", e)))?;
-
-// From anyhow (CLI only)
-impl From<anyhow::Error> for AosError {
-    fn from(err: anyhow::Error) -> Self {
-        AosError::Other(err.to_string())
-    }
-}
-```
-
-### Logging (Use `tracing`, never `println!`)
-
-**Production Code:** MUST use `tracing` macros
-```rust
+// Use tracing, not println!
 use tracing::{info, warn, error, debug, trace};
-info!(tenant_id = %tenant.id, adapter_id = %adapter.id, "Loading adapter");
+
+info!(request_id = %id, latency_ms = ms, "message");
+warn!(tenant_id = %tid, "potential issue");
+error!(error = ?e, "operation failed");
 ```
 
-**CLI Output:** `println!`/`eprintln!` acceptable for user-facing output
-```rust
-// ACCEPTABLE: CLI user output
-println!("Adapter loaded: {}", adapter_id);
-eprintln!("Error: {}", error_msg);
+### 7.3 Feature Flags
 
-// ACCEPTABLE: Deprecation warnings in CLI
-eprintln!("Warning: 'old-command' is deprecated. Use 'new-command' instead.");
+```toml
+[features]
+default = ["deterministic-only", "coreml-backend"]
 ```
 
-**Debug Statements:** Use `tracing::debug!` or remove
-```rust
-// CORRECT: Use tracing::debug!
-tracing::debug!(adapter_id = %id, "Debug information");
+Feature flags affect determinism and available backends. Check feature configuration before assuming capabilities.
 
-// WRONG: println! in production code
-println!("Debug: adapter {}", id); // ❌ Remove or convert to tracing::debug!
-```
+### 7.4 Commit Messages
 
-**Log levels:** `trace!` (detailed debug) → `debug!` (dev info) → `info!` (general) → `warn!` (attention) → `error!` (action required)
-
-**Telemetry:** See [docs/TELEMETRY_EVENTS.md](docs/TELEMETRY_EVENTS.md) for event catalog and metadata patterns
-
-**Dev auth bypass (debug only):**
-- Only available in debug builds with `AOS_DEV_NO_AUTH` set to `1/true/yes/on`
-- Injects a temporary admin claim (`dev-no-auth@adapteros.local`, tenant `system`) for rapid local testing
-- A debug-only token shortcut `Bearer adapteros-local` exists in `dual_auth_middleware` for debug builds
-- **Never** enable `AOS_DEV_NO_AUTH` or rely on the debug token in production or release builds (bypass code is compiled out in release)
+When committing:
+- Summarize the "why" not the "what"
+- Note impact on: determinism, tenant isolation, policy enforcement, egress
+- Reference PRD numbers if applicable (e.g., PRD-02, PRD-03, PRD-09)
 
 ---
 
-## Policy Packs
+## 8. Key Workflows
 
-24 canonical policies enforced. Core policies:
-
-| Policy | Purpose | Implementation |
-|--------|---------|----------------|
-| **Egress** | Zero network egress in production | `production_mode` requires `uds_socket` only |
-| **Determinism** | Reproducible execution | All randomness seeded via HKDF (no `rand::thread_rng()`) |
-| **Router** | K-sparse LoRA routing | Q15 quantized gates for adapter selection |
-| **Evidence** | Audit trail with quality thresholds | Min relevance/confidence scores, source validation |
-| **Telemetry** | Structured event logging | Canonical JSON events with signatures |
-| **Naming** | Semantic adapter names | `{tenant}/{domain}/{purpose}/{revision}` format |
-| **DependencySecurity** | Supply chain & dependency validation | Canonical CVE/signature checks and policy bundles |
-
-**Naming conventions:**
-- Adapters: `tenant-a/engineering/code-review/r001`
-- Stacks: `stack.production-env`
-- Reserved: `system`, `admin`, `root`, `default`, `test` (tenants); `core`, `internal`, `deprecated` (domains)
-- Max revision gap: 5
-
-**Policy compliance checklist:**
-- [ ] UDS-only in production, [ ] Seeded randomness, [ ] Q15 quantization, [ ] Evidence tracking, [ ] Canonical JSON telemetry, [ ] Semantic naming, [ ] Input validation, [ ] Tenant isolation, [ ] Typed errors
-
-See `crates/adapteros-policy/src/packs/` for implementations.
-
-**All 24 canonical packs:** Egress, Determinism, Router, Evidence, Refusal, Numeric, Rag, Isolation, Telemetry, Retention, Performance, Memory, Artifacts, Secrets, BuildRelease, Compliance, Incident, Output, Adapters, DeterministicIo, Drift, Mplora, Naming, DependencySecurity
-
----
-
-## RBAC (5 Roles, 59 Permissions)
-
-**Roles:** Admin (full), Operator (runtime ops), SRE (infra debug), Compliance (audit-only), Viewer (read-only)
-
-**Permission matrix (condensed):**
-- **All roles:** AdapterList, AdapterView, TrainingView, PolicyView, MetricsView
-- **Admin only:** AdapterDelete, PolicyApply, PolicySign, PolicyActivate, TenantManage, NodeManage, AuditView
-- **Operator+Admin:** AdapterRegister, AdapterLoad/Unload, TrainingStart/Cancel, InferenceExecute, PolicyCustomize
-- **SRE+Compliance+Admin:** AuditView
-- **Compliance+Admin:** PolicyValidate, PolicyReview
-- **Admin only:** AdapterDelete, PolicyApply, PolicySign, TenantManage, NodeManage, AuditView
-- **Operator+Admin:** AdapterRegister, AdapterLoad/Unload, TrainingStart/Cancel, InferenceExecute
-- **SRE+Compliance+Admin:** AuditView
-- **Compliance+Admin:** PolicyValidate
-- **New (2025-11):** Activity*, Dashboard*, Notification*, Workspace* (reflect expansion of observability/workspace admin surfaces)
-
-**Usage:**
-```rust
-use adapteros_server_api::permissions::{require_permission, Permission};
-require_permission(&claims, Permission::AdapterRegister)?;
-```
-
-**Audit logging:**
-```rust
-use adapteros_server_api::audit_helper::{log_success, actions, resources};
-log_success(&db, &claims, actions::ADAPTER_REGISTER, resources::ADAPTER, Some(&id)).await;
-```
-
-**Auth flow:** Login → JWT (Ed25519, 8hr TTL) → Middleware validation → Permission check → Audit log
-
-**Query logs:** `GET /v1/audit/logs?action=adapter.register&status=success&limit=50`
-
-**Detailed reference:** See [docs/RBAC.md](docs/RBAC.md) for complete permission matrix and audit logging
-
----
-
-## Architecture Patterns (Quick Reference)
-
-| Pattern | Location | Key Concept |
-|---------|----------|-------------|
-| **K-Sparse Routing** | `adapteros-lora-router` | Top-K adapters via Q15 gates |
-| **Multi-Backend** | `adapteros-lora-worker/backend_factory.rs` | Metal/CoreML/MLX backends via `FusedKernels` trait |
-| **CoreML Backend** | `adapteros-lora-kernel-coreml` | ANE acceleration (primary/production) |
-| **MLX Backend** | `adapteros-lora-mlx-ffi` | Production inference, training (active) |
-| **Metal Kernels** | `adapteros-lora-kernel-mtl` | Precompiled deterministic Metal kernels (fallback) |
-| **Configuration** | `adapteros-config` | Precedence: CLI > Env > File > Defaults |
-| **Memory Mgmt** | `adapteros-memory` | Auto-eviction maintains ≥15% headroom |
-| **Hot-Swap** | `adapteros-lora-worker/adapter_hotswap.rs` | Live adapter replacement |
-| **Content Addressing** | `adapteros-core/hash.rs` | BLAKE3 hashing for all artifacts |
-| **Deterministic Exec** | `adapteros-deterministic-exec` | Serial FIFO task execution, no concurrency |
-| **HKDF Seeding** | `adapteros-core/hash.rs` | Domain-separated seeds (router, dropout, sampling, etc.) |
-| **Lifecycle Management** | `adapteros-lora-lifecycle` | State machine (Unloaded→Cold→Warm→Hot→Resident) |
-| **Heartbeat Recovery** | `adapteros-lora-lifecycle`, `adapteros-db` | 5-min timeout, auto-reset stale adapters |
-| **Determinism Attestation** | `adapteros-lora-kernel-api/attestation.rs` | Backend validation before serving |
-
-**Detailed architecture:** See [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md)
-
-### Adapter Lifecycle States
+### 8.1 Inference Flow
 
 ```
-Unloaded → Cold → Warm → Hot → Resident
-    ↑                          ↓
-    └──── (eviction) ──────────┘
+HTTP Request � InferenceCore � Worker Selection � UDS Request
+                    �
+              Policy Hooks (OnBeforeInference)
+                    �
+              Router Decision (K-sparse)
+                    �
+              Kernel Execution (Metal/CoreML/MLX)
+                    �
+              Response + Evidence + Replay Metadata
 ```
 
-**Transitions:** Promotion (activation % ↑), Demotion (activation % ↓ + timeout), Eviction (memory pressure + lowest %), Pinning (→ Resident)
-
-**Usage:**
-```rust
-use adapteros_lora_lifecycle::LifecycleManager;
-let manager = LifecycleManager::new_with_db(adapter_names, &policies, path, telemetry, k, db);
-manager.record_router_decision(&selected).await?; // Auto-promote
-manager.check_memory_pressure(total_mem, 0.85).await?; // Auto-evict
-```
-
-**Full state machine diagram:** See [docs/LIFECYCLE.md](docs/LIFECYCLE.md)
-
-### Lifecycle Manager Integration Patterns
-
-**Database Integration:** Lifecycle manager has optional database integration (`db: Option<Db>`). Methods that update database automatically:
-- `update_adapter_state()` - Updates both internal state and database (if `db` is set). **Note:** Uses non-transactional `db.update_adapter_state()` (fire-and-forget async task). Internal state is updated synchronously; DB persistence happens asynchronously via `spawn_deterministic`.
-- `evict_adapter()` - Updates both internal state and database (if `db` is set). **Note:** Uses non-transactional `db.update_adapter_state()` (fire-and-forget async task).
-- `record_router_decision()` - Updates activation percentages in database (if `db` is set)
-
-**Methods that do NOT update database:**
-- `get_or_reload()` - Only loads adapter and updates internal state
-- `promote_adapter()` - Only updates internal state
-- `demote_adapter()` - Only updates internal state
-
-**Important:** Lifecycle manager's DB updates are **non-transactional** and **fire-and-forget**. For handlers that need transactional safety (e.g., preventing race conditions), use `db.update_adapter_state_tx()` directly in fallback paths. The lifecycle manager prioritizes performance (non-blocking) over transactional guarantees for its internal state persistence.
-
-**Correct Pattern for Manual Adapter Loading via API:**
-```rust
-// CORRECT: Use lifecycle manager methods that handle DB updates
-if let Some(ref lifecycle) = state.lifecycle_manager {
-    let mut manager = lifecycle.lock().await;
-    
-    // Load adapter (updates internal state only)
-    manager.get_or_reload(&adapter_id)?;
-    
-    // Update state (handles DB update if db is set)
-    // Note: This uses non-transactional DB update (fire-and-forget)
-    use adapteros_lora_lifecycle::AdapterState;
-    if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
-        manager.update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api").await?;
-    }
-} else {
-    // Fallback: direct DB update if no lifecycle manager
-    // Use transactional version for safety in handlers
-    state.db.update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api").await?;
-}
-```
-
-**Correct Pattern for Manual State Transitions:**
-```rust
-// CORRECT: Use update_adapter_state() which handles DB updates
-if let Some(ref lifecycle) = state.lifecycle_manager {
-    let manager = lifecycle.lock().await;
-    
-    // Promote internal state
-    manager.promote_adapter(adapter_idx)?;
-    
-    // Update state (handles DB update if db is set)
-    manager.update_adapter_state(adapter_idx, new_state, "manual_promotion").await?;
-} else {
-    // Fallback: direct DB update if no lifecycle manager
-    state.db.update_adapter_state_tx(&adapter_id, new_state, "manual_promotion").await?;
-}
-```
-
-**Key Principles:**
-- Always use lifecycle manager methods first if available
-- Use `update_adapter_state()` for state transitions (handles DB automatically)
-- Only update database directly if lifecycle manager doesn't exist
-- Never update database before lifecycle manager operations
-- Never create `AdapterLoader` directly - use lifecycle manager's loader via manager methods
-
-### Deterministic Execution
-
-**Critical:** Seed derived from base model manifest hash via HKDF
-
-```rust
-use adapteros_core::{B3Hash, derive_seed};
-use adapteros_manifest::ManifestV3;
-
-let manifest = serde_json::from_str::<ManifestV3>(&std::fs::read_to_string(&cli.manifest_path)?)?;
-manifest.validate()?;
-let manifest_hash = manifest.compute_hash()?;
-let global_seed = derive_seed(&manifest_hash, "executor");
-init_global_executor(ExecutorConfig { global_seed, enable_event_logging: true, ..Default::default() })?;
-```
-
-**Details:** See [docs/DETERMINISTIC_EXECUTION.md](docs/DETERMINISTIC_EXECUTION.md) for HKDF hierarchy, global tick ledger, and multi-agent coordination
-
-### Deterministic Execution Requirements
-
-**When Deterministic Execution is Required:**
-- Inference operations (must be reproducible)
-- Training operations (must be reproducible)
-- Router decisions (affects adapter selection)
-- Any operation that affects model output or adapter routing
-
-**When `tokio::spawn` is Acceptable:**
-- Background monitoring tasks
-- Signal handlers (SIGHUP, SIGTERM, etc.)
-- CLI operations (user-facing commands)
-- Test code (unless testing determinism)
-- Telemetry/logging background tasks
-
-**Correct Pattern for Deterministic Contexts:**
-```rust
-// REQUIRED: Deterministic execution for inference, training, router decisions
-use adapteros_deterministic_exec::spawn_deterministic;
-spawn_deterministic("inference-task".to_string(), async move {
-    // Inference logic that must be reproducible
-})?;
-```
-
-**Correct Pattern for Non-Deterministic Contexts:**
-```rust
-// ACCEPTABLE: tokio::spawn for background tasks, CLI, tests
-tokio::spawn(async move {
-    // Background monitoring, signal handling, etc.
-});
-```
-
-**Decision Criteria:**
-- If operation affects model output → Use `spawn_deterministic`
-- If operation affects adapter routing → Use `spawn_deterministic`
-- If operation is user-facing CLI → Use `tokio::spawn`
-- If operation is background monitoring → Use `tokio::spawn`
-- If operation is in test code → Use `tokio::spawn` (unless testing determinism)
-
-### .aos Archive Format
-
-64-byte header for optimal cache-line alignment:
+### 8.2 Training Flow
 
 ```
-+--------+--------+------------------------------------------+
-| Offset | Size   | Field                                    |
-+--------+--------+------------------------------------------+
-| 0      | 4      | Magic bytes: "AOS\x00"                   |
-| 4      | 4      | Flags (u32 LE, reserved)                 |
-| 8      | 8      | Weights offset (u64 LE)                  |
-| 16     | 8      | Weights size (u64 LE)                    |
-| 24     | 8      | Manifest offset (u64 LE)                 |
-| 32     | 8      | Manifest size (u64 LE)                   |
-| 40     | 24     | Reserved (padding to 64 bytes)           |
-+--------+--------+------------------------------------------+
-| 64     | N      | Weights (SafeTensors or Q15)             |
-| 64+N   | M      | Manifest (JSON metadata)                 |
-+--------+--------+------------------------------------------+
+API Request � TrainingService � Validation (tenant, dataset, evidence)
+                    �
+              Orchestrator (spawn job, cancel token)
+                    �
+              Worker (MicroLoRATrainer)
+                    �
+              Epoch Loop (metrics emission, cancel check)
+                    �
+              Adapter Packaging (Q15) � Registry � Stack Creation
 ```
 
-Zero-copy loading with memory-mapped files, direct GPU VRAM transfer. See [docs/AOS_FORMAT.md](docs/AOS_FORMAT.md) for full specification.
+### 8.3 RAG Flow
 
----
-
-## Document Processing & Training
-
-### Pipeline (5 Steps)
-
-1. **Ingest:** `DocumentIngestor::new(opts, tokenizer).ingest_pdf_path(path)?`
-2. **Generate:** `generate_training_data(&doc, &tokenizer, &config)?`
-3. **Dataset:** `TrainingDatasetManager::new(db, path, tok).create_dataset_from_documents(req).await?`
-4. **Train:** `MicroLoRATrainer::new(cfg)?.train(examples, adapter_id).await?`
-5. **Package:** `AdapterPackager::new().package(weights, manifest)?` → `registry.register_adapter(...)?`
-
-**Training strategies:** Identity (unsupervised), QuestionAnswer, MaskedLM
-
-**Templates:**
-- `general-code`: rank=16, alpha=32 (multi-language)
-- `framework-specific`: rank=12, alpha=24
-
-**Job tracking:** Pending → Running → Completed/Failed/Cancelled (progress %, loss, tokens/sec)
-
-**Full pipeline diagram:** See [docs/TRAINING_PIPELINE.md](docs/TRAINING_PIPELINE.md)
-
----
-
-## Database Schema (Core Tables)
-
-| Table | Purpose | Key Fields |
-|-------|---------|------------|
-| `adapters` | Adapter metadata | id, hash, tier, rank, acl, activation_%, expires_at |
-| `tenants` | Tenant isolation | id, uid, gid, isolation_metadata |
-| `adapter_stacks` | Reusable combos | id, name, adapter_ids_json, workflow_type |
-| `training_datasets` | Dataset metadata | id, hash_b3, validation_status |
-| `training_jobs` | Job tracking | id, dataset_id, status, progress_pct, loss |
-| `pinned_adapters` | Pin enforcement | tenant_id, adapter_id, pinned_until, reason, pinned_by |
-| `audit_logs` | Immutable audit trail | user_id, action, resource, status, timestamp |
-
-**Registry usage:**
-```rust
-use adapteros_registry::Registry;
-let registry = Registry::open("./registry.db")?;
-registry.register_adapter("id", &hash, "tier_1", rank, &["tenant_a"])?;
-let allowed = registry.check_acl("id", "tenant_a")?;
 ```
-
-### Migration Management
-
-**Canonical Migration Directory:** `/migrations/` (root)
-**Migration Count:** 97 migrations (0001-0097, complete sequence)
-**Signing:** All migrations signed with Ed25519 (`migrations/signatures.json`)
-**Status:** PRD-01 conflict resolution completed (2025-11-19)
-
-**Key Migrations:**
-- **0035** - Tick ledger federation columns
-- **0045** - .aos file support
-- **0055** - Model backend fields (merged: metal + last_error)
-- **0060** - Pinned adapters table with TTL support
-- **0061** - Semantic naming taxonomy
-- **0062** - RBAC audit logs
-- **0063** - Dashboard configuration
-- **0064** - Adapter stacks
-- **0065** - Heartbeat mechanism
-- **0066** - Stack versioning (telemetry correlation)
-- **0067** - Multi-tenancy for adapter stacks
-- **0068** - Metadata normalization (version, lifecycle_state)
-- **0069** - Plugin tenant enables
-- **0070** - Routing decisions telemetry
-- **0071** - Lifecycle version history (adapter/stack audit trail)
-- **0072** - Tenant snapshots (renumbered from crate 0066)
-- **0073** - Index hash tracking (renumbered from crate 0067)
-- **0074** - Legacy index migration (renumbered from crate 0068)
-- **0075** - Lifecycle state transition triggers
-- **0076** - Golden run promotions
-- **0077** - Adapter performance tracking
-- **0078** - Federation consensus ledger
-- **0079** - Stack versioning extensions
-- **0080** - Tenant adapter stack isolation
-- **0081** - Query performance indexes
-- **0082** - Adapter activations table
-- **0083** - AOS file columns
-
-**Recent migrations (0084-0097)** continue the modernization effort with default adapter stacks, chat session capture, evidence/document collection stores, policy pack expansion, base model scaffolding, telemetry hardening, and crypto audit traces.
-
-**Creating New Migrations:**
-```bash
-touch migrations/NNNN_description.sql
-# Write SQL (use SQLite-compatible types: TEXT, INTEGER, REAL, BOOLEAN)
-./scripts/sign_migrations.sh
-cargo test -p adapteros-db schema_consistency_tests
-```
-
-**Full schema reference:** See [docs/DATABASE_REFERENCE.md](docs/DATABASE_REFERENCE.md)
-
----
-
-## Adapter Pinning & TTL
-
-### Pinning System
-
-**Purpose:** Prevent critical adapters from being evicted or deleted
-
-**Quick usage:**
-```rust
-use adapteros_db::Db;
-
-// Pin adapter (optional TTL)
-db.pin_adapter(tenant_id, adapter_id, Some("2025-12-31 23:59:59"), "production-critical", "ops@example.com").await?;
-
-// Unpin adapter
-db.unpin_adapter(tenant_id, adapter_id).await?;
-
-// Check pin status
-let is_pinned = db.is_pinned(tenant_id, adapter_id).await?;
-```
-
-### TTL (Time-To-Live) Enforcement
-
-**Purpose:** Automatic cleanup of ephemeral/temporary adapters
-
-**Quick usage:**
-```rust
-use adapteros_db::AdapterRegistrationParams;
-
-let params = AdapterRegistrationParams {
-    adapter_id: "temp-adapter".to_string(),
-    expires_at: Some("2025-02-15 23:59:59".to_string()),
-    ..Default::default()
-};
-db.register_adapter_with_params(&params).await?;
-```
-
-**Three-Tier Enforcement:**
-1. Database query (`find_expired_adapters()`)
-2. Background cleanup loop (5-min interval)
-3. Lifecycle manager integration (evict expired first)
-
-**Full reference:** See [docs/PINNING_TTL.md](docs/PINNING_TTL.md) for pinning system, TTL enforcement, and lifecycle integration
-
----
-
-## Streaming Architecture
-
-**Modes:**
-1. Batch (complete response)
-2. Streaming (chat-style SSE, token-by-token)
-
-```rust
-use adapteros_api::streaming::{StreamingInferenceRequest, streaming_inference_handler};
-let request = StreamingInferenceRequest {
-    prompt, model, max_tokens, temperature, stream: true, adapter_stack,
-    ..Default::default()
-};
-let stream = streaming_inference_handler(State(api_state), Json(request)).await;
-// Format: data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"delta":{"content":"Hi"},...}]}
-// Final: data: [DONE]
-```
-
-**Features:** Keep-alive, client disconnect detection
-
----
-
-## Common Patterns
-
-### Database Access
-
-**Preferred Pattern:** Use `Db` trait methods for adapter operations and complex queries
-```rust
-// PREFERRED: Use Db trait methods for adapter operations
-state.db.update_adapter_state_tx(&adapter_id, "warm", "reason").await?;
-state.db.get_adapter(&adapter_id).await?;
-state.db.register_adapter(params).await?;
-```
-
-**Acceptable Pattern:** Direct SQL for simple queries, performance-critical paths, or transaction contexts
-```rust
-// ACCEPTABLE: Direct SQL for simple queries or performance-critical paths
-sqlx::query("SELECT COUNT(*) FROM adapters WHERE tenant_id = ?")
-    .bind(&tenant_id)
-    .fetch_one(&db.pool())
-    .await
-    .map_err(|e| AosError::Database(format!("Query failed: {}", e)))?;
-
-// ACCEPTABLE: Direct SQL inside existing transactions (Db trait methods create their own transactions)
-let mut tx = db.pool().begin().await?;
-sqlx::query("UPDATE adapters SET tier = ? WHERE adapter_id = ?")
-    .bind(&new_tier)
-    .bind(&adapter_id)
-    .execute(&mut *tx)
-    .await?;
-tx.commit().await?;
-```
-
-**Required Pattern:** Db trait for operations that need transaction management
-```rust
-// REQUIRED: Db trait for operations that need transaction management
-state.db.update_adapter_state_tx(&adapter_id, state, reason).await?;
-```
-
-**Important Distinction:**
-- `db.update_adapter_state()` - Non-transactional, direct SQL (used by lifecycle manager for fire-and-forget persistence)
-- `db.update_adapter_state_tx()` - Transactional, with row locking (use in handlers for safety)
-
-**Guidelines:**
-- Use `Db` trait methods for adapter lifecycle operations (load, unload, state transitions)
-- Use `Db` trait methods for operations requiring transactions
-- Direct SQL is acceptable for simple read-only queries or performance-critical paths
-- Direct SQL is acceptable for specialized operations without Db trait methods (e.g., promotion workflow, diagnostics)
-- Never use direct SQL in handlers when `Db` trait method exists for the operation
-- Always map SQL errors to `AosError::Database`
-
-**Architectural Lint:**
-- The `adapteros-lint` tool detects violations of these patterns
-- Context-aware detection distinguishes acceptable patterns from violations
-- See `crates/adapteros-lint/README.md` for usage and violation types
-
-### Async Task Spawning
-```rust
-spawn(async move { if let Err(e) = do_work().await { error!(error = %e, "Task failed"); } });
-```
-
-### Production Mode Enforcement
-```rust
-if config.server.production_mode {
-    if config.server.uds_socket.is_none() { return Err(AosError::Config("Requires uds_socket".into())); }
-    if config.security.jwt_mode.as_deref() != Some("eddsa") { return Err(AosError::Config("Requires jwt_mode='eddsa'".into())); }
-    if !config.security.require_pf_deny { return Err(AosError::Config("Requires require_pf_deny=true".into())); }
-}
+Query � Embedding � Vector Retrieval (tenant-scoped)
+                    �
+              Collection Filtering
+                    �
+              Deterministic Ordering (score DESC, doc_id ASC)
+                    �
+              Evidence Storage � Context Injection
 ```
 
 ---
 
-## Anti-Patterns (Avoid)
+## 9. Known Gaps and Partial Implementations
 
-| Anti-Pattern | Issue | Fix |
-|--------------|-------|-----|
-| TODO comments | No completion plan | Complete implementation or explicit error |
-| Placeholder logic | Fake functionality | Real implementation |
-| `Option<T>` for errors | Loses error context | Use `Result<T, AosError>` |
-| `println!` logging | Not queryable | Use `tracing` macros |
-| Unsafe in app crates | Security risk | Isolate to FFI crates (Metal) |
-| Blocking in async | Blocks executor | Use `tokio::time::sleep`, not `std::thread::sleep` |
-| Unlocked kernel refs | Won't compile | `self.kernels.lock().await` before use |
-| Unvalidated datasets | Training fails | Check `validation_status = 'valid'` |
+### Current Behavior vs Intended Invariant
 
-See `docs/DEPRECATED_PATTERNS.md` for historical examples.
+| Area | Current | Intended |
+|------|---------|----------|
+| Kahan summation | Defined in config, not implemented | f64 + Kahan for router softmax |
+| Router f64 precision | f32 throughout | f64 intermediate values |
+| Policy enforcement | Framework exists | Full integration at inference |
+| Token counting | Heuristic (~4 chars/token) | Actual tokenizer |
+| PF rule validation | Returns error | Full packet filter validation |
+| 5 policy packs | Pass with warnings | Full implementation |
 
----
+### Partially Implemented Features
 
-## Multi-Backend Architecture
-
-**Strategy:** CoreML-first (ANE production), MLX-second (production), Metal-fallback (incomplete, legacy only)
-
-**Fallback Chain:** CoreML → MLX → Metal
-
-| Backend | Status | Determinism | Use Case | Crate |
-|---------|--------|-------------|----------|-------|
-| **CoreML** | **Implemented** (model loading, inference, Swift bridge with runtime dispatch) | **Guaranteed (ANE)** | ANE acceleration, production (primary) | `adapteros-lora-kernel-coreml` |
-| **MLX** | **Implemented** (model loading, forward passes, hidden states, text generation) | **HKDF-seeded** | Production inference, training (secondary) | `adapteros-lora-mlx-ffi` |
-| **Metal** | **Incomplete** (precompiled Metal kernels, GPU acceleration) | **Guaranteed** | Legacy fallback only, model loading incomplete | `adapteros-lora-kernel-mtl` |
-
-**Implementation Status:**
-- CoreML: Fully implemented and operational. Supports model loading, inference, ANE detection, memory pooling, and MLTensor bridge (macOS 15+). Guaranteed determinism with ANE, graceful fallback to GPU on older systems. See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) for operational guide.
-- MLX: Fully implemented. Supports model loading from file or buffer, text generation, health tracking with circuit breaker, and memory pool integration.
-- Multi-adapter routing: Implemented with K-sparse selection and Q15 quantized gates (see [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) for routing details)
-
-**Backend Selection:**
-```rust
-use adapteros_lora_worker::backend_factory::{BackendChoice, create_backend};
-
-// Production: CoreML (ANE acceleration, guaranteed determinism)
-let backend = create_backend(BackendChoice::CoreML { model_path: None })?;
-
-// Production: MLX (HKDF-seeded determinism, enterprise resilience)
-// Note: Requires --features real-mlx and MLX C++ library for GPU acceleration
-// Falls back to stub implementation for testing if MLX not available
-let backend = create_backend(BackendChoice::Mlx { model_path })?;
-
-// Fallback: Metal (legacy, non-ANE systems)
-let backend = create_backend(BackendChoice::Metal)?;
-```
-
-### Swift Bridge (MLTensor)
-
-The CoreML backend includes a Swift bridge for MLTensor operations (macOS 15+):
-
-- **Location:** `crates/adapteros-lora-kernel-coreml/swift/CoreMLBridge.swift`
-- **Purpose:** Access modern MLTensor API for GPU-accelerated tensor operations
-- **Requirements:** Xcode 15+ with `swiftc` in PATH
-
-**Runtime Dispatch Behavior:**
-- macOS 15+: Uses MLTensor path (2x speedup, GPU/ANE tensor operations)
-- macOS 14: Falls back to MLMultiArray path (CPU-based)
-- Detection: `swift_coreml_supports_mltensor()` returns availability at runtime
-
-**Build Requirements:**
-```bash
-# Swift bridge compiles automatically during cargo build
-# Requires: swiftc (from Xcode Command Line Tools)
-xcode-select --install  # If swiftc not found
-```
-
-**FFI Patterns:** See [docs/OBJECTIVE_CPP_FFI_PATTERNS.md](docs/OBJECTIVE_CPP_FFI_PATTERNS.md) for memory-safe Rust ↔ Objective-C++/Swift patterns.
-
-**Full details:**
-- [docs/ADR_MULTI_BACKEND_STRATEGY.md](docs/ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale
-- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML setup, ANE optimization, operational status & verification procedures
-- [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX complete integration guide
-- [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) - MLX quick start and configuration patterns
-- [docs/MLX_BACKEND_DEPLOYMENT_GUIDE.md](docs/MLX_BACKEND_DEPLOYMENT_GUIDE.md) - MLX production deployment steps
-- [docs/MLX_ROUTER_HOTSWAP_INTEGRATION.md](docs/MLX_ROUTER_HOTSWAP_INTEGRATION.md) - MLX router and hot-swap integration
-- [docs/ADDING_NEW_BACKEND.md](docs/ADDING_NEW_BACKEND.md) - Template for new backends
-
-### MLX Backend Details
-
-The MLX backend is fully implemented and production-ready with enterprise-grade resilience:
-
-**Features:**
-- Model loading from directory or pre-serialized buffer
-- Forward passes, hidden state extraction, text generation
-- HKDF-seeded deterministic execution (RNG operations)
-- Circuit breaker with health monitoring and auto-recovery
-- Hot-swap support: live adapter loading/unloading
-- Multi-adapter routing via K-sparse selection with Q15 quantized gates
-- Memory pool integration with GC hints
-- Comprehensive error handling and FFI safety
-
-**Build & Deployment:**
-```bash
-# Build with MLX backend enabled
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx --release
-
-# Start server with MLX backend
-export AOS_MLX_FFI_MODEL="./models/qwen2.5-7b-mlx"
-./target/release/aosctl serve --backend mlx --model-path ./models/qwen2.5-7b-mlx
-```
-
-**Usage Example:**
-```rust
-use adapteros_lora_mlx_ffi::{MLXFFIModel, generation::GenerationConfig};
-use adapteros_core::{derive_seed, B3Hash};
-
-let model = MLXFFIModel::load("./models/qwen2.5-7b-mlx")?;
-
-// Deterministic seeding
-let base_seed = B3Hash::hash(b"production-model");
-let seed = derive_seed(&base_seed, "text-generation:step-0");
-adapteros_lora_mlx_ffi::mlx_set_seed_from_bytes(&seed)?;
-
-// Generate text with reproducible results
-let text = model.generate("Once upon a time", 100)?;
-```
-
-See [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) for quick start and configuration patterns.
+- **Replay**: Infrastructure complete, determinism verification ongoing
+- **Federation**: Framework exists, multi-node not production-ready
+- **KV backend**: Dual-write mode active, KV-only migration incomplete
 
 ---
 
-## Key Subsystems (Locations)
+## 10. File Reference Quick Guide
 
-| Subsystem | Crate | Purpose |
-|-----------|-------|---------|
-| Router | `adapteros-lora-router` | K-sparse adapter selection |
-| Backend Factory | `adapteros-lora-worker/backend_factory.rs` | Multi-backend creation & attestation |
-| CoreML Backend | `adapteros-lora-kernel-coreml` | ANE acceleration (primary/production) |
-| MLX Backend | `adapteros-lora-mlx-ffi` | Production inference, training (secondary) |
-| Metal Kernels | `adapteros-lora-kernel-mtl` | Incomplete fallback (model loading issues) |
-| Policy Engine | `adapteros-policy` | 24-pack policy enforcement |
-| Memory Mgmt | `adapteros-memory` | Auto-eviction, headroom maintenance |
-| Lifecycle | `adapteros-lora-lifecycle` | State machine (Unloaded→Resident) |
-| Hot-Swap | `adapteros-lora-worker/adapter_hotswap.rs` | Live adapter replacement |
-| Deterministic Exec | `adapteros-deterministic-exec` | Serial FIFO task execution |
-| HKDF | `adapteros-core/hash.rs` | Domain-separated seeding |
-| Training | `adapteros-lora-worker/training/` | Trainer, quantizer, packager |
-| Registry | `adapteros-registry` | SQLite WAL mode, adapter/tenant mgmt |
-| Pinning & TTL | `adapteros-db/src/pinned_adapters.rs` | Pin/unpin API, TTL enforcement |
-| Web UI | `adapteros-server-api`, `ui/` | React/TypeScript REST API |
+### Critical Files (Read Before Modifying Nearby Code)
 
----
+| Area | File | Key Functions |
+|------|------|---------------|
+| Inference routing | `server-api/src/inference_core.rs` | `route_and_infer:83`, `route_and_infer_replay:354` |
+| RAG context | `server-api/src/handlers/rag_common.rs` | `retrieve_rag_context:127`, `store_rag_evidence:249` |
+| Chat context | `server-api/src/chat_context.rs` | `build_chat_prompt:77` (multi-turn) |
+| Replay | `server-api/src/handlers/replay_inference.rs` | `execute_replay:326`, `check_availability:112` |
+| Worker UDS | `lora-worker/src/uds_server.rs` | |
+| Router algorithm | `lora-router/src/lib.rs` | `Router:194`, `route_with_adapter_info:943`, `Decision:1385` |
+| Tenant isolation | `server-api/src/security/mod.rs` | `validate_tenant_isolation` |
+| Policy hooks | `adapteros-policy/src/hooks.rs` | |
+| Policy audit | `adapteros-db/src/policy_audit.rs` | `log_policy_decision:111`, `verify_policy_audit_chain:226` |
+| Seed derivation | `adapteros-core/src/seed.rs` | `derive_seed:39`, `derive_seed_typed:60` |
+| Config loading | `adapteros-config/src/loader.rs` | |
+| JWT auth | `server-api/src/auth.rs` | |
 
-## REST API Reference
+### Backend Files
 
-> **Maintenance:** Update this section when adding/removing routes in `crates/adapteros-server-api/src/routes.rs`. Verify OpenAPI annotations match with `cargo doc`.
+| Backend | File | Key Functions |
+|---------|------|---------------|
+| Metal | `lora-kernel-mtl/src/lib.rs` | `MetalKernels:192`, `new:255`, `load:1349` |
+| CoreML | `lora-kernel-coreml/src/lib.rs` | `CoreMLBackend:875`, `new:967` |
+| MLX | `lora-mlx-ffi/src/backend.rs` | `MLXFFIBackend:42` |
+| Factory | `lora-worker/src/backend_factory.rs` | `create_backend_with_model:328` |
 
-**Source:** `crates/adapteros-server-api/src/routes.rs` | **Total Endpoints:** 236 | **Auth:** JWT (Ed25519) required except where noted
+### Service Layer
 
-### Health & Auth (Public)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/healthz` | Health check |
-| GET | `/healthz/all` | All component health |
-| GET | `/healthz/:component` | Specific component health |
-| GET | `/readyz` | Readiness check |
-| POST | `/v1/auth/login` | User login |
-| POST | `/v1/auth/logout` | User logout |
-| GET | `/v1/auth/me` | Current user info |
-| GET | `/v1/meta` | API metadata |
+| Service | File | Key Methods |
+|---------|------|-------------|
+| TrainingService | `server-api/src/services/training_service.rs` | trait:38, impl:98 |
+| AdapterService | `server-api/src/services/adapter_service.rs` | trait:40, impl:133 |
+| Registry | `adapteros-registry/src/lib.rs` | `register_adapter:53` |
+| LifecycleManager | `lora-lifecycle/src/lib.rs` | `promote_adapter:1062`, `activate_stack:1862` |
 
-### Tenants
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/tenants` | List tenants |
-| POST | `/v1/tenants` | Create tenant |
-| PUT | `/v1/tenants/:tenant_id` | Update tenant |
-| POST | `/v1/tenants/:tenant_id/pause` | Pause tenant |
-| POST | `/v1/tenants/:tenant_id/archive` | Archive tenant |
-| POST | `/v1/tenants/:tenant_id/policies` | Assign policies |
-| POST | `/v1/tenants/:tenant_id/adapters` | Assign adapters |
-| GET | `/v1/tenants/:tenant_id/usage` | Usage statistics |
+### Handler Naming Convention
 
-### Adapters
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/adapters` | List adapters |
-| GET | `/v1/adapters/:adapter_id` | Get adapter details |
-| POST | `/v1/adapters/register` | Register adapter |
-| DELETE | `/v1/adapters/:adapter_id` | Delete adapter |
-| POST | `/v1/adapters/:adapter_id/load` | Load adapter |
-| POST | `/v1/adapters/:adapter_id/unload` | Unload adapter |
-| GET | `/v1/adapters/verify-gpu` | Verify GPU integrity |
-| GET | `/v1/adapters/:adapter_id/activations` | Get activations |
-| POST | `/v1/adapters/:adapter_id/lifecycle/promote` | Promote lifecycle state |
-| POST | `/v1/adapters/:adapter_id/lifecycle/demote` | Demote lifecycle state |
-| GET | `/v1/adapters/:adapter_id/lineage` | Lineage tree |
-| GET | `/v1/adapters/:adapter_id/detail` | Detail view |
-| GET | `/v1/adapters/:adapter_id/manifest` | Download manifest |
-| POST | `/v1/adapters/directory/upsert` | Upsert directory adapter |
-| GET | `/v1/adapters/:adapter_id/health` | Adapter health |
-| GET | `/v1/adapters/:adapter_id/pin` | Get pin status |
-| POST | `/v1/adapters/:adapter_id/pin` | Pin adapter |
-| DELETE | `/v1/adapters/:adapter_id/pin` | Unpin adapter |
-| POST | `/v1/adapters/:adapter_id/state/promote` | Promote tier (persistent→warm→ephemeral) |
-| POST | `/v1/adapters/validate-name` | Validate adapter name |
-| GET | `/v1/adapters/next-revision/:tenant/:domain/:purpose` | Get next revision |
+Handlers use **direct names**, NOT `handle_*` prefix:
+- `infer()` at `handlers/inference.rs:38`
+- `batch_infer()` at `handlers/batch.rs:46`
+- `streaming_infer()` at `handlers/streaming_infer.rs:460`
 
-### Adapter Stacks
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/adapter-stacks` | List stacks |
-| POST | `/v1/adapter-stacks` | Create stack |
-| GET | `/v1/adapter-stacks/:id` | Get stack |
-| DELETE | `/v1/adapter-stacks/:id` | Delete stack |
-| POST | `/v1/adapter-stacks/:id/activate` | Activate stack |
-| POST | `/v1/adapter-stacks/deactivate` | Deactivate stack |
-| POST | `/v1/stacks/validate-name` | Validate stack name |
+### Test Locations
 
-### Domain Adapters
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/domain-adapters` | List domain adapters |
-| POST | `/v1/domain-adapters` | Create domain adapter |
-| GET | `/v1/domain-adapters/:adapter_id` | Get domain adapter |
-| DELETE | `/v1/domain-adapters/:adapter_id` | Delete domain adapter |
-| POST | `/v1/domain-adapters/:adapter_id/load` | Load |
-| POST | `/v1/domain-adapters/:adapter_id/unload` | Unload |
-| POST | `/v1/domain-adapters/:adapter_id/test` | Test |
-| GET | `/v1/domain-adapters/:adapter_id/manifest` | Get manifest |
-| POST | `/v1/domain-adapters/:adapter_id/execute` | Execute |
-
-### Inference
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/infer` | Run inference |
-| POST | `/v1/infer/batch` | Batch inference |
-| POST | `/v1/patch/propose` | Propose patch |
-
-### Training
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/training/jobs` | List jobs |
-| GET | `/v1/training/jobs/:job_id` | Get job |
-| POST | `/v1/training/start` | Start training |
-| POST | `/v1/training/jobs/:job_id/cancel` | Cancel job |
-| POST | `/v1/training/sessions` | Create session |
-| GET | `/v1/training/jobs/:job_id/logs` | Job logs |
-| GET | `/v1/training/jobs/:job_id/metrics` | Job metrics |
-| GET | `/v1/training/jobs/:job_id/artifacts` | Job artifacts |
-| GET | `/v1/training/templates` | List templates |
-| GET | `/v1/training/templates/:template_id` | Get template |
-
-### Datasets
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/datasets/upload` | Upload dataset |
-| POST | `/v1/datasets/chunked-upload/initiate` | Chunked upload |
-| GET | `/v1/datasets` | List datasets |
-| GET | `/v1/datasets/:dataset_id` | Get dataset |
-| DELETE | `/v1/datasets/:dataset_id` | Delete dataset |
-| GET | `/v1/datasets/:dataset_id/files` | Dataset files |
-| GET | `/v1/datasets/:dataset_id/statistics` | Statistics |
-| POST | `/v1/datasets/:dataset_id/validate` | Validate |
-| GET | `/v1/datasets/:dataset_id/preview` | Preview |
-| GET | `/v1/datasets/upload/progress` | Upload progress |
-
-### Nodes & Workers
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/nodes` | List nodes |
-| POST | `/v1/nodes/register` | Register node |
-| POST | `/v1/nodes/:node_id/ping` | Ping node |
-| POST | `/v1/nodes/:node_id/offline` | Mark offline |
-| DELETE | `/v1/nodes/:node_id` | Evict node |
-| GET | `/v1/nodes/:node_id/details` | Node details |
-| GET | `/v1/workers` | List workers |
-| POST | `/v1/workers/spawn` | Spawn worker |
-| GET | `/v1/workers/:worker_id/logs` | Worker logs |
-| GET | `/v1/workers/:worker_id/crashes` | Worker crashes |
-| POST | `/v1/workers/:worker_id/debug` | Debug session |
-| POST | `/v1/workers/:worker_id/troubleshoot` | Troubleshoot |
-
-### Policies
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/policies` | List policies |
-| GET | `/v1/policies/:cpid` | Get policy |
-| POST | `/v1/policies/validate` | Validate policy |
-| POST | `/v1/policies/apply` | Apply policy |
-| POST | `/v1/policies/:cpid/sign` | Sign policy |
-| POST | `/v1/policies/compare` | Compare versions |
-| GET | `/v1/policies/:cpid/export` | Export policy |
-
-### Tenant Policy Customization
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/tenants/:tenant_id/policies/customize` | Create customization draft |
-| GET | `/v1/tenants/:tenant_id/policies/customizations` | List tenant customizations |
-| GET | `/v1/tenants/:tenant_id/policies/customizations/:id` | Get customization |
-| PUT | `/v1/tenants/:tenant_id/policies/customizations/:id` | Update customization (draft only) |
-| DELETE | `/v1/tenants/:tenant_id/policies/customizations/:id` | Delete customization (draft only) |
-| POST | `/v1/tenants/:tenant_id/policies/customizations/:id/submit` | Submit for review |
-| GET | `/v1/policies/pending-reviews` | List pending reviews (Admin/Compliance) |
-| POST | `/v1/policies/customizations/:id/approve` | Approve customization |
-| POST | `/v1/policies/customizations/:id/reject` | Reject customization |
-| POST | `/v1/policies/customizations/:id/activate` | Activate approved customization (Admin) |
-
-### Routing
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/routing/debug` | Debug routing |
-| GET | `/v1/routing/history` | Routing history |
-| GET | `/v1/routing/decisions` | List decisions |
-| GET | `/v1/routing/decisions/:id` | Get decision |
-| POST | `/v1/telemetry/routing` | Ingest router decision |
-
-### Metrics & Monitoring
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/metrics` | Get metrics (custom auth) |
-| GET | `/v1/metrics/quality` | Quality metrics |
-| GET | `/v1/metrics/adapters` | Adapter metrics |
-| GET | `/v1/metrics/system` | System metrics |
-| GET | `/v1/metrics/snapshot` | Metrics snapshot |
-| GET | `/v1/metrics/series` | Metrics series |
-| GET | `/v1/monitoring/rules` | List rules |
-| POST | `/v1/monitoring/rules` | Create rule |
-| GET | `/v1/monitoring/alerts` | List alerts |
-| POST | `/v1/monitoring/alerts/:alert_id/acknowledge` | Ack alert |
-| GET | `/v1/monitoring/anomalies` | List anomalies |
-| POST | `/v1/monitoring/anomalies/:anomaly_id/status` | Update status |
-| GET | `/v1/monitoring/dashboards` | List dashboards |
-| POST | `/v1/monitoring/dashboards` | Create dashboard |
-| GET | `/v1/monitoring/health-metrics` | Health metrics |
-| GET | `/v1/monitoring/reports` | List/create reports |
-
-### Streaming (SSE)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/streams/training` | Training events |
-| GET | `/v1/streams/discovery` | Discovery events |
-| GET | `/v1/streams/contacts` | Contacts events |
-| GET | `/v1/streams/file-changes` | File changes |
-| GET | `/v1/stream/metrics` | System metrics stream |
-| GET | `/v1/stream/telemetry` | Telemetry events |
-| GET | `/v1/stream/adapters` | Adapter state stream |
-
-### Audit & Compliance
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/audit/logs` | Query audit logs |
-| GET | `/v1/audit/federation` | Federation audit |
-| GET | `/v1/audit/compliance` | Compliance audit |
-| GET | `/v1/audits` | Extended audits |
-
-### Promotions & Golden Runs
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/cp/promote` | Request promotion |
-| GET | `/v1/cp/promotion-gates/:cpid` | Promotion gates |
-| POST | `/v1/cp/rollback` | Rollback |
-| POST | `/v1/cp/promote/dry-run` | Dry-run promotion |
-| GET | `/v1/cp/promotions` | Promotion history |
-| GET | `/v1/promotions/:id` | Get promotion |
-| GET | `/v1/golden/runs` | List golden runs |
-| GET | `/v1/golden/runs/:name` | Get golden run |
-| POST | `/v1/golden/compare` | Compare runs |
-| POST | `/v1/golden/:run_id/promote` | Request promotion |
-| GET | `/v1/golden/:run_id/promotion` | Promotion status |
-| POST | `/v1/golden/:run_id/approve` | Approve/reject |
-| GET | `/v1/golden/:run_id/gates` | Gate status |
-| POST | `/v1/golden/:stage/rollback` | Stage rollback |
-
-### Logs & Traces
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/logs/query` | Query logs |
-| GET | `/v1/logs/stream` | Stream logs (SSE) |
-| GET | `/v1/traces/search` | Search traces |
-| GET | `/v1/traces/:trace_id` | Get trace details |
-
-### Service Supervisor (separate service, port 3301)
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/services` | List all services |
-| GET | `/v1/services/:service_id` | Get service details |
-| POST | `/v1/services/start` | Start service |
-| POST | `/v1/services/stop` | Stop service |
-| POST | `/v1/services/restart` | Restart service |
-| POST | `/v1/services/essential/start` | Start essential services |
-| POST | `/v1/services/essential/stop` | Stop essential services |
-| GET | `/v1/services/:service_id/logs` | Get service logs |
-
-### Additional Endpoints
-| Resource | Base Path | Key Operations |
-|----------|-----------|----------------|
-| Code Intelligence | `/v1/code/*` | Register repo, scan, commit delta |
-| Contacts | `/v1/contacts/*` | CRUD, interactions |
-| Federation | `/v1/federation/*` | Status, quarantine |
-| Git | `/v1/git/*` | Status, sessions, branches |
-| Models | `/v1/models/*` | Import, status |
-| Plans | `/v1/plans/*` | Build, compare, manifest |
-| Plugins | `/v1/plugins/*` | Enable/disable, status |
-| Replay | `/v1/replay/*` | Sessions, verify |
-| System | `/v1/system/memory` | UMA memory info |
-| Telemetry | `/v1/telemetry/bundles/*` | Export, verify, purge |
-| Jobs | `/v1/jobs` | List jobs |
-| Commits | `/v1/commits/*` | List, details, diff |
-| Repositories | `/v1/repositories` | List (deprecated → use `/v1/code/repositories`) |
-
-### OpenAPI / Swagger
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/swagger-ui` | Swagger UI interface |
-| GET | `/api-docs/openapi.json` | OpenAPI spec (JSON) |
-
-### Unwired Handlers (Planned/Internal)
-The following handler modules exist in `crates/adapteros-server-api/src/handlers/` but are not yet wired to routes:
-- `activity.rs`, `dashboard.rs`, `messages.rs`, `notifications.rs`
-- `workspaces.rs`, `tutorials.rs`, `journeys.rs`
-- `git_repository.rs` (separate from `git.rs`)
-- `models.rs`, `streaming.rs`, `chunked_upload.rs`
-
-**UI integration:** See [docs/UI_INTEGRATION.md](docs/UI_INTEGRATION.md)
+| Type | Location |
+|------|----------|
+| E2E tests | `tests/e2e/` |
+| Determinism | `tests/determinism/` |
+| API tests | `crates/adapteros-server-api/tests/` |
+| DB tests | `crates/adapteros-db/tests/` |
+| Router golden | `crates/adapteros-lora-router/tests/router_ring_golden.rs` |
 
 ---
 
-## Quick Reference
+## 11. Emergency Reference
 
-### Build Commands
-```bash
-cargo build --release              # Production build
-cargo test --workspace             # All tests
-cargo fmt --all && cargo clippy --workspace -- -D warnings  # Lint
-make build test check clean        # Makefile shortcuts
-make metal                         # Compile Metal shaders
-make ui / ui-dev                   # React build / dev server
-make installer                     # macOS installer
-```
+### If Determinism Breaks
 
-### Database
-```bash
-./target/release/aosctl db migrate
-./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
-sqlite3 var/aos-cp.sqlite3 "SELECT * FROM tenants;"
-# Reset (dev only): rm var/aos-cp.sqlite3 && ./target/release/aosctl db migrate
-```
+1. Check seed derivation: same inputs � same seeds?
+2. Check router sorting: deterministic tie-breaking?
+3. Check Q15 quantization: denominator = 32767.0?
+4. Check floating point: no fast-math flags?
+5. Run `make determinism-check`
 
-### Testing
-```bash
-cargo test test_adapter_loading    # Specific test
-cargo test --workspace -- --nocapture  # With output
-cargo test --test integration_tests    # Integration tests only
-```
+### If Tenant Isolation Breaks
 
-### Debugging
-```bash
-cargo check --workspace --message-format=short
-cargo clippy --workspace -- -W dead_code
-cargo udeps                        # Unused dependencies
-```
+1. Check `tenant_id` in all queries
+2. Verify FK triggers (migration 0131)
+3. Check `validate_tenant_isolation()` calls
+4. Review `admin_tenants` claim handling
 
-### Benchmarking
-```bash
-# Run MLX FFI benchmarks (updates target/criterion/)
-cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark
+### If Builds Fail
 
-# Run with real MLX backend (requires mlx C++ library)
-cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark --features real-mlx
-
-# Run integration verification tests with timing output
-cargo test -p adapteros-lora-mlx-ffi --test integration_verification -- --nocapture
-
-# View HTML benchmark reports
-open target/criterion/report/index.html
-```
-
-### CLI Commands (Git-Style)
-```bash
-# Adapter management
-aosctl adapter list                    # List adapters
-aosctl adapter register <id> <hash>    # Register adapter
-aosctl adapter pin <id>                # Pin adapter
-aosctl adapter swap --add <id>         # Hot-swap adapters
-
-# Node management
-aosctl node list                       # List cluster nodes
-aosctl node verify --all               # Verify cross-node determinism
-aosctl node sync push --to <node>      # Push adapters to node
-
-# Telemetry
-aosctl telemetry list                  # List telemetry events
-aosctl telemetry verify --bundle-dir   # Verify bundle chain
-
-# Registry
-aosctl registry sync --dir ./adapters # Sync adapters to registry
-aosctl registry migrate                # Migrate legacy database
-
-# Code intelligence
-aosctl code init .                     # Initialize repository
-aosctl code update <repo>              # Scan repository
-aosctl code list                       # List repositories
-
-# Other grouped commands
-aosctl federation verify               # Verify federation signatures
-aosctl codegraph stats                 # CodeGraph statistics
-aosctl secd status                     # Security daemon status
-```
-
-**After running benchmarks, update [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) with new results.**
-
-Key benchmark locations:
-- `crates/adapteros-lora-mlx-ffi/benches/mlx_integration_benchmark.rs` - MLX FFI benchmarks
-- `target/criterion/` - Criterion results and HTML reports
+1. `cargo clean && cargo build`
+2. Check feature flags in Cargo.toml
+3. Verify SQLx offline mode: `cargo sqlx prepare`
+4. Check migration signatures: `migrations/signatures.json`
 
 ---
 
-## Quick Start UX Flow
+## 12. Common Misconceptions (Avoid These)
 
-Complete workflow from startup to inference with trained adapters. For detailed steps, see [QUICKSTART.md](QUICKSTART.md) and [docs/QUICKSTART.md](docs/QUICKSTART.md).
+### Structs/Services That Do NOT Exist
 
-### 1. Start the System
+| Speculated Name | Reality |
+|-----------------|---------|
+| `StackService` | Use `LifecycleManager::activate_stack()` |
+| `TenantService` | Tenant ops are in Db layer directly |
+| `BackendCoordinator` | Use `create_backend_with_model()` factory |
+| `BackendCapabilities` | Use `BackendHealth` / `PerformanceMetrics` |
+| `GlobalLedger` | Actual name: `GlobalTickLedger` |
+| `ModelLoader::load_qwen_model_cached` | Does not exist |
 
-```bash
-# Terminal 1: Start backend server
-export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
-export DATABASE_URL=sqlite://var/aos-cp.sqlite3
-cargo run --release -p adapteros-server-api
+### Telemetry Function Names
 
-# Terminal 2: Start UI (optional)
-cd ui && pnpm dev
-# UI available at http://localhost:5173
-```
+- `record_inference_event()` → Use `log_event()` or `InferenceEvent` struct
+- `record_router_decision_event()` → Use specific `record_*()` functions in `critical_components.rs`
 
-### 2. Load a Model
+### Chat State
 
-```bash
-# Download Qwen 2.5 7B MLX format (~3.8GB)
-huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
-    --include "*.safetensors" "*.json" \
-    --local-dir models/qwen2.5-7b-mlx
+Chat is **multi-turn**, NOT stateless:
+- `build_chat_prompt()` at `chat_context.rs:77` retrieves full session history
+- Token budget truncation drops oldest messages first
+- Context hash computed via BLAKE3 of sorted message IDs
 
-# Verify model is detected
-curl http://localhost:8080/healthz
-```
+### Replay Path
 
-### 3. Run Inference
+Replay does **NOT** bypass InferenceCore:
+- Goes through `InferenceCore::route_and_infer_replay()` at `replay_inference.rs:516`
+- Which calls `route_and_infer(Some(replay_context))`
 
-**Standard (batch) inference:**
-```bash
-curl -X POST http://localhost:8080/v1/infer \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Write hello world in Rust", "max_tokens": 100}'
-```
+### Router Seed
 
-**Streaming inference (SSE):**
-```bash
-curl -X POST http://localhost:8080/v1/infer \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Explain async in Rust", "max_tokens": 200, "stream": true}'
-```
-
-**Via UI:** Navigate to `/inference`, enter prompt, click Generate.
-
-### 4. Train an Adapter
-
-**Prepare dataset (JSONL):**
-```jsonl
-{"input": "What is Rust?", "target": "Rust is a systems programming language..."}
-{"input": "Explain ownership", "target": "Ownership is Rust's memory management..."}
-```
-
-**Upload and train:**
-```bash
-# Upload dataset
-curl -X POST http://localhost:8080/v1/datasets/upload \
-  -F "name=rust-qa" -F "format=jsonl" -F "file=@training.jsonl"
-
-# Start training (save dataset_id from response)
-./target/release/aosctl train \
-  --dataset-id <dataset_id> \
-  --output adapters/rust-expert.aos \
-  --rank 16 --epochs 3
-```
-
-**Via UI:** Navigate to `/training`, upload dataset, configure hyperparameters, start job.
-
-### 5. Use the Trained Adapter
-
-```bash
-# Load adapter
-curl -X POST http://localhost:8080/v1/adapters/rust-expert/load
-
-# Inference with adapter
-curl -X POST http://localhost:8080/v1/infer \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Explain borrowing in Rust", "max_tokens": 150, "adapters": ["rust-expert"]}'
-
-# Hot-swap adapters (live, <100ms)
-./target/release/aosctl adapter swap --tenant default --add rust-expert --remove code-assistant --commit
-```
-
-**Via UI:** Select adapter from dropdown in Inference page.
-
-### Quick Verification
-
-```bash
-# Health check
-curl http://localhost:8080/healthz
-
-# List adapters
-curl http://localhost:8080/v1/adapters
-
-# System metrics
-curl http://localhost:8080/v1/metrics/system
-```
-
-**Full guides:** [QUICKSTART.md](QUICKSTART.md) | [docs/QUICKSTART.md](docs/QUICKSTART.md) | [QUICKSTART_GPU_TRAINING.md](QUICKSTART_GPU_TRAINING.md)
-
----
-
-## Known Build Issues (Alpha v0.01-1)
-
-**Status:** 40+ crates building successfully
-
-**Backend Implementation Status:**
-- `adapteros-lora-kernel-coreml` - Fully implemented and operational. Supports model loading, inference, ANE detection, memory pool integration, and Swift bridge (macOS 15+). Guaranteed determinism with ANE, graceful GPU fallback. See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md). Priority: Operational (primary)
-- `adapteros-lora-mlx-ffi` - Fully implemented. Supports model loading, text generation, health tracking, and memory pool integration. Priority: Operational (secondary)
-- `adapteros-lora-kernel-mtl` - In workspace, builds successfully. Model loading incomplete (LM head weights issue). Priority: Low (fallback only)
-
-**Workspace crates with issues:**
-1. `adapteros-lora-worker` - In workspace, library compiles. 29 test errors (tests need fixes). Priority: High
-
-**Included in workspace:**
-1. `adapteros-server` - Re-enabled for building. REST API available in `adapteros-server-api`. Priority: Low
-
-**Routing Implementation:**
-- Multi-adapter routing fully implemented with K-sparse selection and Q15 quantized gates (see [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md))
-
-**Note:** `adapteros-server-api`, `adapteros-system-metrics`, `adapteros-lora-mlx-ffi`, `adapteros-lora-kernel-mtl`, and `adapteros-codegraph` are workspace members and building successfully.
-
-**Impact:** Core inference pipeline building. CLI (`aosctl`) operational. REST API in `adapteros-server-api`. Multi-backend support operational.
-
----
-
-## Citations
-
-Format: `[source: crates/adapteros-server/src/main.rs L173-L218]`
-
-See [CITATIONS.md](CITATIONS.md) for standards.
-
----
-
-## References
-
-- [QUICKSTART.md](QUICKSTART.md) - Quick start guide
-- [docs/QUICKSTART.md](docs/QUICKSTART.md) - Complete system setup
-- [QUICKSTART_GPU_TRAINING.md](QUICKSTART_GPU_TRAINING.md) - GPU training quick start
-- [CONTRIBUTING.md](CONTRIBUTING.md) - PR guidelines
-- [README.md](README.md) - Project overview
-- [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md) - Full architecture
-- [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) - Detailed patterns & diagrams
-- [docs/TELEMETRY_EVENTS.md](docs/TELEMETRY_EVENTS.md) - Event catalog
-- [docs/DETERMINISTIC_EXECUTION.md](docs/DETERMINISTIC_EXECUTION.md) - HKDF, tick ledger, multi-agent
-- [docs/LIFECYCLE.md](docs/LIFECYCLE.md) - State machine details
-- [docs/TRAINING_PIPELINE.md](docs/TRAINING_PIPELINE.md) - Training flow
-- [docs/DATABASE_REFERENCE.md](docs/DATABASE_REFERENCE.md) - Schema reference
-- [docs/PINNING_TTL.md](docs/PINNING_TTL.md) - Pinning & TTL details
-- [docs/UI_INTEGRATION.md](docs/UI_INTEGRATION.md) - UI integration
-- [docs/RBAC.md](docs/RBAC.md) - RBAC permission matrix
-- [docs/DEPRECATED_PATTERNS.md](docs/DEPRECATED_PATTERNS.md) - Anti-patterns
-- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend implementation guide (includes activation & operational status)
-- [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) - **MLX FFI benchmark results** (update after running benchmarks)
-- [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend integration guide
-- `crates/adapteros-policy/` - Policy implementations
-- `crates/adapteros-core/src/error.rs` - Error definitions
-
----
-
-**Rule:** When in doubt, follow patterns in `crates/`. All documentation and code signed by **James KC Auchterlonie**.
-
----
-
-## See Also
-
-Key cross-references for daily development:
-
-- [docs/ADR_MULTI_BACKEND_STRATEGY.md](docs/ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale and architecture
-- [docs/FEATURE_FLAGS.md](docs/FEATURE_FLAGS.md) - Complete feature flag reference
-- [docs/LOCAL_BUILD.md](docs/LOCAL_BUILD.md) - Build troubleshooting and environment setup
-- [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend complete guide
-- [docs/README.md](docs/README.md) - Documentation index and navigation
-
----
-
-## Language Requirements
-- **Rust only** - No Python should be used or created
-- All tools, utilities, and scripts must be written in Rust or shell scripts
-- For any code generation, testing, or benchmarking: use Rust exclusively
-- Build automation: Rust (build.rs) or shell scripts only
+`router_seed` is stored for **AUDIT only**:
+- Routing is deterministic by algorithm (sorted scores, tie-breaking)
+- NOT by RNG seeding

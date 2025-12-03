@@ -143,11 +143,11 @@ Domain-separated seeding ensures:
 
 ### Usage
 
-**Location:** `crates/adapteros-core/src/hash.rs`
+**Location:** `crates/adapteros-core/src/seed.rs`
 
 ```rust
 let global = B3Hash::hash(b"seed_material");
-let router_seed = derive_seed(&global, "router");
+let router_seed = derive_seed(&global, "router");  // seed.rs:39
 let mut rng = ChaCha20Rng::from_seed(router_seed.try_into().unwrap());
 ```
 

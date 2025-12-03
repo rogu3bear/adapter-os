@@ -1,706 +1,560 @@
-# CLAUDE.md - AdapterOS Developer Guide
+# AdapterOS Assistant Guide
 
-**Single source of truth** for AI assistants and developers. Last updated: 2025-12-02
-**Copyright:** 2025 JKCA / James KC Auchterlonie | **Version:** v0.3-alpha
+## 1. Purpose & Scope
 
----
+### What is AdapterOS?
 
-## Architecture Scale
-| Metric | Count |
-|--------|-------|
-| Crates | 71 |
-| Rust LOC | 486,000+ |
-| UI LOC | 215,000+ |
-| Migrations | 123 (0001-0123) |
-| Policies | 24 |
-| Permissions | 59 (5 roles) |
-| REST Endpoints | ~250+ |
-| CI Workflows | 16 |
-| Docs | 340+ files |
+AdapterOS is an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems, targeting Mac/Metal environments and unified memory machines. It provides:
 
----
+- **Control Plane** (`adapteros-server`): HTTP API with SQLite, JWT auth, and policy enforcement
+- **Worker Processes** (`aos-worker`): LoRA-based inference and training over Unix Domain Sockets (UDS)
+- **K-Sparse Router**: Multi-adapter mixing with Q15 quantization
+- **Multi-Backend**: Metal, CoreML/ANE, and MLX support
 
-## Critical Rules
+**Key Characteristics:**
+- Single-node by default (future: "bunch of Macs" topology)
+- Multi-tenant at logical level: tenants own datasets, documents, adapters, stacks, and policies
+- Base models and workers are shared resources
+- Strongly focused on determinism, replay, tenant isolation, and auditable policies
+- Adapters hot-swap as an alternative to stuffing tokens into context
 
-**Compilation != Correctness** - Verify runtime behavior, not just compilation.
+### Scope of This Assistant
 
-**Duplication Prevention:**
-- Search existing patterns before writing code
-- Extract if: appears 3+ times, literal >50 chars used 2x, logic >10 lines duplicated
-- Run `make dup` before committing
-
-**Error Handling:** Use `Result<T, AosError>`, never `Option<T>` for errors.
-
-**Logging:** Use `tracing` macros (info!, warn!, error!), never `println!` in production.
+This assistant can:
+- Read and edit Rust, TypeScript, SQL, and configuration code
+- Run tests and build commands
+- Reason about architecture, invariants, and design decisions
+- Help implement features, fix bugs, and refactor code
 
 ---
 
-## Core Standards
+## 2. Core Principles & Invariants
 
-### Code Patterns
+### 2.1 Determinism and Replay
+
+**Seed Derivation:**
+- Uses HKDF-SHA256 with BLAKE3 global seed
+- Full entropy isolation: `manifest_hash + adapter_dir_hash + worker_id + label + nonce`
+- Location: `crates/adapteros-core/src/seed.rs`
+
+**Router Determinism:**
+- IEEE 754 deterministic softmax (f64 intermediate precision intended)
+- Sorted by score DESC, then index ASC for tie-breaking
+- Q15 gate quantization: `gate_f32 = q15 / 32767.0` (denominator is 32767, NOT 32768)
+- BLAKE3 decision hashing for audit trail
+- Location: `crates/adapteros-lora-router/src/lib.rs`
+
+**Replay Metadata (Stored per inference):**
+- `manifest_hash`, `router_seed`, `sampling_params_json`, `backend`
+- `rag_snapshot_hash` (BLAKE3 of sorted doc hashes), `adapter_ids_json`
+- `prompt_text`, `response_text` (64KB limit with truncation flag)
+- Location: `crates/adapteros-db/src/replay_metadata.rs`
+
+**Critical: `router_seed` is stored for AUDIT onlyrouting is deterministic by algorithm, not RNG.**
+
+### 2.2 Tenant Isolation
+
+**Handler-Level (security/mod.rs):**
 ```rust
-// Errors: Always use AosError with context
-.map_err(|e| AosError::Database(format!("Failed: {}", e)))?;
-
-// Logging: Structured tracing
-info!(tenant_id = %id, "Loading adapter");
-
-// Deterministic: Use spawn_deterministic for inference/training/routing
-spawn_deterministic("task".into(), async { /* reproducible logic */ })?;
-
-// Non-deterministic OK: Background tasks, CLI, tests
-tokio::spawn(async { /* monitoring, signals */ });
+validate_tenant_isolation(claims, resource_tenant_id)
 ```
+- Same tenant: always allowed
+- Admin cross-tenant: requires explicit `admin_tenants` claim
+- Dev mode bypass: debug builds only (`AOS_DEV_NO_AUTH`)
 
-### Database Access
+**Database-Level (migration 0131):**
+- Composite FKs: `FOREIGN KEY (tenant_id, document_id) REFERENCES documents(tenant_id, id)`
+- 15+ triggers prevent cross-tenant references
+- Orphan detection fails migration if data integrity is broken
+
+**CRITICAL: All queries involving tenant-scoped resources MUST include `tenant_id` filter.**
+
+### 2.3 Policy & Audit
+
+**Hook Points:**
+- `OnRequestBeforeRouting`  before adapter selection
+- `OnBeforeInference`  after routing, before inference
+- `OnAfterInference`  after inference completes
+
+**24 Canonical Policy Packs:**
+Core (always enabled): Egress, Determinism, Isolation, Evidence
+
+Additional: Router, Refusal, Numeric, RAG, Telemetry, Retention, Performance, Memory, Artifacts, Secrets, Build_Release, Compliance, Incident, Output, Adapters, Deterministic_IO, Drift, MPLoRA, Naming, Dependency_Security
+
+**Merkle Chain Audit:**
+- BLAKE3 hash chaining: `entry_hash = BLAKE3(entry_data + previous_hash)`
+- Ed25519 signatures per audit entry
+- Chain verification detects tampering
+- Location: `crates/adapteros-db/src/policy_audit.rs`
+
+### 2.4 Egress & Offline Posture
+
+**Default Egress Config:**
 ```rust
-// PREFERRED: Db trait methods
-state.db.update_adapter_state_tx(&id, "warm", "reason").await?;
-
-// ACCEPTABLE: Direct SQL for simple queries or inside existing transactions
-sqlx::query("SELECT...").fetch_one(&db.pool()).await?;
+mode: DenyAll
+serve_requires_pf: true  // PF firewall required in production
+allow_tcp: false
+allow_udp: false
+uds_paths: ["/var/run/aos"]
 ```
 
----
+**Runtime Modes:**
+- Dev: `allows_egress: true`
+- Staging: `allows_egress: false`, requires allowlist
+- Prod: `denies_egress: true` (zero egress)
 
-## Policies (24 Canonical)
+**Workers have zero network egress (UDS only).**
 
-| Policy | Purpose |
-|--------|---------|
-| Egress | Zero network in production (UDS only) |
-| Determinism | HKDF-seeded randomness |
-| Router | K-sparse Q15 quantized gates |
-| Evidence | Audit trail, quality thresholds |
-| Telemetry | Canonical JSON with signatures |
-| Naming | `{tenant}/{domain}/{purpose}/{revision}` |
-| DependencySecurity | CVE validation, supply chain |
+### 2.5 Critical Invariants (DO NOT BREAK)
 
-All 24: Egress, Determinism, Router, Evidence, Refusal, Numeric, Rag, Isolation, Telemetry, Retention, Performance, Memory, Artifacts, Secrets, BuildRelease, Compliance, Incident, Output, Adapters, DeterministicIo, Drift, Mplora, Naming, DependencySecurity
-
-**Note:** CircuitBreaker policy exists in packs/ but is not registered in PolicyId enum.
-
-See `crates/adapteros-policy/src/packs/`
+| Invariant | Location | Risk |
+|-----------|----------|------|
+| All inference routes through `InferenceCore` | `inference_core.rs:83` (`route_and_infer`) | Bypassing breaks auditability |
+| Routing guard must fail hard | `inference_core.rs:106` (`enter_routed_context`) | Silent failures break audit trail |
+| Merkle chain write lock BEFORE read | `deterministic-exec/src/global_ledger.rs:85` (`GlobalTickLedger`) | Race conditions break determinism |
+| Q15 denominator is 32767.0 | `lora-router/src/lib.rs:1022,1397` | Precision-critical for gate values |
+| FK constraints enabled | `db/lib.rs:466` | `foreign_keys=true` required |
+| Tenant FK triggers | Migration 0131 | Cross-tenant leakage risk |
 
 ---
 
-## RBAC (5 Roles, 59 Permissions)
+## 3. Repository Map
 
-**Roles:** Admin, Operator, SRE, Compliance, Viewer
+### 3.1 Binaries
 
-| Scope | Permissions |
-|-------|------------|
-| All (Viewer+) | AdapterList/View, TrainingView, PolicyView, MetricsView, plus 18 other view permissions |
-| Admin only | AdapterDelete, PolicyApply/Sign, TenantManage, NodeManage |
-| Operator+Admin | AdapterRegister, Training*, Inference* |
-| SRE+Admin | AdapterLoad/Unload |
-| SRE+Compliance+Admin | AuditView |
-| New (2025-11) | Activity*, Dashboard*, Notification*, Workspace*, DatasetList |
+| Binary | Crate | Source | Purpose |
+|--------|-------|--------|---------|
+| `adapteros-server` | adapteros-server | `crates/adapteros-server/src/main.rs` | Control plane HTTP API server |
+| `aos-worker` | adapteros-lora-worker | `crates/adapteros-lora-worker/src/bin/aos_worker.rs` | Inference worker process (UDS) |
+| `aosctl` | adapteros-cli | `crates/adapteros-cli/src/main.rs` | CLI tool for all operations |
+
+### 3.2 Control Plane Crates
+
+| Crate | Purpose |
+|-------|---------|
+| `adapteros-server` | HTTP server bootstrap, shutdown coordination |
+| `adapteros-server-api` | 300+ REST endpoints, handlers, middleware |
+| `adapteros-orchestrator` | Training job orchestration |
+| `adapteros-registry` | Adapter/model registry |
+| `adapteros-federation` | Cross-node communication (future) |
+
+### 3.3 Worker/Data Plane Crates
+
+| Crate | Purpose |
+|-------|---------|
+| `adapteros-lora-worker` | Core worker: UDS server, inference pipeline |
+| `adapteros-lora-router` | K-sparse routing with Q15 gates |
+| `adapteros-lora-kernel-mtl` | Metal GPU backend |
+| `adapteros-lora-kernel-coreml` | CoreML/ANE backend |
+| `adapteros-lora-mlx-ffi` | MLX backend (experimental) |
+| `adapteros-lora-lifecycle` | Adapter state machine |
+
+### 3.4 Shared Libraries
+
+| Crate | Purpose |
+|-------|---------|
+| `adapteros-core` | Domain types, errors, BLAKE3/HKDF, seed derivation |
+| `adapteros-types` | Base type definitions |
+| `adapteros-api-types` | Request/response types |
+| `adapteros-db` | SQLite abstraction, 137 migrations |
+| `adapteros-config` | Config loading with precedence (CLI > env > manifest) |
+| `adapteros-crypto` | Ed25519, BLAKE3, HKDF, AES-GCM |
+| `adapteros-policy` | 24 policy packs, enforcement hooks |
+| `adapteros-telemetry` | Event collection, Merkle bundles |
+| `adapteros-manifest` | Adapter manifest V3 format |
+
+### 3.5 UI
+
+| Location | Purpose |
+|----------|---------|
+| `ui/` | React 18 + TypeScript + Vite + TanStack Query |
+| `ui/src/api/client.ts` | API client (5,395 lines) |
+| `ui/src/components/` | 139+ component directories |
+| `ui/src/hooks/` | 108 custom hooks |
+
+---
+
+## 4. Working Process for Changes
+
+### 4.1 Before Making Changes
+
+1. **Identify the subsystem**: inference, replay, RAG, training, worker health, policies, config, UI
+2. **Read relevant code**: Don't propose changes to code you haven't read
+3. **Check for invariants**: Look for `CRITICAL`, `INVARIANT`, `SECURITY` comments
+4. **Understand test coverage**: Find related tests in `tests/` and `crates/*/tests/`
+
+### 4.2 Making Changes
+
+1. **Make minimal, targeted changes** that preserve invariants
+2. **Avoid over-engineering**: Don't add features, refactor, or "improve" beyond what's asked
+3. **Security-first**: Be careful not to introduce OWASP Top 10 vulnerabilities
+4. **Preserve determinism**: Any change touching inference/routing must maintain reproducibility
+
+### 4.3 After Making Changes
+
+1. **Run appropriate tests**:
+   ```bash
+   cargo test -p <crate>           # Crate-specific
+   cargo test --workspace          # All tests
+   make determinism-check          # Determinism suite
+   ```
+
+2. **Check formatting and lints**:
+   ```bash
+   cargo fmt --all
+   cargo clippy --workspace
+   ```
+
+3. **Verify migrations** (if schema changed):
+   ```bash
+   cargo sqlx migrate run
+   # Verify signatures if needed
+   ```
+
+4. **Summarize impact**: Document effects on determinism, isolation, policy auditability, egress posture
+
+---
+
+## 5. Tools & Commands
+
+### 5.1 Development
+
+```bash
+make dev               # Start control plane (port 8080, NO_AUTH=1)
+make ui-dev            # Start UI (port 3200)
+make test              # Run all tests (excluding MLX)
+make determinism-check # Determinism test suite
+make check             # fmt + clippy + test
+make metal             # Build Metal shaders
+make security-audit    # Vulnerabilities, licenses, SBOM
+```
+
+### 5.2 Database
+
+```bash
+cargo sqlx migrate run    # Apply migrations
+./scripts/migrate.sh      # Migration helper script
+```
+
+### 5.3 Testing
+
+```bash
+cargo test -p adapteros-lora-router          # Router tests
+cargo test -p adapteros-db                   # DB tests
+cargo test -p adapteros-server-api           # API tests
+cargo test -- --test-threads=1               # Sequential (debugging)
+cargo test -- --nocapture                    # With output
+LOOM_MAX_PREEMPTIONS=3 cargo test test_name  # Concurrency tests
+```
+
+### 5.4 Environment Assumptions
+
+- **Platform**: macOS with Metal GPU (Linux supported without GPU acceleration)
+- **Memory**: Unified Memory Architecture (UMA) assumed
+- **Database**: SQLite at `var/aos-cp.sqlite3`
+- **Default Model**: Qwen2.5-7B
+
+---
+
+## 6. Change Safety Guidelines
+
+### 6.1 NEVER Do These
+
+- **Bypass `InferenceCore` routing guard**  all inference must go through it
+- **Change Q15 denominator** from 32767.0  precision-critical
+- **Use `unwrap()`/`expect()` in crypto code**  handle errors properly
+- **Skip `tenant_id` validation** in DB queries  tenant isolation is critical
+- **Move types across crate boundaries** without handling migrations/API impact
+- **Modify Merkle chain logic** without proper locking
+- **Store secrets in code or config files**
+- **Renumber migrations**  `migration_conflicts.rs` enforces this
+- **Use `-ffast-math`** or similar compiler flags  breaks determinism
+
+### 6.2 ALWAYS Do These
+
+- **Run `cargo fmt --all` and `cargo clippy --workspace`**
+- **Include `tenant_id` filters** in all multi-tenant queries
+- **Use `Result`-based error handling** in security code
+- **Verify migration signatures** after schema changes
+- **Add tests** for new functionality, especially determinism-related
+- **Document impact** on determinism, isolation, and auditability
+
+### 6.3 When Uncertain
+
+- **Fail loudly** rather than silently
+- **Add tests** to verify assumptions
+- **Document limitations** clearly
+- **Ask for clarification** before making risky changes
+
+---
+
+## 7. Style & Conventions
+
+### 7.1 Error Handling
 
 ```rust
-require_permission(&claims, Permission::AdapterRegister)?;
+// Use thiserror for error enums
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum MyError {
+    #[error("description: {0}")]
+    Variant(String),
+}
+
+// Use Result alias
+pub type Result<T> = std::result::Result<T, AosError>;
 ```
 
-See [docs/RBAC.md](docs/RBAC.md)
-
----
-
-## Configuration System
-
-**Crate:** `adapteros-config` | **Categories:** 16 | **Variables:** ~60
-
-### Precedence (highest to lowest)
-1. CLI arguments
-2. Environment variables (`.env` file supported)
-3. Manifest file
-
-### Key Categories
-
-| Category | Variables | Description |
-|----------|-----------|-------------|
-| MODEL | AOS_MODEL_PATH, AOS_MODEL_BACKEND, AOS_MANIFEST_PATH, AOS_TOKENIZER_PATH | Base model configuration |
-| SERVER | AOS_SERVER_PORT, AOS_SERVER_HOST | Server binding |
-| DATABASE | AOS_DATABASE_URL, AOS_DATABASE_POOL_SIZE | SQLite/Postgres |
-| SECURITY | AOS_SECURITY_JWT_SECRET, AOS_SIGNING_KEY | Auth & signing |
-| ROUTER | AOS_ROUTER_K_SPARSE, AOS_ROUTER_QUANTIZATION | K-sparse adapter selection |
-| PATHS | AOS_VAR_DIR, AOS_MODEL_CACHE_DIR | Runtime directories |
-| WORKER | AOS_WORKER_THREADS | Background workers |
-| DEBUG | AOS_DEBUG_ENABLED | Development mode |
-| LOGGING | AOS_LOG_LEVEL, AOS_LOG_FORMAT | Log verbosity and format |
-| MEMORY | AOS_MEMORY_HEADROOM_PCT | Memory management |
-| BACKEND | AOS_BACKEND_COREML_ENABLED, AOS_BACKEND_MLX_ENABLED | Backend selection |
-| TELEMETRY | AOS_TELEMETRY_ENABLED | Telemetry collection |
-| TRAINING | AOS_TRAINING_MAX_EPOCHS, AOS_TRAINING_CHECKPOINT_INTERVAL | Training config |
-| FEDERATION | AOS_FEDERATION_ENABLED, AOS_FEDERATION_NODE_ID | Multi-node federation |
-| EMBEDDINGS | AOS_EMBEDDING_DIMENSION | Embedding configuration |
-
-### Usage
+### 7.2 Logging
 
 ```rust
-// Initialize at startup (validates all AOS_* vars)
-adapteros_config::initialize_config()?;
+// Use tracing, not println!
+use tracing::{info, warn, error, debug, trace};
 
-// Access config anywhere
-let cfg = adapteros_config::get_config()?;
-let port = cfg.server_port();
-let k_sparse = cfg.router_k_sparse();
+info!(request_id = %id, latency_ms = ms, "message");
+warn!(tenant_id = %tid, "potential issue");
+error!(error = ?e, "operation failed");
 ```
 
-```bash
-# .env file
-AOS_MODEL_PATH=./models/qwen2.5-7b-mlx
-AOS_SERVER_PORT=8080
-AOS_ROUTER_K_SPARSE=4
-```
-
-See `crates/adapteros-config/src/schema.rs` for full schema.
-
----
-
-## Multi-Backend Architecture
-
-| Backend | Status | Determinism | Crate |
-|---------|--------|-------------|-------|
-| CoreML | Operational | Guaranteed (ANE) | `adapteros-lora-kernel-coreml` |
-| MLX | Operational | HKDF-seeded | `adapteros-lora-mlx-ffi` |
-| Metal | Fallback | Guaranteed | `adapteros-lora-kernel-mtl` |
-
-```rust
-let backend = create_backend(BackendChoice::CoreML { model_path: None })?;
-let backend = create_backend(BackendChoice::Mlx { model_path })?;
-let backend = create_backend(BackendChoice::Metal)?;
-```
-
-**CoreML:** ANE acceleration, Swift bridge (macOS 15+), graceful GPU fallback
-**MLX:** `--features real-mlx`, circuit breaker, hot-swap, memory pool
-**Selection:** CoreML → MLX → Metal fallback chain (Metal is backup for incomplete/legacy scenarios)
-
-See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md), [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md)
-
----
-
-## Key Subsystems
-
-| Subsystem | Location |
-|-----------|----------|
-| Router | `adapteros-lora-router` (K-sparse) |
-| Backend Factory | `adapteros-lora-worker/backend_factory.rs` |
-| Policy Engine | `adapteros-policy` (24 packs) |
-| Memory | `adapteros-memory` (≥15% headroom) |
-| Lifecycle | `adapteros-lora-lifecycle` (Unloaded→Cold→Warm→Hot→Resident) |
-| Hot-Swap | `adapteros-lora-worker/adapter_hotswap.rs` |
-| Deterministic Exec | `adapteros-deterministic-exec` (FIFO) |
-| Training | `adapteros-lora-worker/training/` |
-| Registry | `adapteros-registry` (SQLite WAL) |
-
----
-
-## Control Plane + Worker Architecture (UDS)
-
-AdapterOS uses a **two-process architecture** for security isolation:
-
-```
-┌─────────────────────────┐         ┌─────────────────────────┐
-│    Control Plane        │   UDS   │        Worker           │
-│    (HTTP Server)        │◄───────►│     (Inference)         │
-│    Port 8080            │  socket │   Loads model weights   │
-│    Handles API/Auth     │   file  │   Runs GPU compute      │
-│    Serves UI            │         │   Zero network access   │
-└─────────────────────────┘         └─────────────────────────┘
-         ▲                                    ▲
-         │ HTTP/HTTPS                         │ Metal/CoreML/MLX
-         │                                    │
-      Users/UI                           Model + Adapters
-```
-
-### Why Unix Domain Sockets (UDS)?
-
-A UDS is like an API but "underground" - local IPC without network exposure:
-
-| HTTP API | Unix Socket |
-|----------|-------------|
-| Public road anyone can access | Private tunnel only local processes use |
-| Requires ports, firewalls | Just a file with permissions |
-| Network stack overhead | Direct memory transfer |
-| Can be accessed remotely | Cannot leave the machine |
-
-**Security benefit:** The worker handling your model has NO network access. It can only communicate via the socket file, enforcing zero-egress guarantees.
-
-### Socket Paths
-
-| Environment | Socket Path | Purpose |
-|-------------|-------------|---------|
-| Development | `var/run/worker.sock` | Local inference worker |
-| Production | `/var/run/aos/{tenant_id}/worker.sock` | Per-tenant isolation |
-| Metrics | `var/run/metrics.sock` | Telemetry streaming |
-
-### Running the Full Stack
-
-**1. Start the Worker** (loads model, listens on socket):
-```bash
-AOS_DEV_SKIP_METALLIB_CHECK=1 cargo run -p adapteros-lora-worker --bin aos-worker -- \
-  --manifest manifests/qwen7b-mlx.yaml \
-  --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16 \
-  --uds-path ./var/run/worker.sock
-```
-
-**2. Start the Control Plane** (HTTP server, points to worker):
-```bash
-AOS_WORKER_SOCKET=./var/run/worker.sock cargo run -p adapteros-server -- \
-  --config configs/cp.toml --skip-pf-check --single-writer
-```
-
-**3. Start the UI** (optional):
-```bash
-cd ui && pnpm dev
-```
-
-### Environment Variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `AOS_WORKER_SOCKET` | `/var/run/adapteros.sock` | Path to worker UDS |
-| `AOS_DEV_SKIP_METALLIB_CHECK` | (unset) | Skip metallib hash validation (dev only) |
-
-### Crates Involved
-
-| Crate | Role |
-|-------|------|
-| `adapteros-server` | Control plane binary, HTTP server |
-| `adapteros-server-api` | API handlers, routes, middleware |
-| `adapteros-lora-worker` | Worker binary, inference engine, UDS server |
-| `adapteros-lora-worker/uds_server.rs` | UDS listener implementation |
-| `adapteros-server-api/uds_client.rs` | UDS client for control plane |
-
----
-
-## Boot System
-
-AdapterOS uses a unified boot system via `./start` for managing services.
-
-### Quick Start
-
-```bash
-./start              # Start all services (API + UI)
-./start down         # Graceful shutdown
-./start status       # Show service status
-./start backend      # Start backend only (no UI)
-./start preflight    # Run system checks without starting
-```
-
-### Boot Components
-
-| Component | Script | Purpose |
-|-----------|--------|---------|
-| Unified entry | `./start` | User-facing boot script with animations |
-| Service manager | `scripts/service-manager.sh` | Process lifecycle (start/stop/restart) |
-| Freeze guard | `scripts/lib/freeze-guard.sh` | Port conflict detection, never auto-kills |
-| PID files | `var/*.pid` | Process tracking |
-
-### Boot State Machine
-
-The control plane tracks boot progress via `BootStateManager` (`boot_state.rs`):
-
-```
-stopped → booting → initializing-db → loading-policies → starting-backend →
-  → loading-base-models → loading-adapters → ready → fully-ready → draining → stopping
-```
-
-| State | Description | Health Check |
-|-------|-------------|--------------|
-| `stopped` | Server not running | N/A |
-| `booting` | PID lock, config load | `/healthz` returns 503 |
-| `initializing-db` | Migrations, WAL recovery | `/healthz` returns 503 |
-| `loading-policies` | Policy hash verification | `/healthz` returns 503 |
-| `starting-backend` | MLX/CoreML/Metal init | `/healthz` returns 503 |
-| `loading-base-models` | Manifest validation | `/healthz` returns 503 |
-| `loading-adapters` | Heartbeat recovery | `/healthz` returns 503 |
-| `ready` | Accepting requests | `/readyz` returns 200 |
-| `fully-ready` | All models loaded | `/readyz` returns 200 |
-| `draining` | Rejecting new requests | `/readyz` returns 503 |
-| `stopping` | Ordered termination | N/A |
-
-Each transition is logged to both stdout and audit trail with elapsed time.
-
-### Freeze Guard Behavior
-
-The freeze guard (`scripts/lib/freeze-guard.sh`) **never auto-kills external processes**:
-
-| Scenario | Behavior |
-|----------|----------|
-| Port in use by AdapterOS | Prompts `[y/N]` to kill (default: No) |
-| Port in use by external process | Reports diagnostics, suggests alternatives, **freezes** |
-| Port in TIME_WAIT | Reports, suggests waiting 60s or different port |
-| Stale PID file | Prompts to remove |
-| Database locked | Reports holder PID, does not interfere |
-
-### Shutdown Modes
-
-```bash
-./start down              # Graceful (120s timeout, full cleanup)
-scripts/service-manager.sh stop all fast      # Fast (30s timeout)
-scripts/service-manager.sh stop all immediate # Immediate (SIGUSR2)
-```
-
-| Mode | Backend Signal | Timeout | Use Case |
-|------|----------------|---------|----------|
-| `graceful` | SIGTERM | 120s | Normal shutdown, drains in-flight requests |
-| `fast` | SIGUSR1 | 30s | Quick restart, reduced cleanup |
-| `immediate` | SIGUSR2 | 10s | Emergency, minimal cleanup |
-
-### Logging Configuration
-
-Logging is configured in `configs/cp.toml`:
+### 7.3 Feature Flags
 
 ```toml
-[logging]
-level = "aos_cp=info,aos_cp_api=info,tower_http=debug"
-log_dir = "var/logs"           # Directory for log files (comment out for stdout-only)
-log_prefix = "aos-cp"          # Log file prefix
-rotation = "daily"             # "hourly", "daily", or "never"
-max_log_files = 30             # Rotated files to keep (0 = unlimited)
-json_format = false            # JSON for log aggregation tools
-capture_panics = true          # Capture panics to log file
+[features]
+default = ["deterministic-only", "coreml-backend"]
 ```
 
-**Log files:**
-- `var/logs/aos-cp.YYYY-MM-DD` - Backend API logs (daily rotation)
-- `var/logs/backend.log` - Service manager stdout capture
-- `var/logs/ui.log` - UI dev server logs
+Feature flags affect determinism and available backends. Check feature configuration before assuming capabilities.
 
-**Environment override:** `RUST_LOG=debug` takes precedence over config.
+### 7.4 Commit Messages
 
-### Service Ports
+When committing:
+- Summarize the "why" not the "what"
+- Note impact on: determinism, tenant isolation, policy enforcement, egress
+- Reference PRD numbers if applicable (e.g., PRD-02, PRD-03, PRD-09)
 
-| Service | Port | PID File |
-|---------|------|----------|
-| Backend API | 8080 (`AOS_SERVER_PORT`) | `var/backend.pid` |
-| UI Server | 3200 (`AOS_UI_PORT`) | `var/ui.pid` |
-| Worker | UDS only (`var/run/worker.sock`) | N/A |
+---
 
-### SSE Boot Progress Stream
+## 8. Key Workflows
 
-The UI can subscribe to boot progress via SSE:
+### 8.1 Inference Flow
 
-```bash
-curl -N http://localhost:8080/api/v1/stream/boot-progress
+```
+HTTP Request � InferenceCore � Worker Selection � UDS Request
+                    �
+              Policy Hooks (OnBeforeInference)
+                    �
+              Router Decision (K-sparse)
+                    �
+              Kernel Execution (Metal/CoreML/MLX)
+                    �
+              Response + Evidence + Replay Metadata
 ```
 
-Returns real-time state transitions for progress indicators.
+### 8.2 Training Flow
 
----
-
-## Database
-
-**Core Tables:** adapters, tenants, adapter_stacks, repository_training_jobs, training_datasets, pinned_adapters, audit_logs, chat_sessions, chat_messages, documents, document_chunks, document_collections, inference_evidence
-
-**123 Migrations** (key recent):
-- 0084-0097: Default stacks, chat sessions, evidence, documents/collections, policy packs, base models, crypto audit
-- 0102-0116: Dashboard indexes, federation health, chat features (tags, FTS, sharing), admin access
-- 0117: Training job category metadata (category, language, framework, post_actions)
-- 0118: Training jobs denormalization
-- 0119: Registry consolidation
-- 0120: Behavior telemetry capture
-- 0121: Tenant policy customizations
-- 0122: Workers rename last_heartbeat column
-- 0123: Adapters add metadata_json
-
-```bash
-touch migrations/NNNN_description.sql
-./scripts/sign_migrations.sh
+```
+API Request � TrainingService � Validation (tenant, dataset, evidence)
+                    �
+              Orchestrator (spawn job, cancel token)
+                    �
+              Worker (MicroLoRATrainer)
+                    �
+              Epoch Loop (metrics emission, cancel check)
+                    �
+              Adapter Packaging (Q15) � Registry � Stack Creation
 ```
 
-See [docs/DATABASE_REFERENCE.md](docs/DATABASE_REFERENCE.md)
+### 8.3 RAG Flow
 
----
-
-## Storage Paths
-
-All runtime data is stored under `var/` relative to the working directory. 
-
-**For adapter paths, use `AdapterPaths` from `adapteros-core` as the single source of truth.** It provides consistent path resolution with precedence: ENV > Config > Default.
-
-For other paths, use `PlatformUtils` from `adapteros-platform`.
-
-### Directory Structure
-
-```text
-var/
-├── aos-cp.sqlite3         # SQLite database (metadata for all entities)
-├── adapters/              # LoRA adapter weights (.aos files)
-├── artifacts/             # Training artifacts, temp files
-│   ├── temp/              # Temporary processing files
-│   └── cache/             # Orchestration cache
-├── datasets/              # Training datasets (NDJSON files)
-├── documents/             # Uploaded document files (PDFs, etc.)
-│   └── {tenant_id}/       # Tenant-isolated subdirectories
-├── model-cache/           # Downloaded models from HuggingFace
-│   ├── blobs/             # Content-addressed storage (BLAKE3)
-│   ├── models/            # Model directories with symlinks
-│   ├── downloads/         # In-progress downloads
-│   └── locks/             # File locks for concurrent access
-├── bundles/               # Telemetry bundles
-└── alerts/                # Alert logs
+```
+Query � Embedding � Vector Retrieval (tenant-scoped)
+                    �
+              Collection Filtering
+                    �
+              Deterministic Ordering (score DESC, doc_id ASC)
+                    �
+              Evidence Storage � Context Injection
 ```
 
-### What Goes Where
+### 8.4 RAG vs Adapter Positioning
 
-| Data Type | File Storage | Database Table |
-|-----------|--------------|----------------|
-| **Documents** | `var/documents/{tenant_id}/{id}.pdf` | `documents` (metadata), `document_chunks` (embeddings) |
-| **Adapters** | `var/adapters/{id}.aos` | `adapters` (metadata, lifecycle state) |
-| **Datasets** | `var/datasets/{id}.ndjson` | `training_datasets` (metadata, validation) |
-| **Training Jobs** | `var/artifacts/` (outputs) | `training_jobs` (status, metrics) |
-| **Chat Sessions** | — | `chat_sessions`, `chat_messages` |
-| **Collections** | — | `document_collections`, `collection_documents` |
-| **Evidence** | — | `inference_evidence` (provenance tracking) |
-| **Stacks** | — | `adapter_stacks` (configuration) |
+**Core Principle:** RAG augments prompts with retrieved context. Adapters encode persistent behavior via learned weights. Both can run together in a single inference.
 
-**Pattern:** Large files go to filesystem, metadata/relationships go to SQLite.
+**Two Canonical Pipelines:**
 
-### Environment Variables
+```
+Pipeline A: Adapter Path (Persistent Behavior)
+document → dataset → adapter → stack → router
+├── Training creates permanent specialization
+├── Deterministic, auditable via policy packs
+└── Best for: repeated queries, core domain behavior, compliance
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `AOS_VAR_DIR` | `var` | Base directory for all runtime data |
-| `AOS_MODEL_CACHE_DIR` | `var/model-cache` | Downloaded model cache |
-| `AOS_ADAPTERS_DIR` | `var/adapters` | LoRA adapter storage |
-| `AOS_ARTIFACTS_DIR` | `var/artifacts` | Training artifacts |
-| `AOS_DATASETS_DIR` | `var/datasets` | Training datasets |
-| `AOS_DOCUMENTS_DIR` | `var/documents` | Uploaded documents |
-| `AOS_MODEL_PATH` | `./models/qwen2.5-7b` | Active model directory |
-| `AOS_EMBEDDING_MODEL_PATH` | `./models/bge-small-en-v1.5` | Embedding model |
-| `HF_TOKEN` | (none) | HuggingFace authentication |
-| `AOS_HF_REGISTRY_URL` | `https://huggingface.co` | Model registry URL |
-
-### Path Resolution
-
-**Adapter Paths (Single Source of Truth):**
-
-```rust
-use adapteros_core::paths::AdapterPaths;
-
-// Use centralized adapter path resolution (ENV > Config > Default)
-let adapters_paths = AdapterPaths::from_config(config.paths.adapters_root.as_deref());
-let adapter_path = adapters_paths.get_adapter_path("my-adapter");  // {root}/my-adapter.aos
-adapters_paths.ensure_exists_async().await?;  // Create directory if needed
+Pipeline B: RAG Path (Query-Time Augmentation)
+document → collection → retrieval → context injection
+├── Query-time retrieval with evidence tracking
+├── Deterministic ordering (score DESC, doc_id ASC)
+└── Best for: ad-hoc queries, evolving knowledge bases
 ```
 
-**Other Paths:**
+**Positioning:**
 
-```rust
-use adapteros_platform::common::PlatformUtils;
+| Aspect | Adapters | RAG |
+|--------|----------|-----|
+| Persistence | Permanent (trained weights) | Transient (per-query) |
+| Determinism | Router algorithm + Q15 gates | Ordering rules + snapshot hash |
+| Use case | Core behavior, repeated patterns | Ad-hoc queries, dynamic docs |
+| Audit | Manifest hash + adapter IDs | RAG snapshot hash + doc IDs |
+| When to prefer | Policy-auditable, stable behavior | Frequently changing knowledge |
 
-// Runtime data (relative to cwd)
-let var_dir = PlatformUtils::aos_var_dir();           // var/
-let cache = PlatformUtils::aos_model_cache_dir();     // var/model-cache
-let adapters = PlatformUtils::aos_adapters_dir();     // var/adapters (delegates to AdapterPaths)
-let artifacts = PlatformUtils::aos_artifacts_dir();   // var/artifacts
+**At Query Time (InferenceCore):**
 
-// Path expansion for user paths (tilde expansion)
-let expanded = PlatformUtils::expand_path("~/custom/path")?;
+1. RAG retrieval runs on control plane (before worker call)
+2. Prompt augmented with RAG context
+3. Worker receives augmented prompt
+4. Router selects adapters via K-sparse gating
+5. Replay stores both: `rag_snapshot_hash` + `adapter_ids_json`
 
-// User-specific directories (optional, for cross-project data)
-let user_cache = PlatformUtils::aos_user_cache_dir()?;   // ~/.cache/adapteros
-let user_config = PlatformUtils::aos_user_config_dir()?; // ~/.config/adapteros
-```
-
-### Configuration (TOML)
-
-Paths are also configurable via `configs/cp.toml`:
-
-```toml
-[paths]
-artifacts_root = "var/artifacts"
-bundles_root = "var/bundles"
-adapters_root = "var/adapters"
-datasets_root = "var/datasets"
-documents_root = "var/documents"
-plan_dir = "plan"
-
-[db]
-path = "var/aos-cp.sqlite3"
-
-[alerting]
-alert_dir = "var/alerts"
-```
-
-**Production paths** use `/var/lib/adapteros/` prefix (see `configs/production-multinode.toml`).
+**Guideline:** For long-term, policy-auditable behavior, train an adapter from key datasets. Use RAG for supplementary context that changes frequently.
 
 ---
 
-## Training Pipeline (6 Steps)
+## 9. Known Gaps and Partial Implementations
 
-1. `DocumentIngestor::new(opts, tok).ingest_pdf_path(path)?`
-2. `generate_training_data(&doc, &tok, &cfg)?`
-3. `TrainingDatasetManager::new(db, path, tok).create_dataset_from_documents(req).await?`
-4. `MicroLoRATrainer::new(cfg)?.train(examples, id).await?`
-5. `AdapterPackager::new().package(weights, manifest)?`
-6. Register adapter in database (conditional on `post_actions.register`)
+### Current Behavior vs Intended Invariant
 
-**Templates:** `general-code` (rank=16, alpha=32), `framework-specific` (rank=12, alpha=24), `codebase-specific` (rank=24, alpha=48), `ephemeral-quick` (rank=8, alpha=16)
+| Area | Current | Intended |
+|------|---------|----------|
+| Kahan summation | Defined in config, not implemented | f64 + Kahan for router softmax |
+| Router f64 precision | f32 throughout | f64 intermediate values |
+| Policy enforcement | Framework exists | Full integration at inference |
+| Token counting | Heuristic (~4 chars/token) | Actual tokenizer |
+| PF rule validation | Returns error | Full packet filter validation |
+| 5 policy packs | Pass with warnings | Full implementation |
 
-**Categories:** code, framework, codebase, ephemeral
+### Partially Implemented Features
 
-**Post-Actions:** Configurable via `post_actions` in StartTrainingRequest:
-- `package`: Package adapter after training (default: true)
-- `register`: Register in database (default: true)
-- `tier`: persistent | warm | ephemeral (default: warm)
-- `adapters_root`: Custom output directory
-
-**Advanced Config:** LR schedules (constant/linear/cosine), early stopping, checkpoints, multi-backend GPU support (CoreML/MLX/Metal)
+- **Replay**: Infrastructure complete, determinism verification ongoing
+- **Federation**: Framework exists, multi-node not production-ready
+- **KV backend**: Dual-write mode active, KV-only migration incomplete
 
 ---
 
-## REST API (~250+ routes)
+## 10. File Reference Quick Guide
 
-**Source:** `crates/adapteros-server-api/src/routes.rs` | **Auth:** JWT Ed25519
+### Critical Files (Read Before Modifying Nearby Code)
 
-| Category | Base Path | Key Operations |
-|----------|-----------|----------------|
-| Health | `/healthz`, `/readyz` | Health, readiness |
-| Auth | `/v1/auth/*` | login, logout, me, refresh, sessions |
-| Adapters | `/v1/adapters/*` | CRUD, load/unload, pin, lifecycle, hot-swap, lineage |
-| Stacks | `/v1/adapter-stacks/*` | Create, activate, deactivate |
-| Training | `/v1/training/*` | Jobs, start, cancel, templates, artifacts |
-| Datasets | `/v1/datasets/*` | Upload, validate, preview, chunked upload |
-| Inference | `/v1/infer` | Batch, streaming |
-| Policies | `/v1/policies/*` | List, validate, apply, sign |
-| Metrics | `/v1/metrics/*` | System, adapters, time-series |
-| Audit | `/v1/audit/*` | Logs, compliance |
-| Collections | `/v1/collections/*` | Document grouping |
-| Documents | `/v1/documents/*` | Upload, retrieval |
-| Evidence | `/v1/evidence/*` | Provenance tracking |
-| Chat | `/v1/chat/*` | Sessions, messages, tags, sharing |
-| Models | `/v1/models/*` | List, import, load/unload |
-| Tenants | `/v1/tenants/*` | CRUD, policies, adapters |
-| Workspaces | `/v1/workspaces/*` | CRUD, members, resources |
-| Notifications | `/v1/notifications/*` | List, mark read |
-| Dashboard | `/v1/dashboard/*` | Config, widgets |
-| Streams (SSE) | `/v1/stream/*` | Metrics, telemetry, adapters |
+| Area | File | Key Functions |
+|------|------|---------------|
+| Inference routing | `server-api/src/inference_core.rs` | `route_and_infer:83`, `route_and_infer_replay:354` |
+| RAG context | `server-api/src/handlers/rag_common.rs` | `retrieve_rag_context:127`, `store_rag_evidence:249` |
+| Chat context | `server-api/src/chat_context.rs` | `build_chat_prompt:77` (multi-turn) |
+| Replay | `server-api/src/handlers/replay_inference.rs` | `execute_replay:326`, `check_availability:112` |
+| Worker UDS | `lora-worker/src/uds_server.rs` | |
+| Router algorithm | `lora-router/src/lib.rs` | `Router:194`, `route_with_adapter_info:943`, `Decision:1385` |
+| Tenant isolation | `server-api/src/security/mod.rs` | `validate_tenant_isolation` |
+| Policy hooks | `adapteros-policy/src/hooks.rs` | |
+| Policy audit | `adapteros-db/src/policy_audit.rs` | `log_policy_decision:111`, `verify_policy_audit_chain:226` |
+| Seed derivation | `adapteros-core/src/seed.rs` | `derive_seed:39`, `derive_seed_typed:60` |
+| Config loading | `adapteros-config/src/loader.rs` | |
+| JWT auth | `server-api/src/auth.rs` | |
 
-**Additional categories:** Activity, Code Intelligence, Contacts, Federation, Git, Golden Runs, Monitoring, Nodes, Plugins, Replay, Routing, Services, Settings, Workers. See `routes.rs` for complete list.
+### Backend Files
 
-**OpenAPI:** `/swagger-ui`, `/api-docs/openapi.json`
+| Backend | File | Key Functions |
+|---------|------|---------------|
+| Metal | `lora-kernel-mtl/src/lib.rs` | `MetalKernels:192`, `new:255`, `load:1349` |
+| CoreML | `lora-kernel-coreml/src/lib.rs` | `CoreMLBackend:875`, `new:967` |
+| MLX | `lora-mlx-ffi/src/backend.rs` | `MLXFFIBackend:42` |
+| Factory | `lora-worker/src/backend_factory.rs` | `create_backend_with_model:328` |
 
----
+### Service Layer
 
-## CLI (70+ command groups)
+| Service | File | Key Methods |
+|---------|------|-------------|
+| TrainingService | `server-api/src/services/training_service.rs` | trait:38, impl:98 |
+| AdapterService | `server-api/src/services/adapter_service.rs` | trait:40, impl:133 |
+| Registry | `adapteros-registry/src/lib.rs` | `register_adapter:53` |
+| LifecycleManager | `lora-lifecycle/src/lib.rs` | `promote_adapter:1062`, `activate_stack:1862` |
 
-```bash
-# Core
-aosctl adapter [list|register|load|unload|pin|swap|info|health]
-aosctl stack [list|create|activate|deactivate|delete]
-aosctl node [list|verify|sync [verify|push|pull]]
-aosctl train / aosctl infer
+### Test Locations
 
-# Operations
-aosctl init / init-tenant / doctor / preflight / status / diag
-aosctl golden [init|create|list|verify|show]
-aosctl router [calibrate|validate|show|safe-mode|decisions]
-aosctl policy [list|explain|enforce|hash-status|hash-verify]
-
-# Development
-aosctl dev [up|down|status|logs] / chat / deploy / maintenance / bootstrap
-aosctl audit / audit-determinism / verify / replay / rollback
-aosctl telemetry [list|verify] / registry [sync|migrate]
-aosctl federation verify / codegraph [stats|export] / secd [status|audit]
-
-# Additional
-aosctl model-import / build-plan / backend-status / determinism
-aosctl check / completions / config / error-codes / quarantine
-```
-
-**Note:** Deprecated command aliases exist for backwards compatibility. See `main.rs` for full command list.
+| Type | Location |
+|------|----------|
+| E2E tests | `tests/e2e/` |
+| Determinism | `tests/determinism/` |
+| API tests | `crates/adapteros-server-api/tests/` |
+| DB tests | `crates/adapteros-db/tests/` |
+| Router golden | `crates/adapteros-lora-router/tests/router_ring_golden.rs` |
 
 ---
 
-## UI Architecture (90% complete)
+## 11. Emergency Reference
 
-| Directory | Pages | Purpose |
-|-----------|-------|---------|
-| `/pages/OwnerHome/` | 2 | Owner dashboard, system health, CLI console |
-| `/pages/DocumentLibrary/` | 4 | Document management, chat |
-| `/pages/System/` | 12 | Memory, metrics, nodes, workers |
-| `/pages/Training/` | 17 | Datasets, jobs, templates |
-| `/pages/Admin/` | 16 | Stacks, tenants, users, plugins |
-| `/pages/Adapters/` | 13 | Detail, lifecycle, lineage |
-| `/pages/Security/` | 8 | Policies, audit, compliance |
+### If Determinism Breaks
 
-**410+ components** in `/components/chat/`, `/collections/`, `/documents/`, `/dashboard/`, `/adapters/`, `/ui/`, `/audit/`, `/federation/`, `/golden/`, `/inference/`, `/monitoring/`, `/observability/`, `/policies/`, `/workflows/`, `/workspaces/`
+1. Check seed derivation: same inputs � same seeds?
+2. Check router sorting: deterministic tie-breaking?
+3. Check Q15 quantization: denominator = 32767.0?
+4. Check floating point: no fast-math flags?
+5. Run `make determinism-check`
 
----
+### If Tenant Isolation Breaks
 
-## CI/CD (16 workflows)
+1. Check `tenant_id` in all queries
+2. Verify FK triggers (migration 0131)
+3. Check `validate_tenant_isolation()` calls
+4. Review `admin_tenants` claim handling
 
-ci, deploy, integration-tests, metal-build, migration-testing, multi-backend, infrastructure-health, schema-drift-detection, security-regression-tests, type-validation, check-merge-conflicts, **duplication**, **architectural-lint**, **e2e-ui-tests**, **stress-tests**, **performance-regression**
+### If Builds Fail
 
----
-
-## Quick Commands
-
-```bash
-# Build CLI (creates ./aosctl symlink)
-make cli
-./aosctl --help
-
-# Build & test
-cargo build --release && cargo test --workspace
-cargo fmt --all && cargo clippy --workspace -- -D warnings
-make dup  # Check duplication
-
-# Database
-./aosctl db migrate
-./aosctl init-tenant --id default --uid 1000 --gid 1000
-
-# Server
-make dev          # Start dev server (port 8080)
-make dev-no-auth  # Start without auth (debug only)
-
-# Inference
-curl -X POST http://localhost:8080/v1/infer -H "Content-Type: application/json" \
-  -d '{"prompt": "Hello", "max_tokens": 100}'
-```
+1. `cargo clean && cargo build`
+2. Check feature flags in Cargo.toml
+3. Verify SQLx offline mode: `cargo sqlx prepare`
+4. Check migration signatures: `migrations/signatures.json`
 
 ---
 
-## Anti-Patterns
+## 12. Common Misconceptions (Avoid These)
 
-| Avoid | Fix |
-|-------|-----|
-| TODO comments | Complete or error |
-| Option for errors | Result<T, AosError> |
-| println! logging | tracing macros |
-| Blocking in async | tokio::time::sleep |
-| Direct AdapterLoader | Use lifecycle manager |
-| Unvalidated datasets | Check validation_status |
+### Structs/Services That Do NOT Exist
 
----
+| Speculated Name | Reality |
+|-----------------|---------|
+| `StackService` | Use `LifecycleManager::activate_stack()` |
+| `TenantService` | Tenant ops are in Db layer directly |
+| `BackendCoordinator` | Use `create_backend_with_model()` factory |
+| `BackendCapabilities` | Use `BackendHealth` / `PerformanceMetrics` |
+| `GlobalLedger` | Actual name: `GlobalTickLedger` |
+| `ModelLoader::load_qwen_model_cached` | Does not exist |
 
-## .aos Format
+### Handler Naming
 
-64-byte header: Magic (4) + Flags (4) + Weights offset/size (16) + Manifest offset/size (16) + Reserved (24)
-Zero-copy mmap loading. See [docs/AOS_FORMAT.md](docs/AOS_FORMAT.md)
+Handlers do NOT use `handle_*` prefix:
+- `handle_infer()` → **`infer()`**
+- `handle_streaming_infer()` → **`streaming_infer()`**
+- `handle_infer_batch()` → **`batch_infer()`**
 
----
+### Telemetry Function Names
 
-## Key References
+- `record_inference_event()` → Use `log_event()` or `InferenceEvent` struct
+- `record_router_decision_event()` → Use specific `record_*()` functions in `critical_components.rs`
 
-- [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md) - Full architecture
-- [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) - Patterns & diagrams
-- [docs/DETERMINISTIC_EXECUTION.md](docs/DETERMINISTIC_EXECUTION.md) - HKDF, tick ledger
-- [docs/LIFECYCLE.md](docs/LIFECYCLE.md) - Adapter state machine
-- [docs/TRAINING_PIPELINE.md](docs/TRAINING_PIPELINE.md) - Training flow
-- [docs/DATABASE_REFERENCE.md](docs/DATABASE_REFERENCE.md) - Schema
-- [docs/RBAC.md](docs/RBAC.md) - Permissions
-- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend
-- [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend
-- [QUICKSTART.md](QUICKSTART.md) - Getting started
+### Chat State
 
+Chat is **multi-turn**, NOT stateless:
+- `build_chat_prompt()` at `chat_context.rs:77` retrieves full session history
+- Token budget truncation drops oldest messages first
+- Context hash computed via BLAKE3 of sorted message IDs
 
-## Language Requirements
+### Replay Path
 
-**Rust only** - No Python. All tools in Rust or shell scripts.
+Replay does **NOT** bypass InferenceCore:
+- Goes through `InferenceCore::route_and_infer_replay()` at `replay_inference.rs:516`
+- Which calls `route_and_infer(Some(replay_context))`
 
----
+### Router Seed
 
-Sign with "Copyright JKCA | 2025 James KC Auchterlonie"
+`router_seed` is stored for **AUDIT only**:
+- Routing is deterministic by algorithm (sorted scores, tie-breaking)
+- NOT by RNG seeding

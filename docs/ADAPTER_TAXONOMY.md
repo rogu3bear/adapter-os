@@ -612,6 +612,7 @@ for violation in violations {
 
 ## References
 
+- **RAG vs Adapter Positioning**: See [CLAUDE.md Section 8.4](../CLAUDE.md#84-rag-vs-adapter-positioning) for when to use adapters vs RAG
 - **Database Schema**: `migrations/0001_init.sql`
 - **Registry Implementation**: `crates/adapteros-registry/src/lib.rs`
 - **Manifest Format**: `crates/adapteros-manifest/src/lib.rs`
