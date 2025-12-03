@@ -167,7 +167,7 @@ impl WorkerHealthMonitor {
     }
 
     /// Main polling loop that runs in the background
-    async fn run_polling_loop(&self) {
+    pub async fn run_polling_loop(&self) {
         info!(
             interval_secs = self.config.polling_interval.as_secs(),
             "Starting worker health polling loop"

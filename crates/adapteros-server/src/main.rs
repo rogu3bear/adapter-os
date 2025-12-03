@@ -886,6 +886,7 @@ async fn main() -> Result<()> {
                 datasets_root: cfg.paths.datasets_root.clone(),
                 documents_root: cfg.paths.documents_root.clone(),
             },
+            chat_context: Default::default(),
         }))
     };
 
@@ -1172,14 +1173,28 @@ async fn main() -> Result<()> {
     // Initialize worker health monitor for PRD-09: Worker Health, Hung Detection & Log Centralization
     info!("Initializing worker health monitor");
     let health_monitor = Arc::new(WorkerHealthMonitor::with_defaults(db.clone()));
-    let health_polling_handle = Arc::clone(&health_monitor).start_polling();
-    shutdown_coordinator.register_task(health_polling_handle);
-    info!(
-        polling_interval_secs = 30,
-        latency_threshold_ms = 5000,
-        consecutive_slow_count = 5,
-        "Worker health monitor started"
-    );
+    {
+        let monitor_clone = Arc::clone(&health_monitor);
+        match spawn_deterministic("Worker health monitor".to_string(), async move {
+            monitor_clone.run_polling_loop().await;
+        }) {
+            Ok(handle) => {
+                shutdown_coordinator.register_task(handle);
+                info!(
+                    polling_interval_secs = 30,
+                    latency_threshold_ms = 5000,
+                    consecutive_slow_count = 5,
+                    "Worker health monitor started"
+                );
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to spawn worker health monitor, health checks will be unavailable"
+                );
+            }
+        }
+    }
 
     // Create metrics collector and registry for AppState
     let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new(
