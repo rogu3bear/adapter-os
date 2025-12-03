@@ -43,6 +43,9 @@ pub mod packs;
 pub mod hash_watcher;
 pub mod quarantine;
 
+// Policy hook system for multi-stage enforcement
+pub mod hooks;
+
 // Re-export registry types
 pub use registry::{
     explain_policy, get_policy, list_policies, Audit, Policy, PolicyContext, PolicyId, PolicySpec,
@@ -59,6 +62,7 @@ pub use cve_client::{
     OsvVulnerability, PackageEcosystem, VersionEvent,
 };
 pub use hash_watcher::{HashViolation, PolicyHashWatcher, ValidationResult};
+pub use hooks::{is_core_policy, Decision, HookContext, PolicyDecision, PolicyHook, CORE_POLICIES};
 pub use mplora::{MploraConfig, MploraPolicy};
 pub use numeric::validate_numeric_units;
 pub use packs::{

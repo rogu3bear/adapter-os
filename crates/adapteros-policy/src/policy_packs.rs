@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use crate::hooks::PolicyHook;
 use crate::unified_enforcement::{PolicyViolation, ViolationSeverity};
 
 /// Policy pack identifier
@@ -147,6 +148,44 @@ impl PolicyPackId {
             PolicyPackId::FullPack => "Complete policy pack example",
         }
     }
+
+    /// Get lowercase ID string suitable for database storage
+    pub fn to_id_string(&self) -> &'static str {
+        match self {
+            PolicyPackId::Egress => "egress",
+            PolicyPackId::Determinism => "determinism",
+            PolicyPackId::Router => "router",
+            PolicyPackId::Evidence => "evidence",
+            PolicyPackId::Refusal => "refusal",
+            PolicyPackId::NumericUnits => "numeric",
+            PolicyPackId::RagIndex => "rag",
+            PolicyPackId::Isolation => "isolation",
+            PolicyPackId::Telemetry => "telemetry",
+            PolicyPackId::Retention => "retention",
+            PolicyPackId::Performance => "performance",
+            PolicyPackId::Memory => "memory",
+            PolicyPackId::Artifacts => "artifacts",
+            PolicyPackId::Secrets => "secrets",
+            PolicyPackId::BuildRelease => "build_release",
+            PolicyPackId::Compliance => "compliance",
+            PolicyPackId::Incident => "incident",
+            PolicyPackId::LlmOutput => "output",
+            PolicyPackId::AdapterLifecycle => "adapters",
+            PolicyPackId::FullPack => "full_pack",
+        }
+    }
+}
+
+impl std::fmt::Display for PolicyPackId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_id_string())
+    }
+}
+
+impl From<PolicyPackId> for String {
+    fn from(id: PolicyPackId) -> Self {
+        id.to_id_string().to_string()
+    }
 }
 
 /// Policy pack configuration
@@ -211,6 +250,12 @@ pub trait PolicyPackValidator {
 
     /// Get policy pack name
     fn policy_pack_name(&self) -> &'static str;
+
+    /// Get the hooks at which this policy pack should be evaluated
+    /// Default: OnRequestBeforeRouting (evaluated before adapter selection)
+    fn hooks(&self) -> Vec<PolicyHook> {
+        vec![PolicyHook::OnRequestBeforeRouting]
+    }
 }
 
 /// Policy request for validation
@@ -735,6 +780,173 @@ impl PolicyPackManager {
 
         Ok(())
     }
+
+    /// Check if a policy pack runs at a specific hook
+    ///
+    /// Returns true if the policy pack should be evaluated at the given hook.
+    pub fn policy_runs_at_hook(&self, policy_id: &str, hook: &PolicyHook) -> bool {
+        // Map policy_id string to PolicyPackId
+        let pack_id = match PolicyPackId::from_name(&format!(
+            "{} Ruleset",
+            policy_id
+                .chars()
+                .next()
+                .map(|c| c.to_uppercase().collect::<String>())
+                .unwrap_or_default()
+                + &policy_id.chars().skip(1).collect::<String>()
+        ))
+        .or_else(|| {
+            // Try alternative mapping
+            match policy_id.to_lowercase().as_str() {
+                "egress" => Some(PolicyPackId::Egress),
+                "determinism" => Some(PolicyPackId::Determinism),
+                "router" => Some(PolicyPackId::Router),
+                "evidence" => Some(PolicyPackId::Evidence),
+                "refusal" => Some(PolicyPackId::Refusal),
+                "numeric" | "numeric_units" => Some(PolicyPackId::NumericUnits),
+                "rag" | "rag_index" => Some(PolicyPackId::RagIndex),
+                "isolation" => Some(PolicyPackId::Isolation),
+                "telemetry" => Some(PolicyPackId::Telemetry),
+                "retention" => Some(PolicyPackId::Retention),
+                "performance" => Some(PolicyPackId::Performance),
+                "memory" => Some(PolicyPackId::Memory),
+                "artifacts" => Some(PolicyPackId::Artifacts),
+                "secrets" => Some(PolicyPackId::Secrets),
+                "build_release" => Some(PolicyPackId::BuildRelease),
+                "compliance" => Some(PolicyPackId::Compliance),
+                "incident" => Some(PolicyPackId::Incident),
+                "output" | "llm_output" => Some(PolicyPackId::LlmOutput),
+                "adapters" | "adapter_lifecycle" => Some(PolicyPackId::AdapterLifecycle),
+                // PRD-06: These policies exist in CLAUDE.md but don't have validators yet.
+                // Return None here - they will be handled in the None branch below.
+                "deterministic_io" | "drift" | "mplora" | "naming" | "dependency_security" => None,
+                _ => None,
+            }
+        }) {
+            Some(id) => id,
+            None => {
+                // Check if this is an unimplemented-but-known policy
+                let is_unimplemented = matches!(
+                    policy_id.to_lowercase().as_str(),
+                    "deterministic_io" | "drift" | "mplora" | "naming" | "dependency_security"
+                );
+                if is_unimplemented {
+                    debug!(policy_id = %policy_id, "Policy pack not yet implemented, skipping hook check");
+                } else {
+                    debug!(policy_id = %policy_id, "Unknown policy pack ID");
+                }
+                return false;
+            }
+        };
+
+        // Get the validator and check its hooks
+        if let Some(validator) = self.packs.get(&pack_id) {
+            let hooks = validator.hooks();
+            hooks.contains(hook)
+        } else {
+            false
+        }
+    }
+
+    /// Validate a specific policy pack for a hook context
+    ///
+    /// This is used by enforce_at_hook() to validate individual policies.
+    pub fn validate_policy_for_hook(
+        &self,
+        policy_id: &str,
+        ctx: &crate::hooks::HookContext,
+    ) -> Result<PolicyValidationResult> {
+        // Map policy_id string to PolicyPackId
+        let pack_id = match policy_id.to_lowercase().as_str() {
+            "egress" => PolicyPackId::Egress,
+            "determinism" => PolicyPackId::Determinism,
+            "router" => PolicyPackId::Router,
+            "evidence" => PolicyPackId::Evidence,
+            "refusal" => PolicyPackId::Refusal,
+            "numeric" | "numeric_units" => PolicyPackId::NumericUnits,
+            "rag" | "rag_index" => PolicyPackId::RagIndex,
+            "isolation" => PolicyPackId::Isolation,
+            "telemetry" => PolicyPackId::Telemetry,
+            "retention" => PolicyPackId::Retention,
+            "performance" => PolicyPackId::Performance,
+            "memory" => PolicyPackId::Memory,
+            "artifacts" => PolicyPackId::Artifacts,
+            "secrets" => PolicyPackId::Secrets,
+            "build_release" => PolicyPackId::BuildRelease,
+            "compliance" => PolicyPackId::Compliance,
+            "incident" => PolicyPackId::Incident,
+            "output" | "llm_output" => PolicyPackId::LlmOutput,
+            "adapters" | "adapter_lifecycle" => PolicyPackId::AdapterLifecycle,
+            // PRD-06: These 5 policies exist in CLAUDE.md canonical 24 but don't have validators yet.
+            // Return a passing result with a warning until validators are implemented.
+            "deterministic_io" | "drift" | "mplora" | "naming" | "dependency_security" => {
+                return Ok(PolicyValidationResult {
+                    valid: true,
+                    violations: vec![],
+                    warnings: vec![PolicyWarning {
+                        warning_id: format!("unimplemented-policy-{}", policy_id),
+                        policy_pack: policy_id.to_string(),
+                        message: format!(
+                            "Policy pack '{}' is enabled but not yet implemented. Passing validation.",
+                            policy_id
+                        ),
+                        details: Some(serde_json::json!({
+                            "status": "not_implemented",
+                            "hook": ctx.hook.name(),
+                        })),
+                        timestamp: Utc::now(),
+                    }],
+                    timestamp: Utc::now(),
+                    duration_ms: 0,
+                });
+            }
+            _ => {
+                return Err(adapteros_core::AosError::PolicyViolation(format!(
+                    "Unknown policy pack: {}",
+                    policy_id
+                )));
+            }
+        };
+
+        // Get the validator
+        let validator = self.packs.get(&pack_id).ok_or_else(|| {
+            adapteros_core::AosError::PolicyViolation(format!(
+                "Policy pack not registered: {}",
+                policy_id
+            ))
+        })?;
+
+        // Convert HookContext to PolicyRequest for validation
+        // Flatten metadata into context data so validators can access fields directly
+        let mut context_data = serde_json::json!({
+            "resource_type": ctx.resource_type,
+            "resource_id": ctx.resource_id,
+            "hook": ctx.hook.name(),
+        });
+
+        // Merge metadata fields into context_data for direct access by validators
+        if let serde_json::Value::Object(ref mut data_map) = context_data {
+            for (key, value) in &ctx.metadata {
+                data_map.insert(key.clone(), value.clone());
+            }
+        }
+
+        let request = PolicyRequest {
+            request_id: ctx.request_id.clone(),
+            request_type: RequestType::Inference, // Default to inference for hook validation
+            tenant_id: Some(ctx.tenant_id.clone()),
+            user_id: ctx.user_id.clone(),
+            context: PolicyContext {
+                component: "policy-hook".to_string(),
+                operation: format!("hook:{}", ctx.hook.name()),
+                data: Some(context_data),
+                priority: Priority::Normal,
+            },
+            metadata: None,
+        };
+
+        validator.validate(&request)
+    }
 }
 
 // Policy pack validator implementations
@@ -959,6 +1171,10 @@ impl PolicyPackValidator for DeterminismValidator {
     fn policy_pack_name(&self) -> &'static str {
         "Determinism Ruleset"
     }
+
+    fn hooks(&self) -> Vec<PolicyHook> {
+        vec![PolicyHook::OnBeforeInference]
+    }
 }
 
 /// Router policy pack validator
@@ -1110,6 +1326,10 @@ impl PolicyPackValidator for EvidenceValidator {
     fn policy_pack_name(&self) -> &'static str {
         "Evidence Ruleset"
     }
+
+    fn hooks(&self) -> Vec<PolicyHook> {
+        vec![PolicyHook::OnAfterInference]
+    }
 }
 
 /// Refusal policy pack validator
@@ -1175,6 +1395,10 @@ impl PolicyPackValidator for RefusalValidator {
 
     fn policy_pack_name(&self) -> &'static str {
         "Refusal Ruleset"
+    }
+
+    fn hooks(&self) -> Vec<PolicyHook> {
+        vec![PolicyHook::OnAfterInference]
     }
 }
 
@@ -1641,6 +1865,10 @@ impl PolicyPackValidator for MemoryValidator {
 
     fn policy_pack_name(&self) -> &'static str {
         "Memory Ruleset"
+    }
+
+    fn hooks(&self) -> Vec<PolicyHook> {
+        vec![PolicyHook::OnBeforeInference]
     }
 }
 

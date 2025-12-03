@@ -104,7 +104,10 @@ pub fn get_policy_schema(policy_type: &str) -> Result<HashMap<String, PolicyFiel
 }
 
 /// Validate policy customization JSON
-pub fn validate_customization(policy_type: &str, customizations_json: &str) -> Result<ValidationResult> {
+pub fn validate_customization(
+    policy_type: &str,
+    customizations_json: &str,
+) -> Result<ValidationResult> {
     let schema = get_policy_schema(policy_type)?;
     let customizations: Value = serde_json::from_str(customizations_json)
         .map_err(|e| AosError::Validation(format!("Invalid JSON: {}", e)))?;
@@ -214,7 +217,7 @@ fn validate_field(
 
 fn router_schema() -> HashMap<String, PolicyFieldSchema> {
     let mut schema = HashMap::new();
-    
+
     schema.insert(
         "k_sparse".to_string(),
         PolicyFieldSchema {
@@ -283,7 +286,8 @@ fn memory_schema() -> HashMap<String, PolicyFieldSchema> {
             max_value: Some(100.0),
             allowed_values: None,
             safety_constraint: Some(SafetyConstraint {
-                description: "Minimum headroom must be at least 5% for system stability".to_string(),
+                description: "Minimum headroom must be at least 5% for system stability"
+                    .to_string(),
                 validator: |v| v.as_f64().map_or(false, |n| n >= 5.0),
             }),
         },
@@ -1188,10 +1192,14 @@ mod tests {
 
     #[test]
     fn test_validate_memory_safety_constraint() {
-        let unsafe_json = r#"{"min_headroom_pct": 2, "evict_order": [], "k_reduce_before_evict": true}"#;
+        let unsafe_json =
+            r#"{"min_headroom_pct": 2, "evict_order": [], "k_reduce_before_evict": true}"#;
         let result = validate_customization("memory", unsafe_json).unwrap();
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("safety constraint")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("safety constraint")));
     }
 
     #[test]
@@ -1203,7 +1211,10 @@ mod tests {
         let invalid_json = r#"{"mode": "allow_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": []}"#;
         let result = validate_customization("egress", invalid_json).unwrap();
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("not in allowed values")));
     }
 
     #[test]
@@ -1230,7 +1241,10 @@ mod tests {
         let invalid_rng = r#"{"require_metallib_embed": true, "require_kernel_hash_match": true, "rng": "random", "retrieval_tie_break": []}"#;
         let result = validate_customization("determinism", invalid_rng).unwrap();
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("not in allowed values")));
     }
 
     #[test]
@@ -1291,18 +1305,21 @@ mod tests {
 
     #[test]
     fn test_validate_secrets_keystore() {
-        let valid_json = r#"{"env_allowed": [], "keystore": "secure_enclave", "rotate_on_promotion": true}"#;
+        let valid_json =
+            r#"{"env_allowed": [], "keystore": "secure_enclave", "rotate_on_promotion": true}"#;
         let result = validate_customization("secrets", valid_json).unwrap();
         assert!(result.valid);
 
-        let invalid_json = r#"{"env_allowed": [], "keystore": "plaintext", "rotate_on_promotion": true}"#;
+        let invalid_json =
+            r#"{"env_allowed": [], "keystore": "plaintext", "rotate_on_promotion": true}"#;
         let result = validate_customization("secrets", invalid_json).unwrap();
         assert!(!result.valid);
     }
 
     #[test]
     fn test_validate_output_format() {
-        let valid_json = r#"{"format": "json", "require_trace": true, "forbidden_topics": ["tenant_crossing"]}"#;
+        let valid_json =
+            r#"{"format": "json", "require_trace": true, "forbidden_topics": ["tenant_crossing"]}"#;
         let result = validate_customization("output", valid_json).unwrap();
         assert!(result.valid);
 
@@ -1327,7 +1344,10 @@ mod tests {
         let incomplete_json = r#"{"k_sparse": 4}"#;
         let result = validate_customization("router", incomplete_json).unwrap();
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("Missing required field")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("Missing required field")));
     }
 
     #[test]
