@@ -29,6 +29,7 @@ pub enum Permission {
     // Tenant permissions
     TenantManage,
     TenantView,
+    TenantTokenRevoke, // Bulk revocation of all tenant tokens - PRD-03
 
     // Policy permissions
     PolicyView,
@@ -117,7 +118,7 @@ pub enum Permission {
     ActivityCreate,
 }
 
-const ALL_PERMISSIONS: [Permission; 56] = [
+const ALL_PERMISSIONS: [Permission; 57] = [
     Permission::AdapterList,
     Permission::AdapterView,
     Permission::AdapterRegister,
@@ -130,6 +131,7 @@ const ALL_PERMISSIONS: [Permission; 56] = [
     Permission::TrainingViewLogs,
     Permission::TenantManage,
     Permission::TenantView,
+    Permission::TenantTokenRevoke,
     Permission::PolicyView,
     Permission::PolicyValidate,
     Permission::PolicyApply,
@@ -251,6 +253,7 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Operator, Permission::WorkerManage) => true,
         (Role::Operator, Permission::TenantView) => true,
         (Role::Operator, Permission::TenantManage) => false, // Cannot manage tenants
+        (Role::Operator, Permission::TenantTokenRevoke) => false, // Cannot bulk-revoke tokens (Admin only) - PRD-03
         (Role::Operator, Permission::PolicyView) => true,
         (Role::Operator, Permission::PolicyApply) => false, // Cannot apply policies
         (Role::Operator, Permission::PolicySign) => false,  // Cannot sign policies
@@ -302,6 +305,7 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::SRE, Permission::PolicyView) => true,
         (Role::SRE, Permission::TenantView) => true,
         (Role::SRE, Permission::TenantManage) => false,
+        (Role::SRE, Permission::TenantTokenRevoke) => false, // Cannot bulk-revoke tokens (Admin only) - PRD-03
         (Role::SRE, Permission::GitView) => true,
         (Role::SRE, Permission::CodeView) => true,
         (Role::SRE, Permission::AuditView) => true, // Can view audit logs for troubleshooting
@@ -409,10 +413,12 @@ pub fn require_permission(claims: &Claims, permission: Permission) -> Result<(),
             required_permission = ?permission,
             "Permission denied"
         );
-        Err(ApiError::forbidden("insufficient permissions").with_details(format!(
-            "required permission: {:?}, user role: {}",
-            permission, claims.role
-        )))
+        Err(
+            ApiError::forbidden("insufficient permissions").with_details(format!(
+                "required permission: {:?}, user role: {}",
+                permission, claims.role
+            )),
+        )
     }
 }
 
@@ -428,10 +434,7 @@ pub fn permissions_for_role(role: &Role) -> Vec<Permission> {
 /// Require any of the specified permissions
 ///
 /// Returns `Ok(())` if the user has at least one of the permissions
-pub fn require_any_permission(
-    claims: &Claims,
-    permissions: &[Permission],
-) -> Result<(), ApiError> {
+pub fn require_any_permission(claims: &Claims, permissions: &[Permission]) -> Result<(), ApiError> {
     let role = Role::from_str(&claims.role).map_err(|_| {
         warn!(
             user_id = %claims.sub,
@@ -450,10 +453,12 @@ pub fn require_any_permission(
         }
     }
 
-    Err(ApiError::forbidden("insufficient permissions").with_details(format!(
-        "required one of: {:?}, user role: {}",
-        permissions, claims.role
-    )))
+    Err(
+        ApiError::forbidden("insufficient permissions").with_details(format!(
+            "required one of: {:?}, user role: {}",
+            permissions, claims.role
+        )),
+    )
 }
 
 /// Require any of the specified roles
@@ -476,10 +481,12 @@ pub fn require_any_role(claims: &Claims, roles: &[Role]) -> Result<(), ApiError>
         return Ok(());
     }
 
-    Err(ApiError::forbidden("insufficient permissions").with_details(format!(
-        "required one of: {:?}, user role: {}",
-        roles, claims.role
-    )))
+    Err(
+        ApiError::forbidden("insufficient permissions").with_details(format!(
+            "required one of: {:?}, user role: {}",
+            roles, claims.role
+        )),
+    )
 }
 
 #[cfg(test)]

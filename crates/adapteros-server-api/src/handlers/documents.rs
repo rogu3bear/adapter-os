@@ -91,9 +91,7 @@ pub async fn upload_document(
 
     // Create tenant-specific document directory
     let tenant_path = PathBuf::from(&storage_root).join(&claims.tenant_id);
-    fs::create_dir_all(&tenant_path)
-        .await
-        .map_err(db_error)?;
+    fs::create_dir_all(&tenant_path).await.map_err(db_error)?;
 
     let mut document_name = String::new();
     let mut file_data: Option<Vec<u8>> = None;
@@ -584,14 +582,15 @@ pub async fn process_document(
     }
 
     // Read document file
-    let file_data = fs::read(&document.file_path).await.map_err(|e| {
-        db_error(format!("Failed to read document file: {}", e))
-    })?;
+    let file_data = fs::read(&document.file_path)
+        .await
+        .map_err(|e| db_error(format!("Failed to read document file: {}", e)))?;
 
     // Get embedding model from state
-    let embedding_model = state.embedding_model.as_ref().ok_or_else(|| {
-        db_error("Embedding model not configured - enable embeddings feature")
-    })?;
+    let embedding_model = state
+        .embedding_model
+        .as_ref()
+        .ok_or_else(|| db_error("Embedding model not configured - enable embeddings feature"))?;
 
     // Parse document into chunks
     let ingestor = DocumentIngestor::new(default_ingest_options(), None);
@@ -627,9 +626,9 @@ pub async fn process_document(
         let chunk_db_id = Uuid::now_v7().to_string();
 
         // Generate embedding
-        let embedding = embedding_model.encode_text(&chunk.text).map_err(|e| {
-            db_error(format!("Failed to generate embedding: {}", e))
-        })?;
+        let embedding = embedding_model
+            .encode_text(&chunk.text)
+            .map_err(|e| db_error(format!("Failed to generate embedding: {}", e)))?;
 
         // Compute chunk hash
         let chunk_hash = B3Hash::hash(chunk.text.as_bytes()).to_hex();
@@ -642,9 +641,8 @@ pub async fn process_document(
         };
 
         // Store embedding as JSON for document_chunks table
-        let embedding_json = serde_json::to_string(&embedding).map_err(|e| {
-            db_error(format!("Failed to serialize embedding: {}", e))
-        })?;
+        let embedding_json = serde_json::to_string(&embedding)
+            .map_err(|e| db_error(format!("Failed to serialize embedding: {}", e)))?;
 
         // Insert into document_chunks table (proper FK relationship)
         // Use direct SQL to include embedding_json which isn't in CreateChunkParams

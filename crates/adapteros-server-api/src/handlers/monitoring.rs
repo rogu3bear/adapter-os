@@ -4,8 +4,8 @@ use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::users::Role;
 use adapteros_system_metrics::monitoring_types::{
-    AcknowledgeAlertRequest, AlertResponse, CreateMonitoringRuleApiRequest,
-    MonitoringRuleResponse, UpdateMonitoringRuleApiRequest,
+    AcknowledgeAlertRequest, AlertResponse, CreateMonitoringRuleApiRequest, MonitoringRuleResponse,
+    UpdateMonitoringRuleApiRequest,
 };
 use axum::{
     extract::{Path, Query, State},

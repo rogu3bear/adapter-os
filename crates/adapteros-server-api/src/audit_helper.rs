@@ -137,6 +137,8 @@ pub mod actions {
     pub const ADAPTER_LIFECYCLE_DEMOTE: &str = "adapter.lifecycle.demote";
     pub const ADAPTER_PIN: &str = "adapter.pin";
     pub const ADAPTER_UNPIN: &str = "adapter.unpin";
+    pub const ADAPTER_ARCHIVE: &str = "adapter.archive";
+    pub const ADAPTER_UNARCHIVE: &str = "adapter.unarchive";
 
     // Training actions
     pub const TRAINING_START: &str = "training.start";
@@ -161,6 +163,8 @@ pub mod actions {
     pub const POLICY_APPLY: &str = "policy.apply";
     pub const POLICY_SIGN: &str = "policy.sign";
     pub const POLICY_VALIDATE: &str = "policy.validate";
+    pub const POLICY_BINDING_ENABLE: &str = "policy.binding.enable";
+    pub const POLICY_BINDING_DISABLE: &str = "policy.binding.disable";
 
     // Stack policy actions (PRD-GOV-01)
     pub const STACK_POLICY_ASSIGN: &str = "stack.policy.assign";
@@ -233,6 +237,7 @@ pub mod actions {
     pub const TELEMETRY_BUNDLE_PURGE: &str = "telemetry.bundle.purge";
 
     // Dataset actions
+    pub const DATASET_CREATE: &str = "dataset.create";
     pub const DATASET_UPLOAD: &str = "dataset.upload";
     pub const DATASET_VALIDATE: &str = "dataset.validate";
     pub const DATASET_DELETE: &str = "dataset.delete";
@@ -282,6 +287,7 @@ pub mod resources {
     pub const TENANT: &str = "tenant";
     pub const NODE: &str = "node";
     pub const POLICY: &str = "policy";
+    pub const POLICY_BINDING: &str = "policy_binding";
     pub const WORKER: &str = "worker";
     pub const ADAPTER_STACK: &str = "adapter_stack";
     pub const GIT_SESSION: &str = "git_session";

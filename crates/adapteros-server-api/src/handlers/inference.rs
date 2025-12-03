@@ -1,20 +1,26 @@
 //! Inference endpoint handler
 //!
-//! This module handles inference requests by proxying them to the worker process
-//! via Unix Domain Socket (UDS). It includes:
+//! This module handles inference requests by proxying them to InferenceCore.
+//! It includes:
 //! - Permission validation
 //! - Memory pressure checks
 //! - Audit logging
-//! - Session trace linking
 //! - Response validation
+//!
+//! All inference execution is routed through InferenceCore for unified handling.
 
 use crate::auth::Claims;
+use crate::chat_context::build_chat_prompt;
+use crate::inference_core::InferenceCore;
+use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
+use crate::middleware::request_id::RequestId;
 use crate::permissions::Permission;
 use crate::state::AppState;
-use crate::types::{ErrorResponse, InferRequest, InferResponse, InferenceTrace, WorkerInferRequest};
-use crate::uds_client::{UdsClient, UdsClientError};
+use crate::types::{ErrorResponse, InferRequest, InferResponse, InferenceRequestInternal};
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_policy::hooks::PolicyHook;
 use axum::{extract::State, http::StatusCode, Extension, Json};
+use tracing::{info, warn};
 
 /// Inference endpoint
 #[utoipa::path(
@@ -33,8 +39,14 @@ pub async fn infer(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Extension(identity): Extension<IdentityEnvelope>,
+    request_id: Option<Extension<RequestId>>,
     Json(req): Json<InferRequest>,
 ) -> Result<Json<InferResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Extract request_id for hook context
+    let request_id_str = request_id
+        .map(|r| r.0.as_str().to_string())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
     // Role check: Operator, SRE, and Admin can execute inference (Viewer and Compliance cannot)
     crate::permissions::require_permission(&claims, Permission::InferenceExecute)?;
 
@@ -79,182 +91,146 @@ pub async fn infer(
         ));
     }
 
-    // Real inference implementation - proxy to worker UDS server
-    // 1. Look up available workers from database
-    // 2. Select a healthy worker
-    // 3. Connect to worker UDS server
-    // 4. Forward inference request
-    // 5. Return worker response
+    // PRD-06: Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
+    let routing_hook_ctx = create_hook_context(
+        &claims,
+        &request_id_str,
+        PolicyHook::OnRequestBeforeRouting,
+        "inference",
+        None, // No adapter selected yet
+    );
+    if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("policy hook violation (pre-routing)")
+                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_string_details(violation.message),
+            ),
+        ));
+    }
 
-    // Get available workers from database
-    let workers = state.db.list_all_workers().await.map_err(|e| {
+    // PRD-06: Enforce policies at OnBeforeInference hook
+    let hook_ctx = create_hook_context(
+        &claims,
+        &request_id_str,
+        PolicyHook::OnBeforeInference,
+        "inference",
+        adapters_requested.as_deref(),
+    );
+    if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("policy hook violation")
+                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_string_details(violation.message),
+            ),
+        ));
+    }
+
+    // Build multi-turn prompt if session_id is provided
+    // This loads chat history and formats it with role markers for context
+    let (base_prompt, chat_context_hash) = if let Some(ref session_id) = req.session_id {
+        let chat_config = state.config.read().unwrap().chat_context.clone();
+        match build_chat_prompt(&state.db, session_id, &req.prompt, &chat_config).await {
+            Ok(result) => {
+                info!(
+                    request_id = %request_id_str,
+                    session_id = %session_id,
+                    message_count = result.message_count,
+                    truncated = result.truncated,
+                    context_hash = %result.context_hash,
+                    "Built multi-turn prompt from session history"
+                );
+                (result.prompt_text, Some(result.context_hash))
+            }
+            Err(e) => {
+                warn!(
+                    request_id = %request_id_str,
+                    session_id = %session_id,
+                    error = %e,
+                    "Failed to build multi-turn prompt, using single-turn"
+                );
+                (req.prompt.clone(), None)
+            }
+        }
+    } else {
+        // No session, use prompt directly (single-turn)
+        (req.prompt.clone(), None)
+    };
+
+    // Convert to internal format with the (possibly multi-turn) prompt
+    let mut internal = InferenceRequestInternal::from((&req, &claims));
+    internal.prompt = base_prompt;
+    internal.chat_context_hash = chat_context_hash;
+
+    // Execute via InferenceCore - this is the single entry point for all inference
+    let core = InferenceCore::new(&state);
+    let result = core.route_and_infer(internal, None).await.map_err(|e| {
+        // Log failure to audit trail
+        let _ = crate::audit_helper::log_failure(
+            &state.db,
+            &claims,
+            crate::audit_helper::actions::INFERENCE_EXECUTE,
+            crate::audit_helper::resources::ADAPTER,
+            adapters_requested.as_deref(),
+            &e.to_string(),
+        );
+        // Don't await the audit log, just fire and forget
+
+        // Convert InferenceError to HTTP error response
+        <(StatusCode, Json<ErrorResponse>)>::from(e)
+    })?;
+
+    // PRD-06: Enforce policies at OnAfterInference hook (e.g., Evidence, Refusal)
+    let after_hook_ctx = create_hook_context(
+        &claims,
+        &request_id_str,
+        PolicyHook::OnAfterInference,
+        "inference",
+        adapters_requested.as_deref(),
+    );
+    if let Err(violation) = enforce_at_hook(&state, &after_hook_ctx).await {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("policy hook violation (post-inference)")
+                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_string_details(violation.message),
+            ),
+        ));
+    }
+
+    // Convert result to API response format
+    let response: InferResponse = result.into();
+
+    // Validate response schema before returning
+    let response_value = serde_json::to_value(&response).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
-                ErrorResponse::new("failed to list workers")
+                ErrorResponse::new("response serialization failed")
                     .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
     })?;
 
-    // Resolve UDS path: prefer registered worker; otherwise fall back to local dev socket
-    let uds_path_buf = if let Some(worker) = workers.get(0) {
-        std::path::PathBuf::from(&worker.uds_path)
-    } else {
-        // Fallback: honor env override or default to /var/run/adapteros.sock
-        let fallback = std::env::var("AOS_WORKER_SOCKET")
-            .unwrap_or_else(|_| "/var/run/adapteros.sock".to_string());
-        std::path::PathBuf::from(fallback)
-    };
-    let uds_path = uds_path_buf.as_path();
-
-    // Create UDS client and send request
-    let uds_client = UdsClient::new(std::time::Duration::from_secs(30));
-
-    // Convert server API request to worker API request
-    let worker_request = WorkerInferRequest {
-        cpid: claims.tenant_id.clone(),
-        prompt: req.prompt.clone(),
-        max_tokens: req.max_tokens.unwrap_or(100),
-        require_evidence: req.require_evidence.unwrap_or(false), // Get from request or default to false
-    };
-
-    match uds_client.infer(uds_path, worker_request).await {
-        Ok(worker_response) => {
-            // Convert worker response to server API response
-            let response = InferResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                id: uuid::Uuid::new_v4().to_string(),
-                text: worker_response.text.unwrap_or_default(),
-                tokens: vec![],      // Worker doesn't expose token IDs in current API
-                tokens_generated: 0, // Not tracked in current response
-                finish_reason: worker_response.status.clone(),
-                latency_ms: 0, // Not tracked in current response
-                adapters_used: worker_response.trace.router_summary.adapters_used.clone(),
-                trace: InferenceTrace {
-                    adapters_used: worker_response.trace.router_summary.adapters_used.clone(),
-                    router_decisions: vec![], // Router decisions not in simplified trace
-                    latency_ms: 0,            // Not tracked in current response
-                },
-                model: None,
-                prompt_tokens: None,
-                error: None,
-            };
-
-            // Link session traces if session_id is provided
-            if let Some(session_id) = &req.session_id {
-                // Link adapters used
-                for adapter_id in &response.adapters_used {
-                    if let Err(e) = state
-                        .db
-                        .add_session_trace(session_id, "adapter", adapter_id)
-                        .await
-                    {
-                        tracing::warn!(
-                            session_id = %session_id,
-                            adapter_id = %adapter_id,
-                            error = %e,
-                            "Failed to link adapter trace to session"
-                        );
-                    }
-                }
-
-                // Update session activity
-                if let Err(e) = crate::security::update_session_activity(&state.db, session_id).await {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        error = %e,
-                        "Failed to update session activity"
-                    );
-                }
-            }
-
-            // Validate response schema before returning
-            let response_value = serde_json::to_value(&response).map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("response serialization failed")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
-
-            state
-                .response_validator
-                .validate_response(&response_value, "inference_response")
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("response validation failed")
-                                .with_code("VALIDATION_ERROR")
-                                .with_string_details(e.to_string()),
-                        ),
-                    )
-                })?;
-
-            Ok(Json(response))
-        }
-        Err(UdsClientError::WorkerNotAvailable(msg)) => {
-            let _ = crate::audit_helper::log_failure(
-                &state.db,
-                &claims,
-                crate::audit_helper::actions::INFERENCE_EXECUTE,
-                crate::audit_helper::resources::ADAPTER,
-                adapters_requested.as_deref(),
-                &format!("Worker not available: {}", msg),
-            )
-            .await;
-            Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(
-                    ErrorResponse::new("worker not available")
-                        .with_code("SERVICE_UNAVAILABLE")
-                        .with_string_details(msg),
-                ),
-            ))
-        }
-        Err(UdsClientError::Timeout(msg)) => {
-            let _ = crate::audit_helper::log_failure(
-                &state.db,
-                &claims,
-                crate::audit_helper::actions::INFERENCE_EXECUTE,
-                crate::audit_helper::resources::ADAPTER,
-                adapters_requested.as_deref(),
-                &format!("Inference timeout: {}", msg),
-            )
-            .await;
-            Err((
-                StatusCode::REQUEST_TIMEOUT,
-                Json(
-                    ErrorResponse::new("inference timeout")
-                        .with_code("REQUEST_TIMEOUT")
-                        .with_string_details(msg),
-                ),
-            ))
-        }
-        Err(e) => {
-            let _ = crate::audit_helper::log_failure(
-                &state.db,
-                &claims,
-                crate::audit_helper::actions::INFERENCE_EXECUTE,
-                crate::audit_helper::resources::ADAPTER,
-                adapters_requested.as_deref(),
-                &format!("Inference failed: {}", e),
-            )
-            .await;
-            Err((
+    state
+        .response_validator
+        .validate_response(&response_value, "inference_response")
+        .await
+        .map_err(|e| {
+            (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("inference failed")
-                        .with_code("INTERNAL_ERROR")
+                    ErrorResponse::new("response validation failed")
+                        .with_code("VALIDATION_ERROR")
                         .with_string_details(e.to_string()),
                 ),
-            ))
-        }
-    }
+            )
+        })?;
+
+    Ok(Json(response))
 }

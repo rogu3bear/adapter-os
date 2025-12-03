@@ -7,6 +7,7 @@
 
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
@@ -120,6 +121,7 @@ pub async fn ingest_router_decision(
     Json(request): Json<IngestRouterDecisionRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+    validate_tenant_isolation(&claims, &request.tenant_id)?;
 
     debug!(
         tenant_id = %request.tenant_id,
@@ -244,6 +246,7 @@ pub async fn get_routing_decisions(
         &claims,
         &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
     )?;
+    validate_tenant_isolation(&claims, &query.tenant)?;
 
     debug!(
         tenant_id = %query.tenant,
@@ -336,6 +339,8 @@ pub async fn get_routing_decision_by_id(
         )
     })?;
 
+    validate_tenant_isolation(&claims, &decision.tenant_id)?;
+
     Ok(Json(convert_decision_to_response(decision)))
 }
 
@@ -416,16 +421,18 @@ pub async fn get_adapter_usage(
         )
     })?;
 
-    if adapter.is_none() {
-        return Err((
+    let adapter = adapter.ok_or_else(|| {
+        (
             StatusCode::NOT_FOUND,
             Json(
                 ErrorResponse::new("Adapter not found")
                     .with_code("NOT_FOUND")
                     .with_string_details(format!("Adapter '{}' not found", adapter_id)),
             ),
-        ));
-    }
+        )
+    })?;
+
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Get usage statistics from routing decisions
     let (call_count, avg_gate, last_used) = state
@@ -507,6 +514,12 @@ pub async fn get_session_router_view(
                     )),
             ),
         ));
+    }
+
+    // Validate tenant isolation using the first decision's tenant_id
+    // All decisions in a session should have the same tenant_id
+    if let Some(first_decision) = decisions.first() {
+        validate_tenant_isolation(&claims, &first_decision.tenant_id)?;
     }
 
     // Extract stack_id from first decision (all should have same stack_id for a session)

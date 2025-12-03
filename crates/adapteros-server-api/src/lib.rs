@@ -5,6 +5,7 @@ pub mod auth_common;
 pub mod boot_state;
 pub mod cab_workflow;
 pub mod caching;
+pub mod chat_context;
 pub mod compression;
 pub mod config;
 pub mod error_helpers;

@@ -5,6 +5,7 @@
 use crate::audit_helper::{actions, log_success, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_permission, Permission};
+use crate::security::validate_tenant_isolation;
 use adapteros_db::notifications::NotificationType;
 use axum::{
     extract::{Extension, Path, Query, State},
@@ -231,6 +232,36 @@ pub async fn mark_notification_read(
             ),
         ));
     }
+
+    // Validate tenant isolation: Get the user's tenant_id and verify it matches the requester's tenant
+    let notification_owner = state
+        .db
+        .get_user(&notification.user_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get notification owner: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to verify notification ownership")
+                        .with_code("INTERNAL_ERROR"),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            error!(
+                "Notification owner user not found: {}",
+                notification.user_id
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Notification owner not found").with_code("INTERNAL_ERROR"),
+                ),
+            )
+        })?;
+
+    validate_tenant_isolation(&claims, &notification_owner.tenant_id)?;
 
     state
         .db

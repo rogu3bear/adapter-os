@@ -263,7 +263,11 @@ pub async fn get_journey(
         .map(|(i, s)| JourneyStep {
             id: format!("step-{}", i),
             name: s.state.clone(),
-            status: if i == states.len() - 1 { "completed".to_string() } else { "completed".to_string() },
+            status: if i == states.len() - 1 {
+                "completed".to_string()
+            } else {
+                "completed".to_string()
+            },
             metadata: Some(s.details.clone()),
         })
         .collect();

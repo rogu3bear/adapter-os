@@ -340,12 +340,18 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
     // Build QA-style prompt (matches training format)
     let prompt = format!("Question: {}\n\nAnswer:", user_message.trim());
 
-    // Create inference request
+    // Create inference request with default sampling params
     let request = WorkerInferRequest {
         cpid: format!("owner-chat-{}", uuid::Uuid::new_v4()),
         prompt,
         max_tokens: 512,
         require_evidence: false,
+        temperature: 0.7,
+        top_k: None,
+        top_p: None,
+        seed: None,
+        router_seed: None,
+        pinned_adapter_ids: None,
     };
 
     // Send inference request via UDS

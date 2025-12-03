@@ -109,10 +109,7 @@ pub async fn get_node_detail(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("node not found")
-                        .with_code("NODE_NOT_FOUND"),
-                ),
+                Json(ErrorResponse::new("node not found").with_code("NODE_NOT_FOUND")),
             )
         })?;
 

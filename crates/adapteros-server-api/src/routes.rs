@@ -811,8 +811,14 @@ pub fn build(state: AppState) -> Router {
             get(handlers::get_worker_health_summary),
         )
         // PRD-01: Worker Registration & Lifecycle
-        .route("/v1/workers/register", post(handlers::workers::register_worker))
-        .route("/v1/workers/status", post(handlers::workers::notify_worker_status))
+        .route(
+            "/v1/workers/register",
+            post(handlers::workers::register_worker),
+        )
+        .route(
+            "/v1/workers/status",
+            post(handlers::workers::notify_worker_status),
+        )
         .route(
             "/v1/workers/{worker_id}/history",
             get(handlers::workers::get_worker_history),
@@ -1140,6 +1146,13 @@ pub fn build(state: AppState) -> Router {
                 .post(handlers::pin_adapter)
                 .delete(handlers::unpin_adapter),
         )
+        // Adapter archive routes
+        .route(
+            "/v1/adapters/{adapter_id}/archive",
+            get(handlers::adapters::get_archive_status)
+                .post(handlers::adapters::archive_adapter)
+                .delete(handlers::adapters::unarchive_adapter),
+        )
         // Tier-based state promotion (distinct from lifecycle promotion)
         .route(
             "/v1/adapters/{adapter_id}/state/promote",
@@ -1315,6 +1328,11 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/datasets/upload/progress",
             get(handlers::datasets::dataset_upload_progress),
+        )
+        // Create dataset from documents (doc→dataset→adapter flow)
+        .route(
+            "/v1/datasets/from-documents",
+            post(handlers::datasets::create_dataset_from_documents),
         )
         // Document routes
         .route(

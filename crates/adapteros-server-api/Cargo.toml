@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+adapteros-client = { path = "../adapteros-client" }
 adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-db = { path = "../adapteros-db", features = ["utoipa"] }
@@ -28,6 +29,7 @@ adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 dashmap = "5.5"
 parking_lot = "0.12"
 lru = "0.12"
+scopeguard = "1.2"
 anyhow = "1.0"
 argon2 = "0.5"
 axum = { version = "0.8", features = ["macros", "multipart"] }
@@ -75,10 +77,14 @@ tar = "0.4"
 zip = "0.6"
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
+adapteros-config = { path = "../adapteros-config" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs", optional = true }
 hostname.workspace = true
 tokenizers = { workspace = true }
 async-trait = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal"] }
 
 [dev-dependencies]
 criterion = { workspace = true }

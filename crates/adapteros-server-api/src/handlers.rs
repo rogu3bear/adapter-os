@@ -89,10 +89,11 @@ pub use adapters::*;
 // Re-export tenant handlers
 pub use tenants::*;
 
-// Re-export tenant policy handlers
+// Re-export tenant policy handlers (including utoipa path types for OpenAPI)
 pub use tenant_policies::{
-    list_tenant_policy_bindings, query_policy_decisions, toggle_tenant_policy,
-    verify_policy_audit_chain,
+    __path_list_tenant_policy_bindings, __path_query_policy_decisions, __path_toggle_tenant_policy,
+    __path_verify_policy_audit_chain, list_tenant_policy_bindings, query_policy_decisions,
+    toggle_tenant_policy, verify_policy_audit_chain,
 };
 
 // Re-export auth handlers (including utoipa path types)
@@ -2671,11 +2672,9 @@ pub async fn receive_worker_fatal(
         })?;
 
     // Insert worker incident with incident_type = "fatal"
-    let incident_id = uuid::Uuid::now_v7().to_string();
-    state
+    let incident_id = state
         .db
         .insert_worker_incident(
-            &incident_id,
             &fatal_msg.worker_id,
             &worker.tenant_id,
             "fatal",
@@ -8382,6 +8381,8 @@ pub async fn create_training_session(
             req.framework_version,
             // Post-training actions
             post_actions_json,
+            // Not a retry - new training job
+            None,
         )
         .await
         .map_err(|e| {

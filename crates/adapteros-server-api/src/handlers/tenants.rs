@@ -12,7 +12,10 @@ use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*; // Re-exports adapteros_api_types::*
 use adapteros_db::users::Role;
-use axum::{extract::Extension, extract::Path, extract::Query, extract::State, http::StatusCode, response::Json};
+use axum::{
+    extract::Extension, extract::Path, extract::Query, extract::State, http::StatusCode,
+    response::Json,
+};
 
 /// List all tenants with pagination
 pub async fn list_tenants(
@@ -76,7 +79,11 @@ pub async fn create_tenant(
         .await
         .map_err(|e| db_error_msg("failed to create tenant", e))?;
 
-    let tenant = state.db.get_tenant(&id).await.map_err(db_error_with_details)?;
+    let tenant = state
+        .db
+        .get_tenant(&id)
+        .await
+        .map_err(db_error_with_details)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -133,7 +140,11 @@ pub async fn get_default_stack(
     // Users can only view default stack for their own tenant (or admin with explicit access)
     validate_tenant_isolation(&claims, &tenant_id)?;
 
-    let stack_id = state.db.get_default_stack(&tenant_id).await.map_err(db_error_with_details)?;
+    let stack_id = state
+        .db
+        .get_default_stack(&tenant_id)
+        .await
+        .map_err(db_error_with_details)?;
 
     let stack_id = stack_id.ok_or_else(|| {
         (
@@ -308,7 +319,11 @@ pub async fn update_tenant(
     }
 
     // Fetch updated tenant
-    let tenant = state.db.get_tenant(&tenant_id).await.map_err(db_error_with_details)?;
+    let tenant = state
+        .db
+        .get_tenant(&tenant_id)
+        .await
+        .map_err(db_error_with_details)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -364,12 +379,20 @@ pub async fn pause_tenant(
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
 
-    state.db.pause_tenant(&tenant_id).await.map_err(|e| db_error_msg("failed to pause tenant", e))?;
+    state
+        .db
+        .pause_tenant(&tenant_id)
+        .await
+        .map_err(|e| db_error_msg("failed to pause tenant", e))?;
 
     // Invalidate tenant from dashboard cache so middleware re-validates on next request
     state.dashboard_cache.invalidate_tenant(&tenant_id).await;
 
-    let tenant = state.db.get_tenant(&tenant_id).await.map_err(db_error_with_details)?;
+    let tenant = state
+        .db
+        .get_tenant(&tenant_id)
+        .await
+        .map_err(db_error_with_details)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -425,12 +448,20 @@ pub async fn archive_tenant(
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
 
-    state.db.archive_tenant(&tenant_id).await.map_err(|e| db_error_msg("failed to archive tenant", e))?;
+    state
+        .db
+        .archive_tenant(&tenant_id)
+        .await
+        .map_err(|e| db_error_msg("failed to archive tenant", e))?;
 
     // Invalidate tenant from dashboard cache so middleware rejects stale tokens
     state.dashboard_cache.invalidate_tenant(&tenant_id).await;
 
-    let tenant = state.db.get_tenant(&tenant_id).await.map_err(db_error_with_details)?;
+    let tenant = state
+        .db
+        .get_tenant(&tenant_id)
+        .await
+        .map_err(db_error_with_details)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -488,7 +519,11 @@ pub async fn get_tenant_usage(
     // Users can only view usage for their own tenant (or admin with explicit access)
     validate_tenant_isolation(&claims, &tenant_id)?;
 
-    let usage = state.db.get_tenant_usage(&tenant_id).await.map_err(|e| db_error_msg("failed to get tenant usage", e))?;
+    let usage = state
+        .db
+        .get_tenant_usage(&tenant_id)
+        .await
+        .map_err(|e| db_error_msg("failed to get tenant usage", e))?;
 
     Ok(Json(TenantUsageResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -594,6 +629,91 @@ pub async fn assign_adapters_to_tenant(
     .await;
 
     Ok(StatusCode::OK)
+}
+
+/// Revoke all tokens for a tenant - PRD-03
+///
+/// Sets the token_issued_at_min to current timestamp, invalidating all tokens
+/// issued before this time. This is a high-impact security action.
+///
+/// POST /v1/tenants/{tenant_id}/revoke-all-tokens
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/revoke-all-tokens",
+    tag = "tenants",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant ID")
+    ),
+    responses(
+        (status = 200, description = "All tokens revoked", body = TokenRevocationResponse),
+        (status = 403, description = "Permission denied", body = ErrorResponse),
+        (status = 404, description = "Tenant not found", body = ErrorResponse)
+    )
+)]
+pub async fn revoke_tenant_tokens(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(tenant_id): Path<String>,
+) -> Result<Json<TokenRevocationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use crate::permissions::{require_permission, Permission};
+    use crate::security::{set_tenant_token_baseline, validate_tenant_isolation};
+    use chrono::Utc;
+
+    // Require new permission
+    require_permission(&claims, Permission::TenantTokenRevoke).map_err(|_e| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
+        )
+    })?;
+
+    // Validate tenant access (admin can only revoke for tenants they manage)
+    validate_tenant_isolation(&claims, &tenant_id)?;
+
+    // Verify tenant exists
+    let tenant_exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tenants WHERE id = ?")
+        .bind(&tenant_id)
+        .fetch_one(state.db.pool())
+        .await
+        .map_err(|_e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Database error").with_code("DATABASE_ERROR")),
+            )
+        })?;
+
+    if tenant_exists == 0 {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("Tenant not found").with_code("NOT_FOUND")),
+        ));
+    }
+
+    // Set baseline to now
+    let baseline = Utc::now().to_rfc3339();
+    set_tenant_token_baseline(&state.db, &tenant_id, &baseline)
+        .await
+        .map_err(|_e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to set token baseline").with_code("DATABASE_ERROR"),
+                ),
+            )
+        })?;
+
+    // Audit log
+    tracing::info!(
+        tenant_id = %tenant_id,
+        actor = %claims.sub,
+        baseline = %baseline,
+        "Tenant-wide token revocation executed"
+    );
+
+    Ok(Json(TokenRevocationResponse {
+        revoked_at: baseline,
+        message: "All tokens issued before this timestamp are now invalid".to_string(),
+    }))
 }
 
 // Aliases for backwards compatibility with existing routes

@@ -102,7 +102,8 @@ pub async fn system_metrics_stream(
     let has_permission = crate::permissions::require_permission(
         &claims,
         crate::permissions::Permission::MetricsView,
-    ).is_ok();
+    )
+    .is_ok();
 
     if !has_permission {
         warn!(
@@ -119,63 +120,69 @@ pub async fn system_metrics_stream(
     }
 
     // Track whether error has been sent to terminate stream after one error
-    let stream = stream::unfold((state, has_permission, false), |(state, has_permission, error_sent)| async move {
-        if !has_permission {
-            if error_sent {
-                // Already sent error, terminate stream
-                return None;
-            }
-            // Return error event once then terminate
-            return Some((
-                Ok(Event::default()
-                    .event("error")
-                    .data("{\"error\": \"Permission denied - MetricsView required\"}")),
-                (state, false, true), // Mark error as sent
-            ));
-        }
-        // Sleep for 5 seconds between updates
-        tokio::time::sleep(Duration::from_secs(5)).await;
-
-        // Create a default snapshot with current timestamp
-        // Note: adapteros_telemetry::MetricsCollector doesn't have snapshot method
-        // This creates a default snapshot structure for streaming
-        let snapshot = adapteros_telemetry::metrics::MetricsSnapshot::default();
-
-        // Convert to our streaming event format
-        let event = MetricsSnapshotEvent {
-            timestamp_ms: snapshot.timestamp_ms,
-            latency: StreamingLatencyMetrics {
-                p50_ms: snapshot.latency.p50_ms,
-                p95_ms: snapshot.latency.p95_ms,
-                p99_ms: snapshot.latency.p99_ms,
-            },
-            throughput: StreamingThroughputMetrics {
-                tokens_per_second: snapshot.throughput.tokens_per_second,
-                inferences_per_second: snapshot.throughput.inferences_per_second,
-            },
-            system: StreamingSystemMetrics {
-                cpu_percent: snapshot.system.cpu_usage_percent,
-                memory_percent: snapshot.system.memory_usage_percent,
-                disk_percent: snapshot.system.disk_usage_percent,
-            },
-        };
-
-        // Serialize to JSON
-        let json = match serde_json::to_string(&event) {
-            Ok(j) => j,
-            Err(e) => {
-                warn!(error = %e, "Failed to serialize metrics snapshot");
+    let stream = stream::unfold(
+        (state, has_permission, false),
+        |(state, has_permission, error_sent)| async move {
+            if !has_permission {
+                if error_sent {
+                    // Already sent error, terminate stream
+                    return None;
+                }
+                // Return error event once then terminate
                 return Some((
                     Ok(Event::default()
                         .event("error")
-                        .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                    (state, has_permission, false),
+                        .data("{\"error\": \"Permission denied - MetricsView required\"}")),
+                    (state, false, true), // Mark error as sent
                 ));
             }
-        };
+            // Sleep for 5 seconds between updates
+            tokio::time::sleep(Duration::from_secs(5)).await;
 
-        Some((Ok(Event::default().event("metrics").data(json)), (state, has_permission, false)))
-    });
+            // Create a default snapshot with current timestamp
+            // Note: adapteros_telemetry::MetricsCollector doesn't have snapshot method
+            // This creates a default snapshot structure for streaming
+            let snapshot = adapteros_telemetry::metrics::MetricsSnapshot::default();
+
+            // Convert to our streaming event format
+            let event = MetricsSnapshotEvent {
+                timestamp_ms: snapshot.timestamp_ms,
+                latency: StreamingLatencyMetrics {
+                    p50_ms: snapshot.latency.p50_ms,
+                    p95_ms: snapshot.latency.p95_ms,
+                    p99_ms: snapshot.latency.p99_ms,
+                },
+                throughput: StreamingThroughputMetrics {
+                    tokens_per_second: snapshot.throughput.tokens_per_second,
+                    inferences_per_second: snapshot.throughput.inferences_per_second,
+                },
+                system: StreamingSystemMetrics {
+                    cpu_percent: snapshot.system.cpu_usage_percent,
+                    memory_percent: snapshot.system.memory_usage_percent,
+                    disk_percent: snapshot.system.disk_usage_percent,
+                },
+            };
+
+            // Serialize to JSON
+            let json = match serde_json::to_string(&event) {
+                Ok(j) => j,
+                Err(e) => {
+                    warn!(error = %e, "Failed to serialize metrics snapshot");
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
+                        (state, has_permission, false),
+                    ));
+                }
+            };
+
+            Some((
+                Ok(Event::default().event("metrics").data(json)),
+                (state, has_permission, false),
+            ))
+        },
+    );
 
     Sse::new(stream).keep_alive(
         KeepAlive::new()
@@ -203,7 +210,8 @@ pub async fn telemetry_events_stream(
     let has_permission = crate::permissions::require_permission(
         &claims,
         crate::permissions::Permission::TelemetryView,
-    ).is_ok();
+    )
+    .is_ok();
 
     if !has_permission {
         warn!(
@@ -354,7 +362,8 @@ pub async fn adapter_state_stream(
     let has_permission = crate::permissions::require_permission(
         &claims,
         crate::permissions::Permission::AdapterView,
-    ).is_ok();
+    )
+    .is_ok();
 
     if !has_permission {
         warn!(
@@ -589,7 +598,8 @@ pub async fn boot_progress_stream(
     let has_permission = crate::permissions::require_permission(
         &claims,
         crate::permissions::Permission::MetricsView,
-    ).is_ok();
+    )
+    .is_ok();
 
     if !has_permission {
         warn!(
@@ -820,7 +830,13 @@ pub async fn notifications_stream(
 
     // Track error_sent to terminate stream after one error
     let stream = stream::unfold(
-        (state, previous_notification_ids, user_id, has_permission, false),
+        (
+            state,
+            previous_notification_ids,
+            user_id,
+            has_permission,
+            false,
+        ),
         |(state, mut previous_ids, user_id, has_permission, error_sent)| async move {
             if !has_permission {
                 if error_sent {
@@ -908,9 +924,9 @@ pub async fn notifications_stream(
                 });
 
                 Some((
-                    Ok(Event::default()
-                        .event("heartbeat")
-                        .data(serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()))),
+                    Ok(Event::default().event("heartbeat").data(
+                        serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()),
+                    )),
                     (state, previous_ids, user_id, has_permission, false),
                 ))
             }
@@ -1063,7 +1079,14 @@ pub async fn messages_stream(
 
     // Track error_sent to terminate stream after one error
     let stream = stream::unfold(
-        (state, workspace_id, has_permission, false, last_message_id, circuit_breaker),
+        (
+            state,
+            workspace_id,
+            has_permission,
+            false,
+            last_message_id,
+            circuit_breaker,
+        ),
         |(state, workspace_id, has_permission, error_sent, mut last_id, mut cb)| async move {
             if !has_permission {
                 if error_sent {
@@ -1170,9 +1193,9 @@ pub async fn messages_stream(
                 });
 
                 Some((
-                    Ok(Event::default()
-                        .event("heartbeat")
-                        .data(serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()))),
+                    Ok(Event::default().event("heartbeat").data(
+                        serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()),
+                    )),
                     (state, workspace_id, has_permission, error_sent, last_id, cb),
                 ))
             }
@@ -1260,8 +1283,26 @@ pub async fn activity_stream(
 
     // Track error_sent to terminate stream after one error
     let stream = stream::unfold(
-        (state, workspace_id, tenant_id, user_id, has_permission, false, last_timestamp, circuit_breaker),
-        |(state, workspace_id, tenant_id, user_id, has_permission, error_sent, mut last_ts, mut cb)| async move {
+        (
+            state,
+            workspace_id,
+            tenant_id,
+            user_id,
+            has_permission,
+            false,
+            last_timestamp,
+            circuit_breaker,
+        ),
+        |(
+            state,
+            workspace_id,
+            tenant_id,
+            user_id,
+            has_permission,
+            error_sent,
+            mut last_ts,
+            mut cb,
+        )| async move {
             if !has_permission {
                 if error_sent {
                     return None;
@@ -1270,7 +1311,16 @@ pub async fn activity_stream(
                     Ok(Event::default()
                         .event("error")
                         .data("{\"error\": \"Permission denied - ActivityView required\"}")),
-                    (state, workspace_id, tenant_id, user_id, false, true, last_ts, cb),
+                    (
+                        state,
+                        workspace_id,
+                        tenant_id,
+                        user_id,
+                        false,
+                        true,
+                        last_ts,
+                        cb,
+                    ),
                 ));
             }
 
@@ -1281,7 +1331,16 @@ pub async fn activity_stream(
                     Ok(Event::default()
                         .event("circuit_open")
                         .data("{\"status\": \"circuit_breaker_open\", \"retry_after_secs\": 30}")),
-                    (state, workspace_id, tenant_id, user_id, has_permission, error_sent, last_ts, cb),
+                    (
+                        state,
+                        workspace_id,
+                        tenant_id,
+                        user_id,
+                        has_permission,
+                        error_sent,
+                        last_ts,
+                        cb,
+                    ),
                 ));
             }
 
@@ -1305,7 +1364,16 @@ pub async fn activity_stream(
                         Ok(Event::default()
                             .event("error")
                             .data(format!("{{\"error\": \"{}\"}}", e))),
-                        (state, workspace_id, tenant_id, user_id, has_permission, error_sent, last_ts, cb),
+                        (
+                            state,
+                            workspace_id,
+                            tenant_id,
+                            user_id,
+                            has_permission,
+                            error_sent,
+                            last_ts,
+                            cb,
+                        ),
                     ));
                 }
             };
@@ -1329,7 +1397,10 @@ pub async fn activity_stream(
                         event_type: e.event_type.clone(),
                         target_type: e.target_type.clone(),
                         target_id: e.target_id.clone(),
-                        metadata: e.metadata_json.as_ref().and_then(|j| serde_json::from_str(j).ok()),
+                        metadata: e
+                            .metadata_json
+                            .as_ref()
+                            .and_then(|j| serde_json::from_str(j).ok()),
                         created_at: e.created_at.clone(),
                     })
                     .collect();
@@ -1348,14 +1419,32 @@ pub async fn activity_stream(
                             Ok(Event::default()
                                 .event("error")
                                 .data("{\"error\": \"serialization failed\"}")),
-                            (state, workspace_id, tenant_id, user_id, has_permission, error_sent, last_ts, cb),
+                            (
+                                state,
+                                workspace_id,
+                                tenant_id,
+                                user_id,
+                                has_permission,
+                                error_sent,
+                                last_ts,
+                                cb,
+                            ),
                         ));
                     }
                 };
 
                 Some((
                     Ok(Event::default().event("activity").data(json)),
-                    (state, workspace_id, tenant_id, user_id, has_permission, error_sent, last_ts, cb),
+                    (
+                        state,
+                        workspace_id,
+                        tenant_id,
+                        user_id,
+                        has_permission,
+                        error_sent,
+                        last_ts,
+                        cb,
+                    ),
                 ))
             } else {
                 // No new events, emit heartbeat
@@ -1365,10 +1454,19 @@ pub async fn activity_stream(
                 });
 
                 Some((
-                    Ok(Event::default()
-                        .event("heartbeat")
-                        .data(serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()))),
-                    (state, workspace_id, tenant_id, user_id, has_permission, error_sent, last_ts, cb),
+                    Ok(Event::default().event("heartbeat").data(
+                        serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()),
+                    )),
+                    (
+                        state,
+                        workspace_id,
+                        tenant_id,
+                        user_id,
+                        has_permission,
+                        error_sent,
+                        last_ts,
+                        cb,
+                    ),
                 ))
             }
         },

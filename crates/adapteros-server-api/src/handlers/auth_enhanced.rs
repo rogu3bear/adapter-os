@@ -590,7 +590,9 @@ pub async fn refresh_token_handler(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<RefreshResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Extract config value before any await to avoid holding RwLockReadGuard across await
-    let token_ttl = state.config.read()
+    let token_ttl = state
+        .config
+        .read()
         .map(|cfg| cfg.security.token_ttl_seconds.unwrap_or(8 * 3600))
         .unwrap_or_else(|_| {
             warn!("Config lock poisoned during token refresh, using default TTL");

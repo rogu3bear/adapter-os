@@ -175,11 +175,8 @@ impl IntoResponse for ApiError {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            error_response = error_response.with_string_details(format!(
-                "{}. Request ID: {}",
-                existing,
-                request_id
-            ));
+            error_response = error_response
+                .with_string_details(format!("{}. Request ID: {}", existing, request_id));
         }
 
         (self.status, Json(error_response)).into_response()
@@ -193,7 +190,9 @@ impl From<(StatusCode, Json<ErrorResponse>)> for ApiError {
             status,
             code: "LEGACY_ERROR",
             message: response.error,
-            details: response.details.and_then(|v| v.as_str().map(|s| s.to_string())),
+            details: response
+                .details
+                .and_then(|v| v.as_str().map(|s| s.to_string())),
             request_id: None,
         }
     }
@@ -235,27 +234,35 @@ impl From<AosError> for ApiError {
             AosError::InvalidCPID(_) => {
                 ApiError::new(StatusCode::BAD_REQUEST, "INVALID_CPID", err.to_string())
             }
-            AosError::Serialization(_) => {
-                ApiError::new(StatusCode::BAD_REQUEST, "SERIALIZATION_ERROR", err.to_string())
-            }
+            AosError::Serialization(_) => ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "SERIALIZATION_ERROR",
+                err.to_string(),
+            ),
             AosError::Parse(_) => {
                 ApiError::new(StatusCode::BAD_REQUEST, "PARSE_ERROR", err.to_string())
             }
             AosError::InvalidManifest(_) => {
                 ApiError::new(StatusCode::BAD_REQUEST, "INVALID_MANIFEST", err.to_string())
             }
-            AosError::KernelLayoutMismatch { .. } => {
-                ApiError::new(StatusCode::BAD_REQUEST, "KERNEL_LAYOUT_MISMATCH", err.to_string())
-            }
-            AosError::ChatTemplate(_) => {
-                ApiError::new(StatusCode::BAD_REQUEST, "CHAT_TEMPLATE_ERROR", err.to_string())
-            }
+            AosError::KernelLayoutMismatch { .. } => ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "KERNEL_LAYOUT_MISMATCH",
+                err.to_string(),
+            ),
+            AosError::ChatTemplate(_) => ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "CHAT_TEMPLATE_ERROR",
+                err.to_string(),
+            ),
             AosError::Validation(_) => {
                 ApiError::new(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", err.to_string())
             }
-            AosError::InvalidSealedData { .. } => {
-                ApiError::new(StatusCode::BAD_REQUEST, "INVALID_SEALED_DATA", err.to_string())
-            }
+            AosError::InvalidSealedData { .. } => ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "INVALID_SEALED_DATA",
+                err.to_string(),
+            ),
             AosError::FeatureDisabled { .. } => {
                 ApiError::new(StatusCode::BAD_REQUEST, "FEATURE_DISABLED", err.to_string())
             }
@@ -271,18 +278,24 @@ impl From<AosError> for ApiError {
             AosError::Policy(_) => {
                 ApiError::new(StatusCode::FORBIDDEN, "POLICY_ERROR", err.to_string())
             }
-            AosError::DeterminismViolation(_) => {
-                ApiError::new(StatusCode::FORBIDDEN, "DETERMINISM_VIOLATION", err.to_string())
-            }
+            AosError::DeterminismViolation(_) => ApiError::new(
+                StatusCode::FORBIDDEN,
+                "DETERMINISM_VIOLATION",
+                err.to_string(),
+            ),
             AosError::EgressViolation(_) => {
                 ApiError::new(StatusCode::FORBIDDEN, "EGRESS_VIOLATION", err.to_string())
             }
-            AosError::IsolationViolation(_) => {
-                ApiError::new(StatusCode::FORBIDDEN, "ISOLATION_VIOLATION", err.to_string())
-            }
-            AosError::PerformanceViolation(_) => {
-                ApiError::new(StatusCode::FORBIDDEN, "PERFORMANCE_VIOLATION", err.to_string())
-            }
+            AosError::IsolationViolation(_) => ApiError::new(
+                StatusCode::FORBIDDEN,
+                "ISOLATION_VIOLATION",
+                err.to_string(),
+            ),
+            AosError::PerformanceViolation(_) => ApiError::new(
+                StatusCode::FORBIDDEN,
+                "PERFORMANCE_VIOLATION",
+                err.to_string(),
+            ),
             AosError::Anomaly(_) => {
                 ApiError::new(StatusCode::FORBIDDEN, "ANOMALY_DETECTED", err.to_string())
             }
@@ -297,18 +310,24 @@ impl From<AosError> for ApiError {
             }
 
             // ========== 409 Conflict (4 variants) ==========
-            AosError::AdapterHashMismatch { .. } => {
-                ApiError::new(StatusCode::CONFLICT, "ADAPTER_HASH_MISMATCH", err.to_string())
-            }
-            AosError::PolicyHashMismatch { .. } => {
-                ApiError::new(StatusCode::CONFLICT, "POLICY_HASH_MISMATCH", err.to_string())
-            }
+            AosError::AdapterHashMismatch { .. } => ApiError::new(
+                StatusCode::CONFLICT,
+                "ADAPTER_HASH_MISMATCH",
+                err.to_string(),
+            ),
+            AosError::PolicyHashMismatch { .. } => ApiError::new(
+                StatusCode::CONFLICT,
+                "POLICY_HASH_MISMATCH",
+                err.to_string(),
+            ),
             AosError::Promotion(_) => {
                 ApiError::new(StatusCode::CONFLICT, "PROMOTION_ERROR", err.to_string())
             }
-            AosError::ModelAcquisitionInProgress { .. } => {
-                ApiError::new(StatusCode::CONFLICT, "MODEL_ACQUISITION_IN_PROGRESS", err.to_string())
-            }
+            AosError::ModelAcquisitionInProgress { .. } => ApiError::new(
+                StatusCode::CONFLICT,
+                "MODEL_ACQUISITION_IN_PROGRESS",
+                err.to_string(),
+            ),
 
             // ========== 502 Bad Gateway (6 variants) ==========
             AosError::Http(_) => ApiError::bad_gateway(err.to_string()),
@@ -318,9 +337,11 @@ impl From<AosError> for ApiError {
             AosError::BaseLLM(_) => {
                 ApiError::new(StatusCode::BAD_GATEWAY, "BASE_LLM_ERROR", err.to_string())
             }
-            AosError::UdsConnectionFailed { .. } => {
-                ApiError::new(StatusCode::BAD_GATEWAY, "UDS_CONNECTION_FAILED", err.to_string())
-            }
+            AosError::UdsConnectionFailed { .. } => ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "UDS_CONNECTION_FAILED",
+                err.to_string(),
+            ),
             AosError::InvalidResponse { .. } => {
                 ApiError::new(StatusCode::BAD_GATEWAY, "INVALID_RESPONSE", err.to_string())
             }
@@ -330,25 +351,37 @@ impl From<AosError> for ApiError {
 
             // ========== 503 Service Unavailable (7 variants) ==========
             AosError::ResourceExhaustion(_) => ApiError::service_unavailable(err.to_string()),
-            AosError::MemoryPressure(_) => {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "MEMORY_PRESSURE", err.to_string())
-            }
+            AosError::MemoryPressure(_) => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "MEMORY_PRESSURE",
+                err.to_string(),
+            ),
             AosError::Unavailable(_) => ApiError::service_unavailable(err.to_string()),
-            AosError::WorkerNotResponding { .. } => {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "WORKER_NOT_RESPONDING", err.to_string())
-            }
-            AosError::CircuitBreakerOpen { .. } => {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "CIRCUIT_BREAKER_OPEN", err.to_string())
-            }
-            AosError::CircuitBreakerHalfOpen { .. } => {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "CIRCUIT_BREAKER_HALF_OPEN", err.to_string())
-            }
-            AosError::HealthCheckFailed { .. } => {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "HEALTH_CHECK_FAILED", err.to_string())
-            }
-            AosError::AdapterNotLoaded { .. } => {
-                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "ADAPTER_NOT_LOADED", err.to_string())
-            }
+            AosError::WorkerNotResponding { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "WORKER_NOT_RESPONDING",
+                err.to_string(),
+            ),
+            AosError::CircuitBreakerOpen { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "CIRCUIT_BREAKER_OPEN",
+                err.to_string(),
+            ),
+            AosError::CircuitBreakerHalfOpen { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "CIRCUIT_BREAKER_HALF_OPEN",
+                err.to_string(),
+            ),
+            AosError::HealthCheckFailed { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "HEALTH_CHECK_FAILED",
+                err.to_string(),
+            ),
+            AosError::AdapterNotLoaded { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "ADAPTER_NOT_LOADED",
+                err.to_string(),
+            ),
 
             // ========== 504 Gateway Timeout (1 variant) ==========
             AosError::Timeout { duration } => {
@@ -424,8 +457,7 @@ mod tests {
 
     #[test]
     fn test_api_error_with_details() {
-        let error = ApiError::internal("failed")
-            .with_details("step 1 of 3");
+        let error = ApiError::internal("failed").with_details("step 1 of 3");
         assert_eq!(error.details, Some("step 1 of 3".to_string()));
     }
 

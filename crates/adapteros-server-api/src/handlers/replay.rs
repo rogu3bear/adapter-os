@@ -12,14 +12,16 @@ use axum::{
 };
 use chrono;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::Claims;
 use crate::error_helpers::{db_error, internal_error, not_found};
+use crate::handlers::rag_common::reconstruct_rag_context;
+use crate::inference_core::InferenceCore;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
-use crate::types::ErrorResponse;
+use crate::types::{ErrorResponse, InferenceRequestInternal};
 
 /// Replay verification response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -82,6 +84,44 @@ pub struct ReplayDivergence {
     pub expected_hash: String,
     pub actual_hash: String,
     pub context: String,
+}
+
+/// Request to execute a replay session
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ExecuteReplayRequest {
+    /// If true, use original RAG documents from replay session
+    /// If documents are missing, replay continues in degraded mode
+    #[serde(default)]
+    pub use_original_rag_docs: bool,
+    /// Optional prompt override (if not provided, uses stored prompt from session)
+    pub prompt: Option<String>,
+    /// Maximum tokens to generate (default: 100)
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: usize,
+}
+
+fn default_max_tokens() -> usize {
+    100
+}
+
+/// Response from replay execution
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ExecuteReplayResponse {
+    pub session_id: String,
+    /// Inference output text
+    pub output: String,
+    /// Whether replay ran in degraded mode due to missing RAG documents
+    pub degraded: bool,
+    /// Document IDs that were missing (only populated if degraded=true)
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub missing_doc_ids: Vec<String>,
+    /// True if use_original_rag_docs was requested but no RAG state was stored
+    /// (indicates the original inference didn't use RAG)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub no_rag_state_stored: bool,
+    /// Latency in milliseconds
+    pub latency_ms: u64,
+    pub verified_at: String,
 }
 
 /// List replay sessions
@@ -196,12 +236,12 @@ pub async fn create_replay_session(
         kernel_hash_b3: None,
         telemetry_bundle_ids_json: serde_json::to_string(&req.telemetry_bundle_ids)
             .map_err(internal_error)?,
-        adapter_state_json: serde_json::to_string(&adapter_state)
-            .map_err(internal_error)?,
+        adapter_state_json: serde_json::to_string(&adapter_state).map_err(internal_error)?,
         routing_decisions_json: "[]".to_string(),
         inference_traces_json: None,
         signature: hex::encode(signature.to_bytes()),
         created_at: chrono::Utc::now().to_rfc3339(),
+        rag_state_json: None, // RAG state stored if session includes RAG retrieval
     };
 
     state
@@ -349,6 +389,224 @@ pub async fn verify_replay_session(
     };
 
     Ok(Json(verification))
+}
+
+/// Execute a replay session
+///
+/// Re-runs inference with the original session parameters and optionally
+/// reconstructs RAG context from original documents. If documents are missing,
+/// the replay runs in degraded mode with reduced context.
+#[utoipa::path(
+    post,
+    path = "/v1/replay/sessions/{id}/execute",
+    request_body = ExecuteReplayRequest,
+    responses(
+        (status = 200, description = "Replay executed", body = ExecuteReplayResponse),
+        (status = 404, description = "Session not found"),
+    ),
+    tag = "replay"
+)]
+pub async fn execute_replay_session(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+    Json(req): Json<ExecuteReplayRequest>,
+) -> Result<Json<ExecuteReplayResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::ReplayManage)?;
+
+    let session = state
+        .db
+        .get_replay_session(&session_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(&e.to_string())),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Replay session not found")),
+            )
+        })?;
+
+    let mut degraded = false;
+    let mut missing_doc_ids = Vec::new();
+    let mut rag_context = String::new();
+    let mut no_rag_state_stored = false;
+
+    // Reconstruct RAG context from original documents if requested
+    if req.use_original_rag_docs {
+        match session.restore_rag_state() {
+            Ok(Some(rag_state)) => {
+                // Reconstruct context from original documents
+                let (context, missing) = reconstruct_rag_context(
+                    &state,
+                    &rag_state.doc_ids,
+                    4000, // MAX_CONTEXT_CHARS
+                )
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse::new(&format!(
+                            "Failed to reconstruct RAG context: {}",
+                            e
+                        ))),
+                    )
+                })?;
+
+                rag_context = context;
+                missing_doc_ids = missing;
+                degraded = !missing_doc_ids.is_empty();
+
+                if degraded {
+                    info!(
+                        session_id = %session_id,
+                        missing_count = missing_doc_ids.len(),
+                        "Replay running in degraded mode - some RAG documents missing"
+                    );
+                }
+            }
+            Ok(None) => {
+                // No RAG state stored - original inference didn't use RAG
+                no_rag_state_stored = true;
+                info!(
+                    session_id = %session_id,
+                    "use_original_rag_docs requested but no RAG state stored (original inference didn't use RAG)"
+                );
+            }
+            Err(e) => {
+                // RAG state exists but couldn't be parsed - treat as error
+                warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "Failed to restore RAG state"
+                );
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new(&format!(
+                        "Failed to restore RAG state: {}",
+                        e
+                    ))),
+                ));
+            }
+        }
+    }
+
+    // Get the base prompt - either from request override or try to extract from session
+    // For now, require the prompt in the request since session doesn't store original prompt
+    let base_prompt = req.prompt.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new(
+                "prompt is required for replay execution",
+            )),
+        )
+    })?;
+
+    // Build the final prompt with RAG context if available
+    let final_prompt = if !rag_context.is_empty() {
+        format!(
+            "Use the following context to answer the question.\n\n\
+             Context:\n{}\n\n\
+             Question: {}",
+            rag_context, base_prompt
+        )
+    } else {
+        base_prompt
+    };
+
+    // Extract seed from session's RNG state for deterministic replay (PRD-02)
+    let seed = session.get_global_nonce().ok();
+
+    // Use the session's global seed hash as the router seed for deterministic routing
+    let router_seed =
+        if session.seed_global_b3.is_empty() || session.seed_global_b3 == "b3:placeholder" {
+            None
+        } else {
+            Some(session.seed_global_b3.clone())
+        };
+
+    // Create inference request with deterministic parameters from session
+    let inference_request = InferenceRequestInternal {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        cpid: session.cpid.clone(),
+        prompt: final_prompt,
+        stream: false,
+        batch_item_id: None,
+        rag_enabled: false, // Already handled RAG above
+        rag_collection_id: None,
+        adapter_stack: None,
+        adapters: None,
+        max_tokens: req.max_tokens,
+        temperature: 0.7, // Default, could be stored in session
+        top_k: None,
+        top_p: None,
+        seed,        // Restored from session.rng_state_json for determinism
+        router_seed, // From session's global seed for deterministic routing
+        require_evidence: true,
+        session_id: None,
+        pinned_adapter_ids: None, // Not used in replay
+        chat_context_hash: None,
+        model: None,
+        created_at: std::time::Instant::now(),
+    };
+
+    // Execute inference through the unified pipeline with replay context (PRD-02)
+    // Use route_and_infer_replay to enforce manifest compatibility
+    let core = InferenceCore::new(&state);
+
+    // Build replay context for manifest enforcement
+    // Note: session-based replay has less strict manifest requirements than
+    // inference-metadata-based replay, so we use the standard route_and_infer
+    // unless the session has a valid manifest hash
+    let result =
+        if !session.manifest_hash_b3.is_empty() && session.manifest_hash_b3 != "b3:placeholder" {
+            // Use replay-specific path with manifest enforcement
+            use crate::types::ReplayContext;
+            let replay_context = ReplayContext {
+                original_inference_id: session_id.clone(),
+                required_manifest_hash: session.manifest_hash_b3.clone(),
+                required_backend: "unknown".to_string(), // Session doesn't store backend
+                skip_metadata_capture: true,             // Don't create new replay metadata
+            };
+            core.route_and_infer_replay(inference_request, replay_context)
+                .await
+        } else {
+            // Fallback to standard inference (manifest enforcement not possible)
+            core.route_and_infer(inference_request, None).await
+        };
+
+    let result = result.map_err(|e| {
+        (
+            e.status_code(),
+            Json(
+                ErrorResponse::new("Replay inference failed")
+                    .with_code(e.error_code())
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    info!(
+        session_id = %session_id,
+        latency_ms = result.latency_ms,
+        degraded = degraded,
+        missing_count = missing_doc_ids.len(),
+        "Replay session executed"
+    );
+
+    Ok(Json(ExecuteReplayResponse {
+        session_id,
+        output: result.text,
+        degraded,
+        missing_doc_ids,
+        no_rag_state_stored,
+        latency_ms: result.latency_ms,
+        verified_at: chrono::Utc::now().to_rfc3339(),
+    }))
 }
 
 /// Verify the cryptographic signature of a replay session

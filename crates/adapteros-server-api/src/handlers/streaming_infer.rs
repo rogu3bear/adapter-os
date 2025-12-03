@@ -13,12 +13,18 @@
 //! ```
 
 use crate::auth::Claims;
+use crate::chat_context::build_chat_prompt;
+use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence};
+use crate::inference_core::InferenceCore;
+use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
 use crate::security::check_tenant_access;
 use crate::state::AppState;
 use crate::types::*;
 use crate::uds_client::UdsClient;
+use crate::worker_health::WorkerHealthMonitor;
 use adapteros_core::identity::IdentityEnvelope;
-use adapteros_lora_rag::{PgVectorIndex, EmbeddingModel};
+use adapteros_lora_rag::EmbeddingModel;
+use adapteros_policy::hooks::PolicyHook;
 use axum::{
     extract::{Extension, State},
     http::StatusCode,
@@ -79,6 +85,34 @@ pub struct StreamingInferRequest {
     /// Session ID for linking inference to chat sessions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+}
+
+impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
+    fn from((req, claims): (&StreamingInferRequest, &Claims)) -> Self {
+        Self {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            cpid: claims.tenant_id.clone(),
+            prompt: req.prompt.clone(),
+            stream: true, // Always streaming for this endpoint
+            batch_item_id: None,
+            rag_enabled: req.collection_id.is_some(), // Enable RAG if collection_id provided
+            rag_collection_id: req.collection_id.clone(),
+            adapter_stack: req.adapter_stack.clone(),
+            adapters: req.adapters.clone(),
+            max_tokens: req.max_tokens,
+            temperature: req.temperature,
+            top_k: req.top_k,
+            top_p: req.top_p,
+            seed: req.seed,
+            require_evidence: req.require_evidence,
+            session_id: req.session_id.clone(),
+            pinned_adapter_ids: None, // Looked up from session in route_and_infer if session_id is set
+            chat_context_hash: None, // Set later after build_chat_prompt
+            model: req.model.clone(),
+            created_at: std::time::Instant::now(),
+            router_seed: None, // Use default router behavior for streaming
+        }
+    }
 }
 
 fn default_max_tokens() -> usize {
@@ -161,6 +195,12 @@ pub enum InferenceEvent {
     Done {
         total_tokens: usize,
         latency_ms: u64,
+        /// Pinned adapters that were unavailable (PRD-6A)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        unavailable_pinned_adapters: Option<Vec<String>>,
+        /// Routing fallback mode (PRD-6A)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pinned_routing_fallback: Option<String>,
     },
     /// Error occurred
     Error { message: String, recoverable: bool },
@@ -300,6 +340,47 @@ pub async fn streaming_infer_with_progress(
         ));
     }
 
+    // Generate request ID for hook contexts
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // PRD-06: Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
+    let routing_hook_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnRequestBeforeRouting,
+        "inference",
+        None, // No adapter selected yet
+    );
+    if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("policy hook violation (pre-routing)")
+                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_string_details(violation.message),
+            ),
+        ));
+    }
+
+    // PRD-06: Enforce policies at OnBeforeInference hook
+    let hook_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnBeforeInference,
+        "inference",
+        Some(&adapter_id),
+    );
+    if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("policy hook violation")
+                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_string_details(violation.message),
+            ),
+        ));
+    }
+
     info!(
         prompt_len = req.prompt.len(),
         max_tokens = req.max_tokens,
@@ -318,7 +399,14 @@ pub async fn streaming_infer_with_progress(
     .await;
 
     // Create the loading progress stream
-    let stream = stream_with_loading_progress(&state, req, adapter_id, claims.tenant_id.clone()).await;
+    let stream = stream_with_loading_progress(
+        &state,
+        req,
+        adapter_id,
+        claims.tenant_id.clone(),
+        claims.sub.clone(),
+    )
+    .await;
 
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
@@ -435,10 +523,7 @@ pub async fn streaming_infer(
             Ok(None) => {
                 return Err((
                     StatusCode::NOT_FOUND,
-                    Json(
-                        ErrorResponse::new("Session not found")
-                            .with_code("NOT_FOUND"),
-                    ),
+                    Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
                 ));
             }
             Err(e) => {
@@ -460,6 +545,45 @@ pub async fn streaming_infer(
         }
     }
 
+    // PRD-06: Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
+    let routing_hook_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnRequestBeforeRouting,
+        "inference",
+        None, // No adapter selected yet
+    );
+    if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("policy hook violation (pre-routing)")
+                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_string_details(violation.message),
+            ),
+        ));
+    }
+
+    // PRD-06: Enforce policies at OnBeforeInference hook
+    let adapter_id = req.adapters.as_ref().and_then(|a| a.first()).cloned();
+    let hook_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnBeforeInference,
+        "inference",
+        adapter_id.as_deref(),
+    );
+    if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("policy hook violation")
+                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_string_details(violation.message),
+            ),
+        ));
+    }
+
     info!(
         request_id = %request_id,
         prompt_len = req.prompt.len(),
@@ -468,6 +592,37 @@ pub async fn streaming_infer(
         session_id = ?req.session_id,
         "Starting streaming inference"
     );
+
+    // Build multi-turn prompt if session_id is provided
+    // This loads chat history and formats it with role markers for context
+    let (base_prompt, chat_context_hash) = if let Some(ref session_id) = req.session_id {
+        let chat_config = state.config.read().unwrap().chat_context.clone();
+        match build_chat_prompt(&state.db, session_id, &req.prompt, &chat_config).await {
+            Ok(result) => {
+                info!(
+                    request_id = %request_id,
+                    session_id = %session_id,
+                    message_count = result.message_count,
+                    truncated = result.truncated,
+                    context_hash = %result.context_hash,
+                    "Built multi-turn prompt from session history"
+                );
+                (result.prompt_text, Some(result.context_hash))
+            }
+            Err(e) => {
+                warn!(
+                    request_id = %request_id,
+                    session_id = %session_id,
+                    error = %e,
+                    "Failed to build multi-turn prompt, using single-turn"
+                );
+                (req.prompt.clone(), None)
+            }
+        }
+    } else {
+        // No session, use prompt directly (single-turn)
+        (req.prompt.clone(), None)
+    };
 
     // Collection-scoped RAG integration
     // When collection_id is provided, retrieve relevant context and augment the prompt
@@ -496,10 +651,7 @@ pub async fn streaming_infer(
             Ok(None) => {
                 return Err((
                     StatusCode::NOT_FOUND,
-                    Json(
-                        ErrorResponse::new("Collection not found")
-                            .with_code("NOT_FOUND"),
-                    ),
+                    Json(ErrorResponse::new("Collection not found").with_code("NOT_FOUND")),
                 ));
             }
             Err(e) => {
@@ -527,23 +679,28 @@ pub async fn streaming_infer(
                 collection_id,
                 &req.prompt,
                 embedding_model.clone(),
-                &request_id,
-                req.session_id.as_deref(),
+                None,
             )
             .await
             {
-                Ok(context) if !context.is_empty() => {
+                Ok(rag_result) if !rag_result.context.is_empty() => {
+                    // Store evidence for this retrieval
+                    store_rag_evidence(&state, &rag_result, &request_id, req.session_id.as_deref())
+                        .await;
+
                     info!(
                         request_id = %request_id,
                         collection_id = %collection_id,
-                        context_len = context.len(),
+                        context_len = rag_result.context.len(),
+                        doc_count = rag_result.doc_ids.len(),
                         "Augmented prompt with RAG context"
                     );
+                    // RAG context prepended to base_prompt (which may include chat history)
                     format!(
                         "Use the following context to answer the question.\n\n\
                          Context:\n{}\n\n\
-                         Question: {}",
-                        context, req.prompt
+                         {}",
+                        rag_result.context, base_prompt
                     )
                 }
                 Ok(_) => {
@@ -552,7 +709,7 @@ pub async fn streaming_infer(
                         collection_id = %collection_id,
                         "No relevant context found in collection"
                     );
-                    req.prompt.clone()
+                    base_prompt.clone()
                 }
                 Err(e) => {
                     warn!(
@@ -561,7 +718,7 @@ pub async fn streaming_infer(
                         error = %e,
                         "RAG retrieval failed, proceeding without context"
                     );
-                    req.prompt.clone()
+                    base_prompt.clone()
                 }
             }
         } else {
@@ -569,10 +726,11 @@ pub async fn streaming_infer(
                 request_id = %request_id,
                 "Embedding model not configured, skipping RAG retrieval"
             );
-            req.prompt.clone()
+            base_prompt.clone()
         }
     } else {
-        req.prompt.clone()
+        // No collection_id, use base_prompt directly (may include chat history)
+        base_prompt
     };
 
     // Audit log: inference execution start
@@ -591,27 +749,68 @@ pub async fn streaming_infer(
     )
     .await;
 
-    // Get available workers
-    let workers = state.db.list_all_workers().await.map_err(|e| {
-        error!(error = %e, "Failed to list workers");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to list workers")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    // Resolve UDS path
-    let uds_path_buf = if let Some(worker) = workers.first() {
-        std::path::PathBuf::from(&worker.uds_path)
+    // Get available workers with manifest filtering (PRD-01: manifest binding)
+    let required_manifest = state.manifest_hash.as_deref();
+    let workers = if let Some(manifest_hash) = required_manifest {
+        // Use manifest-aware worker selection for production
+        state
+            .db
+            .list_compatible_workers_for_tenant(manifest_hash, &claims.tenant_id)
+            .await
+            .map_err(|e| {
+                error!(error = %e, manifest_hash = %manifest_hash, "Failed to list compatible workers");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to list compatible workers")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
     } else {
-        let fallback = std::env::var("AOS_WORKER_SOCKET")
-            .unwrap_or_else(|_| "/var/run/adapteros.sock".to_string());
-        std::path::PathBuf::from(fallback)
+        // Fallback: no manifest filtering - use serving workers (returns WorkerWithBinding)
+        state.db.list_serving_workers().await.map_err(|e| {
+            error!(error = %e, "Failed to list workers");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list workers")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
     };
+
+    // Resolve UDS path using health-aware worker selection
+    let worker = state
+        .health_monitor
+        .as_ref()
+        .and_then(|hm| hm.get_best_worker_with_binding(&workers))
+        .or_else(|| workers.first())
+        .ok_or_else(|| {
+            let msg = if required_manifest.is_some() {
+                format!(
+                    "No compatible workers available for manifest={} and tenant={}",
+                    required_manifest.unwrap_or("unknown"),
+                    claims.tenant_id
+                )
+            } else {
+                "No healthy workers available".to_string()
+            };
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new(&msg)
+                        .with_code("NO_COMPATIBLE_WORKER")
+                        .with_string_details(
+                            "All workers are crashed, incompatible, or unavailable",
+                        ),
+                ),
+            )
+        })?;
+    let uds_path_buf = std::path::PathBuf::from(&worker.uds_path);
 
     // Clone data for the stream
     let request_id_clone = request_id.clone();
@@ -621,6 +820,9 @@ pub async fn streaming_infer(
     let temperature = req.temperature;
     let session_id = req.session_id.clone();
     let adapters = req.adapters.clone();
+    // PRD-06: Pass hook context to stream state
+    let tenant_id = claims.tenant_id.clone();
+    let user_id = claims.sub.clone();
 
     // Create the SSE stream
     let stream = stream::unfold(
@@ -634,6 +836,9 @@ pub async fn streaming_infer(
             model_name_clone,
             session_id,
             adapters,
+            tenant_id,
+            user_id,
+            chat_context_hash,
         ),
         |mut stream_state| async move {
             match stream_state.next_event().await {
@@ -664,13 +869,21 @@ pub async fn stream_with_loading_progress(
     request: StreamingInferRequest,
     adapter_id: String,
     tenant_id: String,
+    user_id: String,
 ) -> impl Stream<Item = Result<Event, Infallible>> {
     let state_clone = state.clone();
     let adapter_id_clone = adapter_id.clone();
     let tenant_id_clone = tenant_id.clone();
+    let user_id_clone = user_id.clone();
 
     stream::unfold(
-        LoadingStreamState::new(state_clone, request, adapter_id_clone, tenant_id_clone),
+        LoadingStreamState::new(
+            state_clone,
+            request,
+            adapter_id_clone,
+            tenant_id_clone,
+            user_id_clone,
+        ),
         |mut loading_state| async move {
             match loading_state.next_loading_event().await {
                 Some(event) => {
@@ -689,9 +902,15 @@ struct LoadingStreamState {
     request: StreamingInferRequest,
     adapter_id: String,
     tenant_id: String,
+    user_id: String,
     phase: LoadingPhase,
     start_time: std::time::Instant,
     token_count: usize,
+    request_id: String,
+    /// Pinned adapters that were unavailable (PRD-6A)
+    unavailable_pinned_adapters: Option<Vec<String>>,
+    /// Routing fallback mode (PRD-6A)
+    pinned_routing_fallback: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -704,15 +923,26 @@ enum LoadingPhase {
 }
 
 impl LoadingStreamState {
-    fn new(state: AppState, request: StreamingInferRequest, adapter_id: String, tenant_id: String) -> Self {
+    fn new(
+        state: AppState,
+        request: StreamingInferRequest,
+        adapter_id: String,
+        tenant_id: String,
+        user_id: String,
+    ) -> Self {
+        let request_id = uuid::Uuid::new_v4().to_string();
         Self {
             state,
             request,
             adapter_id,
             tenant_id,
+            user_id,
             phase: LoadingPhase::CheckingState,
             start_time: std::time::Instant::now(),
             token_count: 0,
+            request_id,
+            unavailable_pinned_adapters: None,
+            pinned_routing_fallback: None,
         }
     }
 
@@ -800,9 +1030,52 @@ impl LoadingStreamState {
                         // Inference complete
                         self.phase = LoadingPhase::Complete;
                         let latency_ms = self.start_time.elapsed().as_millis() as u64;
+
+                        // PRD-06: Fire OnAfterInference hook at stream completion
+                        // NOTE: For streaming, this is fire-and-forget audit logging only.
+                        // Tokens have already been sent to the client, so we cannot block
+                        // the response based on Evidence/Refusal policy violations.
+                        let state_clone = self.state.clone();
+                        let tenant_id = self.tenant_id.clone();
+                        let user_id = self.user_id.clone();
+                        let request_id = self.request_id.clone();
+                        let adapter_id = self.adapter_id.clone();
+
+                        tokio::spawn(async move {
+                            let hook_ctx = create_hook_context(
+                                &crate::auth::Claims {
+                                    sub: user_id.clone(),
+                                    email: String::new(),
+                                    role: "system".to_string(),
+                                    roles: Vec::new(),
+                                    tenant_id: tenant_id.clone(),
+                                    admin_tenants: Vec::new(),
+                                    exp: 0,
+                                    iat: 0,
+                                    jti: uuid::Uuid::new_v4().to_string(),
+                                    nbf: 0,
+                                },
+                                &request_id,
+                                PolicyHook::OnAfterInference,
+                                "streaming_inference",
+                                Some(&adapter_id),
+                            );
+
+                            if let Err(violation) = enforce_at_hook(&state_clone, &hook_ctx).await {
+                                warn!(
+                                    tenant_id = %tenant_id,
+                                    request_id = %request_id,
+                                    violations = ?violation.violations.len(),
+                                    "OnAfterInference policy violation in loading stream (audit only)"
+                                );
+                            }
+                        });
+
                         Some(InferenceEvent::Done {
                             total_tokens: self.token_count,
                             latency_ms,
+                            unavailable_pinned_adapters: self.unavailable_pinned_adapters.clone(),
+                            pinned_routing_fallback: self.pinned_routing_fallback.clone(),
                         })
                     }
                     Err(e) => {
@@ -827,13 +1100,37 @@ impl LoadingStreamState {
             .await
         {
             Ok(Some(adapter)) => {
+                // First check if adapter is archived or purged - reject immediately
+                if adapter.archived_at.is_some() {
+                    warn!(
+                        adapter_id = %self.adapter_id,
+                        tenant_id = %self.tenant_id,
+                        archived_at = ?adapter.archived_at,
+                        "Rejected inference request for archived adapter"
+                    );
+                    return Err(format!(
+                        "Adapter '{}' is archived and cannot be used for inference",
+                        self.adapter_id
+                    ));
+                }
+                if adapter.purged_at.is_some() {
+                    warn!(
+                        adapter_id = %self.adapter_id,
+                        tenant_id = %self.tenant_id,
+                        purged_at = ?adapter.purged_at,
+                        "Rejected inference request for purged adapter"
+                    );
+                    return Err(format!(
+                        "Adapter '{}' has been purged and cannot be used for inference",
+                        self.adapter_id
+                    ));
+                }
+
                 // Check if adapter is in a ready state (runtime state, not lifecycle state)
                 // current_state tracks runtime memory state: unloaded, cold, warm, hot, resident
                 // lifecycle_state tracks metadata state: draft, active, deprecated, retired
-                let is_ready = matches!(
-                    adapter.current_state.as_str(),
-                    "warm" | "hot" | "resident"
-                );
+                let is_ready =
+                    matches!(adapter.current_state.as_str(), "warm" | "hot" | "resident");
                 info!(
                     adapter_id = %self.adapter_id,
                     tenant_id = %self.tenant_id,
@@ -852,25 +1149,58 @@ impl LoadingStreamState {
         // Use LoadCoordinator to prevent thundering herd
         let adapter_id = self.adapter_id.clone();
         let state = self.state.clone();
+        let tenant_id = self.tenant_id.clone();
 
         // Wrap the actual load operation with LoadCoordinator
         // This ensures only one request actually triggers the load
         let _handle = state
             .load_coordinator
             .load_or_wait(&adapter_id.clone(), || async move {
-                // Get available workers
-                let workers = state.db.list_all_workers().await.map_err(|e| {
-                    adapteros_core::AosError::Database(format!("Failed to list workers: {}", e))
-                })?;
+                // Get available workers with manifest filtering (PRD-01: manifest binding)
+                let required_manifest = state.manifest_hash.as_deref();
+                let workers = if let Some(manifest_hash) = required_manifest {
+                    state
+                        .db
+                        .list_compatible_workers_for_tenant(manifest_hash, &tenant_id)
+                        .await
+                        .map_err(|e| {
+                            adapteros_core::AosError::Database(format!(
+                                "Failed to list compatible workers: {}",
+                                e
+                            ))
+                        })?
+                } else {
+                    // Fallback: no manifest filtering - use serving workers (returns WorkerWithBinding)
+                    state.db.list_serving_workers().await.map_err(|e| {
+                        adapteros_core::AosError::Database(format!("Failed to list workers: {}", e))
+                    })?
+                };
 
                 if workers.is_empty() {
-                    return Err(adapteros_core::AosError::Lifecycle(
-                        "No workers available".to_string(),
-                    ));
+                    let msg = if required_manifest.is_some() {
+                        format!(
+                            "No compatible workers for manifest={} and tenant={}",
+                            required_manifest.unwrap_or("unknown"),
+                            tenant_id
+                        )
+                    } else {
+                        "No workers available".to_string()
+                    };
+                    return Err(adapteros_core::AosError::Lifecycle(msg));
                 }
 
-                // Send load request to worker via UDS using HTTP POST
-                let uds_path = std::path::PathBuf::from(&workers[0].uds_path);
+                // Send load request to worker via UDS using HTTP POST - use health-aware selection
+                let worker = state
+                    .health_monitor
+                    .as_ref()
+                    .and_then(|hm| hm.get_best_worker_with_binding(&workers))
+                    .or_else(|| workers.first())
+                    .ok_or_else(|| {
+                        adapteros_core::AosError::Lifecycle(
+                            "No healthy workers available".to_string(),
+                        )
+                    })?;
+                let uds_path = std::path::PathBuf::from(&worker.uds_path);
                 let uds_client = UdsClient::new(Duration::from_secs(30));
 
                 // Send load request via HTTP endpoint
@@ -940,74 +1270,47 @@ impl LoadingStreamState {
     }
 
     async fn run_inference(&mut self) -> Result<Option<String>, String> {
-        // This is a placeholder - in production, this would stream tokens from the worker
-        // For now, we generate a simple response similar to the existing implementation
+        // PRD-05: Use InferenceCore for all inference - single unified path
+        // This ensures routing enforcement, RAG, evidence recording, and session activity
+        // are all handled consistently.
 
-        // Get available workers
-        let workers = self
-            .state
-            .db
-            .list_all_workers()
-            .await
-            .map_err(|e| format!("Failed to list workers: {}", e))?;
-
-        if workers.is_empty() {
-            return Err("No workers available".to_string());
-        }
-
-        let uds_path = std::path::PathBuf::from(&workers[0].uds_path);
-        let uds_client = UdsClient::new(Duration::from_secs(60));
-
-        // Build worker inference request
-        let worker_request = WorkerInferRequest {
-            cpid: uuid::Uuid::new_v4().to_string(),
-            prompt: self.request.prompt.clone(),
-            max_tokens: self.request.max_tokens,
-            require_evidence: self.request.require_evidence,
+        // Build Claims from stored tenant/user info
+        let claims = Claims {
+            sub: self.user_id.clone(),
+            email: String::new(),
+            role: "user".to_string(),
+            roles: Vec::new(),
+            tenant_id: self.tenant_id.clone(),
+            admin_tenants: Vec::new(),
+            exp: 0,
+            iat: 0,
+            jti: uuid::Uuid::new_v4().to_string(),
+            nbf: 0,
         };
 
-        // Send request to worker
-        match uds_client.infer(&uds_path, worker_request).await {
-            Ok(response) => {
-                if let Some(text) = response.text {
-                    // For now, return the whole text as a single token
-                    // In production, this would stream tokens individually
-                    debug!(
-                        text_len = text.len(),
-                        status = %response.status,
-                        "Received inference response"
-                    );
+        // Convert StreamingInferRequest to InferenceRequestInternal
+        let internal_request: InferenceRequestInternal = (&self.request, &claims).into();
 
-                    // Link session trace after successful inference
-                    if let Some(session_id) = &self.request.session_id {
-                        if let Err(e) = self
-                            .state
-                            .db
-                            .add_session_trace(session_id, "adapter", &self.adapter_id)
-                            .await
-                        {
-                            warn!(
-                                session_id = %session_id,
-                                adapter_id = %self.adapter_id,
-                                error = %e,
-                                "Failed to add session trace"
-                            );
-                        }
-                        if let Err(e) = self.state.db.update_chat_session_activity(session_id).await {
-                            warn!(
-                                session_id = %session_id,
-                                error = %e,
-                                "Failed to update session activity"
-                            );
-                        }
-                    }
+        // Execute via InferenceCore - the single entry point for all inference
+        let core = InferenceCore::new(&self.state);
+        match core.route_and_infer(internal_request, None).await {
+            Ok(result) => {
+                debug!(
+                    text_len = result.text.len(),
+                    finish_reason = %result.finish_reason,
+                    adapters_used = ?result.adapters_used,
+                    unavailable_pinned = ?result.unavailable_pinned_adapters,
+                    pinned_fallback = ?result.pinned_routing_fallback,
+                    "Received inference response via InferenceCore"
+                );
 
-                    // Mark as complete after returning the response
-                    self.phase = LoadingPhase::Complete;
-                    Ok(Some(text))
-                } else {
-                    Err("No text in response".to_string())
-                }
+                // Store pinned adapter metadata (PRD-6A)
+                self.unavailable_pinned_adapters = result.unavailable_pinned_adapters.clone();
+                self.pinned_routing_fallback = result.pinned_routing_fallback.clone();
+
+                // Mark as complete after returning the response
+                self.phase = LoadingPhase::Complete;
+                Ok(Some(result.text))
             }
             Err(e) => {
                 error!(error = %e, "UDS inference failed");
@@ -1048,6 +1351,13 @@ struct StreamState {
     // Session tracking
     session_id: Option<String>,
     adapters: Option<Vec<String>>,
+    // PRD-06: Hook context for OnAfterInference
+    tenant_id: String,
+    user_id: String,
+    // Track if after-hook has been fired (one-shot)
+    after_hook_fired: bool,
+    // BLAKE3 hash of chat context for replay metadata
+    chat_context_hash: Option<String>,
 }
 
 /// Maximum size for words buffer to prevent unbounded growth
@@ -1072,6 +1382,9 @@ impl StreamState {
         model_name: String,
         session_id: Option<String>,
         adapters: Option<Vec<String>>,
+        tenant_id: String,
+        user_id: String,
+        chat_context_hash: Option<String>,
     ) -> Self {
         Self {
             state,
@@ -1082,6 +1395,9 @@ impl StreamState {
             request_id,
             model_name,
             phase: StreamPhase::Start,
+            tenant_id,
+            user_id,
+            after_hook_fired: false,
             generated_text: None,
             word_index: 0,
             words: Vec::new(),
@@ -1090,6 +1406,7 @@ impl StreamState {
             cancellation_token: CancellationToken::new(),
             session_id,
             adapters,
+            chat_context_hash,
         }
     }
 
@@ -1195,62 +1512,49 @@ impl StreamState {
     }
 
     async fn generate_response(&self) -> Result<String, String> {
-        // Create UDS client with 60 second timeout
-        let uds_client = UdsClient::new(Duration::from_secs(60));
+        // PRD-05: Use InferenceCore for all inference - single unified path
+        // This ensures routing enforcement, RAG, evidence recording, and session activity
+        // are all handled consistently.
 
-        // Build worker inference request
-        let worker_request = WorkerInferRequest {
-            cpid: uuid::Uuid::new_v4().to_string(),
+        // Build InferenceRequestInternal directly from StreamState fields
+        let internal_request = InferenceRequestInternal {
+            request_id: self.request_id.clone(),
+            cpid: self.tenant_id.clone(),
             prompt: self.prompt.clone(),
+            stream: true,
+            batch_item_id: None,
+            rag_enabled: false, // RAG handled earlier in the pipeline
+            rag_collection_id: None,
+            adapter_stack: None,
+            adapters: self.adapters.clone(),
             max_tokens: self.max_tokens,
+            temperature: self.temperature,
+            top_k: None,
+            top_p: None,
+            seed: None,
+            router_seed: None, // PRD-02: deterministic routing (not set for streaming)
             require_evidence: false,
+            session_id: self.session_id.clone(),
+            pinned_adapter_ids: None, // Pinning not yet exposed in streaming API
+            chat_context_hash: self.chat_context_hash.clone(),
+            model: Some(self.model_name.clone()),
+            created_at: std::time::Instant::now(),
         };
 
-        // Send request to worker
-        match uds_client.infer(&self.uds_path, worker_request).await {
-            Ok(response) => {
-                if let Some(text) = response.text {
-                    debug!(
-                        text_len = text.len(),
-                        status = %response.status,
-                        "Received inference response"
-                    );
-
-                    // Link session trace after successful inference
-                    if let Some(session_id) = &self.session_id {
-                        if let Some(adapters) = &self.adapters {
-                            for adapter_id in adapters {
-                                if let Err(e) = self
-                                    .state
-                                    .db
-                                    .add_session_trace(session_id, "adapter", adapter_id)
-                                    .await
-                                {
-                                    warn!(
-                                        session_id = %session_id,
-                                        adapter_id = %adapter_id,
-                                        error = %e,
-                                        "Failed to add session trace"
-                                    );
-                                }
-                            }
-                        }
-                        if let Err(e) = self.state.db.update_chat_session_activity(session_id).await {
-                            warn!(
-                                session_id = %session_id,
-                                error = %e,
-                                "Failed to update session activity"
-                            );
-                        }
-                    }
-
-                    Ok(text)
-                } else {
-                    Err("No text in response".to_string())
-                }
+        // Execute via InferenceCore - the single entry point for all inference
+        let core = InferenceCore::new(&self.state);
+        match core.route_and_infer(internal_request, None).await {
+            Ok(result) => {
+                debug!(
+                    text_len = result.text.len(),
+                    finish_reason = %result.finish_reason,
+                    adapters_used = ?result.adapters_used,
+                    "Received inference response via InferenceCore"
+                );
+                Ok(result.text)
             }
             Err(e) => {
-                error!(error = %e, "UDS inference failed");
+                error!(error = %e, "InferenceCore inference failed");
                 Err(format!("Inference failed: {}", e))
             }
         }
@@ -1295,6 +1599,48 @@ impl StreamState {
                 Event::default().data(serialize_safe(&chunk, "stream_token"))
             }
             StreamEvent::Done { finish_reason } => {
+                // PRD-06: Fire OnAfterInference hook at stream completion
+                // NOTE: For streaming, this is fire-and-forget audit logging only.
+                // Tokens have already been sent to the client, so we cannot block
+                // the response based on Evidence/Refusal policy violations.
+                // The hook logs to policy_audit_decisions for compliance tracking.
+                let state_clone = self.state.clone();
+                let tenant_id = self.tenant_id.clone();
+                let user_id = self.user_id.clone();
+                let request_id = self.request_id.clone();
+                let adapter_id = self.adapters.as_ref().and_then(|a| a.first()).cloned();
+
+                tokio::spawn(async move {
+                    let hook_ctx = create_hook_context(
+                        &crate::auth::Claims {
+                            sub: user_id.clone(),
+                            email: String::new(),
+                            role: "system".to_string(), // Hook fires post-stream, role used for audit only
+                            roles: Vec::new(),
+                            tenant_id: tenant_id.clone(),
+                            admin_tenants: Vec::new(),
+                            exp: 0,
+                            iat: 0,
+                            jti: uuid::Uuid::new_v4().to_string(),
+                            nbf: 0,
+                        },
+                        &request_id,
+                        PolicyHook::OnAfterInference,
+                        "streaming_inference",
+                        adapter_id.as_deref(),
+                    );
+
+                    if let Err(violation) = enforce_at_hook(&state_clone, &hook_ctx).await {
+                        // Log but don't fail - tokens already sent to client
+                        warn!(
+                            tenant_id = %tenant_id,
+                            request_id = %request_id,
+                            violations = ?violation.violations.len(),
+                            "OnAfterInference policy violation in streaming (audit only, response already sent)"
+                        );
+                    }
+                });
+
                 let chunk = StreamingChunk {
                     id: self.request_id.clone(),
                     object: "chat.completion.chunk".to_string(),
@@ -1335,208 +1681,10 @@ fn current_timestamp() -> u64 {
         .unwrap_or(0)
 }
 
-/// Parse a RAG doc_id to extract the base document_id and chunk_index.
-///
-/// RAG doc_ids follow the format `{document_id}__chunk_{index}`.
-/// Returns (document_id, chunk_index) if parsing succeeds.
-fn parse_rag_doc_id(doc_id: &str) -> Option<(String, i32)> {
-    const CHUNK_SEPARATOR: &str = "__chunk_";
-
-    if let Some(pos) = doc_id.rfind(CHUNK_SEPARATOR) {
-        let document_id = doc_id[..pos].to_string();
-        let chunk_index_str = &doc_id[pos + CHUNK_SEPARATOR.len()..];
-        if let Ok(chunk_index) = chunk_index_str.parse::<i32>() {
-            return Some((document_id, chunk_index));
-        }
-    }
-    None
-}
-
-/// Retrieve relevant context from RAG for a given query
-///
-/// This function:
-/// 1. Encodes the query using the embedding model
-/// 2. Retrieves top-k similar documents from the vector index
-/// 3. Filters results by collection membership (efficient ID-only check)
-/// 4. Concatenates the retrieved text chunks as context
-/// 5. Stores evidence entries in the database (batched) for audit trails
-///
-/// Returns the concatenated context string, or empty string if no results.
-async fn retrieve_rag_context(
-    state: &AppState,
-    tenant_id: &str,
-    collection_id: &str,
-    query: &str,
-    embedding_model: Arc<dyn EmbeddingModel + Send + Sync>,
-    request_id: &str,
-    session_id: Option<&str>,
-) -> adapteros_core::Result<String> {
-    // Retrieve more candidates since we may filter some out by collection membership
-    const CANDIDATE_K: usize = 15;
-    const TOP_K: usize = 5;
-    const MAX_CONTEXT_CHARS: usize = 4000;
-
-    // Encode the query
-    let query_embedding = embedding_model.encode_text(query)?;
-
-    // Get the embedding model hash for index creation
-    let model_hash = embedding_model.model_hash();
-    let dimension = embedding_model.dimension();
-
-    // Create RAG index using the database pool
-    let index = PgVectorIndex::new_sqlite(state.db_pool.clone(), model_hash, dimension);
-
-    // Retrieve candidate documents (more than TOP_K since we'll filter by collection)
-    let all_results = index.retrieve(tenant_id, &query_embedding, CANDIDATE_K).await?;
-
-    // Get document IDs that belong to the specified collection (efficient - just IDs)
-    let collection_doc_ids: std::collections::HashSet<String> = state
-        .db
-        .list_collection_document_ids(collection_id)
-        .await?
-        .into_iter()
-        .collect();
-
-    // Filter results by collection membership using parsed document_id
-    // RAG doc_id format is `{document_id}__chunk_{index}`, we need to extract document_id
-    let results: Vec<_> = all_results
-        .into_iter()
-        .filter(|doc| {
-            if let Some((document_id, _)) = parse_rag_doc_id(&doc.doc_id) {
-                collection_doc_ids.contains(&document_id)
-            } else {
-                // If we can't parse the doc_id, try direct match (backwards compatibility)
-                collection_doc_ids.contains(&doc.doc_id)
-            }
-        })
-        .take(TOP_K)
-        .collect();
-
-    debug!(
-        collection_id = %collection_id,
-        collection_doc_count = collection_doc_ids.len(),
-        candidate_count = CANDIDATE_K,
-        filtered_results = results.len(),
-        "Filtered RAG results by collection membership"
-    );
-
-    if results.is_empty() {
-        return Ok(String::new());
-    }
-
-    // Concatenate results with truncation first to compute context hash
-    let mut context = String::new();
-    for (i, doc) in results.iter().enumerate() {
-        if context.len() + doc.text.len() > MAX_CONTEXT_CHARS {
-            break;
-        }
-        if i > 0 {
-            context.push_str("\n\n---\n\n");
-        }
-        context.push_str(&doc.text);
-    }
-
-    // Compute context hash for evidence
-    let context_hash = adapteros_core::B3Hash::hash(context.as_bytes());
-
-    // Build evidence entries with proper document_id, chunk_id, and page_number
-    // Note: chunk_id must be the actual document_chunks.id (FK constraint)
-    let mut evidence_params_list = Vec::with_capacity(results.len());
-
-    for (rank, doc) in results.iter().enumerate() {
-        let (document_id, chunk_id, page_number) =
-            if let Some((doc_id, chunk_index)) = parse_rag_doc_id(&doc.doc_id) {
-                // Look up chunk metadata for chunk_id (FK) and page_number
-                match state
-                    .db
-                    .get_chunk_by_document_and_index(&doc_id, chunk_index)
-                    .await
-                {
-                    Ok(Some(chunk)) => {
-                        // Use actual chunk.id for FK constraint
-                        (doc_id, chunk.id, chunk.page_number)
-                    }
-                    Ok(None) => {
-                        debug!(
-                            document_id = %doc_id,
-                            chunk_index = chunk_index,
-                            "Chunk not found in document_chunks table, skipping evidence"
-                        );
-                        // Skip this entry - can't store evidence without valid FK
-                        continue;
-                    }
-                    Err(e) => {
-                        warn!(
-                            document_id = %doc_id,
-                            chunk_index = chunk_index,
-                            error = %e,
-                            "Failed to look up chunk metadata, skipping evidence"
-                        );
-                        // Skip this entry - can't store evidence without valid FK
-                        continue;
-                    }
-                }
-            } else {
-                // Can't parse doc_id - skip evidence (need valid FKs)
-                debug!(
-                    doc_id = %doc.doc_id,
-                    "Cannot parse RAG doc_id, skipping evidence"
-                );
-                continue;
-            };
-
-        evidence_params_list.push(adapteros_db::CreateEvidenceParams {
-            inference_id: request_id.to_string(),
-            session_id: session_id.map(|s| s.to_string()),
-            message_id: None,
-            document_id,
-            chunk_id,
-            page_number,
-            document_hash: doc.span_hash.to_hex(),
-            chunk_hash: doc.span_hash.to_hex(),
-            relevance_score: doc.score as f64,
-            rank: rank as i32,
-            context_hash: context_hash.to_hex(),
-        });
-    }
-
-    // Batch insert all evidence entries in a single transaction
-    match state
-        .db
-        .create_inference_evidence_batch(evidence_params_list)
-        .await
-    {
-        Ok(ids) => {
-            debug!(
-                inference_id = %request_id,
-                evidence_count = ids.len(),
-                "Stored RAG evidence entries"
-            );
-        }
-        Err(e) => {
-            warn!(
-                inference_id = %request_id,
-                error = %e,
-                "Failed to store RAG evidence entries"
-            );
-        }
-    }
-
-    info!(
-        tenant_id = %tenant_id,
-        collection_id = %collection_id,
-        num_results = results.len(),
-        context_len = context.len(),
-        embedding_model_hash = %model_hash.to_hex(),
-        "Retrieved RAG context with evidence"
-    );
-
-    Ok(context)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handlers::rag_common::parse_rag_doc_id;
 
     #[test]
     fn test_streaming_request_defaults() {
@@ -1659,12 +1807,29 @@ mod tests {
         let event = InferenceEvent::Done {
             total_tokens: 100,
             latency_ms: 5000,
+            unavailable_pinned_adapters: None,
+            pinned_routing_fallback: None,
         };
 
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("Done"));
         assert!(json.contains("100"));
         assert!(json.contains("5000"));
+    }
+
+    #[test]
+    fn test_inference_event_done_with_pinned_fallback() {
+        let event = InferenceEvent::Done {
+            total_tokens: 50,
+            latency_ms: 2500,
+            unavailable_pinned_adapters: Some(vec!["pin-1".to_string(), "pin-2".to_string()]),
+            pinned_routing_fallback: Some("stack_only".to_string()),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("Done"));
+        assert!(json.contains("pin-1"));
+        assert!(json.contains("stack_only"));
     }
 
     #[test]
@@ -1682,20 +1847,24 @@ mod tests {
 
     #[test]
     fn test_parse_rag_doc_id_valid() {
+        use crate::handlers::rag_common::ParsedRagDocId;
+
         // Standard format: document_id__chunk_index
         let result = parse_rag_doc_id("doc-123__chunk_0");
-        assert_eq!(result, Some(("doc-123".to_string(), 0)));
+        assert_eq!(result, Some(ParsedRagDocId { document_id: "doc-123".to_string(), chunk_index: 0 }));
 
         let result = parse_rag_doc_id("my-document-uuid__chunk_42");
-        assert_eq!(result, Some(("my-document-uuid".to_string(), 42)));
+        assert_eq!(result, Some(ParsedRagDocId { document_id: "my-document-uuid".to_string(), chunk_index: 42 }));
 
         // Document ID with underscores (edge case - uses rfind)
         let result = parse_rag_doc_id("doc_with_underscores__chunk_5");
-        assert_eq!(result, Some(("doc_with_underscores".to_string(), 5)));
+        assert_eq!(result, Some(ParsedRagDocId { document_id: "doc_with_underscores".to_string(), chunk_index: 5 }));
     }
 
     #[test]
     fn test_parse_rag_doc_id_invalid() {
+        use crate::handlers::rag_common::ParsedRagDocId;
+
         // Missing __chunk_ separator
         assert_eq!(parse_rag_doc_id("doc-123"), None);
         assert_eq!(parse_rag_doc_id("doc-123_chunk_0"), None);
@@ -1704,29 +1873,132 @@ mod tests {
         assert_eq!(parse_rag_doc_id("doc-123__chunk_abc"), None);
 
         // Empty document ID
-        assert_eq!(parse_rag_doc_id("__chunk_0"), Some(("".to_string(), 0)));
+        assert_eq!(parse_rag_doc_id("__chunk_0"), Some(ParsedRagDocId { document_id: "".to_string(), chunk_index: 0 }));
 
         // Negative chunk index (should still parse as i32)
         assert_eq!(
             parse_rag_doc_id("doc__chunk_-1"),
-            Some(("doc".to_string(), -1))
+            Some(ParsedRagDocId { document_id: "doc".to_string(), chunk_index: -1 })
         );
     }
 
     #[test]
     fn test_parse_rag_doc_id_special_cases() {
+        use crate::handlers::rag_common::ParsedRagDocId;
+
         // UUID-style document ID
         let result = parse_rag_doc_id("550e8400-e29b-41d4-a716-446655440000__chunk_99");
         assert_eq!(
             result,
-            Some(("550e8400-e29b-41d4-a716-446655440000".to_string(), 99))
+            Some(ParsedRagDocId { document_id: "550e8400-e29b-41d4-a716-446655440000".to_string(), chunk_index: 99 })
         );
 
         // Document ID with path-like format (sanitized)
         let result = parse_rag_doc_id("documents_report_2024_pdf__chunk_0");
+        assert_eq!(result, Some(ParsedRagDocId { document_id: "documents_report_2024_pdf".to_string(), chunk_index: 0 }));
+    }
+
+    #[test]
+    fn test_streaming_request_to_internal_conversion() {
+        use crate::auth::Claims;
+
+        // Create a streaming request with all fields populated
+        let streaming_req = StreamingInferRequest {
+            prompt: "Test prompt".to_string(),
+            model: Some("test-model".to_string()),
+            max_tokens: 100,
+            temperature: 0.8,
+            top_p: Some(0.9),
+            top_k: Some(50),
+            stop: vec!["STOP".to_string()],
+            adapter_stack: Some(vec!["adapter1".to_string(), "adapter2".to_string()]),
+            adapters: Some(vec!["adapter3".to_string()]),
+            seed: Some(12345),
+            require_evidence: true,
+            collection_id: Some("test-collection".to_string()),
+            session_id: Some("test-session".to_string()),
+        };
+
+        // Create mock claims
+        let claims = Claims {
+            sub: "user123".to_string(),
+            email: "test@example.com".to_string(),
+            role: "operator".to_string(),
+            roles: Vec::new(),
+            tenant_id: "tenant456".to_string(),
+            admin_tenants: Vec::new(),
+            exp: 0,
+            iat: 0,
+            jti: "test-jti".to_string(),
+            nbf: 0,
+        };
+
+        // Convert using From implementation
+        let internal: InferenceRequestInternal = (&streaming_req, &claims).into();
+
+        // Verify all fields are correctly mapped
+        assert_eq!(internal.cpid, "tenant456");
+        assert_eq!(internal.prompt, "Test prompt");
+        assert!(internal.stream); // Always true for streaming endpoint
+        assert!(internal.batch_item_id.is_none());
+        assert!(internal.rag_enabled); // Should be true because collection_id is Some
         assert_eq!(
-            result,
-            Some(("documents_report_2024_pdf".to_string(), 0))
+            internal.rag_collection_id,
+            Some("test-collection".to_string())
         );
+        assert_eq!(
+            internal.adapter_stack,
+            Some(vec!["adapter1".to_string(), "adapter2".to_string()])
+        );
+        assert_eq!(internal.adapters, Some(vec!["adapter3".to_string()]));
+        assert_eq!(internal.max_tokens, 100);
+        assert!((internal.temperature - 0.8).abs() < 0.01);
+        assert_eq!(internal.top_p, Some(0.9));
+        assert_eq!(internal.top_k, Some(50));
+        assert_eq!(internal.seed, Some(12345));
+        assert!(internal.require_evidence);
+        assert_eq!(internal.session_id, Some("test-session".to_string()));
+        assert_eq!(internal.model, Some("test-model".to_string()));
+    }
+
+    #[test]
+    fn test_streaming_request_to_internal_no_collection() {
+        use crate::auth::Claims;
+
+        // Create a streaming request without collection_id
+        let streaming_req = StreamingInferRequest {
+            prompt: "Test".to_string(),
+            model: None,
+            max_tokens: default_max_tokens(),
+            temperature: default_temperature(),
+            top_p: None,
+            top_k: None,
+            stop: vec![],
+            adapter_stack: None,
+            adapters: None,
+            seed: None,
+            require_evidence: false,
+            collection_id: None, // No collection
+            session_id: None,
+        };
+
+        let claims = Claims {
+            sub: "user".to_string(),
+            email: String::new(),
+            tenant_id: "tenant".to_string(),
+            role: "operator".to_string(),
+            roles: Vec::new(),
+            admin_tenants: Vec::new(),
+            exp: 0,
+            iat: 0,
+            jti: uuid::Uuid::new_v4().to_string(),
+            nbf: 0,
+        };
+
+        let internal: InferenceRequestInternal = (&streaming_req, &claims).into();
+
+        // RAG should be disabled when no collection_id
+        assert!(!internal.rag_enabled);
+        assert!(internal.rag_collection_id.is_none());
     }
 }

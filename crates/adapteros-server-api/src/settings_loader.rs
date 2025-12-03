@@ -144,6 +144,7 @@ mod tests {
                 datasets_root: "var/datasets".to_string(),
                 documents_root: "var/documents".to_string(),
             },
+            chat_context: Default::default(),
         }));
 
         let result = load_and_apply_overrides(&api_config);

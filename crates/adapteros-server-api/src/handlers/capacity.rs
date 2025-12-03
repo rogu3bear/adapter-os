@@ -101,11 +101,7 @@ pub async fn get_capacity(
     let limits = config.capacity_limits.clone();
 
     // Get current usage from database
-    let models_loaded = state
-        .db
-        .count_loaded_models()
-        .await
-        .unwrap_or(0) as usize;
+    let models_loaded = state.db.count_loaded_models().await.unwrap_or(0) as usize;
 
     // Count adapters in various load states
     let adapters_loaded = state
@@ -114,9 +110,7 @@ pub async fn get_capacity(
         .await
         .unwrap_or_default()
         .into_iter()
-        .filter(|(state, _)| {
-            matches!(state.as_str(), "loaded" | "warm" | "hot" | "resident")
-        })
+        .filter(|(state, _)| matches!(state.as_str(), "loaded" | "warm" | "hot" | "resident"))
         .map(|(_, count)| count)
         .sum::<i64>() as usize;
 

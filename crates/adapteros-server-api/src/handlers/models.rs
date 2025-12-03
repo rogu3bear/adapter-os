@@ -259,17 +259,21 @@ pub async fn load_model(
         })?;
 
     // Get worker socket path - try from workers table first, then env var fallback
-    let uds_path = get_worker_socket_path(&state, tenant_id).await.ok_or_else(|| {
-        error!("No worker available for model loading");
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("no worker available")
-                    .with_code("WORKER_UNAVAILABLE")
-                    .with_string_details("No worker is available to load the model".to_string()),
-            ),
-        )
-    })?;
+    let uds_path = get_worker_socket_path(&state, tenant_id)
+        .await
+        .ok_or_else(|| {
+            error!("No worker available for model loading");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new("no worker available")
+                        .with_code("WORKER_UNAVAILABLE")
+                        .with_string_details(
+                            "No worker is available to load the model".to_string(),
+                        ),
+                ),
+            )
+        })?;
 
     // Get model path from database
     let model_path = model.model_path.clone().unwrap_or_else(|| {
@@ -310,7 +314,11 @@ pub async fn load_model(
                 error = %e,
                 "Failed to communicate with worker for model loading"
             );
-            ("error", None, Some(format!("Worker communication failed: {}", e)))
+            (
+                "error",
+                None,
+                Some(format!("Worker communication failed: {}", e)),
+            )
         }
     };
 
@@ -903,16 +911,24 @@ pub async fn validate_model(
     }
 
     let reason = if !is_valid {
-        Some(errors.first().cloned().unwrap_or_else(|| "Model validation failed".to_string()))
+        Some(
+            errors
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "Model validation failed".to_string()),
+        )
     } else {
         None
     };
 
     // Convert errors to issues for frontend compatibility
-    let issues: Vec<ValidationIssue> = errors.iter().map(|e| ValidationIssue {
-        issue_type: "validation_error".to_string(),
-        message: e.clone(),
-    }).collect();
+    let issues: Vec<ValidationIssue> = errors
+        .iter()
+        .map(|e| ValidationIssue {
+            issue_type: "validation_error".to_string(),
+            message: e.clone(),
+        })
+        .collect();
 
     // Use frontend-compatible status values
     let status = if is_valid { "ready" } else { "invalid" };

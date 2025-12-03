@@ -391,13 +391,11 @@ async fn test_unified_document_id_flow() -> Result<()> {
     .execute(db.pool())
     .await?;
 
-    sqlx::query(
-        "INSERT INTO collection_documents (collection_id, document_id) VALUES (?, ?)",
-    )
-    .bind(collection_id)
-    .bind(document_uuid)
-    .execute(db.pool())
-    .await?;
+    sqlx::query("INSERT INTO collection_documents (collection_id, document_id) VALUES (?, ?)")
+        .bind(collection_id)
+        .bind(document_uuid)
+        .execute(db.pool())
+        .await?;
 
     // Step 5: Verify collection document IDs returns the UUID
     let collection_doc_ids: std::collections::HashSet<String> = db
@@ -532,13 +530,11 @@ async fn test_unified_flow_collection_filtering() -> Result<()> {
     .execute(db.pool())
     .await?;
 
-    sqlx::query(
-        "INSERT INTO collection_documents (collection_id, document_id) VALUES (?, ?)",
-    )
-    .bind(collection_id)
-    .bind(doc_in_collection)
-    .execute(db.pool())
-    .await?;
+    sqlx::query("INSERT INTO collection_documents (collection_id, document_id) VALUES (?, ?)")
+        .bind(collection_id)
+        .bind(doc_in_collection)
+        .execute(db.pool())
+        .await?;
 
     // Simulate RAG results from both documents
     let rag_results = vec![
@@ -576,6 +572,297 @@ async fn test_unified_flow_collection_filtering() -> Result<()> {
             "Filtered results should only be from the collection document"
         );
     }
+
+    Ok(())
+}
+
+// ============================================================
+// PRD-08: RAG Determinism & Citation Trace Tests
+// ============================================================
+
+/// Test that RAG evidence includes aggregate trace fields (rag_doc_ids, rag_scores, rag_collection_id)
+#[tokio::test]
+async fn test_rag_evidence_with_trace_fields() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    // Create required parent records
+    let tenant_id = db.create_tenant("Test Tenant", false).await?;
+
+    // Create a document
+    let doc_id = "doc-trace-test";
+    sqlx::query(
+        "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, status)
+         VALUES (?, ?, 'test.pdf', 'hash123', '/tmp/test.pdf', 1024, 'application/pdf', 'processed')",
+    )
+    .bind(doc_id)
+    .bind(&tenant_id)
+    .execute(db.pool())
+    .await?;
+
+    // Create chunk
+    let chunk_id = "chunk-trace-0";
+    sqlx::query(
+        "INSERT INTO document_chunks (id, document_id, chunk_index, page_number, chunk_hash)
+         VALUES (?, ?, 0, 1, 'chunkhash')",
+    )
+    .bind(chunk_id)
+    .bind(doc_id)
+    .execute(db.pool())
+    .await?;
+
+    // Create collection
+    let collection_id = "collection-trace-test";
+    sqlx::query(
+        "INSERT INTO document_collections (id, tenant_id, name) VALUES (?, ?, 'Trace Test Collection')",
+    )
+    .bind(collection_id)
+    .bind(&tenant_id)
+    .execute(db.pool())
+    .await?;
+
+    // Create evidence with RAG trace fields
+    let rag_doc_ids = vec!["doc-1".to_string(), "doc-2".to_string()];
+    let rag_scores = vec![0.95, 0.85];
+
+    let params = CreateEvidenceParams {
+        inference_id: "chatcmpl-trace-test".to_string(),
+        session_id: None,
+        message_id: None,
+        document_id: doc_id.to_string(),
+        chunk_id: chunk_id.to_string(),
+        page_number: Some(1),
+        document_hash: "doc-hash".to_string(),
+        chunk_hash: "chunk-hash".to_string(),
+        relevance_score: 0.95,
+        rank: 0,
+        context_hash: "context-hash".to_string(),
+        rag_doc_ids: Some(rag_doc_ids.clone()),
+        rag_scores: Some(rag_scores.clone()),
+        rag_collection_id: Some(collection_id.to_string()),
+    };
+
+    let ids = db.create_inference_evidence_batch(vec![params]).await?;
+    assert_eq!(ids.len(), 1);
+
+    // Retrieve and verify trace fields
+    let evidence = db.get_evidence_by_inference("chatcmpl-trace-test").await?;
+    assert_eq!(evidence.len(), 1);
+
+    let ev = &evidence[0];
+    assert_eq!(
+        ev.rag_collection_id.as_ref(),
+        Some(&collection_id.to_string())
+    );
+
+    // Parse and verify rag_doc_ids
+    if let Some(ref doc_ids_json) = ev.rag_doc_ids {
+        let parsed_doc_ids: Vec<String> = serde_json::from_str(doc_ids_json).unwrap();
+        assert_eq!(parsed_doc_ids, rag_doc_ids);
+    } else {
+        panic!("rag_doc_ids should not be None");
+    }
+
+    // Parse and verify rag_scores
+    if let Some(ref scores_json) = ev.rag_scores {
+        let parsed_scores: Vec<f64> = serde_json::from_str(scores_json).unwrap();
+        assert_eq!(parsed_scores.len(), rag_scores.len());
+        for (parsed, expected) in parsed_scores.iter().zip(rag_scores.iter()) {
+            assert!((parsed - expected).abs() < 0.001);
+        }
+    } else {
+        panic!("rag_scores should not be None");
+    }
+
+    Ok(())
+}
+
+/// Test deterministic ordering: score DESC, doc_id ASC (Ruleset #2)
+#[test]
+fn test_rag_deterministic_ordering() {
+    // Simulate RAG results with same scores (requires tie-breaking)
+    let mut results = vec![
+        ("doc-c__chunk_0", 0.90),
+        ("doc-a__chunk_0", 0.95),
+        ("doc-b__chunk_0", 0.90), // Same score as doc-c, should come before it alphabetically
+        ("doc-d__chunk_0", 0.85),
+        ("doc-a__chunk_1", 0.95), // Same doc as first, different chunk
+    ];
+
+    // Sort by score DESC, then doc_id ASC (deterministic)
+    results.sort_by(|a, b| {
+        // First compare by score (descending)
+        match b.1.partial_cmp(&a.1) {
+            Some(std::cmp::Ordering::Equal) => {
+                // If scores equal, compare by doc_id (ascending)
+                a.0.cmp(b.0)
+            }
+            Some(ordering) => ordering,
+            None => std::cmp::Ordering::Equal,
+        }
+    });
+
+    // Verify order
+    assert_eq!(results[0].0, "doc-a__chunk_0"); // 0.95, alphabetically first
+    assert_eq!(results[1].0, "doc-a__chunk_1"); // 0.95, same doc, higher chunk
+    assert_eq!(results[2].0, "doc-b__chunk_0"); // 0.90, alphabetically before doc-c
+    assert_eq!(results[3].0, "doc-c__chunk_0"); // 0.90, alphabetically after doc-b
+    assert_eq!(results[4].0, "doc-d__chunk_0"); // 0.85
+}
+
+/// Test that identical queries produce identical document ordering
+#[test]
+fn test_rag_identical_queries_same_ordering() {
+    // Simulate the same set of results appearing in different initial orders
+    let initial_order_1 = vec![
+        ("doc-a__chunk_0", 0.95),
+        ("doc-b__chunk_0", 0.90),
+        ("doc-c__chunk_0", 0.85),
+    ];
+
+    let initial_order_2 = vec![
+        ("doc-c__chunk_0", 0.85),
+        ("doc-a__chunk_0", 0.95),
+        ("doc-b__chunk_0", 0.90),
+    ];
+
+    // Apply deterministic sorting to both
+    let sort_deterministically = |mut results: Vec<(&str, f64)>| {
+        results.sort_by(|a, b| match b.1.partial_cmp(&a.1) {
+            Some(std::cmp::Ordering::Equal) => a.0.cmp(b.0),
+            Some(ordering) => ordering,
+            None => std::cmp::Ordering::Equal,
+        });
+        results
+    };
+
+    let sorted_1 = sort_deterministically(initial_order_1);
+    let sorted_2 = sort_deterministically(initial_order_2);
+
+    // Both should produce identical ordering
+    assert_eq!(sorted_1.len(), sorted_2.len());
+    for (i, (r1, r2)) in sorted_1.iter().zip(sorted_2.iter()).enumerate() {
+        assert_eq!(r1.0, r2.0, "doc_id mismatch at position {}", i);
+        assert!(
+            (r1.1 - r2.1).abs() < 0.001,
+            "score mismatch at position {}",
+            i
+        );
+    }
+}
+
+/// Test replay RAG state serialization and deserialization
+#[tokio::test]
+async fn test_replay_rag_state_serialization() -> Result<()> {
+    use adapteros_db::rag_retrieval_audit::RagReplayState;
+
+    let rag_state = RagReplayState {
+        doc_ids: vec![
+            "doc-1".to_string(),
+            "doc-2".to_string(),
+            "doc-3".to_string(),
+        ],
+        scores: vec![0.95, 0.85, 0.75],
+        collection_id: Some("collection-123".to_string()),
+        embedding_model_hash: "abc123def456".to_string(),
+    };
+
+    // Serialize to JSON (as stored in replay_sessions.rag_state_json)
+    let json = serde_json::to_string(&rag_state)?;
+
+    // Deserialize back
+    let restored: RagReplayState = serde_json::from_str(&json)?;
+
+    // Verify all fields match
+    assert_eq!(restored.doc_ids, rag_state.doc_ids);
+    assert_eq!(restored.scores.len(), rag_state.scores.len());
+    for (r, o) in restored.scores.iter().zip(rag_state.scores.iter()) {
+        assert!((r - o).abs() < 0.001);
+    }
+    assert_eq!(restored.collection_id, rag_state.collection_id);
+    assert_eq!(
+        restored.embedding_model_hash,
+        rag_state.embedding_model_hash
+    );
+
+    Ok(())
+}
+
+/// Test get_documents_by_ids_ordered preserves input order
+#[tokio::test]
+async fn test_get_documents_by_ids_preserves_order() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    let tenant_id = db.create_tenant("Test Tenant", false).await?;
+
+    // Create documents in a specific order
+    let doc_ids = vec![
+        "doc-z".to_string(),
+        "doc-a".to_string(),
+        "doc-m".to_string(),
+    ];
+
+    for doc_id in &doc_ids {
+        sqlx::query(
+            "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, status)
+             VALUES (?, ?, 'test.pdf', 'hash', '/tmp/test.pdf', 1024, 'application/pdf', 'processed')",
+        )
+        .bind(doc_id)
+        .bind(&tenant_id)
+        .execute(db.pool())
+        .await?;
+    }
+
+    // Retrieve in a different order
+    let request_order = vec![
+        "doc-a".to_string(),
+        "doc-z".to_string(),
+        "doc-m".to_string(),
+    ];
+    let results = db.get_documents_by_ids_ordered(&request_order).await?;
+
+    // Verify order is preserved
+    assert_eq!(results.len(), 3);
+    assert!(results[0].is_some());
+    assert_eq!(results[0].as_ref().unwrap().id, "doc-a");
+    assert!(results[1].is_some());
+    assert_eq!(results[1].as_ref().unwrap().id, "doc-z");
+    assert!(results[2].is_some());
+    assert_eq!(results[2].as_ref().unwrap().id, "doc-m");
+
+    Ok(())
+}
+
+/// Test get_documents_by_ids_ordered handles missing documents
+#[tokio::test]
+async fn test_get_documents_handles_missing() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    let tenant_id = db.create_tenant("Test Tenant", false).await?;
+
+    // Create only one document
+    sqlx::query(
+        "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, status)
+         VALUES ('existing-doc', ?, 'test.pdf', 'hash', '/tmp/test.pdf', 1024, 'application/pdf', 'processed')",
+    )
+    .bind(&tenant_id)
+    .execute(db.pool())
+    .await?;
+
+    // Request including non-existent documents
+    let request = vec![
+        "missing-1".to_string(),
+        "existing-doc".to_string(),
+        "missing-2".to_string(),
+    ];
+
+    let results = db.get_documents_by_ids_ordered(&request).await?;
+
+    // Verify: None for missing, Some for existing, order preserved
+    assert_eq!(results.len(), 3);
+    assert!(results[0].is_none()); // missing-1
+    assert!(results[1].is_some()); // existing-doc
+    assert_eq!(results[1].as_ref().unwrap().id, "existing-doc");
+    assert!(results[2].is_none()); // missing-2
 
     Ok(())
 }

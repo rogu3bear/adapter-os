@@ -158,7 +158,11 @@ pub async fn list_evidence(
         limit: query.limit,
     };
 
-    let entries = state.db.list_evidence_entries(&filter).await.map_err(db_error)?;
+    let entries = state
+        .db
+        .list_evidence_entries(&filter)
+        .await
+        .map_err(db_error)?;
 
     let responses: Vec<EvidenceResponse> = entries.into_iter().map(Into::into).collect();
     Ok(Json(responses))
@@ -190,7 +194,10 @@ pub async fn create_evidence(
     if request.dataset_id.is_none() && request.adapter_id.is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("Either dataset_id or adapter_id must be provided").with_code("BAD_REQUEST")),
+            Json(
+                ErrorResponse::new("Either dataset_id or adapter_id must be provided")
+                    .with_code("BAD_REQUEST"),
+            ),
         ));
     }
 
@@ -208,10 +215,13 @@ pub async fn create_evidence(
     if !valid_types.contains(&request.evidence_type.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new(&format!(
-                "Invalid evidence_type. Must be one of: {}",
-                valid_types.join(", ")
-            )).with_code("BAD_REQUEST")),
+            Json(
+                ErrorResponse::new(&format!(
+                    "Invalid evidence_type. Must be one of: {}",
+                    valid_types.join(", ")
+                ))
+                .with_code("BAD_REQUEST"),
+            ),
         ));
     }
 
@@ -220,10 +230,13 @@ pub async fn create_evidence(
     if !valid_confidence.contains(&request.confidence.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new(&format!(
-                "Invalid confidence. Must be one of: {}",
-                valid_confidence.join(", ")
-            )).with_code("BAD_REQUEST")),
+            Json(
+                ErrorResponse::new(&format!(
+                    "Invalid confidence. Must be one of: {}",
+                    valid_confidence.join(", ")
+                ))
+                .with_code("BAD_REQUEST"),
+            ),
         ));
     }
 

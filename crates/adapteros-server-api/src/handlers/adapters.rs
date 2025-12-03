@@ -1,4 +1,4 @@
-// PRD-07 & PRD-08: Adapter Lifecycle & Lineage Handlers
+// Adapter Lifecycle & Lineage Handlers
 //
 // This module provides REST API endpoints for:
 // - Manual adapter lifecycle promotion/demotion
@@ -31,7 +31,7 @@ use tracing::{error, info, warn};
 use utoipa::ToSchema;
 
 // ============================================================================
-// PRD-07: Adapter Lifecycle Promotion/Demotion
+// Adapter Lifecycle Promotion/Demotion
 // ============================================================================
 
 /// Lifecycle state transition request
@@ -108,10 +108,7 @@ pub async fn promote_adapter_lifecycle(
                 ),
                 adapteros_core::error::AosError::Validation(msg) => (
                     StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new(&msg)
-                            .with_code("BAD_REQUEST"),
-                    ),
+                    Json(ErrorResponse::new(&msg).with_code("BAD_REQUEST")),
                 ),
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -199,10 +196,7 @@ pub async fn demote_adapter_lifecycle(
                 ),
                 adapteros_core::error::AosError::Validation(msg) => (
                     StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new(&msg)
-                            .with_code("BAD_REQUEST"),
-                    ),
+                    Json(ErrorResponse::new(&msg).with_code("BAD_REQUEST")),
                 ),
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -236,7 +230,7 @@ pub async fn demote_adapter_lifecycle(
 }
 
 // ============================================================================
-// PRD-08: Adapter Lineage & Detail Views
+// Adapter Lineage & Detail Views
 // ============================================================================
 
 /// Lineage node in the adapter tree
@@ -615,6 +609,47 @@ pub struct PinStatusResponse {
     pub pinned_by: Option<String>,
     pub pinned_at: Option<String>,
     pub pinned_until: Option<String>,
+}
+
+// ============================================================================
+// Adapter Archive Types
+// ============================================================================
+
+/// Archive adapter request
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ArchiveAdapterRequest {
+    /// Reason for archiving (required for audit trail)
+    pub reason: String,
+}
+
+/// Archive adapter response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ArchiveAdapterResponse {
+    pub adapter_id: String,
+    pub archived: bool,
+    pub reason: String,
+    pub archived_by: String,
+    pub archived_at: String,
+}
+
+/// Unarchive adapter response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UnarchiveAdapterResponse {
+    pub adapter_id: String,
+    pub unarchived: bool,
+    pub message: String,
+}
+
+/// Archive status response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ArchiveStatusResponse {
+    pub adapter_id: String,
+    pub is_archived: bool,
+    pub is_purged: bool,
+    pub archive_reason: Option<String>,
+    pub archived_by: Option<String>,
+    pub archived_at: Option<String>,
+    pub purged_at: Option<String>,
 }
 
 /// Pin an adapter to prevent eviction
@@ -2225,6 +2260,31 @@ pub async fn get_adapter_training_snapshot(
         )
     })?;
 
+    // CRITICAL: Fetch adapter first to validate tenant isolation to prevent cross-tenant access
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
     // Get training snapshot from database
     let snapshot = state
         .db
@@ -2321,6 +2381,9 @@ pub async fn export_training_provenance(
                 Json(ErrorResponse::new("Adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Get training snapshot
     let snapshot = state
@@ -2459,4 +2522,355 @@ pub async fn export_training_provenance(
     );
 
     Ok(Json(response))
+}
+
+// ============================================================================
+// Adapter Archive/Unarchive Endpoints
+// ============================================================================
+
+/// Archive an adapter
+///
+/// Archives an adapter, marking it as unavailable for inference.
+/// The adapter's `.aos` file is NOT deleted until garbage collection runs.
+///
+/// **Permissions:** Requires `Operator` or `Admin` role.
+///
+/// **Telemetry:** Emits `adapter.archived` event.
+///
+/// # Example
+/// ```
+/// POST /v1/adapters/{adapter_id}/archive
+/// {
+///   "reason": "Deprecated in favor of v2"
+/// }
+/// ```
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/archive",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    request_body = ArchiveAdapterRequest,
+    responses(
+        (status = 200, description = "Adapter archived successfully", body = ArchiveAdapterResponse),
+        (status = 400, description = "Already archived", body = ErrorResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
+pub async fn archive_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+    Json(req): Json<ArchiveAdapterRequest>,
+) -> Result<Json<ArchiveAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Require operator or admin role
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // Verify adapter exists
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch adapter {}: {}", adapter_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            warn!("Adapter not found: {}", adapter_id);
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
+    // Check if already archived
+    if adapter.archived_at.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("adapter is already archived")
+                    .with_code("ALREADY_ARCHIVED"),
+            ),
+        ));
+    }
+
+    let archived_by = claims.sub.clone();
+    let archived_at = chrono::Utc::now().to_rfc3339();
+
+    // Archive the adapter
+    state
+        .db
+        .archive_adapter(&adapter_id, &archived_by, &req.reason)
+        .await
+        .map_err(|e| {
+            error!("Failed to archive adapter {}: {}", adapter_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to archive adapter")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Emit telemetry event
+    let telemetry_event = serde_json::json!({
+        "event_type": "adapter.archived",
+        "component": "adapteros-server-api",
+        "severity": "info",
+        "message": format!("Adapter {} archived by {}", adapter_id, archived_by),
+        "metadata": {
+            "adapter_id": adapter_id,
+            "tenant_id": adapter.tenant_id,
+            "reason": req.reason,
+            "archived_by": archived_by,
+        }
+    });
+
+    info!(
+        event = %telemetry_event,
+        adapter_id = %adapter_id,
+        archived_by = %archived_by,
+        "Adapter archived"
+    );
+
+    // Audit log: adapter archived
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_ARCHIVE,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
+    Ok(Json(ArchiveAdapterResponse {
+        adapter_id,
+        archived: true,
+        reason: req.reason,
+        archived_by,
+        archived_at,
+    }))
+}
+
+/// Unarchive an adapter
+///
+/// Restores an archived adapter, making it available for inference again.
+/// Cannot unarchive if the adapter has been purged (file deleted).
+///
+/// **Permissions:** Requires `Operator` or `Admin` role.
+///
+/// **Telemetry:** Emits `adapter.unarchived` event.
+///
+/// # Example
+/// ```
+/// DELETE /v1/adapters/{adapter_id}/archive
+/// ```
+#[utoipa::path(
+    delete,
+    path = "/v1/adapters/{adapter_id}/archive",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter unarchived successfully", body = UnarchiveAdapterResponse),
+        (status = 400, description = "Not archived or already purged", body = ErrorResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
+pub async fn unarchive_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<Json<UnarchiveAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Require operator or admin role
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    // Verify adapter exists
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch adapter {}: {}", adapter_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            warn!("Adapter not found: {}", adapter_id);
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
+    // Check if not archived
+    if adapter.archived_at.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("adapter is not archived")
+                    .with_code("NOT_ARCHIVED"),
+            ),
+        ));
+    }
+
+    // Check if already purged
+    if adapter.purged_at.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("cannot unarchive purged adapter - file has been deleted")
+                    .with_code("ALREADY_PURGED"),
+            ),
+        ));
+    }
+
+    // Unarchive the adapter
+    state
+        .db
+        .unarchive_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to unarchive adapter {}: {}", adapter_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to unarchive adapter")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let unarchived_by = claims.sub.clone();
+
+    // Emit telemetry event
+    let telemetry_event = serde_json::json!({
+        "event_type": "adapter.unarchived",
+        "component": "adapteros-server-api",
+        "severity": "info",
+        "message": format!("Adapter {} unarchived by {}", adapter_id, unarchived_by),
+        "metadata": {
+            "adapter_id": adapter_id,
+            "tenant_id": adapter.tenant_id,
+            "unarchived_by": unarchived_by,
+        }
+    });
+
+    info!(
+        event = %telemetry_event,
+        adapter_id = %adapter_id,
+        unarchived_by = %unarchived_by,
+        "Adapter unarchived"
+    );
+
+    // Audit log: adapter unarchived
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_UNARCHIVE,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
+    Ok(Json(UnarchiveAdapterResponse {
+        adapter_id,
+        unarchived: true,
+        message: "Adapter restored and available for inference".to_string(),
+    }))
+}
+
+/// Get archive status of an adapter
+///
+/// Returns the archive/purge status of an adapter.
+///
+/// **Permissions:** Requires `Viewer`, `Operator`, or `Admin` role.
+///
+/// # Example
+/// ```
+/// GET /v1/adapters/{adapter_id}/archive
+/// ```
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/{adapter_id}/archive",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Archive status retrieved", body = ArchiveStatusResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
+pub async fn get_archive_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<Json<ArchiveStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Require at least viewer role
+    require_any_role(&claims, &[Role::Viewer, Role::Operator, Role::Admin])?;
+
+    // Fetch adapter
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch adapter {}: {}", adapter_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            warn!("Adapter not found: {}", adapter_id);
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
+    Ok(Json(ArchiveStatusResponse {
+        adapter_id,
+        is_archived: adapter.archived_at.is_some(),
+        is_purged: adapter.purged_at.is_some(),
+        archive_reason: adapter.archive_reason,
+        archived_by: adapter.archived_by,
+        archived_at: adapter.archived_at,
+        purged_at: adapter.purged_at,
+    }))
 }

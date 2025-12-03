@@ -108,11 +108,7 @@ pub async fn get_system_overview(
         .as_secs();
 
     // Count active sessions, workers, and adapters using Db trait methods
-    let active_sessions = state
-        .db
-        .count_active_chat_sessions()
-        .await
-        .unwrap_or(0) as i32;
+    let active_sessions = state.db.count_active_chat_sessions().await.unwrap_or(0) as i32;
 
     let active_workers = state.db.count_active_workers().await.unwrap_or(0) as i32;
 

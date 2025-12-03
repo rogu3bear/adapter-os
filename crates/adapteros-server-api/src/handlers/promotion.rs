@@ -290,16 +290,20 @@ pub async fn get_promotion_status(
     match request {
         Some(req) => {
             // Fetch gates
-            let db_gates = state.db.get_promotion_gates(&req.request_id).await.map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+            let db_gates = state
+                .db
+                .get_promotion_gates(&req.request_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("database error")
+                                .with_code("INTERNAL_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
 
             let gates: Vec<GateStatus> = db_gates
                 .iter()
@@ -603,7 +607,10 @@ pub async fn rollback_promotion(
     );
 
     // Update stage
-    let _ = state.db.rollback_golden_run_stage(&stage, &claims.email).await;
+    let _ = state
+        .db
+        .rollback_golden_run_stage(&stage, &claims.email)
+        .await;
 
     // Log rollback in history
     let request_id = format!("rollback-{}-{}", stage, uuid::Uuid::new_v4());
@@ -686,16 +693,20 @@ pub async fn get_gate_status(
     let request_id = request.request_id;
 
     // Fetch gates
-    let db_gates = state.db.get_promotion_gates(&request_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let db_gates = state
+        .db
+        .get_promotion_gates(&request_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     let gates: Vec<GateStatus> = db_gates
         .iter()

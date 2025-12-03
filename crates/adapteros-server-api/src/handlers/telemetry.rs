@@ -90,30 +90,28 @@ pub async fn get_metrics_series(
     let mut responses = Vec::new();
 
     match params.series_name {
-        Some(name) => {
-            match registry.get_series_async(&name).await {
-                Some(series) => {
-                    let points = series
-                        .get_points(params.start_ms, params.end_ms)
-                        .into_iter()
-                        .map(MetricDataPointResponse::from)
-                        .collect::<Vec<_>>();
-                    responses.push(MetricsSeriesResponse {
-                        series_name: name,
-                        points,
-                    });
-                    Ok(Json(responses))
-                }
-                None => Err((
-                    StatusCode::NOT_FOUND,
-                    Json(
-                        ErrorResponse::new("metrics series not found")
-                            .with_code("NOT_FOUND")
-                            .with_string_details(name),
-                    ),
-                )),
+        Some(name) => match registry.get_series_async(&name).await {
+            Some(series) => {
+                let points = series
+                    .get_points(params.start_ms, params.end_ms)
+                    .into_iter()
+                    .map(MetricDataPointResponse::from)
+                    .collect::<Vec<_>>();
+                responses.push(MetricsSeriesResponse {
+                    series_name: name,
+                    points,
+                });
+                Ok(Json(responses))
             }
-        }
+            None => Err((
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("metrics series not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(name),
+                ),
+            )),
+        },
         None => {
             for name in registry.list_series_async().await {
                 if let Some(series) = registry.get_series_async(&name).await {

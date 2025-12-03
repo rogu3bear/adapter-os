@@ -22,6 +22,7 @@
 //! [related: CLAUDE.md#core-standards]
 
 use adapteros_core::AosError;
+use adapteros_db::Db;
 use adapteros_lora_lifecycle::loader::AdapterHandle;
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -252,6 +253,62 @@ impl LoadCoordinator {
             );
 
             result
+        }
+    }
+
+    /// Load model or wait for in-progress load, with archive/purge safety check
+    ///
+    /// First verifies the adapter is loadable (not archived/purged), then
+    /// proceeds with the standard load-or-wait logic. This prevents attempts
+    /// to load adapters whose .aos files have been garbage collected.
+    ///
+    /// ## Parameters
+    ///
+    /// - `model_id`: Unique identifier for the model/adapter (adapter_id field)
+    /// - `db`: Database connection for loadability check
+    /// - `load_fn`: Async function that performs the actual load operation
+    ///
+    /// ## Returns
+    ///
+    /// - `Ok(AdapterHandle)`: Successfully loaded or retrieved from concurrent load
+    /// - `Err(AosError::Lifecycle)`: Adapter is archived or purged, cannot be loaded
+    /// - `Err(AosError)`: Load failed for other reasons
+    pub async fn load_or_wait_with_check<F, Fut>(
+        &self,
+        model_id: &str,
+        db: &Db,
+        load_fn: F,
+    ) -> Result<AdapterHandle, AosError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<AdapterHandle, AosError>>,
+    {
+        // Safety check: verify adapter is loadable (not archived/purged)
+        match db.is_adapter_loadable(model_id).await {
+            Ok(true) => {
+                // Adapter is loadable, proceed with normal load
+                self.load_or_wait(model_id, load_fn).await
+            }
+            Ok(false) => {
+                // Adapter is archived or purged, reject load attempt
+                tracing::warn!(
+                    adapter_id = %model_id,
+                    "Rejected load attempt for archived/purged adapter"
+                );
+                Err(AosError::Lifecycle(format!(
+                    "Cannot load adapter '{}': adapter is archived or purged",
+                    model_id
+                )))
+            }
+            Err(e) => {
+                // Database lookup failed - could be adapter not found or DB error
+                tracing::error!(
+                    adapter_id = %model_id,
+                    error = %e,
+                    "Failed to check adapter loadability"
+                );
+                Err(e)
+            }
         }
     }
 

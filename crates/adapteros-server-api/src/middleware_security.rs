@@ -283,7 +283,9 @@ pub fn cors_layer() -> CorsLayer {
         .unwrap_or(false)
     {
         // Production mode: require explicit ALLOWED_ORIGINS (privacy-first, no public domains)
-        tracing::warn!("AOS_PRODUCTION_MODE=true but ALLOWED_ORIGINS not set - CORS will block all origins");
+        tracing::warn!(
+            "AOS_PRODUCTION_MODE=true but ALLOWED_ORIGINS not set - CORS will block all origins"
+        );
         Vec::new()
     } else {
         // Development mode: localhost origins

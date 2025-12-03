@@ -195,8 +195,11 @@ fn test_improved_error_codes_and_messages() {
 
     // Verify error codes follow consistent naming pattern
     for code in &error_codes {
-        assert!(code.chars().all(|c| c.is_ascii_uppercase() || c == '_'),
-               "Error code '{}' should be UPPER_SNAKE_CASE", code);
+        assert!(
+            code.chars().all(|c| c.is_ascii_uppercase() || c == '_'),
+            "Error code '{}' should be UPPER_SNAKE_CASE",
+            code
+        );
         assert!(!code.is_empty(), "Error code should not be empty");
     }
 
@@ -223,19 +226,28 @@ fn test_improved_error_codes_and_messages() {
     ];
 
     // Ensure we have the same number of messages as codes
-    assert_eq!(error_codes.len(), improved_messages.len(),
-               "Number of error codes and messages should match");
+    assert_eq!(
+        error_codes.len(),
+        improved_messages.len(),
+        "Number of error codes and messages should match"
+    );
 
     // Verify messages are more helpful than generic "invalid token" or "unauthorized"
     for message in &improved_messages {
-        assert!(!message.to_lowercase().contains("invalid token") ||
-                message.to_lowercase().contains("signature") ||
-                message.to_lowercase().contains("expired") ||
-                message.to_lowercase().contains("format"),
-               "Message '{}' should be more specific than generic 'invalid token'", message);
-        assert!(!message.to_lowercase().contains("unauthorized") ||
-                message.to_lowercase().contains("required") ||
-                message.to_lowercase().contains("denied"),
-               "Message '{}' should be more specific than generic 'unauthorized'", message);
+        assert!(
+            !message.to_lowercase().contains("invalid token")
+                || message.to_lowercase().contains("signature")
+                || message.to_lowercase().contains("expired")
+                || message.to_lowercase().contains("format"),
+            "Message '{}' should be more specific than generic 'invalid token'",
+            message
+        );
+        assert!(
+            !message.to_lowercase().contains("unauthorized")
+                || message.to_lowercase().contains("required")
+                || message.to_lowercase().contains("denied"),
+            "Message '{}' should be more specific than generic 'unauthorized'",
+            message
+        );
     }
 }

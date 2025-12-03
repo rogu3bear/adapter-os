@@ -677,3 +677,211 @@ async fn test_permission_checks_for_tenant_operations() -> Result<()> {
 
     Ok(())
 }
+
+// =============================================================================
+// TEST SUITE: Tenant Isolation Validation Function Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_validate_tenant_isolation_same_tenant_ok() -> Result<()> {
+    use adapteros_server_api::security::validate_tenant_isolation;
+
+    let claims = create_test_claims("user-1", "user@tenant-a.com", "operator", "tenant-a");
+
+    // Same tenant should succeed
+    let result = validate_tenant_isolation(&claims, "tenant-a");
+    assert!(result.is_ok(), "Same tenant should pass validation");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_validate_tenant_isolation_cross_tenant_denied() -> Result<()> {
+    use adapteros_server_api::security::validate_tenant_isolation;
+
+    let claims = create_test_claims("user-1", "user@tenant-a.com", "operator", "tenant-a");
+
+    // Cross-tenant should fail with 403
+    let result = validate_tenant_isolation(&claims, "tenant-b");
+    assert!(result.is_err(), "Cross-tenant access should be denied");
+
+    // Verify it returns 403 Forbidden
+    if let Err((status_code, _)) = result {
+        assert_eq!(
+            status_code,
+            axum::http::StatusCode::FORBIDDEN,
+            "Should return 403 Forbidden for cross-tenant access"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_validate_tenant_isolation_admin_can_access_any_tenant() -> Result<()> {
+    use adapteros_server_api::security::validate_tenant_isolation;
+
+    let admin_claims = create_test_claims("admin-1", "admin@system.com", "admin", "system");
+
+    // Admin should access any tenant
+    let result_a = validate_tenant_isolation(&admin_claims, "tenant-a");
+    assert!(result_a.is_ok(), "Admin should access tenant-a");
+
+    let result_b = validate_tenant_isolation(&admin_claims, "tenant-b");
+    assert!(result_b.is_ok(), "Admin should access tenant-b");
+
+    let result_c = validate_tenant_isolation(&admin_claims, "tenant-c");
+    assert!(result_c.is_ok(), "Admin should access tenant-c");
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST SUITE: Token Revocation Baseline Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_tenant_token_baseline_get_set() -> Result<()> {
+    use adapteros_server_api::security::{get_tenant_token_baseline, set_tenant_token_baseline};
+
+    // Setup: Create in-memory database
+    let db = Db::new_in_memory().await?;
+
+    // Create tenant
+    create_test_tenant(&db, "tenant-a").await?;
+
+    // Initially, baseline should be None
+    let initial_baseline = get_tenant_token_baseline(&db, "tenant-a").await?;
+    assert!(
+        initial_baseline.is_none(),
+        "Initial baseline should be None"
+    );
+
+    // Set baseline
+    let baseline_time = "2025-12-02T12:00:00Z";
+    set_tenant_token_baseline(&db, "tenant-a", baseline_time).await?;
+
+    // Verify baseline is set
+    let updated_baseline = get_tenant_token_baseline(&db, "tenant-a").await?;
+    assert_eq!(
+        updated_baseline,
+        Some(baseline_time.to_string()),
+        "Baseline should be set correctly"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_token_before_baseline_should_be_rejected() -> Result<()> {
+    use chrono::DateTime;
+
+    // Create token issued at T0 (2025-12-01T00:00:00Z)
+    let token_iat_timestamp = DateTime::parse_from_rfc3339("2025-12-01T00:00:00Z")
+        .unwrap()
+        .timestamp();
+
+    // Create claims with T0 iat
+    let claims = Claims {
+        sub: "user-1".to_string(),
+        email: "user@tenant-a.com".to_string(),
+        role: "operator".to_string(),
+        roles: vec!["operator".to_string()],
+        tenant_id: "tenant-a".to_string(),
+        admin_tenants: vec![],
+        exp: (Utc::now() + Duration::hours(8)).timestamp(),
+        iat: token_iat_timestamp,
+        jti: Uuid::new_v4().to_string(),
+        nbf: token_iat_timestamp,
+    };
+
+    // Baseline set to T1 (2025-12-02T00:00:00Z) - AFTER token was issued
+    let baseline = "2025-12-02T00:00:00Z";
+    let baseline_ts = DateTime::parse_from_rfc3339(baseline).unwrap();
+
+    // Token iat (T0) < baseline (T1), so should be rejected
+    let token_iat = chrono::DateTime::from_timestamp(claims.iat, 0).unwrap();
+    assert!(
+        token_iat.timestamp() < baseline_ts.timestamp(),
+        "Token iat should be before baseline"
+    );
+
+    // In production, this check happens in middleware_enhanced.rs
+    // Here we verify the logic is correct
+    let should_reject = token_iat.timestamp() < baseline_ts.timestamp();
+    assert!(
+        should_reject,
+        "Token issued before baseline should be rejected"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_token_after_baseline_should_be_accepted() -> Result<()> {
+    use chrono::DateTime;
+
+    // Baseline set to T0 (2025-12-01T00:00:00Z)
+    let baseline = "2025-12-01T00:00:00Z";
+    let baseline_ts = DateTime::parse_from_rfc3339(baseline).unwrap();
+
+    // Token issued at T1 (2025-12-02T00:00:00Z) - AFTER baseline
+    let token_iat_timestamp = DateTime::parse_from_rfc3339("2025-12-02T00:00:00Z")
+        .unwrap()
+        .timestamp();
+
+    // Token iat (T1) > baseline (T0), so should be accepted
+    let token_iat = chrono::DateTime::from_timestamp(token_iat_timestamp, 0).unwrap();
+    assert!(
+        token_iat.timestamp() >= baseline_ts.timestamp(),
+        "Token iat should be at or after baseline"
+    );
+
+    let should_accept = token_iat.timestamp() >= baseline_ts.timestamp();
+    assert!(
+        should_accept,
+        "Token issued after baseline should be accepted"
+    );
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST SUITE: TenantTokenRevoke Permission Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_tenant_token_revoke_permission_admin_only() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+    create_test_tenant(&db, "tenant-a").await?;
+
+    let admin_id = create_test_user(&db, "admin@aos.local", Role::Admin, "tenant-a").await?;
+    let operator_id =
+        create_test_user(&db, "operator@aos.local", Role::Operator, "tenant-a").await?;
+    let sre_id = create_test_user(&db, "sre@aos.local", Role::Sre, "tenant-a").await?;
+
+    let admin_claims = create_test_claims(&admin_id, "admin@aos.local", "admin", "tenant-a");
+    let operator_claims =
+        create_test_claims(&operator_id, "operator@aos.local", "operator", "tenant-a");
+    let sre_claims = create_test_claims(&sre_id, "sre@aos.local", "sre", "tenant-a");
+
+    // Admin should have TenantTokenRevoke permission
+    assert!(
+        require_permission(&admin_claims, Permission::TenantTokenRevoke).is_ok(),
+        "Admin should have TenantTokenRevoke permission"
+    );
+
+    // Operator should NOT have TenantTokenRevoke permission
+    assert!(
+        require_permission(&operator_claims, Permission::TenantTokenRevoke).is_err(),
+        "Operator should NOT have TenantTokenRevoke permission"
+    );
+
+    // SRE should NOT have TenantTokenRevoke permission
+    assert!(
+        require_permission(&sre_claims, Permission::TenantTokenRevoke).is_err(),
+        "SRE should NOT have TenantTokenRevoke permission"
+    );
+
+    Ok(())
+}

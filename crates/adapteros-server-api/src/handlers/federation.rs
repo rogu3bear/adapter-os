@@ -211,7 +211,10 @@ pub async fn release_quarantine(
         }
 
         // Update last attempt timestamp
-        state.db.update_quarantine_last_attempt(&quarantine.id).await?;
+        state
+            .db
+            .update_quarantine_last_attempt(&quarantine.id)
+            .await?;
 
         // CRITICAL FIX: Consensus enforcement via cooldown
         // The 5-minute cooldown provides protection against immediate re-release
@@ -219,7 +222,10 @@ pub async fn release_quarantine(
         // Future enhancement: Integrate with PeerRegistry for automated consensus voting
 
         // Record the release attempt
-        state.db.record_quarantine_release_attempt(&quarantine.id, &claims.sub, None).await?;
+        state
+            .db
+            .record_quarantine_release_attempt(&quarantine.id, &claims.sub, None)
+            .await?;
 
         info!(
             user_id = %claims.sub,
@@ -231,7 +237,10 @@ pub async fn release_quarantine(
     state.db.release_active_quarantines().await?;
 
     // Record successful release
-    state.db.record_quarantine_release_execution(&claims.sub).await?;
+    state
+        .db
+        .record_quarantine_release_execution(&claims.sub)
+        .await?;
 
     Ok(Json(json!({
         "success": true,

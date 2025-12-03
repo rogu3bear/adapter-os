@@ -47,9 +47,7 @@ pub fn db_error<E: std::fmt::Display>(e: E) -> (StatusCode, Json<ErrorResponse>)
 pub fn not_found(resource: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::NOT_FOUND,
-        Json(
-            ErrorResponse::new(&format!("{} not found", resource)).with_code("NOT_FOUND"),
-        ),
+        Json(ErrorResponse::new(&format!("{} not found", resource)).with_code("NOT_FOUND")),
     )
 }
 
@@ -225,7 +223,10 @@ pub fn bad_gateway<E: std::fmt::Display>(msg: &str, e: E) -> (StatusCode, Json<E
 /// ```ignore
 /// response.json().await.map_err(|e| internal_error_msg("failed to parse response", e))?;
 /// ```
-pub fn internal_error_msg<E: std::fmt::Display>(msg: &str, e: E) -> (StatusCode, Json<ErrorResponse>) {
+pub fn internal_error_msg<E: std::fmt::Display>(
+    msg: &str,
+    e: E,
+) -> (StatusCode, Json<ErrorResponse>) {
     error!("Internal error ({}): {}", msg, e);
     (
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -399,11 +400,7 @@ impl<'a> AuditContext<'a> {
 }
 
 /// Adapter-specific audit context (common case)
-pub fn adapter_audit<'a>(
-    db: &'a Db,
-    claims: &'a Claims,
-    action: &'static str,
-) -> AuditContext<'a> {
+pub fn adapter_audit<'a>(db: &'a Db, claims: &'a Claims, action: &'static str) -> AuditContext<'a> {
     AuditContext::new(db, claims, action, resources::ADAPTER)
 }
 

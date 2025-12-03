@@ -126,4 +126,3 @@ pub async fn list_users(
         page_size: params.page_size,
     }))
 }
-

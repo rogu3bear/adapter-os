@@ -535,6 +535,7 @@ pub async fn train_repository_adapter(
             None,                           // framework_id
             None,                           // framework_version
             None,                           // post_actions_json
+            None,                           // retry_of_job_id
         )
         .await
         .map_err(|e| {

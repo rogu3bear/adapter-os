@@ -3,12 +3,7 @@
 use crate::state::AppState;
 use crate::supervisor_client;
 use crate::types::*;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

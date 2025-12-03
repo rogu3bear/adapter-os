@@ -134,6 +134,7 @@ pub async fn create_chat_session(
         collection_id: req.collection_id,
         name: req.name,
         metadata_json: req.metadata_json,
+        pinned_adapter_ids: None, // Inherits from tenant default
     };
 
     // Create session in database

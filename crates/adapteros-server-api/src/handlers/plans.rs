@@ -1,5 +1,6 @@
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::sqlx;
@@ -23,6 +24,10 @@ pub async fn build_plan(
     Json(req): Json<BuildPlanRequest>,
 ) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
+
+    // CRITICAL: Validate tenant isolation - PRD-03
+    // User can only create plans for their own tenant
+    validate_tenant_isolation(&claims, &req.tenant_id)?;
 
     let payload = serde_json::to_string(&req).map_err(|e| {
         (
@@ -66,13 +71,46 @@ pub async fn build_plan(
 /// List plans with optional tenant filter
 pub async fn list_plans(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Query(query): Query<ListPlansQuery>,
 ) -> Result<Json<Vec<PlanResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let plans = if let Some(tenant_id) = query.tenant_id {
+    // PRD-03: Enforce tenant isolation
+    // - Admin role can list all plans or any tenant's plans
+    // - Other users can only see their own tenant's plans
+    let plans = if claims.role == "admin" {
+        // Admin: honor query param or list all
+        if let Some(tenant_id) = query.tenant_id {
+            state
+                .db
+                .list_plans_by_tenant(&tenant_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("database error")
+                                .with_code("INTERNAL_SERVER_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?
+        } else {
+            state.db.list_all_plans().await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+        }
+    } else {
+        // Non-admin: only their tenant's plans, ignore query param
         state
             .db
-            .list_plans_by_tenant(&tenant_id)
+            .list_plans_by_tenant(&claims.tenant_id)
             .await
             .map_err(|e| {
                 (
@@ -84,17 +122,6 @@ pub async fn list_plans(
                     ),
                 )
             })?
-    } else {
-        state.db.list_all_plans().await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
     };
 
     // Build responses - kernel_hash_b3 lookup would require async iteration,
@@ -144,6 +171,9 @@ pub async fn get_plan_details(
                 Json(ErrorResponse::new("plan not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // CRITICAL: Validate tenant isolation - PRD-03
+    validate_tenant_isolation(&claims, &plan.tenant_id)?;
 
     Ok(Json(PlanDetailsResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -222,6 +252,9 @@ pub async fn rebuild_plan(
                 Json(ErrorResponse::new("plan not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // CRITICAL: Validate tenant isolation - PRD-03
+    validate_tenant_isolation(&claims, &plan.tenant_id)?;
 
     // Rebuild the plan by creating a new plan from the manifest
     // This allows incorporating any changes to the Metal kernels or manifest
@@ -340,6 +373,10 @@ pub async fn compare_plans(
             )
         })?;
 
+    // CRITICAL: Validate tenant isolation for both plans - PRD-03
+    validate_tenant_isolation(&claims, &plan1.tenant_id)?;
+    validate_tenant_isolation(&claims, &plan2.tenant_id)?;
+
     // Simple comparison based on manifest hash
     let differences = if plan1.manifest_hash_b3 == plan2.manifest_hash_b3 {
         vec!["No differences detected".to_string()]
@@ -359,7 +396,7 @@ pub async fn compare_plans(
 /// Export plan manifest
 pub async fn export_plan_manifest(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(plan_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let plan = state
@@ -382,6 +419,9 @@ pub async fn export_plan_manifest(
                 Json(ErrorResponse::new("plan not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // CRITICAL: Validate tenant isolation - PRD-03
+    validate_tenant_isolation(&claims, &plan.tenant_id)?;
 
     let manifest = serde_json::json!({
         "plan_id": plan.id,

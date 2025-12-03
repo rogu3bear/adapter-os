@@ -261,20 +261,16 @@ pub async fn get_adapter_memory_usage(
         .as_secs();
 
     // Get all adapters with memory info
-    let adapters = state
-        .db
-        .get_adapter_memory_info()
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to fetch adapter memory info")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let adapters = state.db.get_adapter_memory_info().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to fetch adapter memory info")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     let mut total_memory_mb = 0.0;
     let adapter_infos: Vec<AdapterMemoryInfo> = adapters
@@ -462,25 +458,21 @@ pub async fn get_combined_memory_usage(
     };
 
     // Get adapter memory info
-    let adapters = state
-        .db
-        .get_adapter_memory_info()
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                error = %e,
-                user_id = %claims.sub,
-                "Failed to fetch adapter memory info"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to fetch adapter memory info")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let adapters = state.db.get_adapter_memory_info().await.map_err(|e| {
+        tracing::error!(
+            error = %e,
+            user_id = %claims.sub,
+            "Failed to fetch adapter memory info"
+        );
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to fetch adapter memory info")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     let adapter_infos: Vec<CombinedAdapterMemoryInfo> = adapters
         .into_iter()

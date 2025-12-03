@@ -203,8 +203,7 @@ pub async fn upload_dataset(
     Extension(claims): Extension<Claims>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::DatasetUpload)
-        ?;
+    require_permission(&claims, Permission::DatasetUpload)?;
 
     let dataset_id = Uuid::now_v7().to_string();
     let storage_root = std::env::var("AOS_DATASETS_DIR").ok().unwrap_or_else(|| {
@@ -504,8 +503,7 @@ pub async fn initiate_chunked_upload(
     Extension(claims): Extension<Claims>,
     Json(request): Json<InitiateChunkedUploadRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::DatasetUpload)
-        ?;
+    require_permission(&claims, Permission::DatasetUpload)?;
 
     // Validate total size
     if request.total_size == 0 {
@@ -586,8 +584,7 @@ pub async fn list_datasets(
     Extension(claims): Extension<Claims>,
     Query(params): Query<ListDatasetsQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::DatasetList)
-        ?;
+    require_permission(&claims, Permission::DatasetList)?;
 
     let limit = params.limit.unwrap_or(50).min(100);
     let _offset = params.offset.unwrap_or(0);
@@ -654,8 +651,7 @@ pub async fn get_dataset(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::DatasetView)
-        ?;
+    require_permission(&claims, Permission::DatasetView)?;
 
     let dataset = state
         .db
@@ -666,12 +662,13 @@ pub async fn get_dataset(
 
     // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
-        validate_tenant_isolation(&claims, dataset_tenant_id)
-            ?;
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id are only accessible to admins
         use crate::error_helpers::forbidden;
-        return Err(forbidden("Access denied: dataset has no tenant association"));
+        return Err(forbidden(
+            "Access denied: dataset has no tenant association",
+        ));
     }
 
     Ok(Json(DatasetResponse {
@@ -711,8 +708,7 @@ pub async fn get_dataset_files(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::DatasetView)
-        ?;
+    require_permission(&claims, Permission::DatasetView)?;
 
     // Verify dataset exists
     let dataset = state
@@ -724,12 +720,13 @@ pub async fn get_dataset_files(
 
     // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
-        validate_tenant_isolation(&claims, dataset_tenant_id)
-            ?;
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id are only accessible to admins
         use crate::error_helpers::forbidden;
-        return Err(forbidden("Access denied: dataset has no tenant association"));
+        return Err(forbidden(
+            "Access denied: dataset has no tenant association",
+        ));
     }
 
     let files = state
@@ -774,8 +771,7 @@ pub async fn get_dataset_statistics(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::DatasetView)
-        ?;
+    require_permission(&claims, Permission::DatasetView)?;
 
     // Verify dataset exists
     let dataset = state
@@ -787,12 +783,13 @@ pub async fn get_dataset_statistics(
 
     // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
-        validate_tenant_isolation(&claims, dataset_tenant_id)
-            ?;
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id are only accessible to admins
         use crate::error_helpers::forbidden;
-        return Err(forbidden("Access denied: dataset has no tenant association"));
+        return Err(forbidden(
+            "Access denied: dataset has no tenant association",
+        ));
     }
 
     let stats = state
@@ -840,8 +837,7 @@ pub async fn validate_dataset(
     Path(dataset_id): Path<String>,
     Json(request): Json<ValidateDatasetRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::DatasetValidate)
-        ?;
+    require_permission(&claims, Permission::DatasetValidate)?;
 
     let dataset = state
         .db
@@ -852,12 +848,13 @@ pub async fn validate_dataset(
 
     // CRITICAL: Validate tenant isolation - non-admin users can only validate their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
-        validate_tenant_isolation(&claims, dataset_tenant_id)
-            ?;
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id can only be validated by admins
         use crate::error_helpers::forbidden;
-        return Err(forbidden("Access denied: dataset has no tenant association"));
+        return Err(forbidden(
+            "Access denied: dataset has no tenant association",
+        ));
     }
 
     // Set status to 'validating' at start
@@ -1051,8 +1048,7 @@ pub async fn preview_dataset(
     Path(dataset_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::DatasetView)
-        ?;
+    require_permission(&claims, Permission::DatasetView)?;
 
     let limit = params
         .get("limit")
@@ -1069,12 +1065,13 @@ pub async fn preview_dataset(
 
     // CRITICAL: Validate tenant isolation - non-admin users can only preview their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
-        validate_tenant_isolation(&claims, dataset_tenant_id)
-            ?;
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id can only be previewed by admins
         use crate::error_helpers::forbidden;
-        return Err(forbidden("Access denied: dataset has no tenant association"));
+        return Err(forbidden(
+            "Access denied: dataset has no tenant association",
+        ));
     }
 
     let files = state
@@ -1148,12 +1145,13 @@ pub async fn delete_dataset(
 
     // CRITICAL: Validate tenant isolation before deletion - non-admin users can only delete their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
-        validate_tenant_isolation(&claims, dataset_tenant_id)
-            ?;
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id can only be deleted by admins
         use crate::error_helpers::forbidden;
-        return Err(forbidden("Access denied: dataset has no tenant association"));
+        return Err(forbidden(
+            "Access denied: dataset has no tenant association",
+        ));
     }
 
     // Delete from database (cascades to files and statistics)
@@ -1283,8 +1281,8 @@ async fn validate_file_hash_streaming(
     expected_hash: &str,
 ) -> Result<bool, String> {
     // Parse expected hash
-    let expected = B3Hash::from_hex(expected_hash)
-        .map_err(|e| format!("Invalid hash format: {}", e))?;
+    let expected =
+        B3Hash::from_hex(expected_hash).map_err(|e| format!("Invalid hash format: {}", e))?;
 
     // Use IntegrityChecker for efficient streaming hash computation
     // Note: IntegrityChecker is from adapteros-model-hub which may not be available here
@@ -2015,4 +2013,356 @@ pub async fn cancel_chunked_upload(
     .await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Request to create a dataset from existing documents or a collection
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateDatasetFromDocumentsRequest {
+    /// Single document ID (mutually exclusive with collection_id)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+    /// Collection ID to convert (mutually exclusive with document_id)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<String>,
+    /// Name for the new dataset (auto-generated if not provided)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Optional description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Create a training dataset from existing documents or a document collection
+///
+/// Converts RAG documents into JSONL training format. Either `document_id` or
+/// `collection_id` must be provided (mutually exclusive). The resulting dataset
+/// is immediately marked as valid since the source documents are already indexed.
+///
+/// The JSONL format is: `{"text": "<chunk_text>"}` for each chunk, ordered
+/// deterministically by (document_id ASC, chunk_index ASC) for reproducibility.
+#[utoipa::path(
+    post,
+    path = "/v1/datasets/from-documents",
+    request_body = CreateDatasetFromDocumentsRequest,
+    responses(
+        (status = 200, description = "Dataset created successfully", body = DatasetResponse),
+        (status = 400, description = "Invalid request - must provide exactly one of document_id or collection_id"),
+        (status = 403, description = "Tenant isolation violation"),
+        (status = 404, description = "Document or collection not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn create_dataset_from_documents(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(request): Json<CreateDatasetFromDocumentsRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetUpload)?;
+
+    // Validate: exactly one of document_id or collection_id must be provided
+    let (document_ids, source_name) = match (&request.document_id, &request.collection_id) {
+        (Some(doc_id), None) => {
+            // Single document mode
+            let doc = state
+                .db
+                .get_document(doc_id)
+                .await
+                .map_err(|e| db_error(format!("Failed to get document: {}", e)))?
+                .ok_or_else(|| not_found("Document"))?;
+
+            // Tenant isolation check
+            validate_tenant_isolation(&claims, &doc.tenant_id)?;
+
+            // Check document is indexed (has chunks available)
+            if doc.status != "indexed" {
+                return Err(bad_request(format!(
+                    "Document must be indexed before conversion. Current status: {}",
+                    doc.status
+                )));
+            }
+
+            (
+                vec![doc.id.clone()],
+                format!("Training from doc: {}", doc.name),
+            )
+        }
+        (None, Some(col_id)) => {
+            // Collection mode
+            let collection = state
+                .db
+                .get_collection(col_id)
+                .await
+                .map_err(|e| db_error(format!("Failed to get collection: {}", e)))?
+                .ok_or_else(|| not_found("Collection"))?;
+
+            // Tenant isolation check
+            validate_tenant_isolation(&claims, &collection.tenant_id)?;
+
+            // Get documents in collection
+            let docs = state
+                .db
+                .get_collection_documents(col_id)
+                .await
+                .map_err(|e| db_error(format!("Failed to get collection documents: {}", e)))?;
+
+            if docs.is_empty() {
+                return Err(bad_request("Collection is empty - no documents to convert"));
+            }
+
+            // Filter to indexed documents only, deterministic order
+            let mut indexed_docs: Vec<_> =
+                docs.into_iter().filter(|d| d.status == "indexed").collect();
+            indexed_docs.sort_by(|a, b| a.id.cmp(&b.id));
+
+            if indexed_docs.is_empty() {
+                return Err(bad_request(
+                    "No indexed documents in collection. Documents must be indexed before conversion.",
+                ));
+            }
+
+            let doc_ids = indexed_docs.iter().map(|d| d.id.clone()).collect();
+            (
+                doc_ids,
+                format!("Training from collection: {}", collection.name),
+            )
+        }
+        (Some(_), Some(_)) => {
+            return Err(bad_request(
+                "Cannot specify both document_id and collection_id. Provide exactly one.",
+            ));
+        }
+        (None, None) => {
+            return Err(bad_request(
+                "Must provide either document_id or collection_id",
+            ));
+        }
+    };
+
+    // Safety limits
+    const MAX_CHUNKS: usize = 50_000; // Max chunks to prevent massive datasets
+    const MAX_FILE_SIZE: i64 = 100 * 1024 * 1024; // 100MB max JSONL file
+
+    // Get chunks for all documents with deterministic ordering
+    // SECURITY: tenant_id enforced at DB level
+    let chunks = state
+        .db
+        .get_chunks_for_documents(&claims.tenant_id, &document_ids)
+        .await
+        .map_err(|e| db_error(format!("Failed to get document chunks: {}", e)))?;
+
+    if chunks.is_empty() {
+        return Err(bad_request(
+            "No text chunks found in the selected documents",
+        ));
+    }
+
+    if chunks.len() > MAX_CHUNKS {
+        return Err(bad_request(format!(
+            "Too many chunks ({}). Maximum allowed is {}. Try selecting fewer documents.",
+            chunks.len(),
+            MAX_CHUNKS
+        )));
+    }
+
+    // Generate JSONL content: {"text": "<chunk_text>"} per chunk
+    let mut jsonl_lines: Vec<String> = Vec::with_capacity(chunks.len());
+    for chunk in &chunks {
+        if let Some(text) = &chunk.text_preview {
+            if !text.trim().is_empty() {
+                // Escape for JSON and create line
+                let json_obj = serde_json::json!({ "text": text });
+                jsonl_lines.push(json_obj.to_string());
+            }
+        }
+    }
+
+    if jsonl_lines.is_empty() {
+        return Err(bad_request(
+            "No non-empty text chunks found in the selected documents",
+        ));
+    }
+
+    let jsonl_content = jsonl_lines.join("\n");
+    let content_bytes = jsonl_content.as_bytes();
+    let file_size = content_bytes.len() as i64;
+
+    if file_size > MAX_FILE_SIZE {
+        return Err(bad_request(format!(
+            "Generated dataset too large ({} bytes). Maximum allowed is {} bytes.",
+            file_size, MAX_FILE_SIZE
+        )));
+    }
+
+    // Compute BLAKE3 hash
+    let content_hash = B3Hash::hash(content_bytes).to_hex();
+
+    let dataset_name = request.name.unwrap_or(source_name);
+
+    // Get datasets storage path from config or use default
+    let datasets_dir = PathBuf::from(
+        state
+            .config
+            .read()
+            .unwrap()
+            .paths
+            .datasets_root
+            .clone(),
+    );
+
+    // Create dataset record first to get the canonical ID
+    // Use a placeholder path initially, then update after directory creation
+    let dataset_id = state
+        .db
+        .create_training_dataset(
+            &dataset_name,
+            request.description.as_deref(),
+            "jsonl",
+            &content_hash,
+            "", // Placeholder - will update after creating directory
+            Some(&claims.sub),
+        )
+        .await
+        .map_err(|e| db_error(format!("Failed to create dataset record: {}", e)))?;
+
+    // Now create directory with the canonical ID
+    let dataset_path = datasets_dir.join(&dataset_id);
+    if let Err(e) = fs::create_dir_all(&dataset_path).await {
+        // Cleanup: delete DB record on failure
+        if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
+            warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
+        }
+        return Err(internal_error(format!(
+            "Failed to create dataset directory: {}",
+            e
+        )));
+    }
+
+    // Write JSONL file
+    let file_name = "training.jsonl";
+    let file_path = dataset_path.join(file_name);
+    if let Err(e) = fs::write(&file_path, content_bytes).await {
+        // Cleanup both directory and DB record
+        let _ = fs::remove_dir_all(&dataset_path).await;
+        if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
+            warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
+        }
+        return Err(internal_error(format!(
+            "Failed to write dataset file: {}",
+            e
+        )));
+    }
+
+    // Update storage path now that we have the real path
+    if let Err(e) = state
+        .db
+        .update_dataset_storage_path(&dataset_id, &dataset_path.to_string_lossy())
+        .await
+    {
+        let _ = fs::remove_dir_all(&dataset_path).await;
+        if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
+            warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
+        }
+        return Err(db_error(format!("Failed to update storage path: {}", e)));
+    }
+
+    // CRITICAL: Associate dataset with user's tenant for tenant isolation
+    if let Err(e) = state
+        .db
+        .update_dataset_extended_fields(
+            &dataset_id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&claims.tenant_id),
+        )
+        .await
+    {
+        let _ = fs::remove_dir_all(&dataset_path).await;
+        if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
+            warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
+        }
+        return Err(db_error(format!("Failed to set dataset tenant: {}", e)));
+    }
+
+    // Add file record
+    if let Err(e) = state
+        .db
+        .add_dataset_file(
+            &dataset_id,
+            file_name,
+            &file_path.to_string_lossy(),
+            file_size,
+            &content_hash,
+            Some("application/jsonl"),
+        )
+        .await
+    {
+        let _ = fs::remove_dir_all(&dataset_path).await;
+        if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
+            warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
+        }
+        return Err(db_error(format!("Failed to add file record: {}", e)));
+    }
+
+    // Run actual validation instead of hardcoding "valid"
+    // The JSONL we generate should always be valid, but run through the same
+    // validation pipeline for consistency
+    let validation_result =
+        FileValidator::quick_validate(&file_path, "jsonl", STREAM_BUFFER_SIZE).await;
+
+    let (validation_status, validation_errors) = match validation_result {
+        Ok(()) => ("valid".to_string(), None),
+        Err(e) => ("invalid".to_string(), Some(e.to_string())),
+    };
+
+    state
+        .db
+        .update_dataset_validation(
+            &dataset_id,
+            &validation_status,
+            validation_errors.as_deref(),
+        )
+        .await
+        .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Audit log
+    log_success(
+        &state.db,
+        &claims,
+        actions::DATASET_CREATE,
+        resources::DATASET,
+        Some(&dataset_id),
+    )
+    .await;
+
+    info!(
+        dataset_id = %dataset_id,
+        name = %dataset_name,
+        chunks = chunks.len(),
+        lines = jsonl_lines.len(),
+        size_bytes = file_size,
+        "Created dataset from documents"
+    );
+
+    Ok(Json(DatasetResponse {
+        schema_version: "1.0".to_string(),
+        dataset_id,
+        name: dataset_name,
+        description: request.description,
+        file_count: 1,
+        total_size_bytes: file_size,
+        format: "jsonl".to_string(),
+        hash: content_hash,
+        storage_path: dataset_path.to_string_lossy().to_string(),
+        validation_status,
+        validation_errors,
+        created_by: claims.sub.clone(),
+        created_at: now.clone(),
+        updated_at: now,
+    }))
 }

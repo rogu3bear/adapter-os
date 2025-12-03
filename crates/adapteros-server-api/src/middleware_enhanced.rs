@@ -2,7 +2,7 @@
 ///!
 ///! Features:
 ///! - JWT validation with Ed25519/HMAC support
-///! - Token revocation checking
+///! - Token revocation checking (individual + per-tenant baseline)
 ///! - IP access control (allowlist/denylist)
 ///! - Rate limiting per tenant
 ///! - Session tracking and activity updates
@@ -10,7 +10,8 @@
 use crate::auth::{validate_token, validate_token_ed25519, Claims};
 use crate::ip_extraction::{extract_client_ip, ClientIp};
 use crate::security::{
-    check_ip_access, check_rate_limit, is_token_revoked, update_session_activity, AccessDecision,
+    check_ip_access, check_rate_limit, get_tenant_token_baseline, is_token_revoked,
+    update_session_activity, AccessDecision,
 };
 use crate::state::AppState;
 use crate::types::ErrorResponse;
@@ -23,6 +24,7 @@ use axum::{
     response::Response,
     Json,
 };
+use chrono;
 use tracing::{debug, warn};
 
 /// Extract auth_token from Cookie header
@@ -44,7 +46,7 @@ fn extract_token_from_cookie(headers: &HeaderMap) -> Option<String> {
 /// Enhanced authentication middleware with all security checks
 ///
 /// 1. Extracts and validates JWT
-/// 2. Checks token revocation
+/// 2. Checks token revocation (individual + per-tenant baseline)
 /// 3. Validates IP access (allowlist/denylist)
 /// 4. Checks rate limiting
 /// 5. Updates session activity
@@ -138,6 +140,30 @@ pub async fn enhanced_auth_middleware(
                     .with_string_details("this token has been revoked"),
             ),
         ));
+    }
+
+    // Check per-tenant token revocation baseline - PRD-03
+    if let Ok(Some(baseline)) = get_tenant_token_baseline(&state.db, &claims.tenant_id).await {
+        if let Ok(baseline_ts) = chrono::DateTime::parse_from_rfc3339(&baseline) {
+            let token_iat = chrono::DateTime::from_timestamp(claims.iat, 0);
+            if let Some(iat_time) = token_iat {
+                if iat_time.timestamp() < baseline_ts.timestamp() {
+                    warn!(
+                        tenant_id = %claims.tenant_id,
+                        token_iat = claims.iat,
+                        baseline = %baseline,
+                        "Token rejected: issued before tenant revocation baseline"
+                    );
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        Json(
+                            ErrorResponse::new("Token has been revoked due to tenant-wide security action")
+                                .with_code("TOKEN_REVOKED_BY_TENANT"),
+                        ),
+                    ));
+                }
+            }
+        }
     }
 
     // Validate tenant exists (with caching to avoid per-request DB queries)
@@ -326,6 +352,30 @@ pub async fn basic_auth_middleware(
                     .with_string_details("this token has been revoked"),
             ),
         ));
+    }
+
+    // Check per-tenant token revocation baseline - PRD-03
+    if let Ok(Some(baseline)) = get_tenant_token_baseline(&state.db, &claims.tenant_id).await {
+        if let Ok(baseline_ts) = chrono::DateTime::parse_from_rfc3339(&baseline) {
+            let token_iat = chrono::DateTime::from_timestamp(claims.iat, 0);
+            if let Some(iat_time) = token_iat {
+                if iat_time.timestamp() < baseline_ts.timestamp() {
+                    warn!(
+                        tenant_id = %claims.tenant_id,
+                        token_iat = claims.iat,
+                        baseline = %baseline,
+                        "Token rejected: issued before tenant revocation baseline (basic auth)"
+                    );
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        Json(
+                            ErrorResponse::new("Token has been revoked due to tenant-wide security action")
+                                .with_code("TOKEN_REVOKED_BY_TENANT"),
+                        ),
+                    ));
+                }
+            }
+        }
     }
 
     let tenant_id = claims.tenant_id.clone();

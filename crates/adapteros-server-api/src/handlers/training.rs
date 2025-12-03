@@ -12,6 +12,7 @@ use crate::services::{DefaultTrainingService, TrainingService};
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_core::AosError;
+use adapteros_orchestrator::TrainingJobStatus;
 use axum::{
     extract::State,
     extract::{Extension, Path, Query},
@@ -292,7 +293,10 @@ pub async fn start_training(
 
     // If validation failed, return appropriate error
     if !validation.is_valid {
-        let error_code = validation.error_code.as_deref().unwrap_or("VALIDATION_ERROR");
+        let error_code = validation
+            .error_code
+            .as_deref()
+            .unwrap_or("VALIDATION_ERROR");
         let error_message = validation
             .error_message
             .unwrap_or_else(|| "Validation failed".to_string());
@@ -315,9 +319,13 @@ pub async fn start_training(
 
             for assignment in &policy_assignments {
                 if assignment.enforced {
-                    if let Ok(Some(pack)) = state.db.get_policy_pack(&assignment.policy_pack_id).await {
+                    if let Ok(Some(pack)) =
+                        state.db.get_policy_pack(&assignment.policy_pack_id).await
+                    {
                         if pack.policy_type == "evidence" && pack.status == "active" {
-                            let resource_id = if error_message.contains("Dataset") && request.dataset_id.is_some() {
+                            let resource_id = if error_message.contains("Dataset")
+                                && request.dataset_id.is_some()
+                            {
                                 request.dataset_id.as_deref()
                             } else {
                                 None
@@ -370,39 +378,29 @@ pub async fn start_training(
                     )
                 } else {
                     // Other validation errors
-                    (
-                        StatusCode::BAD_REQUEST,
-                        "VALIDATION_ERROR",
-                        msg.clone(),
-                    )
+                    (StatusCode::BAD_REQUEST, "VALIDATION_ERROR", msg.clone())
                 }
             }
             // Database errors: service temporarily unavailable
             // Preserve original error details for debugging via with_string_details()
-            AosError::Database(_) | AosError::Sqlx(_) | AosError::Sqlite(_) => {
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "DATABASE_ERROR",
-                    "Unable to check training capacity: database temporarily unavailable".to_string(),
-                )
-            }
+            AosError::Database(_) | AosError::Sqlx(_) | AosError::Sqlite(_) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "DATABASE_ERROR",
+                "Unable to check training capacity: database temporarily unavailable".to_string(),
+            ),
             // Other errors: internal server error (includes config lock failures)
             // Note: Config lock failures return AosError::Other, not AosError::Config
-            AosError::Other(_) => {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "INTERNAL_ERROR",
-                    "Unable to check training capacity: internal error".to_string(),
-                )
-            }
+            AosError::Other(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "Unable to check training capacity: internal error".to_string(),
+            ),
             // Fallback for any other error variants
-            _ => {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "CAPACITY_CHECK_ERROR",
-                    "Unable to check training capacity".to_string(),
-                )
-            }
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "CAPACITY_CHECK_ERROR",
+                "Unable to check training capacity".to_string(),
+            ),
         };
 
         warn!(
@@ -426,9 +424,10 @@ pub async fn start_training(
     let config = training_config_from_request(request.config);
 
     // Serialize post_actions to JSON if provided
-    let post_actions_json = request.post_actions.as_ref().and_then(|pa| {
-        serde_json::to_string(pa).ok()
-    });
+    let post_actions_json = request
+        .post_actions
+        .as_ref()
+        .and_then(|pa| serde_json::to_string(pa).ok());
 
     // Start training via service
     let job = state
@@ -452,6 +451,8 @@ pub async fn start_training(
             request.framework_version.clone(),
             // Post-training actions
             post_actions_json,
+            // Not a retry - new training job
+            None,
         )
         .await
         .map_err(|e| {
@@ -591,9 +592,14 @@ pub async fn cancel_training(
         ));
     }
 
+    // Create UDS client for worker communication
+    let uds_client = adapteros_client::UdsClient::default();
+    let socket_path = std::env::var("AOS_WORKER_SOCKET")
+        .unwrap_or_else(|_| "/var/run/adapteros.sock".to_string());
+
     state
         .training_service
-        .cancel_job(&job_id)
+        .cancel_job(&job_id, Some(&uds_client), Some(&socket_path))
         .await
         .map_err(|e| {
             error!(job_id = %job_id, error = %e, "Failed to cancel training job");
@@ -645,4 +651,151 @@ pub async fn cancel_training(
 
     info!(job_id = %job_id, user_id = %claims.sub, "Cancelled training job");
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Retry a failed training job
+///
+/// Creates a new training job with the same configuration as the failed job.
+/// The new job will have a different ID and will reference the original via retry_of_job_id.
+#[utoipa::path(
+    post,
+    path = "/v1/training/jobs/{job_id}/retry",
+    params(
+        ("job_id" = String, Path, description = "Training job ID to retry")
+    ),
+    responses(
+        (status = 201, description = "New training job created", body = TrainingJobResponse),
+        (status = 404, description = "Original job not found", body = ErrorResponse),
+        (status = 409, description = "Job cannot be retried (not failed or not retryable)", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn retry_training(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(job_id): Path<String>,
+) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingStart)?;
+
+    // Get the original job
+    let original_job = state.training_service.get_job(&job_id).await.map_err(|e| {
+        error!(job_id = %job_id, error = %e, "Failed to get training job for retry");
+        (
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new(&format!("Training job not found: {}", job_id))
+                    .with_code("NOT_FOUND"),
+            ),
+        )
+    })?;
+
+    // Validate tenant isolation
+    if let Some(ref job_tenant_id) = original_job.tenant_id {
+        validate_tenant_isolation(&claims, job_tenant_id)?;
+    } else if claims.role != "admin" {
+        // Jobs without tenant_id can only be retried by admins
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("Access denied: job has no tenant association")
+                    .with_code("TENANT_ISOLATION_ERROR"),
+            ),
+        ));
+    }
+
+    // Validate job can be retried
+    if original_job.status != TrainingJobStatus::Failed {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new(&format!(
+                    "Job cannot be retried: status is {:?}, must be Failed",
+                    original_job.status
+                ))
+                .with_code("INVALID_STATE"),
+            ),
+        ));
+    }
+
+    if original_job.retryable != Some(true) {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorResponse::new(
+                "Job is not retryable. This may be due to a configuration error that would fail again."
+            ).with_code("NOT_RETRYABLE")),
+        ));
+    }
+
+    // Create a new job with the same configuration, linking to original as retry
+    let new_job = state
+        .training_service
+        .start_training(
+            original_job.adapter_name.clone(),
+            original_job.config.clone(),
+            original_job.template_id.clone(),
+            original_job.repo_id.clone(),
+            original_job.dataset_id.clone(),
+            original_job.tenant_id.clone(),
+            Some(claims.sub.clone()),
+            Some(claims.role.clone()),
+            original_job.base_model_id.clone(),
+            original_job.collection_id.clone(),
+            original_job.category.clone(),
+            original_job.description.clone(),
+            original_job.language.clone(),
+            original_job.framework_id.clone(),
+            original_job.framework_version.clone(),
+            original_job.post_actions_json.clone(),
+            // Link to original job for retry chain tracking
+            Some(job_id.clone()),
+        )
+        .await
+        .map_err(|e| {
+            error!(original_job_id = %job_id, error = %e, "Failed to create retry job");
+
+            // Audit log: retry failure
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let _ = crate::audit_helper::log_failure(
+                        &state.db,
+                        &claims,
+                        crate::audit_helper::actions::TRAINING_START,
+                        crate::audit_helper::resources::TRAINING_JOB,
+                        Some(&job_id),
+                        &e.to_string(),
+                    )
+                    .await;
+                })
+            });
+
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new(&format!("Failed to create retry job: {}", e))
+                        .with_code("TRAINING_START_FAILED"),
+                ),
+            )
+        })?;
+
+    // Audit log: retry success
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::TRAINING_START,
+        crate::audit_helper::resources::TRAINING_JOB,
+        Some(&new_job.id),
+    )
+    .await;
+
+    info!(
+        original_job_id = %job_id,
+        new_job_id = %new_job.id,
+        user_id = %claims.sub,
+        "Created retry job"
+    );
+
+    Ok((
+        StatusCode::CREATED,
+        Json(TrainingJobResponse::from(new_job)),
+    ))
 }

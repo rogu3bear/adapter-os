@@ -78,13 +78,22 @@ pub async fn list_workspaces(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(pagination): Query<adapteros_api_types::PaginationParams>,
-) -> Result<Json<adapteros_api_types::PaginatedResponse<WorkspaceResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<
+    Json<adapteros_api_types::PaginatedResponse<WorkspaceResponse>>,
+    (StatusCode, Json<ErrorResponse>),
+> {
     require_permission(&claims, Permission::WorkspaceView)?;
 
     let offset = (pagination.page.saturating_sub(1)) * pagination.limit;
-    let (workspaces, total) = state
+
+    // TENANT ISOLATION: Only list workspaces where the user's tenant is a member
+    // This is implemented by list_user_workspaces which filters by tenant_id
+    let tenant_id = claims.tenant_id.clone();
+    let user_id = claims.sub.clone();
+
+    let workspaces = state
         .db
-        .list_workspaces_paginated(pagination.limit as i64, offset as i64)
+        .list_user_workspaces(&user_id, &tenant_id)
         .await
         .map_err(|e| {
             error!("Failed to list workspaces: {}", e);
@@ -97,6 +106,13 @@ pub async fn list_workspaces(
                 ),
             )
         })?;
+
+    let total = workspaces.len() as i64;
+    let workspaces: Vec<_> = workspaces
+        .into_iter()
+        .skip(offset as usize)
+        .take(pagination.limit as usize)
+        .collect();
 
     let data: Vec<WorkspaceResponse> = workspaces
         .into_iter()
@@ -299,7 +315,9 @@ pub async fn get_workspace(
 ) -> Result<Json<WorkspaceResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceView)?;
 
-    // Check workspace access
+    // TENANT ISOLATION: Check workspace access (validates user's tenant is a workspace member)
+    // Workspaces don't have a single tenant_id - they're cross-tenant by design.
+    // Isolation is enforced through workspace_members table membership validation.
     let role = state
         .db
         .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
@@ -376,7 +394,8 @@ pub async fn update_workspace(
 ) -> Result<Json<WorkspaceResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceManage)?;
 
-    // Check workspace access - must be owner or member
+    // TENANT ISOLATION: Check workspace access - must be owner or member
+    // Validates user's tenant is a workspace member with appropriate role
     let role = state
         .db
         .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
@@ -496,7 +515,8 @@ pub async fn delete_workspace(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceManage)?;
 
-    // Only owners can delete workspaces
+    // TENANT ISOLATION: Only owners can delete workspaces
+    // Validates user's tenant is a workspace member with owner role
     let role = state
         .db
         .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
@@ -580,7 +600,8 @@ pub async fn list_workspace_members(
 ) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceView)?;
 
-    // Check workspace access
+    // TENANT ISOLATION: Check workspace access
+    // Validates user's tenant is a workspace member before listing all members
     let role = state
         .db
         .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
@@ -662,7 +683,9 @@ pub async fn add_workspace_member(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceMemberManage)?;
 
-    // Only owners and members can add members
+    // TENANT ISOLATION: Only owners and members can add members
+    // Validates user's tenant is a workspace member with appropriate role
+    // Note: req.tenant_id can be different from claims.tenant_id (cross-tenant by design)
     let role = state
         .db
         .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
@@ -770,7 +793,8 @@ pub async fn update_workspace_member(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceMemberManage)?;
 
-    // Only owners can update member roles
+    // TENANT ISOLATION: Only owners can update member roles
+    // Validates user's tenant is a workspace member with owner role
     let role = state
         .db
         .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
@@ -895,7 +919,8 @@ pub async fn remove_workspace_member(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceMemberManage)?;
 
-    // Only owners can remove members
+    // TENANT ISOLATION: Only owners can remove members
+    // Validates user's tenant is a workspace member with owner role
     let role = state
         .db
         .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
@@ -1003,7 +1028,8 @@ pub async fn list_workspace_resources(
 ) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceView)?;
 
-    // Check workspace access
+    // TENANT ISOLATION: Check workspace access
+    // Validates user's tenant is a workspace member before listing shared resources
     let role = state
         .db
         .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
@@ -1085,7 +1111,8 @@ pub async fn share_workspace_resource(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceResourceManage)?;
 
-    // Check workspace access - must be member or owner
+    // TENANT ISOLATION: Check workspace access - must be member or owner
+    // Validates user's tenant is a workspace member with appropriate role
     let role = state
         .db
         .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
@@ -1116,7 +1143,8 @@ pub async fn share_workspace_resource(
         }
     }
 
-    // Validate resource exists and belongs to tenant
+    // TENANT ISOLATION: Validate resource exists and belongs to tenant
+    // Users can only share resources that belong to their own tenant
     let resource_type = ResourceType::from_str(&req.resource_type).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
@@ -1144,9 +1172,10 @@ pub async fn share_workspace_resource(
 
             match adapter {
                 Some(a) if a.tenant_id == claims.tenant_id => {
-                    // Adapter exists and belongs to tenant
+                    // TENANT ISOLATION: Adapter exists and belongs to tenant - OK
                 }
                 Some(_) => {
+                    // TENANT ISOLATION VIOLATION: Attempt to share another tenant's adapter
                     return Err((
                         StatusCode::FORBIDDEN,
                         Json(
@@ -1290,7 +1319,8 @@ pub async fn unshare_workspace_resource(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceResourceManage)?;
 
-    // Check workspace access - must be member or owner
+    // TENANT ISOLATION: Check workspace access - must be member or owner
+    // Validates user's tenant is a workspace member with appropriate role
     let role = state
         .db
         .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)

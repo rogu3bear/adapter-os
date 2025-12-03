@@ -2,6 +2,7 @@ use crate::audit_helper::{log_failure, log_success, resources};
 use crate::auth::Claims;
 use crate::error_helpers::{db_error, internal_error, not_found};
 use crate::permissions::{require_permission, Permission};
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 
@@ -48,11 +49,14 @@ pub struct StackResponse {
     pub created_at: String,
     pub updated_at: String,
     pub is_active: bool,
-    /// Stack version for telemetry correlation (PRD-03)
+    /// Whether this is the default stack for the tenant
+    #[serde(default)]
+    pub is_default: bool,
+    /// Stack version for telemetry correlation
     pub version: i64,
     /// Lifecycle state: active, deprecated, retired, draft
     pub lifecycle_state: String,
-    /// Warnings about capacity or memory pressure (PRD G3)
+    /// Warnings about capacity or memory pressure (memory guardrails)
     #[serde(default)]
     pub warnings: Vec<String>,
 }
@@ -113,7 +117,7 @@ pub async fn create_stack(
         "Creating adapter stack"
     );
 
-    // Guardrail: Warn if stack creation would likely exceed capacity limits (PRD G3)
+    // Guardrail: Warn if stack creation would likely exceed capacity limits (memory guardrails)
     let uma_stats = state.uma_monitor.get_uma_stats().await;
     let pressure = state.uma_monitor.get_current_pressure();
 
@@ -278,9 +282,10 @@ pub async fn create_stack(
         created_at: now.clone(),
         updated_at: now,
         is_active: false,
-        version: 1,                            // New stacks start at version 1
+        is_default: false, // New stacks are NOT default - must be set explicitly
+        version: 1,        // New stacks start at version 1
         lifecycle_state: "active".to_string(), // New stacks default to active
-        warnings,                              // Include warnings in response (PRD G3)
+        warnings,          // Include warnings in response (memory guardrails)
     });
 
     // Convert to Response with 201 status code
@@ -304,6 +309,9 @@ pub async fn list_stacks(
 
     let tenant_id = claims.tenant_id.clone();
 
+    // Fetch the default stack ID for this tenant
+    let default_stack_id = state.db.get_default_stack(&tenant_id).await.unwrap_or(None);
+
     let rows = state
         .db
         .list_stacks_for_tenant(&tenant_id)
@@ -322,6 +330,9 @@ pub async fn list_stacks(
             _ => None,
         });
 
+        // Check if this stack is the tenant's default
+        let is_default = default_stack_id.as_ref().map_or(false, |d| d == &row.id);
+
         stacks.push(StackResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: row.id,
@@ -333,6 +344,7 @@ pub async fn list_stacks(
             created_at: row.created_at,
             updated_at: row.updated_at,
             is_active: false,
+            is_default,
             version: row.version,
             lifecycle_state: row.lifecycle_state,
             warnings: vec![], // No warnings for existing stacks
@@ -371,10 +383,12 @@ pub async fn get_stack(
         .map_err(db_error)?
         .ok_or_else(|| not_found("Stack"))?;
 
-    if row.tenant_id != tenant_id {
-        use crate::error_helpers::forbidden;
-        return Err(forbidden("Stack does not belong to your tenant"));
-    }
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &row.tenant_id)?;
+
+    // Check if this stack is the tenant's default
+    let default_stack_id = state.db.get_default_stack(&tenant_id).await.unwrap_or(None);
+    let is_default = default_stack_id.as_ref().map_or(false, |d| d == &row.id);
 
     let adapter_ids: Vec<String> =
         serde_json::from_str(&row.adapter_ids_json).unwrap_or_else(|_| vec![]);
@@ -397,6 +411,7 @@ pub async fn get_stack(
         created_at: row.created_at,
         updated_at: row.updated_at,
         is_active: false,
+        is_default,
         version: row.version,
         lifecycle_state: row.lifecycle_state,
         warnings: vec![], // No warnings for existing stacks
@@ -511,10 +526,8 @@ pub async fn activate_stack(
             not_found("Stack")
         })?;
 
-    if stack.tenant_id != tenant_id {
-        use crate::error_helpers::forbidden;
-        return Err(forbidden("Stack does not belong to your tenant"));
-    }
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &stack.tenant_id)?;
 
     let name = stack.name.clone();
     let stack_version = stack.version;
@@ -559,9 +572,8 @@ pub async fn activate_stack(
                     .ok_or_else(|| {
                         internal_error(format!("Previous stack {} not found", old_id))
                     })?;
-                serde_json::from_str::<Vec<String>>(&stack.adapter_ids_json).map_err(|e| {
-                    internal_error(format!("Parse old: {}", e))
-                })?
+                serde_json::from_str::<Vec<String>>(&stack.adapter_ids_json)
+                    .map_err(|e| internal_error(format!("Parse old: {}", e)))?
             } else {
                 vec![]
             };
@@ -597,7 +609,7 @@ pub async fn activate_stack(
                     "cache_reset": true,
                     "tenant_id": tenant_id,
                     "stack_id": id,
-                    "stack_version": stack_version, // PRD-03: Include version in telemetry
+                    "stack_version": stack_version, // Include version in telemetry
                     "trace_id": tracing::Span::current().id().map(|id| format!("{:x}", id.into_u64())).unwrap_or("unknown".to_string()),
                 })).map_err(internal_error)?;
             }
@@ -715,9 +727,10 @@ pub async fn deactivate_stack(
     let tenant_id = claims.tenant_id.clone();
 
     let previous_stack = {
-        let mut active = state.active_stack.write().map_err(|e| {
-            internal_error(format!("Lock poisoned: {}", e))
-        })?;
+        let mut active = state
+            .active_stack
+            .write()
+            .map_err(|e| internal_error(format!("Lock poisoned: {}", e)))?;
         let prev = active.get(&tenant_id).cloned().flatten();
         active.insert(tenant_id.clone(), None);
         prev
@@ -809,8 +822,7 @@ async fn compute_stack_hash(
             .map_err(db_error)?
             .ok_or_else(|| not_found(&format!("Adapter {}", id)))?;
 
-        let hash = adapteros_core::B3Hash::from_hex(&adapter.hash_b3)
-            .map_err(db_error)?;
+        let hash = adapteros_core::B3Hash::from_hex(&adapter.hash_b3).map_err(db_error)?;
         pairs.push((id.clone(), hash));
     }
 
@@ -876,12 +888,15 @@ pub async fn get_stack_history(
         .get_stack(&tenant_id, &id)
         .await
         .map_err(db_error)?
-        .ok_or_else(|| not_found(&format!("Stack with id '{}' not found for tenant '{}'", id, tenant_id)))?;
+        .ok_or_else(|| {
+            not_found(&format!(
+                "Stack with id '{}' not found for tenant '{}'",
+                id, tenant_id
+            ))
+        })?;
 
-    if stack.tenant_id != tenant_id {
-        use crate::error_helpers::forbidden;
-        return Err(forbidden("Stack does not belong to your tenant"));
-    }
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &stack.tenant_id)?;
 
     // Get lifecycle history
     let history = state
@@ -923,12 +938,15 @@ pub async fn get_stack_policies(
         .get_stack(&tenant_id, &id)
         .await
         .map_err(db_error)?
-        .ok_or_else(|| not_found(&format!("Stack with id '{}' not found for tenant '{}'", id, tenant_id)))?;
+        .ok_or_else(|| {
+            not_found(&format!(
+                "Stack with id '{}' not found for tenant '{}'",
+                id, tenant_id
+            ))
+        })?;
 
-    if stack.tenant_id != tenant_id {
-        use crate::error_helpers::forbidden;
-        return Err(forbidden("Stack does not belong to your tenant"));
-    }
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &stack.tenant_id)?;
 
     // Get policy assignments for this stack
     let assignments = state
@@ -1047,7 +1065,11 @@ pub async fn stack_policy_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
-) -> axum::response::sse::Sse<impl futures_util::stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
+) -> axum::response::sse::Sse<
+    impl futures_util::stream::Stream<
+        Item = Result<axum::response::sse::Event, std::convert::Infallible>,
+    >,
+> {
     use axum::response::sse::{Event, KeepAlive};
     use futures_util::stream;
     use std::time::Duration;
@@ -1062,84 +1084,84 @@ pub async fn stack_policy_stream(
     }
 
     let tenant_id = claims.tenant_id.clone();
-    let stream = stream::unfold((state, id, tenant_id, has_permission), |(state, id, tenant_id, has_permission)| async move {
-        if !has_permission {
-            // Return error event once and end stream
-            return Some((
-                Ok(Event::default()
-                    .event("error")
-                    .data("{\"error\": \"permission denied\"}")),
-                (state, id, tenant_id, false),
-            ));
-        }
-        // Poll every 2 seconds for policy updates
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-
-        // Check if stack exists and user has access
-        let stack_result = state
-            .db
-            .get_stack(&tenant_id, &id)
-            .await;
-
-        let stack = match stack_result {
-            Ok(Some(s)) => s,
-            Ok(None) => {
+    let stream = stream::unfold(
+        (state, id, tenant_id, has_permission),
+        |(state, id, tenant_id, has_permission)| async move {
+            if !has_permission {
+                // Return error event once and end stream
                 return Some((
                     Ok(Event::default()
                         .event("error")
-                        .data("{\"error\": \"stack not found\"}")),
-                    (state, id, tenant_id, has_permission),
+                        .data("{\"error\": \"permission denied\"}")),
+                    (state, id, tenant_id, false),
                 ));
             }
-            Err(e) => {
-                warn!(error = ?e, "Failed to fetch stack for policy stream");
-                return Some((
-                    Ok(Event::default()
-                        .event("error")
-                        .data(format!("{{\"error\": \"database error: {}\"}}", e))),
-                    (state, id, tenant_id, has_permission),
-                ));
-            }
-        };
+            // Poll every 2 seconds for policy updates
+            tokio::time::sleep(Duration::from_secs(2)).await;
 
-        // Get policy assignments
-        let assignments = state
-            .db
-            .get_policy_assignments_for_stack(&id)
-            .await
-            .unwrap_or_default();
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
 
-        // Build response data
-        let data = serde_json::json!({
-            "stack_id": id,
-            "stack_name": stack.name,
-            "policy_count": assignments.len(),
-            "timestamp": timestamp,
-        });
+            // Check if stack exists and user has access
+            let stack_result = state.db.get_stack(&tenant_id, &id).await;
 
-        let json = match serde_json::to_string(&data) {
-            Ok(j) => j,
-            Err(e) => {
-                warn!(error = %e, "Failed to serialize policy stream event");
-                return Some((
-                    Ok(Event::default()
-                        .event("error")
-                        .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                    (state, id, tenant_id, has_permission),
-                ));
-            }
-        };
+            let stack = match stack_result {
+                Ok(Some(s)) => s,
+                Ok(None) => {
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data("{\"error\": \"stack not found\"}")),
+                        (state, id, tenant_id, has_permission),
+                    ));
+                }
+                Err(e) => {
+                    warn!(error = ?e, "Failed to fetch stack for policy stream");
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"database error: {}\"}}", e))),
+                        (state, id, tenant_id, has_permission),
+                    ));
+                }
+            };
 
-        Some((
-            Ok(Event::default().event("stack_policy").data(json)),
-            (state, id, tenant_id, has_permission),
-        ))
-    });
+            // Get policy assignments
+            let assignments = state
+                .db
+                .get_policy_assignments_for_stack(&id)
+                .await
+                .unwrap_or_default();
+
+            // Build response data
+            let data = serde_json::json!({
+                "stack_id": id,
+                "stack_name": stack.name,
+                "policy_count": assignments.len(),
+                "timestamp": timestamp,
+            });
+
+            let json = match serde_json::to_string(&data) {
+                Ok(j) => j,
+                Err(e) => {
+                    warn!(error = %e, "Failed to serialize policy stream event");
+                    return Some((
+                        Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
+                        (state, id, tenant_id, has_permission),
+                    ));
+                }
+            };
+
+            Some((
+                Ok(Event::default().event("stack_policy").data(json)),
+                (state, id, tenant_id, has_permission),
+            ))
+        },
+    );
 
     axum::response::sse::Sse::new(stream).keep_alive(
         KeepAlive::new()

@@ -903,12 +903,40 @@ pub struct CitationData {
 }
 
 /// Worker inference request (for UDS communication)
+///
+/// Includes all sampling parameters required for deterministic replay (PRD-02).
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct WorkerInferRequest {
     pub cpid: String,
     pub prompt: String,
     pub max_tokens: usize,
     pub require_evidence: bool,
+    /// Sampling temperature (0.0 = deterministic, higher = more random)
+    #[serde(default)]
+    pub temperature: f32,
+    /// Top-K sampling (limits vocabulary to K most likely tokens)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<usize>,
+    /// Top-P (nucleus) sampling (limits vocabulary to tokens with cumulative prob <= P)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    /// Random seed for deterministic sampling (PRD-02: critical for replay)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+    /// Router seed for audit purposes (PRD-02: replay)
+    ///
+    /// **Note:** The router uses a deterministic algorithm (sorted by score,
+    /// then by index for tie-breaking). This seed is stored for audit trail
+    /// purposes but does NOT currently affect routing decisions. Replays
+    /// produce identical routing given identical inputs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub router_seed: Option<String>,
+    /// Pinned adapter IDs that receive prior boost in routing (CHAT-PIN-02)
+    ///
+    /// These adapters receive PINNED_BOOST (0.3) added to their prior scores
+    /// before the router's scoring algorithm runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_adapter_ids: Option<Vec<String>>,
 }
 
 /// Worker inference response (from worker via UDS)
@@ -917,6 +945,16 @@ pub struct WorkerInferResponse {
     pub text: Option<String>,
     pub status: String,
     pub trace: WorkerTrace,
+    /// Pinned adapters that were unavailable (CHAT-PIN-02)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_pinned_adapters: Option<Vec<String>>,
+    /// Routing fallback mode when pinned adapters are unavailable (PRD-6A)
+    ///
+    /// - `None`: All pinned adapters were available (or no pins configured)
+    /// - `Some("partial")`: Some pinned adapters unavailable, using available pins + stack
+    /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_routing_fallback: Option<String>,
 }
 
 /// Worker trace
@@ -2434,14 +2472,32 @@ pub struct InferenceRequestInternal {
     pub top_k: Option<usize>,
     /// Top-P (nucleus) sampling
     pub top_p: Option<f32>,
-    /// Random seed for reproducibility
+    /// Random seed for reproducibility (PRD-02: deterministic sampling)
     pub seed: Option<u64>,
+    /// Router seed for audit purposes (PRD-02: replay)
+    ///
+    /// **Note:** The router uses a deterministic algorithm (sorted by score,
+    /// then by index for tie-breaking). This seed is stored for audit trail
+    /// purposes but does NOT currently affect routing decisions. Replays
+    /// produce identical routing given identical inputs.
+    pub router_seed: Option<String>,
 
     // === Evidence & Session ===
     /// Require evidence recording
     pub require_evidence: bool,
     /// Chat session ID for trace linkage
     pub session_id: Option<String>,
+    /// Pinned adapter IDs for this inference (session-level preference, CHAT-PIN-02)
+    ///
+    /// These adapters receive PINNED_BOOST added to their priors during routing,
+    /// making them more likely to be selected while still allowing non-pinned
+    /// adapters to win with sufficiently high feature scores.
+    pub pinned_adapter_ids: Option<Vec<String>>,
+    /// BLAKE3 hash of sorted message IDs for multi-turn context verification
+    ///
+    /// When a session_id is provided and multi-turn context is built, this hash
+    /// enables deterministic replay verification. Stored in replay_metadata.
+    pub chat_context_hash: Option<String>,
 
     // === Model Selection ===
     /// Model identifier (if specific model requested)
@@ -2470,8 +2526,11 @@ impl InferenceRequestInternal {
             top_k: None,
             top_p: None,
             seed: None,
+            router_seed: None,
             require_evidence: false,
             session_id: None,
+            pinned_adapter_ids: None,
+            chat_context_hash: None,
             model: None,
             created_at: std::time::Instant::now(),
         }
@@ -2510,6 +2569,17 @@ pub struct InferenceResult {
     pub latency_ms: u64,
     /// Request ID for correlation
     pub request_id: String,
+    /// Pinned adapter IDs that were unavailable (CHAT-PIN-02)
+    ///
+    /// These are adapters that were in the session's pinned set but were not
+    /// available in the candidate adapter set. Returned for UI warning display.
+    pub unavailable_pinned_adapters: Option<Vec<String>>,
+    /// Routing fallback mode when pinned adapters are unavailable (PRD-6A)
+    ///
+    /// - `None`: All pinned adapters were available (or no pins configured)
+    /// - `Some("partial")`: Some pinned adapters unavailable, using available pins + stack
+    /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
+    pub pinned_routing_fallback: Option<String>,
 }
 
 /// Router decision record for audit trail (PRD-05)
@@ -2583,6 +2653,16 @@ pub enum InferenceError {
     BackpressureError(String),
     /// Routing was bypassed (should never happen)
     RoutingBypass(String),
+    /// No compatible worker available for the required manifest (PRD-01)
+    NoCompatibleWorker {
+        required_hash: String,
+        tenant_id: String,
+        available_count: usize,
+        /// Specific reason why no compatible workers were found
+        reason: String,
+    },
+    /// Adapter not found or not loadable (archived/purged)
+    AdapterNotFound(String),
 }
 
 impl std::fmt::Display for InferenceError {
@@ -2596,6 +2676,17 @@ impl std::fmt::Display for InferenceError {
             Self::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
             Self::BackpressureError(msg) => write!(f, "Backpressure: {}", msg),
             Self::RoutingBypass(msg) => write!(f, "Routing bypass: {}", msg),
+            Self::NoCompatibleWorker {
+                required_hash,
+                tenant_id,
+                available_count,
+                reason,
+            } => write!(
+                f,
+                "No compatible worker for tenant {} with manifest {} ({} workers available). Reason: {}",
+                tenant_id, required_hash, available_count, reason
+            ),
+            Self::AdapterNotFound(msg) => write!(f, "Adapter not found: {}", msg),
         }
     }
 }
@@ -2615,6 +2706,8 @@ impl InferenceError {
             Self::PermissionDenied(_) => StatusCode::FORBIDDEN,
             Self::BackpressureError(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::RoutingBypass(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::NoCompatibleWorker { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::AdapterNotFound(_) => StatusCode::NOT_FOUND,
         }
     }
 
@@ -2629,6 +2722,8 @@ impl InferenceError {
             Self::PermissionDenied(_) => "PERMISSION_DENIED",
             Self::BackpressureError(_) => "BACKPRESSURE",
             Self::RoutingBypass(_) => "ROUTING_BYPASS",
+            Self::NoCompatibleWorker { .. } => "NO_COMPATIBLE_WORKER",
+            Self::AdapterNotFound(_) => "ADAPTER_NOT_FOUND",
         }
     }
 }
@@ -2655,8 +2750,11 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             top_k: req.top_k,
             top_p: req.top_p,
             seed: req.seed,
+            router_seed: None,
             require_evidence: req.require_evidence.unwrap_or(false),
             session_id: req.session_id.clone(),
+            pinned_adapter_ids: None, // Populated by InferenceCore from session
+            chat_context_hash: None,
             model: req.model.clone(),
             created_at: std::time::Instant::now(),
         }
@@ -2714,6 +2812,8 @@ impl From<InferenceResult> for InferResponse {
             model: None,
             prompt_tokens: None,
             error: None,
+            unavailable_pinned_adapters: result.unavailable_pinned_adapters,
+            pinned_routing_fallback: result.pinned_routing_fallback,
         }
     }
 }
@@ -2780,7 +2880,11 @@ impl Default for SamplingParams {
 pub struct ReplayKey {
     /// BLAKE3 hash of the manifest used
     pub manifest_hash: String,
-    /// Router seed for deterministic adapter selection
+    /// Router seed for audit purposes (stored but currently unused)
+    ///
+    /// The router uses a deterministic algorithm (sorted by score, then by
+    /// index for tie-breaking). This seed is stored for audit trail purposes
+    /// but does NOT currently affect routing decisions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub router_seed: Option<String>,
     /// Sampling parameters used
@@ -2897,8 +3001,10 @@ pub struct DivergenceDetails {
 /// Statistics from replay execution
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ReplayStats {
-    /// Number of tokens generated in replay
-    pub tokens_generated: usize,
+    /// Estimated token count (~4 chars/token heuristic).
+    /// Note: This is an approximation since the worker doesn't report actual token counts.
+    /// Do not use for billing or precise token accounting.
+    pub estimated_tokens: usize,
     /// Replay latency in milliseconds
     pub latency_ms: u64,
     /// Original inference latency (if recorded)
@@ -2986,6 +3092,25 @@ pub struct ReplayHistoryResponse {
     pub executions: Vec<ReplayExecutionRecord>,
     /// Total count of executions
     pub total_count: usize,
+}
+
+// ===== Replay Execution Context (PRD-02) =====
+
+/// Context for replay execution through InferenceCore
+///
+/// Contains the constraints and metadata needed to execute a deterministic
+/// replay of a previous inference operation.
+#[derive(Debug, Clone)]
+pub struct ReplayContext {
+    /// Original inference ID being replayed (for correlation/audit)
+    pub original_inference_id: String,
+    /// Required manifest hash - worker must match this exactly
+    pub required_manifest_hash: String,
+    /// Required backend (CoreML, MLX, Metal) - worker must be compatible
+    pub required_backend: String,
+    /// If true, don't capture new replay metadata for this execution
+    /// (prevents recursive replay metadata creation)
+    pub skip_metadata_capture: bool,
 }
 
 // ===== Tenant Token Revocation (PRD-03) =====

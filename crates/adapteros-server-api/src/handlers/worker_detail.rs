@@ -119,10 +119,7 @@ pub async fn get_worker_detail(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("worker not found")
-                        .with_code("WORKER_NOT_FOUND"),
-                ),
+                Json(ErrorResponse::new("worker not found").with_code("WORKER_NOT_FOUND")),
             )
         })?;
 
@@ -185,7 +182,10 @@ fn calculate_uptime(started_at: &str, current_timestamp: u64) -> u64 {
 }
 
 /// Determine worker type based on plan and configuration
-async fn determine_worker_type(worker: &adapteros_db::workers::WorkerDetail, state: &AppState) -> WorkerType {
+async fn determine_worker_type(
+    worker: &adapteros_db::workers::WorkerDetail,
+    state: &AppState,
+) -> WorkerType {
     // Check if worker is associated with training jobs
     let is_training = state
         .db

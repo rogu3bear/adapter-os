@@ -1,5 +1,6 @@
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{
     CreateDomainAdapterRequest, DomainAdapterExecutionResponse, DomainAdapterManifestResponse,
@@ -70,9 +71,11 @@ pub async fn list_domain_adapters(
 ) -> Result<Json<Vec<DomainAdapterResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterView)?;
 
-    let adapters = state
+    // Filter by tenant to ensure tenant isolation - list_adapters_by_category doesn't filter by tenant,
+    // so we use list_adapters_for_tenant and filter by category
+    let all_adapters = state
         .db
-        .list_adapters_by_category("domain")
+        .list_adapters_for_tenant(&claims.tenant_id)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to list domain adapters");
@@ -86,12 +89,14 @@ pub async fn list_domain_adapters(
             )
         })?;
 
-    let responses: Vec<DomainAdapterResponse> = adapters
+    // Filter to only domain adapters
+    let responses: Vec<DomainAdapterResponse> = all_adapters
         .into_iter()
+        .filter(|a| a.category == "domain")
         .map(adapter_to_domain_response)
         .collect();
 
-    info!(count = responses.len(), "Listed domain adapters");
+    info!(count = responses.len(), tenant_id = %claims.tenant_id, "Listed domain adapters");
     Ok(Json(responses))
 }
 
@@ -140,6 +145,9 @@ pub async fn get_domain_adapter(
                 ),
             )
         })?;
+
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Verify it's a domain adapter
     if adapter.category != "domain" {
@@ -314,6 +322,9 @@ pub async fn load_domain_adapter(
                 ),
             )
         })?;
+
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Verify it's a domain adapter
     if adapter.category != "domain" {
@@ -497,6 +508,9 @@ pub async fn unload_domain_adapter(
             )
         })?;
 
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
     // Verify it's a domain adapter
     if adapter.category != "domain" {
         return Err((
@@ -622,6 +636,9 @@ pub async fn test_domain_adapter(
             )
         })?;
 
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
     // Verify it's a domain adapter
     if adapter.category != "domain" {
         return Err((
@@ -657,6 +674,12 @@ pub async fn test_domain_adapter(
                 request_type: Default::default(),
                 stack_id: None,
                 stack_version: None,
+                temperature: None,
+                top_k: None,
+                top_p: None,
+                seed: None,
+                router_seed: None,
+                pinned_adapter_ids: None,
             };
 
             match worker_guard.infer(inference_req).await {
@@ -789,6 +812,9 @@ pub async fn get_domain_adapter_manifest(
             )
         })?;
 
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
     // Verify it's a domain adapter
     if adapter.category != "domain" {
         return Err((
@@ -887,6 +913,9 @@ pub async fn execute_domain_adapter(
             )
         })?;
 
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
     // Verify it's a domain adapter
     if adapter.category != "domain" {
         return Err((
@@ -925,6 +954,12 @@ pub async fn execute_domain_adapter(
             request_type: Default::default(),
             stack_id: None,
             stack_version: None,
+            temperature: None,
+            top_k: None,
+            top_p: None,
+            seed: None,
+            router_seed: None,
+            pinned_adapter_ids: None,
         };
 
         match worker_guard.infer(inference_req).await {
@@ -1033,6 +1068,9 @@ pub async fn delete_domain_adapter(
                 ),
             )
         })?;
+
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Verify it's a domain adapter
     if adapter.category != "domain" {

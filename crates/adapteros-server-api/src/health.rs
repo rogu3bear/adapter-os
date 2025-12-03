@@ -321,8 +321,10 @@ pub async fn check_db_health(State(state): State<AppState>) -> impl IntoResponse
                         Ok(count) => {
                             let message = if let Some(ref kv) = kv_health {
                                 if kv.attached {
-                                    format!("Database healthy, {} migrations applied, KV backend: {}",
-                                           count, kv.status)
+                                    format!(
+                                        "Database healthy, {} migrations applied, KV backend: {}",
+                                        count, kv.status
+                                    )
                                 } else {
                                     format!("Database healthy, {} migrations applied", count)
                                 }
@@ -332,7 +334,7 @@ pub async fn check_db_health(State(state): State<AppState>) -> impl IntoResponse
 
                             ComponentHealth::new("db", overall_status, message)
                                 .with_details(details)
-                        },
+                        }
                         Err(_) => {
                             // Migrations table might not exist yet
                             ComponentHealth::new(
@@ -439,7 +441,10 @@ pub async fn check_kv_health(State(state): State<AppState>) -> impl IntoResponse
                 };
                 format!("KV backend operational{}", latency_info)
             } else {
-                kv_health.error.clone().unwrap_or_else(|| "KV backend connectivity check failed".to_string())
+                kv_health
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "KV backend connectivity check failed".to_string())
             };
 
             let mut details = serde_json::json!({
@@ -611,7 +616,15 @@ pub async fn check_all_health(State(state): State<AppState>) -> impl IntoRespons
     )
     .await;
 
-    health_checks.extend(vec![router, loader, kernel, db, kv, telemetry, system_metrics]);
+    health_checks.extend(vec![
+        router,
+        loader,
+        kernel,
+        db,
+        kv,
+        telemetry,
+        system_metrics,
+    ]);
 
     // Determine overall status (worst status wins)
     let overall_status = health_checks

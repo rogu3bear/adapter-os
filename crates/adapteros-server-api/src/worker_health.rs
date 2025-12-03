@@ -7,6 +7,7 @@
 //! - Background polling for idle worker crash detection
 
 use crate::uds_client::UdsClient;
+use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::Db;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -410,6 +411,68 @@ impl WorkerHealthMonitor {
 
         // Get health status and latency for each worker
         let mut candidates: Vec<(&adapteros_db::models::Worker, WorkerHealthStatus, f64)> = workers
+            .iter()
+            .map(|w| {
+                let (status, latency) = self
+                    .worker_metrics
+                    .get(&w.id)
+                    .map(|m| (m.health_status, m.avg_latency_ms))
+                    .unwrap_or((WorkerHealthStatus::Unknown, 0.0));
+                (w, status, latency)
+            })
+            .collect();
+
+        // Filter out crashed workers
+        candidates.retain(|(_, status, _)| *status != WorkerHealthStatus::Crashed);
+
+        if candidates.is_empty() {
+            // All workers crashed, return None
+            return None;
+        }
+
+        // Sort by: healthy first, then by lowest latency
+        candidates.sort_by(|(_, status_a, latency_a), (_, status_b, latency_b)| {
+            // Healthy < Degraded < Unknown
+            let priority_a = match status_a {
+                WorkerHealthStatus::Healthy => 0,
+                WorkerHealthStatus::Degraded => 1,
+                WorkerHealthStatus::Unknown => 2,
+                WorkerHealthStatus::Crashed => 3,
+            };
+            let priority_b = match status_b {
+                WorkerHealthStatus::Healthy => 0,
+                WorkerHealthStatus::Degraded => 1,
+                WorkerHealthStatus::Unknown => 2,
+                WorkerHealthStatus::Crashed => 3,
+            };
+
+            priority_a.cmp(&priority_b).then_with(|| {
+                latency_a
+                    .partial_cmp(latency_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
+
+        candidates.first().map(|(w, _, _)| *w)
+    }
+
+    /// Get the best worker from a list of WorkerWithBinding
+    ///
+    /// Similar to `get_best_worker` but accepts workers with manifest binding info.
+    /// Selection criteria:
+    /// 1. Filter out crashed workers
+    /// 2. Prefer healthy over degraded
+    /// 3. Among same status, pick lowest average latency
+    pub fn get_best_worker_with_binding<'a>(
+        &self,
+        workers: &'a [WorkerWithBinding],
+    ) -> Option<&'a WorkerWithBinding> {
+        if workers.is_empty() {
+            return None;
+        }
+
+        // Get health status and latency for each worker
+        let mut candidates: Vec<(&WorkerWithBinding, WorkerHealthStatus, f64)> = workers
             .iter()
             .map(|w| {
                 let (status, latency) = self

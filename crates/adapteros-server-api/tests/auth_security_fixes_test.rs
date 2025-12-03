@@ -31,7 +31,8 @@ struct Claims {
 fn test_clock_skew_leeway_ed25519() {
     // Generate keypair for testing
     let keypair = Keypair::generate();
-    let public_key_pem = adapteros_server_api::auth::encode_ed25519_public_key_pem(&keypair.public_key().to_bytes());
+    let public_key_pem =
+        adapteros_server_api::auth::encode_ed25519_public_key_pem(&keypair.public_key().to_bytes());
 
     // Create a token that will expire in 30 seconds (within leeway)
     let now = Utc::now();
@@ -177,7 +178,8 @@ fn test_jwt_validation_with_nbf() {
     )
     .expect("Failed to generate token");
 
-    let public_key_pem = adapteros_server_api::auth::encode_ed25519_public_key_pem(&keypair.public_key().to_bytes());
+    let public_key_pem =
+        adapteros_server_api::auth::encode_ed25519_public_key_pem(&keypair.public_key().to_bytes());
 
     // Validate with proper leeway - should succeed
     let mut validation = Validation::new(Algorithm::EdDSA);

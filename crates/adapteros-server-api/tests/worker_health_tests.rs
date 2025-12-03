@@ -39,8 +39,8 @@ async fn test_hung_worker_detection_marks_degraded_after_consecutive_slow() {
     // Setup: Create a health monitor with low thresholds for testing
     let db = setup_test_db().await.expect("Failed to create test DB");
     let config = HealthConfig {
-        latency_threshold_ms: 100,      // 100ms threshold for testing
-        slow_response_count: 3,         // Only 3 consecutive slow responses to trigger degraded
+        latency_threshold_ms: 100, // 100ms threshold for testing
+        slow_response_count: 3,    // Only 3 consecutive slow responses to trigger degraded
         recovery_count: 3,
         moving_avg_window: 5,
         polling_interval: std::time::Duration::from_secs(30),
@@ -209,7 +209,7 @@ async fn test_worker_recovers_from_degraded_with_fast_responses() {
     let config = HealthConfig {
         latency_threshold_ms: 100,
         slow_response_count: 3,
-        recovery_count: 3,    // 3 fast responses to recover
+        recovery_count: 3, // 3 fast responses to recover
         moving_avg_window: 5,
         polling_interval: std::time::Duration::from_secs(30),
         polling_timeout: std::time::Duration::from_secs(3),
@@ -228,7 +228,9 @@ async fn test_worker_recovers_from_degraded_with_fast_responses() {
     }
 
     // Verify degraded
-    let health = monitor.get_worker_health(worker_id).expect("Health should exist");
+    let health = monitor
+        .get_worker_health(worker_id)
+        .expect("Health should exist");
     assert_eq!(
         health.health_status,
         WorkerHealthStatus::Degraded,
@@ -241,7 +243,9 @@ async fn test_worker_recovers_from_degraded_with_fast_responses() {
     }
 
     // Verify recovery
-    let health = monitor.get_worker_health(worker_id).expect("Health should exist");
+    let health = monitor
+        .get_worker_health(worker_id)
+        .expect("Health should exist");
     assert_eq!(
         health.health_status,
         WorkerHealthStatus::Healthy,
@@ -276,12 +280,14 @@ async fn test_mixed_responses_dont_trigger_state_change() {
 
     // Mix of slow and fast responses (not consecutive)
     monitor.record_response(worker_id, 200).await; // Slow
-    monitor.record_response(worker_id, 20).await;  // Fast - breaks consecutive
+    monitor.record_response(worker_id, 20).await; // Fast - breaks consecutive
     monitor.record_response(worker_id, 200).await; // Slow
-    monitor.record_response(worker_id, 20).await;  // Fast - breaks consecutive
+    monitor.record_response(worker_id, 20).await; // Fast - breaks consecutive
 
     // Verify: Worker should stay healthy (no 3 consecutive slow)
-    let health = monitor.get_worker_health(worker_id).expect("Health should exist");
+    let health = monitor
+        .get_worker_health(worker_id)
+        .expect("Health should exist");
     assert_eq!(
         health.health_status,
         WorkerHealthStatus::Healthy,
@@ -306,11 +312,15 @@ async fn test_failure_increments_and_crash_detection() {
 
     // Record multiple failures
     for _ in 0..5 {
-        monitor.record_failure(worker_id, "Connection refused").await;
+        monitor
+            .record_failure(worker_id, "Connection refused")
+            .await;
     }
 
     // Verify: Worker should be marked as crashed
-    let health = monitor.get_worker_health(worker_id).expect("Health should exist");
+    let health = monitor
+        .get_worker_health(worker_id)
+        .expect("Health should exist");
     assert_eq!(
         health.health_status,
         WorkerHealthStatus::Crashed,
@@ -353,9 +363,15 @@ async fn test_health_summary_counts() {
     monitor.record_response("worker-degraded", 200).await;
 
     // Verify health statuses
-    let h1 = monitor.get_worker_health("worker-healthy-1").expect("Should have health");
-    let h2 = monitor.get_worker_health("worker-healthy-2").expect("Should have health");
-    let hd = monitor.get_worker_health("worker-degraded").expect("Should have health");
+    let h1 = monitor
+        .get_worker_health("worker-healthy-1")
+        .expect("Should have health");
+    let h2 = monitor
+        .get_worker_health("worker-healthy-2")
+        .expect("Should have health");
+    let hd = monitor
+        .get_worker_health("worker-degraded")
+        .expect("Should have health");
 
     assert_eq!(h1.health_status, WorkerHealthStatus::Healthy);
     assert_eq!(h2.health_status, WorkerHealthStatus::Healthy);

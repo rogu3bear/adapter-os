@@ -80,6 +80,9 @@ pub struct ApiConfig {
     pub performance: PerformanceConfigApi,
     /// Paths configuration for storage locations
     pub paths: PathsConfig,
+    /// Chat context configuration for multi-turn conversations
+    #[serde(default)]
+    pub chat_context: ChatContextConfig,
 }
 
 fn default_directory_analysis_timeout() -> u64 {
@@ -135,6 +138,45 @@ pub struct PerformanceConfigApi {
     pub memory_threshold_pct: Option<f64>,
     #[serde(default)]
     pub cache_size_mb: Option<usize>,
+}
+
+/// Chat context configuration for multi-turn conversations.
+///
+/// Controls how chat history is loaded and formatted when building
+/// prompts for inference with a `session_id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatContextConfig {
+    /// Maximum number of history messages to include (default: 20)
+    #[serde(default = "default_max_history_messages")]
+    pub max_history_messages: usize,
+    /// Maximum token budget for history (default: 4096, ~4 chars/token heuristic)
+    #[serde(default = "default_max_history_tokens")]
+    pub max_history_tokens: usize,
+    /// Whether to include system messages in history (default: true)
+    #[serde(default = "default_include_system_messages")]
+    pub include_system_messages: bool,
+}
+
+fn default_max_history_messages() -> usize {
+    20
+}
+
+fn default_max_history_tokens() -> usize {
+    4096
+}
+
+fn default_include_system_messages() -> bool {
+    true
+}
+
+impl Default for ChatContextConfig {
+    fn default() -> Self {
+        Self {
+            max_history_messages: default_max_history_messages(),
+            max_history_tokens: default_max_history_tokens(),
+            include_system_messages: default_include_system_messages(),
+        }
+    }
 }
 
 /// Cryptographic state for signing and verification
@@ -382,6 +424,10 @@ pub struct AppState {
     pub tick_ledger: Option<Arc<GlobalTickLedger>>,
     // Worker health monitor for health-aware routing (optional, initialized at startup)
     pub health_monitor: Option<Arc<crate::worker_health::WorkerHealthMonitor>>,
+    // PRD-02: Manifest hash for replay key capture (set from loaded manifest)
+    pub manifest_hash: Option<String>,
+    // PRD-02: Backend name for replay key capture (CoreML, MLX, Metal)
+    pub backend_name: Option<String>,
 }
 
 impl AppState {
@@ -466,6 +512,9 @@ impl AppState {
             tick_ledger: None,
             // Health monitor initialized via with_health_monitor
             health_monitor: None,
+            // PRD-02: Manifest hash and backend name set via with_manifest_info
+            manifest_hash: None,
+            backend_name: None,
         }
     }
 
@@ -603,6 +652,13 @@ impl AppState {
         monitor: Arc<crate::worker_health::WorkerHealthMonitor>,
     ) -> Self {
         self.health_monitor = Some(monitor);
+        self
+    }
+
+    /// Set manifest hash and backend name for replay key capture (PRD-02)
+    pub fn with_manifest_info(mut self, manifest_hash: String, backend_name: String) -> Self {
+        self.manifest_hash = Some(manifest_hash);
+        self.backend_name = Some(backend_name);
         self
     }
 
