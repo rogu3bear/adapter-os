@@ -98,14 +98,13 @@ impl Db {
     /// Note: This assumes a 'is_primary' or similar column exists in the nodes table.
     /// Returns false if the column doesn't exist.
     pub async fn is_node_primary(&self, node_id: &str) -> Result<bool> {
-        let is_primary = sqlx::query_scalar::<_, i64>(
-            "SELECT COALESCE(is_primary, 0) FROM nodes WHERE id = ?",
-        )
-        .bind(node_id)
-        .fetch_optional(&*self.pool())
-        .await
-        .db_err("check if node is primary")?
-        .unwrap_or(0);
+        let is_primary =
+            sqlx::query_scalar::<_, i64>("SELECT COALESCE(is_primary, 0) FROM nodes WHERE id = ?")
+                .bind(node_id)
+                .fetch_optional(&*self.pool())
+                .await
+                .db_err("check if node is primary")?
+                .unwrap_or(0);
 
         Ok(is_primary > 0)
     }

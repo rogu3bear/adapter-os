@@ -6,8 +6,8 @@
 use crate::adapters::{Adapter, AdapterRegistrationParams};
 use adapteros_core::{AosError, Result};
 // Use models::AdapterKv which matches what AdapterRepository uses
-use adapteros_storage::AdapterKv;
 use adapteros_storage::repos::adapter::AdapterRepository;
+use adapteros_storage::AdapterKv;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -86,6 +86,20 @@ pub trait AdapterKvOps {
 
     /// Increment adapter activation count
     async fn increment_adapter_activation_kv(&self, adapter_id: &str) -> Result<()>;
+
+    /// Archive an adapter in KV backend
+    async fn archive_adapter_kv(
+        &self,
+        adapter_id: &str,
+        archived_by: &str,
+        reason: &str,
+    ) -> Result<()>;
+
+    /// Mark adapter as purged in KV backend
+    async fn mark_adapter_purged_kv(&self, adapter_id: &str) -> Result<()>;
+
+    /// Unarchive an adapter in KV backend
+    async fn unarchive_adapter_kv(&self, adapter_id: &str) -> Result<()>;
 }
 
 /// KV adapter service that wraps the repository
@@ -171,6 +185,10 @@ impl From<Adapter> for AdapterKv {
             expires_at: adapter.expires_at,
             aos_file_path: adapter.aos_file_path,
             aos_file_hash: adapter.aos_file_hash,
+            archived_at: adapter.archived_at,
+            archived_by: adapter.archived_by,
+            archive_reason: adapter.archive_reason,
+            purged_at: adapter.purged_at,
             created_at: adapter.created_at,
             updated_at: adapter.updated_at,
         }
@@ -223,6 +241,11 @@ impl From<AdapterKv> for Adapter {
             updated_at: kv.updated_at,
             version: kv.version,
             lifecycle_state: kv.lifecycle_state,
+            // Archive/GC fields from KV
+            archived_at: kv.archived_at,
+            archived_by: kv.archived_by,
+            archive_reason: kv.archive_reason,
+            purged_at: kv.purged_at,
         }
     }
 }
@@ -289,9 +312,16 @@ impl AdapterKvOps for AdapterKvRepository {
             aos_file_hash: params.aos_file_hash.clone(),
             created_at: now.clone(),
             updated_at: now,
+            // Archive/GC fields default to None for new adapters
+            archived_at: None,
+            archived_by: None,
+            archive_reason: None,
+            purged_at: None,
         };
 
-        self.repo.create(adapter_kv).await
+        self.repo
+            .create(adapter_kv)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to create adapter: {}", e)))?;
 
         debug!(adapter_id = %params.adapter_id, tenant_id = %params.tenant_id, id = %id, "Adapter registered in KV storage");
@@ -299,14 +329,20 @@ impl AdapterKvOps for AdapterKvRepository {
     }
 
     async fn get_adapter_kv(&self, adapter_id: &str) -> Result<Option<Adapter>> {
-        let adapter_kv = self.repo.get(&self.default_tenant, adapter_id).await
+        let adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?;
 
         Ok(adapter_kv.map(|kv| kv.into()))
     }
 
     async fn list_adapters_for_tenant_kv(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
-        let adapters_kv = self.repo.list_by_tenant(tenant_id).await
+        let adapters_kv = self
+            .repo
+            .list_by_tenant(tenant_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
 
         Ok(adapters_kv.into_iter().map(|kv| kv.into()).collect())
@@ -315,7 +351,10 @@ impl AdapterKvOps for AdapterKvRepository {
     async fn delete_adapter_kv(&self, id: &str) -> Result<()> {
         // Note: In KV mode, we need to get the adapter first to extract adapter_id
         // The SQL version takes the internal `id` field, but we need to map it to adapter_id
-        let deleted = self.repo.delete(&self.default_tenant, id).await
+        let deleted = self
+            .repo
+            .delete(&self.default_tenant, id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to delete adapter: {}", e)))?;
 
         if !deleted {
@@ -336,7 +375,10 @@ impl AdapterKvOps for AdapterKvRepository {
                "Updating adapter state (KV)");
 
         // Get current adapter
-        let mut adapter_kv = self.repo.get(&self.default_tenant, adapter_id).await
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
             .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
@@ -345,7 +387,9 @@ impl AdapterKvOps for AdapterKvRepository {
         adapter_kv.updated_at = Utc::now().to_rfc3339();
 
         // Save
-        self.repo.update(adapter_kv).await
+        self.repo
+            .update(adapter_kv)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to update adapter state: {}", e)))?;
 
         Ok(())
@@ -356,7 +400,10 @@ impl AdapterKvOps for AdapterKvRepository {
                "Updating adapter memory (KV)");
 
         // Get current adapter
-        let mut adapter_kv = self.repo.get(&self.default_tenant, adapter_id).await
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
             .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
@@ -365,7 +412,9 @@ impl AdapterKvOps for AdapterKvRepository {
         adapter_kv.updated_at = Utc::now().to_rfc3339();
 
         // Save
-        self.repo.update(adapter_kv).await
+        self.repo
+            .update(adapter_kv)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to update adapter memory: {}", e)))?;
 
         Ok(())
@@ -387,7 +436,10 @@ impl AdapterKvOps for AdapterKvRepository {
         );
 
         // Get current adapter
-        let mut adapter_kv = self.repo.get(&self.default_tenant, adapter_id).await
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
             .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
@@ -397,7 +449,9 @@ impl AdapterKvOps for AdapterKvRepository {
         adapter_kv.updated_at = Utc::now().to_rfc3339();
 
         // Save atomically
-        self.repo.update(adapter_kv).await
+        self.repo
+            .update(adapter_kv)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to update adapter: {}", e)))?;
 
         Ok(())
@@ -405,11 +459,17 @@ impl AdapterKvOps for AdapterKvRepository {
 
     async fn get_adapter_lineage_kv(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
         // Get ancestors
-        let ancestors = self.repo.get_ancestors(&self.default_tenant, adapter_id).await
+        let ancestors = self
+            .repo
+            .get_ancestors(&self.default_tenant, adapter_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get ancestors: {}", e)))?;
 
         // Get descendants
-        let descendants = self.repo.get_descendants(&self.default_tenant, adapter_id).await
+        let descendants = self
+            .repo
+            .get_descendants(&self.default_tenant, adapter_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get descendants: {}", e)))?;
 
         // Combine and deduplicate
@@ -429,7 +489,10 @@ impl AdapterKvOps for AdapterKvRepository {
 
     async fn get_adapter_children_kv(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
         // Get all descendants, then filter to direct children
-        let descendants = self.repo.get_descendants(&self.default_tenant, adapter_id).await
+        let descendants = self
+            .repo
+            .get_descendants(&self.default_tenant, adapter_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get descendants: {}", e)))?;
 
         // Filter to direct children only
@@ -444,7 +507,10 @@ impl AdapterKvOps for AdapterKvRepository {
 
     async fn get_lineage_path_kv(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
         // Get ancestors (which includes the adapter itself)
-        let ancestors = self.repo.get_ancestors(&self.default_tenant, adapter_id).await
+        let ancestors = self
+            .repo
+            .get_ancestors(&self.default_tenant, adapter_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get ancestors: {}", e)))?;
 
         // Reverse to get root-to-leaf order
@@ -455,15 +521,20 @@ impl AdapterKvOps for AdapterKvRepository {
     }
 
     async fn find_adapter_by_hash_kv(&self, hash_b3: &str) -> Result<Option<Adapter>> {
-        let adapter_kv = self.repo.find_by_hash(hash_b3).await
-            .map_err(|e| AosError::Database(format!("Failed to find adapter by hash: {}", e)))?;
+        let adapter_kv =
+            self.repo.find_by_hash(hash_b3).await.map_err(|e| {
+                AosError::Database(format!("Failed to find adapter by hash: {}", e))
+            })?;
 
         Ok(adapter_kv.map(|kv| kv.into()))
     }
 
     async fn list_adapters_by_category_kv(&self, category: &str) -> Result<Vec<Adapter>> {
         // Get all adapters for tenant, then filter by category
-        let adapters = self.repo.list_by_tenant(&self.default_tenant).await
+        let adapters = self
+            .repo
+            .list_by_tenant(&self.default_tenant)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
 
         let filtered: Vec<Adapter> = adapters
@@ -477,7 +548,10 @@ impl AdapterKvOps for AdapterKvRepository {
 
     async fn list_adapters_by_scope_kv(&self, scope: &str) -> Result<Vec<Adapter>> {
         // Get all adapters for tenant, then filter by scope
-        let adapters = self.repo.list_by_tenant(&self.default_tenant).await
+        let adapters = self
+            .repo
+            .list_by_tenant(&self.default_tenant)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
 
         let filtered: Vec<Adapter> = adapters
@@ -490,7 +564,10 @@ impl AdapterKvOps for AdapterKvRepository {
     }
 
     async fn list_adapters_by_state_kv(&self, state: &str) -> Result<Vec<Adapter>> {
-        let adapters = self.repo.list_by_state(&self.default_tenant, state).await
+        let adapters = self
+            .repo
+            .list_by_state(&self.default_tenant, state)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to list adapters by state: {}", e)))?;
 
         Ok(adapters.into_iter().map(|kv| kv.into()).collect())
@@ -506,7 +583,10 @@ impl AdapterKvOps for AdapterKvRepository {
         }
 
         // Get current adapter
-        let mut adapter_kv = self.repo.get(&self.default_tenant, adapter_id).await
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
             .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
@@ -515,7 +595,9 @@ impl AdapterKvOps for AdapterKvRepository {
         adapter_kv.updated_at = Utc::now().to_rfc3339();
 
         // Save
-        self.repo.update(adapter_kv).await
+        self.repo
+            .update(adapter_kv)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to update adapter tier: {}", e)))?;
 
         Ok(())
@@ -537,7 +619,10 @@ impl AdapterKvOps for AdapterKvRepository {
         let _guard = lock.lock().await;
 
         // Get current adapter
-        let mut adapter_kv = self.repo.get(&self.default_tenant, adapter_id).await
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
             .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
@@ -547,8 +632,121 @@ impl AdapterKvOps for AdapterKvRepository {
         adapter_kv.updated_at = Utc::now().to_rfc3339();
 
         // Save
-        self.repo.update(adapter_kv).await
-            .map_err(|e| AosError::Database(format!("Failed to increment adapter activation: {}", e)))?;
+        self.repo.update(adapter_kv).await.map_err(|e| {
+            AosError::Database(format!("Failed to increment adapter activation: {}", e))
+        })?;
+
+        Ok(())
+    }
+
+    async fn archive_adapter_kv(
+        &self,
+        adapter_id: &str,
+        archived_by: &str,
+        reason: &str,
+    ) -> Result<()> {
+        debug!(adapter_id = %adapter_id, archived_by = %archived_by, "Archiving adapter (KV)");
+
+        // Get current adapter
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        // Check not already archived
+        if adapter_kv.archived_at.is_some() {
+            return Err(AosError::Validation(format!(
+                "Adapter {} is already archived",
+                adapter_id
+            )));
+        }
+
+        // Set archive fields
+        adapter_kv.archived_at = Some(Utc::now().to_rfc3339());
+        adapter_kv.archived_by = Some(archived_by.to_string());
+        adapter_kv.archive_reason = Some(reason.to_string());
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
+
+        // Save
+        self.repo
+            .update(adapter_kv)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to archive adapter: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn mark_adapter_purged_kv(&self, adapter_id: &str) -> Result<()> {
+        debug!(adapter_id = %adapter_id, "Marking adapter as purged (KV)");
+
+        // Get current adapter
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        // Check adapter is archived
+        if adapter_kv.archived_at.is_none() {
+            return Err(AosError::Validation(format!(
+                "Cannot purge adapter {} that is not archived",
+                adapter_id
+            )));
+        }
+
+        // Set purge fields
+        adapter_kv.purged_at = Some(Utc::now().to_rfc3339());
+        adapter_kv.aos_file_path = None;
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
+
+        // Save
+        self.repo
+            .update(adapter_kv)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to mark adapter purged: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn unarchive_adapter_kv(&self, adapter_id: &str) -> Result<()> {
+        debug!(adapter_id = %adapter_id, "Unarchiving adapter (KV)");
+
+        // Get current adapter
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        // Check adapter is archived but not purged
+        if adapter_kv.archived_at.is_none() {
+            return Err(AosError::Validation(format!(
+                "Adapter {} is not archived",
+                adapter_id
+            )));
+        }
+        if adapter_kv.purged_at.is_some() {
+            return Err(AosError::Validation(format!(
+                "Cannot unarchive adapter {} that has been purged",
+                adapter_id
+            )));
+        }
+
+        // Clear archive fields
+        adapter_kv.archived_at = None;
+        adapter_kv.archived_by = None;
+        adapter_kv.archive_reason = None;
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
+
+        // Save
+        self.repo
+            .update(adapter_kv)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to unarchive adapter: {}", e)))?;
 
         Ok(())
     }
@@ -603,6 +801,10 @@ mod tests {
             updated_at: "2025-01-01T00:00:00Z".to_string(),
             version: "1.0.0".to_string(),
             lifecycle_state: "active".to_string(),
+            archived_at: None,
+            archived_by: None,
+            archive_reason: None,
+            purged_at: None,
         };
 
         // Convert to KV (models::AdapterKv uses same types as SQL Adapter)

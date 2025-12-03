@@ -136,11 +136,7 @@ impl TenantKvRepository {
     }
 
     /// Update secondary indexes
-    async fn update_indexes(
-        &self,
-        tenant: &TenantKv,
-        old_tenant: Option<&TenantKv>,
-    ) -> Result<()> {
+    async fn update_indexes(&self, tenant: &TenantKv, old_tenant: Option<&TenantKv>) -> Result<()> {
         // Name index (only on create, names should be unique)
         if old_tenant.is_none() {
             let name_key = Self::name_index_key(&tenant.name);
@@ -153,17 +149,18 @@ impl TenantKvRepository {
             if old.name != tenant.name {
                 // Remove old name index
                 let old_name_key = Self::name_index_key(&old.name);
-                self.backend
-                    .delete(&old_name_key)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to delete old name index: {}", e)))?;
+                self.backend.delete(&old_name_key).await.map_err(|e| {
+                    AosError::Database(format!("Failed to delete old name index: {}", e))
+                })?;
 
                 // Add new name index
                 let new_name_key = Self::name_index_key(&tenant.name);
                 self.backend
                     .set(&new_name_key, tenant.id.as_bytes().to_vec())
                     .await
-                    .map_err(|e| AosError::Database(format!("Failed to update name index: {}", e)))?;
+                    .map_err(|e| {
+                        AosError::Database(format!("Failed to update name index: {}", e))
+                    })?;
             }
         }
 
@@ -172,10 +169,9 @@ impl TenantKvRepository {
             if old.status != tenant.status {
                 // Remove from old status index
                 let old_status_key = Self::status_index_key(&old.status, &tenant.id);
-                self.backend
-                    .delete(&old_status_key)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to delete old status index: {}", e)))?;
+                self.backend.delete(&old_status_key).await.map_err(|e| {
+                    AosError::Database(format!("Failed to delete old status index: {}", e))
+                })?;
             }
         }
 
@@ -261,6 +257,7 @@ impl TenantKvOps for TenantKvRepository {
             itar_flag: params.itar_flag,
             status: "active".to_string(),
             default_stack_id: None,
+            default_pinned_adapter_ids: None,
             max_adapters: None,
             max_training_jobs: None,
             max_storage_gb: None,
@@ -482,6 +479,7 @@ impl From<Tenant> for TenantKv {
             itar_flag: sql_tenant.itar_flag,
             status: sql_tenant.status.unwrap_or_else(|| "active".to_string()),
             default_stack_id: sql_tenant.default_stack_id,
+            default_pinned_adapter_ids: sql_tenant.default_pinned_adapter_ids,
             max_adapters: sql_tenant.max_adapters,
             max_training_jobs: sql_tenant.max_training_jobs,
             max_storage_gb: sql_tenant.max_storage_gb,
@@ -503,6 +501,7 @@ impl From<TenantKv> for Tenant {
             status: Some(kv_tenant.status),
             updated_at: Some(kv_tenant.updated_at.to_rfc3339()),
             default_stack_id: kv_tenant.default_stack_id,
+            default_pinned_adapter_ids: kv_tenant.default_pinned_adapter_ids,
             max_adapters: kv_tenant.max_adapters,
             max_training_jobs: kv_tenant.max_training_jobs,
             max_storage_gb: kv_tenant.max_storage_gb,
@@ -521,6 +520,7 @@ fn tenant_kv_from_params(params: &CreateTenantParams, id: &str) -> TenantKv {
         itar_flag: params.itar_flag,
         status: "active".to_string(),
         default_stack_id: None,
+        default_pinned_adapter_ids: None,
         max_adapters: None,
         max_training_jobs: None,
         max_storage_gb: None,
@@ -544,6 +544,7 @@ mod tests {
             status: Some("active".to_string()),
             updated_at: Some("2025-01-02T00:00:00Z".to_string()),
             default_stack_id: Some("stack-1".to_string()),
+            default_pinned_adapter_ids: None,
             max_adapters: Some(100),
             max_training_jobs: Some(10),
             max_storage_gb: Some(500.0),
@@ -568,6 +569,7 @@ mod tests {
             itar_flag: false,
             status: "paused".to_string(),
             default_stack_id: None,
+            default_pinned_adapter_ids: None,
             max_adapters: Some(50),
             max_training_jobs: Some(5),
             max_storage_gb: Some(100.0),

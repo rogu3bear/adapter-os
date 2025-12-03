@@ -251,8 +251,14 @@ impl TestAdapterFactory {
     pub fn build(self) -> adapteros_core::Result<AdapterRegistrationParams> {
         let mut builder = AdapterRegistrationBuilder::new()
             .adapter_id(self.adapter_id.clone())
-            .name(self.name.unwrap_or_else(|| format!("{} Test", self.adapter_id)))
-            .hash_b3(self.hash_b3.unwrap_or_else(|| format!("b3:test_{}", Uuid::new_v4())))
+            .name(
+                self.name
+                    .unwrap_or_else(|| format!("{} Test", self.adapter_id)),
+            )
+            .hash_b3(
+                self.hash_b3
+                    .unwrap_or_else(|| format!("b3:test_{}", Uuid::new_v4())),
+            )
             .rank(self.rank)
             .tier(self.tier)
             .tenant_id(self.tenant_id)
@@ -391,7 +397,9 @@ impl TestTenantFactory {
 
     /// Get the tenant name (or generate default)
     pub fn tenant_name(&self) -> String {
-        self.name.clone().unwrap_or_else(|| format!("Test Tenant {}", self.tenant_id))
+        self.name
+            .clone()
+            .unwrap_or_else(|| format!("Test Tenant {}", self.tenant_id))
     }
 
     /// Check if system tenant
@@ -444,7 +452,8 @@ impl TestStackFactory {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.adapter_ids.extend(adapter_ids.into_iter().map(|id| id.into()));
+        self.adapter_ids
+            .extend(adapter_ids.into_iter().map(|id| id.into()));
         self
     }
 
@@ -477,7 +486,9 @@ impl TestStackFactory {
 
     /// Get the description (or generate default)
     pub fn description_text(&self) -> String {
-        self.description.clone().unwrap_or_else(|| format!("Test stack {}", self.name))
+        self.description
+            .clone()
+            .unwrap_or_else(|| format!("Test stack {}", self.name))
     }
 }
 

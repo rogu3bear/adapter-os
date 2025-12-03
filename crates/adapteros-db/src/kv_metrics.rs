@@ -193,7 +193,8 @@ impl KvMetrics {
     pub fn record_read(&self, duration: Duration) {
         self.reads_total.fetch_add(1, Ordering::Relaxed);
         let micros = duration.as_micros() as u64;
-        self.read_latency_sum_us.fetch_add(micros, Ordering::Relaxed);
+        self.read_latency_sum_us
+            .fetch_add(micros, Ordering::Relaxed);
         self.increment_latency_bucket(&self.read_latency_buckets, duration);
     }
 
@@ -201,7 +202,8 @@ impl KvMetrics {
     pub fn record_write(&self, duration: Duration) {
         self.writes_total.fetch_add(1, Ordering::Relaxed);
         let micros = duration.as_micros() as u64;
-        self.write_latency_sum_us.fetch_add(micros, Ordering::Relaxed);
+        self.write_latency_sum_us
+            .fetch_add(micros, Ordering::Relaxed);
         self.increment_latency_bucket(&self.write_latency_buckets, duration);
     }
 
@@ -209,7 +211,8 @@ impl KvMetrics {
     pub fn record_delete(&self, duration: Duration) {
         self.deletes_total.fetch_add(1, Ordering::Relaxed);
         let micros = duration.as_micros() as u64;
-        self.delete_latency_sum_us.fetch_add(micros, Ordering::Relaxed);
+        self.delete_latency_sum_us
+            .fetch_add(micros, Ordering::Relaxed);
         self.increment_latency_bucket(&self.delete_latency_buckets, duration);
     }
 
@@ -217,7 +220,8 @@ impl KvMetrics {
     pub fn record_scan(&self, duration: Duration) {
         self.scans_total.fetch_add(1, Ordering::Relaxed);
         let micros = duration.as_micros() as u64;
-        self.scan_latency_sum_us.fetch_add(micros, Ordering::Relaxed);
+        self.scan_latency_sum_us
+            .fetch_add(micros, Ordering::Relaxed);
         self.increment_latency_bucket(&self.scan_latency_buckets, duration);
     }
 
@@ -345,13 +349,13 @@ impl KvMetrics {
     fn increment_latency_bucket(&self, buckets: &[AtomicU64; 7], duration: Duration) {
         let millis = duration.as_millis();
         let bucket_idx = match millis {
-            0..=1 => 0,      // <1ms
-            2..=5 => 1,      // 1-5ms
-            6..=10 => 2,     // 5-10ms
-            11..=50 => 3,    // 10-50ms
-            51..=100 => 4,   // 50-100ms
-            101..=500 => 5,  // 100-500ms
-            _ => 6,          // >500ms
+            0..=1 => 0,     // <1ms
+            2..=5 => 1,     // 1-5ms
+            6..=10 => 2,    // 5-10ms
+            11..=50 => 3,   // 10-50ms
+            51..=100 => 4,  // 50-100ms
+            101..=500 => 5, // 100-500ms
+            _ => 6,         // >500ms
         };
         buckets[bucket_idx].fetch_add(1, Ordering::Relaxed);
     }

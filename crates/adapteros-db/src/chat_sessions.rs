@@ -38,6 +38,10 @@ pub struct ChatSession {
     pub last_activity_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_json: Option<String>,
+    /// Pinned adapter IDs for this session (JSON array)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub pinned_adapter_ids: Option<String>,
 }
 
 /// Chat message record
@@ -75,6 +79,8 @@ pub struct CreateChatSessionParams {
     pub collection_id: Option<String>,
     pub name: String,
     pub metadata_json: Option<String>,
+    /// Pinned adapter IDs for this session (JSON array). If None, inherits from tenant default.
+    pub pinned_adapter_ids: Option<String>,
 }
 
 /// Parameters for adding a message to a session
@@ -161,6 +167,10 @@ pub struct ChatSessionWithStatus {
     pub description: Option<String>,
     #[serde(default)]
     pub is_shared: bool,
+    /// Pinned adapter IDs for this session (JSON array)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub pinned_adapter_ids: Option<String>,
 }
 
 /// Search result for chat sessions/messages
@@ -243,10 +253,26 @@ impl Db {
             "Creating chat session"
         );
 
+        // Resolve pinned adapters: use provided value or inherit from tenant default
+        let pinned_adapter_ids = match &params.pinned_adapter_ids {
+            Some(ids) => Some(ids.clone()),
+            None => {
+                // Fetch tenant default pinned adapters
+                sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT default_pinned_adapter_ids FROM tenants WHERE id = ?",
+                )
+                .bind(&params.tenant_id)
+                .fetch_optional(&*self.pool())
+                .await
+                .map_err(db_err("fetch tenant default pinned adapters"))?
+                .flatten()
+            }
+        };
+
         sqlx::query(
             r#"
-            INSERT INTO chat_sessions (id, tenant_id, user_id, stack_id, collection_id, name, metadata_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chat_sessions (id, tenant_id, user_id, stack_id, collection_id, name, metadata_json, pinned_adapter_ids)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&params.id)
@@ -256,6 +282,7 @@ impl Db {
         .bind(&params.collection_id)
         .bind(&params.name)
         .bind(&params.metadata_json)
+        .bind(&pinned_adapter_ids)
         .execute(&*self.pool())
         .await
         .map_err(db_err("create chat session"))?;
@@ -284,7 +311,7 @@ impl Db {
         let sessions = if let Some(user_id) = user_id {
             sqlx::query_as::<_, ChatSession>(
                 r#"
-                SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at, last_activity_at, metadata_json
+                SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at, last_activity_at, metadata_json, pinned_adapter_ids
                 FROM chat_sessions
                 WHERE tenant_id = ? AND user_id = ?
                 ORDER BY last_activity_at DESC
@@ -299,7 +326,7 @@ impl Db {
         } else {
             sqlx::query_as::<_, ChatSession>(
                 r#"
-                SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at, last_activity_at, metadata_json
+                SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at, last_activity_at, metadata_json, pinned_adapter_ids
                 FROM chat_sessions
                 WHERE tenant_id = ?
                 ORDER BY last_activity_at DESC
@@ -332,7 +359,7 @@ impl Db {
     pub async fn get_chat_session(&self, session_id: &str) -> Result<Option<ChatSession>> {
         let session = sqlx::query_as::<_, ChatSession>(
             r#"
-            SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at, last_activity_at, metadata_json
+            SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at, last_activity_at, metadata_json, pinned_adapter_ids
             FROM chat_sessions
             WHERE id = ?
             "#,
@@ -405,6 +432,99 @@ impl Db {
         Ok(())
     }
 
+    /// Update the pinned adapter IDs for a chat session
+    ///
+    /// # Arguments
+    /// * `session_id` - The session ID
+    /// * `tenant_id` - The tenant ID (for validation)
+    /// * `adapter_ids` - The new pinned adapter IDs (or None to clear)
+    ///
+    /// # Returns
+    /// Ok if the update succeeded
+    ///
+    /// # Errors
+    /// Returns `AosError::Database` if the update fails
+    pub async fn update_session_pinned_adapters(
+        &self,
+        session_id: &str,
+        tenant_id: &str,
+        adapter_ids: Option<&[String]>,
+    ) -> Result<()> {
+        let json = adapter_ids.map(|ids| serde_json::to_string(ids).unwrap());
+
+        debug!(
+            session_id = %session_id,
+            tenant_id = %tenant_id,
+            pinned_count = adapter_ids.map(|ids| ids.len()).unwrap_or(0),
+            "Updating session pinned adapters"
+        );
+
+        let rows_affected = sqlx::query(
+            r#"
+            UPDATE chat_sessions
+            SET pinned_adapter_ids = ?, last_activity_at = datetime('now')
+            WHERE id = ? AND tenant_id = ?
+            "#,
+        )
+        .bind(&json)
+        .bind(session_id)
+        .bind(tenant_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("update session pinned adapters"))?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(AosError::NotFound(format!(
+                "Session {} not found for tenant {}",
+                session_id, tenant_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Get the pinned adapter IDs for a chat session
+    ///
+    /// # Arguments
+    /// * `session_id` - The session ID
+    /// * `tenant_id` - The tenant ID (for validation)
+    ///
+    /// # Returns
+    /// The parsed list of adapter IDs, or None if not set
+    ///
+    /// # Errors
+    /// Returns `AosError::NotFound` if the session doesn't exist for the tenant
+    /// Returns `AosError::Validation` if the stored JSON is invalid
+    pub async fn get_session_pinned_adapters(
+        &self,
+        session_id: &str,
+        tenant_id: &str,
+    ) -> Result<Option<Vec<String>>> {
+        let json: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT pinned_adapter_ids FROM chat_sessions WHERE id = ? AND tenant_id = ?",
+        )
+        .bind(session_id)
+        .bind(tenant_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(db_err("get session pinned adapters"))?;
+
+        match json {
+            None => Err(AosError::NotFound(format!(
+                "Session {} not found for tenant {}",
+                session_id, tenant_id
+            ))),
+            Some(None) => Ok(None),
+            Some(Some(s)) => {
+                let ids: Vec<String> = serde_json::from_str(&s).map_err(|e| {
+                    AosError::Validation(format!("Invalid pinned adapter IDs JSON: {}", e))
+                })?;
+                Ok(Some(ids))
+            }
+        }
+    }
+
     /// Add a message to a chat session
     ///
     /// Automatically updates the session's last_activity_at timestamp
@@ -436,7 +556,8 @@ impl Db {
         .map_err(db_err("add chat message"))?;
 
         // Update session activity
-        self.update_chat_session_activity(&params.session_id).await?;
+        self.update_chat_session_activity(&params.session_id)
+            .await?;
 
         Ok(params.id)
     }
@@ -1092,7 +1213,7 @@ impl Db {
                 r#"
                 SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at,
                        last_activity_at, metadata_json, category_id, status, deleted_at,
-                       deleted_by, archived_at, archived_by, archive_reason, description, is_shared
+                       deleted_by, archived_at, archived_by, archive_reason, description, is_shared, pinned_adapter_ids
                 FROM chat_sessions
                 WHERE tenant_id = ? AND user_id = ? AND status = 'archived'
                 ORDER BY archived_at DESC
@@ -1109,7 +1230,7 @@ impl Db {
                 r#"
                 SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at,
                        last_activity_at, metadata_json, category_id, status, deleted_at,
-                       deleted_by, archived_at, archived_by, archive_reason, description, is_shared
+                       deleted_by, archived_at, archived_by, archive_reason, description, is_shared, pinned_adapter_ids
                 FROM chat_sessions
                 WHERE tenant_id = ? AND status = 'archived'
                 ORDER BY archived_at DESC
@@ -1140,7 +1261,7 @@ impl Db {
                 r#"
                 SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at,
                        last_activity_at, metadata_json, category_id, status, deleted_at,
-                       deleted_by, archived_at, archived_by, archive_reason, description, is_shared
+                       deleted_by, archived_at, archived_by, archive_reason, description, is_shared, pinned_adapter_ids
                 FROM chat_sessions
                 WHERE tenant_id = ? AND user_id = ? AND status = 'deleted'
                 ORDER BY deleted_at DESC
@@ -1157,7 +1278,7 @@ impl Db {
                 r#"
                 SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at,
                        last_activity_at, metadata_json, category_id, status, deleted_at,
-                       deleted_by, archived_at, archived_by, archive_reason, description, is_shared
+                       deleted_by, archived_at, archived_by, archive_reason, description, is_shared, pinned_adapter_ids
                 FROM chat_sessions
                 WHERE tenant_id = ? AND status = 'deleted'
                 ORDER BY deleted_at DESC
@@ -1630,6 +1751,7 @@ mod tests {
             collection_id: None,
             name: "Test Session".to_string(),
             metadata_json: None,
+            pinned_adapter_ids: None,
         };
 
         db.create_chat_session(params).await?;
@@ -1663,6 +1785,7 @@ mod tests {
             collection_id: None,
             name: "Test Session".to_string(),
             metadata_json: None,
+            pinned_adapter_ids: None,
         };
         db.create_chat_session(session_params).await?;
 
@@ -1712,6 +1835,7 @@ mod tests {
             collection_id: None,
             name: "Test Session".to_string(),
             metadata_json: None,
+            pinned_adapter_ids: None,
         };
         db.create_chat_session(session_params).await?;
 

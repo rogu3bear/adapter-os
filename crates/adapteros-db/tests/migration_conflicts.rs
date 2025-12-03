@@ -6,7 +6,6 @@
 //! 3. Ensuring all root migrations have Ed25519 signatures
 //! 4. Validating migration numbering sequence
 //!
-//! Citation: PRD-01 Migration Conflict Resolution
 //! Priority: CRITICAL - Prevents schema drift and duplicate migrations
 
 use anyhow::Result;
@@ -288,9 +287,9 @@ fn test_crate_migrations_properly_managed() -> Result<()> {
     Ok(())
 }
 
-/// Test 7: Verify PRD-01 migrations exist (0072-0074)
+/// Test 7: Verify tenant snapshot migrations exist (0072-0074)
 #[test]
-fn test_prd01_migrations_exist() -> Result<()> {
+fn test_tenant_snapshot_migrations_exist() -> Result<()> {
     let root_migrations_dir = PathBuf::from("migrations");
 
     let required_prd01_migrations = vec![
@@ -310,11 +309,11 @@ fn test_prd01_migrations_exist() -> Result<()> {
 
     assert!(
         missing_migrations.is_empty(),
-        "PRD-01 migrations missing: {:?}",
+        "Tenant snapshot migrations missing: {:?}",
         missing_migrations
     );
 
-    println!("✓ All PRD-01 migrations exist (0072-0074)");
+    println!("✓ All tenant snapshot migrations exist (0072-0074)");
     Ok(())
 }
 
@@ -344,7 +343,7 @@ fn test_rollback_scripts_exist() -> Result<()> {
         missing_rollbacks
     );
 
-    println!("✓ All rollback scripts exist for PRD-01 migrations");
+    println!("✓ All rollback scripts exist for tenant snapshot migrations");
     Ok(())
 }
 
@@ -372,7 +371,7 @@ fn test_migration_conflict_summary() -> Result<()> {
         "║ Crate Migrations:       {:>35} ║",
         format!("{}", crate_migrations.len())
     );
-    println!("║ PRD-01 Migrations:      {:>35} ║", "0072-0074 (3 new)");
+    println!("║ Tenant Snapshots:       {:>35} ║", "0072-0074 (3 new)");
     println!("║ Conflict Status:        {:>35} ║", "✓ NO CONFLICTS");
     println!("╚════════════════════════════════════════════════════════╝");
 
@@ -383,7 +382,7 @@ fn test_migration_conflict_summary() -> Result<()> {
     println!("  ✓ Migration sequence validated");
     println!("  ✓ Migration numbering range valid");
     println!("  ✓ Crate migrations properly managed");
-    println!("  ✓ PRD-01 migrations exist (0072-0074)");
+    println!("  ✓ Tenant snapshot migrations exist (0072-0074)");
     println!("  ✓ Rollback scripts exist");
 
     Ok(())

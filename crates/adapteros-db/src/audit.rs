@@ -270,7 +270,7 @@ impl Db {
         let mut builder = FilterBuilder::new(
             "SELECT id, timestamp, user_id, user_role, tenant_id, action, resource_type,
                     resource_id, status, error_message, ip_address, metadata_json
-             FROM audit_logs WHERE tenant_id = ?"
+             FROM audit_logs WHERE tenant_id = ?",
         );
         builder.add_param(tenant_id);
         builder.add_filter("user_id", user_id);
@@ -296,7 +296,10 @@ impl Db {
             q = q.bind(param);
         }
 
-        let logs = q.fetch_all(&*self.pool()).await.map_err(db_err("query audit logs for tenant"))?;
+        let logs = q
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(db_err("query audit logs for tenant"))?;
         Ok(logs)
     }
 

@@ -11,8 +11,11 @@ use serde_json::Value;
 use sqlx::Row;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
+
+/// Core policies enabled by default for new tenants
+const CORE_POLICIES: &[&str] = &["egress", "determinism", "isolation", "evidence"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Tenant {
@@ -34,6 +37,9 @@ pub struct Tenant {
     pub max_storage_gb: Option<f64>,
     #[sqlx(default)]
     pub rate_limit_rpm: Option<i32>,
+    /// Default pinned adapter IDs for new chat sessions (JSON array)
+    #[sqlx(default)]
+    pub default_pinned_adapter_ids: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,7 +93,104 @@ impl Db {
             }
         }
 
+        // Initialize default policy bindings for new tenant
+        // Core policies (egress, determinism, isolation, evidence) enabled; others disabled
+        if let Err(e) = self.initialize_tenant_policy_bindings(&id, "system").await {
+            warn!(error = %e, tenant_id = %id, "Failed to initialize policy bindings for new tenant");
+            // Non-fatal: tenant is created, bindings can be added later via migration or API
+        }
+
         Ok(id)
+    }
+
+    /// Initialize default policy bindings for a tenant
+    ///
+    /// Creates policy bindings for all 24 canonical policies:
+    /// - Core policies (egress, determinism, isolation, evidence) = enabled
+    /// - All other policies = disabled
+    ///
+    /// This is called automatically when a new tenant is created.
+    pub async fn initialize_tenant_policy_bindings(
+        &self,
+        tenant_id: &str,
+        created_by: &str,
+    ) -> Result<()> {
+        // All 24 canonical policies from CLAUDE.md
+        let all_policies = [
+            "egress",
+            "determinism",
+            "router",
+            "evidence",
+            "refusal",
+            "numeric",
+            "rag",
+            "isolation",
+            "telemetry",
+            "retention",
+            "performance",
+            "memory",
+            "artifacts",
+            "secrets",
+            "build_release",
+            "compliance",
+            "incident",
+            "output",
+            "adapters",
+            "deterministic_io",
+            "drift",
+            "mplora",
+            "naming",
+            "dependency_security",
+        ];
+
+        let now = Utc::now().to_rfc3339();
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
+        for policy_id in all_policies {
+            let id = Uuid::new_v4().to_string();
+            let enabled = CORE_POLICIES.contains(&policy_id);
+
+            sqlx::query(
+                r#"
+                INSERT INTO tenant_policy_bindings
+                (id, tenant_id, policy_pack_id, scope, enabled, created_at, created_by, updated_at)
+                VALUES (?, ?, ?, 'global', ?, ?, ?, ?)
+                "#,
+            )
+            .bind(&id)
+            .bind(tenant_id)
+            .bind(policy_id)
+            .bind(if enabled { 1 } else { 0 })
+            .bind(&now)
+            .bind(created_by)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                AosError::Database(format!(
+                    "Failed to initialize policy binding for {}: {}",
+                    policy_id, e
+                ))
+            })?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+
+        info!(
+            tenant_id = %tenant_id,
+            created_by = %created_by,
+            total_policies = all_policies.len(),
+            core_enabled = CORE_POLICIES.len(),
+            "Initialized tenant policy bindings"
+        );
+
+        Ok(())
     }
 
     pub async fn get_tenant(&self, id: &str) -> Result<Option<Tenant>> {
@@ -116,7 +219,11 @@ impl Db {
     }
 
     /// List tenants with pagination
-    pub async fn list_tenants_paginated(&self, limit: i64, offset: i64) -> Result<(Vec<Tenant>, i64)> {
+    pub async fn list_tenants_paginated(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<Tenant>, i64)> {
         // Get total count
         let total = sqlx::query("SELECT COUNT(*) as cnt FROM tenants")
             .fetch_one(&*self.pool())
@@ -197,15 +304,57 @@ impl Db {
         Ok(())
     }
 
-    /// Archive a tenant
+    /// Archive a tenant and cascade to their adapters
+    ///
+    /// This operation:
+    /// 1. Archives all active adapters belonging to the tenant (sets `archived_at`)
+    /// 2. Sets the tenant status to 'archived'
+    ///
+    /// Both operations happen in a single transaction to ensure consistency.
+    /// The .aos files are NOT deleted - that's handled by GC based on age policy.
     pub async fn archive_tenant(&self, id: &str) -> Result<()> {
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
+        // Archive all adapters for this tenant
+        let adapter_result = sqlx::query(
+            "UPDATE adapters
+             SET archived_at = datetime('now'),
+                 archived_by = 'system',
+                 archive_reason = 'tenant_archived',
+                 updated_at = datetime('now')
+             WHERE tenant_id = ?
+               AND archived_at IS NULL
+               AND active = 1",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to archive tenant adapters: {}", e)))?;
+
+        let adapters_archived = adapter_result.rows_affected();
+
+        // Archive the tenant itself
         sqlx::query(
             "UPDATE tenants SET status = 'archived', updated_at = datetime('now') WHERE id = ?",
         )
         .bind(id)
-        .execute(&*self.pool())
+        .execute(&mut *tx)
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::Database(format!("Failed to archive tenant: {}", e)))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+
+        info!(
+            tenant_id = %id,
+            adapters_archived = adapters_archived,
+            "Archived tenant with adapter cascade"
+        );
 
         // KV write (dual-write mode)
         if let Some(repo) = self.get_tenant_kv_repo() {
@@ -263,11 +412,74 @@ impl Db {
 
         // KV write (dual-write mode)
         if let Some(repo) = self.get_tenant_kv_repo() {
-            if let Err(e) = repo.update_tenant_limits_kv(id, max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm).await {
+            if let Err(e) = repo
+                .update_tenant_limits_kv(
+                    id,
+                    max_adapters,
+                    max_training_jobs,
+                    max_storage_gb,
+                    rate_limit_rpm,
+                )
+                .await
+            {
                 warn!(error = %e, tenant_id = %id, "Failed to update tenant limits in KV backend (dual-write)");
             }
         }
 
+        Ok(())
+    }
+
+    /// Get tenant's default pinned adapter IDs
+    ///
+    /// Returns the parsed list of adapter IDs, or None if not set.
+    pub async fn get_tenant_default_pinned_adapters(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Option<Vec<String>>> {
+        let json: Option<String> =
+            sqlx::query_scalar("SELECT default_pinned_adapter_ids FROM tenants WHERE id = ?")
+                .bind(tenant_id)
+                .fetch_optional(&*self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to get tenant pinned adapters: {}", e))
+                })?
+                .flatten();
+
+        match json {
+            Some(s) => {
+                let ids: Vec<String> = serde_json::from_str(&s).map_err(|e| {
+                    AosError::Validation(format!("Invalid pinned adapter IDs JSON: {}", e))
+                })?;
+                Ok(Some(ids))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Set tenant's default pinned adapter IDs
+    ///
+    /// Pass `None` to clear the default pinned adapters.
+    /// Pass `Some(&[])` to explicitly set an empty list.
+    pub async fn set_tenant_default_pinned_adapters(
+        &self,
+        tenant_id: &str,
+        adapter_ids: Option<&[String]>,
+    ) -> Result<()> {
+        let json = adapter_ids.map(|ids| serde_json::to_string(ids).unwrap());
+
+        sqlx::query(
+            "UPDATE tenants SET default_pinned_adapter_ids = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(&json)
+        .bind(tenant_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to set tenant pinned adapters: {}", e))
+        })?;
+
+        debug!(tenant_id = %tenant_id, "Updated tenant default pinned adapters");
         Ok(())
     }
 

@@ -38,6 +38,7 @@ async fn create_session(
         collection_id: None,
         name: name.to_string(),
         metadata_json: None,
+        pinned_adapter_ids: None,
     };
     db.create_chat_session(params).await
 }
@@ -60,6 +61,7 @@ async fn test_create_and_retrieve_session() -> Result<()> {
         collection_id: None, // FK constraint - skip
         name: "Test Session".to_string(),
         metadata_json: Some(r#"{"key": "value"}"#.to_string()),
+        pinned_adapter_ids: None,
     };
 
     let session_id = db.create_chat_session(params).await?;
@@ -532,6 +534,7 @@ async fn test_metadata_json_serialization() -> Result<()> {
         collection_id: None,
         name: "Test Session".to_string(),
         metadata_json: Some(complex_metadata.to_string()),
+        pinned_adapter_ids: None,
     };
     db.create_chat_session(params).await?;
 
@@ -568,6 +571,194 @@ async fn test_metadata_json_serialization() -> Result<()> {
         serde_json::from_str(&messages[0].metadata_json.clone().unwrap())
             .expect("Should parse message metadata");
     assert_eq!(msg_meta["tokens"], 150);
+
+    Ok(())
+}
+
+// =============================================================================
+// Pinned Adapters Tests (5 acceptance criteria)
+// =============================================================================
+
+#[tokio::test]
+async fn test_pinned_adapters_inherit_from_tenant_default() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+    create_tenant(&db, "tenant-1", "Test Tenant").await?;
+
+    // Set tenant default pinned adapters
+    let default_adapters = vec!["adapter-a".to_string(), "adapter-b".to_string()];
+    db.set_tenant_default_pinned_adapters("tenant-1", Some(&default_adapters))
+        .await?;
+
+    // Create session WITHOUT explicit pins - should inherit
+    let params = CreateChatSessionParams {
+        id: "session-1".to_string(),
+        tenant_id: "tenant-1".to_string(),
+        user_id: None,
+        stack_id: None,
+        collection_id: None,
+        name: "Test Session".to_string(),
+        metadata_json: None,
+        pinned_adapter_ids: None, // Not provided - should inherit
+    };
+    db.create_chat_session(params).await?;
+
+    // Verify session inherited tenant defaults
+    let pinned = db
+        .get_session_pinned_adapters("session-1", "tenant-1")
+        .await?;
+    assert_eq!(pinned, Some(default_adapters));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pinned_adapters_explicit_overrides_tenant_default() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+    create_tenant(&db, "tenant-1", "Test Tenant").await?;
+
+    // Set tenant default pinned adapters
+    let default_adapters = vec!["adapter-a".to_string(), "adapter-b".to_string()];
+    db.set_tenant_default_pinned_adapters("tenant-1", Some(&default_adapters))
+        .await?;
+
+    // Create session WITH explicit pins - should NOT inherit
+    let explicit_adapters = vec!["adapter-x".to_string(), "adapter-y".to_string()];
+    let params = CreateChatSessionParams {
+        id: "session-1".to_string(),
+        tenant_id: "tenant-1".to_string(),
+        user_id: None,
+        stack_id: None,
+        collection_id: None,
+        name: "Test Session".to_string(),
+        metadata_json: None,
+        pinned_adapter_ids: Some(serde_json::to_string(&explicit_adapters).unwrap()),
+    };
+    db.create_chat_session(params).await?;
+
+    // Verify session uses explicit pins, not tenant default
+    let pinned = db
+        .get_session_pinned_adapters("session-1", "tenant-1")
+        .await?;
+    assert_eq!(pinned, Some(explicit_adapters));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pinned_adapters_null_when_no_tenant_default() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+    create_tenant(&db, "tenant-1", "Test Tenant").await?;
+
+    // Tenant has NO default pinned adapters
+
+    // Create session without explicit pins
+    let params = CreateChatSessionParams {
+        id: "session-1".to_string(),
+        tenant_id: "tenant-1".to_string(),
+        user_id: None,
+        stack_id: None,
+        collection_id: None,
+        name: "Test Session".to_string(),
+        metadata_json: None,
+        pinned_adapter_ids: None,
+    };
+    db.create_chat_session(params).await?;
+
+    // Verify session has NULL pinned adapters
+    let pinned = db
+        .get_session_pinned_adapters("session-1", "tenant-1")
+        .await?;
+    assert_eq!(pinned, None);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_tenant_default_change_does_not_affect_existing_sessions() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+    create_tenant(&db, "tenant-1", "Test Tenant").await?;
+
+    // Set initial tenant default
+    let initial_adapters = vec!["adapter-a".to_string()];
+    db.set_tenant_default_pinned_adapters("tenant-1", Some(&initial_adapters))
+        .await?;
+
+    // Create session - inherits initial default
+    let params = CreateChatSessionParams {
+        id: "session-1".to_string(),
+        tenant_id: "tenant-1".to_string(),
+        user_id: None,
+        stack_id: None,
+        collection_id: None,
+        name: "Test Session".to_string(),
+        metadata_json: None,
+        pinned_adapter_ids: None,
+    };
+    db.create_chat_session(params).await?;
+
+    // Change tenant default AFTER session creation
+    let new_adapters = vec!["adapter-x".to_string(), "adapter-y".to_string()];
+    db.set_tenant_default_pinned_adapters("tenant-1", Some(&new_adapters))
+        .await?;
+
+    // Verify session STILL has original adapters (not retroactively changed)
+    let pinned = db
+        .get_session_pinned_adapters("session-1", "tenant-1")
+        .await?;
+    assert_eq!(pinned, Some(initial_adapters));
+
+    // Verify tenant default is updated
+    let tenant_default = db.get_tenant_default_pinned_adapters("tenant-1").await?;
+    assert_eq!(tenant_default, Some(new_adapters));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_update_session_pinned_adapters() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+    create_tenant(&db, "tenant-1", "Test Tenant").await?;
+
+    // Create session with initial pinned adapters
+    let initial_adapters = vec!["adapter-a".to_string()];
+    let params = CreateChatSessionParams {
+        id: "session-1".to_string(),
+        tenant_id: "tenant-1".to_string(),
+        user_id: None,
+        stack_id: None,
+        collection_id: None,
+        name: "Test Session".to_string(),
+        metadata_json: None,
+        pinned_adapter_ids: Some(serde_json::to_string(&initial_adapters).unwrap()),
+    };
+    db.create_chat_session(params).await?;
+
+    // Verify initial state
+    let pinned = db
+        .get_session_pinned_adapters("session-1", "tenant-1")
+        .await?;
+    assert_eq!(pinned, Some(initial_adapters));
+
+    // Update to new adapters
+    let new_adapters = vec!["adapter-x".to_string(), "adapter-y".to_string()];
+    db.update_session_pinned_adapters("session-1", "tenant-1", Some(&new_adapters))
+        .await?;
+
+    // Verify update overwrote previous value
+    let pinned = db
+        .get_session_pinned_adapters("session-1", "tenant-1")
+        .await?;
+    assert_eq!(pinned, Some(new_adapters));
+
+    // Update to None (clear)
+    db.update_session_pinned_adapters("session-1", "tenant-1", None)
+        .await?;
+
+    // Verify cleared
+    let pinned = db
+        .get_session_pinned_adapters("session-1", "tenant-1")
+        .await?;
+    assert_eq!(pinned, None);
 
     Ok(())
 }

@@ -49,6 +49,11 @@ pub struct AdapterRecord {
     pub fork_reason: Option<String>,
     pub version: String,
     pub lifecycle_state: String,
+    // Archive/GC state (from migration 0138)
+    pub archived_at: Option<String>,
+    pub archived_by: Option<String>,
+    pub archive_reason: Option<String>,
+    pub purged_at: Option<String>,
 }
 
 /// Stack record from database

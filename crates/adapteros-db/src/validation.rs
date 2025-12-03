@@ -1,9 +1,7 @@
 /// Metadata validation functions
 ///
 /// This module provides validation for adapter and stack metadata changes,
-/// enforcing the rules defined in PRD-02 and documented in VERSION_GUARANTEES.md
-///
-/// Citation: PRD-02 (2025-11-17)
+/// enforcing lifecycle state transition rules and version format validation.
 use crate::metadata::{validate_state_transition, validate_version, LifecycleState};
 use crate::Db;
 use adapteros_core::Result;
@@ -194,10 +192,17 @@ impl Db {
         if let Some(kv_backend) = self.get_stack_kv_repo() {
             // Convert adapteros_core::LifecycleState to adapteros_storage::entities::stack::LifecycleState
             use adapteros_storage::entities::stack::LifecycleState as KvLifecycleState;
-            let kv_state = KvLifecycleState::from_str(new_state.as_str())
-                .ok_or_else(|| adapteros_core::AosError::Database(format!("Invalid lifecycle state: {}", new_state.as_str())))?;
+            let kv_state = KvLifecycleState::from_str(new_state.as_str()).ok_or_else(|| {
+                adapteros_core::AosError::Database(format!(
+                    "Invalid lifecycle state: {}",
+                    new_state.as_str()
+                ))
+            })?;
 
-            if let Err(e) = kv_backend.update_lifecycle_state(tenant_id, stack_id, kv_state).await {
+            if let Err(e) = kv_backend
+                .update_lifecycle_state(tenant_id, stack_id, kv_state)
+                .await
+            {
                 warn!(error = %e, stack_id = %stack_id, "Failed to update stack lifecycle state in KV backend (dual-write)");
             } else {
                 debug!(stack_id = %stack_id, state = ?new_state, "Stack lifecycle state updated in both SQL and KV backends");
@@ -245,7 +250,10 @@ impl Db {
 
         // KV update (dual-write mode)
         if let Some(kv_backend) = self.get_stack_kv_repo() {
-            if let Err(e) = kv_backend.update_version(tenant_id, stack_id, new_version).await {
+            if let Err(e) = kv_backend
+                .update_version(tenant_id, stack_id, new_version)
+                .await
+            {
                 warn!(error = %e, stack_id = %stack_id, "Failed to update stack version in KV backend (dual-write)");
             } else {
                 debug!(stack_id = %stack_id, version = %new_version, "Stack version updated in both SQL and KV backends");

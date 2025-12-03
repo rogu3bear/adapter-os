@@ -399,6 +399,12 @@ pub struct Adapter {
     pub version: String,         // Semantic version or monotonic
     pub lifecycle_state: String, // draft/active/deprecated/retired
 
+    // Archive/GC fields (from migration 0138)
+    pub archived_at: Option<String>,    // When adapter was archived
+    pub archived_by: Option<String>,    // User/system that initiated archive
+    pub archive_reason: Option<String>, // Reason for archival (e.g., "tenant_archived")
+    pub purged_at: Option<String>,      // When .aos file was deleted by GC
+
     pub created_at: String,
     pub updated_at: String,
 }
@@ -647,7 +653,9 @@ impl Db {
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .fetch_all(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to list all adapters (system): {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to list all adapters (system): {}", e))
+            })?;
         Ok(adapters)
     }
 
@@ -708,7 +716,9 @@ impl Db {
             .bind(tenant_id)
             .fetch_all(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to list adapters for tenant: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to list adapters for tenant: {}", e))
+            })?;
         Ok(adapters)
     }
 
@@ -742,13 +752,12 @@ impl Db {
 
         // Check active_pinned_adapters view (single source of truth)
         // View automatically filters expired pins (pinned_until > now())
-        let active_pin_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?",
-        )
-        .bind(&adapter_id)
-        .fetch_one(&*self.pool())
-        .await
-        .unwrap_or(0);
+        let active_pin_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?")
+                .bind(&adapter_id)
+                .fetch_one(&*self.pool())
+                .await
+                .unwrap_or(0);
 
         if active_pin_count > 0 {
             warn!(
@@ -815,13 +824,12 @@ impl Db {
         };
 
         // Check active_pinned_adapters view (single source of truth)
-        let active_pin_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?",
-        )
-        .bind(&adapter_id)
-        .fetch_one(&mut *tx)
-        .await
-        .unwrap_or(0);
+        let active_pin_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?")
+                .bind(&adapter_id)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap_or(0);
 
         if active_pin_count > 0 {
             warn!(
@@ -1037,7 +1045,10 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
             if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                if let Err(e) = repo.update_adapter_state_kv(adapter_id, state, reason).await {
+                if let Err(e) = repo
+                    .update_adapter_state_kv(adapter_id, state, reason)
+                    .await
+                {
                     warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend");
                 } else {
                     debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, mode = "dual-write", "Adapter state updated in both SQL and KV backends");
@@ -1064,7 +1075,10 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
             if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                if let Err(e) = repo.update_adapter_memory_kv(adapter_id, memory_bytes).await {
+                if let Err(e) = repo
+                    .update_adapter_memory_kv(adapter_id, memory_bytes)
+                    .await
+                {
                     warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter memory in KV backend");
                 } else {
                     debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter memory updated in both SQL and KV backends");
@@ -1134,7 +1148,10 @@ impl Db {
 
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-            if let Err(e) = repo.update_adapter_state_kv(adapter_id, state, reason).await {
+            if let Err(e) = repo
+                .update_adapter_state_kv(adapter_id, state, reason)
+                .await
+            {
                 warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend");
             } else {
                 debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, mode = "dual-write", "Adapter state updated in both SQL and KV backends (tx)");
@@ -1317,7 +1334,10 @@ impl Db {
 
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-            if let Err(e) = repo.update_adapter_memory_kv(adapter_id, memory_bytes).await {
+            if let Err(e) = repo
+                .update_adapter_memory_kv(adapter_id, memory_bytes)
+                .await
+            {
                 warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter memory in KV backend");
             } else {
                 debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter memory updated in both SQL and KV backends (tx)");
@@ -1391,7 +1411,10 @@ impl Db {
 
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-            if let Err(e) = repo.update_adapter_state_and_memory_kv(adapter_id, state, memory_bytes, reason).await {
+            if let Err(e) = repo
+                .update_adapter_state_and_memory_kv(adapter_id, state, memory_bytes, reason)
+                .await
+            {
                 warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state/memory in KV backend");
             } else {
                 debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter state/memory updated in both SQL and KV backends");
@@ -1811,5 +1834,342 @@ impl Db {
         }
 
         Ok(())
+    }
+
+    // =========================================================================
+    // Archive & Garbage Collection Operations (from migration 0138)
+    // =========================================================================
+
+    /// Archive adapters for a tenant (cascade from tenant archival)
+    ///
+    /// Sets `archived_at` timestamp for all active, non-archived adapters
+    /// belonging to the tenant. Does NOT delete .aos files - that's handled by GC.
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant whose adapters to archive
+    /// * `archived_by` - User/system initiating the archive
+    /// * `reason` - Human-readable reason (e.g., "tenant_archived")
+    ///
+    /// # Returns
+    /// Number of adapters archived
+    pub async fn archive_adapters_for_tenant(
+        &self,
+        tenant_id: &str,
+        archived_by: &str,
+        reason: &str,
+    ) -> Result<u64> {
+        // First, get the list of adapter IDs that will be affected (for KV dual-write)
+        let affected_adapter_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT adapter_id FROM adapters
+             WHERE tenant_id = ?
+               AND archived_at IS NULL
+               AND active = 1",
+        )
+        .bind(tenant_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to query adapters: {}", e)))?;
+
+        let result = sqlx::query(
+            "UPDATE adapters
+             SET archived_at = datetime('now'),
+                 archived_by = ?,
+                 archive_reason = ?,
+                 updated_at = datetime('now')
+             WHERE tenant_id = ?
+               AND archived_at IS NULL
+               AND active = 1",
+        )
+        .bind(archived_by)
+        .bind(reason)
+        .bind(tenant_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to archive adapters: {}", e)))?;
+
+        info!(
+            tenant_id = %tenant_id,
+            archived_by = %archived_by,
+            count = result.rows_affected(),
+            "Archived adapters for tenant"
+        );
+
+        // KV write (dual-write mode) - archive each adapter in KV backend
+        if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+            let mut kv_success_count = 0u64;
+            let mut kv_error_count = 0u64;
+
+            for adapter_id in &affected_adapter_ids {
+                match repo.archive_adapter_kv(adapter_id, archived_by, reason).await {
+                    Ok(()) => {
+                        kv_success_count += 1;
+                    }
+                    Err(e) => {
+                        kv_error_count += 1;
+                        warn!(
+                            error = %e,
+                            adapter_id = %adapter_id,
+                            tenant_id = %tenant_id,
+                            mode = "dual-write",
+                            "Failed to archive adapter in KV backend"
+                        );
+                    }
+                }
+            }
+
+            if kv_error_count > 0 {
+                warn!(
+                    tenant_id = %tenant_id,
+                    success_count = kv_success_count,
+                    error_count = kv_error_count,
+                    mode = "dual-write",
+                    "Partial KV archive failure for tenant adapters"
+                );
+            } else if kv_success_count > 0 {
+                debug!(
+                    tenant_id = %tenant_id,
+                    count = kv_success_count,
+                    mode = "dual-write",
+                    "Archived adapters in both SQL and KV backends"
+                );
+            }
+        }
+
+        Ok(result.rows_affected())
+    }
+
+    /// Archive a single adapter
+    ///
+    /// Sets `archived_at` timestamp. Does NOT delete .aos file.
+    pub async fn archive_adapter(
+        &self,
+        adapter_id: &str,
+        archived_by: &str,
+        reason: &str,
+    ) -> Result<()> {
+        let affected = sqlx::query(
+            "UPDATE adapters
+             SET archived_at = datetime('now'),
+                 archived_by = ?,
+                 archive_reason = ?,
+                 updated_at = datetime('now')
+             WHERE adapter_id = ?
+               AND archived_at IS NULL",
+        )
+        .bind(archived_by)
+        .bind(reason)
+        .bind(adapter_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to archive adapter: {}", e)))?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(AosError::NotFound(format!(
+                "Adapter not found or already archived: {}",
+                adapter_id
+            )));
+        }
+
+        info!(adapter_id = %adapter_id, archived_by = %archived_by, "Archived adapter");
+
+        // KV write (dual-write mode)
+        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+                if let Err(e) = repo
+                    .archive_adapter_kv(adapter_id, archived_by, reason)
+                    .await
+                {
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to archive adapter in KV backend");
+                } else {
+                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter archived in both SQL and KV backends");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Find archived adapters eligible for garbage collection
+    ///
+    /// Returns adapters where:
+    /// - `archived_at` is older than `min_age_days`
+    /// - `purged_at` is NULL (not yet purged)
+    /// - `aos_file_path` is NOT NULL (file reference exists)
+    ///
+    /// # Arguments
+    /// * `min_age_days` - Minimum days since archival before eligible for GC
+    /// * `limit` - Maximum number of adapters to return
+    pub async fn find_archived_adapters_for_gc(
+        &self,
+        min_age_days: u32,
+        limit: i64,
+    ) -> Result<Vec<Adapter>> {
+        let query = format!(
+            "SELECT {} FROM adapters
+             WHERE archived_at IS NOT NULL
+               AND purged_at IS NULL
+               AND aos_file_path IS NOT NULL
+               AND datetime(archived_at, '+{} days') <= datetime('now')
+             ORDER BY archived_at ASC
+             LIMIT ?",
+            ADAPTER_SELECT_FIELDS, min_age_days
+        );
+
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .bind(limit)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to find GC candidates: {}", e)))?;
+
+        Ok(adapters)
+    }
+
+    /// Mark an adapter as purged after .aos file deletion
+    ///
+    /// Sets `purged_at` timestamp and clears `aos_file_path`.
+    /// The record is preserved for audit purposes.
+    ///
+    /// CRITICAL: Call this AFTER successfully deleting the .aos file from disk.
+    pub async fn mark_adapter_purged(&self, adapter_id: &str) -> Result<()> {
+        let affected = sqlx::query(
+            "UPDATE adapters
+             SET purged_at = datetime('now'),
+                 aos_file_path = NULL,
+                 updated_at = datetime('now')
+             WHERE adapter_id = ?
+               AND archived_at IS NOT NULL
+               AND purged_at IS NULL",
+        )
+        .bind(adapter_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to mark adapter purged: {}", e)))?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(AosError::Validation(format!(
+                "Adapter {} is not archived or already purged",
+                adapter_id
+            )));
+        }
+
+        info!(adapter_id = %adapter_id, "Marked adapter as purged");
+
+        // KV write (dual-write mode)
+        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+                if let Err(e) = repo.mark_adapter_purged_kv(adapter_id).await {
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to mark adapter purged in KV backend");
+                } else {
+                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter marked purged in both SQL and KV backends");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Check if an adapter is loadable (not archived/purged)
+    ///
+    /// Returns `true` if the adapter exists and is neither archived nor purged.
+    /// Used by the loader to reject attempts to load unavailable adapters.
+    pub async fn is_adapter_loadable(&self, adapter_id: &str) -> Result<bool> {
+        let result: Option<(Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT archived_at, purged_at FROM adapters WHERE adapter_id = ?")
+                .bind(adapter_id)
+                .fetch_optional(&*self.pool())
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
+
+        match result {
+            Some((archived_at, purged_at)) => {
+                // Loadable if not archived AND not purged
+                Ok(archived_at.is_none() && purged_at.is_none())
+            }
+            None => Err(AosError::NotFound(format!(
+                "Adapter not found: {}",
+                adapter_id
+            ))),
+        }
+    }
+
+    /// Unarchive an adapter (restore from archived state)
+    ///
+    /// Only works if adapter is archived but NOT purged.
+    /// Cannot restore a purged adapter as the .aos file has been deleted.
+    pub async fn unarchive_adapter(&self, adapter_id: &str) -> Result<()> {
+        let affected = sqlx::query(
+            "UPDATE adapters
+             SET archived_at = NULL,
+                 archived_by = NULL,
+                 archive_reason = NULL,
+                 updated_at = datetime('now')
+             WHERE adapter_id = ?
+               AND archived_at IS NOT NULL
+               AND purged_at IS NULL",
+        )
+        .bind(adapter_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to unarchive adapter: {}", e)))?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(AosError::Validation(format!(
+                "Adapter {} is not archived or has been purged (cannot restore)",
+                adapter_id
+            )));
+        }
+
+        info!(adapter_id = %adapter_id, "Unarchived adapter");
+
+        // KV write (dual-write mode)
+        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
+            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+                if let Err(e) = repo.unarchive_adapter_kv(adapter_id).await {
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to unarchive adapter in KV backend");
+                } else {
+                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter unarchived in both SQL and KV backends");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Count archived adapters for a tenant
+    ///
+    /// Returns the number of adapters that are archived but not yet purged.
+    pub async fn count_archived_adapters(&self, tenant_id: &str) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM adapters
+             WHERE tenant_id = ?
+               AND archived_at IS NOT NULL
+               AND purged_at IS NULL",
+        )
+        .bind(tenant_id)
+        .fetch_one(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to count archived adapters: {}", e)))?;
+
+        Ok(count)
+    }
+
+    /// Count purged adapters for a tenant
+    ///
+    /// Returns the number of adapters that have been purged (file deleted, record kept).
+    pub async fn count_purged_adapters(&self, tenant_id: &str) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM adapters
+             WHERE tenant_id = ?
+               AND purged_at IS NOT NULL",
+        )
+        .bind(tenant_id)
+        .fetch_one(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to count purged adapters: {}", e)))?;
+
+        Ok(count)
     }
 }

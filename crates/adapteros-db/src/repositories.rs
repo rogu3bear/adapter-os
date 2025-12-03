@@ -1,10 +1,10 @@
+use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::query_helpers::db_err;
 
 // Global counter for deterministic ID generation
 static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -309,9 +309,7 @@ impl Db {
             .map_err(db_err("delete repository"))?;
 
         // Commit transaction - all deletions succeed together
-        tx.commit()
-            .await
-            .map_err(db_err("commit transaction"))?;
+        tx.commit().await.map_err(db_err("commit transaction"))?;
 
         Ok(())
     }

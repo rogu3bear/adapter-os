@@ -18,9 +18,9 @@
 //! Citation: CLAUDE.md - Storage migration path validation
 //! Copyright JKCA | 2025 James KC Auchterlonie
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::{Db, StorageMode};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 
@@ -50,15 +50,18 @@ impl BenchDb {
 
         // Initialize KV backend if needed
         if mode != StorageMode::SqlOnly {
-            db.init_kv_backend(&kv_path).expect("Failed to init KV backend");
+            db.init_kv_backend(&kv_path)
+                .expect("Failed to init KV backend");
             db.set_storage_mode(mode);
         }
 
         // Create default tenant
-        sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')")
-            .execute(db.pool())
-            .await
-            .expect("Failed to create test tenant");
+        sqlx::query(
+            "INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')",
+        )
+        .execute(db.pool())
+        .await
+        .expect("Failed to create test tenant");
 
         Self {
             db,
@@ -85,7 +88,8 @@ impl BenchDb {
                 .build()
                 .expect("Failed to build adapter params");
 
-            self.db.register_adapter(params)
+            self.db
+                .register_adapter(params)
                 .await
                 .expect("Failed to register test adapter");
 
@@ -161,7 +165,10 @@ fn bench_get_adapter(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("kv_primary", "get"), |b| {
         b.iter(|| {
             rt.block_on(async {
-                let result = kv_primary_db.db.get_adapter(black_box("bench-adapter-50")).await;
+                let result = kv_primary_db
+                    .db
+                    .get_adapter(black_box("bench-adapter-50"))
+                    .await;
                 black_box(result)
             })
         });
@@ -208,7 +215,10 @@ fn bench_list_adapters(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("sql_only", "list"), |b| {
             b.iter(|| {
                 rt.block_on(async {
-                    let result = sql_db.db.list_adapters_for_tenant(black_box(&sql_db.tenant_id)).await;
+                    let result = sql_db
+                        .db
+                        .list_adapters_for_tenant(black_box(&sql_db.tenant_id))
+                        .await;
                     black_box(result)
                 })
             });
@@ -218,7 +228,10 @@ fn bench_list_adapters(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("kv_only", "list"), |b| {
             b.iter(|| {
                 rt.block_on(async {
-                    let result = kv_db.db.list_adapters_for_tenant(black_box(&kv_db.tenant_id)).await;
+                    let result = kv_db
+                        .db
+                        .list_adapters_for_tenant(black_box(&kv_db.tenant_id))
+                        .await;
                     black_box(result)
                 })
             });
@@ -228,7 +241,10 @@ fn bench_list_adapters(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("dual_write", "list"), |b| {
             b.iter(|| {
                 rt.block_on(async {
-                    let result = dual_db.db.list_adapters_for_tenant(black_box(&dual_db.tenant_id)).await;
+                    let result = dual_db
+                        .db
+                        .list_adapters_for_tenant(black_box(&dual_db.tenant_id))
+                        .await;
                     black_box(result)
                 })
             });
@@ -238,7 +254,10 @@ fn bench_list_adapters(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("kv_primary", "list"), |b| {
             b.iter(|| {
                 rt.block_on(async {
-                    let result = kv_primary_db.db.list_adapters_for_tenant(black_box(&kv_primary_db.tenant_id)).await;
+                    let result = kv_primary_db
+                        .db
+                        .list_adapters_for_tenant(black_box(&kv_primary_db.tenant_id))
+                        .await;
                     black_box(result)
                 })
             });
@@ -392,11 +411,14 @@ fn bench_update_adapter_state(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("sql_only", "update"), |b| {
         b.iter(|| {
             rt.block_on(async {
-                let result = sql_db.db.update_adapter_state_tx(
-                    black_box("bench-adapter-5"),
-                    black_box("warm"),
-                    black_box("benchmark test")
-                ).await;
+                let result = sql_db
+                    .db
+                    .update_adapter_state_tx(
+                        black_box("bench-adapter-5"),
+                        black_box("warm"),
+                        black_box("benchmark test"),
+                    )
+                    .await;
                 black_box(result)
             })
         });
@@ -406,11 +428,14 @@ fn bench_update_adapter_state(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("kv_only", "update"), |b| {
         b.iter(|| {
             rt.block_on(async {
-                let result = kv_db.db.update_adapter_state_tx(
-                    black_box("bench-adapter-5"),
-                    black_box("warm"),
-                    black_box("benchmark test")
-                ).await;
+                let result = kv_db
+                    .db
+                    .update_adapter_state_tx(
+                        black_box("bench-adapter-5"),
+                        black_box("warm"),
+                        black_box("benchmark test"),
+                    )
+                    .await;
                 black_box(result)
             })
         });
@@ -420,11 +445,14 @@ fn bench_update_adapter_state(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("dual_write", "update"), |b| {
         b.iter(|| {
             rt.block_on(async {
-                let result = dual_db.db.update_adapter_state_tx(
-                    black_box("bench-adapter-5"),
-                    black_box("warm"),
-                    black_box("benchmark test")
-                ).await;
+                let result = dual_db
+                    .db
+                    .update_adapter_state_tx(
+                        black_box("bench-adapter-5"),
+                        black_box("warm"),
+                        black_box("benchmark test"),
+                    )
+                    .await;
                 black_box(result)
             })
         });
@@ -434,11 +462,14 @@ fn bench_update_adapter_state(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("kv_primary", "update"), |b| {
         b.iter(|| {
             rt.block_on(async {
-                let result = kv_primary_db.db.update_adapter_state_tx(
-                    black_box("bench-adapter-5"),
-                    black_box("warm"),
-                    black_box("benchmark test")
-                ).await;
+                let result = kv_primary_db
+                    .db
+                    .update_adapter_state_tx(
+                        black_box("bench-adapter-5"),
+                        black_box("warm"),
+                        black_box("benchmark test"),
+                    )
+                    .await;
                 black_box(result)
             })
         });
@@ -497,7 +528,11 @@ fn bench_adapter_lineage(c: &mut Criterion) {
                 .parent_id(Some(format!("child-adapter-{}", i)))
                 .build()
                 .unwrap();
-            bench_db.db.register_adapter(grandchild_params).await.unwrap();
+            bench_db
+                .db
+                .register_adapter(grandchild_params)
+                .await
+                .unwrap();
         }
 
         bench_db
@@ -544,7 +579,11 @@ fn bench_adapter_lineage(c: &mut Criterion) {
                 .parent_id(Some(format!("child-adapter-{}", i)))
                 .build()
                 .unwrap();
-            bench_db.db.register_adapter(grandchild_params).await.unwrap();
+            bench_db
+                .db
+                .register_adapter(grandchild_params)
+                .await
+                .unwrap();
         }
 
         bench_db
@@ -556,7 +595,10 @@ fn bench_adapter_lineage(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("sql_only", "lineage"), |b| {
         b.iter(|| {
             rt.block_on(async {
-                let result = sql_db.db.get_adapter_lineage(black_box("child-adapter-1")).await;
+                let result = sql_db
+                    .db
+                    .get_adapter_lineage(black_box("child-adapter-1"))
+                    .await;
                 black_box(result)
             })
         });
@@ -566,7 +608,10 @@ fn bench_adapter_lineage(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("kv_only", "lineage"), |b| {
         b.iter(|| {
             rt.block_on(async {
-                let result = kv_db.db.get_adapter_lineage(black_box("child-adapter-1")).await;
+                let result = kv_db
+                    .db
+                    .get_adapter_lineage(black_box("child-adapter-1"))
+                    .await;
                 black_box(result)
             })
         });

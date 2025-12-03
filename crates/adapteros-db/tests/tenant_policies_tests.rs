@@ -10,7 +10,7 @@ mod tests {
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect(":memory:").await.unwrap();
-        
+
         // Run migration to create tables
         sqlx::query(
             r#"
@@ -42,7 +42,7 @@ mod tests {
                 notes TEXT,
                 changes_json TEXT
             );
-            "#
+            "#,
         )
         .execute(&pool)
         .await
@@ -90,20 +90,26 @@ mod tests {
         let id = customization.id.clone();
 
         // Submit for review
-        ops.submit_for_review(&id, "test@example.com").await.unwrap();
+        ops.submit_for_review(&id, "test@example.com")
+            .await
+            .unwrap();
         let updated = ops.get_customization(&id).await.unwrap().unwrap();
         assert_eq!(updated.status, CustomizationStatus::PendingReview);
         assert!(updated.submitted_at.is_some());
 
         // Approve
-        ops.approve_customization(&id, "admin@example.com", Some("Looks good")).await.unwrap();
+        ops.approve_customization(&id, "admin@example.com", Some("Looks good"))
+            .await
+            .unwrap();
         let approved = ops.get_customization(&id).await.unwrap().unwrap();
         assert_eq!(approved.status, CustomizationStatus::Approved);
         assert_eq!(approved.reviewed_by, Some("admin@example.com".to_string()));
         assert_eq!(approved.review_notes, Some("Looks good".to_string()));
 
         // Activate
-        ops.activate_customization(&id, "admin@example.com").await.unwrap();
+        ops.activate_customization(&id, "admin@example.com")
+            .await
+            .unwrap();
         let active = ops.get_customization(&id).await.unwrap().unwrap();
         assert_eq!(active.status, CustomizationStatus::Active);
         assert!(active.activated_at.is_some());
@@ -125,14 +131,24 @@ mod tests {
         let customization = ops.create_customization(req).await.unwrap();
         let id = customization.id.clone();
 
-        ops.submit_for_review(&id, "test@example.com").await.unwrap();
+        ops.submit_for_review(&id, "test@example.com")
+            .await
+            .unwrap();
 
         // Reject
-        ops.reject_customization(&id, "compliance@example.com", Some("Invalid configuration")).await.unwrap();
+        ops.reject_customization(&id, "compliance@example.com", Some("Invalid configuration"))
+            .await
+            .unwrap();
         let rejected = ops.get_customization(&id).await.unwrap().unwrap();
         assert_eq!(rejected.status, CustomizationStatus::Rejected);
-        assert_eq!(rejected.reviewed_by, Some("compliance@example.com".to_string()));
-        assert_eq!(rejected.review_notes, Some("Invalid configuration".to_string()));
+        assert_eq!(
+            rejected.reviewed_by,
+            Some("compliance@example.com".to_string())
+        );
+        assert_eq!(
+            rejected.review_notes,
+            Some("Invalid configuration".to_string())
+        );
     }
 
     #[tokio::test]
@@ -150,12 +166,16 @@ mod tests {
                 metadata_json: None,
             };
             let customization = ops.create_customization(req).await.unwrap();
-            ops.submit_for_review(&customization.id, &format!("user{}@example.com", i)).await.unwrap();
+            ops.submit_for_review(&customization.id, &format!("user{}@example.com", i))
+                .await
+                .unwrap();
         }
 
         let pending = ops.list_pending_reviews().await.unwrap();
         assert_eq!(pending.len(), 3);
-        assert!(pending.iter().all(|c| c.status == CustomizationStatus::PendingReview));
+        assert!(pending
+            .iter()
+            .all(|c| c.status == CustomizationStatus::PendingReview));
     }
 
     #[tokio::test]
@@ -172,9 +192,15 @@ mod tests {
             metadata_json: None,
         };
         let c1 = ops.create_customization(req1).await.unwrap();
-        ops.submit_for_review(&c1.id, "test@example.com").await.unwrap();
-        ops.approve_customization(&c1.id, "admin@example.com", None).await.unwrap();
-        ops.activate_customization(&c1.id, "admin@example.com").await.unwrap();
+        ops.submit_for_review(&c1.id, "test@example.com")
+            .await
+            .unwrap();
+        ops.approve_customization(&c1.id, "admin@example.com", None)
+            .await
+            .unwrap();
+        ops.activate_customization(&c1.id, "admin@example.com")
+            .await
+            .unwrap();
 
         // Create and activate second customization (same type)
         let req2 = CreateCustomizationRequest {
@@ -185,9 +211,15 @@ mod tests {
             metadata_json: None,
         };
         let c2 = ops.create_customization(req2).await.unwrap();
-        ops.submit_for_review(&c2.id, "test@example.com").await.unwrap();
-        ops.approve_customization(&c2.id, "admin@example.com", None).await.unwrap();
-        ops.activate_customization(&c2.id, "admin@example.com").await.unwrap();
+        ops.submit_for_review(&c2.id, "test@example.com")
+            .await
+            .unwrap();
+        ops.approve_customization(&c2.id, "admin@example.com", None)
+            .await
+            .unwrap();
+        ops.activate_customization(&c2.id, "admin@example.com")
+            .await
+            .unwrap();
 
         // First should be deactivated
         let c1_updated = ops.get_customization(&c1.id).await.unwrap().unwrap();
@@ -214,13 +246,19 @@ mod tests {
         let id = customization.id.clone();
 
         // Update should succeed for draft
-        ops.update_customization(&id, r#"{"k_sparse": 4}"#, "test@example.com").await.unwrap();
+        ops.update_customization(&id, r#"{"k_sparse": 4}"#, "test@example.com")
+            .await
+            .unwrap();
         let updated = ops.get_customization(&id).await.unwrap().unwrap();
         assert_eq!(updated.customizations_json, r#"{"k_sparse": 4}"#);
 
         // Submit and try to update - should fail
-        ops.submit_for_review(&id, "test@example.com").await.unwrap();
-        let result = ops.update_customization(&id, r#"{"k_sparse": 5}"#, "test@example.com").await;
+        ops.submit_for_review(&id, "test@example.com")
+            .await
+            .unwrap();
+        let result = ops
+            .update_customization(&id, r#"{"k_sparse": 5}"#, "test@example.com")
+            .await;
         assert!(result.is_err());
     }
 
@@ -254,11 +292,12 @@ mod tests {
             metadata_json: None,
         };
         let c2 = ops.create_customization(req2).await.unwrap();
-        ops.submit_for_review(&c2.id, "test@example.com").await.unwrap();
+        ops.submit_for_review(&c2.id, "test@example.com")
+            .await
+            .unwrap();
 
         // Delete should fail for non-draft
         let result = ops.delete_customization(&c2.id).await;
         assert!(result.is_err());
     }
 }
-

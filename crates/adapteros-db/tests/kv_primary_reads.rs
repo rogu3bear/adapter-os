@@ -151,10 +151,7 @@ async fn insert_adapter_to_kv(
         version: "1.0".to_string(),
     };
 
-    let repo = AdapterRepository::new(
-        kv.backend().clone(),
-        kv.index_manager().clone(),
-    );
+    let repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
 
     repo.create(adapter_kv).await.unwrap();
 }
@@ -318,9 +315,21 @@ async fn test_kv_primary_data_consistency() {
 
     // Create adapters with varying configurations
     let test_cases = vec![
-        ("data-test-1", "Data Test 1", "b3:data_hash_1", 8, "persistent"),
+        (
+            "data-test-1",
+            "Data Test 1",
+            "b3:data_hash_1",
+            8,
+            "persistent",
+        ),
         ("data-test-2", "Data Test 2", "b3:data_hash_2", 16, "warm"),
-        ("data-test-3", "Data Test 3", "b3:data_hash_3", 24, "ephemeral"),
+        (
+            "data-test-3",
+            "Data Test 3",
+            "b3:data_hash_3",
+            24,
+            "ephemeral",
+        ),
     ];
 
     for (adapter_id, name, hash_b3, rank, tier) in &test_cases {
@@ -389,10 +398,7 @@ async fn test_kv_primary_list_adapters() {
     db.set_storage_mode(StorageMode::KvPrimary);
 
     // List adapters - should use KV
-    let adapters = db
-        .list_adapters_by_tenant("default-tenant")
-        .await
-        .unwrap();
+    let adapters = db.list_adapters_by_tenant("default-tenant").await.unwrap();
 
     assert_eq!(adapters.len(), 5, "Should find all 5 adapters");
 
@@ -400,7 +406,9 @@ async fn test_kv_primary_list_adapters() {
     for i in 1..=5 {
         let adapter_id = format!("list-test-{}", i);
         assert!(
-            adapters.iter().any(|a| a.adapter_id.as_deref() == Some(adapter_id.as_str())),
+            adapters
+                .iter()
+                .any(|a| a.adapter_id.as_deref() == Some(adapter_id.as_str())),
             "Should find adapter {}",
             adapter_id
         );
@@ -440,12 +448,13 @@ async fn test_kv_primary_list_fallback() {
     }
 
     // List should fall back to SQL
-    let adapters = db
-        .list_adapters_by_tenant("default-tenant")
-        .await
-        .unwrap();
+    let adapters = db.list_adapters_by_tenant("default-tenant").await.unwrap();
 
-    assert_eq!(adapters.len(), 3, "Should find all 3 adapters via SQL fallback");
+    assert_eq!(
+        adapters.len(),
+        3,
+        "Should find all 3 adapters via SQL fallback"
+    );
 }
 
 // ============================================================================
@@ -511,8 +520,7 @@ async fn test_kv_primary_state_updates() {
     db.set_storage_mode(StorageMode::KvPrimary);
 
     // Update state (dual-write in KvPrimary mode)
-    db
-        .update_adapter_state_tx("state-test-1", "warm", "Test state transition")
+    db.update_adapter_state_tx("state-test-1", "warm", "Test state transition")
         .await
         .unwrap();
 
@@ -552,8 +560,7 @@ async fn test_kv_primary_memory_updates() {
     db.set_storage_mode(StorageMode::KvPrimary);
 
     // Update memory
-    db
-        .update_adapter_memory_tx("memory-test-1", 1024 * 1024 * 500) // 500MB
+    db.update_adapter_memory_tx("memory-test-1", 1024 * 1024 * 500) // 500MB
         .await
         .unwrap();
 
@@ -612,10 +619,7 @@ async fn test_kv_primary_lineage() {
     db.set_storage_mode(StorageMode::KvPrimary);
 
     // Query lineage
-    let lineage = db
-        .get_adapter_lineage("lineage-parent")
-        .await
-        .unwrap();
+    let lineage = db.get_adapter_lineage("lineage-parent").await.unwrap();
 
     // Should find both parent and child
     assert_eq!(lineage.len(), 2, "Should find parent and child in lineage");

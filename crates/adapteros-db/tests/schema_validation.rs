@@ -8,7 +8,6 @@
 //! 5. Verifying all sqlx queries compile against the schema
 //! 6. Testing critical table schemas and their relationships
 //!
-//! Citation: PRD-05 Database Schema Validation
 //! Priority: CRITICAL - Ensures schema integrity and prevents runtime errors
 
 use adapteros_db::Db;
@@ -34,11 +33,11 @@ async fn test_all_migrations_apply_cleanly() -> Result<()> {
         .await
         .unwrap_or(0);
 
-    // We should have 74 migrations (0001-0074) after PRD-01 completion
+    // We should have 74+ migrations after all schema changes
     println!("✓ All {} migrations applied successfully", migration_count);
     assert!(
         migration_count >= 71,
-        "Expected at least 71 migrations (74 after PRD-01), found {}",
+        "Expected at least 71 migrations, found {}",
         migration_count
     );
 

@@ -11,8 +11,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 // Re-export KV types from adapteros-storage
-pub use adapteros_storage::kv::KvBackend;
 pub use adapteros_storage::kv::IndexManager;
+pub use adapteros_storage::kv::KvBackend;
 pub use adapteros_storage::redb::RedbBackend;
 pub use adapteros_storage::StorageError;
 
@@ -62,8 +62,9 @@ impl KvDb {
     /// Initialize an in-memory KvDb for testing
     pub fn init_in_memory() -> Result<Self> {
         // Create in-memory backend
-        let backend = RedbBackend::open_in_memory()
-            .map_err(|e| AosError::Database(format!("Failed to create in-memory backend: {}", e)))?;
+        let backend = RedbBackend::open_in_memory().map_err(|e| {
+            AosError::Database(format!("Failed to create in-memory backend: {}", e))
+        })?;
 
         let backend = Arc::new(backend) as Arc<dyn KvBackend>;
         let index_manager = Arc::new(IndexManager::new(backend.clone()));
@@ -205,11 +206,17 @@ impl KvBackend for KvDb {
         self.backend.scan_prefix(prefix).await
     }
 
-    async fn batch_get(&self, keys: &[String]) -> std::result::Result<Vec<Option<Vec<u8>>>, StorageError> {
+    async fn batch_get(
+        &self,
+        keys: &[String],
+    ) -> std::result::Result<Vec<Option<Vec<u8>>>, StorageError> {
         self.backend.batch_get(keys).await
     }
 
-    async fn batch_set(&self, pairs: Vec<(String, Vec<u8>)>) -> std::result::Result<(), StorageError> {
+    async fn batch_set(
+        &self,
+        pairs: Vec<(String, Vec<u8>)>,
+    ) -> std::result::Result<(), StorageError> {
         self.backend.batch_set(pairs).await
     }
 
@@ -229,7 +236,11 @@ impl KvBackend for KvDb {
         self.backend.set_members(key).await
     }
 
-    async fn set_is_member(&self, key: &str, member: &str) -> std::result::Result<bool, StorageError> {
+    async fn set_is_member(
+        &self,
+        key: &str,
+        member: &str,
+    ) -> std::result::Result<bool, StorageError> {
         self.backend.set_is_member(key, member).await
     }
 }

@@ -146,3 +146,19 @@ pub async fn rag_retrieval_counts_by_tenant_sqlite(
     }
     Ok(out)
 }
+
+/// RAG state for replay sessions
+///
+/// Captures the complete RAG retrieval state to enable deterministic replay
+/// with original documents. Used by replay_sessions to store/restore RAG context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagReplayState {
+    /// Document IDs in retrieval order (score DESC, doc_id ASC)
+    pub doc_ids: Vec<String>,
+    /// Relevance scores parallel to doc_ids
+    pub scores: Vec<f32>,
+    /// Collection ID used for scoped retrieval (if any)
+    pub collection_id: Option<String>,
+    /// Hash of embedding model used for query encoding
+    pub embedding_model_hash: String,
+}

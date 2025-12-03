@@ -39,11 +39,7 @@ async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
 }
 
 /// Helper to get adapter from KV directly (bypassing Db)
-async fn get_adapter_from_kv(
-    db: &Db,
-    tenant_id: &str,
-    adapter_id: &str,
-) -> Option<Adapter> {
+async fn get_adapter_from_kv(db: &Db, tenant_id: &str, adapter_id: &str) -> Option<Adapter> {
     if let Some(kv) = db.kv_backend() {
         let repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
         repo.get(tenant_id, adapter_id)
@@ -214,11 +210,7 @@ async fn test_update_adapter_memory_writes_to_both() {
         .unwrap();
 
     // Verify in SQL
-    let adapter_sql = db
-        .get_adapter("memory-update-test")
-        .await
-        .unwrap()
-        .unwrap();
+    let adapter_sql = db.get_adapter("memory-update-test").await.unwrap().unwrap();
     assert_eq!(adapter_sql.memory_bytes, memory_bytes);
 
     // Verify in KV
@@ -332,14 +324,22 @@ async fn test_delete_adapter_cascade_removes_from_both() {
     let uuid = db.register_adapter(params).await.unwrap();
 
     // Verify it exists in both stores
-    assert!(db.get_adapter("cascade-delete-test").await.unwrap().is_some());
+    assert!(db
+        .get_adapter("cascade-delete-test")
+        .await
+        .unwrap()
+        .is_some());
     assert!(adapter_exists_in_kv(&db, "default-tenant", "cascade-delete-test").await);
 
     // Delete with cascade
     db.delete_adapter_cascade(&uuid).await.unwrap();
 
     // Verify removed from SQL
-    assert!(db.get_adapter("cascade-delete-test").await.unwrap().is_none());
+    assert!(db
+        .get_adapter("cascade-delete-test")
+        .await
+        .unwrap()
+        .is_none());
 
     // Verify removed from KV
     assert!(!adapter_exists_in_kv(&db, "default-tenant", "cascade-delete-test").await);

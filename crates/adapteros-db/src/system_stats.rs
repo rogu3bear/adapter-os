@@ -19,9 +19,7 @@ impl Db {
         )
         .fetch_one(self.pool())
         .await
-        .map_err(|e| {
-            AosError::Database(format!("Failed to count active chat sessions: {}", e))
-        })?;
+        .map_err(|e| AosError::Database(format!("Failed to count active chat sessions: {}", e)))?;
 
         Ok(count)
     }
@@ -40,11 +38,10 @@ impl Db {
 
     /// Count active adapters (adapters with active = 1)
     pub async fn count_active_adapters(&self) -> Result<i64> {
-        let count =
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM adapters WHERE active = 1")
-                .fetch_one(self.pool())
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to count active adapters: {}", e)))?;
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM adapters WHERE active = 1")
+            .fetch_one(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to count active adapters: {}", e)))?;
 
         Ok(count)
     }
@@ -83,10 +80,7 @@ impl Db {
     /// validated/trusted table names to prevent SQL injection.
     pub async fn count_table_rows(&self, table_name: &str) -> Result<i64> {
         // Validate table name to prevent SQL injection
-        if !table_name
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_')
-        {
+        if !table_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
             return Err(AosError::Validation(format!(
                 "Invalid table name: {}",
                 table_name
@@ -149,9 +143,7 @@ impl Db {
         )
         .fetch_one(self.pool())
         .await
-        .map_err(|e| {
-            AosError::Database(format!("Failed to count running training jobs: {}", e))
-        })?;
+        .map_err(|e| AosError::Database(format!("Failed to count running training jobs: {}", e)))?;
 
         Ok(count)
     }

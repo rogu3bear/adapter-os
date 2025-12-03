@@ -112,10 +112,7 @@ async fn test_dual_write_adapter() {
     assert!(!adapter_id.is_empty());
 
     // Verify it exists in SQL
-    let adapter_sql = db
-        .get_adapter("dual-write-test-1")
-        .await
-        .unwrap();
+    let adapter_sql = db.get_adapter("dual-write-test-1").await.unwrap();
     assert!(adapter_sql.is_some());
     let adapter = adapter_sql.unwrap();
     assert_eq!(adapter.name, "Dual Write Test Adapter");
@@ -133,11 +130,7 @@ async fn test_dual_write_adapter() {
         .unwrap();
 
     // Verify both SQL and KV are updated
-    let adapter_after = db
-        .get_adapter("dual-write-test-1")
-        .await
-        .unwrap()
-        .unwrap();
+    let adapter_after = db.get_adapter("dual-write-test-1").await.unwrap().unwrap();
     assert_eq!(adapter_after.activation_count, 1);
 
     // TODO: Verify KV is also updated
@@ -172,10 +165,7 @@ async fn test_kv_primary_read() {
 
     // Read should come from KV (once KV implementation exists)
     // For now, this tests the SQL path still works
-    let adapter = db
-        .get_adapter("kv-primary-test-1")
-        .await
-        .unwrap();
+    let adapter = db.get_adapter("kv-primary-test-1").await.unwrap();
     assert!(adapter.is_some());
     assert_eq!(adapter.unwrap().name, "KV Primary Test Adapter");
 
@@ -205,10 +195,7 @@ async fn test_storage_mode_switch() {
     db.register_adapter(params).await.unwrap();
 
     // Verify it exists in SQL
-    let adapter_sql_only = db
-        .get_adapter("mode-switch-test-1")
-        .await
-        .unwrap();
+    let adapter_sql_only = db.get_adapter("mode-switch-test-1").await.unwrap();
     assert!(adapter_sql_only.is_some());
 
     // TODO: Switch to DualWrite mode
@@ -229,10 +216,7 @@ async fn test_storage_mode_switch() {
     db.register_adapter(params2).await.unwrap();
 
     // Verify writes go to both
-    let adapter_dual = db
-        .get_adapter("mode-switch-test-2")
-        .await
-        .unwrap();
+    let adapter_dual = db.get_adapter("mode-switch-test-2").await.unwrap();
     assert!(adapter_dual.is_some());
 
     // TODO: Verify it also exists in KV
@@ -300,10 +284,7 @@ async fn test_lineage_kv_vs_sql() {
     db.register_adapter(grandchild_params).await.unwrap();
 
     // Query lineage using SQL CTE (existing implementation)
-    let lineage_sql = db
-        .get_adapter_lineage("lineage-parent")
-        .await
-        .unwrap();
+    let lineage_sql = db.get_adapter_lineage("lineage-parent").await.unwrap();
 
     // Should find parent + 3 children + 1 grandchild = 5 adapters
     assert_eq!(lineage_sql.len(), 5, "Should find complete lineage tree");
@@ -355,9 +336,27 @@ async fn test_migration_data_integrity() {
 
     // Create multiple adapters with various configurations
     let test_adapters = vec![
-        ("migrate-1", "Migration Test 1", "b3:migrate_hash_1", 16, "persistent"),
-        ("migrate-2", "Migration Test 2", "b3:migrate_hash_2", 8, "warm"),
-        ("migrate-3", "Migration Test 3", "b3:migrate_hash_3", 24, "ephemeral"),
+        (
+            "migrate-1",
+            "Migration Test 1",
+            "b3:migrate_hash_1",
+            16,
+            "persistent",
+        ),
+        (
+            "migrate-2",
+            "Migration Test 2",
+            "b3:migrate_hash_2",
+            8,
+            "warm",
+        ),
+        (
+            "migrate-3",
+            "Migration Test 3",
+            "b3:migrate_hash_3",
+            24,
+            "ephemeral",
+        ),
     ];
 
     for (adapter_id, name, hash, rank, tier) in &test_adapters {
@@ -389,11 +388,7 @@ async fn test_migration_data_integrity() {
 
     // Verify each adapter's data integrity
     for (adapter_id, name, hash, rank, tier) in &test_adapters {
-        let adapter_sql = db
-            .get_adapter(adapter_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let adapter_sql = db.get_adapter(adapter_id).await.unwrap().unwrap();
 
         assert_eq!(adapter_sql.name, *name);
         assert_eq!(adapter_sql.hash_b3, *hash);
@@ -434,10 +429,7 @@ async fn test_dual_write_atomicity() {
     assert!(result.is_ok(), "Dual write should succeed atomically");
 
     // Verify in SQL
-    let adapter_sql = db
-        .get_adapter("atomic-test-1")
-        .await
-        .unwrap();
+    let adapter_sql = db.get_adapter("atomic-test-1").await.unwrap();
     assert!(adapter_sql.is_some());
 
     // TODO: Verify in KV
@@ -482,10 +474,7 @@ async fn test_kv_fallback_to_sql() {
     // db.clear_kv_for_adapter("default-tenant", "fallback-test-1").await.unwrap();
 
     // Read should still succeed by falling back to SQL
-    let adapter = db
-        .get_adapter("fallback-test-1")
-        .await
-        .unwrap();
+    let adapter = db.get_adapter("fallback-test-1").await.unwrap();
     assert!(adapter.is_some());
     assert_eq!(adapter.unwrap().name, "Fallback Test Adapter");
 
@@ -624,19 +613,13 @@ async fn test_storage_mode_read_performance() {
 
     // Warm up
     for _ in 0..10 {
-        let _ = db
-            .get_adapter("perf-test-1")
-            .await
-            .unwrap();
+        let _ = db.get_adapter("perf-test-1").await.unwrap();
     }
 
     // Time SQL reads
     let start = std::time::Instant::now();
     for _ in 0..100 {
-        let _ = db
-            .get_adapter("perf-test-1")
-            .await
-            .unwrap();
+        let _ = db.get_adapter("perf-test-1").await.unwrap();
     }
     let sql_duration = start.elapsed();
 

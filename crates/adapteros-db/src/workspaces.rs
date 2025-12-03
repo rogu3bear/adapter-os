@@ -203,7 +203,11 @@ impl Db {
     }
 
     /// List workspaces with pagination
-    pub async fn list_workspaces_paginated(&self, limit: i64, offset: i64) -> Result<(Vec<Workspace>, i64)> {
+    pub async fn list_workspaces_paginated(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<Workspace>, i64)> {
         // Get total count
         let total = sqlx::query("SELECT COUNT(*) as cnt FROM workspaces")
             .fetch_one(&*self.pool())

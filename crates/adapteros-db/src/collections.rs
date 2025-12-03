@@ -1,12 +1,12 @@
 //! Document collection database operations
 
 use crate::documents::Document;
+use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;
-use crate::query_helpers::db_err;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DocumentCollection {
@@ -77,14 +77,20 @@ impl Db {
     }
 
     /// List collections for a tenant with pagination
-    pub async fn list_collections_paginated(&self, tenant_id: &str, limit: i64, offset: i64) -> Result<(Vec<DocumentCollection>, i64)> {
+    pub async fn list_collections_paginated(
+        &self,
+        tenant_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<DocumentCollection>, i64)> {
         // Get total count for this tenant
-        let total = sqlx::query("SELECT COUNT(*) as cnt FROM document_collections WHERE tenant_id = ?")
-            .bind(tenant_id)
-            .fetch_one(&*self.pool())
-            .await
-            .map_err(db_err("count collections"))?
-            .get::<i64, _>(0);
+        let total =
+            sqlx::query("SELECT COUNT(*) as cnt FROM document_collections WHERE tenant_id = ?")
+                .bind(tenant_id)
+                .fetch_one(&*self.pool())
+                .await
+                .map_err(db_err("count collections"))?
+                .get::<i64, _>(0);
 
         // Get paginated results
         let collections = sqlx::query_as::<_, DocumentCollection>(
@@ -129,9 +135,7 @@ impl Db {
             .map_err(db_err("delete collection"))?;
 
         // Commit transaction
-        tx.commit()
-            .await
-            .map_err(db_err("commit transaction"))?;
+        tx.commit().await.map_err(db_err("commit transaction"))?;
 
         Ok(())
     }

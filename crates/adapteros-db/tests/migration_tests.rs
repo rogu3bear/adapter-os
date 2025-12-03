@@ -92,7 +92,11 @@ async fn test_migrate_adapters_to_kv_success() {
     // Verify adapters exist in SQL
     for adapter_id in &adapter_ids {
         let adapter = db.get_adapter(adapter_id).await.unwrap();
-        assert!(adapter.is_some(), "Adapter {} should exist in SQL", adapter_id);
+        assert!(
+            adapter.is_some(),
+            "Adapter {} should exist in SQL",
+            adapter_id
+        );
     }
 
     // Run migration
@@ -161,7 +165,10 @@ async fn test_migrate_adapter_to_kv_already_migrated() {
 
     // Second migration - should detect already migrated and skip
     let second_result = db.migrate_adapter_to_kv("already-migrated").await.unwrap();
-    assert!(!second_result, "Second migration should return false (already migrated)");
+    assert!(
+        !second_result,
+        "Second migration should return false (already migrated)"
+    );
 
     db.close().await.unwrap();
 }
@@ -201,13 +208,22 @@ async fn test_migration_stats_accuracy() {
 
     // Verify stats structure
     assert_eq!(stats.total, 20, "Total should be 20");
-    assert_eq!(stats.migrated + stats.failed + stats.skipped, 20,
-               "Migrated + failed + skipped should equal total");
+    assert_eq!(
+        stats.migrated + stats.failed + stats.skipped,
+        20,
+        "Migrated + failed + skipped should equal total"
+    );
 
     // Verify success metrics
-    assert!(stats.is_success(), "Migration with no failures should be success");
+    assert!(
+        stats.is_success(),
+        "Migration with no failures should be success"
+    );
     assert_eq!(stats.success_rate(), 100.0, "Success rate should be 100%");
-    assert!(stats.failed_ids.is_empty(), "Failed IDs list should be empty");
+    assert!(
+        stats.failed_ids.is_empty(),
+        "Failed IDs list should be empty"
+    );
 
     db.close().await.unwrap();
 }
@@ -222,7 +238,9 @@ async fn test_migration_stats_partial_success() {
 
     // Migrate first 5
     for i in 0..5 {
-        db.migrate_adapter_to_kv(&format!("test-adapter-{}", i)).await.unwrap();
+        db.migrate_adapter_to_kv(&format!("test-adapter-{}", i))
+            .await
+            .unwrap();
     }
 
     // Run full migration - should skip first 5, migrate last 5
@@ -234,7 +252,11 @@ async fn test_migration_stats_partial_success() {
     assert_eq!(stats.failed, 0, "Should have no failures");
 
     // Success rate based on migrated/total
-    assert_eq!(stats.success_rate(), 50.0, "Success rate should be 50% (5/10)");
+    assert_eq!(
+        stats.success_rate(),
+        50.0,
+        "Success rate should be 50% (5/10)"
+    );
 
     db.close().await.unwrap();
 }
@@ -251,14 +273,18 @@ async fn test_verify_migration_consistency_success() {
     println!("Created adapters:");
     for adapter_id in &adapter_ids {
         let sql_adapter = db.get_adapter(adapter_id).await.unwrap().unwrap();
-        println!("  - SQL adapter: id={}, adapter_id={:?}, tenant_id={}",
-                 sql_adapter.id, sql_adapter.adapter_id, sql_adapter.tenant_id);
+        println!(
+            "  - SQL adapter: id={}, adapter_id={:?}, tenant_id={}",
+            sql_adapter.id, sql_adapter.adapter_id, sql_adapter.tenant_id
+        );
     }
 
     let stats = db.migrate_adapters_to_kv().await.unwrap();
 
-    println!("\nMigration stats: migrated={}, failed={}, skipped={}",
-             stats.migrated, stats.failed, stats.skipped);
+    println!(
+        "\nMigration stats: migrated={}, failed={}, skipped={}",
+        stats.migrated, stats.failed, stats.skipped
+    );
 
     // Verify consistency
     let discrepancies = db.verify_migration_consistency().await.unwrap();
@@ -267,13 +293,18 @@ async fn test_verify_migration_consistency_success() {
     if !discrepancies.is_empty() {
         println!("\nFound {} discrepancies:", discrepancies.len());
         for d in &discrepancies {
-            println!("  - adapter_id={}, field={}, sql={}, kv={}",
-                     d.adapter_id, d.field, d.sql_value, d.kv_value);
+            println!(
+                "  - adapter_id={}, field={}, sql={}, kv={}",
+                d.adapter_id, d.field, d.sql_value, d.kv_value
+            );
         }
     }
 
     // Should have no discrepancies
-    assert!(discrepancies.is_empty(), "Should have no discrepancies after clean migration");
+    assert!(
+        discrepancies.is_empty(),
+        "Should have no discrepancies after clean migration"
+    );
 
     db.close().await.unwrap();
 }
@@ -288,7 +319,9 @@ async fn test_verify_migration_consistency_detects_missing() {
 
     // Only migrate first 3
     for i in 0..3 {
-        db.migrate_adapter_to_kv(&format!("test-adapter-{}", i)).await.unwrap();
+        db.migrate_adapter_to_kv(&format!("test-adapter-{}", i))
+            .await
+            .unwrap();
     }
 
     // Verify consistency - should detect 2 missing
@@ -298,12 +331,21 @@ async fn test_verify_migration_consistency_detects_missing() {
 
     // Verify discrepancies are for the right adapters
     for discrepancy in &discrepancies {
-        assert_eq!(discrepancy.field, "_existence", "Should be existence discrepancy");
-        assert_eq!(discrepancy.sql_value, "exists", "SQL value should be 'exists'");
-        assert_eq!(discrepancy.kv_value, "missing", "KV value should be 'missing'");
+        assert_eq!(
+            discrepancy.field, "_existence",
+            "Should be existence discrepancy"
+        );
+        assert_eq!(
+            discrepancy.sql_value, "exists",
+            "SQL value should be 'exists'"
+        );
+        assert_eq!(
+            discrepancy.kv_value, "missing",
+            "KV value should be 'missing'"
+        );
         assert!(
-            discrepancy.adapter_id == "test-adapter-3" ||
-            discrepancy.adapter_id == "test-adapter-4",
+            discrepancy.adapter_id == "test-adapter-3"
+                || discrepancy.adapter_id == "test-adapter-4",
             "Discrepancy should be for adapter 3 or 4"
         );
     }
@@ -363,14 +405,26 @@ async fn test_migrate_tenant_adapters() {
     // Migrate only default tenant
     let stats = db.migrate_tenant_adapters("default-tenant").await.unwrap();
 
-    assert_eq!(stats.total, 5, "Should report 5 adapters for default tenant");
-    assert_eq!(stats.migrated, 5, "Should migrate all 5 default tenant adapters");
+    assert_eq!(
+        stats.total, 5,
+        "Should report 5 adapters for default tenant"
+    );
+    assert_eq!(
+        stats.migrated, 5,
+        "Should migrate all 5 default tenant adapters"
+    );
 
     // Verify tenant-2 adapters were NOT migrated by checking overall stats
     let all_stats = db.migrate_adapters_to_kv().await.unwrap();
     assert_eq!(all_stats.total, 8, "Should report 8 total adapters (5+3)");
-    assert_eq!(all_stats.migrated, 3, "Should migrate 3 new adapters (tenant-2)");
-    assert_eq!(all_stats.skipped, 5, "Should skip 5 already migrated (default-tenant)");
+    assert_eq!(
+        all_stats.migrated, 3,
+        "Should migrate 3 new adapters (tenant-2)"
+    );
+    assert_eq!(
+        all_stats.skipped, 5,
+        "Should skip 5 already migrated (default-tenant)"
+    );
 
     db.close().await.unwrap();
 }
@@ -387,14 +441,23 @@ async fn test_migrate_with_progress_callback() {
     let progress_count_clone = progress_count.clone();
 
     // Migrate with progress callback
-    let stats = db.migrate_with_progress(|progress| {
-        progress_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let stats = db
+        .migrate_with_progress(|progress| {
+            progress_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-        // Verify progress structure
-        assert!(progress.processed <= progress.total, "Processed should not exceed total");
-        assert!(progress.percentage() <= 100.0, "Percentage should not exceed 100%");
-        assert!(progress.batch >= 1, "Batch number should be at least 1");
-    }).await.unwrap();
+            // Verify progress structure
+            assert!(
+                progress.processed <= progress.total,
+                "Processed should not exceed total"
+            );
+            assert!(
+                progress.percentage() <= 100.0,
+                "Percentage should not exceed 100%"
+            );
+            assert!(progress.batch >= 1, "Batch number should be at least 1");
+        })
+        .await
+        .unwrap();
 
     // Verify stats
     assert_eq!(stats.total, 10, "Should report 10 total");
@@ -402,7 +465,10 @@ async fn test_migrate_with_progress_callback() {
 
     // Verify progress callback was called (once per migrated adapter, not for skipped)
     let final_count = progress_count.load(std::sync::atomic::Ordering::SeqCst);
-    assert_eq!(final_count, 10, "Progress callback should be called 10 times");
+    assert_eq!(
+        final_count, 10,
+        "Progress callback should be called 10 times"
+    );
 
     db.close().await.unwrap();
 }
@@ -439,7 +505,10 @@ async fn test_migration_preserves_adapter_fields() {
 
     // Verify no discrepancies
     let discrepancies = db.verify_migration_consistency().await.unwrap();
-    assert!(discrepancies.is_empty(), "Should have no field discrepancies");
+    assert!(
+        discrepancies.is_empty(),
+        "Should have no field discrepancies"
+    );
 
     // Additional verification: check critical fields
     assert_eq!(sql_adapter.name, "Full Fields Test");
@@ -461,7 +530,10 @@ async fn test_migration_adapter_not_found() {
     let result = db.migrate_adapter_to_kv("non-existent").await;
 
     // Should return NotFound error
-    assert!(result.is_err(), "Should return error for non-existent adapter");
+    assert!(
+        result.is_err(),
+        "Should return error for non-existent adapter"
+    );
 
     let err = result.unwrap_err();
     assert!(
@@ -484,14 +556,21 @@ async fn test_rollback_kv_data() {
 
     // Verify migration succeeded
     let discrepancies_before = db.verify_migration_consistency().await.unwrap();
-    assert!(discrepancies_before.is_empty(), "Migration should be consistent before rollback");
+    assert!(
+        discrepancies_before.is_empty(),
+        "Migration should be consistent before rollback"
+    );
 
     // Rollback KV data
     db.rollback_kv_data().await.unwrap();
 
     // Verify KV data is gone but SQL data remains
     let discrepancies_after = db.verify_migration_consistency().await.unwrap();
-    assert_eq!(discrepancies_after.len(), 5, "All 5 adapters should be missing from KV after rollback");
+    assert_eq!(
+        discrepancies_after.len(),
+        5,
+        "All 5 adapters should be missing from KV after rollback"
+    );
 
     // Verify all discrepancies are existence issues
     for discrepancy in &discrepancies_after {
@@ -502,7 +581,11 @@ async fn test_rollback_kv_data() {
 
     // Verify SQL adapters still exist
     let sql_adapters = db.list_adapters_by_tenant("default-tenant").await.unwrap();
-    assert_eq!(sql_adapters.len(), 5, "SQL adapters should remain after KV rollback");
+    assert_eq!(
+        sql_adapters.len(),
+        5,
+        "SQL adapters should remain after KV rollback"
+    );
 
     db.close().await.unwrap();
 }
@@ -548,7 +631,11 @@ async fn test_migration_stats_zero_total() {
 
     // Zero total should not be success (nothing to migrate)
     assert!(!stats.is_success(), "Zero total should not be success");
-    assert_eq!(stats.success_rate(), 0.0, "Success rate should be 0% for zero total");
+    assert_eq!(
+        stats.success_rate(),
+        0.0,
+        "Success rate should be 0% for zero total"
+    );
 }
 
 #[tokio::test]
@@ -590,7 +677,10 @@ async fn test_migration_large_dataset() {
 
     // Verify consistency
     let discrepancies = db.verify_migration_consistency().await.unwrap();
-    assert!(discrepancies.is_empty(), "Large dataset migration should be consistent");
+    assert!(
+        discrepancies.is_empty(),
+        "Large dataset migration should be consistent"
+    );
 
     db.close().await.unwrap();
 }
@@ -641,7 +731,10 @@ async fn test_migration_with_lineage() {
 
     // Verify consistency (including lineage relationships)
     let discrepancies = db.verify_migration_consistency().await.unwrap();
-    assert!(discrepancies.is_empty(), "Lineage migration should be consistent");
+    assert!(
+        discrepancies.is_empty(),
+        "Lineage migration should be consistent"
+    );
 
     db.close().await.unwrap();
 }

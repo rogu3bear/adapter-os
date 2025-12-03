@@ -1,5 +1,5 @@
 // Routing Decisions Database Module
-// Purpose: Store and query router decision events for PRD-04 Routing Inspector
+// Purpose: Store and query router decision events for routing inspection and analysis
 // Author: JKCA
 // Date: 2025-11-17
 

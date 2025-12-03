@@ -54,7 +54,11 @@ pub trait StackKvOps: Send + Sync {
     async fn deactivate_stack(&self, stack_id: &str) -> Result<()>;
 
     /// Get stack by name (for tenant)
-    async fn get_stack_by_name(&self, tenant_id: &str, name: &str) -> Result<Option<AdapterStackKv>>;
+    async fn get_stack_by_name(
+        &self,
+        tenant_id: &str,
+        name: &str,
+    ) -> Result<Option<AdapterStackKv>>;
 }
 
 /// KV backend implementation for stack operations
@@ -90,8 +94,7 @@ impl StackKvRepository {
 
     /// Serialize a stack to bytes
     fn serialize(stack: &AdapterStackKv) -> Result<Vec<u8>> {
-        serde_json::to_vec(stack)
-            .map_err(AosError::Serialization)
+        serde_json::to_vec(stack).map_err(AosError::Serialization)
     }
 
     /// Deserialize a stack from bytes
@@ -101,17 +104,24 @@ impl StackKvRepository {
     }
 
     /// Update secondary indexes for a stack
-    async fn update_indexes(&self, stack: &AdapterStackKv, old_stack: Option<&AdapterStackKv>) -> Result<()> {
+    async fn update_indexes(
+        &self,
+        stack: &AdapterStackKv,
+        old_stack: Option<&AdapterStackKv>,
+    ) -> Result<()> {
         // Name index (tenant/{tenant_id}/stack-by-name/{name} -> {id})
         let name_key = Self::name_index_key(&stack.tenant_id, &stack.name);
-        self.backend.set(&name_key, stack.id.as_bytes().to_vec()).await
+        self.backend
+            .set(&name_key, stack.id.as_bytes().to_vec())
+            .await
             .map_err(|e| AosError::Database(format!("Failed to update name index: {}", e)))?;
 
         // State index (tenant/{tenant_id}/stacks-by-state/{state} -> Set<{id}>)
         // Remove from old state if it changed
         if let Some(old) = old_stack {
             if old.lifecycle_state != stack.lifecycle_state {
-                let old_state_key = Self::state_index_key(&stack.tenant_id, old.lifecycle_state.as_str());
+                let old_state_key =
+                    Self::state_index_key(&stack.tenant_id, old.lifecycle_state.as_str());
                 self.remove_from_set(&old_state_key, &stack.id).await?;
             }
         }
@@ -132,7 +142,9 @@ impl StackKvRepository {
     async fn remove_from_indexes(&self, stack: &AdapterStackKv) -> Result<()> {
         // Name index
         let name_key = Self::name_index_key(&stack.tenant_id, &stack.name);
-        self.backend.delete(&name_key).await
+        self.backend
+            .delete(&name_key)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to remove from name index: {}", e)))?;
 
         // State index
@@ -148,7 +160,10 @@ impl StackKvRepository {
 
     /// Add an item to a set stored at a key
     async fn add_to_set(&self, key: &str, value: &str) -> Result<()> {
-        let current = self.backend.get(key).await
+        let current = self
+            .backend
+            .get(key)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to read set: {}", e)))?;
 
         let mut set: Vec<String> = match current {
@@ -159,9 +174,10 @@ impl StackKvRepository {
 
         if !set.contains(&value.to_string()) {
             set.push(value.to_string());
-            let bytes = serde_json::to_vec(&set)
-                .map_err(|e| AosError::Serialization(e))?;
-            self.backend.set(key, bytes).await
+            let bytes = serde_json::to_vec(&set).map_err(|e| AosError::Serialization(e))?;
+            self.backend
+                .set(key, bytes)
+                .await
                 .map_err(|e| AosError::Database(format!("Failed to write set: {}", e)))?;
         }
 
@@ -170,7 +186,10 @@ impl StackKvRepository {
 
     /// Remove an item from a set stored at a key
     async fn remove_from_set(&self, key: &str, value: &str) -> Result<()> {
-        let current = self.backend.get(key).await
+        let current = self
+            .backend
+            .get(key)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to read set: {}", e)))?;
 
         if let Some(bytes) = current {
@@ -180,12 +199,14 @@ impl StackKvRepository {
             set.retain(|item| item != value);
 
             if set.is_empty() {
-                self.backend.delete(key).await
-                    .map_err(|e| AosError::Database(format!("Failed to delete empty set: {}", e)))?;
+                self.backend.delete(key).await.map_err(|e| {
+                    AosError::Database(format!("Failed to delete empty set: {}", e))
+                })?;
             } else {
-                let bytes = serde_json::to_vec(&set)
-                    .map_err(|e| AosError::Serialization(e))?;
-                self.backend.set(key, bytes).await
+                let bytes = serde_json::to_vec(&set).map_err(|e| AosError::Serialization(e))?;
+                self.backend
+                    .set(key, bytes)
+                    .await
                     .map_err(|e| AosError::Database(format!("Failed to write set: {}", e)))?;
             }
         }
@@ -194,13 +215,20 @@ impl StackKvRepository {
     }
 
     /// Load multiple stacks by their IDs
-    async fn load_stacks(&self, tenant_id: &str, stack_ids: &[String]) -> Result<Vec<AdapterStackKv>> {
+    async fn load_stacks(
+        &self,
+        tenant_id: &str,
+        stack_ids: &[String],
+    ) -> Result<Vec<AdapterStackKv>> {
         let mut stacks = Vec::new();
 
         for id in stack_ids {
             let key = Self::primary_key(tenant_id, id);
-            if let Some(bytes) = self.backend.get(&key).await
-                .map_err(|e| AosError::Database(format!("Failed to load stack {}: {}", id, e)))? {
+            if let Some(bytes) =
+                self.backend.get(&key).await.map_err(|e| {
+                    AosError::Database(format!("Failed to load stack {}: {}", id, e))
+                })?
+            {
                 match Self::deserialize(&bytes) {
                     Ok(stack) => stacks.push(stack),
                     Err(e) => {
@@ -222,8 +250,12 @@ impl StackKvRepository {
     ) -> Result<()> {
         // Get existing stack
         let key = Self::primary_key(tenant_id, stack_id);
-        let bytes = match self.backend.get(&key).await
-            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))? {
+        let bytes = match self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))?
+        {
             Some(b) => b,
             None => return Err(AosError::NotFound(format!("Stack not found: {}", stack_id))),
         };
@@ -237,8 +269,9 @@ impl StackKvRepository {
 
         // Store updated stack
         let bytes = Self::serialize(&stack)?;
-        self.backend.set(&key, bytes).await
-            .map_err(|e| AosError::Database(format!("Failed to update stack lifecycle state: {}", e)))?;
+        self.backend.set(&key, bytes).await.map_err(|e| {
+            AosError::Database(format!("Failed to update stack lifecycle state: {}", e))
+        })?;
 
         // Update state index if state changed
         if old_state != new_state {
@@ -268,8 +301,12 @@ impl StackKvRepository {
     ) -> Result<()> {
         // Get existing stack
         let key = Self::primary_key(tenant_id, stack_id);
-        let bytes = match self.backend.get(&key).await
-            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))? {
+        let bytes = match self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))?
+        {
             Some(b) => b,
             None => return Err(AosError::NotFound(format!("Stack not found: {}", stack_id))),
         };
@@ -282,7 +319,9 @@ impl StackKvRepository {
 
         // Store updated stack
         let bytes = Self::serialize(&stack)?;
-        self.backend.set(&key, bytes).await
+        self.backend
+            .set(&key, bytes)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to update stack version: {}", e)))?;
 
         debug!(
@@ -301,7 +340,9 @@ impl StackKvOps for StackKvRepository {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
 
-        let workflow_type = req.workflow_type.as_ref()
+        let workflow_type = req
+            .workflow_type
+            .as_ref()
             .and_then(|wt| WorkflowType::from_str(wt));
 
         let stack = AdapterStackKv {
@@ -320,18 +361,25 @@ impl StackKvOps for StackKvRepository {
 
         // Check if name already exists
         let name_key = Self::name_index_key(&req.tenant_id, &req.name);
-        if self.backend.exists(&name_key).await
-            .map_err(|e| AosError::Database(format!("Failed to check name index: {}", e)))? {
+        if self
+            .backend
+            .exists(&name_key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to check name index: {}", e)))?
+        {
             return Err(AosError::Database(format!(
                 "Stack with name '{}' already exists for tenant '{}'",
                 req.name, req.tenant_id
-            )).into());
+            ))
+            .into());
         }
 
         // Store stack
         let key = Self::primary_key(&req.tenant_id, &id);
         let bytes = Self::serialize(&stack)?;
-        self.backend.set(&key, bytes).await
+        self.backend
+            .set(&key, bytes)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to store stack: {}", e)))?;
 
         // Update indexes
@@ -344,8 +392,12 @@ impl StackKvOps for StackKvRepository {
     async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<AdapterStackKv>> {
         let key = Self::primary_key(tenant_id, id);
 
-        let bytes = match self.backend.get(&key).await
-            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))? {
+        let bytes = match self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))?
+        {
             Some(b) => b,
             None => return Ok(None),
         };
@@ -369,8 +421,12 @@ impl StackKvOps for StackKvRepository {
     async fn update_stack(&self, id: &str, req: &CreateStackRequest) -> Result<bool> {
         // Get existing stack
         let key = Self::primary_key(&req.tenant_id, id);
-        let old_bytes = match self.backend.get(&key).await
-            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))? {
+        let old_bytes = match self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))?
+        {
             Some(b) => b,
             None => return Ok(false),
         };
@@ -378,7 +434,9 @@ impl StackKvOps for StackKvRepository {
         let old_stack = Self::deserialize(&old_bytes)?;
 
         // Create updated stack
-        let workflow_type = req.workflow_type.as_ref()
+        let workflow_type = req
+            .workflow_type
+            .as_ref()
             .and_then(|wt| WorkflowType::from_str(wt));
 
         let updated_stack = AdapterStackKv {
@@ -397,12 +455,15 @@ impl StackKvOps for StackKvRepository {
 
         // Store updated stack
         let bytes = Self::serialize(&updated_stack)?;
-        self.backend.set(&key, bytes).await
+        self.backend
+            .set(&key, bytes)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?;
 
         // Update indexes (only if name changed)
         if old_stack.name != updated_stack.name {
-            self.update_indexes(&updated_stack, Some(&old_stack)).await?;
+            self.update_indexes(&updated_stack, Some(&old_stack))
+                .await?;
         }
 
         info!(stack_id = %id, tenant_id = %req.tenant_id, "Stack updated in KV store");
@@ -418,7 +479,10 @@ impl StackKvOps for StackKvRepository {
 
         // Delete from storage
         let key = Self::primary_key(tenant_id, id);
-        let deleted = self.backend.delete(&key).await
+        let deleted = self
+            .backend
+            .delete(&key)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to delete stack: {}", e)))?;
 
         if deleted {
@@ -433,8 +497,12 @@ impl StackKvOps for StackKvRepository {
     async fn list_stacks_by_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterStackKv>> {
         let tenant_key = Self::tenant_index_key(tenant_id);
 
-        let bytes = match self.backend.get(&tenant_key).await
-            .map_err(|e| AosError::Database(format!("Failed to list stacks: {}", e)))? {
+        let bytes = match self
+            .backend
+            .get(&tenant_key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list stacks: {}", e)))?
+        {
             Some(b) => b,
             None => return Ok(Vec::new()),
         };
@@ -448,15 +516,22 @@ impl StackKvOps for StackKvRepository {
     async fn list_all_stacks(&self) -> Result<Vec<AdapterStackKv>> {
         // Scan all tenant prefixes
         let prefix = "tenant/";
-        let keys = self.backend.scan_prefix(prefix).await
+        let keys = self
+            .backend
+            .scan_prefix(prefix)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to scan stacks: {}", e)))?;
 
         let mut stacks = Vec::new();
         for key in keys {
             // Only process primary keys (tenant/{id}/stack/{stack_id})
             if key.matches('/').count() == 3 && key.contains("/stack/") {
-                if let Some(bytes) = self.backend.get(&key).await
-                    .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))? {
+                if let Some(bytes) = self
+                    .backend
+                    .get(&key)
+                    .await
+                    .map_err(|e| AosError::Database(format!("Failed to get stack: {}", e)))?
+                {
                     match Self::deserialize(&bytes) {
                         Ok(stack) => stacks.push(stack),
                         Err(e) => {
@@ -477,7 +552,9 @@ impl StackKvOps for StackKvRepository {
 
         // Scan for the stack across all tenants
         let all_stacks = self.list_all_stacks().await?;
-        let stack = all_stacks.iter().find(|s| s.id == stack_id)
+        let stack = all_stacks
+            .iter()
+            .find(|s| s.id == stack_id)
             .ok_or_else(|| AosError::Database(format!("Stack not found: {}", stack_id)))?;
 
         let mut updated_stack = stack.clone();
@@ -487,8 +564,9 @@ impl StackKvOps for StackKvRepository {
 
             let key = Self::primary_key(&stack.tenant_id, stack_id);
             let bytes = Self::serialize(&updated_stack)?;
-            self.backend.set(&key, bytes).await
-                .map_err(|e| AosError::Database(format!("Failed to add adapter to stack: {}", e)))?;
+            self.backend.set(&key, bytes).await.map_err(|e| {
+                AosError::Database(format!("Failed to add adapter to stack: {}", e))
+            })?;
 
             debug!(stack_id = %stack_id, adapter_id = %adapter_id, "Adapter added to stack");
         }
@@ -499,7 +577,9 @@ impl StackKvOps for StackKvRepository {
     async fn remove_adapter_from_stack(&self, stack_id: &str, adapter_id: &str) -> Result<()> {
         // Similar to add_adapter_to_stack, we need to find the stack first
         let all_stacks = self.list_all_stacks().await?;
-        let stack = all_stacks.iter().find(|s| s.id == stack_id)
+        let stack = all_stacks
+            .iter()
+            .find(|s| s.id == stack_id)
             .ok_or_else(|| AosError::Database(format!("Stack not found: {}", stack_id)))?;
 
         let mut updated_stack = stack.clone();
@@ -508,8 +588,9 @@ impl StackKvOps for StackKvRepository {
 
         let key = Self::primary_key(&stack.tenant_id, stack_id);
         let bytes = Self::serialize(&updated_stack)?;
-        self.backend.set(&key, bytes).await
-            .map_err(|e| AosError::Database(format!("Failed to remove adapter from stack: {}", e)))?;
+        self.backend.set(&key, bytes).await.map_err(|e| {
+            AosError::Database(format!("Failed to remove adapter from stack: {}", e))
+        })?;
 
         debug!(stack_id = %stack_id, adapter_id = %adapter_id, "Adapter removed from stack");
         Ok(())
@@ -517,7 +598,9 @@ impl StackKvOps for StackKvRepository {
 
     async fn reorder_adapters(&self, stack_id: &str, adapter_ids: Vec<String>) -> Result<()> {
         let all_stacks = self.list_all_stacks().await?;
-        let stack = all_stacks.iter().find(|s| s.id == stack_id)
+        let stack = all_stacks
+            .iter()
+            .find(|s| s.id == stack_id)
             .ok_or_else(|| AosError::Database(format!("Stack not found: {}", stack_id)))?;
 
         let mut updated_stack = stack.clone();
@@ -526,7 +609,9 @@ impl StackKvOps for StackKvRepository {
 
         let key = Self::primary_key(&stack.tenant_id, stack_id);
         let bytes = Self::serialize(&updated_stack)?;
-        self.backend.set(&key, bytes).await
+        self.backend
+            .set(&key, bytes)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to reorder adapters: {}", e)))?;
 
         debug!(stack_id = %stack_id, "Adapters reordered in stack");
@@ -535,7 +620,9 @@ impl StackKvOps for StackKvRepository {
 
     async fn activate_stack(&self, stack_id: &str) -> Result<()> {
         let all_stacks = self.list_all_stacks().await?;
-        let stack = all_stacks.iter().find(|s| s.id == stack_id)
+        let stack = all_stacks
+            .iter()
+            .find(|s| s.id == stack_id)
             .ok_or_else(|| AosError::Database(format!("Stack not found: {}", stack_id)))?;
 
         let mut updated_stack = stack.clone();
@@ -545,7 +632,9 @@ impl StackKvOps for StackKvRepository {
 
         let key = Self::primary_key(&stack.tenant_id, stack_id);
         let bytes = Self::serialize(&updated_stack)?;
-        self.backend.set(&key, bytes).await
+        self.backend
+            .set(&key, bytes)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to activate stack: {}", e)))?;
 
         // Update state index
@@ -559,7 +648,9 @@ impl StackKvOps for StackKvRepository {
 
     async fn deactivate_stack(&self, stack_id: &str) -> Result<()> {
         let all_stacks = self.list_all_stacks().await?;
-        let stack = all_stacks.iter().find(|s| s.id == stack_id)
+        let stack = all_stacks
+            .iter()
+            .find(|s| s.id == stack_id)
             .ok_or_else(|| AosError::Database(format!("Stack not found: {}", stack_id)))?;
 
         let mut updated_stack = stack.clone();
@@ -569,7 +660,9 @@ impl StackKvOps for StackKvRepository {
 
         let key = Self::primary_key(&stack.tenant_id, stack_id);
         let bytes = Self::serialize(&updated_stack)?;
-        self.backend.set(&key, bytes).await
+        self.backend
+            .set(&key, bytes)
+            .await
             .map_err(|e| AosError::Database(format!("Failed to deactivate stack: {}", e)))?;
 
         // Update state index
@@ -581,11 +674,19 @@ impl StackKvOps for StackKvRepository {
         Ok(())
     }
 
-    async fn get_stack_by_name(&self, tenant_id: &str, name: &str) -> Result<Option<AdapterStackKv>> {
+    async fn get_stack_by_name(
+        &self,
+        tenant_id: &str,
+        name: &str,
+    ) -> Result<Option<AdapterStackKv>> {
         let name_key = Self::name_index_key(tenant_id, name);
 
-        let id_bytes = match self.backend.get(&name_key).await
-            .map_err(|e| AosError::Database(format!("Failed to get stack by name: {}", e)))? {
+        let id_bytes = match self
+            .backend
+            .get(&name_key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get stack by name: {}", e)))?
+        {
             Some(b) => b,
             None => return Ok(None),
         };
@@ -610,12 +711,18 @@ pub fn stack_record_to_kv(record: &StackRecord) -> Result<AdapterStackKv> {
         .map_err(|e| AosError::Database(format!("Failed to parse adapter_ids_json: {}", e)))?;
 
     // Parse workflow type
-    let workflow_type = record.workflow_type.as_ref()
+    let workflow_type = record
+        .workflow_type
+        .as_ref()
         .and_then(|wt| WorkflowType::from_str(wt));
 
     // Parse lifecycle state
-    let lifecycle_state = LifecycleState::from_str(&record.lifecycle_state)
-        .ok_or_else(|| AosError::Database(format!("Invalid lifecycle state: {}", record.lifecycle_state)))?;
+    let lifecycle_state = LifecycleState::from_str(&record.lifecycle_state).ok_or_else(|| {
+        AosError::Database(format!(
+            "Invalid lifecycle state: {}",
+            record.lifecycle_state
+        ))
+    })?;
 
     // Parse timestamps
     let created_at = NaiveDateTime::parse_from_str(&record.created_at, "%Y-%m-%d %H:%M:%S")
@@ -645,8 +752,8 @@ pub fn stack_record_to_kv(record: &StackRecord) -> Result<AdapterStackKv> {
 
 /// Convert KV AdapterStackKv to SQL StackRecord
 pub fn kv_to_stack_record(kv: &AdapterStackKv) -> Result<StackRecord> {
-    let adapter_ids_json = serde_json::to_string(&kv.adapter_ids)
-        .map_err(|e| AosError::Serialization(e))?;
+    let adapter_ids_json =
+        serde_json::to_string(&kv.adapter_ids).map_err(|e| AosError::Serialization(e))?;
 
     let workflow_type = kv.workflow_type.as_ref().map(|wt| wt.to_string());
 

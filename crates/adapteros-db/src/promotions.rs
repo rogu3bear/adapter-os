@@ -3,11 +3,11 @@
 //! This module provides database methods for managing golden run promotions,
 //! including promotion requests, gates, approvals, stages, and history.
 
+use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use crate::query_helpers::db_err;
 
 // ===== Data Models =====
 
@@ -210,11 +210,13 @@ impl Db {
 
     /// Get target stage from a promotion request
     pub async fn get_promotion_target_stage(&self, request_id: &str) -> Result<String> {
-        let row = sqlx::query("SELECT target_stage FROM golden_run_promotion_requests WHERE request_id = ?")
-            .bind(request_id)
-            .fetch_one(self.pool())
-            .await
-            .map_err(db_err("fetch promotion target stage"))?;
+        let row = sqlx::query(
+            "SELECT target_stage FROM golden_run_promotion_requests WHERE request_id = ?",
+        )
+        .bind(request_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(db_err("fetch promotion target stage"))?;
 
         let target_stage: String = row.try_get("target_stage")?;
         Ok(target_stage)
@@ -363,11 +365,12 @@ impl Db {
 
     /// Get active golden run ID for a stage
     pub async fn get_stage_active_golden_run(&self, stage_name: &str) -> Result<String> {
-        let row = sqlx::query("SELECT active_golden_run_id FROM golden_run_stages WHERE stage_name = ?")
-            .bind(stage_name)
-            .fetch_one(self.pool())
-            .await
-            .map_err(db_err("fetch stage active golden run"))?;
+        let row =
+            sqlx::query("SELECT active_golden_run_id FROM golden_run_stages WHERE stage_name = ?")
+                .bind(stage_name)
+                .fetch_one(self.pool())
+                .await
+                .map_err(db_err("fetch stage active golden run"))?;
 
         let active_id: String = row.try_get("active_golden_run_id")?;
         Ok(active_id)

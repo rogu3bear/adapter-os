@@ -36,58 +36,115 @@ pub fn assert_adapters_equal(left: &Adapter, right: &Adapter) {
     assert_eq!(left.hash_b3, right.hash_b3, "B3 hashes don't match");
     assert_eq!(left.rank, right.rank, "Ranks don't match");
     assert_eq!(left.alpha, right.alpha, "Alphas don't match");
-    assert_eq!(left.targets_json, right.targets_json, "Targets JSON don't match");
+    assert_eq!(
+        left.targets_json, right.targets_json,
+        "Targets JSON don't match"
+    );
     assert_eq!(left.acl_json, right.acl_json, "ACL JSON don't match");
-    assert_eq!(left.adapter_id, right.adapter_id, "External adapter IDs don't match");
-    assert_eq!(left.languages_json, right.languages_json, "Languages JSON don't match");
+    assert_eq!(
+        left.adapter_id, right.adapter_id,
+        "External adapter IDs don't match"
+    );
+    assert_eq!(
+        left.languages_json, right.languages_json,
+        "Languages JSON don't match"
+    );
     assert_eq!(left.framework, right.framework, "Frameworks don't match");
     assert_eq!(left.active, right.active, "Active status doesn't match");
 
     // Code intelligence fields
     assert_eq!(left.category, right.category, "Categories don't match");
     assert_eq!(left.scope, right.scope, "Scopes don't match");
-    assert_eq!(left.framework_id, right.framework_id, "Framework IDs don't match");
-    assert_eq!(left.framework_version, right.framework_version, "Framework versions don't match");
+    assert_eq!(
+        left.framework_id, right.framework_id,
+        "Framework IDs don't match"
+    );
+    assert_eq!(
+        left.framework_version, right.framework_version,
+        "Framework versions don't match"
+    );
     assert_eq!(left.repo_id, right.repo_id, "Repo IDs don't match");
     assert_eq!(left.commit_sha, right.commit_sha, "Commit SHAs don't match");
     assert_eq!(left.intent, right.intent, "Intents don't match");
 
     // Lifecycle state
-    assert_eq!(left.current_state, right.current_state, "Current states don't match");
+    assert_eq!(
+        left.current_state, right.current_state,
+        "Current states don't match"
+    );
     assert_eq!(left.pinned, right.pinned, "Pinned status doesn't match");
-    assert_eq!(left.memory_bytes, right.memory_bytes, "Memory bytes don't match");
-    assert_eq!(left.last_activated, right.last_activated, "Last activated timestamps don't match");
-    assert_eq!(left.activation_count, right.activation_count, "Activation counts don't match");
+    assert_eq!(
+        left.memory_bytes, right.memory_bytes,
+        "Memory bytes don't match"
+    );
+    assert_eq!(
+        left.last_activated, right.last_activated,
+        "Last activated timestamps don't match"
+    );
+    assert_eq!(
+        left.activation_count, right.activation_count,
+        "Activation counts don't match"
+    );
 
     // Expiration
-    assert_eq!(left.expires_at, right.expires_at, "Expiration timestamps don't match");
+    assert_eq!(
+        left.expires_at, right.expires_at,
+        "Expiration timestamps don't match"
+    );
 
     // Runtime load state
     assert_eq!(left.load_state, right.load_state, "Load states don't match");
-    assert_eq!(left.last_loaded_at, right.last_loaded_at, "Last loaded timestamps don't match");
+    assert_eq!(
+        left.last_loaded_at, right.last_loaded_at,
+        "Last loaded timestamps don't match"
+    );
 
     // .aos file support
-    assert_eq!(left.aos_file_path, right.aos_file_path, "AOS file paths don't match");
-    assert_eq!(left.aos_file_hash, right.aos_file_hash, "AOS file hashes don't match");
+    assert_eq!(
+        left.aos_file_path, right.aos_file_path,
+        "AOS file paths don't match"
+    );
+    assert_eq!(
+        left.aos_file_hash, right.aos_file_hash,
+        "AOS file hashes don't match"
+    );
 
     // Semantic naming
-    assert_eq!(left.adapter_name, right.adapter_name, "Adapter names don't match");
-    assert_eq!(left.tenant_namespace, right.tenant_namespace, "Tenant namespaces don't match");
+    assert_eq!(
+        left.adapter_name, right.adapter_name,
+        "Adapter names don't match"
+    );
+    assert_eq!(
+        left.tenant_namespace, right.tenant_namespace,
+        "Tenant namespaces don't match"
+    );
     assert_eq!(left.domain, right.domain, "Domains don't match");
     assert_eq!(left.purpose, right.purpose, "Purposes don't match");
     assert_eq!(left.revision, right.revision, "Revisions don't match");
     assert_eq!(left.parent_id, right.parent_id, "Parent IDs don't match");
     assert_eq!(left.fork_type, right.fork_type, "Fork types don't match");
-    assert_eq!(left.fork_reason, right.fork_reason, "Fork reasons don't match");
+    assert_eq!(
+        left.fork_reason, right.fork_reason,
+        "Fork reasons don't match"
+    );
 
     // Metadata normalization
     assert_eq!(left.version, right.version, "Versions don't match");
-    assert_eq!(left.lifecycle_state, right.lifecycle_state, "Lifecycle states don't match");
+    assert_eq!(
+        left.lifecycle_state, right.lifecycle_state,
+        "Lifecycle states don't match"
+    );
 
     // Timestamps - allow small differences for created_at/updated_at
     // These might differ slightly due to timing of dual writes
-    assert_eq!(left.created_at, right.created_at, "Created timestamps don't match");
-    assert_eq!(left.updated_at, right.updated_at, "Updated timestamps don't match");
+    assert_eq!(
+        left.created_at, right.created_at,
+        "Created timestamps don't match"
+    );
+    assert_eq!(
+        left.updated_at, right.updated_at,
+        "Updated timestamps don't match"
+    );
 }
 
 /// Assert that specific adapter fields match
@@ -123,57 +180,114 @@ pub fn assert_adapter_fields_match(left: &Adapter, right: &Adapter, fields: &[&s
             "hash_b3" => assert_eq!(left.hash_b3, right.hash_b3, "B3 hashes don't match"),
             "rank" => assert_eq!(left.rank, right.rank, "Ranks don't match"),
             "alpha" => assert_eq!(left.alpha, right.alpha, "Alphas don't match"),
-            "targets_json" => assert_eq!(left.targets_json, right.targets_json, "Targets JSON don't match"),
+            "targets_json" => assert_eq!(
+                left.targets_json, right.targets_json,
+                "Targets JSON don't match"
+            ),
             "acl_json" => assert_eq!(left.acl_json, right.acl_json, "ACL JSON don't match"),
-            "adapter_id" => assert_eq!(left.adapter_id, right.adapter_id, "Adapter IDs don't match"),
-            "languages_json" => assert_eq!(left.languages_json, right.languages_json, "Languages JSON don't match"),
+            "adapter_id" => {
+                assert_eq!(left.adapter_id, right.adapter_id, "Adapter IDs don't match")
+            }
+            "languages_json" => assert_eq!(
+                left.languages_json, right.languages_json,
+                "Languages JSON don't match"
+            ),
             "framework" => assert_eq!(left.framework, right.framework, "Frameworks don't match"),
             "active" => assert_eq!(left.active, right.active, "Active status doesn't match"),
 
             // Code intelligence
             "category" => assert_eq!(left.category, right.category, "Categories don't match"),
             "scope" => assert_eq!(left.scope, right.scope, "Scopes don't match"),
-            "framework_id" => assert_eq!(left.framework_id, right.framework_id, "Framework IDs don't match"),
-            "framework_version" => assert_eq!(left.framework_version, right.framework_version, "Framework versions don't match"),
+            "framework_id" => assert_eq!(
+                left.framework_id, right.framework_id,
+                "Framework IDs don't match"
+            ),
+            "framework_version" => assert_eq!(
+                left.framework_version, right.framework_version,
+                "Framework versions don't match"
+            ),
             "repo_id" => assert_eq!(left.repo_id, right.repo_id, "Repo IDs don't match"),
-            "commit_sha" => assert_eq!(left.commit_sha, right.commit_sha, "Commit SHAs don't match"),
+            "commit_sha" => {
+                assert_eq!(left.commit_sha, right.commit_sha, "Commit SHAs don't match")
+            }
             "intent" => assert_eq!(left.intent, right.intent, "Intents don't match"),
 
             // Lifecycle
-            "current_state" => assert_eq!(left.current_state, right.current_state, "Current states don't match"),
+            "current_state" => assert_eq!(
+                left.current_state, right.current_state,
+                "Current states don't match"
+            ),
             "pinned" => assert_eq!(left.pinned, right.pinned, "Pinned status doesn't match"),
-            "memory_bytes" => assert_eq!(left.memory_bytes, right.memory_bytes, "Memory bytes don't match"),
-            "last_activated" => assert_eq!(left.last_activated, right.last_activated, "Last activated don't match"),
-            "activation_count" => assert_eq!(left.activation_count, right.activation_count, "Activation counts don't match"),
+            "memory_bytes" => assert_eq!(
+                left.memory_bytes, right.memory_bytes,
+                "Memory bytes don't match"
+            ),
+            "last_activated" => assert_eq!(
+                left.last_activated, right.last_activated,
+                "Last activated don't match"
+            ),
+            "activation_count" => assert_eq!(
+                left.activation_count, right.activation_count,
+                "Activation counts don't match"
+            ),
 
             // Expiration
             "expires_at" => assert_eq!(left.expires_at, right.expires_at, "Expiration don't match"),
 
             // Load state
-            "load_state" => assert_eq!(left.load_state, right.load_state, "Load states don't match"),
-            "last_loaded_at" => assert_eq!(left.last_loaded_at, right.last_loaded_at, "Last loaded don't match"),
+            "load_state" => {
+                assert_eq!(left.load_state, right.load_state, "Load states don't match")
+            }
+            "last_loaded_at" => assert_eq!(
+                left.last_loaded_at, right.last_loaded_at,
+                "Last loaded don't match"
+            ),
 
             // .aos file
-            "aos_file_path" => assert_eq!(left.aos_file_path, right.aos_file_path, "AOS paths don't match"),
-            "aos_file_hash" => assert_eq!(left.aos_file_hash, right.aos_file_hash, "AOS hashes don't match"),
+            "aos_file_path" => assert_eq!(
+                left.aos_file_path, right.aos_file_path,
+                "AOS paths don't match"
+            ),
+            "aos_file_hash" => assert_eq!(
+                left.aos_file_hash, right.aos_file_hash,
+                "AOS hashes don't match"
+            ),
 
             // Semantic naming
-            "adapter_name" => assert_eq!(left.adapter_name, right.adapter_name, "Adapter names don't match"),
-            "tenant_namespace" => assert_eq!(left.tenant_namespace, right.tenant_namespace, "Namespaces don't match"),
+            "adapter_name" => assert_eq!(
+                left.adapter_name, right.adapter_name,
+                "Adapter names don't match"
+            ),
+            "tenant_namespace" => assert_eq!(
+                left.tenant_namespace, right.tenant_namespace,
+                "Namespaces don't match"
+            ),
             "domain" => assert_eq!(left.domain, right.domain, "Domains don't match"),
             "purpose" => assert_eq!(left.purpose, right.purpose, "Purposes don't match"),
             "revision" => assert_eq!(left.revision, right.revision, "Revisions don't match"),
             "parent_id" => assert_eq!(left.parent_id, right.parent_id, "Parent IDs don't match"),
             "fork_type" => assert_eq!(left.fork_type, right.fork_type, "Fork types don't match"),
-            "fork_reason" => assert_eq!(left.fork_reason, right.fork_reason, "Fork reasons don't match"),
+            "fork_reason" => assert_eq!(
+                left.fork_reason, right.fork_reason,
+                "Fork reasons don't match"
+            ),
 
             // Metadata
             "version" => assert_eq!(left.version, right.version, "Versions don't match"),
-            "lifecycle_state" => assert_eq!(left.lifecycle_state, right.lifecycle_state, "Lifecycle states don't match"),
+            "lifecycle_state" => assert_eq!(
+                left.lifecycle_state, right.lifecycle_state,
+                "Lifecycle states don't match"
+            ),
 
             // Timestamps
-            "created_at" => assert_eq!(left.created_at, right.created_at, "Created timestamps don't match"),
-            "updated_at" => assert_eq!(left.updated_at, right.updated_at, "Updated timestamps don't match"),
+            "created_at" => assert_eq!(
+                left.created_at, right.created_at,
+                "Created timestamps don't match"
+            ),
+            "updated_at" => assert_eq!(
+                left.updated_at, right.updated_at,
+                "Updated timestamps don't match"
+            ),
 
             unknown => panic!("Unknown field '{}' in assert_adapter_fields_match", unknown),
         }
@@ -300,6 +414,10 @@ mod tests {
             fork_reason: None,
             version: "1.0.0".to_string(),
             lifecycle_state: "active".to_string(),
+            archived_at: None,
+            archived_by: None,
+            archive_reason: None,
+            purged_at: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         }

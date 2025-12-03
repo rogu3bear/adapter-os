@@ -39,7 +39,10 @@ impl CustomizationStatus {
             "approved" => Ok(Self::Approved),
             "rejected" => Ok(Self::Rejected),
             "active" => Ok(Self::Active),
-            _ => Err(AosError::Validation(format!("Invalid customization status: {}", s))),
+            _ => Err(AosError::Validation(format!(
+                "Invalid customization status: {}",
+                s
+            ))),
         }
     }
 }
@@ -145,8 +148,9 @@ impl TenantPolicyCustomizationOps {
             "Created policy customization"
         );
 
-        self.get_customization(&id).await?
-            .ok_or_else(|| AosError::NotFound(format!("Customization {} not found after creation", id)))
+        self.get_customization(&id).await?.ok_or_else(|| {
+            AosError::NotFound(format!("Customization {} not found after creation", id))
+        })
     }
 
     /// Get customization by ID
@@ -170,7 +174,8 @@ impl TenantPolicyCustomizationOps {
             tenant_id: r.get("tenant_id"),
             base_policy_type: r.get("base_policy_type"),
             customizations_json: r.get("customizations_json"),
-            status: CustomizationStatus::from_str(r.get("status")).unwrap_or(CustomizationStatus::Draft),
+            status: CustomizationStatus::from_str(r.get("status"))
+                .unwrap_or(CustomizationStatus::Draft),
             submitted_at: r.get("submitted_at"),
             reviewed_at: r.get("reviewed_at"),
             reviewed_by: r.get("reviewed_by"),
@@ -184,7 +189,10 @@ impl TenantPolicyCustomizationOps {
     }
 
     /// List customizations for a tenant
-    pub async fn list_tenant_customizations(&self, tenant_id: &str) -> Result<Vec<TenantPolicyCustomization>> {
+    pub async fn list_tenant_customizations(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<TenantPolicyCustomization>> {
         let rows = sqlx::query(
             r#"
             SELECT id, tenant_id, base_policy_type, customizations_json, status, 
@@ -200,22 +208,26 @@ impl TenantPolicyCustomizationOps {
         .await
         .map_err(|e| AosError::Database(format!("Failed to list customizations: {}", e)))?;
 
-        Ok(rows.into_iter().map(|r| TenantPolicyCustomization {
-            id: r.get("id"),
-            tenant_id: r.get("tenant_id"),
-            base_policy_type: r.get("base_policy_type"),
-            customizations_json: r.get("customizations_json"),
-            status: CustomizationStatus::from_str(r.get("status")).unwrap_or(CustomizationStatus::Draft),
-            submitted_at: r.get("submitted_at"),
-            reviewed_at: r.get("reviewed_at"),
-            reviewed_by: r.get("reviewed_by"),
-            review_notes: r.get("review_notes"),
-            activated_at: r.get("activated_at"),
-            created_at: r.get("created_at"),
-            created_by: r.get("created_by"),
-            updated_at: r.get("updated_at"),
-            metadata_json: r.get("metadata_json"),
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| TenantPolicyCustomization {
+                id: r.get("id"),
+                tenant_id: r.get("tenant_id"),
+                base_policy_type: r.get("base_policy_type"),
+                customizations_json: r.get("customizations_json"),
+                status: CustomizationStatus::from_str(r.get("status"))
+                    .unwrap_or(CustomizationStatus::Draft),
+                submitted_at: r.get("submitted_at"),
+                reviewed_at: r.get("reviewed_at"),
+                reviewed_by: r.get("reviewed_by"),
+                review_notes: r.get("review_notes"),
+                activated_at: r.get("activated_at"),
+                created_at: r.get("created_at"),
+                created_by: r.get("created_by"),
+                updated_at: r.get("updated_at"),
+                metadata_json: r.get("metadata_json"),
+            })
+            .collect())
     }
 
     /// List pending review customizations
@@ -234,27 +246,33 @@ impl TenantPolicyCustomizationOps {
         .await
         .map_err(|e| AosError::Database(format!("Failed to list pending reviews: {}", e)))?;
 
-        Ok(rows.into_iter().map(|r| TenantPolicyCustomization {
-            id: r.get("id"),
-            tenant_id: r.get("tenant_id"),
-            base_policy_type: r.get("base_policy_type"),
-            customizations_json: r.get("customizations_json"),
-            status: CustomizationStatus::from_str(r.get("status")).unwrap_or(CustomizationStatus::Draft),
-            submitted_at: r.get("submitted_at"),
-            reviewed_at: r.get("reviewed_at"),
-            reviewed_by: r.get("reviewed_by"),
-            review_notes: r.get("review_notes"),
-            activated_at: r.get("activated_at"),
-            created_at: r.get("created_at"),
-            created_by: r.get("created_by"),
-            updated_at: r.get("updated_at"),
-            metadata_json: r.get("metadata_json"),
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| TenantPolicyCustomization {
+                id: r.get("id"),
+                tenant_id: r.get("tenant_id"),
+                base_policy_type: r.get("base_policy_type"),
+                customizations_json: r.get("customizations_json"),
+                status: CustomizationStatus::from_str(r.get("status"))
+                    .unwrap_or(CustomizationStatus::Draft),
+                submitted_at: r.get("submitted_at"),
+                reviewed_at: r.get("reviewed_at"),
+                reviewed_by: r.get("reviewed_by"),
+                review_notes: r.get("review_notes"),
+                activated_at: r.get("activated_at"),
+                created_at: r.get("created_at"),
+                created_by: r.get("created_by"),
+                updated_at: r.get("updated_at"),
+                metadata_json: r.get("metadata_json"),
+            })
+            .collect())
     }
 
     /// Submit customization for review
     pub async fn submit_for_review(&self, id: &str, submitted_by: &str) -> Result<()> {
-        let customization = self.get_customization(id).await?
+        let customization = self
+            .get_customization(id)
+            .await?
             .ok_or_else(|| AosError::NotFound(format!("Customization {} not found", id)))?;
 
         if customization.status != CustomizationStatus::Draft {
@@ -298,8 +316,15 @@ impl TenantPolicyCustomizationOps {
     }
 
     /// Approve customization
-    pub async fn approve_customization(&self, id: &str, reviewed_by: &str, notes: Option<&str>) -> Result<()> {
-        let customization = self.get_customization(id).await?
+    pub async fn approve_customization(
+        &self,
+        id: &str,
+        reviewed_by: &str,
+        notes: Option<&str>,
+    ) -> Result<()> {
+        let customization = self
+            .get_customization(id)
+            .await?
             .ok_or_else(|| AosError::NotFound(format!("Customization {} not found", id)))?;
 
         if customization.status != CustomizationStatus::PendingReview {
@@ -345,8 +370,15 @@ impl TenantPolicyCustomizationOps {
     }
 
     /// Reject customization
-    pub async fn reject_customization(&self, id: &str, reviewed_by: &str, notes: Option<&str>) -> Result<()> {
-        let customization = self.get_customization(id).await?
+    pub async fn reject_customization(
+        &self,
+        id: &str,
+        reviewed_by: &str,
+        notes: Option<&str>,
+    ) -> Result<()> {
+        let customization = self
+            .get_customization(id)
+            .await?
             .ok_or_else(|| AosError::NotFound(format!("Customization {} not found", id)))?;
 
         if customization.status != CustomizationStatus::PendingReview {
@@ -393,7 +425,9 @@ impl TenantPolicyCustomizationOps {
 
     /// Activate approved customization
     pub async fn activate_customization(&self, id: &str, activated_by: &str) -> Result<()> {
-        let customization = self.get_customization(id).await?
+        let customization = self
+            .get_customization(id)
+            .await?
             .ok_or_else(|| AosError::NotFound(format!("Customization {} not found", id)))?;
 
         if customization.status != CustomizationStatus::Approved {
@@ -417,7 +451,12 @@ impl TenantPolicyCustomizationOps {
         .bind(id)
         .execute(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to deactivate existing customizations: {}", e)))?;
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to deactivate existing customizations: {}",
+                e
+            ))
+        })?;
 
         let now = Utc::now().to_rfc3339();
         let new_status = CustomizationStatus::Active;
@@ -459,7 +498,9 @@ impl TenantPolicyCustomizationOps {
         customizations_json: &str,
         updated_by: &str,
     ) -> Result<()> {
-        let customization = self.get_customization(id).await?
+        let customization = self
+            .get_customization(id)
+            .await?
             .ok_or_else(|| AosError::NotFound(format!("Customization {} not found", id)))?;
 
         if customization.status != CustomizationStatus::Draft {
@@ -502,7 +543,9 @@ impl TenantPolicyCustomizationOps {
 
     /// Delete customization (draft only)
     pub async fn delete_customization(&self, id: &str) -> Result<()> {
-        let customization = self.get_customization(id).await?
+        let customization = self
+            .get_customization(id)
+            .await?
             .ok_or_else(|| AosError::NotFound(format!("Customization {} not found", id)))?;
 
         if customization.status != CustomizationStatus::Draft {
@@ -550,7 +593,8 @@ impl TenantPolicyCustomizationOps {
             tenant_id: r.get("tenant_id"),
             base_policy_type: r.get("base_policy_type"),
             customizations_json: r.get("customizations_json"),
-            status: CustomizationStatus::from_str(r.get("status")).unwrap_or(CustomizationStatus::Draft),
+            status: CustomizationStatus::from_str(r.get("status"))
+                .unwrap_or(CustomizationStatus::Draft),
             submitted_at: r.get("submitted_at"),
             reviewed_at: r.get("reviewed_at"),
             reviewed_by: r.get("reviewed_by"),
@@ -564,7 +608,10 @@ impl TenantPolicyCustomizationOps {
     }
 
     /// Get history for a customization
-    pub async fn get_customization_history(&self, customization_id: &str) -> Result<Vec<CustomizationHistoryEntry>> {
+    pub async fn get_customization_history(
+        &self,
+        customization_id: &str,
+    ) -> Result<Vec<CustomizationHistoryEntry>> {
         let rows = sqlx::query(
             r#"
             SELECT id, customization_id, action, performed_by, performed_at,
@@ -579,17 +626,20 @@ impl TenantPolicyCustomizationOps {
         .await
         .map_err(|e| AosError::Database(format!("Failed to get history: {}", e)))?;
 
-        Ok(rows.into_iter().map(|r| CustomizationHistoryEntry {
-            id: r.get("id"),
-            customization_id: r.get("customization_id"),
-            action: r.get("action"),
-            performed_by: r.get("performed_by"),
-            performed_at: r.get("performed_at"),
-            old_status: r.get("old_status"),
-            new_status: r.get("new_status"),
-            notes: r.get("notes"),
-            changes_json: r.get("changes_json"),
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| CustomizationHistoryEntry {
+                id: r.get("id"),
+                customization_id: r.get("customization_id"),
+                action: r.get("action"),
+                performed_by: r.get("performed_by"),
+                performed_at: r.get("performed_at"),
+                old_status: r.get("old_status"),
+                new_status: r.get("new_status"),
+                notes: r.get("notes"),
+                changes_json: r.get("changes_json"),
+            })
+            .collect())
     }
 
     /// Add history entry (internal)
@@ -629,4 +679,3 @@ impl TenantPolicyCustomizationOps {
         Ok(())
     }
 }
-

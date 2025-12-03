@@ -84,7 +84,8 @@ impl Db {
     /// Get a UserKvRepository if KV writes are enabled
     fn get_user_kv_repo(&self) -> Option<UserKvRepository<crate::kv_backend::KvDb>> {
         if self.storage_mode().write_to_kv() {
-            self.kv_backend().map(|kv| UserKvRepository::new((**kv).clone()))
+            self.kv_backend()
+                .map(|kv| UserKvRepository::new((**kv).clone()))
         } else {
             None
         }
@@ -121,7 +122,10 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_user_kv_repo() {
             let kv_role = to_kv_role(&role);
-            if let Err(e) = repo.create_user_kv(email, display_name, pw_hash, kv_role, tenant_id).await {
+            if let Err(e) = repo
+                .create_user_kv(email, display_name, pw_hash, kv_role, tenant_id)
+                .await
+            {
                 warn!(error = %e, user_id = %id, "Failed to write user to KV backend (dual-write)");
             } else {
                 debug!(user_id = %id, "User written to both SQL and KV backends");
@@ -186,7 +190,10 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_user_kv_repo() {
             let kv_role = to_kv_role(&role);
-            if let Err(e) = repo.ensure_user_kv(id, email, display_name, pw_hash, kv_role, tenant_id).await {
+            if let Err(e) = repo
+                .ensure_user_kv(id, email, display_name, pw_hash, kv_role, tenant_id)
+                .await
+            {
                 warn!(error = %e, user_id = %id, "Failed to ensure user in KV backend (dual-write)");
             } else {
                 debug!(user_id = %id, "User ensured in both SQL and KV backends");
@@ -235,7 +242,7 @@ impl Db {
         // Count total matching users
         let count_query = format!("SELECT COUNT(*) FROM users {}", where_clause);
         let mut count_builder = sqlx::query_scalar::<_, i64>(&count_query);
-        
+
         if let Some(role) = role_filter {
             count_builder = count_builder.bind(role);
         }
@@ -258,7 +265,7 @@ impl Db {
         );
 
         let mut select_builder = sqlx::query_as::<_, User>(&select_query);
-        
+
         if let Some(role) = role_filter {
             select_builder = select_builder.bind(role);
         }
@@ -282,14 +289,13 @@ impl Db {
         let role_str = role.to_string();
 
         // SQL write (always happens)
-        let result = sqlx::query(
-            "UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?"
-        )
-        .bind(&role_str)
-        .bind(id)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        let result =
+            sqlx::query("UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?")
+                .bind(&role_str)
+                .bind(id)
+                .execute(&*self.pool())
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
 
         if result.rows_affected() == 0 {
             return Err(AosError::NotFound(format!("User not found: {}", id)));
@@ -313,14 +319,13 @@ impl Db {
     /// Updates the user's disabled status in SQL, and also in KV backend if dual-write mode is enabled.
     pub async fn update_user_disabled(&self, id: &str, disabled: bool) -> Result<()> {
         // SQL write (always happens)
-        let result = sqlx::query(
-            "UPDATE users SET disabled = ?, updated_at = datetime('now') WHERE id = ?"
-        )
-        .bind(disabled)
-        .bind(id)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        let result =
+            sqlx::query("UPDATE users SET disabled = ?, updated_at = datetime('now') WHERE id = ?")
+                .bind(disabled)
+                .bind(id)
+                .execute(&*self.pool())
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
 
         if result.rows_affected() == 0 {
             return Err(AosError::NotFound(format!("User not found: {}", id)));

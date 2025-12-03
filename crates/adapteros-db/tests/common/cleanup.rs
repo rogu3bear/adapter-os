@@ -3,8 +3,8 @@
 //! Provides utilities for properly cleaning up test resources including
 //! database connections, temporary files, and KV storage.
 
-use adapteros_db::Db;
 use adapteros_core::Result;
+use adapteros_db::Db;
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
 
@@ -66,9 +66,9 @@ pub async fn cleanup_test_files(path: &Path) -> Result<()> {
 
     debug!(path = ?path, "Cleaning up test files");
 
-    tokio::fs::remove_dir_all(path)
-        .await
-        .map_err(|e| adapteros_core::AosError::Internal(format!("Failed to cleanup test files: {}", e)))?;
+    tokio::fs::remove_dir_all(path).await.map_err(|e| {
+        adapteros_core::AosError::Internal(format!("Failed to cleanup test files: {}", e))
+    })?;
 
     Ok(())
 }
@@ -126,9 +126,9 @@ pub async fn cleanup_test_file(path: &Path) -> Result<()> {
 
     debug!(path = ?path, "Removing test file");
 
-    tokio::fs::remove_file(path)
-        .await
-        .map_err(|e| adapteros_core::AosError::Internal(format!("Failed to remove test file: {}", e)))?;
+    tokio::fs::remove_file(path).await.map_err(|e| {
+        adapteros_core::AosError::Internal(format!("Failed to remove test file: {}", e))
+    })?;
 
     Ok(())
 }
@@ -184,10 +184,7 @@ impl TestCleanupGuard {
 
     /// Create a guard for file cleanup only
     pub fn files_only(paths: Vec<PathBuf>) -> Self {
-        Self {
-            db: None,
-            paths,
-        }
+        Self { db: None, paths }
     }
 
     /// Add a path to clean up

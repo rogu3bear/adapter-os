@@ -1,11 +1,11 @@
 //! Document database operations
 
+use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;
-use crate::query_helpers::db_err;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Document {
@@ -96,6 +96,56 @@ impl Db {
         Ok(document)
     }
 
+    /// Get multiple documents by their IDs, preserving input order
+    ///
+    /// Returns documents in the same order as input IDs. Missing documents
+    /// are returned as None in the result vector. This is used for replay
+    /// with original RAG documents where some may have been deleted.
+    ///
+    /// # Arguments
+    /// * `doc_ids` - Slice of document IDs to retrieve, in desired order
+    ///
+    /// # Returns
+    /// Vector of Option<Document> in same order as input IDs
+    pub async fn get_documents_by_ids_ordered(
+        &self,
+        doc_ids: &[String],
+    ) -> Result<Vec<Option<Document>>> {
+        if doc_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Fetch all documents that match any of the IDs
+        // Using a hashmap for O(1) lookup during reordering
+        let placeholders = doc_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let query = format!(
+            "SELECT id, tenant_id, name, content_hash, file_path, file_size,
+                    mime_type, page_count, status, created_at, updated_at, metadata_json
+             FROM documents
+             WHERE id IN ({})",
+            placeholders
+        );
+
+        let mut query_builder = sqlx::query_as::<_, Document>(&query);
+        for id in doc_ids {
+            query_builder = query_builder.bind(id);
+        }
+
+        let documents = query_builder
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(db_err("get documents by IDs"))?;
+
+        // Build hashmap for efficient lookup
+        let doc_map: std::collections::HashMap<String, Document> =
+            documents.into_iter().map(|d| (d.id.clone(), d)).collect();
+
+        // Reorder to match input order, with None for missing docs
+        let result = doc_ids.iter().map(|id| doc_map.get(id).cloned()).collect();
+
+        Ok(result)
+    }
+
     /// List documents for a tenant
     pub async fn list_documents(&self, tenant_id: &str) -> Result<Vec<Document>> {
         let documents = sqlx::query_as::<_, Document>(
@@ -113,7 +163,12 @@ impl Db {
     }
 
     /// List documents for a tenant with pagination
-    pub async fn list_documents_paginated(&self, tenant_id: &str, limit: i64, offset: i64) -> Result<(Vec<Document>, i64)> {
+    pub async fn list_documents_paginated(
+        &self,
+        tenant_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<Document>, i64)> {
         // Get total count for this tenant
         let total = sqlx::query("SELECT COUNT(*) as cnt FROM documents WHERE tenant_id = ?")
             .bind(tenant_id)
@@ -207,9 +262,7 @@ impl Db {
             .map_err(db_err("delete document"))?;
 
         // Commit transaction
-        tx.commit()
-            .await
-            .map_err(db_err("commit transaction"))?;
+        tx.commit().await.map_err(db_err("commit transaction"))?;
 
         Ok(())
     }
@@ -250,6 +303,60 @@ impl Db {
         .fetch_all(&*self.pool())
         .await
         .map_err(db_err("get document chunks"))?;
+        Ok(chunks)
+    }
+
+    /// Get chunks for multiple documents with deterministic ordering.
+    ///
+    /// Returns all chunks from the specified documents, ordered by document_id ASC
+    /// then chunk_index ASC. This deterministic ordering is critical for reproducible
+    /// dataset generation (doc→dataset→adapter flow).
+    ///
+    /// # Arguments
+    /// * `tenant_id` - Tenant ID for isolation (chunks must belong to this tenant)
+    /// * `document_ids` - Slice of document IDs to fetch chunks for
+    ///
+    /// # Returns
+    /// Vector of DocumentChunk sorted by (document_id, chunk_index)
+    ///
+    /// # Security
+    /// This method enforces tenant isolation at the database level by filtering
+    /// on tenant_id. Only chunks belonging to documents owned by the specified
+    /// tenant will be returned.
+    pub async fn get_chunks_for_documents(
+        &self,
+        tenant_id: &str,
+        document_ids: &[String],
+    ) -> Result<Vec<DocumentChunk>> {
+        if document_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = document_ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = format!(
+            "SELECT id, document_id, chunk_index, page_number, start_offset,
+                    end_offset, chunk_hash, text_preview
+             FROM document_chunks
+             WHERE tenant_id = ? AND document_id IN ({})
+             ORDER BY document_id ASC, chunk_index ASC",
+            placeholders
+        );
+
+        let mut query_builder = sqlx::query_as::<_, DocumentChunk>(&query);
+        query_builder = query_builder.bind(tenant_id);
+        for id in document_ids {
+            query_builder = query_builder.bind(id);
+        }
+
+        let chunks = query_builder
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(db_err("get chunks for documents"))?;
+
         Ok(chunks)
     }
 

@@ -36,6 +36,27 @@ pub struct TrainingJobRecord {
     pub tenant_id: Option<String>,
     pub build_id: Option<String>,
     pub source_documents_json: Option<String>,
+    // Fields from migration 0133 - retry tracking
+    /// Whether this job can be retried (determined by error type)
+    pub retryable: Option<i64>,
+    /// ID of the original job this is a retry of (for retry chain tracking)
+    pub retry_of_job_id: Option<String>,
+}
+
+/// Training metric record from database
+///
+/// Evidence: migrations/0013_git_repository_integration.sql (training_metrics table)
+/// Evidence: migrations/0125_training_metrics_step_epoch.sql (step/epoch columns)
+/// Pattern: Time-series metrics for training jobs
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TrainingMetricRow {
+    pub id: String,
+    pub training_job_id: String,
+    pub step: i64,
+    pub epoch: Option<i64>,
+    pub metric_name: String,
+    pub metric_value: f64,
+    pub metric_timestamp: Option<String>,
 }
 
 /// Training progress data
@@ -155,7 +176,8 @@ impl Db {
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json
+                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    retryable, retry_of_job_id
              FROM repository_training_jobs WHERE id = ?",
         )
         .bind(job_id)
@@ -226,7 +248,8 @@ impl Db {
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json
+                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    retryable, retry_of_job_id
              FROM repository_training_jobs
              WHERE repo_id = ?
              ORDER BY started_at DESC",
@@ -251,7 +274,8 @@ impl Db {
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json
+                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    retryable, retry_of_job_id
              FROM repository_training_jobs
              WHERE status = ?
              ORDER BY started_at DESC",
@@ -301,7 +325,8 @@ impl Db {
                     rtj.started_at, rtj.completed_at, rtj.created_by, rtj.adapter_name,
                     rtj.template_id, rtj.created_at, rtj.metadata_json, rtj.config_hash_b3,
                     rtj.dataset_id, rtj.base_model_id, rtj.collection_id, rtj.tenant_id,
-                    rtj.build_id, rtj.source_documents_json
+                    rtj.build_id, rtj.source_documents_json,
+                    rtj.retryable, rtj.retry_of_job_id
              FROM repository_training_jobs rtj
              WHERE rtj.tenant_id = ? OR rtj.created_by LIKE ?
              ORDER BY rtj.started_at DESC",
@@ -406,7 +431,8 @@ impl Db {
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json
+                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    retryable, retry_of_job_id
              FROM repository_training_jobs
              WHERE metadata_json LIKE ?",
         )
@@ -456,7 +482,8 @@ impl Db {
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json
+                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    retryable, retry_of_job_id
              FROM repository_training_jobs
              WHERE config_hash_b3 = ?
              ORDER BY started_at DESC",
@@ -472,9 +499,24 @@ impl Db {
     /// Create training job with full provenance tracking
     ///
     /// Evidence: migrations/0100_training_provenance.sql
+    /// Evidence: migrations/0133_training_retryable.sql (retry_of_job_id column)
     /// Pattern: Complete provenance chain from dataset to adapter
+    ///
+    /// # Arguments
+    /// * `job_id` - Optional job ID (if None, generates UUID v7)
+    /// * `repo_id` - Repository ID for training context
+    /// * `training_config_json` - JSON-serialized training configuration
+    /// * `created_by` - User who initiated the training
+    /// * `dataset_id` - Optional dataset ID for provenance tracking
+    /// * `base_model_id` - Optional base model ID
+    /// * `collection_id` - Optional document collection ID
+    /// * `tenant_id` - Tenant isolation identifier
+    /// * `build_id` - Build/commit identifier for reproducibility
+    /// * `source_documents_json` - JSON list of source document IDs
+    /// * `retry_of_job_id` - Optional ID of original job this is a retry of (for retry chain tracking)
     pub async fn create_training_job_with_provenance(
         &self,
+        job_id: Option<&str>,
         repo_id: &str,
         training_config_json: &str,
         created_by: &str,
@@ -484,8 +526,11 @@ impl Db {
         tenant_id: Option<&str>,
         build_id: Option<&str>,
         source_documents_json: Option<&str>,
+        retry_of_job_id: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = job_id
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| Uuid::now_v7().to_string());
         let progress = TrainingProgress {
             progress_pct: 0.0,
             current_epoch: 0,
@@ -500,8 +545,9 @@ impl Db {
         sqlx::query(
             "INSERT INTO repository_training_jobs
              (id, repo_id, training_config_json, status, progress_json, created_by,
-              dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+              retry_of_job_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(repo_id)
@@ -515,6 +561,7 @@ impl Db {
         .bind(tenant_id)
         .bind(build_id)
         .bind(source_documents_json)
+        .bind(retry_of_job_id)
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
@@ -556,6 +603,276 @@ impl Db {
             .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Insert a single training metric
+    ///
+    /// Evidence: migrations/0013_git_repository_integration.sql (training_metrics table)
+    /// Evidence: migrations/0125_training_metrics_step_epoch.sql (step/epoch columns)
+    /// Pattern: Record fine-grained training metrics for monitoring and debugging
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `step` - Training step number (e.g., 1200)
+    /// * `epoch` - Optional epoch number (e.g., 3)
+    /// * `metric_name` - Name of the metric (e.g., "loss", "learning_rate", "tokens_per_second")
+    /// * `value` - Metric value
+    ///
+    /// # Returns
+    /// ID of the inserted metric record
+    pub async fn insert_training_metric(
+        &self,
+        job_id: &str,
+        step: i64,
+        epoch: Option<i64>,
+        metric_name: &str,
+        value: f64,
+    ) -> Result<String> {
+        let id = Uuid::now_v7().to_string();
+
+        sqlx::query(
+            "INSERT INTO repository_training_metrics
+             (id, training_job_id, step, epoch, metric_name, metric_value)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(job_id)
+        .bind(step)
+        .bind(epoch)
+        .bind(metric_name)
+        .bind(value)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert training metric: {}", e)))?;
+
+        Ok(id)
+    }
+
+    /// Insert multiple training metrics in a batch (for efficiency)
+    ///
+    /// Evidence: migrations/0013_git_repository_integration.sql (training_metrics table)
+    /// Evidence: migrations/0125_training_metrics_step_epoch.sql (step/epoch columns)
+    /// Pattern: Batch insertion for efficient metric recording
+    ///
+    /// # Arguments
+    /// * `metrics` - Vector of training metric records to insert
+    ///
+    /// # Implementation Note
+    /// This uses a transaction to ensure atomicity and improve performance
+    /// when inserting multiple metrics at once (e.g., all metrics from a training step).
+    pub async fn insert_training_metrics_batch(&self, metrics: &[TrainingMetricRow]) -> Result<()> {
+        if metrics.is_empty() {
+            return Ok(());
+        }
+
+        // Use a transaction for batch insertion
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
+        for metric in metrics {
+            sqlx::query(
+                "INSERT INTO repository_training_metrics
+                 (id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&metric.id)
+            .bind(&metric.training_job_id)
+            .bind(metric.step)
+            .bind(metric.epoch)
+            .bind(&metric.metric_name)
+            .bind(metric.metric_value)
+            .bind(&metric.metric_timestamp)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to insert training metric in batch: {}", e))
+            })?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit metrics batch: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Get training metrics for a job, optionally filtered by metric name
+    ///
+    /// Evidence: migrations/0013_git_repository_integration.sql (training_metrics table)
+    /// Evidence: migrations/0125_training_metrics_step_epoch.sql (step/epoch columns)
+    /// Pattern: Retrieve time-series metrics for visualization and analysis
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `metric_name` - Optional filter for specific metric (e.g., "loss", "learning_rate")
+    /// * `limit` - Optional limit on number of records returned
+    ///
+    /// # Returns
+    /// Vector of training metrics ordered by step (oldest first)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Get all metrics for a job
+    /// let metrics = db.get_training_metrics("job-123", None, None).await?;
+    ///
+    /// // Get only loss metrics, limited to last 100 steps
+    /// let loss = db.get_training_metrics("job-123", Some("loss"), Some(100)).await?;
+    /// ```
+    pub async fn get_training_metrics(
+        &self,
+        job_id: &str,
+        metric_name: Option<&str>,
+        limit: Option<i64>,
+    ) -> Result<Vec<TrainingMetricRow>> {
+        let query = if let Some(name) = metric_name {
+            if let Some(lim) = limit {
+                sqlx::query_as::<_, TrainingMetricRow>(
+                    "SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
+                     FROM repository_training_metrics
+                     WHERE training_job_id = ? AND metric_name = ?
+                     ORDER BY step ASC
+                     LIMIT ?",
+                )
+                .bind(job_id)
+                .bind(name)
+                .bind(lim)
+            } else {
+                sqlx::query_as::<_, TrainingMetricRow>(
+                    "SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
+                     FROM repository_training_metrics
+                     WHERE training_job_id = ? AND metric_name = ?
+                     ORDER BY step ASC",
+                )
+                .bind(job_id)
+                .bind(name)
+            }
+        } else {
+            if let Some(lim) = limit {
+                sqlx::query_as::<_, TrainingMetricRow>(
+                    "SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
+                     FROM repository_training_metrics
+                     WHERE training_job_id = ?
+                     ORDER BY step ASC
+                     LIMIT ?",
+                )
+                .bind(job_id)
+                .bind(lim)
+            } else {
+                sqlx::query_as::<_, TrainingMetricRow>(
+                    "SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
+                     FROM repository_training_metrics
+                     WHERE training_job_id = ?
+                     ORDER BY step ASC",
+                )
+                .bind(job_id)
+            }
+        };
+
+        let metrics = query
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to fetch training metrics: {}", e)))?;
+
+        Ok(metrics)
+    }
+
+    /// Update the retryable flag on a training job
+    ///
+    /// Evidence: migrations/0124_training_retryable.sql
+    /// Pattern: Mark failed jobs as retryable or non-retryable based on error type
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `retryable` - Whether the job can be retried (true for OOM/timeout, false for invalid config)
+    ///
+    /// # Implementation Note
+    /// The retryable flag is used to filter failed jobs that can be safely retried
+    /// from those that will fail again due to configuration issues.
+    /// SQLite stores booleans as INTEGER (0 = false, 1 = true).
+    pub async fn update_training_job_retryable(&self, job_id: &str, retryable: bool) -> Result<()> {
+        let retryable_int = if retryable { 1 } else { 0 };
+
+        sqlx::query(
+            "UPDATE repository_training_jobs
+             SET retryable = ?
+             WHERE id = ?",
+        )
+        .bind(retryable_int)
+        .bind(job_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to update training job retryable flag: {}",
+                e
+            ))
+        })?;
+
+        Ok(())
+    }
+
+    /// Get retry chain for a training job
+    ///
+    /// Returns all jobs that are retries of the given job ID (direct or transitive).
+    /// Useful for displaying retry history in the UI.
+    ///
+    /// Evidence: migrations/0133_training_retryable.sql (retry_of_job_id column)
+    /// Pattern: Traverse retry chain for audit and visualization
+    ///
+    /// # Arguments
+    /// * `original_job_id` - The original job ID to find retries of
+    ///
+    /// # Returns
+    /// Vector of training jobs that are retries of the original, ordered by creation time (newest first)
+    pub async fn get_retry_chain(&self, original_job_id: &str) -> Result<Vec<TrainingJobRecord>> {
+        let jobs = sqlx::query_as::<_, TrainingJobRecord>(
+            "SELECT id, repo_id, training_config_json, status, progress_json,
+                    started_at, completed_at, created_by, adapter_name, template_id,
+                    created_at, metadata_json, config_hash_b3,
+                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    retryable, retry_of_job_id
+             FROM repository_training_jobs
+             WHERE retry_of_job_id = ?
+             ORDER BY started_at DESC",
+        )
+        .bind(original_job_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to get retry chain for job {}: {}", original_job_id, e))
+        })?;
+
+        Ok(jobs)
+    }
+
+    /// Update retry_of_job_id for a training job
+    ///
+    /// Evidence: migrations/0133_training_retryable.sql (retry_of_job_id column)
+    /// Pattern: Link retry job to its original for audit trail
+    ///
+    /// # Arguments
+    /// * `job_id` - The retry job ID
+    /// * `original_job_id` - The original job this is a retry of
+    pub async fn update_training_job_retry_of(
+        &self,
+        job_id: &str,
+        original_job_id: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE repository_training_jobs
+             SET retry_of_job_id = ?
+             WHERE id = ?",
+        )
+        .bind(original_job_id)
+        .bind(job_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update retry_of_job_id: {}", e)))?;
 
         Ok(())
     }

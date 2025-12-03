@@ -2,6 +2,7 @@
 //!
 //! Manages deterministic replay sessions with full system state snapshots.
 
+use crate::rag_retrieval_audit::RagReplayState;
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,9 @@ pub struct ReplaySession {
     pub rng_state_json: String,
     pub signature: String,
     pub created_at: String,
+    /// RAG state for deterministic replay with original documents
+    /// JSON: {"doc_ids": [...], "scores": [...], "collection_id": "...", "embedding_model_hash": "..."}
+    pub rag_state_json: Option<String>,
 }
 
 impl ReplaySession {
@@ -40,6 +44,20 @@ impl ReplaySession {
             .get("global_nonce")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| AosError::Validation("Missing global_nonce in RNG state".into()))
+    }
+
+    /// Restore RAG state from JSON for deterministic replay with original documents
+    ///
+    /// Returns None if no RAG state was stored (inference didn't use RAG),
+    /// or the deserialized RagReplayState if available.
+    pub fn restore_rag_state(&self) -> Result<Option<RagReplayState>> {
+        self.rag_state_json
+            .as_ref()
+            .map(|json| {
+                serde_json::from_str(json)
+                    .map_err(|e| AosError::Validation(format!("Failed to parse RAG state: {}", e)))
+            })
+            .transpose()
     }
 }
 
@@ -90,8 +108,9 @@ impl Db {
                 id, tenant_id, cpid, plan_id, snapshot_at, seed_global_b3,
                 manifest_hash_b3, policy_hash_b3, kernel_hash_b3,
                 telemetry_bundle_ids_json, adapter_state_json,
-                routing_decisions_json, inference_traces_json, rng_state_json, signature
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                routing_decisions_json, inference_traces_json, rng_state_json, signature,
+                rag_state_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&session.id)
         .bind(&session.tenant_id)
@@ -108,6 +127,7 @@ impl Db {
         .bind(&session.inference_traces_json)
         .bind(&session.rng_state_json)
         .bind(&session.signature)
+        .bind(&session.rag_state_json)
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create replay session: {}", e)))?;

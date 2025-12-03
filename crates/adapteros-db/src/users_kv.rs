@@ -118,16 +118,12 @@ impl<B: KvBackend> UserKvRepository<B> {
 
     /// Internal helper: serialize UserKv to bytes
     fn serialize_user(user: &UserKv) -> Result<Vec<u8>> {
-        serde_json::to_vec(user).map_err(|e| {
-            AosError::Serialization(e)
-        })
+        serde_json::to_vec(user).map_err(|e| AosError::Serialization(e))
     }
 
     /// Internal helper: deserialize bytes to UserKv
     fn deserialize_user(bytes: &[u8]) -> Result<UserKv> {
-        serde_json::from_slice(bytes).map_err(|e| {
-            AosError::Serialization(e)
-        })
+        serde_json::from_slice(bytes).map_err(|e| AosError::Serialization(e))
     }
 
     /// Internal helper: get user without exposing password hash
@@ -178,7 +174,11 @@ impl<B: KvBackend> UserKvRepository<B> {
         if let Some(old) = old_user {
             if old.role != user.role {
                 // Remove from old role set
-                let old_role_key = format!("{}::{}", UserKeys::role_users_set(&old.role.to_string()), user.id);
+                let old_role_key = format!(
+                    "{}::{}",
+                    UserKeys::role_users_set(&old.role.to_string()),
+                    user.id
+                );
                 if let Err(e) = self.backend.delete(&old_role_key).await {
                     warn!(user_id = %user.id, old_role = %old.role, error = %e,
                           "Failed to remove user from old role index");
@@ -205,14 +205,22 @@ impl<B: KvBackend> UserKvRepository<B> {
         }
 
         // Tenant users set
-        let tenant_key = format!("{}::{}", UserKeys::tenant_users_set(&user.tenant_id), user.id);
+        let tenant_key = format!(
+            "{}::{}",
+            UserKeys::tenant_users_set(&user.tenant_id),
+            user.id
+        );
         if let Err(e) = self.backend.delete(&tenant_key).await {
             warn!(user_id = %user.id, tenant_id = %user.tenant_id, error = %e,
                   "Failed to delete tenant index during cleanup");
         }
 
         // Role users set
-        let role_key = format!("{}::{}", UserKeys::role_users_set(&user.role.to_string()), user.id);
+        let role_key = format!(
+            "{}::{}",
+            UserKeys::role_users_set(&user.role.to_string()),
+            user.id
+        );
         if let Err(e) = self.backend.delete(&role_key).await {
             warn!(user_id = %user.id, role = %user.role, error = %e,
                   "Failed to delete role index during cleanup");
@@ -272,14 +280,18 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
 
         match self.backend.get(&email_key).await {
             Ok(Some(id_bytes)) => {
-                let id = String::from_utf8(id_bytes)
-                    .map_err(|e| AosError::Database(format!("Invalid user ID in email index: {}", e)))?;
+                let id = String::from_utf8(id_bytes).map_err(|e| {
+                    AosError::Database(format!("Invalid user ID in email index: {}", e))
+                })?;
 
                 // Get user with password hash (needed for authentication)
                 self.get_user_with_pw_hash(&id).await
             }
             Ok(None) => Ok(None),
-            Err(e) => Err(AosError::Database(format!("Failed to lookup email index: {}", e))),
+            Err(e) => Err(AosError::Database(format!(
+                "Failed to lookup email index: {}",
+                e
+            ))),
         }
     }
 
@@ -341,7 +353,8 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         // Scan tenant users set
         let prefix = format!("{}::", UserKeys::tenant_users_set(tenant_id));
 
-        let keys = self.backend
+        let keys = self
+            .backend
             .scan_prefix(&prefix)
             .await
             .map_err(|e| AosError::Database(format!("Failed to scan tenant users: {}", e)))?;
@@ -364,7 +377,8 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         // Scan role users set
         let prefix = format!("{}::", UserKeys::role_users_set(&role.to_string()));
 
-        let keys = self.backend
+        let keys = self
+            .backend
             .scan_prefix(&prefix)
             .await
             .map_err(|e| AosError::Database(format!("Failed to scan role users: {}", e)))?;
@@ -386,7 +400,8 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
     async fn update_user_role_kv(&self, id: &str, role: Role) -> Result<()> {
         // Get existing user
         let key = UserKeys::user(id);
-        let bytes = self.backend
+        let bytes = self
+            .backend
             .get(&key)
             .await
             .map_err(|e| AosError::Database(format!("Failed to get user: {}", e)))?
@@ -414,7 +429,8 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
     async fn update_user_disabled_kv(&self, id: &str, disabled: bool) -> Result<()> {
         // Get existing user
         let key = UserKeys::user(id);
-        let bytes = self.backend
+        let bytes = self
+            .backend
             .get(&key)
             .await
             .map_err(|e| AosError::Database(format!("Failed to get user: {}", e)))?
@@ -425,10 +441,9 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
 
         // Update user entity
         let value = Self::serialize_user(&user)?;
-        self.backend
-            .set(&key, value)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to update user disabled status: {}", e)))?;
+        self.backend.set(&key, value).await.map_err(|e| {
+            AosError::Database(format!("Failed to update user disabled status: {}", e))
+        })?;
 
         debug!(user_id = %id, disabled = %disabled, "Updated user disabled status in KV storage");
 
@@ -451,7 +466,8 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         self.cleanup_indexes(&user).await?;
 
         // Delete user entity
-        let deleted = self.backend
+        let deleted = self
+            .backend
             .delete(&key)
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete user: {}", e)))?;
@@ -526,10 +542,7 @@ mod tests {
             UserKeys::tenant_users_set("tenant-1"),
             "tenant/tenant-1/users"
         );
-        assert_eq!(
-            UserKeys::role_users_set("admin"),
-            "users-by-role/admin"
-        );
+        assert_eq!(UserKeys::role_users_set("admin"), "users-by-role/admin");
     }
 
     #[test]

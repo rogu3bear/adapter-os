@@ -3,8 +3,8 @@
 //! Provides utilities for creating test databases with various storage modes
 //! and configurations.
 
-use adapteros_db::{Db, StorageMode, KvDb};
 use adapteros_core::Result;
+use adapteros_db::{Db, KvDb, StorageMode};
 use std::path::PathBuf;
 use tempfile::TempDir;
 use tracing::debug;
@@ -63,7 +63,9 @@ impl TestDb {
     /// KV modes (KvPrimary, KvOnly) will not have a functional KV backend
     /// in this configuration. Use `new_persistent_with_mode` for KV testing.
     async fn new_in_memory_with_mode(mode: StorageMode) -> Self {
-        let db = Db::new_in_memory().await.expect("Failed to create in-memory database");
+        let db = Db::new_in_memory()
+            .await
+            .expect("Failed to create in-memory database");
 
         // Apply migrations
         db.migrate().await.expect("Failed to apply migrations");
@@ -98,7 +100,9 @@ impl TestDb {
 
         // Open SQLite database
         let db_url = db_path.to_str().expect("Invalid db path");
-        let db = Db::connect(db_url).await.expect("Failed to connect to database");
+        let db = Db::connect(db_url)
+            .await
+            .expect("Failed to connect to database");
 
         // Apply migrations
         db.migrate().await.expect("Failed to apply migrations");
@@ -235,9 +239,9 @@ pub async fn create_test_db_with_kv(mode: StorageMode) -> Result<(Db, TempDir)> 
     let kv_path = temp_dir.path().join("test.kv");
 
     // Open database
-    let db_url = db_path.to_str().ok_or_else(|| {
-        adapteros_core::AosError::Internal("Invalid database path".to_string())
-    })?;
+    let db_url = db_path
+        .to_str()
+        .ok_or_else(|| adapteros_core::AosError::Internal("Invalid database path".to_string()))?;
     let db = Db::connect(db_url).await?;
 
     // Apply migrations and seed
@@ -282,7 +286,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_test_db_with_kv() {
-        let (db, temp_dir) = create_test_db_with_kv(StorageMode::KvPrimary).await.unwrap();
+        let (db, temp_dir) = create_test_db_with_kv(StorageMode::KvPrimary)
+            .await
+            .unwrap();
         assert!(temp_dir.path().exists());
 
         // Verify database is functional

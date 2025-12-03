@@ -175,7 +175,10 @@ impl Db {
             );
 
             for adapter in adapters {
-                let adapter_id = adapter.adapter_id.clone().unwrap_or_else(|| adapter.id.clone());
+                let adapter_id = adapter
+                    .adapter_id
+                    .clone()
+                    .unwrap_or_else(|| adapter.id.clone());
 
                 match self.migrate_single_adapter(&repo, adapter).await {
                     Ok(true) => {
@@ -526,7 +529,8 @@ impl Db {
     /// # }
     /// ```
     pub async fn migrate_adapters_batch(&self, batch_size: usize) -> Result<MigrationStats> {
-        self.migrate_with_progress_internal(None, batch_size, |_| {}).await
+        self.migrate_with_progress_internal(None, batch_size, |_| {})
+            .await
     }
 
     /// Migrate adapters for a specific tenant
@@ -550,7 +554,8 @@ impl Db {
     /// # }
     /// ```
     pub async fn migrate_tenant_adapters(&self, tenant_id: &str) -> Result<MigrationStats> {
-        self.migrate_with_progress_internal(Some(tenant_id), 100, |_| {}).await
+        self.migrate_with_progress_internal(Some(tenant_id), 100, |_| {})
+            .await
     }
 
     /// Migrate adapters with progress callback
@@ -576,7 +581,8 @@ impl Db {
     where
         F: Fn(MigrationProgress),
     {
-        self.migrate_with_progress_internal(None, 100, callback).await
+        self.migrate_with_progress_internal(None, 100, callback)
+            .await
     }
 
     /// Internal migration implementation with all options
@@ -595,12 +601,16 @@ impl Db {
         F: Fn(MigrationProgress),
     {
         // Check if KV backend is available
-        let kv_backend = self.kv_backend()
-            .ok_or_else(|| AosError::Config(
-                "KV backend not initialized. Call init_kv_backend() first.".to_string()
-            ))?;
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config(
+                "KV backend not initialized. Call init_kv_backend() first.".to_string(),
+            )
+        })?;
 
-        info!("Starting adapter migration to KV storage (batch_size: {})", batch_size);
+        info!(
+            "Starting adapter migration to KV storage (batch_size: {})",
+            batch_size
+        );
 
         // Fetch adapters from SQL
         let adapters = if let Some(tid) = tenant_id {
@@ -651,19 +661,20 @@ impl Db {
 
                 info!(
                     "Processing batch {} ({} adapters) for tenant {}",
-                    batch_num,
-                    batch_count,
-                    tid
+                    batch_num, batch_count, tid
                 );
 
                 for adapter in chunk {
-                    let adapter_id = adapter.adapter_id.clone()
+                    let adapter_id = adapter
+                        .adapter_id
+                        .clone()
                         .unwrap_or_else(|| adapter.id.clone());
 
                     debug!("Migrating adapter: {} ({})", adapter.name, adapter_id);
 
                     // Attempt to migrate this adapter
-                    let migration_result = self.migrate_single_adapter(&repo, adapter.clone()).await;
+                    let migration_result =
+                        self.migrate_single_adapter(&repo, adapter.clone()).await;
 
                     let (success, error, skip) = match migration_result {
                         Ok(true) => {
@@ -702,7 +713,9 @@ impl Db {
 
                 debug!(
                     "Batch {} complete: {}/{} successful",
-                    batch_num, stats.migrated, stats.migrated + stats.failed
+                    batch_num,
+                    stats.migrated,
+                    stats.migrated + stats.failed
                 );
             }
         }
@@ -749,15 +762,16 @@ impl Db {
     /// # }
     /// ```
     pub async fn rollback_kv_data(&self) -> Result<()> {
-        let kv_backend = self.kv_backend()
-            .ok_or_else(|| AosError::Config(
-                "KV backend not initialized. Cannot rollback.".to_string()
-            ))?;
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not initialized. Cannot rollback.".to_string())
+        })?;
 
         warn!("Starting KV data rollback - this will delete ALL adapter data from KV storage");
 
         // Scan all adapter keys (adapters are stored with prefix "adapter:")
-        let adapter_keys = kv_backend.scan_prefix("adapter:").await
+        let adapter_keys = kv_backend
+            .scan_prefix("adapter:")
+            .await
             .map_err(|e| AosError::Database(format!("Failed to scan adapter keys: {}", e)))?;
 
         let total_keys = adapter_keys.len();
@@ -794,7 +808,10 @@ impl Db {
         );
 
         if errors > 0 {
-            warn!("Rollback completed with {} errors - some keys may remain", errors);
+            warn!(
+                "Rollback completed with {} errors - some keys may remain",
+                errors
+            );
         }
 
         Ok(())

@@ -3,9 +3,7 @@
 /// This module defines the single source of truth for adapter and stack metadata,
 /// ensuring consistency across storage, APIs, and telemetry.
 ///
-/// **PRD-02: Adapter & Stack Metadata Normalization + Version Guarantees**
-///
-/// Citation: PRD-02 (2025-11-17)
+/// **Adapter & Stack Metadata Normalization with Version Guarantees**
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 

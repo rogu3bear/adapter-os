@@ -307,6 +307,11 @@ impl UnifiedDatabaseAccess {
         })
     }
 
+    /// Get a reference to the connection pool
+    pub fn pool(&self) -> &sqlx::Pool<sqlx::Sqlite> {
+        &self.connection_pool
+    }
+
     /// Update statistics
     async fn update_statistics(&self, operation: &str, duration_ms: u64, success: bool) {
         let mut stats = self.statistics.lock().await;

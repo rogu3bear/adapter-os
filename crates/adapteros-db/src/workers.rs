@@ -1,6 +1,7 @@
 use crate::{models::Worker, Db};
 use adapteros_core::{AosError, Result, WorkerStatus};
 use std::str::FromStr;
+use tracing::{debug, warn};
 
 /// Builder for creating worker insertion parameters
 #[derive(Debug, Default)]
@@ -223,7 +224,9 @@ impl Db {
         .bind(worker_id)
         .fetch_one(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to check worker training status: {}", e)))?;
+        .map_err(|e| {
+            AosError::Database(format!("Failed to check worker training status: {}", e))
+        })?;
 
         Ok(count > 0)
     }
@@ -303,7 +306,11 @@ impl Db {
     }
 
     /// Get count of telemetry events for a worker by event type
-    pub async fn get_worker_telemetry_count(&self, worker_id: &str, event_type: &str) -> Result<i64> {
+    pub async fn get_worker_telemetry_count(
+        &self,
+        worker_id: &str,
+        event_type: &str,
+    ) -> Result<i64> {
         let count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM telemetry_events
              WHERE worker_id = ? AND event_type = ?",
@@ -318,7 +325,11 @@ impl Db {
     }
 
     /// Get average latency for a worker from recent telemetry events
-    pub async fn get_worker_avg_latency_recent(&self, worker_id: &str, minutes: i32) -> Result<Option<f64>> {
+    pub async fn get_worker_avg_latency_recent(
+        &self,
+        worker_id: &str,
+        minutes: i32,
+    ) -> Result<Option<f64>> {
         let avg = sqlx::query_scalar::<_, Option<f64>>(
             "SELECT AVG(CAST(json_extract(payload, '$.latency_ms') AS REAL))
              FROM telemetry_events
@@ -335,7 +346,10 @@ impl Db {
     }
 
     /// Get active training tasks for a worker (running or pending)
-    pub async fn get_worker_active_training_tasks(&self, worker_id: &str) -> Result<Vec<ActiveTrainingTask>> {
+    pub async fn get_worker_active_training_tasks(
+        &self,
+        worker_id: &str,
+    ) -> Result<Vec<ActiveTrainingTask>> {
         let tasks = sqlx::query_as::<_, ActiveTrainingTask>(
             "SELECT id, 'training' as task_type, status, started_at, progress_pct
              FROM training_jobs
@@ -350,7 +364,7 @@ impl Db {
     }
 
     // =========================================================================
-    // PRD-09: Worker Health Metrics
+    // Worker Health Monitoring & Hung Detection
     // =========================================================================
 
     /// Update worker health metrics (called by WorkerHealthMonitor)
@@ -381,7 +395,9 @@ impl Db {
         .bind(worker_id)
         .execute(&*self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update worker health metrics: {}", e)))?;
+        .map_err(|e| {
+            AosError::Database(format!("Failed to update worker health metrics: {}", e))
+        })?;
 
         Ok(())
     }
@@ -432,7 +448,7 @@ impl Db {
     }
 
     // =========================================================================
-    // PRD-09: Worker Incidents
+    // Worker Incident Tracking
     // =========================================================================
 
     /// Insert a worker incident
@@ -585,7 +601,7 @@ pub struct ActiveTrainingTask {
     pub progress_pct: Option<f32>,
 }
 
-/// Worker health metrics for PRD-09
+/// Worker health metrics for health monitoring and hung detection
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct WorkerHealthRecord {
     pub id: String,
@@ -597,7 +613,7 @@ pub struct WorkerHealthRecord {
     pub consecutive_failures: Option<i32>,
 }
 
-/// Worker incident record for PRD-09
+/// Worker incident record for tracking worker failures and anomalies
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct WorkerIncident {
     pub id: String,
@@ -611,10 +627,46 @@ pub struct WorkerIncident {
 }
 
 // =========================================================================
-// PRD-01: Worker Lifecycle & Manifest Binding
+// Worker Lifecycle & Manifest Binding
 // =========================================================================
 
-/// Worker with manifest binding fields for PRD-01
+/// Check if worker schema version is compatible with control plane schema
+///
+/// Compatibility rule: major.minor must match, patch version is ignored.
+/// This allows workers and control planes with different patch versions to
+/// interoperate while ensuring breaking changes (major/minor) are caught.
+///
+/// # Examples
+///
+/// ```
+/// use adapteros_db::workers::is_schema_compatible;
+///
+/// assert!(is_schema_compatible("1.0.0", "1.0.5"));  // patch ignored
+/// assert!(is_schema_compatible("1.0", "1.0.0"));   // missing patch OK
+/// assert!(!is_schema_compatible("1.0.0", "1.1.0")); // minor mismatch
+/// assert!(!is_schema_compatible("1.0.0", "2.0.0")); // major mismatch
+/// ```
+pub fn is_schema_compatible(worker_version: &str, cp_version: &str) -> bool {
+    let parse_major_minor = |v: &str| -> Option<(u32, u32)> {
+        let parts: Vec<&str> = v.split('.').collect();
+        let major = parts.first()?.parse::<u32>().ok()?;
+        let minor = parts
+            .get(1)
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        Some((major, minor))
+    };
+
+    match (
+        parse_major_minor(worker_version),
+        parse_major_minor(cp_version),
+    ) {
+        (Some((w_maj, w_min)), Some((cp_maj, cp_min))) => w_maj == cp_maj && w_min == cp_min,
+        _ => false,
+    }
+}
+
+/// Worker with manifest binding fields for lifecycle tracking
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct WorkerWithBinding {
     pub id: String,
@@ -633,7 +685,7 @@ pub struct WorkerWithBinding {
     pub health_status: Option<String>,
 }
 
-/// Worker status history record for PRD-01
+/// Worker status history record for lifecycle audit trail
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct WorkerStatusHistoryRecord {
     pub id: String,
@@ -647,7 +699,7 @@ pub struct WorkerStatusHistoryRecord {
     pub created_at: String,
 }
 
-/// Parameters for worker registration (PRD-01)
+/// Parameters for worker registration with manifest binding
 #[derive(Debug, Clone)]
 pub struct WorkerRegistrationParams {
     pub worker_id: String,
@@ -663,10 +715,10 @@ pub struct WorkerRegistrationParams {
 
 impl Db {
     // =========================================================================
-    // PRD-01: Worker Registration & Lifecycle
+    // Worker Registration & Lifecycle Management
     // =========================================================================
 
-    /// Register a worker with manifest binding (PRD-01)
+    /// Register a worker with manifest binding
     ///
     /// Inserts a new worker record with manifest hash and version information.
     /// Sets initial status to 'starting'.
@@ -694,7 +746,7 @@ impl Db {
         Ok(())
     }
 
-    /// Transition worker status with validation and history (PRD-01)
+    /// Transition worker status with validation and history
     ///
     /// Validates the transition, records history, and optionally logs to audit_logs
     /// if the transition is invalid.
@@ -722,17 +774,15 @@ impl Db {
             .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
 
         // Get current status and tenant_id
-        let row: Option<(String, String)> = sqlx::query_as(
-            "SELECT status, tenant_id FROM workers WHERE id = ?",
-        )
-        .bind(worker_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to fetch worker: {}", e)))?;
+        let row: Option<(String, String)> =
+            sqlx::query_as("SELECT status, tenant_id FROM workers WHERE id = ?")
+                .bind(worker_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to fetch worker: {}", e)))?;
 
-        let (current_status, tenant_id) = row.ok_or_else(|| {
-            AosError::NotFound(format!("Worker not found: {}", worker_id))
-        })?;
+        let (current_status, tenant_id) =
+            row.ok_or_else(|| AosError::NotFound(format!("Worker not found: {}", worker_id)))?;
 
         // Parse and validate transition
         let from_status = WorkerStatus::from_str(&current_status)
@@ -823,14 +873,20 @@ impl Db {
         Ok(())
     }
 
-    /// List workers compatible with a specific manifest hash (PRD-01)
+    /// List workers compatible with a specific manifest hash
     ///
     /// Returns workers that:
     /// - Match the given manifest_hash_b3
+    /// - Have schema_version compatible with control plane (major.minor match)
     /// - Have status = 'serving'
     /// - Have health_status IN ('healthy', 'unknown') or NULL
     /// - Ordered by avg_latency_ms (lowest first)
-    pub async fn list_compatible_workers(&self, manifest_hash: &str) -> Result<Vec<WorkerWithBinding>> {
+    pub async fn list_compatible_workers(
+        &self,
+        manifest_hash: &str,
+    ) -> Result<Vec<WorkerWithBinding>> {
+        use adapteros_core::version::API_SCHEMA_VERSION;
+
         let workers = sqlx::query_as::<_, WorkerWithBinding>(
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status,
                     started_at, last_seen_at, manifest_hash_b3, schema_version,
@@ -846,14 +902,140 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to list compatible workers: {}", e)))?;
 
-        Ok(workers)
+        let initial_count = workers.len();
+
+        // Filter by schema version compatibility (major.minor must match)
+        let compatible_workers: Vec<WorkerWithBinding> = workers
+            .into_iter()
+            .filter(|w| match w.schema_version.as_deref() {
+                Some(sv) if is_schema_compatible(sv, API_SCHEMA_VERSION) => true,
+                Some(sv) => {
+                    debug!(
+                        worker_id = %w.id,
+                        worker_schema = %sv,
+                        cp_schema = %API_SCHEMA_VERSION,
+                        "Worker excluded: schema version incompatible"
+                    );
+                    false
+                }
+                None => {
+                    warn!(
+                        worker_id = %w.id,
+                        "Worker excluded: schema_version is NULL (worker may need re-registration)"
+                    );
+                    false
+                }
+            })
+            .collect();
+
+        if compatible_workers.len() < initial_count {
+            debug!(
+                manifest_hash = %manifest_hash,
+                initial_count = initial_count,
+                compatible_count = compatible_workers.len(),
+                filtered_out = initial_count - compatible_workers.len(),
+                "Some workers filtered out due to schema incompatibility"
+            );
+        }
+
+        Ok(compatible_workers)
     }
 
-    /// List serving workers (PRD-01)
+    /// List workers compatible with a specific manifest hash and tenant
     ///
-    /// Returns all workers with status = 'serving' and healthy status.
+    /// Returns workers that:
+    /// - Match the given manifest_hash_b3
+    /// - Belong to the specified tenant_id
+    /// - Have schema_version compatible with control plane (major.minor match)
+    /// - Have status = 'serving'
+    /// - Have health_status IN ('healthy', 'unknown') or NULL
+    /// - Ordered by avg_latency_ms (lowest first)
+    ///
+    /// This is the preferred method for inference routing as it combines
+    /// manifest compatibility, schema compatibility, and tenant isolation.
+    pub async fn list_compatible_workers_for_tenant(
+        &self,
+        manifest_hash: &str,
+        tenant_id: &str,
+    ) -> Result<Vec<WorkerWithBinding>> {
+        use adapteros_core::version::API_SCHEMA_VERSION;
+
+        let workers = sqlx::query_as::<_, WorkerWithBinding>(
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status,
+                    started_at, last_seen_at, manifest_hash_b3, schema_version,
+                    api_version, registered_at, health_status
+             FROM workers
+             WHERE manifest_hash_b3 = ?
+               AND tenant_id = ?
+               AND status = 'serving'
+               AND (health_status IS NULL OR health_status IN ('healthy', 'unknown'))
+             ORDER BY avg_latency_ms ASC NULLS LAST",
+        )
+        .bind(manifest_hash)
+        .bind(tenant_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to list compatible workers for tenant: {}",
+                e
+            ))
+        })?;
+
+        let initial_count = workers.len();
+
+        // Filter by schema version compatibility (major.minor must match)
+        // This is defense-in-depth; incompatible workers shouldn't be registered
+        let compatible_workers: Vec<WorkerWithBinding> = workers
+            .into_iter()
+            .filter(|w| match w.schema_version.as_deref() {
+                Some(sv) if is_schema_compatible(sv, API_SCHEMA_VERSION) => true,
+                Some(sv) => {
+                    debug!(
+                        worker_id = %w.id,
+                        worker_schema = %sv,
+                        cp_schema = %API_SCHEMA_VERSION,
+                        tenant_id = %tenant_id,
+                        "Worker excluded: schema version incompatible"
+                    );
+                    false
+                }
+                None => {
+                    warn!(
+                        worker_id = %w.id,
+                        tenant_id = %tenant_id,
+                        "Worker excluded: schema_version is NULL (worker may need re-registration)"
+                    );
+                    false
+                }
+            })
+            .collect();
+
+        if compatible_workers.len() < initial_count {
+            debug!(
+                manifest_hash = %manifest_hash,
+                tenant_id = %tenant_id,
+                initial_count = initial_count,
+                compatible_count = compatible_workers.len(),
+                filtered_out = initial_count - compatible_workers.len(),
+                "Some workers filtered out due to schema incompatibility"
+            );
+        }
+
+        Ok(compatible_workers)
+    }
+
+    /// List serving workers
+    ///
+    /// Returns all workers with:
+    /// - status = 'serving'
+    /// - schema_version compatible with control plane (major.minor match)
+    /// - healthy status
+    ///
     /// Used for routing when manifest matching is not required.
     pub async fn list_serving_workers(&self) -> Result<Vec<WorkerWithBinding>> {
+        use adapteros_core::version::API_SCHEMA_VERSION;
+
         let workers = sqlx::query_as::<_, WorkerWithBinding>(
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status,
                     started_at, last_seen_at, manifest_hash_b3, schema_version,
@@ -867,10 +1049,45 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to list serving workers: {}", e)))?;
 
-        Ok(workers)
+        let initial_count = workers.len();
+
+        // Filter by schema version compatibility (major.minor must match)
+        let compatible_workers: Vec<WorkerWithBinding> = workers
+            .into_iter()
+            .filter(|w| match w.schema_version.as_deref() {
+                Some(sv) if is_schema_compatible(sv, API_SCHEMA_VERSION) => true,
+                Some(sv) => {
+                    debug!(
+                        worker_id = %w.id,
+                        worker_schema = %sv,
+                        cp_schema = %API_SCHEMA_VERSION,
+                        "Worker excluded: schema version incompatible"
+                    );
+                    false
+                }
+                None => {
+                    warn!(
+                        worker_id = %w.id,
+                        "Worker excluded: schema_version is NULL (worker may need re-registration)"
+                    );
+                    false
+                }
+            })
+            .collect();
+
+        if compatible_workers.len() < initial_count {
+            debug!(
+                initial_count = initial_count,
+                compatible_count = compatible_workers.len(),
+                filtered_out = initial_count - compatible_workers.len(),
+                "Some serving workers filtered out due to schema incompatibility"
+            );
+        }
+
+        Ok(compatible_workers)
     }
 
-    /// Get worker status history (PRD-01)
+    /// Get worker status history
     pub async fn get_worker_status_history(
         &self,
         worker_id: &str,
@@ -895,8 +1112,11 @@ impl Db {
         Ok(history)
     }
 
-    /// Get worker with binding information (PRD-01)
-    pub async fn get_worker_with_binding(&self, worker_id: &str) -> Result<Option<WorkerWithBinding>> {
+    /// Get worker with binding information
+    pub async fn get_worker_with_binding(
+        &self,
+        worker_id: &str,
+    ) -> Result<Option<WorkerWithBinding>> {
         let worker = sqlx::query_as::<_, WorkerWithBinding>(
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status,
                     started_at, last_seen_at, manifest_hash_b3, schema_version,
@@ -911,20 +1131,18 @@ impl Db {
         Ok(worker)
     }
 
-    /// Check if a worker exists with the given ID (PRD-01)
+    /// Check if a worker exists with the given ID
     pub async fn worker_exists(&self, worker_id: &str) -> Result<bool> {
-        let count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM workers WHERE id = ?",
-        )
-        .bind(worker_id)
-        .fetch_one(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to check worker existence: {}", e)))?;
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = ?")
+            .bind(worker_id)
+            .fetch_one(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to check worker existence: {}", e)))?;
 
         Ok(count > 0)
     }
 
-    /// Count invalid transitions for a worker (PRD-01)
+    /// Count invalid transitions for a worker
     pub async fn count_invalid_transitions(&self, worker_id: &str) -> Result<i64> {
         let count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM worker_status_history
@@ -936,5 +1154,119 @@ impl Db {
         .map_err(|e| AosError::Database(format!("Failed to count invalid transitions: {}", e)))?;
 
         Ok(count)
+    }
+}
+
+// =========================================================================
+// Unit Tests for Schema Version Compatibility
+// =========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_schema_compatible_same_version() {
+        assert!(is_schema_compatible("1.0.0", "1.0.0"));
+        assert!(is_schema_compatible("2.5.3", "2.5.3"));
+    }
+
+    #[test]
+    fn test_schema_compatible_patch_ignored() {
+        assert!(is_schema_compatible("1.0.0", "1.0.5"));
+        assert!(is_schema_compatible("1.0.5", "1.0.0"));
+        assert!(is_schema_compatible("1.0.1", "1.0.99"));
+        assert!(is_schema_compatible("2.3.0", "2.3.100"));
+    }
+
+    #[test]
+    fn test_schema_compatible_missing_patch() {
+        assert!(is_schema_compatible("1.0", "1.0.0"));
+        assert!(is_schema_compatible("1.0.0", "1.0"));
+        assert!(is_schema_compatible("2.5", "2.5.10"));
+    }
+
+    #[test]
+    fn test_schema_incompatible_minor_mismatch() {
+        assert!(!is_schema_compatible("1.0.0", "1.1.0"));
+        assert!(!is_schema_compatible("1.1.0", "1.0.0"));
+        assert!(!is_schema_compatible("2.5.0", "2.6.0"));
+        assert!(!is_schema_compatible("1.0.5", "1.1.5"));
+    }
+
+    #[test]
+    fn test_schema_incompatible_major_mismatch() {
+        assert!(!is_schema_compatible("1.0.0", "2.0.0"));
+        assert!(!is_schema_compatible("2.0.0", "1.0.0"));
+        assert!(!is_schema_compatible("1.5.3", "2.5.3"));
+        assert!(!is_schema_compatible("3.0.0", "1.0.0"));
+    }
+
+    #[test]
+    fn test_schema_invalid_versions() {
+        assert!(!is_schema_compatible("", "1.0.0"));
+        assert!(!is_schema_compatible("1.0.0", ""));
+        assert!(!is_schema_compatible("invalid", "1.0.0"));
+        assert!(!is_schema_compatible("1.0.0", "invalid"));
+        assert!(!is_schema_compatible("abc.def.ghi", "1.0.0"));
+    }
+
+    #[test]
+    fn test_schema_compatible_single_digit() {
+        // Single digit major version only (minor defaults to 0)
+        assert!(is_schema_compatible("1", "1.0.0"));
+        assert!(is_schema_compatible("1.0.0", "1"));
+        assert!(!is_schema_compatible("1", "2.0.0"));
+    }
+
+    #[test]
+    fn test_schema_version_edge_cases() {
+        // Large version numbers
+        assert!(is_schema_compatible("999.999.999", "999.999.0"));
+        assert!(!is_schema_compatible("999.999.999", "999.998.999"));
+
+        // Zero versions
+        assert!(is_schema_compatible("0.0.0", "0.0.0"));
+        assert!(is_schema_compatible("0.0.0", "0.0.1"));
+        assert!(!is_schema_compatible("0.0.0", "0.1.0"));
+    }
+
+    #[test]
+    fn test_worker_registration_scenarios() {
+        // Worker with same major.minor as control plane - ACCEPT
+        assert!(
+            is_schema_compatible("1.0.0", "1.0.0"),
+            "Worker 1.0.0 should be accepted by CP 1.0.0"
+        );
+
+        // Worker with older patch - ACCEPT
+        assert!(
+            is_schema_compatible("1.0.0", "1.0.5"),
+            "Worker 1.0.0 should be accepted by CP 1.0.5 (patch ignored)"
+        );
+
+        // Worker with newer patch - ACCEPT
+        assert!(
+            is_schema_compatible("1.0.10", "1.0.5"),
+            "Worker 1.0.10 should be accepted by CP 1.0.5 (patch ignored)"
+        );
+
+        // Worker with older minor - REJECT
+        assert!(
+            !is_schema_compatible("1.0.0", "1.1.0"),
+            "Worker 1.0.0 should be rejected by CP 1.1.0 (minor mismatch)"
+        );
+
+        // Worker with newer minor - REJECT
+        assert!(
+            !is_schema_compatible("1.2.0", "1.1.0"),
+            "Worker 1.2.0 should be rejected by CP 1.1.0 (minor mismatch)"
+        );
+
+        // Worker with different major - REJECT
+        assert!(
+            !is_schema_compatible("2.0.0", "1.0.0"),
+            "Worker 2.0.0 should be rejected by CP 1.0.0 (major mismatch)"
+        );
     }
 }

@@ -17,11 +17,11 @@ use tracing::{debug, warn};
 pub mod constants;
 
 // Database abstraction layer
-pub mod sqlite_backend;
-pub mod traits;
 pub mod kv_backend;
 pub mod kv_metrics;
+pub mod sqlite_backend;
 pub mod tenant_policies;
+pub mod traits;
 
 // Re-export commonly used types
 pub use traits::{
@@ -34,8 +34,7 @@ pub use kv_backend::{KvBackend, KvDb, StorageError as KvStorageError};
 
 // Re-export KV metrics types
 pub use kv_metrics::{
-    global_kv_metrics, KvErrorType, KvMetrics, KvMetricsSnapshot, KvOperationTimer,
-    KvOperationType,
+    global_kv_metrics, KvErrorType, KvMetrics, KvMetricsSnapshot, KvOperationTimer, KvOperationType,
 };
 
 // Re-export tenant policy types
@@ -46,8 +45,7 @@ pub use tenant_policies::{
 
 // Re-export tenant policy binding types (PRD-06)
 pub mod tenant_policy_bindings;
-pub use tenant_policy_bindings::{TenantPolicyBinding, CORE_POLICIES, ALL_POLICIES};
-
+pub use tenant_policy_bindings::{TenantPolicyBinding, ALL_POLICIES, CORE_POLICIES};
 
 /// Storage mode for database operations
 ///
@@ -280,23 +278,53 @@ mod storage_mode_tests {
     #[test]
     fn test_storage_mode_from_str() {
         // Test canonical names
-        assert_eq!(StorageMode::from_str("sql_only").unwrap(), StorageMode::SqlOnly);
-        assert_eq!(StorageMode::from_str("dual_write").unwrap(), StorageMode::DualWrite);
-        assert_eq!(StorageMode::from_str("kv_primary").unwrap(), StorageMode::KvPrimary);
-        assert_eq!(StorageMode::from_str("kv_only").unwrap(), StorageMode::KvOnly);
+        assert_eq!(
+            StorageMode::from_str("sql_only").unwrap(),
+            StorageMode::SqlOnly
+        );
+        assert_eq!(
+            StorageMode::from_str("dual_write").unwrap(),
+            StorageMode::DualWrite
+        );
+        assert_eq!(
+            StorageMode::from_str("kv_primary").unwrap(),
+            StorageMode::KvPrimary
+        );
+        assert_eq!(
+            StorageMode::from_str("kv_only").unwrap(),
+            StorageMode::KvOnly
+        );
 
         // Test short aliases
         assert_eq!(StorageMode::from_str("sql").unwrap(), StorageMode::SqlOnly);
-        assert_eq!(StorageMode::from_str("dual").unwrap(), StorageMode::DualWrite);
+        assert_eq!(
+            StorageMode::from_str("dual").unwrap(),
+            StorageMode::DualWrite
+        );
 
         // Test hyphenated variants (from config schema)
-        assert_eq!(StorageMode::from_str("kv-primary").unwrap(), StorageMode::KvPrimary);
-        assert_eq!(StorageMode::from_str("kv-only").unwrap(), StorageMode::KvOnly);
+        assert_eq!(
+            StorageMode::from_str("kv-primary").unwrap(),
+            StorageMode::KvPrimary
+        );
+        assert_eq!(
+            StorageMode::from_str("kv-only").unwrap(),
+            StorageMode::KvOnly
+        );
 
         // Test case insensitivity
-        assert_eq!(StorageMode::from_str("SQL_ONLY").unwrap(), StorageMode::SqlOnly);
-        assert_eq!(StorageMode::from_str("Dual_Write").unwrap(), StorageMode::DualWrite);
-        assert_eq!(StorageMode::from_str("KV-PRIMARY").unwrap(), StorageMode::KvPrimary);
+        assert_eq!(
+            StorageMode::from_str("SQL_ONLY").unwrap(),
+            StorageMode::SqlOnly
+        );
+        assert_eq!(
+            StorageMode::from_str("Dual_Write").unwrap(),
+            StorageMode::DualWrite
+        );
+        assert_eq!(
+            StorageMode::from_str("KV-PRIMARY").unwrap(),
+            StorageMode::KvPrimary
+        );
 
         // Test invalid values
         assert!(StorageMode::from_str("invalid").is_err());
@@ -546,8 +574,8 @@ impl Db {
 
         // Initialize KV backend if required by storage mode
         if requested_mode.write_to_kv() || requested_mode.read_from_kv() {
-            let kv_path = std::env::var("AOS_KV_PATH")
-                .unwrap_or_else(|_| "var/aos-kv.redb".to_string());
+            let kv_path =
+                std::env::var("AOS_KV_PATH").unwrap_or_else(|_| "var/aos-kv.redb".to_string());
 
             info!(kv_path = %kv_path, "Initializing KV backend");
 
@@ -1019,7 +1047,8 @@ impl Db {
             let labels = serde_json::json!({
                 "metal_family": family,
                 "memory_gb": memory
-            }).to_string();
+            })
+            .to_string();
 
             // Note: nodes table does not have tenant_id (cluster resource)
             sqlx::query(
@@ -1591,8 +1620,8 @@ impl Db {
 pub use sqlx;
 pub use sqlx::Row;
 
-pub mod query_helpers;
 pub mod activity_events;
+pub mod query_helpers;
 pub use activity_events::ActivityEvent;
 pub mod adapter_snapshots;
 pub mod crypto_audit;
@@ -1683,12 +1712,12 @@ pub use promotions::{
     CreatePromotionRequestParams, GoldenRunStage, PromotionApproval, PromotionGate,
     PromotionRequest, RecordApprovalParams, RecordGateParams,
 };
+pub mod stacks_kv;
 pub mod tenants;
 pub mod tenants_kv;
-pub mod stacks_kv;
 pub use policy_hash::PolicyHashRecord;
+pub use stacks_kv::{StackKvOps, StackKvRepository};
 pub use tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
-pub use stacks_kv::{StackKvRepository, StackKvOps};
 pub mod process_monitoring;
 pub mod rag_retrieval_audit;
 pub mod replay_sessions;
@@ -1738,9 +1767,9 @@ pub use federation::{QuarantineDetails, QuarantineRecord};
 pub mod auth_sessions;
 pub use auth_sessions::AuthSession;
 pub mod runtime_sessions;
-pub use runtime_sessions::RuntimeSession;
 pub use dashboard_configs::DashboardWidgetConfig;
 pub use notifications::{Notification, NotificationType};
+pub use runtime_sessions::RuntimeSession;
 pub use tutorials::TutorialStatus;
 pub use workspaces::{ResourceType, Workspace, WorkspaceMember, WorkspaceResource, WorkspaceRole};
 
@@ -2038,10 +2067,7 @@ impl Db {
     /// # }
     /// ```
     pub fn degradation_reason(&self) -> Option<String> {
-        self.degraded_reason
-            .read()
-            .ok()
-            .and_then(|d| d.clone())
+        self.degraded_reason.read().ok().and_then(|d| d.clone())
     }
 
     /// Attempt to recover from degraded state by reinitializing KV backend
@@ -2152,7 +2178,7 @@ impl Db {
         offset: Option<i64>,
     ) -> Result<Vec<serde_json::Value>> {
         let mut query = "SELECT id, event_type, adapter_id, tenant_id, from_state, to_state, activation_pct, memory_mb, reason, created_at, metadata FROM behavior_events WHERE 1=1".to_string();
-        
+
         if tenant_id.is_some() {
             query.push_str(" AND tenant_id = ?");
         }
@@ -2168,9 +2194,9 @@ impl Db {
         if until.is_some() {
             query.push_str(" AND created_at <= ?");
         }
-        
+
         query.push_str(" ORDER BY created_at DESC");
-        
+
         if let Some(lim) = limit {
             query.push_str(&format!(" LIMIT {}", lim));
         }
@@ -2179,7 +2205,7 @@ impl Db {
         }
 
         let mut q = sqlx::query(&query);
-        
+
         if let Some(tid) = tenant_id {
             q = q.bind(tid);
         }
@@ -2204,16 +2230,46 @@ impl Db {
         let mut results = Vec::new();
         for row in rows {
             let mut event = serde_json::Map::new();
-            event.insert("id".to_string(), serde_json::json!(row.try_get::<String, _>("id").unwrap_or_default()));
-            event.insert("event_type".to_string(), serde_json::json!(row.try_get::<String, _>("event_type").unwrap_or_default()));
-            event.insert("adapter_id".to_string(), serde_json::json!(row.try_get::<String, _>("adapter_id").unwrap_or_default()));
-            event.insert("tenant_id".to_string(), serde_json::json!(row.try_get::<String, _>("tenant_id").unwrap_or_default()));
-            event.insert("from_state".to_string(), serde_json::json!(row.try_get::<String, _>("from_state").ok()));
-            event.insert("to_state".to_string(), serde_json::json!(row.try_get::<String, _>("to_state").ok()));
-            event.insert("activation_pct".to_string(), serde_json::json!(row.try_get::<f64, _>("activation_pct").unwrap_or(0.0)));
-            event.insert("memory_mb".to_string(), serde_json::json!(row.try_get::<i64, _>("memory_mb").unwrap_or(0)));
-            event.insert("reason".to_string(), serde_json::json!(row.try_get::<String, _>("reason").unwrap_or_default()));
-            event.insert("created_at".to_string(), serde_json::json!(row.try_get::<String, _>("created_at").unwrap_or_default()));
+            event.insert(
+                "id".to_string(),
+                serde_json::json!(row.try_get::<String, _>("id").unwrap_or_default()),
+            );
+            event.insert(
+                "event_type".to_string(),
+                serde_json::json!(row.try_get::<String, _>("event_type").unwrap_or_default()),
+            );
+            event.insert(
+                "adapter_id".to_string(),
+                serde_json::json!(row.try_get::<String, _>("adapter_id").unwrap_or_default()),
+            );
+            event.insert(
+                "tenant_id".to_string(),
+                serde_json::json!(row.try_get::<String, _>("tenant_id").unwrap_or_default()),
+            );
+            event.insert(
+                "from_state".to_string(),
+                serde_json::json!(row.try_get::<String, _>("from_state").ok()),
+            );
+            event.insert(
+                "to_state".to_string(),
+                serde_json::json!(row.try_get::<String, _>("to_state").ok()),
+            );
+            event.insert(
+                "activation_pct".to_string(),
+                serde_json::json!(row.try_get::<f64, _>("activation_pct").unwrap_or(0.0)),
+            );
+            event.insert(
+                "memory_mb".to_string(),
+                serde_json::json!(row.try_get::<i64, _>("memory_mb").unwrap_or(0)),
+            );
+            event.insert(
+                "reason".to_string(),
+                serde_json::json!(row.try_get::<String, _>("reason").unwrap_or_default()),
+            );
+            event.insert(
+                "created_at".to_string(),
+                serde_json::json!(row.try_get::<String, _>("created_at").unwrap_or_default()),
+            );
             if let Ok(Some(meta)) = row.try_get::<Option<String>, _>("metadata") {
                 event.insert("metadata".to_string(), serde_json::json!(meta));
             }
@@ -2232,24 +2288,34 @@ impl Db {
         };
 
         // Total count
-        let total_query = format!("SELECT COUNT(*) as total FROM behavior_events {}", tenant_filter);
+        let total_query = format!(
+            "SELECT COUNT(*) as total FROM behavior_events {}",
+            tenant_filter
+        );
         let mut total_q = sqlx::query(&total_query);
         if let Some(tid) = tenant_id {
             total_q = total_q.bind(tid);
         }
-        let total_row = total_q.fetch_one(&*self.pool()).await
+        let total_row = total_q
+            .fetch_one(&*self.pool())
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get total count: {}", e)))?;
         let total: i64 = total_row.try_get("total").unwrap_or(0);
 
         // By category
-        let category_query = format!("SELECT event_type, COUNT(*) as count FROM behavior_events {} GROUP BY event_type", tenant_filter);
+        let category_query = format!(
+            "SELECT event_type, COUNT(*) as count FROM behavior_events {} GROUP BY event_type",
+            tenant_filter
+        );
         let mut cat_q = sqlx::query(&category_query);
         if let Some(tid) = tenant_id {
             cat_q = cat_q.bind(tid);
         }
-        let category_rows = cat_q.fetch_all(&*self.pool()).await
+        let category_rows = cat_q
+            .fetch_all(&*self.pool())
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get category stats: {}", e)))?;
-        
+
         let mut by_category = serde_json::Map::new();
         for row in category_rows {
             let event_type: String = row.try_get("event_type").unwrap_or_default();
@@ -2263,9 +2329,11 @@ impl Db {
         if let Some(tid) = tenant_id {
             trans_q = trans_q.bind(tid);
         }
-        let transition_rows = trans_q.fetch_all(&*self.pool()).await
+        let transition_rows = trans_q
+            .fetch_all(&*self.pool())
+            .await
             .map_err(|e| AosError::Database(format!("Failed to get transition stats: {}", e)))?;
-        
+
         let mut by_transition = Vec::new();
         for row in transition_rows {
             let from: String = row.try_get("from_state").unwrap_or_default();

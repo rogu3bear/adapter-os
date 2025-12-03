@@ -25,6 +25,12 @@ pub struct InferenceEvidence {
     pub rank: i32,
     pub context_hash: String,
     pub created_at: String,
+    /// JSON array of document IDs in retrieval order (aggregate RAG trace)
+    pub rag_doc_ids: Option<String>,
+    /// JSON array of relevance scores parallel to rag_doc_ids
+    pub rag_scores: Option<String>,
+    /// Collection ID used for scoped RAG retrieval
+    pub rag_collection_id: Option<String>,
 }
 
 /// Parameters for creating inference evidence
@@ -41,6 +47,12 @@ pub struct CreateEvidenceParams {
     pub relevance_score: f64,
     pub rank: i32,
     pub context_hash: String,
+    /// JSON-serializable list of document IDs in retrieval order (aggregate RAG trace)
+    pub rag_doc_ids: Option<Vec<String>>,
+    /// JSON-serializable list of relevance scores parallel to rag_doc_ids
+    pub rag_scores: Option<Vec<f64>>,
+    /// Collection ID used for scoped RAG retrieval
+    pub rag_collection_id: Option<String>,
 }
 
 impl Db {
@@ -57,14 +69,24 @@ impl Db {
     pub async fn create_inference_evidence(&self, params: CreateEvidenceParams) -> Result<String> {
         let id = Uuid::new_v4().to_string();
 
+        // Serialize RAG fields to JSON
+        let rag_doc_ids_json = params
+            .rag_doc_ids
+            .as_ref()
+            .map(|ids| serde_json::to_string(ids).unwrap_or_default());
+        let rag_scores_json = params
+            .rag_scores
+            .as_ref()
+            .map(|scores| serde_json::to_string(scores).unwrap_or_default());
+
         sqlx::query(
             r#"
             INSERT INTO inference_evidence (
                 id, inference_id, session_id, message_id, document_id, chunk_id,
                 page_number, document_hash, chunk_hash, relevance_score, rank,
-                context_hash, created_at
+                context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -79,6 +101,9 @@ impl Db {
         .bind(params.relevance_score)
         .bind(params.rank)
         .bind(&params.context_hash)
+        .bind(&rag_doc_ids_json)
+        .bind(&rag_scores_json)
+        .bind(&params.rag_collection_id)
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create inference evidence: {}", e)))?;
@@ -98,7 +123,7 @@ impl Db {
             r#"
             SELECT id, inference_id, session_id, message_id, document_id, chunk_id,
                    page_number, document_hash, chunk_hash, relevance_score, rank,
-                   context_hash, created_at
+                   context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
             FROM inference_evidence
             WHERE inference_id = ?
             ORDER BY rank ASC
@@ -124,7 +149,7 @@ impl Db {
             r#"
             SELECT id, inference_id, session_id, message_id, document_id, chunk_id,
                    page_number, document_hash, chunk_hash, relevance_score, rank,
-                   context_hash, created_at
+                   context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
             FROM inference_evidence
             WHERE message_id = ?
             ORDER BY rank ASC
@@ -150,7 +175,7 @@ impl Db {
             r#"
             SELECT id, inference_id, session_id, message_id, document_id, chunk_id,
                    page_number, document_hash, chunk_hash, relevance_score, rank,
-                   context_hash, created_at
+                   context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
             FROM inference_evidence
             WHERE session_id = ?
             ORDER BY created_at DESC, rank ASC
@@ -193,14 +218,24 @@ impl Db {
         for params in params_list {
             let id = Uuid::new_v4().to_string();
 
+            // Serialize RAG fields to JSON
+            let rag_doc_ids_json = params
+                .rag_doc_ids
+                .as_ref()
+                .map(|ids| serde_json::to_string(ids).unwrap_or_default());
+            let rag_scores_json = params
+                .rag_scores
+                .as_ref()
+                .map(|scores| serde_json::to_string(scores).unwrap_or_default());
+
             sqlx::query(
                 r#"
                 INSERT INTO inference_evidence (
                     id, inference_id, session_id, message_id, document_id, chunk_id,
                     page_number, document_hash, chunk_hash, relevance_score, rank,
-                    context_hash, created_at
+                    context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
                 "#,
             )
             .bind(&id)
@@ -215,11 +250,12 @@ impl Db {
             .bind(params.relevance_score)
             .bind(params.rank)
             .bind(&params.context_hash)
+            .bind(&rag_doc_ids_json)
+            .bind(&rag_scores_json)
+            .bind(&params.rag_collection_id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| {
-                AosError::Database(format!("Failed to insert evidence record: {}", e))
-            })?;
+            .map_err(|e| AosError::Database(format!("Failed to insert evidence record: {}", e)))?;
 
             ids.push(id);
         }
@@ -248,6 +284,9 @@ struct InferenceEvidenceRow {
     rank: i32,
     context_hash: String,
     created_at: String,
+    rag_doc_ids: Option<String>,
+    rag_scores: Option<String>,
+    rag_collection_id: Option<String>,
 }
 
 impl From<InferenceEvidenceRow> for InferenceEvidence {
@@ -266,6 +305,9 @@ impl From<InferenceEvidenceRow> for InferenceEvidence {
             rank: row.rank,
             context_hash: row.context_hash,
             created_at: row.created_at,
+            rag_doc_ids: row.rag_doc_ids,
+            rag_scores: row.rag_scores,
+            rag_collection_id: row.rag_collection_id,
         }
     }
 }
@@ -332,6 +374,9 @@ mod tests {
             relevance_score: 0.95,
             rank: 1,
             context_hash: "contexthash789".to_string(),
+            rag_doc_ids: None,
+            rag_scores: None,
+            rag_collection_id: None,
         };
 
         let id = db.create_inference_evidence(params).await.unwrap();
@@ -376,6 +421,9 @@ mod tests {
                 relevance_score: score,
                 rank,
                 context_hash: "contexthash".to_string(),
+                rag_doc_ids: None,
+                rag_scores: None,
+                rag_collection_id: None,
             };
 
             db.create_inference_evidence(params).await.unwrap();
@@ -388,5 +436,50 @@ mod tests {
         assert_eq!(evidence[1].rank, 2);
         assert_eq!(evidence[2].rank, 3);
         assert_eq!(evidence[0].relevance_score, 0.95);
+    }
+
+    #[tokio::test]
+    async fn test_evidence_with_rag_fields() {
+        let db = Db::new_in_memory().await.unwrap();
+        setup_test_data(&db, "doc-rag-001", "chunk-rag-001").await;
+
+        let inference_id = "inf-rag-001";
+
+        // Create evidence with RAG fields populated
+        let params = CreateEvidenceParams {
+            inference_id: inference_id.to_string(),
+            session_id: None,
+            message_id: None,
+            document_id: "doc-rag-001".to_string(),
+            chunk_id: "chunk-rag-001".to_string(),
+            page_number: Some(1),
+            document_hash: "dochash-rag".to_string(),
+            chunk_hash: "chunkhash-rag".to_string(),
+            relevance_score: 0.92,
+            rank: 0,
+            context_hash: "contexthash-rag".to_string(),
+            rag_doc_ids: Some(vec!["doc-rag-001".to_string(), "doc-rag-002".to_string()]),
+            rag_scores: Some(vec![0.92, 0.85]),
+            rag_collection_id: Some("col-001".to_string()),
+        };
+
+        db.create_inference_evidence(params).await.unwrap();
+
+        // Retrieve and verify RAG fields
+        let evidence = db.get_evidence_by_inference(inference_id).await.unwrap();
+        assert_eq!(evidence.len(), 1);
+
+        // Verify RAG doc IDs are stored and retrievable as JSON
+        let rag_doc_ids_json = evidence[0].rag_doc_ids.as_ref().unwrap();
+        let rag_doc_ids: Vec<String> = serde_json::from_str(rag_doc_ids_json).unwrap();
+        assert_eq!(rag_doc_ids, vec!["doc-rag-001", "doc-rag-002"]);
+
+        // Verify RAG scores
+        let rag_scores_json = evidence[0].rag_scores.as_ref().unwrap();
+        let rag_scores: Vec<f64> = serde_json::from_str(rag_scores_json).unwrap();
+        assert_eq!(rag_scores, vec![0.92, 0.85]);
+
+        // Verify collection ID
+        assert_eq!(evidence[0].rag_collection_id, Some("col-001".to_string()));
     }
 }

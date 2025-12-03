@@ -23,7 +23,7 @@ pub struct TrainingDataset {
     pub created_by: Option<String>,
     pub created_at: String,
     pub updated_at: String,
-    // PRD-DATA-01: Dataset Lab extensions (migration 0084)
+    // Dataset Lab extensions for enhanced metadata tracking
     pub dataset_type: Option<String>,
     pub purpose: Option<String>,
     pub source_location: Option<String>,
@@ -56,7 +56,7 @@ pub struct DatasetStatistics {
     pub computed_at: String,
 }
 
-/// Evidence entry for datasets and adapters (PRD-DATA-01)
+/// Evidence entry for datasets and adapters
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct EvidenceEntry {
     pub id: String,
@@ -71,7 +71,7 @@ pub struct EvidenceEntry {
     pub metadata_json: Option<String>,
 }
 
-/// Dataset-to-adapter link (PRD-DATA-01)
+/// Dataset-to-adapter link for tracking training lineage
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DatasetAdapterLink {
     pub id: String,
@@ -137,12 +137,10 @@ impl Db {
 
     /// Get training dataset by ID
     pub async fn get_training_dataset(&self, dataset_id: &str) -> Result<Option<TrainingDataset>> {
-        let dataset = sqlx::query_as::<_, TrainingDataset>(
-            &format!(
-                "SELECT {} FROM training_datasets WHERE id = ?",
-                TRAINING_DATASET_COLUMNS
-            ),
-        )
+        let dataset = sqlx::query_as::<_, TrainingDataset>(&format!(
+            "SELECT {} FROM training_datasets WHERE id = ?",
+            TRAINING_DATASET_COLUMNS
+        ))
         .bind(dataset_id)
         .fetch_optional(&*self.pool())
         .await
@@ -162,12 +160,10 @@ impl Db {
         note = "Use list_training_datasets_for_tenant() for tenant isolation"
     )]
     pub async fn list_training_datasets(&self, limit: i64) -> Result<Vec<TrainingDataset>> {
-        let datasets = sqlx::query_as::<_, TrainingDataset>(
-            &format!(
-                "SELECT {} FROM training_datasets ORDER BY created_at DESC LIMIT ?",
-                TRAINING_DATASET_COLUMNS
-            ),
-        )
+        let datasets = sqlx::query_as::<_, TrainingDataset>(&format!(
+            "SELECT {} FROM training_datasets ORDER BY created_at DESC LIMIT ?",
+            TRAINING_DATASET_COLUMNS
+        ))
         .bind(limit)
         .fetch_all(&*self.pool())
         .await
@@ -191,12 +187,10 @@ impl Db {
         tenant_id: &str,
         limit: i64,
     ) -> Result<Vec<TrainingDataset>> {
-        let datasets = sqlx::query_as::<_, TrainingDataset>(
-            &format!(
-                "SELECT {} FROM training_datasets WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ?",
-                TRAINING_DATASET_COLUMNS
-            ),
-        )
+        let datasets = sqlx::query_as::<_, TrainingDataset>(&format!(
+            "SELECT {} FROM training_datasets WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ?",
+            TRAINING_DATASET_COLUMNS
+        ))
         .bind(tenant_id)
         .bind(limit)
         .fetch_all(&*self.pool())
@@ -226,13 +220,14 @@ impl Db {
     ///
     /// # Returns
     /// Vector of all training datasets ordered by creation date (newest first)
-    pub async fn list_all_training_datasets_system(&self, limit: i64) -> Result<Vec<TrainingDataset>> {
-        let datasets = sqlx::query_as::<_, TrainingDataset>(
-            &format!(
-                "SELECT {} FROM training_datasets ORDER BY created_at DESC LIMIT ?",
-                TRAINING_DATASET_COLUMNS
-            ),
-        )
+    pub async fn list_all_training_datasets_system(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<TrainingDataset>> {
+        let datasets = sqlx::query_as::<_, TrainingDataset>(&format!(
+            "SELECT {} FROM training_datasets ORDER BY created_at DESC LIMIT ?",
+            TRAINING_DATASET_COLUMNS
+        ))
         .bind(limit)
         .fetch_all(&*self.pool())
         .await
@@ -329,6 +324,25 @@ impl Db {
         Ok(())
     }
 
+    /// Update dataset storage path
+    pub async fn update_dataset_storage_path(
+        &self,
+        dataset_id: &str,
+        storage_path: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE training_datasets
+             SET storage_path = ?, updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(storage_path)
+        .bind(dataset_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("update dataset storage path"))?;
+        Ok(())
+    }
+
     /// Store dataset statistics
     pub async fn store_dataset_statistics(
         &self,
@@ -378,7 +392,7 @@ impl Db {
     }
 
     // ============================================================================
-    // Evidence Entries Operations (PRD-DATA-01)
+    // Evidence Entries Operations
     // ============================================================================
 
     /// Create evidence entry for dataset or adapter
@@ -563,7 +577,7 @@ impl Db {
     }
 
     // ============================================================================
-    // Dataset-Adapter Links Operations (PRD-DATA-01)
+    // Dataset-Adapter Links Operations
     // ============================================================================
 
     /// Create link between dataset and adapter
@@ -659,7 +673,7 @@ impl Db {
         Ok(())
     }
 
-    /// Update dataset extended fields (PRD-DATA-01)
+    /// Update dataset extended fields for enhanced tracking
     pub async fn update_dataset_extended_fields(
         &self,
         dataset_id: &str,

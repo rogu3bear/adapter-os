@@ -18,13 +18,13 @@
 //! }
 //! ```
 
+pub mod assertions;
+pub mod cleanup;
 pub mod db_helpers;
 pub mod factories;
-pub mod cleanup;
-pub mod assertions;
 
 // Re-export commonly used items
-pub use db_helpers::{TestDb, create_test_db, create_test_db_with_mode, create_test_db_with_kv};
-pub use factories::{TestAdapterFactory, TestTenantFactory, TestStackFactory};
+pub use assertions::{assert_adapter_fields_match, assert_adapters_equal};
 pub use cleanup::{cleanup_test_db, cleanup_test_files};
-pub use assertions::{assert_adapters_equal, assert_adapter_fields_match};
+pub use db_helpers::{create_test_db, create_test_db_with_kv, create_test_db_with_mode, TestDb};
+pub use factories::{TestAdapterFactory, TestStackFactory, TestTenantFactory};
