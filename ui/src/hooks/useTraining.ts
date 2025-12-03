@@ -12,6 +12,9 @@ import type {
   ListTrainingJobsResponse,
   TrainingArtifactsResponse,
   CreateDatasetFromDocumentsResponse,
+  ChatBootstrapResponse,
+  CreateChatFromJobRequest,
+  CreateChatFromJobResponse,
 } from '@/api/training-types';
 
 type TrainingMetrics = {
@@ -37,6 +40,7 @@ const QUERY_KEYS = {
   jobLogs: (id: string) => ['training', 'jobs', id, 'logs'] as const,
   jobMetrics: (id: string) => ['training', 'jobs', id, 'metrics'] as const,
   jobArtifacts: (id: string) => ['training', 'jobs', id, 'artifacts'] as const,
+  chatBootstrap: (jobId: string) => ['training', 'chat-bootstrap', jobId] as const,
   datasets: ['training', 'datasets'] as const,
   dataset: (id: string) => ['training', 'datasets', id] as const,
   templates: ['training', 'templates'] as const,
@@ -243,6 +247,48 @@ export function useTemplate(
   });
 }
 
+// Chat Bootstrap Hooks (PRD-CORE-03)
+
+/**
+ * Hook to get chat bootstrap data for a training job
+ * PRD-CORE-03: Returns the "recipe" for starting a chat from a completed training job
+ *
+ * @param jobId - Training job ID (hook is disabled if undefined)
+ */
+export function useChatBootstrap(
+  jobId: string | undefined,
+  options?: Omit<UseQueryOptions<ChatBootstrapResponse, Error>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery<ChatBootstrapResponse, Error>({
+    queryKey: QUERY_KEYS.chatBootstrap(jobId!),
+    queryFn: () => apiClient.getChatBootstrap(jobId!),
+    enabled: !!jobId,
+    ...options,
+  });
+}
+
+/**
+ * Mutation hook to create a chat session from a training job
+ * PRD-CORE-03: Creates a chat session bound to the training job's stack in one call
+ */
+export function useCreateChatFromJob(
+  options?: UseMutationOptions<CreateChatFromJobResponse, Error, CreateChatFromJobRequest>
+) {
+  const queryClient = useQueryClient();
+  const { onSuccess, ...restOptions } = options ?? {};
+
+  return useMutation<CreateChatFromJobResponse, Error, CreateChatFromJobRequest>({
+    mutationFn: (request) => apiClient.createChatFromTrainingJob(request),
+    ...restOptions,
+    onSuccess: async (data, variables, context, mutation) => {
+      // Invalidate chat sessions list to show the new session
+      await queryClient.invalidateQueries({ queryKey: ['chat', 'sessions'] });
+      // Call user-provided onSuccess if any
+      await onSuccess?.(data, variables, context, mutation);
+    },
+  });
+}
+
 // Export as namespace for cleaner usage
 export const useTraining = {
   useTrainingJobs,
@@ -259,4 +305,6 @@ export const useTraining = {
   useDeleteDataset,
   useTemplates,
   useTemplate,
+  useChatBootstrap,
+  useCreateChatFromJob,
 };

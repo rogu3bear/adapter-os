@@ -1064,6 +1064,25 @@ class ApiClient {
     return this.request<types.TrainingTemplate>(`/v1/training/templates/${templateId}`);
   }
 
+  /**
+   * Get chat bootstrap data for a training job
+   * PRD-CORE-03: Returns the "recipe" for starting a chat from a completed training job
+   */
+  async getChatBootstrap(jobId: string): Promise<trainingTypes.ChatBootstrapResponse> {
+    return this.request<trainingTypes.ChatBootstrapResponse>(`/v1/training/jobs/${jobId}/chat_bootstrap`);
+  }
+
+  /**
+   * Create a chat session from a training job
+   * PRD-CORE-03: Creates a chat session bound to the training job's stack in one call
+   */
+  async createChatFromTrainingJob(request: trainingTypes.CreateChatFromJobRequest): Promise<trainingTypes.CreateChatFromJobResponse> {
+    return this.request<trainingTypes.CreateChatFromJobResponse>('/v1/chats/from_training_job', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
   // Dataset endpoints
   async createDataset(request: trainingTypes.CreateDatasetRequest): Promise<trainingTypes.DatasetResponse> {
     // Use FormData for file uploads

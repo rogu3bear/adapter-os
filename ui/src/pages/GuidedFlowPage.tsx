@@ -57,6 +57,10 @@ export default function GuidedFlowPage() {
     enabled: !!jobId,
   });
 
+  const { data: bootstrap } = useTraining.useChatBootstrap(
+    job?.status === 'completed' ? jobId : undefined
+  );
+
   const { mutateAsync: createDataset, isPending: isUploading } = useTraining.useCreateDataset({
     onSuccess: (resp) => {
       const newId =
@@ -108,15 +112,13 @@ export default function GuidedFlowPage() {
 
   // Capture stack once training completes
   useEffect(() => {
-    if (job?.status === 'completed') {
-      if (job.stack_id) {
-        setStackId(job.stack_id);
-      }
-      if (currentStep === 3 && job.stack_id) {
+    if (bootstrap?.ready && bootstrap.stack_id) {
+      setStackId(bootstrap.stack_id);
+      if (currentStep === 3) {
         toast.success('Training completed! Stack ready for chat.');
       }
     }
-  }, [currentStep, job]);
+  }, [currentStep, bootstrap]);
 
   useEffect(() => {
     if (job?.status === 'completed' && currentStep < 3) {
@@ -262,7 +264,7 @@ export default function GuidedFlowPage() {
                   Training failed{job.error_message ? `: ${job.error_message}` : ''}. You can retry with the wizard.
                 </div>
               )}
-              {job?.status === 'completed' && job.stack_id && (
+              {job?.status === 'completed' && bootstrap?.stack_id && (
                 <div className="flex items-center gap-2 text-green-600">
                   <CheckCircle className="h-5 w-5" />
                   <span>Training complete. Stack ready.</span>

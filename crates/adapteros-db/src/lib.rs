@@ -1111,7 +1111,7 @@ impl Db {
     pub async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
         let row = sqlx::query_as::<_, StackRecord>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
             FROM adapter_stacks
             WHERE tenant_id = ? AND id = ?
             "#,
@@ -1328,14 +1328,14 @@ impl Db {
         let id = uuid::Uuid::new_v4().to_string();
         let adapter_ids_json =
             serde_json::to_string(&req.adapter_ids).map_err(|e| AosError::Serialization(e))?;
-        let workflow_type = req.workflow_type.as_deref().unwrap_or("parallel");
+        let workflow_type = req.workflow_type.as_deref().unwrap_or("Parallel");
         let description = req.description.as_deref().unwrap_or("");
 
         // SQL write (always happens)
         sqlx::query(
             r#"
             INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, '1.0.0', 'active', datetime('now'), datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'))
             "#,
         )
         .bind(&id)

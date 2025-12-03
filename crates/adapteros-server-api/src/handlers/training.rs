@@ -21,6 +21,7 @@ use axum::{
 };
 use std::sync::Arc;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 /// List training jobs with optional filters
 #[utoipa::path(
@@ -798,4 +799,260 @@ pub async fn retry_training(
         StatusCode::CREATED,
         Json(TrainingJobResponse::from(new_job)),
     ))
+}
+
+// ============================================================================
+// PRD-CORE-03: Chat Bootstrap Handlers
+// ============================================================================
+
+/// Get chat bootstrap data for a training job
+///
+/// Returns the "recipe" for starting a chat from a completed training job.
+/// Used by any UI flow to quickly get the payload needed to create a chat session.
+#[utoipa::path(
+    get,
+    path = "/v1/training/jobs/{job_id}/chat_bootstrap",
+    params(
+        ("job_id" = String, Path, description = "Training job ID")
+    ),
+    responses(
+        (status = 200, description = "Chat bootstrap data", body = ChatBootstrapResponse),
+        (status = 404, description = "Job not found", body = ErrorResponse),
+        (status = 403, description = "Access denied", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn get_chat_bootstrap(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(job_id): Path<String>,
+) -> Result<Json<adapteros_api_types::ChatBootstrapResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingView)?;
+
+    // Try in-memory first (for running jobs), fall back to DB (for completed jobs after restart)
+    let (stack_id, adapter_name, base_model_id, collection_id, status_completed, tenant_id) =
+        match state.training_service.get_job(&job_id).await {
+            Ok(job) => (
+                job.stack_id,
+                job.adapter_name,
+                job.base_model_id,
+                job.collection_id,
+                job.status == TrainingJobStatus::Completed,
+                job.tenant_id,
+            ),
+            Err(_) => {
+                // Fall back to database for completed jobs not in memory (e.g., after server restart)
+                let db_job = state.db.get_training_job(&job_id).await.map_err(|e| {
+                    error!(job_id = %job_id, error = %e, "Failed to get training job from DB");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new(&format!("Failed to get job: {}", e))
+                                .with_code("DATABASE_ERROR"),
+                        ),
+                    )
+                })?;
+
+                let job = db_job.ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(
+                            ErrorResponse::new(&format!("Training job not found: {}", job_id))
+                                .with_code("NOT_FOUND"),
+                        ),
+                    )
+                })?;
+
+                (
+                    job.stack_id,
+                    job.adapter_name.unwrap_or_default(),
+                    job.base_model_id,
+                    job.collection_id,
+                    job.status == "completed",
+                    job.tenant_id,
+                )
+            }
+        };
+
+    // Tenant isolation check - require tenant_id for security
+    let tid = tenant_id.as_deref().ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("Training job has no tenant_id").with_code("NO_TENANT")),
+        )
+    })?;
+    validate_tenant_isolation(&claims, tid)?;
+
+    let ready = status_completed && stack_id.is_some();
+
+    // Get adapter IDs from stack if available
+    let adapter_ids = if let Some(ref sid) = stack_id {
+        match state.db.get_stack(tid, sid).await {
+            Ok(Some(stack)) => serde_json::from_str(&stack.adapter_ids_json).unwrap_or_default(),
+            _ => vec![],
+        }
+    } else {
+        vec![]
+    };
+
+    // base_model comes from job, not stack
+    let base_model = base_model_id;
+
+    let suggested_title = format!("Chat with {}", adapter_name);
+
+    Ok(Json(adapteros_api_types::ChatBootstrapResponse {
+        ready,
+        stack_id,
+        adapter_ids,
+        base_model,
+        collection_id,
+        suggested_chat_title: suggested_title,
+    }))
+}
+
+/// Create a chat session from a training job
+///
+/// Creates a chat session bound to the training job's stack in one call.
+/// Centralizes tenant/auth checks, job-ready validation, and session creation.
+#[utoipa::path(
+    post,
+    path = "/v1/chats/from_training_job",
+    request_body = CreateChatFromJobRequest,
+    responses(
+        (status = 200, description = "Chat session created", body = CreateChatFromJobResponse),
+        (status = 400, description = "Job not ready for chat", body = ErrorResponse),
+        (status = 404, description = "Job not found", body = ErrorResponse),
+        (status = 403, description = "Access denied", body = ErrorResponse)
+    ),
+    tag = "chat"
+)]
+pub async fn create_chat_from_training_job(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<adapteros_api_types::CreateChatFromJobRequest>,
+) -> Result<Json<adapteros_api_types::CreateChatFromJobResponse>, (StatusCode, Json<ErrorResponse>)>
+{
+    require_permission(&claims, Permission::InferenceExecute)?;
+
+    // Try in-memory first, fall back to DB for completed jobs after server restart
+    let (stack_id_opt, adapter_name, collection_id, status_completed, tenant_id) = match state
+        .training_service
+        .get_job(&req.training_job_id)
+        .await
+    {
+        Ok(job) => (
+            job.stack_id,
+            job.adapter_name,
+            job.collection_id,
+            job.status == TrainingJobStatus::Completed,
+            job.tenant_id,
+        ),
+        Err(_) => {
+            // Fall back to database
+            let db_job = state
+                    .db
+                    .get_training_job(&req.training_job_id)
+                    .await
+                    .map_err(|e| {
+                        error!(job_id = %req.training_job_id, error = %e, "Failed to get training job from DB");
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                ErrorResponse::new(&format!("Failed to get job: {}", e))
+                                    .with_code("DATABASE_ERROR"),
+                            ),
+                        )
+                    })?;
+
+            let job = db_job.ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new(&format!(
+                            "Training job not found: {}",
+                            req.training_job_id
+                        ))
+                        .with_code("NOT_FOUND"),
+                    ),
+                )
+            })?;
+
+            (
+                job.stack_id,
+                job.adapter_name.unwrap_or_default(),
+                job.collection_id,
+                job.status == "completed",
+                job.tenant_id,
+            )
+        }
+    };
+
+    // Tenant isolation check - require tenant_id for security
+    let tid = tenant_id.as_deref().ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("Training job has no tenant_id").with_code("NO_TENANT")),
+        )
+    })?;
+    validate_tenant_isolation(&claims, tid)?;
+
+    // Check job is ready for chat
+    if !status_completed {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Training job has not completed successfully")
+                    .with_code("JOB_NOT_COMPLETED"),
+            ),
+        ));
+    }
+
+    let stack_id = stack_id_opt.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(
+                    "Training job did not create a stack (post_actions.create_stack may be false)",
+                )
+                .with_code("NO_STACK"),
+            ),
+        )
+    })?;
+
+    let name = req
+        .name
+        .unwrap_or_else(|| format!("Chat with {}", adapter_name));
+
+    // Create chat session
+    let session_id = format!("session-{}", Uuid::new_v4());
+    let params = adapteros_db::CreateChatSessionParams {
+        id: session_id.clone(),
+        tenant_id: claims.tenant_id.clone(),
+        user_id: Some(claims.sub.clone()),
+        stack_id: Some(stack_id.clone()),
+        collection_id,
+        name: name.clone(),
+        metadata_json: req.metadata_json,
+        pinned_adapter_ids: None, // Inherits from tenant default
+    };
+
+    state.db.create_chat_session(params).await.map_err(|e| {
+        error!(error = %e, "Failed to create chat session from training job");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new(&format!("Failed to create chat session: {}", e))
+                    .with_code("DATABASE_ERROR"),
+            ),
+        )
+    })?;
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+
+    Ok(Json(adapteros_api_types::CreateChatFromJobResponse {
+        session_id,
+        stack_id,
+        name,
+        created_at,
+    }))
 }

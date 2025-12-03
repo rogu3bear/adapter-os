@@ -45,12 +45,12 @@ impl DatabaseBackend for SqliteBackend {
         let id = self.generate_id();
         let adapter_ids_json =
             serde_json::to_string(&req.adapter_ids).map_err(|e| AosError::Serialization(e))?;
-        let workflow_type = req.workflow_type.as_deref().unwrap_or("parallel");
+        let workflow_type = req.workflow_type.as_deref().unwrap_or("Parallel");
         let description = req.description.as_deref().unwrap_or("");
 
         let row = sqlx::query(
             "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, '1.0.0', 'active', datetime('now'), datetime('now'))
+             VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'))
              RETURNING id"
         )
         .bind(&id)

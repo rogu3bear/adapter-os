@@ -387,3 +387,53 @@ impl Default for TrainingJobListResponse {
         }
     }
 }
+
+// ============================================================================
+// PRD-CORE-03: Chat Bootstrap Types
+// ============================================================================
+
+/// Response for GET /v1/training/jobs/{id}/chat_bootstrap
+///
+/// Returns the "recipe" for starting a chat from a completed training job.
+/// Used by any UI flow to quickly get the payload needed to create a chat session.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ChatBootstrapResponse {
+    /// Whether the training job is ready for chat (completed with stack)
+    pub ready: bool,
+    /// Stack ID created from training (if ready)
+    pub stack_id: Option<String>,
+    /// Adapter IDs in the stack
+    pub adapter_ids: Vec<String>,
+    /// Base model ID used for training
+    pub base_model: Option<String>,
+    /// RAG collection ID if training involved RAG
+    pub collection_id: Option<String>,
+    /// Suggested title for the chat session
+    pub suggested_chat_title: String,
+}
+
+/// Request for POST /v1/chats/from_training_job
+///
+/// Creates a chat session bound to a training job's stack in one call.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateChatFromJobRequest {
+    /// Training job ID to create chat from
+    pub training_job_id: String,
+    /// Optional override for chat session name
+    pub name: Option<String>,
+    /// Optional metadata JSON for the chat session
+    pub metadata_json: Option<String>,
+}
+
+/// Response for POST /v1/chats/from_training_job
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateChatFromJobResponse {
+    /// Created chat session ID
+    pub session_id: String,
+    /// Stack ID the session is bound to
+    pub stack_id: String,
+    /// Session name (either provided or generated)
+    pub name: String,
+    /// Creation timestamp
+    pub created_at: String,
+}

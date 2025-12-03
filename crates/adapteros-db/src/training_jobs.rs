@@ -41,6 +41,11 @@ pub struct TrainingJobRecord {
     pub retryable: Option<i64>,
     /// ID of the original job this is a retry of (for retry chain tracking)
     pub retry_of_job_id: Option<String>,
+    // Fields from migration 0073 - PRD-CORE-03 train-to-chat
+    /// Stack ID created from this training job (if post_actions.create_stack = true)
+    pub stack_id: Option<String>,
+    /// Adapter ID created from this training job
+    pub adapter_id: Option<String>,
 }
 
 /// Training metric record from database
@@ -177,7 +182,7 @@ impl Db {
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id
+                    retryable, retry_of_job_id, stack_id, adapter_id
              FROM repository_training_jobs WHERE id = ?",
         )
         .bind(job_id)
@@ -249,7 +254,7 @@ impl Db {
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id
+                    retryable, retry_of_job_id, stack_id, adapter_id
              FROM repository_training_jobs
              WHERE repo_id = ?
              ORDER BY started_at DESC",
@@ -275,7 +280,7 @@ impl Db {
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id
+                    retryable, retry_of_job_id, stack_id, adapter_id
              FROM repository_training_jobs
              WHERE status = ?
              ORDER BY started_at DESC",
@@ -326,7 +331,7 @@ impl Db {
                     rtj.template_id, rtj.created_at, rtj.metadata_json, rtj.config_hash_b3,
                     rtj.dataset_id, rtj.base_model_id, rtj.collection_id, rtj.tenant_id,
                     rtj.build_id, rtj.source_documents_json,
-                    rtj.retryable, rtj.retry_of_job_id
+                    rtj.retryable, rtj.retry_of_job_id, rtj.stack_id, rtj.adapter_id
              FROM repository_training_jobs rtj
              WHERE rtj.tenant_id = ? OR rtj.created_by LIKE ?
              ORDER BY rtj.started_at DESC",
@@ -432,7 +437,7 @@ impl Db {
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id
+                    retryable, retry_of_job_id, stack_id, adapter_id
              FROM repository_training_jobs
              WHERE metadata_json LIKE ?",
         )
@@ -483,7 +488,7 @@ impl Db {
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id
+                    retryable, retry_of_job_id, stack_id, adapter_id
              FROM repository_training_jobs
              WHERE config_hash_b3 = ?
              ORDER BY started_at DESC",
@@ -835,7 +840,7 @@ impl Db {
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id
+                    retryable, retry_of_job_id, stack_id, adapter_id
              FROM repository_training_jobs
              WHERE retry_of_job_id = ?
              ORDER BY started_at DESC",
@@ -873,6 +878,46 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update retry_of_job_id: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Update training job with stack_id and adapter_id after successful training
+    ///
+    /// Called by orchestrator after stack creation to persist the result IDs
+    /// for the chat_bootstrap endpoint.
+    ///
+    /// Evidence: PRD-CORE-03 unified train-to-chat pipeline
+    /// Evidence: migrations/0073_training_job_stack_adapter_ids.sql
+    /// Pattern: Link training job to its output artifacts (adapter + stack)
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `stack_id` - Optional stack ID created from this training job
+    /// * `adapter_id` - Optional adapter ID created from this training job
+    ///
+    /// # Notes
+    /// This method is called when `post_actions.create_stack = true` to record
+    /// the full provenance chain from training job to ready-to-use stack.
+    pub async fn update_training_job_result_ids(
+        &self,
+        job_id: &str,
+        stack_id: Option<&str>,
+        adapter_id: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE repository_training_jobs
+             SET stack_id = ?, adapter_id = ?
+             WHERE id = ?",
+        )
+        .bind(stack_id)
+        .bind(adapter_id)
+        .bind(job_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to update training job result IDs: {}", e))
+        })?;
 
         Ok(())
     }

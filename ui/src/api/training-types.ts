@@ -553,3 +553,45 @@ export interface DatasetAdapterLink {
   created_at: string;
 }
 
+// ============================================================================
+// PRD-CORE-03: Chat Bootstrap Types
+// ============================================================================
+
+/** Response from GET /v1/training/jobs/{id}/chat_bootstrap */
+export interface ChatBootstrapResponse {
+  /** Whether the training job is ready for chat (completed with stack) */
+  ready: boolean;
+  /** Stack ID created from training (if ready) */
+  stack_id?: string;
+  /** Adapter IDs in the stack */
+  adapter_ids: string[];
+  /** Base model ID used for training */
+  base_model?: string;
+  /** RAG collection ID if training involved RAG */
+  collection_id?: string;
+  /** Suggested title for the chat session */
+  suggested_chat_title: string;
+}
+
+/** Request for POST /v1/chats/from_training_job */
+export interface CreateChatFromJobRequest {
+  /** Training job ID to create chat from */
+  training_job_id: string;
+  /** Optional override for chat session name */
+  name?: string;
+  /** Optional metadata JSON for the chat session */
+  metadata_json?: string;
+}
+
+/** Response from POST /v1/chats/from_training_job */
+export interface CreateChatFromJobResponse {
+  /** Created chat session ID */
+  session_id: string;
+  /** Stack ID the session is bound to */
+  stack_id: string;
+  /** Session name (either provided or generated) */
+  name: string;
+  /** Creation timestamp */
+  created_at: string;
+}
+

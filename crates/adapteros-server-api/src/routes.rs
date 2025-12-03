@@ -89,6 +89,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_training_metrics,
         handlers::list_training_templates,
         handlers::get_training_template,
+        handlers::get_chat_bootstrap,
+        handlers::create_chat_from_training_job,
         // Git integration handlers
         handlers::git::git_status,
         handlers::git::start_git_session,
@@ -960,6 +962,10 @@ pub fn build(state: AppState) -> Router {
             post(handlers::chat_sessions::create_chat_session)
                 .get(handlers::chat_sessions::list_chat_sessions),
         )
+        .route(
+            "/v1/chats/from_training_job",
+            post(handlers::create_chat_from_training_job),
+        )
         // Special paths MUST come before the {session_id} wildcard
         .route(
             "/v1/chat/sessions/archived",
@@ -1545,6 +1551,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/training/jobs/{job_id}/artifacts",
             get(handlers::get_training_artifacts),
+        )
+        .route(
+            "/v1/training/jobs/{job_id}/chat_bootstrap",
+            get(handlers::get_chat_bootstrap),
         )
         .route(
             "/v1/training/templates",
