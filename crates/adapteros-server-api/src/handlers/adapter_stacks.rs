@@ -33,6 +33,10 @@ pub struct CreateStackRequest {
     pub adapter_ids: Vec<String>,
     pub workflow_type: Option<WorkflowType>,
     pub metadata: Option<HashMap<String, String>>,
+    /// Determinism mode for this stack (strict, besteffort, relaxed)
+    /// If not specified, uses global config
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub determinism_mode: Option<String>,
 }
 
 /// Response for adapter stack operations
@@ -59,6 +63,10 @@ pub struct StackResponse {
     /// Warnings about capacity or memory pressure (memory guardrails)
     #[serde(default)]
     pub warnings: Vec<String>,
+    /// Determinism mode for this stack (strict, besteffort, relaxed)
+    /// If not specified, uses global config
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub determinism_mode: Option<String>,
 }
 
 fn default_schema_version() -> String {
@@ -221,6 +229,7 @@ pub async fn create_stack(
         description: req.description.clone(),
         adapter_ids: req.adapter_ids.clone(),
         workflow_type: req.workflow_type.as_ref().map(|w| format!("{:?}", w)),
+        determinism_mode: req.determinism_mode.clone(),
     };
 
     let id = match state.db.insert_stack(&db_req).await {
@@ -286,6 +295,7 @@ pub async fn create_stack(
         version: 1,        // New stacks start at version 1
         lifecycle_state: "active".to_string(), // New stacks default to active
         warnings,          // Include warnings in response (memory guardrails)
+        determinism_mode: req.determinism_mode,
     });
 
     // Convert to Response with 201 status code
@@ -348,6 +358,7 @@ pub async fn list_stacks(
             version: row.version,
             lifecycle_state: row.lifecycle_state,
             warnings: vec![], // No warnings for existing stacks
+            determinism_mode: row.determinism_mode,
         });
     }
 
@@ -415,6 +426,7 @@ pub async fn get_stack(
         version: row.version,
         lifecycle_state: row.lifecycle_state,
         warnings: vec![], // No warnings for existing stacks
+        determinism_mode: row.determinism_mode,
     }))
 }
 

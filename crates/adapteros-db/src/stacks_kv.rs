@@ -774,6 +774,7 @@ pub fn kv_to_stack_record(kv: &AdapterStackKv) -> Result<StackRecord> {
         updated_at,
         created_by: kv.created_by.clone(),
         version,
+        determinism_mode: None, // KV stacks don't support determinism_mode yet
     })
 }
 
@@ -795,6 +796,7 @@ mod tests {
             updated_at: "2025-11-29 12:00:00".to_string(),
             created_by: Some("user-1".to_string()),
             version: 1,
+            determinism_mode: None,
         };
 
         let kv = stack_record_to_kv(&record).unwrap();

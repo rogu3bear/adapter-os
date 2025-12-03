@@ -72,6 +72,9 @@ pub struct StackRecord {
     /// Stack version (auto-incremented on updates for telemetry correlation)
     #[serde(default = "default_version")]
     pub version: i64,
+    /// Determinism mode for this stack (strict, besteffort, relaxed)
+    /// If not specified, uses global config
+    pub determinism_mode: Option<String>,
 }
 
 fn default_version() -> i64 {
@@ -86,6 +89,9 @@ pub struct CreateStackRequest {
     pub description: Option<String>,
     pub adapter_ids: Vec<String>,
     pub workflow_type: Option<String>,
+    /// Determinism mode for this stack (strict, besteffort, relaxed)
+    /// If not specified, uses global config
+    pub determinism_mode: Option<String>,
 }
 
 /// Database backend abstraction trait

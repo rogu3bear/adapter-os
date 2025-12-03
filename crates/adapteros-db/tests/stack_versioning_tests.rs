@@ -14,6 +14,7 @@ async fn test_stack_version_starts_at_one() {
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string(), "adapter2".to_string()],
         workflow_type: Some("Parallel".to_string()),
+        determinism_mode: None,
     };
 
     let stack_id = backend.insert_stack(&req).await.unwrap();
@@ -38,6 +39,7 @@ async fn test_stack_version_increments_on_adapter_change() {
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string(), "adapter2".to_string()],
         workflow_type: Some("Parallel".to_string()),
+        determinism_mode: None,
     };
 
     let stack_id = backend.insert_stack(&req).await.unwrap();
@@ -57,6 +59,7 @@ async fn test_stack_version_increments_on_adapter_change() {
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string(), "adapter3".to_string()], // Changed!
         workflow_type: Some("Parallel".to_string()),
+        determinism_mode: None,
     };
 
     backend
@@ -87,6 +90,7 @@ async fn test_stack_version_increments_on_workflow_change() {
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Parallel".to_string()),
+        determinism_mode: None,
     };
 
     let stack_id = backend.insert_stack(&req).await.unwrap();
@@ -98,6 +102,7 @@ async fn test_stack_version_increments_on_workflow_change() {
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()], // Same
         workflow_type: Some("Sequential".to_string()), // Changed!
+        determinism_mode: None,
     };
 
     backend
@@ -127,6 +132,7 @@ async fn test_stack_version_no_increment_on_metadata_change() {
         description: Some("Original description".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Parallel".to_string()),
+        determinism_mode: None,
     };
 
     let stack_id = backend.insert_stack(&req).await.unwrap();
@@ -138,6 +144,7 @@ async fn test_stack_version_no_increment_on_metadata_change() {
         description: Some("New description".to_string()), // Changed
         adapter_ids: vec!["adapter1".to_string()], // Same
         workflow_type: Some("Parallel".to_string()), // Same
+        determinism_mode: None,
     };
 
     backend
@@ -173,6 +180,7 @@ async fn test_stack_version_multiple_increments() {
         description: None,
         adapter_ids: vec!["a1".to_string()],
         workflow_type: Some("Parallel".to_string()),
+        determinism_mode: None,
     };
 
     let stack_id = backend.insert_stack(&req).await.unwrap();
@@ -185,6 +193,7 @@ async fn test_stack_version_multiple_increments() {
             description: None,
             adapter_ids: vec![format!("a{}", i)],
             workflow_type: Some("Parallel".to_string()),
+            determinism_mode: None,
         };
 
         backend
@@ -227,6 +236,7 @@ async fn test_list_stacks_includes_version() {
             description: None,
             adapter_ids: vec![format!("adapter{}", i)],
             workflow_type: Some("Parallel".to_string()),
+            determinism_mode: None,
         };
         backend.insert_stack(&req).await.unwrap();
     }

@@ -67,8 +67,8 @@ impl DatabaseBackend for SqliteBackend {
     }
 
     async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
-        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, String, String, String, String, Option<String>)>(
-            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by
+        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, String, String, String, String, Option<String>, Option<String>)>(
+            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
              FROM adapter_stacks WHERE tenant_id = ? AND id = ?"
         )
         .bind(tenant_id)
@@ -89,6 +89,7 @@ impl DatabaseBackend for SqliteBackend {
             created_at: r.8,
             updated_at: r.9,
             created_by: r.10,
+            determinism_mode: r.11,
         }))
     }
 
@@ -105,10 +106,10 @@ impl DatabaseBackend for SqliteBackend {
             String,           // created_at
             String,           // updated_at
             Option<String>,   // created_by
-            i64,              // version
+            Option<String>,   // determinism_mode
         )>(
             r#"
-            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by
+            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
             FROM adapter_stacks
             ORDER BY created_at DESC
             "#
@@ -131,6 +132,7 @@ impl DatabaseBackend for SqliteBackend {
                 created_at: r.8,
                 updated_at: r.9,
                 created_by: r.10,
+                determinism_mode: r.11,
             })
             .collect())
     }
@@ -282,6 +284,7 @@ impl DatabaseBackend for SqliteBackend {
                 created_at: r.get(8),
                 updated_at: r.get(9),
                 created_by: r.get::<Option<String>, _>(10),
+                determinism_mode: None, // TODO: Add to SELECT query when column exists
             })
             .collect())
     }
