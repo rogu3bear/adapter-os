@@ -59,6 +59,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
             datasets_root: "/tmp/test-datasets".to_string(),
             documents_root: "/tmp/test-documents".to_string(),
         },
+        chat_context: Default::default(),
     }));
 
     // 5. Create metrics exporter with standard histogram buckets

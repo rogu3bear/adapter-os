@@ -111,11 +111,7 @@ pub trait AdapterService: Send + Sync {
     /// # Errors
     /// - `AosError::NotFound` if adapter doesn't exist
     /// - `AosError::Database` on database errors
-    async fn get_health(
-        &self,
-        adapter_id: &str,
-        tenant_id: &str,
-    ) -> Result<AdapterHealthResponse>;
+    async fn get_health(&self, adapter_id: &str, tenant_id: &str) -> Result<AdapterHealthResponse>;
 
     /// Get adapter by ID
     ///
@@ -498,11 +494,7 @@ impl AdapterService for DefaultAdapterService {
         })
     }
 
-    async fn get_health(
-        &self,
-        adapter_id: &str,
-        tenant_id: &str,
-    ) -> Result<AdapterHealthResponse> {
+    async fn get_health(&self, adapter_id: &str, tenant_id: &str) -> Result<AdapterHealthResponse> {
         // Get adapter
         let adapter = self
             .state
@@ -538,14 +530,10 @@ impl AdapterService for DefaultAdapterService {
     }
 
     async fn get_adapter(&self, adapter_id: &str) -> Result<Option<Adapter>> {
-        self.state
-            .db
-            .get_adapter(adapter_id)
-            .await
-            .map_err(|e| {
-                error!(adapter_id = %adapter_id, error = %e, "Failed to fetch adapter");
-                AosError::Database(format!("Failed to fetch adapter: {}", e))
-            })
+        self.state.db.get_adapter(adapter_id).await.map_err(|e| {
+            error!(adapter_id = %adapter_id, error = %e, "Failed to fetch adapter");
+            AosError::Database(format!("Failed to fetch adapter: {}", e))
+        })
     }
 }
 
@@ -555,10 +543,16 @@ mod tests {
 
     #[test]
     fn test_next_state_transitions() {
-        assert_eq!(DefaultAdapterService::next_state("unloaded").unwrap(), "cold");
+        assert_eq!(
+            DefaultAdapterService::next_state("unloaded").unwrap(),
+            "cold"
+        );
         assert_eq!(DefaultAdapterService::next_state("cold").unwrap(), "warm");
         assert_eq!(DefaultAdapterService::next_state("warm").unwrap(), "hot");
-        assert_eq!(DefaultAdapterService::next_state("hot").unwrap(), "resident");
+        assert_eq!(
+            DefaultAdapterService::next_state("hot").unwrap(),
+            "resident"
+        );
         assert!(DefaultAdapterService::next_state("resident").is_err());
     }
 
@@ -568,8 +562,14 @@ mod tests {
             DefaultAdapterService::previous_state("resident").unwrap(),
             "hot"
         );
-        assert_eq!(DefaultAdapterService::previous_state("hot").unwrap(), "warm");
-        assert_eq!(DefaultAdapterService::previous_state("warm").unwrap(), "cold");
+        assert_eq!(
+            DefaultAdapterService::previous_state("hot").unwrap(),
+            "warm"
+        );
+        assert_eq!(
+            DefaultAdapterService::previous_state("warm").unwrap(),
+            "cold"
+        );
         assert_eq!(
             DefaultAdapterService::previous_state("cold").unwrap(),
             "unloaded"

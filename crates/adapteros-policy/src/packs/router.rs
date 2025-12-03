@@ -513,7 +513,9 @@ mod tests {
         assert!(policy.validate_entropy_floor(&[0.3, 0.3, 0.4]).is_ok());
 
         // Low entropy (bad) - single adapter dominates with > 99.9%
-        assert!(policy.validate_entropy_floor(&[0.9997, 0.0001, 0.0001, 0.0001]).is_err());
+        assert!(policy
+            .validate_entropy_floor(&[0.9997, 0.0001, 0.0001, 0.0001])
+            .is_err());
     }
 
     #[test]
@@ -610,7 +612,12 @@ mod tests {
         // Stack with forbidden peer combination
         let stack = StackConfiguration {
             id: "test-stack".to_string(),
-            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string(), "a4".to_string()],
+            adapter_ids: vec![
+                "a1".to_string(),
+                "a2".to_string(),
+                "a3".to_string(),
+                "a4".to_string(),
+            ],
             adapters: vec![
                 AdapterMetadata {
                     id: "a1".to_string(),
@@ -652,7 +659,12 @@ mod tests {
         // Stack with conflicting tags
         let stack = StackConfiguration {
             id: "test-stack".to_string(),
-            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string(), "a4".to_string()],
+            adapter_ids: vec![
+                "a1".to_string(),
+                "a2".to_string(),
+                "a3".to_string(),
+                "a4".to_string(),
+            ],
             adapters: vec![
                 AdapterMetadata {
                     id: "a1".to_string(),

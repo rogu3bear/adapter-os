@@ -22,6 +22,9 @@ pub use token_revocation::{
     revoke_token, RevokedToken,
 };
 
+// PRD-03: Per-tenant token baseline functions are exported directly from this module
+// get_tenant_token_baseline, set_tenant_token_baseline
+
 use crate::auth::Claims;
 use crate::types::ErrorResponse;
 use adapteros_core::Result;
@@ -284,6 +287,46 @@ pub async fn validate_tenant_isolation_with_audit(
                 )),
         ),
     ))
+}
+
+/// Get the per-tenant token revocation baseline timestamp
+///
+/// Tokens issued before this timestamp are automatically invalidated.
+/// Returns None if no baseline is set (all tokens valid regardless of iat).
+///
+/// Used by auth middleware to enforce tenant-wide token revocation - PRD-03
+pub async fn get_tenant_token_baseline(db: &Db, tenant_id: &str) -> Result<Option<String>> {
+    let result = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT token_issued_at_min FROM tenants WHERE id = ?",
+    )
+    .bind(tenant_id)
+    .fetch_optional(db.pool())
+    .await?;
+
+    // flatten: Option<Option<String>> -> Option<String>
+    Ok(result.flatten())
+}
+
+/// Set the per-tenant token revocation baseline timestamp
+///
+/// All tokens issued before this timestamp will be rejected.
+/// Use this to bulk-revoke all tokens for a tenant during security incidents.
+///
+/// PRD-03: Tenant token revocation baseline
+pub async fn set_tenant_token_baseline(db: &Db, tenant_id: &str, baseline: &str) -> Result<()> {
+    sqlx::query("UPDATE tenants SET token_issued_at_min = ? WHERE id = ?")
+        .bind(baseline)
+        .bind(tenant_id)
+        .execute(db.pool())
+        .await?;
+
+    info!(
+        tenant_id = %tenant_id,
+        baseline = %baseline,
+        "Tenant token revocation baseline updated"
+    );
+
+    Ok(())
 }
 
 /// Track authentication attempt (for brute force protection)

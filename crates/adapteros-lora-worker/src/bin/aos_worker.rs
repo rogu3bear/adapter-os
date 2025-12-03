@@ -7,9 +7,9 @@
 //!   aos-worker --uds-path ./var/run/worker.sock --manifest manifests/qwen7b.yaml \
 //!              --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16
 
-use adapteros_core::Result;
+use adapteros_core::{B3Hash, Result};
 use adapteros_lora_worker::{
-    backend_factory::{create_backend_with_model, BackendChoice},
+    backend_factory::{create_backend_with_model_and_hash, BackendChoice},
     uds_server::UdsServer,
     Worker,
 };
@@ -21,9 +21,130 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
-// PRD-09: Worker panic hook support
+// Schema and API versions for worker registration
+const SCHEMA_VERSION: &str = "1.0";
+const API_VERSION: &str = "1.0";
+
+// Worker panic hook support for fatal error reporting
 // Global state for panic hook (must be static for panic handler access)
 static WORKER_IDENTITY: OnceLock<WorkerIdentity> = OnceLock::new();
+
+/// Register worker with control plane
+///
+/// Returns (accepted, heartbeat_interval_secs) on success.
+/// Returns error message on rejection or communication failure.
+fn register_with_cp(
+    cp_url: &str,
+    worker_id: &str,
+    tenant_id: &str,
+    plan_id: &str,
+    manifest_hash: &str,
+    uds_path: &str,
+    capabilities: &[String],
+) -> std::result::Result<(bool, u32), String> {
+    let registration = serde_json::json!({
+        "worker_id": worker_id,
+        "tenant_id": tenant_id,
+        "plan_id": plan_id,
+        "manifest_hash": manifest_hash,
+        "schema_version": SCHEMA_VERSION,
+        "api_version": API_VERSION,
+        "pid": std::process::id() as i32,
+        "uds_path": uds_path,
+        "capabilities": capabilities
+    });
+
+    let url = format!("{}/api/v1/workers/register", cp_url);
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .build()
+        .new_agent();
+
+    match agent
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .send(registration.to_string().as_bytes())
+    {
+        Ok(response) => {
+            let body = response.into_body().read_to_string().unwrap_or_default();
+            match serde_json::from_str::<serde_json::Value>(&body) {
+                Ok(json) => {
+                    let accepted = json["accepted"].as_bool().unwrap_or(false);
+                    let heartbeat = json["heartbeat_interval_secs"].as_u64().unwrap_or(30) as u32;
+
+                    if !accepted {
+                        let reason = json["rejection_reason"]
+                            .as_str()
+                            .unwrap_or("unknown")
+                            .to_string();
+                        Err(reason)
+                    } else {
+                        Ok((true, heartbeat))
+                    }
+                }
+                Err(e) => Err(format!("Invalid response: {}", e)),
+            }
+        }
+        Err(e) => Err(format!("HTTP error: {}", e)),
+    }
+}
+
+/// Notify control plane of worker status change
+fn notify_cp_status(cp_url: &str, worker_id: &str, status: &str, reason: &str) {
+    let notification = serde_json::json!({
+        "worker_id": worker_id,
+        "status": status,
+        "reason": reason
+    });
+
+    let url = format!("{}/api/v1/workers/status", cp_url);
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(5)))
+        .build()
+        .new_agent();
+
+    match agent
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .send(notification.to_string().as_bytes())
+    {
+        Ok(_) => {
+            info!(status = %status, reason = %reason, "Status notification sent to CP");
+        }
+        Err(e) => {
+            warn!(status = %status, error = %e, "Failed to notify CP of status change");
+        }
+    }
+}
+
+/// Compute BLAKE3 hash of manifest content for cache key and determinism
+fn compute_manifest_hash(manifest_bytes: &[u8]) -> B3Hash {
+    B3Hash::hash(manifest_bytes)
+}
+
+/// Detect backend capabilities
+fn detect_capabilities(backend_choice: &str) -> Vec<String> {
+    let mut caps = vec![];
+
+    // Add backend capability
+    match backend_choice.to_lowercase().as_str() {
+        "coreml" => caps.push("coreml".to_string()),
+        "mlx" => caps.push("mlx".to_string()),
+        "metal" => caps.push("metal".to_string()),
+        "auto" => {
+            // Auto tries in order: CoreML -> MLX -> Metal
+            #[cfg(target_os = "macos")]
+            {
+                caps.push("coreml".to_string());
+                caps.push("mlx".to_string());
+                caps.push("metal".to_string());
+            }
+        }
+        _ => {}
+    }
+
+    caps
+}
 
 #[derive(Debug, Clone)]
 struct WorkerIdentity {
@@ -31,7 +152,7 @@ struct WorkerIdentity {
     cp_url: String,
 }
 
-/// Set up panic hook to report fatal errors to the control plane (PRD-09)
+/// Set up panic hook to report fatal errors to the control plane
 fn setup_panic_hook() {
     let default_hook = std::panic::take_hook();
 
@@ -77,7 +198,8 @@ fn setup_panic_hook() {
                 .timeout_global(Some(std::time::Duration::from_secs(3)))
                 .build()
                 .new_agent();
-            let result = agent.post(&url)
+            let result = agent
+                .post(&url)
                 .header("Content-Type", "application/json")
                 .send(fatal_payload.to_string().as_bytes());
 
@@ -137,7 +259,7 @@ struct Args {
     #[arg(long, env = "WORKER_ID")]
     worker_id: Option<String>,
 
-    /// Control plane URL for fatal error reporting (PRD-09)
+    /// Control plane URL for fatal error reporting
     #[arg(long, env = "AOS_CP_URL", default_value = "http://127.0.0.1:8080")]
     cp_url: String,
 }
@@ -155,7 +277,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    // PRD-09: Set up panic hook for fatal error reporting
+    // Set up panic hook for fatal error reporting
     let worker_id = args
         .worker_id
         .clone()
@@ -167,7 +289,7 @@ async fn main() -> Result<()> {
         cp_url: args.cp_url.clone(),
     });
 
-    // Install panic hook
+    // Install panic hook for fatal error reporting
     setup_panic_hook();
     info!(worker_id = %worker_id, cp_url = %args.cp_url, "Panic hook installed for fatal error reporting");
 
@@ -215,8 +337,15 @@ async fn main() -> Result<()> {
 
     // Load manifest
     info!(path = %args.manifest.display(), "Loading manifest");
-    let manifest_content = std::fs::read_to_string(&args.manifest)
+    let manifest_bytes = std::fs::read(&args.manifest)
         .map_err(|e| adapteros_core::AosError::Io(format!("Failed to read manifest: {}", e)))?;
+
+    // Compute manifest hash for cache key, determinism, and registration
+    let manifest_hash = compute_manifest_hash(&manifest_bytes);
+    info!(manifest_hash = %manifest_hash.to_hex(), "Computed manifest hash for deduplication and determinism");
+
+    let manifest_content = String::from_utf8(manifest_bytes.clone())
+        .map_err(|e| adapteros_core::AosError::Io(format!("Invalid UTF-8 in manifest: {}", e)))?;
 
     let manifest: ManifestV3 = serde_yaml::from_str(&manifest_content).map_err(|e| {
         adapteros_core::AosError::Validation(format!("Failed to parse manifest: {}", e))
@@ -240,13 +369,13 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Create kernel backend
-    info!(backend = %args.backend, "Creating kernel backend");
-    let kernels = create_backend_with_model(backend_choice, &model_path)?;
+    // Create kernel backend with manifest hash for deterministic caching
+    info!(backend = %args.backend, "Creating kernel backend with manifest hash");
+    let kernels = create_backend_with_model_and_hash(backend_choice, &model_path, Some(&manifest_hash))?;
 
     // Create telemetry writer - use env var or ./var/telemetry
-    let telemetry_dir = std::env::var("AOS_TELEMETRY_DIR")
-        .unwrap_or_else(|_| "./var/telemetry".to_string());
+    let telemetry_dir =
+        std::env::var("AOS_TELEMETRY_DIR").unwrap_or_else(|_| "./var/telemetry".to_string());
     std::fs::create_dir_all(&telemetry_dir).ok();
     let telemetry = TelemetryWriter::new(&telemetry_dir, 10000, 100_000_000).map_err(|e| {
         adapteros_core::AosError::Worker(format!("Failed to create telemetry writer: {}", e))
@@ -266,12 +395,57 @@ async fn main() -> Result<()> {
 
     let worker = Arc::new(Mutex::new(worker));
 
+    // Register with control plane
+    let capabilities = detect_capabilities(&args.backend);
+    let uds_path_str = uds_path.to_string_lossy().to_string();
+
+    let manifest_hash_hex = manifest_hash.to_hex();
+    info!(
+        worker_id = %worker_id,
+        tenant_id = %args.tenant_id,
+        plan_id = %args.plan_id,
+        manifest_hash = %manifest_hash_hex,
+        "Registering with control plane"
+    );
+
+    match register_with_cp(
+        &args.cp_url,
+        &worker_id,
+        &args.tenant_id,
+        &args.plan_id,
+        &manifest_hash_hex,
+        &uds_path_str,
+        &capabilities,
+    ) {
+        Ok((accepted, heartbeat)) => {
+            if accepted {
+                info!(
+                    heartbeat_interval = heartbeat,
+                    "Worker registration accepted by control plane"
+                );
+            }
+        }
+        Err(reason) => {
+            // Log but don't fail - allows running in dev mode without CP
+            warn!(
+                reason = %reason,
+                "Worker registration rejected or failed - continuing anyway (dev mode)"
+            );
+        }
+    }
+
+    // Transition to serving status
+    notify_cp_status(&args.cp_url, &worker_id, "serving", "worker ready");
+
     // Start UDS server
     info!(uds_path = %uds_path.display(), "Starting UDS server");
     let server = UdsServer::new(uds_path, worker);
 
     // Run server (blocking)
     server.serve().await?;
+
+    // Notify stopped on clean exit
+    notify_cp_status(&args.cp_url, &worker_id, "stopped", "clean shutdown");
 
     Ok(())
 }

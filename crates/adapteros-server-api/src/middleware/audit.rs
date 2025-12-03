@@ -210,10 +210,7 @@ mod tests {
             config.extract_resource_id("/v1/adapters/abc-123"),
             Some("abc-123".to_string())
         );
-        assert_eq!(
-            config.extract_resource_id("/v1/adapters"),
-            None
-        );
+        assert_eq!(config.extract_resource_id("/v1/adapters"), None);
     }
 
     #[test]

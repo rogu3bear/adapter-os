@@ -328,7 +328,10 @@ impl Policy for DeterminismPolicy {
                     violations.push(Violation {
                         severity: Severity::Critical,
                         message: format!("Non-deterministic RNG seeding: {}", rng_method),
-                        details: Some("Use HKDF-seeded or fixed-seed RNG for deterministic execution".to_string()),
+                        details: Some(
+                            "Use HKDF-seeded or fixed-seed RNG for deterministic execution"
+                                .to_string(),
+                        ),
                     });
                 }
                 "hkdf_seeded" | "fixed_seed" => {
@@ -366,12 +369,20 @@ impl Policy for DeterminismPolicy {
 
         // Check kernel hash if required
         if self.config.require_kernel_hash_match {
-            if let (Some(expected), Some(actual)) = (metadata.get("expected_kernel_hash"), metadata.get("actual_kernel_hash")) {
+            if let (Some(expected), Some(actual)) = (
+                metadata.get("expected_kernel_hash"),
+                metadata.get("actual_kernel_hash"),
+            ) {
                 if expected != actual {
                     violations.push(Violation {
                         severity: Severity::Critical,
-                        message: format!("Kernel hash mismatch: expected {}, got {}", expected, actual),
-                        details: Some("Kernel hash must match to ensure deterministic execution".to_string()),
+                        message: format!(
+                            "Kernel hash mismatch: expected {}, got {}",
+                            expected, actual
+                        ),
+                        details: Some(
+                            "Kernel hash must match to ensure deterministic execution".to_string(),
+                        ),
                     });
                 }
             }
@@ -424,12 +435,21 @@ impl Policy for DeterminismPolicy {
                 }
                 "mlx" => {
                     // MLX is deterministic when properly seeded
-                    if !metadata.get("rng_seeding_method").map(|s| s == "hkdf_seeded" || s == "fixed_seed").unwrap_or(false) {
-                        warnings.push("MLX backend requires proper RNG seeding for determinism".to_string());
+                    if !metadata
+                        .get("rng_seeding_method")
+                        .map(|s| s == "hkdf_seeded" || s == "fixed_seed")
+                        .unwrap_or(false)
+                    {
+                        warnings.push(
+                            "MLX backend requires proper RNG seeding for determinism".to_string(),
+                        );
                     }
                 }
                 _ => {
-                    warnings.push(format!("Unknown or potentially non-deterministic backend: {}", backend_type));
+                    warnings.push(format!(
+                        "Unknown or potentially non-deterministic backend: {}",
+                        backend_type
+                    ));
                 }
             }
         }

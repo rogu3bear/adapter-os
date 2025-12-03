@@ -59,10 +59,10 @@ pub struct InferenceEvent {
     /// Worker ID for cross-worker verification
     #[serde(default)]
     pub worker_id: u32,
-    /// Stack ID for telemetry correlation (PRD-03)
+    /// Stack ID for telemetry correlation
     #[serde(default)]
     pub stack_id: Option<String>,
-    /// Stack version for telemetry correlation (PRD-03)
+    /// Stack version for telemetry correlation
     #[serde(default)]
     pub stack_version: Option<i64>,
 }
@@ -141,7 +141,7 @@ impl InferenceEvent {
         self
     }
 
-    /// Attach stack metadata for telemetry correlation (PRD-03)
+    /// Attach stack metadata for telemetry correlation
     pub fn with_stack_metadata(
         mut self,
         stack_id: Option<String>,
@@ -170,10 +170,10 @@ pub struct RouterDecisionEvent {
     pub entropy_floor: f32,
     /// Optional hash of the active adapter stack
     pub stack_hash: Option<String>,
-    /// Stack ID for telemetry correlation (PRD-03)
+    /// Stack ID for telemetry correlation
     #[serde(default)]
     pub stack_id: Option<String>,
-    /// Stack version for telemetry correlation (PRD-03)
+    /// Stack version for telemetry correlation
     #[serde(default)]
     pub stack_version: Option<i64>,
 }

@@ -83,7 +83,10 @@ impl SeparatedLoRATrainer {
             std::env::var("AOS_TELEMETRY_DIR").unwrap_or_else(|_| "./var/telemetry".to_string());
         let _telemetry = TelemetryWriter::new(&telemetry_dir, 10_000, 10 * 1024 * 1024)?;
 
-        Ok(Self { config, training_seed })
+        Ok(Self {
+            config,
+            training_seed,
+        })
     }
 
     /// Train with separated positive/negative weight groups

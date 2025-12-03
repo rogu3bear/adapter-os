@@ -136,7 +136,8 @@ impl CircuitBreakerPolicy {
         }
 
         // Sanity checks for reasonable values
-        if config.timeout_ms > 300_000 { // 5 minutes max
+        if config.timeout_ms > 300_000 {
+            // 5 minutes max
             return Err(adapteros_core::AosError::Config(format!(
                 "Circuit breaker timeout_ms for {} is too high: {}ms (max: 300000ms)",
                 context, config.timeout_ms

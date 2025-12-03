@@ -317,8 +317,7 @@ impl Policy for EvidencePolicy {
     fn enforce(&self, ctx: &dyn PolicyContext) -> Result<Audit> {
         let mut violations = Vec::new();
 
-        // PRD-DATA-01: Check T1 adapter evidence requirements
-        // T1 adapters must have:
+        // T1 (persistent tier) adapter evidence requirements:
         // 1. Primary dataset specified
         // 2. At least one evidence entry
         // 3. Eval dataset for production adapters (warning if missing)
@@ -549,7 +548,7 @@ mod tests {
         assert!(score <= 1.0);
     }
 
-    // PRD-DATA-01: T1 adapter evidence requirement tests
+    // T1 (persistent tier) adapter evidence requirement tests
     #[test]
     fn test_t1_adapter_without_primary_dataset_violation() {
         let config = EvidenceConfig::default();

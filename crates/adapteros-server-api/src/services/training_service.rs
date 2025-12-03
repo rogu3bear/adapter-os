@@ -248,7 +248,8 @@ impl TrainingService for DefaultTrainingService {
         };
 
         let available_slots = max_concurrent.saturating_sub(running_count);
-        let can_start_new_job = running_count < max_concurrent && pressure != MemoryPressureLevel::Critical;
+        let can_start_new_job =
+            running_count < max_concurrent && pressure != MemoryPressureLevel::Critical;
 
         Ok(TrainingCapacityInfo {
             running_jobs: running_count,

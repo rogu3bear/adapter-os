@@ -22,6 +22,7 @@ use crate::auth::Claims;
 use crate::middleware::request_id::RequestId;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_policy::hooks::{Decision, HookContext, PolicyDecision, PolicyHook};
 use adapteros_policy::policy_packs::{PolicyContext, PolicyRequest, Priority, RequestType};
 use adapteros_policy::{PolicyViolation, ViolationSeverity};
 use axum::{
@@ -301,6 +302,235 @@ fn log_violation(request_id: &str, operation: &str, violation: &PolicyViolation)
             );
         }
     }
+}
+
+/// Error type for policy hook enforcement violations (PRD-06)
+#[derive(Debug)]
+pub struct PolicyHookViolationError {
+    pub violations: Vec<PolicyDecision>,
+    pub message: String,
+}
+
+impl std::fmt::Display for PolicyHookViolationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for PolicyHookViolationError {}
+
+/// Enforce policies at a specific hook for a tenant (PRD-06)
+///
+/// This function implements per-tenant policy enforcement at specific lifecycle hooks:
+/// - OnRequestBeforeRouting: Before adapter selection
+/// - OnBeforeInference: After routing, before inference execution
+/// - OnAfterInference: After inference completes
+///
+/// # Flow
+/// 1. Query tenant's enabled policies for this hook from tenant_policy_bindings
+/// 2. Validate each enabled policy
+/// 3. Log ALL decisions (allow/deny) to policy_audit_decisions with Merkle chain
+/// 4. Return error if any policy denies
+///
+/// # Arguments
+/// * `state` - Application state with db and policy_manager
+/// * `ctx` - Hook context with tenant_id, request_id, etc.
+///
+/// # Returns
+/// * `Ok(Vec<PolicyDecision>)` - All decisions (including allows)
+/// * `Err(PolicyHookViolationError)` - If any policy denied
+pub async fn enforce_at_hook(
+    state: &AppState,
+    ctx: &HookContext,
+) -> Result<Vec<PolicyDecision>, PolicyHookViolationError> {
+    let hook_name = ctx.hook.name();
+
+    debug!(
+        tenant_id = %ctx.tenant_id,
+        request_id = %ctx.request_id,
+        hook = %hook_name,
+        resource_type = %ctx.resource_type,
+        "Enforcing policies at hook"
+    );
+
+    // 1. Get tenant's active policies for this hook
+    let active_policies = match state
+        .db
+        .get_active_policies_for_tenant(&ctx.tenant_id)
+        .await
+    {
+        Ok(policies) => policies,
+        Err(e) => {
+            error!(
+                tenant_id = %ctx.tenant_id,
+                hook = %hook_name,
+                error = %e,
+                "Failed to get active policies for tenant"
+            );
+            // On DB error, fail open with warning (or fail closed based on policy)
+            return Ok(vec![]);
+        }
+    };
+
+    if active_policies.is_empty() {
+        debug!(
+            tenant_id = %ctx.tenant_id,
+            hook = %hook_name,
+            "No active policies for tenant at this hook"
+        );
+        return Ok(vec![]);
+    }
+
+    // 2. Filter policies that run at this hook and validate each
+    let mut decisions = Vec::new();
+
+    for policy_id in &active_policies {
+        // Check if this policy runs at this hook
+        let runs_at_hook = state
+            .policy_manager
+            .policy_runs_at_hook(policy_id, &ctx.hook);
+
+        if !runs_at_hook {
+            continue;
+        }
+
+        // Validate the policy
+        let decision = match state
+            .policy_manager
+            .validate_policy_for_hook(policy_id, ctx)
+        {
+            Ok(result) => {
+                if result.valid {
+                    PolicyDecision {
+                        policy_pack_id: policy_id.clone(),
+                        hook: ctx.hook,
+                        decision: Decision::Allow,
+                        reason: "Policy validation passed".to_string(),
+                    }
+                } else {
+                    PolicyDecision {
+                        policy_pack_id: policy_id.clone(),
+                        hook: ctx.hook,
+                        decision: Decision::Deny,
+                        reason: result
+                            .violations
+                            .first()
+                            .map(|v| v.message.clone())
+                            .unwrap_or_else(|| "Policy violation".to_string()),
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    tenant_id = %ctx.tenant_id,
+                    policy_id = %policy_id,
+                    error = %e,
+                    "Policy validation error, treating as allow"
+                );
+                PolicyDecision {
+                    policy_pack_id: policy_id.clone(),
+                    hook: ctx.hook,
+                    decision: Decision::Allow,
+                    reason: format!("Validation error (fail-open): {}", e),
+                }
+            }
+        };
+
+        decisions.push(decision);
+    }
+
+    // 3. Log ALL decisions to audit (allow AND deny)
+    for decision in &decisions {
+        let decision_str = match decision.decision {
+            Decision::Allow => "allow",
+            Decision::Deny => "deny",
+            Decision::Modify { .. } => "modify",
+        };
+
+        if let Err(e) = state
+            .db
+            .log_policy_decision(
+                &ctx.tenant_id,
+                &decision.policy_pack_id,
+                hook_name,
+                decision_str,
+                Some(&decision.reason),
+                Some(&ctx.request_id),
+                ctx.user_id.as_deref(),
+                Some(&ctx.resource_type),
+                ctx.resource_id.as_deref(),
+                None, // metadata_json
+            )
+            .await
+        {
+            error!(
+                tenant_id = %ctx.tenant_id,
+                policy_pack_id = %decision.policy_pack_id,
+                error = %e,
+                "Failed to log policy decision to audit"
+            );
+            // Continue despite audit failure - don't block on audit
+        }
+    }
+
+    // 4. Check for any denials
+    let denials: Vec<PolicyDecision> = decisions
+        .iter()
+        .filter(|d| matches!(d.decision, Decision::Deny))
+        .cloned()
+        .collect();
+
+    if !denials.is_empty() {
+        let denial_messages: Vec<String> = denials
+            .iter()
+            .map(|d| format!("{}: {}", d.policy_pack_id, d.reason))
+            .collect();
+
+        warn!(
+            tenant_id = %ctx.tenant_id,
+            request_id = %ctx.request_id,
+            hook = %hook_name,
+            denials = denials.len(),
+            "Request blocked by policy hook enforcement"
+        );
+
+        return Err(PolicyHookViolationError {
+            violations: denials,
+            message: format!(
+                "Policy hook {} blocked by: {}",
+                hook_name,
+                denial_messages.join("; ")
+            ),
+        });
+    }
+
+    info!(
+        tenant_id = %ctx.tenant_id,
+        request_id = %ctx.request_id,
+        hook = %hook_name,
+        policies_checked = decisions.len(),
+        "Policy hook enforcement passed"
+    );
+
+    Ok(decisions)
+}
+
+/// Helper to create a HookContext from Claims and request info
+pub fn create_hook_context(
+    claims: &Claims,
+    request_id: &str,
+    hook: PolicyHook,
+    resource_type: &str,
+    resource_id: Option<&str>,
+) -> HookContext {
+    HookContext::new(
+        claims.tenant_id.clone(),
+        request_id.to_string(),
+        hook,
+        resource_type.to_string(),
+    )
+    .with_user_id(claims.sub.clone())
+    .with_resource_id(resource_id.map(|s| s.to_string()).unwrap_or_default())
 }
 
 #[cfg(test)]

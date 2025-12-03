@@ -43,6 +43,7 @@ export interface WizardState {
   maxSeqLength?: number;
   packageAfter?: boolean;
   registerAfter?: boolean;
+  createStack?: boolean;
   adaptersRoot?: string;
   adapterId?: string;
   tier?: string;

@@ -4,17 +4,21 @@
 //! This is a Rust-native implementation that avoids Python dependencies
 //! and integrates with GPU backends (CoreML, MLX, Metal) for deterministic training.
 
-pub use super::dataset::TrainingExample;
 use super::checkpoint::{CheckpointManager, TrainingCheckpoint};
+pub use super::dataset::TrainingExample;
 use adapteros_core::{derive_seed, AosError, Result};
+use adapteros_db::{Db, TrainingMetricRow};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_telemetry::TelemetryWriter;
+use chrono::Utc;
 use parking_lot::RwLock;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 /// Performance metrics for GPU training
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +89,12 @@ pub struct MicroLoRATrainer {
     performance_metrics: Arc<RwLock<TrainingPerformanceMetrics>>,
     /// Optional checkpoint manager for saving/resuming training
     checkpoint_manager: Option<CheckpointManager>,
+    /// Cancellation token - set to true to request training stop
+    cancel_token: Option<Arc<AtomicBool>>,
+    /// Job ID for this training run (used for metrics persistence and cancellation)
+    job_id: Option<String>,
+    /// Optional database connection for metrics persistence
+    db: Option<Db>,
 }
 
 /// Training configuration with GPU support
@@ -171,6 +181,15 @@ pub struct TrainingResult {
     /// Use `.training_time_ms()` method for millisecond conversion.
     pub training_time_us: u64,
     pub weights: LoRAWeights,
+    /// True if training was cancelled before completion
+    #[serde(default)]
+    pub cancelled: bool,
+    /// Epoch at which training stopped (whether completed or cancelled)
+    #[serde(default)]
+    pub stopped_at_epoch: Option<u32>,
+    /// Total examples processed before stopping
+    #[serde(default)]
+    pub examples_processed: Option<u64>,
 }
 
 impl TrainingResult {
@@ -231,6 +250,9 @@ impl MicroLoRATrainer {
                 throughput_examples_per_sec: 0.0,
             })),
             checkpoint_manager: None,
+            cancel_token: None,
+            job_id: None,
+            db: None,
         })
     }
 
@@ -525,6 +547,104 @@ impl MicroLoRATrainer {
         self.training_seed
     }
 
+    /// Set the cancellation token for this training run
+    ///
+    /// The token should be an `Arc<AtomicBool>` shared with the worker that can
+    /// be set to `true` to request cancellation. The training loop checks this
+    /// token at epoch boundaries and stops gracefully when set.
+    pub fn set_cancel_token(&mut self, token: Arc<AtomicBool>) {
+        self.cancel_token = Some(token);
+    }
+
+    /// Set the job ID for this training run
+    ///
+    /// The job ID is used for metrics persistence and logging.
+    pub fn set_job_id(&mut self, job_id: String) {
+        self.job_id = Some(job_id);
+    }
+
+    /// Set the database connection for metrics persistence
+    ///
+    /// When set, the trainer will persist metrics (loss, tokens/sec, etc.)
+    /// to the `repository_training_metrics` table after each epoch.
+    pub fn set_db(&mut self, db: Db) {
+        self.db = Some(db);
+    }
+
+    /// Check if cancellation has been requested
+    ///
+    /// Returns `true` if the cancellation token is set and has been triggered.
+    fn is_cancelled(&self) -> bool {
+        self.cancel_token
+            .as_ref()
+            .map(|t| t.load(Ordering::SeqCst))
+            .unwrap_or(false)
+    }
+
+    /// Persist training metrics to database
+    ///
+    /// Writes key metrics (loss, tokens_per_sec, etc.) to the repository_training_metrics table.
+    /// If no DB is configured or job_id is not set, this is a no-op.
+    async fn persist_epoch_metrics(
+        &self,
+        epoch: u32,
+        step: u64,
+        loss: f32,
+        examples_count: u64,
+        epoch_duration_us: u64,
+    ) {
+        let (job_id, db) = match (&self.job_id, &self.db) {
+            (Some(jid), Some(db)) => (jid.clone(), db.clone()),
+            _ => return, // No DB or job_id, skip persistence
+        };
+
+        let timestamp = Utc::now().to_rfc3339();
+        let tokens_per_sec = if epoch_duration_us > 0 {
+            // Rough estimate: examples * ~100 tokens per example / time
+            (examples_count as f64 * 100.0) / (epoch_duration_us as f64 / 1_000_000.0)
+        } else {
+            0.0
+        };
+
+        let metrics = vec![
+            TrainingMetricRow {
+                id: Uuid::now_v7().to_string(),
+                training_job_id: job_id.clone(),
+                step: step as i64,
+                epoch: Some(epoch as i64),
+                metric_name: "loss".to_string(),
+                metric_value: loss as f64,
+                metric_timestamp: Some(timestamp.clone()),
+            },
+            TrainingMetricRow {
+                id: Uuid::now_v7().to_string(),
+                training_job_id: job_id.clone(),
+                step: step as i64,
+                epoch: Some(epoch as i64),
+                metric_name: "tokens_per_sec".to_string(),
+                metric_value: tokens_per_sec,
+                metric_timestamp: Some(timestamp),
+            },
+        ];
+
+        if let Err(e) = db.insert_training_metrics_batch(&metrics).await {
+            warn!(
+                job_id = %job_id,
+                epoch = epoch,
+                error = %e,
+                "Failed to persist training metrics (non-fatal)"
+            );
+        } else {
+            debug!(
+                job_id = %job_id,
+                epoch = epoch,
+                loss = loss,
+                tokens_per_sec = tokens_per_sec,
+                "Training metrics persisted"
+            );
+        }
+    }
+
     /// Enable checkpoint saving for resumable training
     ///
     /// This configures the trainer to save checkpoints periodically during training.
@@ -656,18 +776,60 @@ impl MicroLoRATrainer {
         let adapter_id = Self::generate_adapter_id();
 
         // Use provided weights or initialize fresh
-        let mut weights = initial_weights
-            .unwrap_or_else(|| self.initialize_weights_deterministic().unwrap());
+        let mut weights =
+            initial_weights.unwrap_or_else(|| self.initialize_weights_deterministic().unwrap());
 
-        // Training loop starting from resume point
+        // Training loop starting from resume point with cancellation support
         let mut final_loss = 0.0;
+        let mut completed_epochs: u32 = start_epoch as u32;
+        let mut examples_processed: u64 = 0;
+        let mut was_cancelled = false;
+
         for epoch in start_epoch..self.config.epochs {
+            // Check for cancellation at start of each epoch
+            if self.is_cancelled() {
+                let job_id_str = self.job_id.as_deref().unwrap_or("unknown");
+                info!(
+                    job_id = %job_id_str,
+                    epoch = epoch,
+                    "Cancellation requested, stopping resumed training"
+                );
+                self.telemetry
+                    .log(
+                        "training.cancelled",
+                        serde_json::json!({
+                            "job_id": job_id_str,
+                            "adapter_id": adapter_id,
+                            "stopped_at_epoch": epoch,
+                            "final_loss": final_loss,
+                            "examples_processed": examples_processed
+                        }),
+                    )
+                    .ok();
+                was_cancelled = true;
+                break;
+            }
+
             debug!("Epoch {}/{}", epoch + 1, self.config.epochs);
 
+            let epoch_start = Instant::now();
             let epoch_loss = self.train_epoch_deterministic(&mut weights, examples, epoch)?;
+            let epoch_duration_us = epoch_start.elapsed().as_micros() as u64;
             final_loss = epoch_loss;
+            completed_epochs = (epoch + 1) as u32;
+            examples_processed += examples.len() as u64;
 
             info!("Epoch {} loss: {:.4}", epoch + 1, epoch_loss);
+
+            // Persist metrics to database
+            self.persist_epoch_metrics(
+                completed_epochs,
+                examples_processed,
+                epoch_loss,
+                examples.len() as u64,
+                epoch_duration_us,
+            )
+            .await;
 
             self.telemetry.log(
                 "training.epoch_completed",
@@ -704,6 +866,18 @@ impl MicroLoRATrainer {
                 }
             }
 
+            // Check for cancellation after epoch completion
+            if self.is_cancelled() {
+                let job_id_str = self.job_id.as_deref().unwrap_or("unknown");
+                info!(
+                    job_id = %job_id_str,
+                    epoch = epoch + 1,
+                    "Cancellation confirmed after epoch completion"
+                );
+                was_cancelled = true;
+                break;
+            }
+
             if epoch_loss < 0.01 {
                 info!("Early stopping: loss below threshold");
                 break;
@@ -717,6 +891,9 @@ impl MicroLoRATrainer {
             final_loss,
             training_time_us,
             weights,
+            cancelled: was_cancelled,
+            stopped_at_epoch: Some(completed_epochs),
+            examples_processed: Some(examples_processed),
         })
     }
 
@@ -775,15 +952,57 @@ impl MicroLoRATrainer {
         // Initialize LoRA weights with deterministic seeding
         let mut weights = self.initialize_weights_deterministic()?;
 
-        // Training loop with telemetry
+        // Training loop with telemetry and cancellation support
         let mut final_loss = 0.0;
+        let mut completed_epochs: u32 = 0;
+        let mut examples_processed: u64 = 0;
+        let mut was_cancelled = false;
+
         for epoch in 0..self.config.epochs {
+            // Check for cancellation at start of each epoch
+            if self.is_cancelled() {
+                let job_id_str = self.job_id.as_deref().unwrap_or("unknown");
+                info!(
+                    job_id = %job_id_str,
+                    epoch = epoch,
+                    "Cancellation requested, stopping training"
+                );
+                self.telemetry
+                    .log(
+                        "training.cancelled",
+                        serde_json::json!({
+                            "job_id": job_id_str,
+                            "adapter_id": adapter_id,
+                            "stopped_at_epoch": epoch,
+                            "final_loss": final_loss,
+                            "examples_processed": examples_processed
+                        }),
+                    )
+                    .ok();
+                was_cancelled = true;
+                break;
+            }
+
             debug!("Epoch {}/{}", epoch + 1, self.config.epochs);
 
+            let epoch_start = Instant::now();
             let epoch_loss = self.train_epoch_deterministic(&mut weights, examples, epoch)?;
+            let epoch_duration_us = epoch_start.elapsed().as_micros() as u64;
             final_loss = epoch_loss;
+            completed_epochs = (epoch + 1) as u32;
+            examples_processed += examples.len() as u64;
 
             info!("Epoch {} loss: {:.4}", epoch + 1, epoch_loss);
+
+            // Persist metrics to database
+            self.persist_epoch_metrics(
+                completed_epochs,
+                examples_processed,
+                epoch_loss,
+                examples.len() as u64,
+                epoch_duration_us,
+            )
+            .await;
 
             // Log epoch completion
             self.telemetry.log(
@@ -818,16 +1037,42 @@ impl MicroLoRATrainer {
                         );
                     } else {
                         info!(epoch = epoch + 1, loss = epoch_loss, "Checkpoint saved");
-                        self.telemetry.log(
-                            "training.checkpoint_saved",
-                            serde_json::json!({
-                                "epoch": epoch + 1,
-                                "loss": epoch_loss,
-                                "adapter_id": adapter_id
-                            }),
-                        ).ok();
+                        self.telemetry
+                            .log(
+                                "training.checkpoint_saved",
+                                serde_json::json!({
+                                    "epoch": epoch + 1,
+                                    "loss": epoch_loss,
+                                    "adapter_id": adapter_id
+                                }),
+                            )
+                            .ok();
                     }
                 }
+            }
+
+            // Check for cancellation after epoch completion (in case cancelled during training)
+            if self.is_cancelled() {
+                let job_id_str = self.job_id.as_deref().unwrap_or("unknown");
+                info!(
+                    job_id = %job_id_str,
+                    epoch = epoch + 1,
+                    "Cancellation confirmed after epoch completion"
+                );
+                self.telemetry
+                    .log(
+                        "training.cancelled",
+                        serde_json::json!({
+                            "job_id": job_id_str,
+                            "adapter_id": adapter_id,
+                            "stopped_at_epoch": epoch + 1,
+                            "final_loss": final_loss,
+                            "examples_processed": examples_processed
+                        }),
+                    )
+                    .ok();
+                was_cancelled = true;
+                break;
             }
 
             // Early stopping if loss is very low
@@ -848,14 +1093,26 @@ impl MicroLoRATrainer {
         };
 
         let backend_name = self.backend_info().unwrap_or("CPU");
-        info!(
-            "Training complete: loss={:.4}, time={}us ({}ms), backend={}, throughput={:.0} ex/s, seed={}",
-            final_loss, training_time_us, training_time_ms, backend_name, examples_per_second, self.training_seed
-        );
+
+        if was_cancelled {
+            info!(
+                "Training cancelled: loss={:.4}, time={}us ({}ms), stopped_at_epoch={}, examples_processed={}",
+                final_loss, training_time_us, training_time_ms, completed_epochs, examples_processed
+            );
+        } else {
+            info!(
+                "Training complete: loss={:.4}, time={}us ({}ms), backend={}, throughput={:.0} ex/s, seed={}",
+                final_loss, training_time_us, training_time_ms, backend_name, examples_per_second, self.training_seed
+            );
+        }
 
         // Log training completion with performance metrics
         self.telemetry.log(
-            "training.completed",
+            if was_cancelled {
+                "training.cancelled_final"
+            } else {
+                "training.completed"
+            },
             serde_json::json!({
                 "adapter_id": adapter_id,
                 "final_loss": final_loss,
@@ -864,6 +1121,9 @@ impl MicroLoRATrainer {
                 "seed": self.training_seed,
                 "backend": backend_name,
                 "using_gpu": using_gpu,
+                "cancelled": was_cancelled,
+                "stopped_at_epoch": completed_epochs,
+                "examples_processed": examples_processed,
                 "performance": {
                     "examples_per_second": examples_per_second,
                     "total_examples": examples.len(),
@@ -879,6 +1139,9 @@ impl MicroLoRATrainer {
             final_loss,
             training_time_us,
             weights,
+            cancelled: was_cancelled,
+            stopped_at_epoch: Some(completed_epochs),
+            examples_processed: Some(examples_processed),
         })
     }
 
@@ -913,6 +1176,8 @@ impl MicroLoRATrainer {
     }
 
     /// Train one epoch with deterministic execution
+    ///
+    /// Checks for cancellation every 10 batches to ensure bounded cancellation time.
     fn train_epoch_deterministic(
         &mut self,
         weights: &mut LoRAWeights,
@@ -942,8 +1207,28 @@ impl MicroLoRATrainer {
         let mut total_loss = 0.0;
         let mut num_batches = 0;
 
+        // Check cancel every N batches for bounded cancellation time
+        const CANCEL_CHECK_INTERVAL: usize = 10;
+
         // Process examples in batches with deterministic ordering
         for batch_start in (0..examples.len()).step_by(self.config.batch_size) {
+            // Check for cancellation every N batches
+            if num_batches > 0 && num_batches % CANCEL_CHECK_INTERVAL == 0 {
+                if self.is_cancelled() {
+                    debug!(
+                        epoch = epoch,
+                        batch = num_batches,
+                        "Cancellation detected mid-epoch, stopping batch loop"
+                    );
+                    // Return partial loss (average of completed batches)
+                    return Ok(if num_batches > 0 {
+                        total_loss / num_batches as f32
+                    } else {
+                        0.0
+                    });
+                }
+            }
+
             let batch_end = (batch_start + self.config.batch_size).min(examples.len());
             let batch = &examples[batch_start..batch_end];
 
@@ -1251,7 +1536,10 @@ impl MicroLoRATrainer {
             for grad in &mut grad_output {
                 *grad *= scale;
             }
-            debug!("Clipped gradient norm from {:.4} to {:.4}", grad_norm, MAX_GRAD_NORM);
+            debug!(
+                "Clipped gradient norm from {:.4} to {:.4}",
+                grad_norm, MAX_GRAD_NORM
+            );
         }
 
         // NaN prevention: zero out any non-finite gradients
@@ -1552,7 +1840,10 @@ mod tests {
             .collect();
 
         // Should have at least the latest checkpoint
-        assert!(!checkpoint_files.is_empty(), "Expected checkpoint files to be created");
+        assert!(
+            !checkpoint_files.is_empty(),
+            "Expected checkpoint files to be created"
+        );
     }
 
     #[tokio::test]
@@ -1591,11 +1882,8 @@ mod tests {
         };
         let checkpoint = TrainingCheckpoint::new(
             5, // epoch 5
-            0,
-            0.5, // loss
-            0.001,
-            config,
-            weights,
+            0, 0.5, // loss
+            0.001, config, weights,
         );
 
         // Save checkpoint using the manager

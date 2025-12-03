@@ -4,9 +4,9 @@
 //! for AdapterOS, including configuration, validation, and enforcement logic.
 
 pub mod adapters;
-pub mod circuit_breaker;
 pub mod artifacts;
 pub mod build_release;
+pub mod circuit_breaker;
 pub mod compliance;
 pub mod dependency_security;
 pub mod determinism;
@@ -36,6 +36,7 @@ pub use adapters::{
 };
 pub use artifacts::{ArtifactMetadata, ArtifactValidation, ArtifactsConfig, ArtifactsPolicy};
 pub use build_release::{BuildMetrics, BuildReleaseConfig, BuildReleasePolicy, ReplayTestResults};
+pub use circuit_breaker::CircuitBreakerPolicy;
 pub use compliance::{ComplianceConfig, CompliancePolicy, ControlMatrixEntry, EvidenceEntry};
 pub use dependency_security::{
     CacheStats, CveDataSource, CveEntry, CveProvider, DependencySecurityConfig,
@@ -103,7 +104,6 @@ pub use telemetry::{
     TelemetryPolicy,
 };
 pub use version_matcher::{CpeVersionMatcher, OsvVersionRange, Version, VersionRange};
-pub use circuit_breaker::CircuitBreakerPolicy;
 
 /// Policy pack factory for creating policy instances
 pub struct PolicyPackFactory;
