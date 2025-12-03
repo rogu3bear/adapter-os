@@ -6,6 +6,7 @@
 use crate::{Db, Result};
 use adapteros_core::AosError;
 use serde::{Deserialize, Serialize};
+use sqlx::Error as SqlxError;
 use uuid::Uuid;
 
 /// Adapter training snapshot record
@@ -13,6 +14,7 @@ use uuid::Uuid;
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct AdapterTrainingSnapshot {
     pub id: String,
+    pub tenant_id: String,
     pub adapter_id: String,
     pub training_job_id: String,
     pub collection_id: Option<String>,
@@ -47,16 +49,23 @@ impl Db {
     pub async fn create_training_snapshot(&self, params: CreateSnapshotParams) -> Result<String> {
         let id = Uuid::new_v4().to_string();
 
+        let tenant_id = if let Some(collection_id) = params.collection_id.as_deref() {
+            self.collection_tenant_id(collection_id).await?
+        } else {
+            self.training_job_tenant_id(&params.training_job_id).await?
+        };
+
         sqlx::query(
             r#"
             INSERT INTO adapter_training_snapshots (
-                id, adapter_id, training_job_id, collection_id, documents_json,
+                id, tenant_id, adapter_id, training_job_id, collection_id, documents_json,
                 chunk_manifest_hash, chunking_config_json, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(&id)
+        .bind(&tenant_id)
         .bind(&params.adapter_id)
         .bind(&params.training_job_id)
         .bind(&params.collection_id)
@@ -86,7 +95,7 @@ impl Db {
     ) -> Result<Option<AdapterTrainingSnapshot>> {
         let record = sqlx::query_as::<_, AdapterTrainingSnapshotRow>(
             r#"
-            SELECT id, adapter_id, training_job_id, collection_id, documents_json,
+            SELECT id, tenant_id, adapter_id, training_job_id, collection_id, documents_json,
                    chunk_manifest_hash, chunking_config_json, created_at
             FROM adapter_training_snapshots
             WHERE adapter_id = ?
@@ -112,7 +121,7 @@ impl Db {
     ) -> Result<Vec<AdapterTrainingSnapshot>> {
         let records = sqlx::query_as::<_, AdapterTrainingSnapshotRow>(
             r#"
-            SELECT id, adapter_id, training_job_id, collection_id, documents_json,
+            SELECT id, tenant_id, adapter_id, training_job_id, collection_id, documents_json,
                    chunk_manifest_hash, chunking_config_json, created_at
             FROM adapter_training_snapshots
             WHERE training_job_id = ?
@@ -139,7 +148,7 @@ impl Db {
     ) -> Result<Vec<AdapterTrainingSnapshot>> {
         let records = sqlx::query_as::<_, AdapterTrainingSnapshotRow>(
             r#"
-            SELECT id, adapter_id, training_job_id, collection_id, documents_json,
+            SELECT id, tenant_id, adapter_id, training_job_id, collection_id, documents_json,
                    chunk_manifest_hash, chunking_config_json, created_at
             FROM adapter_training_snapshots
             WHERE collection_id = ?
@@ -153,12 +162,67 @@ impl Db {
 
         Ok(records.into_iter().map(Into::into).collect())
     }
+
+    async fn training_job_tenant_id(&self, training_job_id: &str) -> Result<String> {
+        match sqlx::query_scalar::<_, String>(
+            "SELECT tenant_id FROM repository_training_jobs WHERE id = ? LIMIT 1",
+        )
+        .bind(training_job_id)
+        .fetch_one(&*self.pool())
+        .await
+        {
+            Ok(id) => Ok(id),
+            Err(SqlxError::RowNotFound) => {
+                let auto_name = format!("auto-tenant-{}", Uuid::now_v7());
+                self.create_tenant(&auto_name, false)
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!(
+                            "Failed to create fallback tenant for training job {}: {}",
+                            training_job_id, e
+                        ))
+                    })
+            }
+            Err(e) => Err(AosError::Database(format!(
+                "Failed to resolve tenant for training job {}: {}",
+                training_job_id, e
+            ))),
+        }
+    }
+
+    async fn collection_tenant_id(&self, collection_id: &str) -> Result<String> {
+        match sqlx::query_scalar::<_, String>(
+            "SELECT tenant_id FROM document_collections WHERE id = ? LIMIT 1",
+        )
+        .bind(collection_id)
+        .fetch_one(&*self.pool())
+        .await
+        {
+            Ok(id) => Ok(id),
+            Err(SqlxError::RowNotFound) => {
+                let auto_name = format!("auto-tenant-{}", Uuid::now_v7());
+                self.create_tenant(&auto_name, false)
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!(
+                            "Failed to create fallback tenant for collection {}: {}",
+                            collection_id, e
+                        ))
+                    })
+            }
+            Err(e) => Err(AosError::Database(format!(
+                "Failed to resolve tenant for collection {}: {}",
+                collection_id, e
+            ))),
+        }
+    }
 }
 
 /// Internal row type for SQLx query mapping
 #[derive(sqlx::FromRow)]
 struct AdapterTrainingSnapshotRow {
     id: String,
+    tenant_id: String,
     adapter_id: String,
     training_job_id: String,
     collection_id: Option<String>,
@@ -172,6 +236,7 @@ impl From<AdapterTrainingSnapshotRow> for AdapterTrainingSnapshot {
     fn from(row: AdapterTrainingSnapshotRow) -> Self {
         Self {
             id: row.id,
+            tenant_id: row.tenant_id,
             adapter_id: row.adapter_id,
             training_job_id: row.training_job_id,
             collection_id: row.collection_id,

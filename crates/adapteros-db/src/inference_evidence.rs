@@ -79,17 +79,29 @@ impl Db {
             .as_ref()
             .map(|scores| serde_json::to_string(scores).unwrap_or_default());
 
+        // Look up tenant_id from the document
+        let doc = self.get_document(&params.document_id).await.map_err(|e| {
+            AosError::Database(format!(
+                "Failed to resolve tenant for document {}: {}",
+                params.document_id, e
+            ))
+        })?;
+        let tenant_id = doc
+            .map(|d| d.tenant_id)
+            .unwrap_or_else(|| "unknown".to_string());
+
         sqlx::query(
             r#"
             INSERT INTO inference_evidence (
-                id, inference_id, session_id, message_id, document_id, chunk_id,
+                id, tenant_id, inference_id, session_id, message_id, document_id, chunk_id,
                 page_number, document_hash, chunk_hash, relevance_score, rank,
                 context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
             "#,
         )
         .bind(&id)
+        .bind(&tenant_id)
         .bind(&params.inference_id)
         .bind(&params.session_id)
         .bind(&params.message_id)
@@ -266,6 +278,7 @@ impl Db {
 
         Ok(ids)
     }
+
 }
 
 /// Internal row type for SQLx query mapping
@@ -317,7 +330,7 @@ mod tests {
     use super::*;
 
     // Helper to create parent records for FK constraints
-    async fn setup_test_data(db: &Db, doc_id: &str, chunk_id: &str) {
+    async fn setup_test_data(db: &Db, doc_id: &str, chunk_id: &str) -> String {
         // Create tenant if it doesn't exist yet
         let tenant_id = match db.create_tenant("Test Tenant", false).await {
             Ok(id) => id,
@@ -343,20 +356,23 @@ mod tests {
 
         // Create chunk
         sqlx::query(
-            "INSERT INTO document_chunks (id, document_id, chunk_index, chunk_hash)
-             VALUES (?, ?, 0, 'chunkhash')",
+            "INSERT INTO document_chunks (id, tenant_id, document_id, chunk_index, chunk_hash)
+             VALUES (?, ?, ?, 0, 'chunkhash')",
         )
         .bind(chunk_id)
+        .bind(&tenant_id)
         .bind(doc_id)
         .execute(db.pool())
         .await
         .expect("Failed to create chunk");
+
+        tenant_id
     }
 
     #[tokio::test]
     async fn test_create_and_retrieve_evidence() {
         let db = Db::new_in_memory().await.unwrap();
-        setup_test_data(&db, "doc-001", "chunk-001").await;
+        let _tenant_id = setup_test_data(&db, "doc-001", "chunk-001").await;
 
         let inference_id = "inf-001";
         let message_id = Some("msg-001".to_string());
@@ -441,7 +457,18 @@ mod tests {
     #[tokio::test]
     async fn test_evidence_with_rag_fields() {
         let db = Db::new_in_memory().await.unwrap();
-        setup_test_data(&db, "doc-rag-001", "chunk-rag-001").await;
+        let tenant_id = setup_test_data(&db, "doc-rag-001", "chunk-rag-001").await;
+
+        // Provide the referenced RAG collection
+        sqlx::query(
+            "INSERT INTO document_collections (id, tenant_id, name, description)
+             VALUES (?, ?, 'rag collection', 'rag evidence test collection')",
+        )
+        .bind("col-001")
+        .bind(&tenant_id)
+        .execute(db.pool())
+        .await
+        .expect("Failed to insert test collection");
 
         let inference_id = "inf-rag-001";
 
