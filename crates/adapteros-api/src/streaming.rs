@@ -295,6 +295,7 @@ async fn generate_streaming_response<K: FusedKernels + Send + Sync + 'static>(
         seed: None,
         router_seed: None,
         pinned_adapter_ids: None,
+        determinism_mode: String::new(),
     };
 
     debug!(
@@ -417,6 +418,7 @@ pub async fn completion_handler<K: FusedKernels + Send + Sync + 'static>(
         seed: None,
         router_seed: None,
         pinned_adapter_ids: None,
+        determinism_mode: String::new(),
     };
 
     // Run inference

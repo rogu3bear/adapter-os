@@ -34,7 +34,9 @@ use crate::router_bridge::decision_to_router_ring;
 use adapteros_core::{paths::AdapterPaths, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
 use adapteros_lora_rag::RagSystem;
-use adapteros_lora_router::{constants::PINNED_BOOST, features::CodeFeatures, AdapterInfo, Router};
+use adapteros_lora_router::{
+    constants::PINNED_BOOST, features::CodeFeatures, AdapterInfo, Router, RouterDeterminismConfig,
+};
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
@@ -199,6 +201,14 @@ pub struct InferenceRequest {
     /// before the router's scoring algorithm runs.
     #[serde(default)]
     pub pinned_adapter_ids: Option<Vec<String>>,
+    /// Determinism mode for this request (strict, besteffort, relaxed)
+    /// Controls router behavior for reproducibility vs performance tradeoffs
+    #[serde(default = "default_determinism_mode")]
+    pub determinism_mode: String,
+}
+
+fn default_determinism_mode() -> String {
+    "strict".to_string()
 }
 
 /// Request type for different inference modes
@@ -887,6 +897,21 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         for name in stack_handle.active.keys() {
             table.inc_ref(name).await;
         }
+
+        // Configure router determinism mode from request (PRD-06: determinism configuration)
+        // Parse the request's determinism_mode and apply corresponding router configuration
+        let router_config = match request.determinism_mode.as_str() {
+            "relaxed" => RouterDeterminismConfig {
+                ieee754_deterministic: false,
+                enable_decision_hashing: false,
+            },
+            "besteffort" => RouterDeterminismConfig {
+                ieee754_deterministic: true,
+                enable_decision_hashing: false,
+            },
+            _ => RouterDeterminismConfig::default(), // "strict" or unknown defaults to strict
+        };
+        self.router.set_determinism_config(router_config);
 
         let mut generated_tokens = Vec::new();
 

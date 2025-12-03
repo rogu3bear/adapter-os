@@ -20,8 +20,8 @@ use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 use crate::{
-    CancelTrainingRequest, CancelTrainingResponse, InferenceRequest, InferenceResponse,
-    PatchProposalRequest, RequestType, Worker,
+    CancelTrainingRequest, InferenceRequest, InferenceResponse, PatchProposalRequest, RequestType,
+    Worker,
 };
 
 /// Request to load a model into the worker
@@ -219,6 +219,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                     seed: None,
                     router_seed: None,
                     pinned_adapter_ids: None,
+                    determinism_mode: "strict".to_string(), // Patch proposals use strict mode
                 };
 
                 let mut worker_guard = worker.lock().await;
