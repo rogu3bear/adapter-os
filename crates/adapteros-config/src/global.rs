@@ -106,8 +106,7 @@ pub fn init_runtime_config() -> std::result::Result<(), ConfigError> {
 
     // Handle validation errors based on runtime mode
     if config.has_errors() {
-        let is_production = config.is_production_mode()
-            || config.runtime_mode() == "production";
+        let is_production = config.is_production_mode() || config.runtime_mode() == "production";
 
         if is_production {
             return Err(ConfigError {

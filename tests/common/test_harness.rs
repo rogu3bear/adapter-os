@@ -78,6 +78,7 @@ impl ApiTestHarness {
             security: Default::default(),
             performance: Default::default(),
             paths: paths_config,
+            chat_context: Default::default(),
         }));
 
         let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
@@ -250,6 +251,10 @@ mod tests {
         let result = harness
             .create_test_training_job("test-job-1", "test-dataset-1", "test-adapter-1")
             .await;
-        assert!(result.is_ok(), "Failed to create training job");
+        assert!(
+            result.is_ok(),
+            "Failed to create training job: {:?}",
+            result.err()
+        );
     }
 }

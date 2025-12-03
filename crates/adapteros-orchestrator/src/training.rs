@@ -11,10 +11,11 @@ use adapteros_lora_worker::training::{
 };
 use anyhow::Result;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 // Re-export canonical types from adapteros_types
 pub use adapteros_types::training::{
@@ -29,6 +30,9 @@ pub struct TrainingService {
     db: Option<adapteros_db::Db>,
     /// Storage root for dataset files
     storage_root: Option<PathBuf>,
+    /// Cancel tokens for active training jobs (job_id -> token)
+    /// Set token to true to request cancellation; trainer checks at epoch boundaries
+    cancel_tokens: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
 }
 
 impl TrainingService {
@@ -114,6 +118,7 @@ impl TrainingService {
             templates: Arc::new(RwLock::new(templates)),
             db: None,
             storage_root: None,
+            cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -122,6 +127,7 @@ impl TrainingService {
         let mut service = Self::new();
         service.db = Some(db);
         service.storage_root = Some(storage_root);
+        // cancel_tokens already initialized by new()
         service
     }
 
@@ -170,6 +176,8 @@ impl TrainingService {
         framework_version: Option<String>,
         // Post-training actions (JSON serialized)
         post_actions_json: Option<String>,
+        // Retry tracking: ID of the original job this is a retry of
+        retry_of_job_id: Option<String>,
     ) -> Result<TrainingJob> {
         let job_id = format!("train-{}", uuid::Uuid::new_v4());
 
@@ -190,17 +198,17 @@ impl TrainingService {
             .ok()
             .or_else(|| Some("dev".to_string()));
 
-        let mut job = TrainingJob::new(job_id.clone(), adapter_name, config.clone());
+        let mut job = TrainingJob::new(job_id.clone(), adapter_name.clone(), config.clone());
         job.template_id = template_id;
-        job.repo_id = repo_id;
-        job.dataset_id = dataset_id;
+        job.repo_id = repo_id.clone();
+        job.dataset_id = dataset_id.clone();
         job.tenant_id = tenant_id.clone();
-        job.initiated_by = initiated_by;
+        job.initiated_by = initiated_by.clone();
         job.initiated_by_role = initiated_by_role;
-        job.base_model_id = base_model_id;
-        job.collection_id = collection_id;
-        job.build_id = build_id;
-        job.config_hash_b3 = config_hash;
+        job.base_model_id = base_model_id.clone();
+        job.collection_id = collection_id.clone();
+        job.build_id = build_id.clone();
+        job.config_hash_b3 = config_hash.clone();
         // Category metadata
         job.category = category.clone();
         job.description = description;
@@ -208,14 +216,82 @@ impl TrainingService {
         job.framework_id = framework_id;
         job.framework_version = framework_version;
         job.post_actions_json = post_actions_json.clone();
+        job.retry_of_job_id = retry_of_job_id.clone();
+
+        // Persist job to database for durability and retry chain tracking
+        // This ensures retry_of_job_id, retryable flag, and metrics are properly persisted
+        if let Some(ref db) = self.db {
+            let config_json = serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string());
+
+            // Use repo_id or a sentinel value for dataset-based training
+            let db_repo_id = repo_id.as_deref().unwrap_or("direct-training");
+            let created_by = initiated_by.as_deref().unwrap_or("system");
+
+            // Pass our job_id so DB and in-memory IDs match
+            match db
+                .create_training_job_with_provenance(
+                    Some(&job_id), // Use our generated job_id
+                    db_repo_id,
+                    &config_json,
+                    created_by,
+                    dataset_id.as_deref(),
+                    base_model_id.as_deref(),
+                    collection_id.as_deref(),
+                    tenant_id.as_deref(),
+                    build_id.as_deref(),
+                    None, // source_documents_json - not tracked at job level
+                    retry_of_job_id.as_deref(),
+                )
+                .await
+            {
+                Ok(_) => {
+                    info!(
+                        job_id = %job_id,
+                        retry_of = ?retry_of_job_id,
+                        "Training job persisted to database"
+                    );
+
+                    // Update adapter_name in DB (not included in create_training_job_with_provenance)
+                    if let Err(e) = db
+                        .update_training_job_adapter_name(&job_id, &adapter_name)
+                        .await
+                    {
+                        warn!(job_id = %job_id, error = %e, "Failed to update adapter name in DB (non-fatal)");
+                    }
+
+                    // Store config hash if available
+                    if let Some(ref hash) = config_hash {
+                        if let Err(e) = db.update_training_job_config_hash(&job_id, hash).await {
+                            warn!(job_id = %job_id, error = %e, "Failed to update config hash in DB (non-fatal)");
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Log but don't fail - job can still run in memory
+                    warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to persist training job to database (job will run but metrics/retry may not persist)"
+                    );
+                }
+            }
+        }
 
         {
             let mut jobs = self.jobs.write().await;
             jobs.insert(job_id.clone(), job.clone());
         }
 
+        // Create and register cancel token for this job
+        let cancel_token = Arc::new(AtomicBool::new(false));
+        {
+            let mut tokens = self.cancel_tokens.write().await;
+            tokens.insert(job_id.clone(), cancel_token.clone());
+        }
+
         // Spawn deterministic training task (training must be reproducible)
         let jobs_ref = self.jobs.clone();
+        let cancel_tokens_ref = self.cancel_tokens.clone();
         let cfg_for_run = job.config.clone();
         let job_id_for_run = job.id.clone();
         let adapter_name_for_run = job.adapter_name.clone();
@@ -226,10 +302,11 @@ impl TrainingService {
         let category_for_run = category;
         let post_actions_for_run = post_actions_json;
         let base_model_id_for_run = job.base_model_id.clone();
+        let cancel_token_for_run = cancel_token.clone();
         if let Err(e) =
             spawn_deterministic(format!("training-job:{}", job_id_for_run), async move {
-                if let Err(err) = run_training_job(
-                    jobs_ref,
+                let result = run_training_job(
+                    jobs_ref.clone(),
                     job_id_for_run.clone(),
                     adapter_name_for_run,
                     cfg_for_run,
@@ -240,9 +317,17 @@ impl TrainingService {
                     category_for_run,
                     post_actions_for_run,
                     base_model_id_for_run,
+                    cancel_token_for_run,
                 )
-                .await
+                .await;
+
+                // Clean up cancel token after job completes (success or failure)
                 {
+                    let mut tokens = cancel_tokens_ref.write().await;
+                    tokens.remove(&job_id_for_run);
+                }
+
+                if let Err(err) = result {
                     tracing::error!("Training job {} failed: {}", job_id_for_run, err);
                 }
             })
@@ -262,22 +347,102 @@ impl TrainingService {
     }
 
     /// Cancel a training job
-    pub async fn cancel_job(&self, job_id: &str) -> Result<()> {
-        let mut jobs = self.jobs.write().await;
-        if let Some(job) = jobs.get_mut(job_id) {
-            if job.status == TrainingJobStatus::Running || job.status == TrainingJobStatus::Pending
-            {
-                job.status = TrainingJobStatus::Cancelled;
-                job.completed_at = Some(chrono::Utc::now().to_rfc3339());
-                info!("Training job cancelled: {}", job_id);
-                Ok(())
+    ///
+    /// Sets the in-process cancel token (if the job is running in this orchestrator),
+    /// then optionally sends a cancellation request to the worker via UDS.
+    /// The trainer checks the cancel token at epoch boundaries and stops gracefully.
+    pub async fn cancel_job(
+        &self,
+        job_id: &str,
+        uds_client: Option<&adapteros_client::UdsClient>,
+        socket_path: Option<&str>,
+    ) -> Result<()> {
+        // Verify job exists and is in a cancellable state
+        {
+            let jobs = self.jobs.read().await;
+            if let Some(job) = jobs.get(job_id) {
+                if job.status != TrainingJobStatus::Running
+                    && job.status != TrainingJobStatus::Pending
+                {
+                    return Err(AosError::Internal(format!(
+                        "Cannot cancel job in state: {:?}",
+                        job.status
+                    ))
+                    .into());
+                }
             } else {
-                Err(
-                    AosError::Internal(format!("Cannot cancel job in state: {:?}", job.status))
-                        .into(),
-                )
+                return Err(
+                    AosError::Internal(format!("Training job not found: {}", job_id)).into(),
+                );
+            }
+        }
+
+        // Set the cancel token directly - this is the primary cancellation mechanism
+        // The trainer checks this token at epoch boundaries and stops gracefully
+        let token_set = {
+            let tokens = self.cancel_tokens.read().await;
+            if let Some(token) = tokens.get(job_id) {
+                token.store(true, Ordering::SeqCst);
+                info!(job_id = %job_id, "Cancel token set for training job");
+                true
+            } else {
+                warn!(job_id = %job_id, "No cancel token found for job (may have already completed)");
+                false
+            }
+        };
+
+        // Also send cancel to worker via UDS with 5s timeout (for jobs running in separate workers)
+        let worker_confirmed = if let Some(client) = uds_client {
+            let socket = socket_path.unwrap_or("/var/run/adapteros.sock");
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                client.cancel_training_job(Path::new(socket), job_id, None),
+            )
+            .await
+            {
+                Ok(Ok(resp)) => {
+                    info!(
+                        job_id = %job_id,
+                        status = %resp.status,
+                        "Worker confirmed cancellation"
+                    );
+                    true
+                }
+                Ok(Err(e)) => {
+                    warn!(job_id = %job_id, error = %e, "Worker cancel failed");
+                    false
+                }
+                Err(_) => {
+                    warn!(
+                        job_id = %job_id,
+                        "Worker cancel timeout (5s) - relying on in-process token"
+                    );
+                    false
+                }
             }
         } else {
+            // No UDS client provided - rely on in-process token
+            false
+        };
+
+        // Update status based on confirmation
+        // Token set OR worker confirmed = cancellation initiated
+        let cancellation_initiated = token_set || worker_confirmed;
+
+        let mut jobs = self.jobs.write().await;
+        if let Some(job) = jobs.get_mut(job_id) {
+            if cancellation_initiated {
+                // Mark as CancelPending - will become Cancelled when trainer actually stops
+                job.status = TrainingJobStatus::CancelPending;
+                info!(job_id = %job_id, token_set = token_set, worker_confirmed = worker_confirmed, "Training job cancellation initiated");
+            } else {
+                job.status = TrainingJobStatus::CancelPending;
+                warn!(job_id = %job_id, "Training job cancel requested but no confirmation - marking cancel_pending");
+            }
+            // Don't set completed_at here - let the trainer set it when it actually stops
+            Ok(())
+        } else {
+            // Job disappeared between checks - should not happen but handle gracefully
             Err(AosError::Internal(format!("Training job not found: {}", job_id)).into())
         }
     }
@@ -419,6 +584,10 @@ struct PostActions {
     /// Register adapter in registry after packaging (default: true)
     #[serde(default = "default_true")]
     register: bool,
+    /// Create a new stack with the adapter after registration (default: true).
+    /// Note: The stack will NOT be set as the tenant's default.
+    #[serde(default = "default_true")]
+    create_stack: bool,
     /// Tier to assign: persistent, warm, ephemeral (default: warm)
     #[serde(default = "default_tier")]
     tier: String,
@@ -426,12 +595,20 @@ struct PostActions {
     adapters_root: Option<String>,
 }
 
-fn default_true() -> bool { true }
-fn default_tier() -> String { "warm".to_string() }
+fn default_true() -> bool {
+    true
+}
+fn default_tier() -> String {
+    "warm".to_string()
+}
 
 /// Background runner for a single training job. Converts orchestrator config into worker trainer
 /// config, runs training with per-epoch callback, packages weights, registers adapter, and
 /// updates the shared job map with artifact metadata.
+///
+/// The cancel_token is checked by the trainer at epoch boundaries - set it to true to
+/// request graceful cancellation. Metrics are persisted to the database after each epoch
+/// when db and job_id are provided to the trainer.
 async fn run_training_job(
     jobs_ref: Arc<RwLock<HashMap<String, TrainingJob>>>,
     job_id: String,
@@ -444,6 +621,7 @@ async fn run_training_job(
     category: Option<String>,
     post_actions_json: Option<String>,
     base_model_id: Option<String>,
+    cancel_token: Arc<AtomicBool>,
 ) -> Result<()> {
     use adapteros_lora_worker::training::{
         AdapterPackager, LoRAQuantizer, TrainingConfig as WorkerTrainingConfigType,
@@ -460,9 +638,9 @@ async fn run_training_job(
     let adapters_root = {
         // Use post_actions.adapters_root as config value, or derive from storage_root
         // Convert storage_root PathBuf to String if needed (stored in variable to avoid lifetime issues)
-        let storage_adapters_str = storage_root.as_ref().map(|s| {
-            s.join("adapters").to_string_lossy().to_string()
-        });
+        let storage_adapters_str = storage_root
+            .as_ref()
+            .map(|s| s.join("adapters").to_string_lossy().to_string());
         let config_value = post_actions
             .adapters_root
             .as_deref()
@@ -491,7 +669,7 @@ async fn run_training_job(
         vocab_size: 32000, // default LLaMA/Mistral vocab size
         preferred_backend: None, // auto-select
         require_gpu: false,
-        max_gpu_memory_mb: 0, // unlimited
+        max_gpu_memory_mb: 0,         // unlimited
         checkpoint_interval: Some(5), // Save checkpoint every 5 epochs
     };
 
@@ -533,6 +711,16 @@ async fn run_training_job(
     };
 
     let mut trainer = WorkerTrainer::new(worker_cfg.clone())?;
+
+    // Wire cancel token into trainer - checked at epoch boundaries
+    trainer.set_cancel_token(cancel_token);
+
+    // Wire job_id and DB for metrics persistence
+    trainer.set_job_id(job_id.clone());
+    if let Some(database) = db.clone() {
+        trainer.set_db(database);
+        info!(job_id = %job_id, "Trainer configured with DB for metrics persistence");
+    }
 
     // Enable checkpointing if checkpoint_interval is configured
     if worker_cfg.checkpoint_interval.is_some() {
@@ -605,6 +793,75 @@ async fn run_training_job(
 
     match result {
         Ok(training_result) => {
+            // Persist final summary metrics to database
+            if let Some(database) = &db {
+                use adapteros_db::TrainingMetricRow;
+                use uuid::Uuid;
+
+                let timestamp = chrono::Utc::now().to_rfc3339();
+                let step = training_result.examples_processed.unwrap_or(0) as i64;
+                let epoch = training_result.stopped_at_epoch.map(|e| e as i64);
+
+                let final_metrics = vec![
+                    TrainingMetricRow {
+                        id: Uuid::now_v7().to_string(),
+                        training_job_id: job_id.clone(),
+                        step,
+                        epoch,
+                        metric_name: "final_loss".to_string(),
+                        metric_value: training_result.final_loss as f64,
+                        metric_timestamp: Some(timestamp.clone()),
+                    },
+                    TrainingMetricRow {
+                        id: Uuid::now_v7().to_string(),
+                        training_job_id: job_id.clone(),
+                        step,
+                        epoch,
+                        metric_name: "cancelled".to_string(),
+                        metric_value: if training_result.cancelled { 1.0 } else { 0.0 },
+                        metric_timestamp: Some(timestamp.clone()),
+                    },
+                    TrainingMetricRow {
+                        id: Uuid::now_v7().to_string(),
+                        training_job_id: job_id.clone(),
+                        step,
+                        epoch,
+                        metric_name: "examples_processed".to_string(),
+                        metric_value: training_result.examples_processed.unwrap_or(0) as f64,
+                        metric_timestamp: Some(timestamp),
+                    },
+                ];
+
+                if let Err(e) = database.insert_training_metrics_batch(&final_metrics).await {
+                    warn!(job_id = %job_id, error = %e, "Failed to persist final training metrics (non-fatal)");
+                } else {
+                    info!(job_id = %job_id, cancelled = training_result.cancelled, "Final training metrics persisted");
+                }
+            }
+
+            // If training was cancelled, mark job as cancelled and return early
+            if training_result.cancelled {
+                info!(
+                    job_id = %job_id,
+                    adapter_name = %adapter_name,
+                    final_loss = training_result.final_loss,
+                    stopped_at_epoch = ?training_result.stopped_at_epoch,
+                    examples_processed = ?training_result.examples_processed,
+                    "Training cancelled gracefully"
+                );
+
+                let mut jobs = jobs_ref.write().await;
+                if let Some(job) = jobs.get_mut(&job_id) {
+                    job.status = TrainingJobStatus::Cancelled;
+                    job.current_loss = training_result.final_loss;
+                    if let Some(epoch) = training_result.stopped_at_epoch {
+                        job.current_epoch = epoch;
+                    }
+                    job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                }
+                return Ok(());
+            }
+
             info!(
                 job_id = %job_id,
                 adapter_name = %adapter_name,
@@ -699,7 +956,8 @@ async fn run_training_job(
                         job.status = TrainingJobStatus::Completed;
                         job.progress_pct = 100.0;
                         job.completed_at = Some(chrono::Utc::now().to_rfc3339());
-                        job.artifact_path = Some(packaged.weights_path.to_string_lossy().to_string());
+                        job.artifact_path =
+                            Some(packaged.weights_path.to_string_lossy().to_string());
                         job.adapter_id = Some(packaged.adapter_id.clone());
                         job.weights_hash_b3 = Some(packaged.hash_b3.clone());
                     }
@@ -765,66 +1023,55 @@ async fn run_training_job(
                             );
                         }
 
-                        // Step 4: Auto-create stack with adapter and set as default
-                        let tenant_id = tenant_id.as_deref().unwrap_or("default");
-                        let stack_name = format!("stack.{}.{}", tenant_id, adapter_name);
+                        // Step 4: Optionally create stack with adapter (NOT set as default)
+                        if post_actions.create_stack {
+                            let tenant_id = tenant_id.as_deref().unwrap_or("default");
+                            let stack_name = format!("stack.{}.{}", tenant_id, adapter_name);
 
-                        use adapteros_db::traits::CreateStackRequest;
-                        let stack_request = CreateStackRequest {
-                            tenant_id: tenant_id.to_string(),
-                            name: stack_name.clone(),
-                            description: Some(format!(
-                                "Auto-created stack for adapter {}",
-                                adapter_name
-                            )),
-                            adapter_ids: vec![packaged.adapter_id.clone()],
-                            workflow_type: Some("sequential".to_string()),
-                        };
+                            use adapteros_db::traits::CreateStackRequest;
+                            let stack_request = CreateStackRequest {
+                                tenant_id: tenant_id.to_string(),
+                                name: stack_name.clone(),
+                                description: Some(format!(
+                                    "Auto-created stack for adapter {}",
+                                    adapter_name
+                                )),
+                                adapter_ids: vec![packaged.adapter_id.clone()],
+                                workflow_type: Some("Sequential".to_string()),
+                            };
 
-                        match database.insert_stack(&stack_request).await {
-                            Ok(stack_id) => {
-                                info!(
-                                    job_id = %job_id,
-                                    adapter_id = %packaged.adapter_id,
-                                    stack_id = %stack_id,
-                                    "Stack created automatically"
-                                );
-
-                                // Set as default stack for tenant
-                                if let Err(e) =
-                                    database.set_default_stack(tenant_id, &stack_id).await
-                                {
-                                    tracing::warn!(
-                                        job_id = %job_id,
-                                        stack_id = %stack_id,
-                                        error = %e,
-                                        "Failed to set default stack (non-fatal)"
-                                    );
-                                } else {
+                            match database.insert_stack(&stack_request).await {
+                                Ok(stack_id) => {
                                     info!(
                                         job_id = %job_id,
+                                        adapter_id = %packaged.adapter_id,
                                         stack_id = %stack_id,
-                                        tenant_id = %tenant_id,
-                                        "Default stack set for tenant"
+                                        "Stack created automatically (not set as default)"
+                                    );
+
+                                    // Update training job with stack_id
+                                    {
+                                        let mut jobs = jobs_ref.write().await;
+                                        if let Some(job) = jobs.get_mut(&job_id) {
+                                            job.stack_id = Some(stack_id.clone());
+                                        }
+                                    }
+
+                                    // IMPORTANT: We intentionally do NOT call set_default_stack() here.
+                                    // Per PRD decision 5B: "Training finishes → adapter registered →
+                                    // stack auto-created, but NOT set as default."
+                                    // Users must explicitly set their default stack via the API:
+                                    // PUT /v1/tenants/{tenant_id}/default-stack
+                                }
+                                Err(e) => {
+                                    // Log but don't fail - adapter is already registered
+                                    tracing::warn!(
+                                        job_id = %job_id,
+                                        adapter_id = %packaged.adapter_id,
+                                        error = %e,
+                                        "Failed to create stack (non-fatal)"
                                     );
                                 }
-
-                                // Update training job with stack_id
-                                {
-                                    let mut jobs = jobs_ref.write().await;
-                                    if let Some(job) = jobs.get_mut(&job_id) {
-                                        job.stack_id = Some(stack_id.clone());
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                // Log but don't fail - adapter is already registered
-                                tracing::warn!(
-                                    job_id = %job_id,
-                                    adapter_id = %packaged.adapter_id,
-                                    error = %e,
-                                    "Failed to create stack (non-fatal)"
-                                );
                             }
                         }
                     }
@@ -907,12 +1154,61 @@ async fn run_training_job(
             Ok(())
         }
         Err(e) => {
-            let mut jobs = jobs_ref.write().await;
-            if let Some(job) = jobs.get_mut(&job_id) {
-                job.status = TrainingJobStatus::Failed;
-                job.error_message = Some(e.to_string());
-                job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            let error_str = e.to_string();
+
+            // Determine if error is retryable based on error type
+            // OOM, timeout, network issues = retryable
+            // Config errors, validation errors = not retryable
+            let is_retryable = {
+                let err_lower = error_str.to_lowercase();
+                err_lower.contains("out of memory") ||
+                err_lower.contains("oom") ||
+                err_lower.contains("timeout") ||
+                err_lower.contains("timed out") ||
+                err_lower.contains("connection") ||
+                err_lower.contains("network") ||
+                err_lower.contains("resource") ||
+                err_lower.contains("busy") ||
+                // NOT retryable patterns
+                !(err_lower.contains("config") ||
+                  err_lower.contains("validation") ||
+                  err_lower.contains("invalid") ||
+                  err_lower.contains("not found") ||
+                  err_lower.contains("permission") ||
+                  err_lower.contains("unauthorized"))
+            };
+
+            // Update job state
+            {
+                let mut jobs = jobs_ref.write().await;
+                if let Some(job) = jobs.get_mut(&job_id) {
+                    job.status = TrainingJobStatus::Failed;
+                    job.error_message = Some(error_str.clone());
+                    job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                    job.retryable = Some(is_retryable);
+                }
             }
+
+            // Persist retryable flag to DB
+            if let Some(database) = &db {
+                if let Err(db_err) = database
+                    .update_training_job_retryable(&job_id, is_retryable)
+                    .await
+                {
+                    warn!(
+                        job_id = %job_id,
+                        error = %db_err,
+                        "Failed to update retryable flag in DB (non-fatal)"
+                    );
+                } else {
+                    info!(
+                        job_id = %job_id,
+                        retryable = is_retryable,
+                        "Training job failed, retryable flag set"
+                    );
+                }
+            }
+
             Err(e.into())
         }
     }
@@ -945,6 +1241,7 @@ mod tests {
                 None, // framework_id
                 None, // framework_version
                 None, // post_actions_json
+                None, // retry_of_job_id
             )
             .await
             .unwrap();
@@ -979,14 +1276,17 @@ mod tests {
                 None, // framework_id
                 None, // framework_version
                 None, // post_actions_json
+                None, // retry_of_job_id
             )
             .await
             .unwrap();
 
-        service.cancel_job(&job.id).await.unwrap();
+        // Test without UDS client (will mark as CancelPending)
+        service.cancel_job(&job.id, None, None).await.unwrap();
 
         let updated_job = service.get_job(&job.id).await.unwrap();
-        assert_eq!(updated_job.status, TrainingJobStatus::Cancelled);
+        // Without UDS client, job is marked as CancelPending
+        assert_eq!(updated_job.status, TrainingJobStatus::CancelPending);
     }
 
     #[tokio::test]
@@ -1012,6 +1312,7 @@ mod tests {
                 None, // framework_id
                 None, // framework_version
                 None, // post_actions_json
+                None, // retry_of_job_id
             )
             .await
             .unwrap();

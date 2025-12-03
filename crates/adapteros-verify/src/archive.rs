@@ -293,12 +293,7 @@ mod tests {
             B3Hash::from_hex("2222222222222222222222222222222222222222222222222222222222222222")
                 .unwrap();
 
-        GoldenRunArchive::with_routing_decisions(
-            metadata,
-            epsilon_stats,
-            bundle_hash,
-            Vec::new(),
-        )
+        GoldenRunArchive::with_routing_decisions(metadata, epsilon_stats, bundle_hash, Vec::new())
     }
 
     #[test]

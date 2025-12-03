@@ -1,7 +1,7 @@
 //! Replay system for determinism verification
 
-use adapteros_core::{AosError, B3Hash, Result};
 use crate::events::RouterDecisionEvent;
+use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader};

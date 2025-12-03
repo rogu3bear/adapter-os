@@ -28,7 +28,10 @@ async fn test_storage_monitor_creation() -> Result<()> {
     };
 
     let monitor = StorageMonitor::new(&config, temp_dir.path())?;
-    assert!(monitor.get_usage().await.is_ok(), "Monitor should be created successfully");
+    assert!(
+        monitor.get_usage().await.is_ok(),
+        "Monitor should be created successfully"
+    );
 
     Ok(())
 }

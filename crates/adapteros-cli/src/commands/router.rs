@@ -276,8 +276,12 @@ fn decisions(args: DecisionsArgs) -> Result<()> {
     rt.block_on(async {
         // Connect to database
         println!("Connecting to database: {:?}", args.db);
-        let db_path_str = args.db.to_str()
-            .ok_or_else(|| anyhow::anyhow!("Database path contains invalid UTF-8: {}", args.db.display()))?;
+        let db_path_str = args.db.to_str().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Database path contains invalid UTF-8: {}",
+                args.db.display()
+            )
+        })?;
         let db = Db::connect(db_path_str)
             .await
             .context("Failed to connect to database")?;

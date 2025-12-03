@@ -509,11 +509,15 @@ mod tests {
         // Test user-specific directories (absolute paths with tilde expansion)
         let user_cache_dir = PlatformUtils::aos_user_cache_dir()?;
         assert!(user_cache_dir.is_absolute());
-        assert!(user_cache_dir.to_string_lossy().ends_with(".cache/adapteros"));
+        assert!(user_cache_dir
+            .to_string_lossy()
+            .ends_with(".cache/adapteros"));
 
         let user_config_dir = PlatformUtils::aos_user_config_dir()?;
         assert!(user_config_dir.is_absolute());
-        assert!(user_config_dir.to_string_lossy().ends_with(".config/adapteros"));
+        assert!(user_config_dir
+            .to_string_lossy()
+            .ends_with(".config/adapteros"));
 
         Ok(())
     }

@@ -101,21 +101,33 @@ impl axum::response::IntoResponse for ErrorResponse {
         use axum::http::StatusCode;
         let status = match self.code.as_str() {
             // 401 Unauthorized
-            "UNAUTHORIZED" | "TOKEN_EXPIRED" | "TOKEN_REVOKED" | "INVALID_TOKEN"
-            | "MISSING_AUTH" | "AUTHENTICATION_ERROR" => StatusCode::UNAUTHORIZED,
+            "UNAUTHORIZED"
+            | "TOKEN_EXPIRED"
+            | "TOKEN_REVOKED"
+            | "INVALID_TOKEN"
+            | "MISSING_AUTH"
+            | "AUTHENTICATION_ERROR" => StatusCode::UNAUTHORIZED,
 
             // 403 Forbidden
-            "FORBIDDEN" | "POLICY_VIOLATION" | "PERMISSION_DENIED" | "ISOLATION_VIOLATION"
-            | "EGRESS_VIOLATION" | "POLICY_HASH_MISMATCH" | "AUTHORIZATION_ERROR" => {
-                StatusCode::FORBIDDEN
-            }
+            "FORBIDDEN"
+            | "POLICY_VIOLATION"
+            | "PERMISSION_DENIED"
+            | "ISOLATION_VIOLATION"
+            | "EGRESS_VIOLATION"
+            | "POLICY_HASH_MISMATCH"
+            | "AUTHORIZATION_ERROR" => StatusCode::FORBIDDEN,
 
             // 404 Not Found
             "NOT_FOUND" | "ENDPOINT_NOT_FOUND" | "MODEL_NOT_FOUND" => StatusCode::NOT_FOUND,
 
             // 400 Bad Request
-            "BAD_REQUEST" | "VALIDATION_ERROR" | "API_USAGE_ERROR" | "INVALID_INPUT"
-            | "INVALID_MANIFEST" | "PARSE_ERROR" | "CHAT_TEMPLATE_ERROR" => StatusCode::BAD_REQUEST,
+            "BAD_REQUEST"
+            | "VALIDATION_ERROR"
+            | "API_USAGE_ERROR"
+            | "INVALID_INPUT"
+            | "INVALID_MANIFEST"
+            | "PARSE_ERROR"
+            | "CHAT_TEMPLATE_ERROR" => StatusCode::BAD_REQUEST,
 
             // 409 Conflict
             "CONFLICT" | "MODEL_ACQUISITION_IN_PROGRESS" | "ADAPTER_HASH_MISMATCH" => {
@@ -134,10 +146,13 @@ impl axum::response::IntoResponse for ErrorResponse {
             "NOT_IMPLEMENTED" | "FEATURE_DISABLED" => StatusCode::NOT_IMPLEMENTED,
 
             // 502 Bad Gateway
-            "BAD_GATEWAY" | "NETWORK_ERROR" | "WORKER_NOT_RESPONDING" | "CIRCUIT_BREAKER_OPEN"
-            | "CIRCUIT_BREAKER_HALF_OPEN" | "DOWNLOAD_FAILED" | "HEALTH_CHECK_FAILED" => {
-                StatusCode::BAD_GATEWAY
-            }
+            "BAD_GATEWAY"
+            | "NETWORK_ERROR"
+            | "WORKER_NOT_RESPONDING"
+            | "CIRCUIT_BREAKER_OPEN"
+            | "CIRCUIT_BREAKER_HALF_OPEN"
+            | "DOWNLOAD_FAILED"
+            | "HEALTH_CHECK_FAILED" => StatusCode::BAD_GATEWAY,
 
             // 503 Service Unavailable
             "SERVICE_UNAVAILABLE" | "DRAINING" | "MEMORY_PRESSURE" | "SYSTEM_QUARANTINED" => {
@@ -148,14 +163,31 @@ impl axum::response::IntoResponse for ErrorResponse {
             "TIMEOUT" | "GATEWAY_TIMEOUT" => StatusCode::GATEWAY_TIMEOUT,
 
             // 500 Internal Server Error (default)
-            "DATABASE_ERROR" | "INTERNAL_ERROR" | "IO_ERROR" | "CRYPTO_ERROR"
-            | "SERIALIZATION_ERROR" | "METAL_ERROR" | "COREML_ERROR" | "MLX_ERROR"
-            | "WORKER_ERROR" | "TRAINING_ERROR" | "KERNEL_ERROR" | "DETERMINISM_ERROR"
-            | "ROUTING_ERROR" | "FEDERATION_ERROR" | "LIFECYCLE_ERROR" | "CONFIG_ERROR"
-            | "REGISTRY_ERROR" | "GIT_ERROR" | "RAG_ERROR" | "TELEMETRY_ERROR" | "REPLAY_ERROR"
-            | "VERIFICATION_ERROR" | "CACHE_CORRUPTION" | "INVALID_SEALED_DATA" | _ => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            "DATABASE_ERROR"
+            | "INTERNAL_ERROR"
+            | "IO_ERROR"
+            | "CRYPTO_ERROR"
+            | "SERIALIZATION_ERROR"
+            | "METAL_ERROR"
+            | "COREML_ERROR"
+            | "MLX_ERROR"
+            | "WORKER_ERROR"
+            | "TRAINING_ERROR"
+            | "KERNEL_ERROR"
+            | "DETERMINISM_ERROR"
+            | "ROUTING_ERROR"
+            | "FEDERATION_ERROR"
+            | "LIFECYCLE_ERROR"
+            | "CONFIG_ERROR"
+            | "REGISTRY_ERROR"
+            | "GIT_ERROR"
+            | "RAG_ERROR"
+            | "TELEMETRY_ERROR"
+            | "REPLAY_ERROR"
+            | "VERIFICATION_ERROR"
+            | "CACHE_CORRUPTION"
+            | "INVALID_SEALED_DATA"
+            | _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         (status, axum::Json(self)).into_response()

@@ -79,8 +79,9 @@ impl<T: Serialize> VersionedRecord<T> {
     ///
     /// Returns `StorageError::SerializationError` if bincode serialization fails
     pub fn serialize(&self) -> Result<Vec<u8>, StorageError> {
-        bincode::serialize(self)
-            .map_err(|e| StorageError::SerializationError(format!("Bincode serialization failed: {}", e)))
+        bincode::serialize(self).map_err(|e| {
+            StorageError::SerializationError(format!("Bincode serialization failed: {}", e))
+        })
     }
 
     /// Get the creation timestamp as a DateTime

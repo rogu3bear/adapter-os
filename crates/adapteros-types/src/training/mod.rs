@@ -33,6 +33,8 @@ pub enum TrainingJobStatus {
     Running,
     /// Job temporarily paused (can resume from checkpoint)
     Paused,
+    /// Cancel sent, awaiting worker confirmation
+    CancelPending,
     /// Job completed successfully
     Completed,
     /// Job failed during execution
@@ -54,7 +56,10 @@ impl TrainingJobStatus {
     pub fn is_active(&self) -> bool {
         matches!(
             self,
-            TrainingJobStatus::Pending | TrainingJobStatus::Running | TrainingJobStatus::Paused
+            TrainingJobStatus::Pending
+                | TrainingJobStatus::Running
+                | TrainingJobStatus::Paused
+                | TrainingJobStatus::CancelPending
         )
     }
 }
@@ -65,6 +70,7 @@ impl std::fmt::Display for TrainingJobStatus {
             TrainingJobStatus::Pending => write!(f, "pending"),
             TrainingJobStatus::Running => write!(f, "running"),
             TrainingJobStatus::Paused => write!(f, "paused"),
+            TrainingJobStatus::CancelPending => write!(f, "cancelpending"),
             TrainingJobStatus::Completed => write!(f, "completed"),
             TrainingJobStatus::Failed => write!(f, "failed"),
             TrainingJobStatus::Cancelled => write!(f, "cancelled"),
@@ -214,7 +220,10 @@ pub struct TrainingJob {
     pub language: Option<String>,
 
     /// Symbol targets (for code adapters) - JSON array
-    #[serde(rename = "symbol_targets_json", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "symbol_targets_json",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub symbol_targets_json: Option<String>,
 
     /// Framework ID (for framework adapters)
@@ -238,12 +247,23 @@ pub struct TrainingJob {
     pub file_patterns_json: Option<String>,
 
     /// File patterns to exclude (for codebase adapters) - JSON array
-    #[serde(rename = "exclude_patterns_json", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "exclude_patterns_json",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub exclude_patterns_json: Option<String>,
 
     /// Post-training actions configuration - JSON
     #[serde(rename = "post_actions_json", skip_serializing_if = "Option::is_none")]
     pub post_actions_json: Option<String>,
+
+    /// Whether failed job can be retried
+    #[serde(rename = "retryable", skip_serializing_if = "Option::is_none")]
+    pub retryable: Option<bool>,
+
+    /// If this is a retry, the original job ID
+    #[serde(rename = "retry_of_job_id", skip_serializing_if = "Option::is_none")]
+    pub retry_of_job_id: Option<String>,
 }
 
 impl TrainingJob {
@@ -292,6 +312,9 @@ impl TrainingJob {
             file_patterns_json: None,
             exclude_patterns_json: None,
             post_actions_json: None,
+            // Retry metadata
+            retryable: None,
+            retry_of_job_id: None,
         }
     }
 
@@ -718,6 +741,10 @@ mod tests {
         assert_eq!(TrainingJobStatus::Pending.to_string(), "pending");
         assert_eq!(TrainingJobStatus::Running.to_string(), "running");
         assert_eq!(TrainingJobStatus::Paused.to_string(), "paused");
+        assert_eq!(
+            TrainingJobStatus::CancelPending.to_string(),
+            "cancelpending"
+        );
         assert_eq!(TrainingJobStatus::Completed.to_string(), "completed");
         assert_eq!(TrainingJobStatus::Failed.to_string(), "failed");
         assert_eq!(TrainingJobStatus::Cancelled.to_string(), "cancelled");
@@ -728,9 +755,21 @@ mod tests {
         assert!(!TrainingJobStatus::Pending.is_terminal());
         assert!(!TrainingJobStatus::Running.is_terminal());
         assert!(!TrainingJobStatus::Paused.is_terminal());
+        assert!(!TrainingJobStatus::CancelPending.is_terminal());
         assert!(TrainingJobStatus::Completed.is_terminal());
         assert!(TrainingJobStatus::Failed.is_terminal());
         assert!(TrainingJobStatus::Cancelled.is_terminal());
+    }
+
+    #[test]
+    fn test_training_job_status_active() {
+        assert!(TrainingJobStatus::Pending.is_active());
+        assert!(TrainingJobStatus::Running.is_active());
+        assert!(TrainingJobStatus::Paused.is_active());
+        assert!(TrainingJobStatus::CancelPending.is_active());
+        assert!(!TrainingJobStatus::Completed.is_active());
+        assert!(!TrainingJobStatus::Failed.is_active());
+        assert!(!TrainingJobStatus::Cancelled.is_active());
     }
 
     #[test]

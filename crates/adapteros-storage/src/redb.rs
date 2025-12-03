@@ -38,24 +38,22 @@ impl RedbBackend {
             .map_err(|e| StorageError::BackendError(format!("Failed to create database: {}", e)))?;
 
         // Initialize tables
-        let write_txn = db
-            .begin_write()
-            .map_err(|e| StorageError::BackendError(format!("Failed to begin write transaction: {}", e)))?;
+        let write_txn = db.begin_write().map_err(|e| {
+            StorageError::BackendError(format!("Failed to begin write transaction: {}", e))
+        })?;
         {
-            write_txn
-                .open_table(DATA_TABLE)
-                .map_err(|e| StorageError::BackendError(format!("Failed to open data table: {}", e)))?;
-            write_txn
-                .open_table(SETS_TABLE)
-                .map_err(|e| StorageError::BackendError(format!("Failed to open sets table: {}", e)))?;
+            write_txn.open_table(DATA_TABLE).map_err(|e| {
+                StorageError::BackendError(format!("Failed to open data table: {}", e))
+            })?;
+            write_txn.open_table(SETS_TABLE).map_err(|e| {
+                StorageError::BackendError(format!("Failed to open sets table: {}", e))
+            })?;
         }
-        write_txn
-            .commit()
-            .map_err(|e| StorageError::BackendError(format!("Failed to commit table creation: {}", e)))?;
+        write_txn.commit().map_err(|e| {
+            StorageError::BackendError(format!("Failed to commit table creation: {}", e))
+        })?;
 
-        Ok(Self {
-            db: Arc::new(db),
-        })
+        Ok(Self { db: Arc::new(db) })
     }
 
     /// Open an in-memory database for testing
@@ -65,27 +63,27 @@ impl RedbBackend {
     pub fn open_in_memory() -> Result<Self, StorageError> {
         let db = Database::builder()
             .create_with_backend(redb::backends::InMemoryBackend::new())
-            .map_err(|e| StorageError::BackendError(format!("Failed to create in-memory database: {}", e)))?;
+            .map_err(|e| {
+                StorageError::BackendError(format!("Failed to create in-memory database: {}", e))
+            })?;
 
         // Initialize tables
-        let write_txn = db
-            .begin_write()
-            .map_err(|e| StorageError::BackendError(format!("Failed to begin write transaction: {}", e)))?;
+        let write_txn = db.begin_write().map_err(|e| {
+            StorageError::BackendError(format!("Failed to begin write transaction: {}", e))
+        })?;
         {
-            write_txn
-                .open_table(DATA_TABLE)
-                .map_err(|e| StorageError::BackendError(format!("Failed to open data table: {}", e)))?;
-            write_txn
-                .open_table(SETS_TABLE)
-                .map_err(|e| StorageError::BackendError(format!("Failed to open sets table: {}", e)))?;
+            write_txn.open_table(DATA_TABLE).map_err(|e| {
+                StorageError::BackendError(format!("Failed to open data table: {}", e))
+            })?;
+            write_txn.open_table(SETS_TABLE).map_err(|e| {
+                StorageError::BackendError(format!("Failed to open sets table: {}", e))
+            })?;
         }
-        write_txn
-            .commit()
-            .map_err(|e| StorageError::BackendError(format!("Failed to commit table creation: {}", e)))?;
+        write_txn.commit().map_err(|e| {
+            StorageError::BackendError(format!("Failed to commit table creation: {}", e))
+        })?;
 
-        Ok(Self {
-            db: Arc::new(db),
-        })
+        Ok(Self { db: Arc::new(db) })
     }
 
     /// Get set member key
@@ -111,24 +109,25 @@ impl RedbBackend {
         let prefix_owned = prefix.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin read transaction: {}", e)))?;
+            let read_txn = db.begin_read().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin read transaction: {}", e))
+            })?;
 
-            let table = read_txn
-                .open_table(DATA_TABLE)
-                .map_err(|e| StorageError::BackendError(format!("Failed to open data table: {}", e)))?;
+            let table = read_txn.open_table(DATA_TABLE).map_err(|e| {
+                StorageError::BackendError(format!("Failed to open data table: {}", e))
+            })?;
 
             let mut results = Vec::new();
             let mut count = 0;
 
-            let iter = table
-                .iter()
-                .map_err(|e| StorageError::BackendError(format!("Failed to iterate table: {}", e)))?;
+            let iter = table.iter().map_err(|e| {
+                StorageError::BackendError(format!("Failed to iterate table: {}", e))
+            })?;
 
             for item in iter {
-                let (key, value) = item
-                    .map_err(|e| StorageError::BackendError(format!("Failed to read item: {}", e)))?;
+                let (key, value) = item.map_err(|e| {
+                    StorageError::BackendError(format!("Failed to read item: {}", e))
+                })?;
 
                 let key_str = key.value();
                 if key_str.starts_with(&prefix_owned) {
@@ -159,24 +158,27 @@ impl RedbBackend {
         let end_owned = end.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin read transaction: {}", e)))?;
+            let read_txn = db.begin_read().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin read transaction: {}", e))
+            })?;
 
-            let table = read_txn
-                .open_table(DATA_TABLE)
-                .map_err(|e| StorageError::BackendError(format!("Failed to open data table: {}", e)))?;
+            let table = read_txn.open_table(DATA_TABLE).map_err(|e| {
+                StorageError::BackendError(format!("Failed to open data table: {}", e))
+            })?;
 
             let mut results = Vec::new();
             let mut count = 0;
 
             let iter = table
                 .range(start_owned.as_str()..end_owned.as_str())
-                .map_err(|e| StorageError::BackendError(format!("Failed to create range iterator: {}", e)))?;
+                .map_err(|e| {
+                    StorageError::BackendError(format!("Failed to create range iterator: {}", e))
+                })?;
 
             for item in iter {
-                let (key, value) = item
-                    .map_err(|e| StorageError::BackendError(format!("Failed to read item: {}", e)))?;
+                let (key, value) = item.map_err(|e| {
+                    StorageError::BackendError(format!("Failed to read item: {}", e))
+                })?;
 
                 results.push((key.value().to_string(), value.value().to_vec()));
                 count += 1;
@@ -200,13 +202,13 @@ impl KvBackend for RedbBackend {
         let key_owned = key.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin read transaction: {}", e)))?;
+            let read_txn = db.begin_read().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin read transaction: {}", e))
+            })?;
 
-            let table = read_txn
-                .open_table(DATA_TABLE)
-                .map_err(|e| StorageError::BackendError(format!("Failed to open data table: {}", e)))?;
+            let table = read_txn.open_table(DATA_TABLE).map_err(|e| {
+                StorageError::BackendError(format!("Failed to open data table: {}", e))
+            })?;
 
             match table.get(key_owned.as_str()) {
                 Ok(Some(value)) => {
@@ -214,7 +216,10 @@ impl KvBackend for RedbBackend {
                     Ok(Some(bytes))
                 }
                 Ok(None) => Ok(None),
-                Err(e) => Err(StorageError::BackendError(format!("Failed to get value: {}", e))),
+                Err(e) => Err(StorageError::BackendError(format!(
+                    "Failed to get value: {}",
+                    e
+                ))),
             }
         })
         .await
@@ -226,23 +231,25 @@ impl KvBackend for RedbBackend {
         let key_owned = key.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin write transaction: {}", e)))?;
+            let write_txn = db.begin_write().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin write transaction: {}", e))
+            })?;
 
             {
-                let mut table = write_txn
-                    .open_table(DATA_TABLE)
-                    .map_err(|e| StorageError::BackendError(format!("Failed to open data table: {}", e)))?;
+                let mut table = write_txn.open_table(DATA_TABLE).map_err(|e| {
+                    StorageError::BackendError(format!("Failed to open data table: {}", e))
+                })?;
 
                 table
                     .insert(key_owned.as_str(), value.as_slice())
-                    .map_err(|e| StorageError::BackendError(format!("Failed to insert value: {}", e)))?;
+                    .map_err(|e| {
+                        StorageError::BackendError(format!("Failed to insert value: {}", e))
+                    })?;
             }
 
-            write_txn
-                .commit()
-                .map_err(|e| StorageError::BackendError(format!("Failed to commit transaction: {}", e)))?;
+            write_txn.commit().map_err(|e| {
+                StorageError::BackendError(format!("Failed to commit transaction: {}", e))
+            })?;
 
             Ok(())
         })
@@ -255,24 +262,24 @@ impl KvBackend for RedbBackend {
         let key_owned = key.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin write transaction: {}", e)))?;
+            let write_txn = db.begin_write().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin write transaction: {}", e))
+            })?;
 
             let existed = {
-                let mut table = write_txn
-                    .open_table(DATA_TABLE)
-                    .map_err(|e| StorageError::BackendError(format!("Failed to open data table: {}", e)))?;
+                let mut table = write_txn.open_table(DATA_TABLE).map_err(|e| {
+                    StorageError::BackendError(format!("Failed to open data table: {}", e))
+                })?;
 
-                let removed = table
-                    .remove(key_owned.as_str())
-                    .map_err(|e| StorageError::BackendError(format!("Failed to remove value: {}", e)))?;
+                let removed = table.remove(key_owned.as_str()).map_err(|e| {
+                    StorageError::BackendError(format!("Failed to remove value: {}", e))
+                })?;
                 removed.is_some()
             };
 
-            write_txn
-                .commit()
-                .map_err(|e| StorageError::BackendError(format!("Failed to commit transaction: {}", e)))?;
+            write_txn.commit().map_err(|e| {
+                StorageError::BackendError(format!("Failed to commit transaction: {}", e))
+            })?;
 
             Ok(existed)
         })
@@ -290,23 +297,24 @@ impl KvBackend for RedbBackend {
         let prefix_owned = prefix.to_string();
 
         tokio::task::spawn_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin read transaction: {}", e)))?;
+            let read_txn = db.begin_read().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin read transaction: {}", e))
+            })?;
 
-            let table = read_txn
-                .open_table(DATA_TABLE)
-                .map_err(|e| StorageError::BackendError(format!("Failed to open data table: {}", e)))?;
+            let table = read_txn.open_table(DATA_TABLE).map_err(|e| {
+                StorageError::BackendError(format!("Failed to open data table: {}", e))
+            })?;
 
             let mut results = Vec::new();
 
-            let iter = table
-                .iter()
-                .map_err(|e| StorageError::BackendError(format!("Failed to iterate table: {}", e)))?;
+            let iter = table.iter().map_err(|e| {
+                StorageError::BackendError(format!("Failed to iterate table: {}", e))
+            })?;
 
             for item in iter {
-                let (key, _value) = item
-                    .map_err(|e| StorageError::BackendError(format!("Failed to read item: {}", e)))?;
+                let (key, _value) = item.map_err(|e| {
+                    StorageError::BackendError(format!("Failed to read item: {}", e))
+                })?;
 
                 let key_str = key.value();
                 if key_str.starts_with(&prefix_owned) {
@@ -336,25 +344,25 @@ impl KvBackend for RedbBackend {
         let db = self.db.clone();
 
         tokio::task::spawn_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin write transaction: {}", e)))?;
+            let write_txn = db.begin_write().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin write transaction: {}", e))
+            })?;
 
             {
-                let mut table = write_txn
-                    .open_table(DATA_TABLE)
-                    .map_err(|e| StorageError::BackendError(format!("Failed to open data table: {}", e)))?;
+                let mut table = write_txn.open_table(DATA_TABLE).map_err(|e| {
+                    StorageError::BackendError(format!("Failed to open data table: {}", e))
+                })?;
 
                 for (key, value) in pairs {
-                    table
-                        .insert(key.as_str(), value.as_slice())
-                        .map_err(|e| StorageError::BackendError(format!("Failed to insert value: {}", e)))?;
+                    table.insert(key.as_str(), value.as_slice()).map_err(|e| {
+                        StorageError::BackendError(format!("Failed to insert value: {}", e))
+                    })?;
                 }
             }
 
-            write_txn
-                .commit()
-                .map_err(|e| StorageError::BackendError(format!("Failed to commit batch: {}", e)))?;
+            write_txn.commit().map_err(|e| {
+                StorageError::BackendError(format!("Failed to commit batch: {}", e))
+            })?;
 
             Ok(())
         })
@@ -371,21 +379,23 @@ impl KvBackend for RedbBackend {
         let keys_owned: Vec<String> = keys.to_vec();
 
         tokio::task::spawn_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin write transaction: {}", e)))?;
+            let write_txn = db.begin_write().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin write transaction: {}", e))
+            })?;
 
             let mut deleted_count = 0;
 
             {
-                let mut table = write_txn
-                    .open_table(DATA_TABLE)
-                    .map_err(|e| StorageError::BackendError(format!("Failed to open data table: {}", e)))?;
+                let mut table = write_txn.open_table(DATA_TABLE).map_err(|e| {
+                    StorageError::BackendError(format!("Failed to open data table: {}", e))
+                })?;
 
                 for key in keys_owned {
                     if table
                         .remove(key.as_str())
-                        .map_err(|e| StorageError::BackendError(format!("Failed to remove value: {}", e)))?
+                        .map_err(|e| {
+                            StorageError::BackendError(format!("Failed to remove value: {}", e))
+                        })?
                         .is_some()
                     {
                         deleted_count += 1;
@@ -393,9 +403,9 @@ impl KvBackend for RedbBackend {
                 }
             }
 
-            write_txn
-                .commit()
-                .map_err(|e| StorageError::BackendError(format!("Failed to commit batch delete: {}", e)))?;
+            write_txn.commit().map_err(|e| {
+                StorageError::BackendError(format!("Failed to commit batch delete: {}", e))
+            })?;
 
             Ok(deleted_count)
         })
@@ -408,23 +418,23 @@ impl KvBackend for RedbBackend {
         let composite_key = Self::set_member_key(key, member);
 
         tokio::task::spawn_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin write transaction: {}", e)))?;
+            let write_txn = db.begin_write().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin write transaction: {}", e))
+            })?;
 
             {
-                let mut table = write_txn
-                    .open_table(SETS_TABLE)
-                    .map_err(|e| StorageError::BackendError(format!("Failed to open sets table: {}", e)))?;
+                let mut table = write_txn.open_table(SETS_TABLE).map_err(|e| {
+                    StorageError::BackendError(format!("Failed to open sets table: {}", e))
+                })?;
 
-                table
-                    .insert(composite_key.as_str(), "1")
-                    .map_err(|e| StorageError::BackendError(format!("Failed to add set member: {}", e)))?;
+                table.insert(composite_key.as_str(), "1").map_err(|e| {
+                    StorageError::BackendError(format!("Failed to add set member: {}", e))
+                })?;
             }
 
-            write_txn
-                .commit()
-                .map_err(|e| StorageError::BackendError(format!("Failed to commit transaction: {}", e)))?;
+            write_txn.commit().map_err(|e| {
+                StorageError::BackendError(format!("Failed to commit transaction: {}", e))
+            })?;
 
             Ok(())
         })
@@ -437,23 +447,23 @@ impl KvBackend for RedbBackend {
         let composite_key = Self::set_member_key(key, member);
 
         tokio::task::spawn_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin write transaction: {}", e)))?;
+            let write_txn = db.begin_write().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin write transaction: {}", e))
+            })?;
 
             {
-                let mut table = write_txn
-                    .open_table(SETS_TABLE)
-                    .map_err(|e| StorageError::BackendError(format!("Failed to open sets table: {}", e)))?;
+                let mut table = write_txn.open_table(SETS_TABLE).map_err(|e| {
+                    StorageError::BackendError(format!("Failed to open sets table: {}", e))
+                })?;
 
-                table
-                    .remove(composite_key.as_str())
-                    .map_err(|e| StorageError::BackendError(format!("Failed to remove set member: {}", e)))?;
+                table.remove(composite_key.as_str()).map_err(|e| {
+                    StorageError::BackendError(format!("Failed to remove set member: {}", e))
+                })?;
             }
 
-            write_txn
-                .commit()
-                .map_err(|e| StorageError::BackendError(format!("Failed to commit transaction: {}", e)))?;
+            write_txn.commit().map_err(|e| {
+                StorageError::BackendError(format!("Failed to commit transaction: {}", e))
+            })?;
 
             Ok(())
         })
@@ -467,23 +477,24 @@ impl KvBackend for RedbBackend {
         let prefix_len = prefix.len();
 
         tokio::task::spawn_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin read transaction: {}", e)))?;
+            let read_txn = db.begin_read().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin read transaction: {}", e))
+            })?;
 
-            let table = read_txn
-                .open_table(SETS_TABLE)
-                .map_err(|e| StorageError::BackendError(format!("Failed to open sets table: {}", e)))?;
+            let table = read_txn.open_table(SETS_TABLE).map_err(|e| {
+                StorageError::BackendError(format!("Failed to open sets table: {}", e))
+            })?;
 
             let mut members = Vec::new();
 
-            let iter = table
-                .iter()
-                .map_err(|e| StorageError::BackendError(format!("Failed to iterate sets table: {}", e)))?;
+            let iter = table.iter().map_err(|e| {
+                StorageError::BackendError(format!("Failed to iterate sets table: {}", e))
+            })?;
 
             for item in iter {
-                let (key_guard, _) = item
-                    .map_err(|e| StorageError::BackendError(format!("Failed to read item: {}", e)))?;
+                let (key_guard, _) = item.map_err(|e| {
+                    StorageError::BackendError(format!("Failed to read item: {}", e))
+                })?;
 
                 let key_str = key_guard.value();
                 if key_str.starts_with(&prefix) {
@@ -504,13 +515,13 @@ impl KvBackend for RedbBackend {
         let composite_key = Self::set_member_key(key, member);
 
         tokio::task::spawn_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| StorageError::BackendError(format!("Failed to begin read transaction: {}", e)))?;
+            let read_txn = db.begin_read().map_err(|e| {
+                StorageError::BackendError(format!("Failed to begin read transaction: {}", e))
+            })?;
 
-            let table = read_txn
-                .open_table(SETS_TABLE)
-                .map_err(|e| StorageError::BackendError(format!("Failed to open sets table: {}", e)))?;
+            let table = read_txn.open_table(SETS_TABLE).map_err(|e| {
+                StorageError::BackendError(format!("Failed to open sets table: {}", e))
+            })?;
 
             let exists = table
                 .get(composite_key.as_str())

@@ -67,6 +67,12 @@ pub struct AdapterKv {
     pub version: String,
     pub lifecycle_state: String,
 
+    // Archive/GC state (from migration 0138)
+    pub archived_at: Option<String>,
+    pub archived_by: Option<String>,
+    pub archive_reason: Option<String>,
+    pub purged_at: Option<String>,
+
     // Timestamps
     pub created_at: String,
     pub updated_at: String,

@@ -38,6 +38,12 @@ pub struct InferRequest {
     /// Tenant ID (usually extracted from JWT claims, but can be explicit)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tenant_id: Option<String>,
+    /// Enable RAG context retrieval for this inference request
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rag_enabled: Option<bool>,
+    /// Collection ID for scoped RAG retrieval (requires rag_enabled = true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<String>,
 }
 
 /// Inference response
@@ -67,6 +73,19 @@ pub struct InferResponse {
     /// Error message if inference failed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Pinned adapters that were unavailable for this inference (CHAT-PIN-02)
+    ///
+    /// These are adapters that were in the session's pinned set but were not
+    /// available in the candidate adapter set. Returned for UI warning display.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unavailable_pinned_adapters: Option<Vec<String>>,
+    /// Routing fallback mode when pinned adapters are unavailable (PRD-6A)
+    ///
+    /// - `None`: All pinned adapters were available (or no pins configured)
+    /// - `Some("partial")`: Some pinned adapters unavailable, using available pins + stack
+    /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_routing_fallback: Option<String>,
 }
 
 /// Inference trace for observability

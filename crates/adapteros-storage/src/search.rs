@@ -151,7 +151,10 @@ impl SearchService {
         std::fs::create_dir_all(path)?;
 
         let schema = Self::build_schema();
-        let index = Index::open_or_create(tantivy::directory::MmapDirectory::open(path)?, schema.clone())?;
+        let index = Index::open_or_create(
+            tantivy::directory::MmapDirectory::open(path)?,
+            schema.clone(),
+        )?;
 
         let writer = index.writer(50_000_000)?; // 50MB buffer
 
@@ -286,9 +289,10 @@ impl SearchService {
         doc.add_text(self.chunk_hash_field, "");
         doc.add_text(self.vector_field, "");
 
-        let mut writer = self.writer.lock().map_err(|e| {
-            SearchError::LockError(format!("Failed to lock writer: {}", e))
-        })?;
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|e| SearchError::LockError(format!("Failed to lock writer: {}", e)))?;
 
         writer.add_document(doc)?;
         writer.commit()?;
@@ -310,7 +314,10 @@ impl SearchService {
         doc.add_text(self.content_field, &chunk.text);
         doc.add_text(self.document_id_field, &chunk.document_id);
         doc.add_i64(self.chunk_index_field, chunk.chunk_index as i64);
-        doc.add_i64(self.page_number_field, chunk.page_number.unwrap_or(0) as i64);
+        doc.add_i64(
+            self.page_number_field,
+            chunk.page_number.unwrap_or(0) as i64,
+        );
         doc.add_text(self.chunk_hash_field, &chunk.chunk_hash);
 
         // Serialize vector as JSON string
@@ -323,9 +330,10 @@ impl SearchService {
         doc.add_text(self.role_field, "");
         doc.add_i64(self.timestamp_field, 0);
 
-        let mut writer = self.writer.lock().map_err(|e| {
-            SearchError::LockError(format!("Failed to lock writer: {}", e))
-        })?;
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|e| SearchError::LockError(format!("Failed to lock writer: {}", e)))?;
 
         writer.add_document(doc)?;
         writer.commit()?;
@@ -341,7 +349,8 @@ impl SearchService {
         query: &str,
         limit: usize,
     ) -> Result<Vec<SearchResult>, SearchError> {
-        let reader = self.index
+        let reader = self
+            .index
             .reader_builder()
             .reload_policy(ReloadPolicy::OnCommitWithDelay)
             .try_into()
@@ -350,10 +359,8 @@ impl SearchService {
         let searcher = reader.searcher();
 
         // Build query with tenant isolation
-        let query_parser = tantivy::query::QueryParser::for_index(
-            &self.index,
-            vec![self.content_field],
-        );
+        let query_parser =
+            tantivy::query::QueryParser::for_index(&self.index, vec![self.content_field]);
 
         let text_query = query_parser.parse_query(query)?;
 
@@ -364,8 +371,14 @@ impl SearchService {
         );
 
         let combined_query = tantivy::query::BooleanQuery::new(vec![
-            (tantivy::query::Occur::Must, Box::new(text_query) as Box<dyn tantivy::query::Query>),
-            (tantivy::query::Occur::Must, Box::new(tenant_query) as Box<dyn tantivy::query::Query>),
+            (
+                tantivy::query::Occur::Must,
+                Box::new(text_query) as Box<dyn tantivy::query::Query>,
+            ),
+            (
+                tantivy::query::Occur::Must,
+                Box::new(tenant_query) as Box<dyn tantivy::query::Query>,
+            ),
         ]);
 
         let top_docs = searcher.search(
@@ -410,7 +423,12 @@ impl SearchService {
             });
         }
 
-        debug!(tenant_id, query, results_count = results.len(), "Full-text search completed");
+        debug!(
+            tenant_id,
+            query,
+            results_count = results.len(),
+            "Full-text search completed"
+        );
         Ok(results)
     }
 
@@ -425,7 +443,8 @@ impl SearchService {
         embedding: &[f32],
         top_k: usize,
     ) -> Result<Vec<VectorSearchResult>, SearchError> {
-        let reader = self.index
+        let reader = self
+            .index
             .reader_builder()
             .reload_policy(ReloadPolicy::OnCommitWithDelay)
             .try_into()
@@ -445,8 +464,14 @@ impl SearchService {
         );
 
         let filter_query = tantivy::query::BooleanQuery::new(vec![
-            (tantivy::query::Occur::Must, Box::new(tenant_query) as Box<dyn tantivy::query::Query>),
-            (tantivy::query::Occur::Must, Box::new(type_query) as Box<dyn tantivy::query::Query>),
+            (
+                tantivy::query::Occur::Must,
+                Box::new(tenant_query) as Box<dyn tantivy::query::Query>,
+            ),
+            (
+                tantivy::query::Occur::Must,
+                Box::new(type_query) as Box<dyn tantivy::query::Query>,
+            ),
         ]);
 
         // Get all matching documents (we'll compute similarity manually)
@@ -529,7 +554,11 @@ impl SearchService {
             .map(|(_, result)| result)
             .collect();
 
-        debug!(tenant_id, results_count = results.len(), "Vector similarity search completed");
+        debug!(
+            tenant_id,
+            results_count = results.len(),
+            "Vector similarity search completed"
+        );
         Ok(results)
     }
 
@@ -543,11 +572,15 @@ impl SearchService {
     ) -> Result<Vec<HybridSearchResult>, SearchError> {
         // Run both searches
         let fts_results = self.search_text(tenant_id, query, limit * 2).await?;
-        let vector_results = self.search_similar(tenant_id, query_embedding, limit * 2).await?;
+        let vector_results = self
+            .search_similar(tenant_id, query_embedding, limit * 2)
+            .await?;
 
         // Combine results with normalized scores
-        let mut combined_scores: std::collections::HashMap<String, (f32, f32, SearchResult, Option<VectorSearchResult>)> =
-            std::collections::HashMap::new();
+        let mut combined_scores: std::collections::HashMap<
+            String,
+            (f32, f32, SearchResult, Option<VectorSearchResult>),
+        > = std::collections::HashMap::new();
 
         // Normalize FTS scores
         let max_fts_score = fts_results.iter().map(|r| r.score).fold(0.0f32, f32::max);
@@ -557,10 +590,7 @@ impl SearchService {
             } else {
                 0.0
             };
-            combined_scores.insert(
-                result.id.clone(),
-                (normalized_score, 0.0, result, None),
-            );
+            combined_scores.insert(result.id.clone(), (normalized_score, 0.0, result, None));
         }
 
         // Normalize vector scores (similarities are already in [0,1])
@@ -589,20 +619,22 @@ impl SearchService {
 
         let mut hybrid_results: Vec<HybridSearchResult> = combined_scores
             .into_iter()
-            .map(|(id, (fts_score, vector_score, search_result, vector_result))| {
-                let combined_score = (fts_score * fts_weight) + (vector_score * vector_weight);
+            .map(
+                |(id, (fts_score, vector_score, search_result, vector_result))| {
+                    let combined_score = (fts_score * fts_weight) + (vector_score * vector_weight);
 
-                HybridSearchResult {
-                    id: id.clone(),
-                    document_id: vector_result.as_ref().map(|v| v.document_id.clone()),
-                    score: combined_score,
-                    fts_score,
-                    vector_score,
-                    snippet: search_result.snippet,
-                    document_type: search_result.document_type,
-                    page_number: vector_result.and_then(|v| v.page_number),
-                }
-            })
+                    HybridSearchResult {
+                        id: id.clone(),
+                        document_id: vector_result.as_ref().map(|v| v.document_id.clone()),
+                        score: combined_score,
+                        fts_score,
+                        vector_score,
+                        snippet: search_result.snippet,
+                        document_type: search_result.document_type,
+                        page_number: vector_result.and_then(|v| v.page_number),
+                    }
+                },
+            )
             .collect();
 
         // Sort by combined score (descending) with deterministic tie-breaking
@@ -615,7 +647,12 @@ impl SearchService {
 
         hybrid_results.truncate(limit);
 
-        debug!(tenant_id, query, results_count = hybrid_results.len(), "Hybrid search completed");
+        debug!(
+            tenant_id,
+            query,
+            results_count = hybrid_results.len(),
+            "Hybrid search completed"
+        );
         Ok(hybrid_results)
     }
 
@@ -647,9 +684,10 @@ impl SearchService {
 
     /// Delete a document from the index
     pub async fn delete_document(&self, id: &str) -> Result<(), SearchError> {
-        let mut writer = self.writer.lock().map_err(|e| {
-            SearchError::LockError(format!("Failed to lock writer: {}", e))
-        })?;
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|e| SearchError::LockError(format!("Failed to lock writer: {}", e)))?;
 
         writer.delete_term(Term::from_field_text(self.id_field, id));
         writer.commit()?;
@@ -662,9 +700,10 @@ impl SearchService {
     /// Note: Full segment merging requires recreating the index writer.
     /// This is a basic optimization that commits pending changes.
     pub async fn optimize(&self) -> Result<(), SearchError> {
-        let mut writer = self.writer.lock().map_err(|e| {
-            SearchError::LockError(format!("Failed to lock writer: {}", e))
-        })?;
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|e| SearchError::LockError(format!("Failed to lock writer: {}", e)))?;
 
         // Commit any pending changes
         writer.commit()?;
@@ -675,7 +714,8 @@ impl SearchService {
 
     /// Get index statistics
     pub fn stats(&self) -> Result<IndexStats, SearchError> {
-        let reader = self.index
+        let reader = self
+            .index
             .reader_builder()
             .reload_policy(ReloadPolicy::OnCommitWithDelay)
             .try_into()
@@ -718,7 +758,10 @@ mod tests {
 
         service.index_chat_message(&message).await.unwrap();
 
-        let results = service.search_text("tenant_001", "router", 10).await.unwrap();
+        let results = service
+            .search_text("tenant_001", "router", 10)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "msg_001");
     }
@@ -733,15 +776,22 @@ mod tests {
             tenant_id: "tenant_001".to_string(),
             chunk_index: 0,
             page_number: Some(1),
-            text: "AdapterOS provides K-sparse routing for efficient adapter selection.".to_string(),
+            text: "AdapterOS provides K-sparse routing for efficient adapter selection."
+                .to_string(),
             chunk_hash: "abc123".to_string(),
         };
 
         let embedding = vec![0.1; 384]; // Dummy 384-dim embedding
 
-        service.index_document_chunk(&chunk, &embedding).await.unwrap();
+        service
+            .index_document_chunk(&chunk, &embedding)
+            .await
+            .unwrap();
 
-        let results = service.search_text("tenant_001", "routing", 10).await.unwrap();
+        let results = service
+            .search_text("tenant_001", "routing", 10)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "chunk_001");
     }
@@ -774,10 +824,19 @@ mod tests {
             chunk_hash: "hash2".to_string(),
         };
 
-        service.index_document_chunk(&chunk1, &embedding2).await.unwrap();
-        service.index_document_chunk(&chunk2, &embedding3).await.unwrap();
+        service
+            .index_document_chunk(&chunk1, &embedding2)
+            .await
+            .unwrap();
+        service
+            .index_document_chunk(&chunk2, &embedding3)
+            .await
+            .unwrap();
 
-        let results = service.search_similar("tenant_001", &embedding1, 2).await.unwrap();
+        let results = service
+            .search_similar("tenant_001", &embedding1, 2)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
         // chunk_001 should be more similar to embedding1
         assert_eq!(results[0].chunk_id, "chunk_001");

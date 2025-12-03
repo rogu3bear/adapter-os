@@ -74,6 +74,9 @@ pub struct PostActionsRequest {
     pub package: Option<bool>,
     /// Register adapter in registry after packaging (default: true)
     pub register: Option<bool>,
+    /// Create a new stack with the adapter after registration (default: true).
+    /// Note: The new stack will NOT be set as the tenant's default stack.
+    pub create_stack: Option<bool>,
     /// Tier to assign: persistent, warm, ephemeral (default: warm)
     pub tier: Option<String>,
     /// Custom adapters root directory

@@ -31,6 +31,8 @@ pub struct TenantKv {
 
     // Configuration
     pub default_stack_id: Option<String>,
+    /// Default pinned adapter IDs for new chat sessions (JSON array)
+    pub default_pinned_adapter_ids: Option<String>,
 
     // Quotas and limits
     pub max_adapters: Option<i32>,

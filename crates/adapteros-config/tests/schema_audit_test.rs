@@ -44,11 +44,7 @@ fn test_schema_has_all_categories() {
     ];
 
     for cat in expected {
-        assert!(
-            categories.contains(&cat),
-            "Missing category: {}",
-            cat
-        );
+        assert!(categories.contains(&cat), "Missing category: {}", cat);
     }
 }
 
@@ -173,12 +169,11 @@ fn test_runtime_config_tracks_unknown_vars() {
 
     let config = RuntimeConfig::from_env().expect("Should create config");
 
+    assert!(config.has_unknown_vars(), "Should detect unknown variables");
     assert!(
-        config.has_unknown_vars(),
-        "Should detect unknown variables"
-    );
-    assert!(
-        config.unknown_vars().contains(&"AOS_TOTALLY_FAKE_VARIABLE".to_string()),
+        config
+            .unknown_vars()
+            .contains(&"AOS_TOTALLY_FAKE_VARIABLE".to_string()),
         "Should list unknown variable"
     );
 

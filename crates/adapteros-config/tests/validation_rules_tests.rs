@@ -197,10 +197,7 @@ fn test_url_validation_sqlite_valid() {
         )
         .build();
 
-    assert!(
-        config.is_ok(),
-            "Valid SQLite URL should pass validation"
-    );
+    assert!(config.is_ok(), "Valid SQLite URL should pass validation");
 }
 
 #[test]

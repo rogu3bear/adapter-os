@@ -95,7 +95,10 @@ async fn run_migrate(
         let migrations_path = workspace_root.join("migrations");
 
         if !migrations_path.exists() {
-            anyhow::bail!("Migrations directory not found: {}", migrations_path.display());
+            anyhow::bail!(
+                "Migrations directory not found: {}",
+                migrations_path.display()
+            );
         }
 
         let verifier = MigrationVerifier::new(&migrations_path)?;

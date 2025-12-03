@@ -261,7 +261,9 @@ async fn attempt_fixes(
                     .map(PathBuf::from)
                     .or_else(|| std::env::var("AOS_MODEL_PATH").ok().map(PathBuf::from))
                     .or_else(|| std::env::var("AOS_MLX_FFI_MODEL").ok().map(PathBuf::from))
-                    .unwrap_or_else(|| PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"));
+                    .unwrap_or_else(|| {
+                        PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16")
+                    });
 
                 Some(download_model(model_path))
             }

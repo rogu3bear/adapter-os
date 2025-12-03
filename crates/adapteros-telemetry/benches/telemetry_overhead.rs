@@ -1,6 +1,6 @@
 //! Telemetry performance benchmarks
 //!
-//! Validates PRD-08 requirement: <1ms telemetry overhead
+//! Validates requirement: <1ms telemetry overhead
 
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_telemetry::{

@@ -18,13 +18,20 @@ async fn test_kv_cache_reset_on_swap() {
     assert!(cached_time < cold_time, "Cached should be faster");
 
     // Swap adapters (simulate hash change)
-    worker.hotswap.swap(vec!["new_adapter"], vec!["old_adapter"]).await.unwrap();
+    worker
+        .hotswap
+        .swap(vec!["new_adapter"], vec!["old_adapter"])
+        .await
+        .unwrap();
 
     // Third inference: After swap, should be cold again
     let start_time = Instant::now();
     let _result3 = worker.infer(prompt.to_string()).await.unwrap();
     let post_swap_time = start_time.elapsed();
-    assert!(post_swap_time > cached_time, "Post-swap should reset cache, slower like cold");
+    assert!(
+        post_swap_time > cached_time,
+        "Post-swap should reset cache, slower like cold"
+    );
 
     // Verify KV allocations cleared
     // assert!(worker.kv_cache.allocations.is_empty()); // If accessible

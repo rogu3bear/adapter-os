@@ -282,25 +282,21 @@ async fn test_tenant_isolation_policy() {
     println!("Testing Tenant Isolation Policy");
 
     // Create multiple tenants
-    sqlx::query(
-        "INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)"
-    )
-    .bind("tenant-iso-a")
-    .bind("Tenant Iso A")
-    .bind(0)
-    .execute(harness.db().pool())
-    .await
-    .expect("Failed to create tenant-iso-a");
+    sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)")
+        .bind("tenant-iso-a")
+        .bind("Tenant Iso A")
+        .bind(0)
+        .execute(harness.db().pool())
+        .await
+        .expect("Failed to create tenant-iso-a");
 
-    sqlx::query(
-        "INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)"
-    )
-    .bind("tenant-iso-b")
-    .bind("Tenant Iso B")
-    .bind(0)
-    .execute(harness.db().pool())
-    .await
-    .expect("Failed to create tenant-iso-b");
+    sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)")
+        .bind("tenant-iso-b")
+        .bind("Tenant Iso B")
+        .bind(0)
+        .execute(harness.db().pool())
+        .await
+        .expect("Failed to create tenant-iso-b");
 
     // Create adapters for each tenant
     sqlx::query(
@@ -336,13 +332,12 @@ async fn test_tenant_isolation_policy() {
     .expect("Failed to create adapter for tenant-iso-b");
 
     // Verify isolation: tenant-iso-a should only see its adapter
-    let tenant_a_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM adapters WHERE tenant_id = ?"
-    )
-    .bind("tenant-iso-a")
-    .fetch_one(harness.db().pool())
-    .await
-    .expect("Should be able to count tenant-iso-a adapters");
+    let tenant_a_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM adapters WHERE tenant_id = ?")
+            .bind("tenant-iso-a")
+            .fetch_one(harness.db().pool())
+            .await
+            .expect("Should be able to count tenant-iso-a adapters");
 
     assert_eq!(
         tenant_a_count.0, 1,
@@ -350,13 +345,12 @@ async fn test_tenant_isolation_policy() {
     );
 
     // Verify isolation: tenant-iso-b should only see its adapter
-    let tenant_b_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM adapters WHERE tenant_id = ?"
-    )
-    .bind("tenant-iso-b")
-    .fetch_one(harness.db().pool())
-    .await
-    .expect("Should be able to count tenant-iso-b adapters");
+    let tenant_b_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM adapters WHERE tenant_id = ?")
+            .bind("tenant-iso-b")
+            .fetch_one(harness.db().pool())
+            .await
+            .expect("Should be able to count tenant-iso-b adapters");
 
     assert_eq!(
         tenant_b_count.0, 1,
@@ -444,13 +438,12 @@ async fn test_all_23_canonical_policies() {
         .await
         .expect("Failed to create policy check adapter");
 
-    let adapter: (String, i64, String) = sqlx::query_as(
-        "SELECT tier, rank, hash_b3 FROM adapters WHERE id = ?"
-    )
-    .bind("policy-check-adapter")
-    .fetch_one(harness.db().pool())
-    .await
-    .expect("Adapter should exist");
+    let adapter: (String, i64, String) =
+        sqlx::query_as("SELECT tier, rank, hash_b3 FROM adapters WHERE id = ?")
+            .bind("policy-check-adapter")
+            .fetch_one(harness.db().pool())
+            .await
+            .expect("Adapter should exist");
 
     // Verify policy-relevant fields
     assert_eq!(
@@ -458,11 +451,7 @@ async fn test_all_23_canonical_policies() {
         "Should have tier (lifecycle policy)"
     );
     assert_eq!(adapter.1, 8, "Should have rank (router policy)");
-    assert_eq!(
-        adapter.2.len(),
-        64,
-        "Should have BLAKE3 hash (hash policy)"
-    );
+    assert_eq!(adapter.2.len(), 64, "Should have BLAKE3 hash (hash policy)");
 
     println!("✓ All 23 canonical policies checklist passed");
 }

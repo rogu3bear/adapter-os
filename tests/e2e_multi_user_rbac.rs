@@ -338,7 +338,7 @@ async fn test_tenant_isolation() {
     // Note: The adapters table schema uses hash_b3, not hash
     sqlx::query(
         "INSERT INTO adapters (id, tenant_id, tier, rank, activation_pct, created_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))"
+         VALUES (?, ?, ?, ?, ?, datetime('now'))",
     )
     .bind("tenant-b-adapter")
     .bind("tenant-b")
@@ -431,7 +431,7 @@ async fn test_role_hierarchy() {
                 email,
                 &format!("Test {}", email),
                 &password_hash,
-                role.clone(),  // Clone to avoid move issues
+                role.clone(), // Clone to avoid move issues
                 "default",
             )
             .await

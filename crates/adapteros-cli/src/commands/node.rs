@@ -304,7 +304,6 @@ async fn query_node_status(endpoint: &str) -> Result<NodeStatus> {
     Ok(status)
 }
 
-
 // ============================================================
 // Node Verify Implementation
 // ============================================================
@@ -931,7 +930,6 @@ mod tests {
             "node_sync_import"
         );
     }
-
 
     #[test]
     fn test_artifact_info_serialization() {

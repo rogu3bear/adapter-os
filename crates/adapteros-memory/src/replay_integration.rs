@@ -187,7 +187,11 @@ impl ReplayMemoryLogger {
             "change_reason": change_reason,
         });
 
-        self.log_event(MemoryEventType::LayoutChange, payload, Some(new_layout_hash.clone()))?;
+        self.log_event(
+            MemoryEventType::LayoutChange,
+            payload,
+            Some(new_layout_hash.clone()),
+        )?;
 
         info!(
             "Logged memory layout change event: reason={}",
@@ -367,7 +371,10 @@ impl ReplayMemoryLogger {
 
         let mut payload_with_counter = payload;
         if let Some(obj) = payload_with_counter.as_object_mut() {
-            obj.insert("event_counter".to_string(), serde_json::json!(event_counter));
+            obj.insert(
+                "event_counter".to_string(),
+                serde_json::json!(event_counter),
+            );
         }
 
         let event_hash = self.calculate_event_hash(&payload_with_counter, timestamp);

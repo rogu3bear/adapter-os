@@ -171,7 +171,7 @@ impl BehaviorTrainingGenerator {
     ) -> Result<Vec<BehaviorExample>> {
         // Build query dynamically based on filters
         let mut conditions = vec!["1=1".to_string()];
-        
+
         if filter.since.is_some() {
             conditions.push("created_at >= ?".to_string());
         }
@@ -207,7 +207,7 @@ impl BehaviorTrainingGenerator {
 
         // Build query with bindings
         let mut query = sqlx::query(&query_str);
-        
+
         if let Some(since) = &filter.since {
             query = query.bind(since.to_rfc3339());
         }
@@ -300,9 +300,7 @@ impl BehaviorTrainingGenerator {
                     BehaviorCategory::Eviction => {
                         self.generate_eviction(&mut rng, config, *category)
                     }
-                    BehaviorCategory::Pinning => {
-                        self.generate_pinning(&mut rng, config, *category)
-                    }
+                    BehaviorCategory::Pinning => self.generate_pinning(&mut rng, config, *category),
                     BehaviorCategory::Recovery => {
                         self.generate_recovery(&mut rng, config, *category)
                     }
@@ -618,10 +616,7 @@ impl BehaviorTrainingGenerator {
         if let Some(synth_config) = &config.synthetic_config {
             let synthetic = self.generate_synthetic(synth_config)?;
             all_examples.extend(synthetic);
-            info!(
-                "Added synthetic examples (total: {})",
-                all_examples.len()
-            );
+            info!("Added synthetic examples (total: {})", all_examples.len());
         }
 
         // Count categories and fill to minimum
@@ -630,7 +625,7 @@ impl BehaviorTrainingGenerator {
                 .iter()
                 .filter(|ex| ex.metadata.category == cat)
                 .count();
-            
+
             if count < config.min_per_category && config.min_per_category > 0 {
                 let needed = config.min_per_category - count;
                 let fill_config = SyntheticConfig {
@@ -675,7 +670,7 @@ impl BehaviorTrainingGenerator {
         let mut file = File::create(path.as_ref())
             .await
             .map_err(|e| AosError::Io(format!("Failed to create file: {}", e)))?;
-        
+
         for example in examples {
             let line = serde_json::to_string(example)?;
             file.write_all(line.as_bytes())
@@ -685,20 +680,23 @@ impl BehaviorTrainingGenerator {
                 .await
                 .map_err(|e| AosError::Io(format!("Failed to write newline: {}", e)))?;
         }
-        
+
         file.sync_all()
             .await
             .map_err(|e| AosError::Io(format!("Failed to sync: {}", e)))?;
-        
-        info!("Saved {} examples to {}", examples.len(), path.as_ref().display());
+
+        info!(
+            "Saved {} examples to {}",
+            examples.len(),
+            path.as_ref().display()
+        );
         Ok(())
     }
 
     /// Validate the generated dataset
     pub fn validate_dataset(&self, examples: &[BehaviorExample]) -> Result<()> {
-        let category_counts: HashMap<BehaviorCategory, usize> = examples
-            .iter()
-            .fold(HashMap::new(), |mut acc, ex| {
+        let category_counts: HashMap<BehaviorCategory, usize> =
+            examples.iter().fold(HashMap::new(), |mut acc, ex| {
                 *acc.entry(ex.metadata.category).or_insert(0) += 1;
                 acc
             });
@@ -730,7 +728,11 @@ impl BehaviorTrainingGenerator {
             }
         }
 
-        info!("Validated {} examples across {} categories", examples.len(), category_counts.len());
+        info!(
+            "Validated {} examples across {} categories",
+            examples.len(),
+            category_counts.len()
+        );
         Ok(())
     }
 }

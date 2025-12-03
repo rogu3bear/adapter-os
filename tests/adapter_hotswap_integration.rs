@@ -157,8 +157,8 @@ mod non_macos_tests {
         assert!(!weights.is_empty(), "SafeTensors should be created");
 
         // Verify it can be parsed
-        let tensors = safetensors::SafeTensors::deserialize(&weights)
-            .expect("Should parse SafeTensors");
+        let tensors =
+            safetensors::SafeTensors::deserialize(&weights).expect("Should parse SafeTensors");
 
         let names: Vec<_> = tensors.names().into_iter().collect();
         assert!(

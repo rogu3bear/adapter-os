@@ -10,7 +10,7 @@
 //! - Performance events: Configurable (default: 10%)
 //! - Debug events: Configurable (default: 1%)
 //!
-//! Per PRD-08: Must implement log sampling strategies for high-volume events
+//! Implements log sampling strategies for high-volume events
 
 #[allow(unused_imports)]
 use crate::unified_events::{EventType, LogLevel, TelemetryEvent};

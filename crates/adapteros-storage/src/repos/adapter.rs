@@ -428,10 +428,7 @@ impl AdapterRepository {
     // ============================================================================
 
     /// Load multiple adapters by ID
-    async fn load_adapters(
-        &self,
-        adapter_ids: &[String],
-    ) -> Result<Vec<AdapterKv>, StorageError> {
+    async fn load_adapters(&self, adapter_ids: &[String]) -> Result<Vec<AdapterKv>, StorageError> {
         let keys: Vec<String> = adapter_ids
             .iter()
             .map(|id| format!("adapter:{}", id))
@@ -576,7 +573,11 @@ impl AdapterRepository {
         }
 
         self.index_manager
-            .remove_from_index(adapter_indexes::BY_LIFECYCLE_STATE, &adapter.lifecycle_state, id)
+            .remove_from_index(
+                adapter_indexes::BY_LIFECYCLE_STATE,
+                &adapter.lifecycle_state,
+                id,
+            )
             .await?;
 
         self.index_manager

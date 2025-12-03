@@ -873,6 +873,7 @@ dependencies = [
  "memmap2",
  "metal 0.27.0",
  "nix 0.29.0",
+ "once_cell",
  "parking_lot",
  "proptest",
  "rand 0.8.5",
@@ -894,6 +895,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "ureq",
  "uuid",
  "zeroize",
 ]
@@ -1028,6 +1030,7 @@ dependencies = [
 name = "adapteros-orchestrator"
 version = "0.1.0"
 dependencies = [
+ "adapteros-client",
  "adapteros-codegraph",
  "adapteros-config",
  "adapteros-core",
@@ -1280,7 +1283,9 @@ name = "adapteros-server-api"
 version = "0.1.0"
 dependencies = [
  "adapteros-api-types",
+ "adapteros-client",
  "adapteros-codegraph",
+ "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-db",
@@ -1325,6 +1330,7 @@ dependencies = [
  "hyper-util",
  "jsonwebtoken",
  "lru",
+ "nix 0.29.0",
  "once_cell",
  "parking_lot",
  "prometheus",
@@ -1332,6 +1338,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.24",
  "safetensors",
+ "scopeguard",
  "serde",
  "serde_json",
  "sha2",
@@ -9581,6 +9588,35 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
+
+[[package]]
+name = "ureq"
+version = "3.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d39cb1dbab692d82a977c0392ffac19e188bd9186a9f32806f0aaa859d75585a"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "log",
+ "percent-encoding 2.3.2",
+ "rustls 0.23.31",
+ "rustls-pki-types",
+ "ureq-proto",
+ "utf-8",
+ "webpki-roots 1.0.4",
+]
+
+[[package]]
+name = "ureq-proto"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d81f9efa9df032be5934a46a068815a10a042b494b6a58cb0a1a97bb5467ed6f"
+dependencies = [
+ "base64 0.22.1",
+ "http 1.3.1",
+ "httparse",
+ "log",
+]
 
 [[package]]
 name = "url"

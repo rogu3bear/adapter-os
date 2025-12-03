@@ -206,9 +206,7 @@ impl IngestDocsArgs {
                 .await?;
         } else {
             warn!("No database URL provided, skipping actual database insertion");
-            info!(
-                "To index documents, provide --db-url with SQLite connection string"
-            );
+            info!("To index documents, provide --db-url with SQLite connection string");
         }
 
         Ok(())

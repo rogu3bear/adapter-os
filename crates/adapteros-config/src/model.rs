@@ -310,7 +310,8 @@ impl ModelConfig {
     /// - Head dimension is consistent
     pub fn validate(&self) -> Result<()> {
         // Validate path exists (skip for default placeholder path)
-        let default_placeholder: PathBuf = "./var/model-cache/models/qwen2.5-7b-instruct-bf16".into();
+        let default_placeholder: PathBuf =
+            "./var/model-cache/models/qwen2.5-7b-instruct-bf16".into();
         if self.path != default_placeholder && !self.path.exists() {
             return Err(AosError::Config(format!(
                 "Model path does not exist: '{}'",
@@ -742,7 +743,10 @@ mod tests {
         std::env::remove_var("AOS_MODEL_BACKEND");
 
         let config = ModelConfig::from_env().unwrap();
-        assert_eq!(config.path, PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"));
+        assert_eq!(
+            config.path,
+            PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16")
+        );
         assert_eq!(config.backend, BackendPreference::Auto);
     }
 

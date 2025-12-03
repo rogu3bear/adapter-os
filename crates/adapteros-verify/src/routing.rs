@@ -177,9 +177,13 @@ pub fn compare_routing_decisions(
 
 /// Create a test routing decision (public for use in other test modules)
 #[cfg(test)]
-pub fn create_test_decision(step: usize, adapters: Vec<(u16, i16)>, entropy: f32) -> RouterDecisionEvent {
+pub fn create_test_decision(
+    step: usize,
+    adapters: Vec<(u16, i16)>,
+    entropy: f32,
+) -> RouterDecisionEvent {
     use adapteros_telemetry::events::RouterCandidate;
-    
+
     RouterDecisionEvent {
         step,
         input_token_id: Some(42),
@@ -276,7 +280,11 @@ mod tests {
         let golden = vec![create_test_decision(0, vec![(0, 16384), (1, 16383)], 0.5)];
 
         // Use entropy diff of 5e-7 which is less than 1e-6 threshold
-        let current = vec![create_test_decision(0, vec![(0, 16384), (1, 16383)], 0.5000005)];
+        let current = vec![create_test_decision(
+            0,
+            vec![(0, 16384), (1, 16383)],
+            0.5000005,
+        )];
 
         // EpsilonTolerant should pass (entropy diff < 1e-6)
         let config_tolerant = ComparisonConfig {
@@ -288,13 +296,17 @@ mod tests {
         };
 
         let (passed, divs) = compare_routing_decisions(&golden, &current, &config_tolerant);
-        assert!(passed, "Should pass with entropy diff < 1e-6, got divs: {:?}", divs);
+        assert!(
+            passed,
+            "Should pass with entropy diff < 1e-6, got divs: {:?}",
+            divs
+        );
         assert_eq!(divs.len(), 0);
 
         // Bitwise should fail (entropy must match exactly - but entropy diff of 1e-6 is within tolerance)
         // Actually, let's make the difference larger to guarantee failure
         let current_large_diff = vec![create_test_decision(0, vec![(0, 16384), (1, 16383)], 0.501)];
-        
+
         let config_bitwise = ComparisonConfig {
             strictness: StrictnessLevel::Bitwise,
             verify_toolchain: false,
@@ -303,9 +315,12 @@ mod tests {
             verify_signature: false,
         };
 
-        let (passed, divs) = compare_routing_decisions(&golden, &current_large_diff, &config_bitwise);
-        assert!(!passed, "Should fail with bitwise and entropy diff of 0.001");
+        let (passed, divs) =
+            compare_routing_decisions(&golden, &current_large_diff, &config_bitwise);
+        assert!(
+            !passed,
+            "Should fail with bitwise and entropy diff of 0.001"
+        );
         assert!(divs.len() > 0);
     }
 }
-

@@ -276,8 +276,8 @@ impl ManagedService {
     /// Spawn the service process
     /// Get log file path for this service
     fn log_file_path(&self) -> PathBuf {
-        let log_dir = std::env::var("SUPERVISOR_LOG_DIR")
-            .unwrap_or_else(|_| "./var/logs".to_string());
+        let log_dir =
+            std::env::var("SUPERVISOR_LOG_DIR").unwrap_or_else(|_| "./var/logs".to_string());
         PathBuf::from(log_dir).join(format!("{}.log", self.config.name))
     }
 

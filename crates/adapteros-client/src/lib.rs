@@ -27,7 +27,7 @@ pub use wasm::WasmClient as DefaultClient;
 
 // Re-export UDS client for convenience
 #[cfg(not(target_arch = "wasm32"))]
-pub use uds::{ConnectionPool, Signal, UdsClient, UdsClientError};
+pub use uds::{CancelTrainingResponse, ConnectionPool, Signal, UdsClient, UdsClientError};
 
 /// Unified client trait for all AdapterOS API access
 ///

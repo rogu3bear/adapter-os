@@ -187,7 +187,9 @@ fn test_default_health_check_returns_degraded() {
     use adapteros_lora_kernel_api::MockKernels;
 
     let kernels = MockKernels::new();
-    let health = kernels.health_check().expect("health_check should not error");
+    let health = kernels
+        .health_check()
+        .expect("health_check should not error");
 
     match health {
         BackendHealth::Healthy => {

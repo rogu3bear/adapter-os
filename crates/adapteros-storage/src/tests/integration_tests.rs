@@ -2,9 +2,7 @@
 //!
 //! End-to-end tests combining quota, cleanup, monitoring, and policy enforcement.
 
-use crate::{
-    AlertThresholds, CleanupPolicy, StorageConfig, StorageManager, StorageMonitoring,
-};
+use crate::{AlertThresholds, CleanupPolicy, StorageConfig, StorageManager, StorageMonitoring};
 use adapteros_core::Result;
 use std::fs;
 use std::time::Duration;
@@ -23,7 +21,10 @@ async fn test_storage_manager_creation() -> Result<()> {
 
     // Basic operations should work
     let result = manager.check_space(100).await;
-    assert!(result.is_ok(), "Storage manager should be created successfully");
+    assert!(
+        result.is_ok(),
+        "Storage manager should be created successfully"
+    );
 
     Ok(())
 }

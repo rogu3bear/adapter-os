@@ -303,7 +303,9 @@ impl TrainDocsArgs {
         info!(
             "Created .aos archive: {} ({} bytes)",
             packaged.weights_path.display(),
-            fs::metadata(&packaged.weights_path).map(|m| m.len()).unwrap_or(0)
+            fs::metadata(&packaged.weights_path)
+                .map(|m| m.len())
+                .unwrap_or(0)
         );
 
         // === Step 4: Register and Activate ===

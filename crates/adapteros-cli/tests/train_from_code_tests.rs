@@ -49,8 +49,12 @@ fn fixture_repo_path() -> PathBuf {
 fn tokenizer_path() -> PathBuf {
     std::env::var("AOS_TOKENIZER_PATH")
         .map(PathBuf::from)
-        .or_else(|_| std::env::var("AOS_MODEL_PATH").map(|p| PathBuf::from(p).join("tokenizer.json")))
-        .unwrap_or_else(|_| PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"))
+        .or_else(|_| {
+            std::env::var("AOS_MODEL_PATH").map(|p| PathBuf::from(p).join("tokenizer.json"))
+        })
+        .unwrap_or_else(|_| {
+            PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json")
+        })
 }
 
 fn aos_hash(path: &Path) -> String {

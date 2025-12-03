@@ -203,7 +203,13 @@ impl MemoryPressureManager {
                 tokio::spawn(send_once(sender.clone(), request.clone()));
             }
 
-            return Ok(self.create_report(pressure.level, EvictionStrategy::ReduceK, vec![], 0, pressure.headroom_pct));
+            return Ok(self.create_report(
+                pressure.level,
+                EvictionStrategy::ReduceK,
+                vec![],
+                0,
+                pressure.headroom_pct,
+            ));
         }
 
         // Fall back to synchronous coordinator
@@ -230,7 +236,13 @@ impl MemoryPressureManager {
                 );
             }
 
-            return Ok(self.create_report(pressure.level, EvictionStrategy::ReduceK, vec![], 0, pressure.headroom_pct));
+            return Ok(self.create_report(
+                pressure.level,
+                EvictionStrategy::ReduceK,
+                vec![],
+                0,
+                pressure.headroom_pct,
+            ));
         }
 
         // No K reduction mechanism available
@@ -239,7 +251,13 @@ impl MemoryPressureManager {
             "K reduction requested but no sender or coordinator available"
         );
 
-        Ok(self.create_report(pressure.level, EvictionStrategy::ReduceK, vec![], 0, pressure.headroom_pct))
+        Ok(self.create_report(
+            pressure.level,
+            EvictionStrategy::ReduceK,
+            vec![],
+            0,
+            pressure.headroom_pct,
+        ))
     }
 
     /// Evict low priority adapters (LRU, unpinned)
@@ -277,7 +295,13 @@ impl MemoryPressureManager {
             }
         }
 
-        Ok(self.create_report(PressureLevel::Medium, EvictionStrategy::EvictLowPriority, evicted, total_freed, headroom_before))
+        Ok(self.create_report(
+            PressureLevel::Medium,
+            EvictionStrategy::EvictLowPriority,
+            evicted,
+            total_freed,
+            headroom_before,
+        ))
     }
 
     /// Evict across backends (Metal before CoreML for ANE efficiency)
@@ -290,17 +314,56 @@ impl MemoryPressureManager {
         let mut total_freed = 0u64;
 
         // Evict in order: Metal → MLX → CoreML (preserve ANE resources)
-        if self.try_evict_backend(&candidates, BackendType::Metal, target_bytes, &mut evicted, &mut total_freed, "cross-backend-metal") {
-            return Ok(self.create_report(PressureLevel::High, EvictionStrategy::EvictCrossBackend, evicted, total_freed, headroom_before));
+        if self.try_evict_backend(
+            &candidates,
+            BackendType::Metal,
+            target_bytes,
+            &mut evicted,
+            &mut total_freed,
+            "cross-backend-metal",
+        ) {
+            return Ok(self.create_report(
+                PressureLevel::High,
+                EvictionStrategy::EvictCrossBackend,
+                evicted,
+                total_freed,
+                headroom_before,
+            ));
         }
 
-        if self.try_evict_backend(&candidates, BackendType::Mlx, target_bytes, &mut evicted, &mut total_freed, "cross-backend-mlx") {
-            return Ok(self.create_report(PressureLevel::High, EvictionStrategy::EvictCrossBackend, evicted, total_freed, headroom_before));
+        if self.try_evict_backend(
+            &candidates,
+            BackendType::Mlx,
+            target_bytes,
+            &mut evicted,
+            &mut total_freed,
+            "cross-backend-mlx",
+        ) {
+            return Ok(self.create_report(
+                PressureLevel::High,
+                EvictionStrategy::EvictCrossBackend,
+                evicted,
+                total_freed,
+                headroom_before,
+            ));
         }
 
-        self.try_evict_backend(&candidates, BackendType::CoreML, target_bytes, &mut evicted, &mut total_freed, "cross-backend-coreml");
+        self.try_evict_backend(
+            &candidates,
+            BackendType::CoreML,
+            target_bytes,
+            &mut evicted,
+            &mut total_freed,
+            "cross-backend-coreml",
+        );
 
-        Ok(self.create_report(PressureLevel::High, EvictionStrategy::EvictCrossBackend, evicted, total_freed, headroom_before))
+        Ok(self.create_report(
+            PressureLevel::High,
+            EvictionStrategy::EvictCrossBackend,
+            evicted,
+            total_freed,
+            headroom_before,
+        ))
     }
 
     /// Emergency eviction - evict all unpinned adapters
@@ -339,7 +402,13 @@ impl MemoryPressureManager {
             }
         }
 
-        let report = self.create_report(PressureLevel::Critical, EvictionStrategy::EmergencyEvict, evicted, total_freed, headroom_before);
+        let report = self.create_report(
+            PressureLevel::Critical,
+            EvictionStrategy::EmergencyEvict,
+            evicted,
+            total_freed,
+            headroom_before,
+        );
 
         if report.headroom_after < 15.0 {
             return Err(AosError::Memory(format!(

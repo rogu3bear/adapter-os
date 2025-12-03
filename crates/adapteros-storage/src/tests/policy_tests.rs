@@ -47,11 +47,15 @@ fn test_allowed_file_extensions() -> Result<()> {
     // Test allowed extensions
     let txt_file = temp_dir.path().join("test.txt");
     fs::write(&txt_file, "text content")?;
-    assert!(engine.validate_file_operation(&txt_file, &FileOperation::Read).is_ok());
+    assert!(engine
+        .validate_file_operation(&txt_file, &FileOperation::Read)
+        .is_ok());
 
     let json_file = temp_dir.path().join("test.json");
     fs::write(&json_file, "{}")?;
-    assert!(engine.validate_file_operation(&json_file, &FileOperation::Read).is_ok());
+    assert!(engine
+        .validate_file_operation(&json_file, &FileOperation::Read)
+        .is_ok());
 
     Ok(())
 }
@@ -142,7 +146,10 @@ fn test_blocked_patterns() -> Result<()> {
 
     let blocked_path = PathBuf::from("/data/secret/file.txt");
     let result = engine.validate_file_operation(&blocked_path, &FileOperation::Read);
-    assert!(result.is_err(), "Should block paths matching blocked patterns");
+    assert!(
+        result.is_err(),
+        "Should block paths matching blocked patterns"
+    );
 
     Ok(())
 }
@@ -166,11 +173,17 @@ fn test_allowed_patterns() -> Result<()> {
 
     let allowed_path = PathBuf::from("/data/public/file.txt");
     let result = engine.validate_file_operation(&allowed_path, &FileOperation::Read);
-    assert!(result.is_ok(), "Should allow paths matching allowed patterns");
+    assert!(
+        result.is_ok(),
+        "Should allow paths matching allowed patterns"
+    );
 
     let disallowed_path = PathBuf::from("/data/private/file.txt");
     let result = engine.validate_file_operation(&disallowed_path, &FileOperation::Read);
-    assert!(result.is_err(), "Should reject paths not matching allowed patterns");
+    assert!(
+        result.is_err(),
+        "Should reject paths not matching allowed patterns"
+    );
 
     Ok(())
 }
@@ -200,7 +213,10 @@ fn test_rule_with_deny_action() -> Result<()> {
     fs::write(&test_file, "content")?;
 
     let result = engine.validate_file_operation(&test_file, &FileOperation::Read);
-    assert!(result.is_err(), "Rule with deny action should reject operation");
+    assert!(
+        result.is_err(),
+        "Rule with deny action should reject operation"
+    );
 
     Ok(())
 }
@@ -549,7 +565,10 @@ fn test_file_without_extension() -> Result<()> {
 
     let no_ext_file = PathBuf::from("README");
     let result = engine.validate_file_operation(&no_ext_file, &FileOperation::Read);
-    assert!(result.is_err(), "Should reject files without allowed extension");
+    assert!(
+        result.is_err(),
+        "Should reject files without allowed extension"
+    );
 
     Ok(())
 }
@@ -600,7 +619,10 @@ fn test_nonexistent_file_validation() -> Result<()> {
     let nonexistent = temp_dir.path().join("nonexistent.txt");
     // Should still validate based on path/extension rules
     let result = engine.validate_file_operation(&nonexistent, &FileOperation::Create);
-    assert!(result.is_ok(), "Should validate based on path for nonexistent files");
+    assert!(
+        result.is_ok(),
+        "Should validate based on path for nonexistent files"
+    );
 
     Ok(())
 }

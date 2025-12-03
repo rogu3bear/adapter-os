@@ -93,8 +93,14 @@ fn test_hkdf_seed_derivation_determinism() {
     let seed2 = derive_seed(&global_hash, "generation");
     let seed3 = derive_seed(&global_hash, "generation");
 
-    assert_eq!(seed1, seed2, "HKDF derivation must be deterministic (1 vs 2)");
-    assert_eq!(seed2, seed3, "HKDF derivation must be deterministic (2 vs 3)");
+    assert_eq!(
+        seed1, seed2,
+        "HKDF derivation must be deterministic (1 vs 2)"
+    );
+    assert_eq!(
+        seed2, seed3,
+        "HKDF derivation must be deterministic (2 vs 3)"
+    );
 
     // Different context should produce different seed
     let seed_router = derive_seed(&global_hash, "router");
@@ -232,8 +238,7 @@ fn test_low_temperature_near_deterministic() {
     let mut results = Vec::new();
 
     for _ in 0..5 {
-        let mut gen = Generator::new_deterministic(seed, "low_temp")
-            .with_temperature(0.01); // Very low temperature
+        let mut gen = Generator::new_deterministic(seed, "low_temp").with_temperature(0.01); // Very low temperature
         gen.reseed_for_step(0);
 
         let token = gen

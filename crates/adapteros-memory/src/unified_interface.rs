@@ -7,7 +7,7 @@
 //! - Policy Pack #12 (Memory): "MUST maintain ≥ 15 percent unified memory headroom"
 //! - CLAUDE.md L140: "Memory management: Adapter eviction with headroom maintenance"
 
-use adapteros_core::{constants::BYTES_PER_MB, constants::BYTES_PER_GB, AosError, Result};
+use adapteros_core::{constants::BYTES_PER_GB, constants::BYTES_PER_MB, AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

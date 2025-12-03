@@ -9,7 +9,7 @@
 //! - lz4: Extremely fast, lower compression
 //! - none: No compression (for already-compressed data)
 //!
-//! Per PRD-08: Implement telemetry data compression
+//! Implements telemetry data compression to reduce storage overhead
 
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};

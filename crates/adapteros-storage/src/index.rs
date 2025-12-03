@@ -407,7 +407,10 @@ impl IndexManager {
         match self.backend.get(&index_key).await? {
             Some(data) => {
                 let ids: Vec<String> = serde_json::from_slice(&data).map_err(|e| {
-                    StorageError::SerializationError(format!("Failed to deserialize index data: {}", e))
+                    StorageError::SerializationError(format!(
+                        "Failed to deserialize index data: {}",
+                        e
+                    ))
                 })?;
                 debug!(index_name = %index_name, value = %index_value, count = ids.len(), "Index query result");
                 Ok(ids)
@@ -635,7 +638,10 @@ impl IndexManager {
                 .strip_prefix(&entity_prefix)
                 .unwrap_or(&entity_key);
 
-            if let Err(e) = self.update_index_internal(index, entity_id, &data, None).await {
+            if let Err(e) = self
+                .update_index_internal(index, entity_id, &data, None)
+                .await
+            {
                 error!(
                     entity_type = %entity_type,
                     index_name = %index_name,
@@ -675,12 +681,12 @@ pub mod adapter_indexes {
                 let json: Value = serde_json::from_slice(data).map_err(|e| {
                     StorageError::SerializationError(format!("Failed to parse adapter JSON: {}", e))
                 })?;
-                let tenant_id = json
-                    .get("tenant_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        StorageError::SerializationError("tenant_id field missing".into())
-                    })?;
+                let tenant_id =
+                    json.get("tenant_id")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            StorageError::SerializationError("tenant_id field missing".into())
+                        })?;
                 Ok(vec![tenant_id.to_string()])
             }),
         )
@@ -703,12 +709,12 @@ pub mod adapter_indexes {
                 let json: Value = serde_json::from_slice(data).map_err(|e| {
                     StorageError::SerializationError(format!("Failed to parse adapter JSON: {}", e))
                 })?;
-                let tenant_id = json
-                    .get("tenant_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        StorageError::SerializationError("tenant_id field missing".into())
-                    })?;
+                let tenant_id =
+                    json.get("tenant_id")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            StorageError::SerializationError("tenant_id field missing".into())
+                        })?;
                 let state = json
                     .get("lifecycle_state")
                     .and_then(|v| v.as_str())
@@ -765,18 +771,16 @@ pub mod adapter_indexes {
                 let json: Value = serde_json::from_slice(data).map_err(|e| {
                     StorageError::SerializationError(format!("Failed to parse adapter JSON: {}", e))
                 })?;
-                let tenant_id = json
-                    .get("tenant_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        StorageError::SerializationError("tenant_id field missing".into())
-                    })?;
+                let tenant_id =
+                    json.get("tenant_id")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            StorageError::SerializationError("tenant_id field missing".into())
+                        })?;
                 let tier = json
                     .get("tier")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        StorageError::SerializationError("tier field missing".into())
-                    })?;
+                    .ok_or_else(|| StorageError::SerializationError("tier field missing".into()))?;
                 Ok(vec![format!("{}:{}", tenant_id, tier)])
             }),
         )

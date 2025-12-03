@@ -278,7 +278,10 @@ mod tests {
 
         let result = args.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("cannot exceed 256"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("cannot exceed 256"));
     }
 
     #[test]

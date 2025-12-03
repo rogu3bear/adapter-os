@@ -95,6 +95,9 @@ pub struct ConfigVariable {
     pub category: String,
     /// Equivalent config file key (e.g., "server.port")
     pub config_key: String,
+    /// TOML config file key if different from config_key (e.g., "db.path" for AOS_DATABASE_URL)
+    /// Used for mapping cp.toml values to the unified config system
+    pub toml_key: Option<String>,
 }
 
 impl ConfigVariable {
@@ -130,6 +133,7 @@ pub struct ConfigVariableBuilder {
     sensitive: bool,
     category: String,
     config_key: String,
+    toml_key: Option<String>,
 }
 
 impl ConfigVariableBuilder {
@@ -152,6 +156,7 @@ impl ConfigVariableBuilder {
             sensitive: false,
             category: String::new(),
             config_key,
+            toml_key: None,
         }
     }
 
@@ -222,6 +227,12 @@ impl ConfigVariableBuilder {
         self
     }
 
+    /// Set the TOML key (for cp.toml integration when different from config_key)
+    pub fn toml_key(mut self, key: &str) -> Self {
+        self.toml_key = Some(key.to_string());
+        self
+    }
+
     /// Build the ConfigVariable
     pub fn build(self) -> ConfigVariable {
         ConfigVariable {
@@ -234,6 +245,7 @@ impl ConfigVariableBuilder {
             sensitive: self.sensitive,
             category: self.category,
             config_key: self.config_key,
+            toml_key: self.toml_key,
         }
     }
 }
@@ -335,6 +347,37 @@ impl ConfigSchema {
         self.categories.keys().map(|s| s.as_str()).collect()
     }
 
+    /// Get a variable by its TOML key (for cp.toml integration)
+    /// Falls back to matching config_key if no toml_key is set
+    pub fn get_variable_by_toml_key(&self, toml_key: &str) -> Option<&ConfigVariable> {
+        // First check explicit toml_key matches
+        for var in self.variables.values() {
+            if let Some(ref tk) = var.toml_key {
+                if tk == toml_key {
+                    return Some(var);
+                }
+            }
+        }
+        // Then check config_key matches (for vars without explicit toml_key)
+        for var in self.variables.values() {
+            if var.toml_key.is_none() && var.config_key == toml_key {
+                return Some(var);
+            }
+        }
+        None
+    }
+
+    /// Build a map from TOML keys to config_key for efficient loading
+    /// Returns: (toml_key -> config_key)
+    pub fn build_toml_key_map(&self) -> std::collections::HashMap<String, String> {
+        let mut map = std::collections::HashMap::new();
+        for var in self.variables.values() {
+            let toml_key = var.toml_key.as_ref().unwrap_or(&var.config_key);
+            map.insert(toml_key.clone(), var.config_key.clone());
+        }
+        map
+    }
+
     /// Validate all provided values against the schema
     pub fn validate_all(
         &self,
@@ -411,13 +454,7 @@ pub fn validate_value(
         }
         ConfigType::Url => {
             // Check for common URL schemes
-            let valid_schemes = [
-                "http://",
-                "https://",
-                "file://",
-                "unix://",
-                "sqlite://",
-            ];
+            let valid_schemes = ["http://", "https://", "file://", "unix://", "sqlite://"];
             if !valid_schemes.iter().any(|s| value.starts_with(s)) {
                 return Err(ValidationError {
                     variable: var.name.clone(),
@@ -760,6 +797,7 @@ pub fn default_schema() -> ConfigSchema {
             .default_value("sqlite://var/aos-cp.sqlite3")
             .description("Database connection URL (SQLite)")
             .category("DATABASE")
+            .toml_key("db.path") // cp.toml uses db.path, not database.url
             .build(),
     );
 
@@ -1326,6 +1364,52 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    // =========================================================================
+    // ADAPTER_GC - Adapter garbage collection configuration
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_ADAPTER_GC_ENABLED")
+            .config_type(ConfigType::Bool)
+            .default_value("true")
+            .description("Enable garbage collection of archived adapters")
+            .category("ADAPTER_GC")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_ADAPTER_GC_MIN_AGE_DAYS")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: Some(365),
+            })
+            .default_value("30")
+            .description("Minimum days since archival before adapter is eligible for GC")
+            .category("ADAPTER_GC")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_ADAPTER_GC_BATCH_SIZE")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: Some(1000),
+            })
+            .default_value("100")
+            .description("Maximum adapters to process per GC run")
+            .category("ADAPTER_GC")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_ADAPTER_GC_DRY_RUN")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Report GC actions without deleting files (for testing)")
+            .category("ADAPTER_GC")
+            .build(),
+    );
+
     schema
 }
 
@@ -1355,6 +1439,7 @@ mod tests {
         assert!(categories.contains(&"WORKER"));
         assert!(categories.contains(&"DEBUG"));
         assert!(categories.contains(&"STORAGE"));
+        assert!(categories.contains(&"ADAPTER_GC"));
     }
 
     #[test]

@@ -15,7 +15,9 @@ fn test_manifest_based_executor_seeding() {
     // Load test manifest from env or default path
     let manifest_path = std::env::var("AOS_MANIFEST_PATH")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json"));
+        .unwrap_or_else(|_| {
+            PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json")
+        });
 
     if !manifest_path.exists() {
         eprintln!(
@@ -70,7 +72,9 @@ fn test_manifest_vs_default_seed_differ() {
     // Verify that manifest-based and default seeds are different
     let manifest_path = std::env::var("AOS_MANIFEST_PATH")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json"));
+        .unwrap_or_else(|_| {
+            PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json")
+        });
 
     if !manifest_path.exists() {
         eprintln!(

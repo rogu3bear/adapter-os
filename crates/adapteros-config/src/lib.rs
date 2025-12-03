@@ -1,7 +1,7 @@
 //! AdapterOS Deterministic Configuration System
 //!
 //! This crate provides a deterministic configuration system with strict precedence rules:
-//! CLI arguments > Environment variables (.env file supported) > Manifest file
+//! CLI arguments > Environment variables (.env file supported) > Manifest file (TOML)
 //!
 //! Once frozen at startup, configuration becomes immutable and all environment
 //! variable access is banned to ensure deterministic behavior.
@@ -13,8 +13,25 @@
 //! ```env
 //! AOS_MODEL_PATH=./var/model-cache/models/qwen2.5-7b-instruct-bf16
 //! AOS_MODEL_BACKEND=auto
+//! AOS_SERVER_PORT=8080
+//! ```
+//!
+//! # EffectiveConfig (Recommended)
+//!
+//! Use `init_effective_config()` for unified configuration with type-safe sections:
+//!
+//! ```rust,ignore
+//! use adapteros_config::{init_effective_config, effective_config};
+//!
+//! // Initialize at startup
+//! init_effective_config(Some("configs/cp.toml"), vec![])?;
+//!
+//! // Access anywhere
+//! let cfg = effective_config()?;
+//! println!("Port: {}", cfg.server.port);
 //! ```
 
+pub mod effective;
 pub mod global;
 pub mod guards;
 pub mod loader;
@@ -22,9 +39,17 @@ pub mod model;
 pub mod precedence;
 pub mod runtime;
 pub mod schema;
+pub mod session;
 pub mod types;
 
-pub use global::{config, config_or_default, init_runtime_config, is_initialized, try_config, ConfigError};
+pub use effective::{
+    effective_config, init_effective_config, is_effective_initialized, try_effective_config,
+    AlertingSection, ConfigValueSource, DatabaseSection, EffectiveConfig, LoggingSection,
+    MetricsSection, ModelSection, PathsSection, RateLimitsSection, SecuritySection, ServerSection,
+};
+pub use global::{
+    config, config_or_default, init_runtime_config, is_initialized, try_config, ConfigError,
+};
 pub use guards::{ConfigGuards, FeatureFlags};
 pub use loader::ConfigLoader;
 pub use model::{
@@ -37,6 +62,9 @@ pub use runtime::{ConfigSource, ParsedValue, RuntimeConfig, StorageBackend};
 pub use schema::{
     default_schema, parse_bool, validate_value, ConfigSchema, ConfigType, ConfigVariable,
     DeprecationInfo, ValidationError,
+};
+pub use session::{
+    ConfigDriftReport, ConfigDriftSeverity, ConfigFieldDrift, ConfigSnapshot, ConfigSnapshotEntry,
 };
 pub use types::*;
 

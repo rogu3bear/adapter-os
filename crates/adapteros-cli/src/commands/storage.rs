@@ -274,7 +274,10 @@ async fn show_mode(db_path: Option<PathBuf>, output: &OutputWriter) -> Result<()
     output.info("Storage Backend Status");
     output.info("=====================");
     output.kv("Mode", &mode.to_string());
-    output.kv("KV Backend", if has_kv { "Attached" } else { "Not Attached" });
+    output.kv(
+        "KV Backend",
+        if has_kv { "Attached" } else { "Not Attached" },
+    );
     output.kv("Database", &db_url);
 
     // Show mode description
@@ -326,9 +329,9 @@ async fn set_mode(
     output: &OutputWriter,
 ) -> Result<()> {
     // Parse storage mode
-    let mode: StorageMode = mode_str
-        .parse()
-        .context("Invalid storage mode. Valid options: sql_only, dual_write, kv_primary, kv_only")?;
+    let mode: StorageMode = mode_str.parse().context(
+        "Invalid storage mode. Valid options: sql_only, dual_write, kv_primary, kv_only",
+    )?;
 
     let db_url = get_db_url(db_path.as_ref());
     let mut db = Db::connect(&db_url)
@@ -344,7 +347,10 @@ async fn set_mode(
 
     if needs_kv && !db.has_kv_backend() {
         if init_kv {
-            output.info(&format!("Initializing KV backend at: {}", kv_path.display()));
+            output.info(&format!(
+                "Initializing KV backend at: {}",
+                kv_path.display()
+            ));
             db.init_kv_backend(&kv_path)
                 .context("Failed to initialize KV backend")?;
             output.success("KV backend initialized");
@@ -354,10 +360,7 @@ async fn set_mode(
                 mode
             ));
             output.info("Use --init-kv flag to initialize KV backend, or run:");
-            output.info(&format!(
-                "  aosctl storage set-mode {} --init-kv",
-                mode_str
-            ));
+            output.info(&format!("  aosctl storage set-mode {} --init-kv", mode_str));
             return Err(adapteros_core::AosError::Config(
                 "KV backend required but not attached".to_string(),
             )
@@ -425,7 +428,10 @@ async fn migrate_data(
         if dry_run {
             output.info("[DRY RUN] Would initialize KV backend");
         } else {
-            output.info(&format!("Initializing KV backend at: {}", kv_path.display()));
+            output.info(&format!(
+                "Initializing KV backend at: {}",
+                kv_path.display()
+            ));
             db.init_kv_backend(&kv_path)
                 .context("Failed to initialize KV backend")?;
             output.success("KV backend initialized");
@@ -494,10 +500,7 @@ async fn verify_consistency(
 
     // Ensure KV backend is attached
     if !db.has_kv_backend() {
-        output.info(&format!(
-            "Attaching KV backend from: {}",
-            kv_path.display()
-        ));
+        output.info(&format!("Attaching KV backend from: {}", kv_path.display()));
         db.init_kv_backend(&kv_path)
             .context("Failed to attach KV backend")?;
     }

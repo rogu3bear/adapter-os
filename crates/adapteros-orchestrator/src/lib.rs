@@ -16,6 +16,10 @@ pub mod supervisor;
 pub mod training;
 pub mod training_dataset_integration;
 
+pub use behavior_training::{
+    BehaviorCategory, BehaviorDataset, BehaviorExample, BehaviorInput, BehaviorMetadata,
+    BehaviorTarget, BehaviorTrainingGenerator, DatasetConfig, ExportFilter, SyntheticConfig,
+};
 pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
 pub use codebase_ingestion::{CodebaseIngestion, IngestionConfig, IngestionResult};
 pub use dataset_cleanup::{
@@ -31,10 +35,6 @@ pub use training::{
 };
 pub use training_dataset_integration::{
     CreateDatasetFromDocumentsRequest, DatasetCreationResult, TrainingDatasetManager,
-};
-pub use behavior_training::{
-    BehaviorCategory, BehaviorDataset, BehaviorExample, BehaviorInput, BehaviorMetadata,
-    BehaviorTarget, BehaviorTrainingGenerator, DatasetConfig, ExportFilter, SyntheticConfig,
 };
 
 /// Gate runner configuration

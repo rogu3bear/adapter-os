@@ -63,14 +63,8 @@ async fn test_cleanup_tmp_files() -> Result<()> {
     cleanup_manager.cleanup_if_needed().await?;
 
     // Check that tmp files were cleaned up
-    assert!(
-        !test_file1.exists(),
-        "tmp file should be cleaned up"
-    );
-    assert!(
-        !test_file2.exists(),
-        "tmp file should be cleaned up"
-    );
+    assert!(!test_file1.exists(), "tmp file should be cleaned up");
+    assert!(!test_file2.exists(), "tmp file should be cleaned up");
 
     Ok(())
 }

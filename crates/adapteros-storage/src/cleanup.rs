@@ -25,7 +25,7 @@ impl Clone for CleanupManager {
             config: self.config.clone(),
             root_path: self.root_path.clone(),
             cleanup_task: None, // Cannot clone JoinHandle
-            shutdown_tx: None, // Cannot clone oneshot::Sender
+            shutdown_tx: None,  // Cannot clone oneshot::Sender
         }
     }
 }

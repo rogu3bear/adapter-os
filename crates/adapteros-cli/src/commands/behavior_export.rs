@@ -170,13 +170,13 @@ impl BehaviorExportArgs {
                 })?;
 
                 let datetime = if end_of_day {
-                    naive
-                        .and_hms_opt(23, 59, 59)
-                        .ok_or_else(|| adapteros_core::AosError::Parse("Invalid time".to_string()))?
+                    naive.and_hms_opt(23, 59, 59).ok_or_else(|| {
+                        adapteros_core::AosError::Parse("Invalid time".to_string())
+                    })?
                 } else {
-                    naive
-                        .and_hms_opt(0, 0, 0)
-                        .ok_or_else(|| adapteros_core::AosError::Parse("Invalid time".to_string()))?
+                    naive.and_hms_opt(0, 0, 0).ok_or_else(|| {
+                        adapteros_core::AosError::Parse("Invalid time".to_string())
+                    })?
                 };
 
                 Ok(Some(Utc.from_utc_datetime(&datetime)))

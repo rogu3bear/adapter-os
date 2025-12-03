@@ -271,12 +271,7 @@ impl MetricsExporter {
     /// * `old_state` - Expected old state
     /// * `new_state` - Attempted new state
     /// * `reason` - Failure reason (e.g., "cas_conflict", "validation_error", "not_found")
-    pub fn record_state_transition_failure(
-        &self,
-        old_state: &str,
-        new_state: &str,
-        reason: &str,
-    ) {
+    pub fn record_state_transition_failure(&self, old_state: &str, new_state: &str, reason: &str) {
         self.adapter_state_transition_failures_total
             .with_label_values(&[old_state, new_state, reason])
             .inc();

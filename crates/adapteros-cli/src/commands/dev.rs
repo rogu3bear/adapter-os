@@ -349,9 +349,9 @@ async fn start_api_server(output: &OutputWriter) -> Result<()> {
         .spawn()
         .map_err(|e| AosError::Io(format!("Failed to start API server: {}", e)))?;
 
-    let pid = child.id().ok_or_else(|| {
-        AosError::Io("Failed to get child process ID".to_string())
-    })?;
+    let pid = child
+        .id()
+        .ok_or_else(|| AosError::Io("Failed to get child process ID".to_string()))?;
     write_pid_file(API_SERVER_PID, pid)?;
 
     // Spawn background task to wait for the child process to prevent zombie processes
@@ -399,9 +399,9 @@ async fn start_ui_server(output: &OutputWriter) -> Result<()> {
         .spawn()
         .map_err(|e| AosError::Io(format!("Failed to start UI server: {}", e)))?;
 
-    let pid = child.id().ok_or_else(|| {
-        AosError::Io("Failed to get child process ID".to_string())
-    })?;
+    let pid = child
+        .id()
+        .ok_or_else(|| AosError::Io("Failed to get child process ID".to_string()))?;
     write_pid_file(UI_SERVER_PID, pid)?;
 
     // Spawn background task to wait for the child process to prevent zombie processes

@@ -377,7 +377,11 @@ async fn test_memory_pressure_simulation() {
     let adapter_count = 100;
 
     for i in 0..adapter_count {
-        let tier = if i % 3 == 0 { "persistent" } else { "ephemeral" };
+        let tier = if i % 3 == 0 {
+            "persistent"
+        } else {
+            "ephemeral"
+        };
         let result = sqlx::query(
             "INSERT INTO adapters (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))"
@@ -418,17 +422,13 @@ async fn test_memory_pressure_simulation() {
         "SELECT id FROM adapters
          WHERE id LIKE 'memory-pressure-adapter-%'
          ORDER BY rank ASC
-         LIMIT 10"
+         LIMIT 10",
     )
     .fetch_all(harness.db().pool())
     .await
     .expect("Should be able to query adapters by rank");
 
-    assert_eq!(
-        low_rank.len(),
-        10,
-        "Should be able to find 10 adapters"
-    );
+    assert_eq!(low_rank.len(), 10, "Should be able to find 10 adapters");
 
     println!("✓ Memory pressure simulation test passed");
 }

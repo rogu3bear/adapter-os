@@ -52,10 +52,10 @@ pub struct StreamingInferenceRequest {
     /// Active adapter stack name
     #[serde(default)]
     pub adapter_stack: Option<String>,
-    /// Stack ID for telemetry correlation (PRD-03)
+    /// Stack ID for telemetry correlation
     #[serde(default)]
     pub stack_id: Option<String>,
-    /// Stack version for telemetry correlation (PRD-03)
+    /// Stack version for telemetry correlation
     #[serde(default)]
     pub stack_version: Option<i64>,
 }
@@ -289,6 +289,12 @@ async fn generate_streaming_response<K: FusedKernels + Send + Sync + 'static>(
         request_type: adapteros_lora_worker::RequestType::Normal,
         stack_id: request.stack_id.clone(),
         stack_version: request.stack_version,
+        temperature: None,
+        top_k: None,
+        top_p: None,
+        seed: None,
+        router_seed: None,
+        pinned_adapter_ids: None,
     };
 
     debug!(
@@ -405,6 +411,12 @@ pub async fn completion_handler<K: FusedKernels + Send + Sync + 'static>(
         request_type: adapteros_lora_worker::RequestType::Normal,
         stack_id: request.stack_id.clone(),
         stack_version: request.stack_version,
+        temperature: None,
+        top_k: None,
+        top_p: None,
+        seed: None,
+        router_seed: None,
+        pinned_adapter_ids: None,
     };
 
     // Run inference

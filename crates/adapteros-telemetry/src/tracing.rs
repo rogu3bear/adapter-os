@@ -10,7 +10,7 @@
 //! Trace IDs propagate through the entire request lifecycle, enabling
 //! complete end-to-end visibility and debugging.
 //!
-//! Per PRD-08: Add distributed tracing correlation system
+//! Implements distributed tracing correlation system
 
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};

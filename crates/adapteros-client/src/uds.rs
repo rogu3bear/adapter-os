@@ -362,6 +362,31 @@ impl UdsClient {
             timeout: self.timeout,
         })
     }
+
+    /// Cancel a training job via UDS
+    ///
+    /// Sends a cancellation request to the worker and waits for confirmation.
+    pub async fn cancel_training_job(
+        &self,
+        uds_path: &Path,
+        job_id: &str,
+        reason: Option<&str>,
+    ) -> Result<CancelTrainingResponse, UdsClientError> {
+        let request = serde_json::json!({
+            "job_id": job_id,
+            "reason": reason,
+        });
+
+        let request_json = serde_json::to_string(&request)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+
+        let response = self
+            .send_request(uds_path, "POST", "/training/cancel", Some(&request_json))
+            .await?;
+
+        serde_json::from_str(&response)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))
+    }
 }
 
 /// Connection pool for efficient UDS communication
@@ -418,6 +443,21 @@ impl Default for UdsClient {
     fn default() -> Self {
         Self::new(Duration::from_secs(30))
     }
+}
+
+/// Response from training job cancellation
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CancelTrainingResponse {
+    /// Job ID that was cancelled
+    pub job_id: String,
+    /// Current status: "cancelled", "stopping", "error"
+    pub status: String,
+    /// Number of tokens processed before cancellation
+    pub tokens_processed: Option<u64>,
+    /// Final loss value if available
+    pub final_loss: Option<f32>,
+    /// Epoch number where training was stopped
+    pub stopped_at_epoch: Option<u32>,
 }
 
 #[cfg(test)]

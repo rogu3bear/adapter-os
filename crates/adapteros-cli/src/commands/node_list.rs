@@ -108,4 +108,3 @@ async fn query_node_status(endpoint: &str) -> Result<NodeStatus> {
     let status: NodeStatus = response.json().await?;
     Ok(status)
 }
-

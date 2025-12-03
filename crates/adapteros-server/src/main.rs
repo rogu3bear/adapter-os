@@ -1,7 +1,8 @@
 mod assets;
 
+use adapteros_config::{init_effective_config, try_effective_config, ConfigSnapshot};
 use adapteros_core::{derive_seed, AosError, B3Hash};
-use adapteros_db::Db;
+use adapteros_db::{Db, RuntimeSession};
 use adapteros_deterministic_exec::{
     global_ledger::GlobalTickLedger, init_global_executor, select::select_2, spawn_deterministic,
     EnforcementMode, ExecutorConfig,
@@ -151,26 +152,32 @@ async fn main() -> Result<()> {
     let server_config = match Config::load(&cli.config) {
         Ok(cfg) => Arc::new(RwLock::new(cfg)),
         Err(e) => {
-            eprintln!("FATAL: Failed to load configuration from {}: {}", cli.config, e);
+            eprintln!(
+                "FATAL: Failed to load configuration from {}: {}",
+                cli.config, e
+            );
             std::process::exit(1);
         }
     };
 
     // Initialize tracing with config-based settings
     let _guard = {
-        let cfg = server_config.read().map_err(|e| {
-            eprintln!("FATAL: Config lock poisoned: {}", e);
-            std::process::exit(1);
-        }).unwrap();
+        let cfg = server_config
+            .read()
+            .map_err(|e| {
+                eprintln!("FATAL: Config lock poisoned: {}", e);
+                std::process::exit(1);
+            })
+            .unwrap();
 
         initialize_logging(&cfg.logging)?
     };
 
     // Set up panic hook to capture panics to log
     {
-        let cfg = server_config.read().map_err(|e| {
-            AosError::Config(format!("Config lock poisoned: {}", e))
-        })?;
+        let cfg = server_config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
 
         if cfg.logging.capture_panics {
             let default_hook = std::panic::take_hook();
@@ -526,10 +533,110 @@ async fn main() -> Result<()> {
     // Upgrade boot state manager with database for audit logging
     let boot_state = BootStateManager::with_db(Arc::new(db.clone()));
 
-    // Initialize global tick ledger for inference tracking
+    // Get hostname for session tracking
     let hostname = std::env::var("HOSTNAME")
         .or_else(|_| std::env::var("HOST"))
         .unwrap_or_else(|_| "unknown-host".to_string());
+
+    // Initialize effective config and detect configuration drift
+    let session_id = {
+        // Initialize EffectiveConfig with cp.toml path
+        if let Err(e) = init_effective_config(Some(&cli.config), vec![]) {
+            warn!(error = %e, "Failed to initialize effective config, continuing with legacy config");
+        }
+
+        // Create config snapshot and session
+        if let Some(cfg) = try_effective_config() {
+            let snapshot = ConfigSnapshot::from_effective_config(cfg);
+            let session_id = uuid::Uuid::new_v4().to_string();
+
+            // Check for drift from previous session
+            if let Ok(Some(prev_session)) = db.get_most_recent_session(&hostname).await {
+                // Parse previous snapshot from JSON
+                if let Ok(prev_snapshot) =
+                    serde_json::from_str::<ConfigSnapshot>(&prev_session.config_snapshot)
+                {
+                    let drift = snapshot.diff(&prev_snapshot);
+                    if drift.drift_detected {
+                        warn!(
+                            config_hash = %snapshot.hash,
+                            previous_hash = %drift.previous_hash,
+                            changed_fields = drift.field_count,
+                            "Configuration drift detected from previous session"
+                        );
+                        for field in &drift.fields {
+                            match field.severity {
+                                adapteros_config::ConfigDriftSeverity::Critical => {
+                                    error!(key = %field.key, old = %field.old_value, new = %field.new_value, "CRITICAL config change");
+                                }
+                                adapteros_config::ConfigDriftSeverity::Warning => {
+                                    warn!(key = %field.key, old = %field.old_value, new = %field.new_value, "Config change");
+                                }
+                                adapteros_config::ConfigDriftSeverity::Info => {
+                                    info!(key = %field.key, old = %field.old_value, new = %field.new_value, "Config change");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Determine runtime mode string
+            let runtime_mode_str = if server_config
+                .read()
+                .map(|c| c.server.production_mode)
+                .unwrap_or(false)
+            {
+                "production"
+            } else {
+                "development"
+            };
+
+            // Create new session record
+            let new_session = RuntimeSession {
+                id: uuid::Uuid::new_v4().to_string(),
+                session_id: session_id.clone(),
+                config_hash: snapshot.hash.clone(),
+                binary_version: env!("CARGO_PKG_VERSION").to_string(),
+                binary_commit: option_env!("GIT_COMMIT").map(|s| s.to_string()),
+                started_at: chrono::Utc::now().to_rfc3339(),
+                ended_at: None,
+                end_reason: None,
+                hostname: hostname.clone(),
+                runtime_mode: runtime_mode_str.to_string(),
+                config_snapshot: serde_json::to_string(&snapshot).unwrap_or_default(),
+                drift_detected: false, // Updated after diff
+                drift_summary: None,
+                previous_session_id: None,
+                model_path: std::env::var("AOS_MODEL_PATH").ok(),
+                adapters_root: Some(
+                    server_config
+                        .read()
+                        .map(|c| c.paths.adapters_root.clone())
+                        .unwrap_or_else(|_| "var/adapters".to_string()),
+                ),
+                database_path: Some(db_path.clone()),
+                var_dir: std::env::var("AOS_VAR_DIR").ok(),
+            };
+
+            // Insert session record
+            if let Err(e) = db.insert_runtime_session(&new_session).await {
+                warn!(error = %e, "Failed to record runtime session");
+            } else {
+                info!(
+                    session_id = %session_id,
+                    config_hash = %snapshot.hash,
+                    "Runtime session started"
+                );
+            }
+
+            Some(session_id)
+        } else {
+            None
+        }
+    };
+
+    // Initialize global tick ledger for inference tracking
 
     let tick_ledger = Arc::new(GlobalTickLedger::new(
         Arc::new(db.clone()),
@@ -1116,12 +1223,11 @@ async fn main() -> Result<()> {
         if Path::new(&tokenizer_path).exists() {
             match adapteros_ingest_docs::load_tokenizer(Path::new(&tokenizer_path)) {
                 Ok(tokenizer) => {
-                    let embedding_model = Arc::new(
-                        adapteros_ingest_docs::ProductionEmbeddingModel::load(
+                    let embedding_model =
+                        Arc::new(adapteros_ingest_docs::ProductionEmbeddingModel::load(
                             Some(&embedding_model_path),
                             tokenizer,
-                        )
-                    );
+                        ));
 
                     info!(
                         path = %embedding_model_path,
@@ -1538,8 +1644,8 @@ fn initialize_logging(
     use tracing_subscriber::EnvFilter;
 
     // Parse log level from config or environment
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&config.level));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.level));
 
     // Determine rotation strategy
     let rotation = match config.rotation.as_str() {
@@ -1547,7 +1653,10 @@ fn initialize_logging(
         "daily" => Rotation::DAILY,
         "never" => Rotation::NEVER,
         _ => {
-            eprintln!("WARNING: Unknown rotation '{}', defaulting to daily", config.rotation);
+            eprintln!(
+                "WARNING: Unknown rotation '{}', defaulting to daily",
+                config.rotation
+            );
             Rotation::DAILY
         }
     };
@@ -1555,9 +1664,8 @@ fn initialize_logging(
     // Set up file logging if log_dir is configured
     let (file_layer, guard) = if let Some(ref log_dir) = config.log_dir {
         // Ensure log directory exists
-        std::fs::create_dir_all(log_dir).map_err(|e| {
-            anyhow::anyhow!("Failed to create log directory {}: {}", log_dir, e)
-        })?;
+        std::fs::create_dir_all(log_dir)
+            .map_err(|e| anyhow::anyhow!("Failed to create log directory {}: {}", log_dir, e))?;
 
         let file_appender = RollingFileAppender::new(rotation, log_dir, &config.log_prefix);
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
@@ -1599,10 +1707,7 @@ fn initialize_logging(
     let subscriber = tracing_subscriber::registry().with(env_filter);
 
     if let Some(file_layer) = file_layer {
-        subscriber
-            .with(console_layer)
-            .with(file_layer)
-            .init();
+        subscriber.with(console_layer).with(file_layer).init();
     } else {
         subscriber.with(console_layer).init();
     }
@@ -1615,10 +1720,7 @@ fn initialize_logging(
             config.level, log_dir, config.rotation, config.json_format
         );
     } else {
-        eprintln!(
-            "Logging initialized: level={}, stdout only",
-            config.level
-        );
+        eprintln!("Logging initialized: level={}, stdout only", config.level);
     }
 
     Ok(guard)

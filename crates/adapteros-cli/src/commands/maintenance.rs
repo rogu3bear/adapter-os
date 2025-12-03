@@ -1,7 +1,8 @@
 //! Maintenance commands for aosctl.
 //!
-//! Currently provides:
+//! Provides:
 //! - `aosctl maintenance gc-bundles` – prune telemetry bundles on disk
+//! - `aosctl maintenance gc-adapters` – garbage collect archived adapter .aos files
 //!
 //! Semantics follow `scripts/gc_bundles.sh`:
 //! - Keep last K bundles per CPID
@@ -18,7 +19,7 @@ use clap::{Args, Subcommand};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Top-level maintenance command.
 #[derive(Debug, Args, Clone)]
@@ -32,6 +33,8 @@ pub struct MaintenanceCommand {
 pub enum MaintenanceSubcommand {
     /// Garbage-collect telemetry bundles
     GcBundles(GcBundlesArgs),
+    /// Garbage-collect archived adapter .aos files
+    GcAdapters(GcAdaptersArgs),
 }
 
 /// Arguments for `aosctl maintenance gc-bundles`.
@@ -65,10 +68,52 @@ pub struct GcBundlesSummary {
     kept: usize,
 }
 
+/// Arguments for `aosctl maintenance gc-adapters`.
+#[derive(Debug, Args, Clone)]
+pub struct GcAdaptersArgs {
+    /// Control-plane database path
+    #[arg(long, default_value = "var/aos-cp.sqlite3")]
+    pub db_path: PathBuf,
+
+    /// Adapters directory path
+    #[arg(long, default_value = "var/adapters")]
+    pub adapters_path: PathBuf,
+
+    /// Minimum days since archival before GC
+    #[arg(long, default_value_t = 30)]
+    pub min_age_days: u32,
+
+    /// Maximum adapters to process per run
+    #[arg(long, default_value_t = 100)]
+    pub batch_size: i64,
+
+    /// Dry run – report actions without deleting files
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Process specific tenant only
+    #[arg(long)]
+    pub tenant_id: Option<String>,
+}
+
+/// JSON summary for gc-adapters.
+#[derive(Debug, Serialize)]
+pub struct GcAdaptersSummary {
+    adapters_path: String,
+    db_path: String,
+    min_age_days: u32,
+    dry_run: bool,
+    adapters_processed: usize,
+    files_deleted: usize,
+    bytes_freed: u64,
+    errors: Vec<String>,
+}
+
 /// Dispatch maintenance command.
 pub async fn run(cmd: MaintenanceCommand, output: &OutputWriter) -> Result<()> {
     match cmd.subcommand {
         MaintenanceSubcommand::GcBundles(args) => gc_bundles(args, output).await,
+        MaintenanceSubcommand::GcAdapters(args) => gc_adapters(args, output).await,
     }
 }
 
@@ -81,8 +126,12 @@ async fn gc_bundles(args: GcBundlesArgs, output: &OutputWriter) -> Result<()> {
     }
 
     // Connect to database explicitly (do not rely on DATABASE_URL)
-    let db_path_str = db_path.to_str()
-        .ok_or_else(|| anyhow::anyhow!("Database path contains invalid UTF-8: {}", db_path.display()))?;
+    let db_path_str = db_path.to_str().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Database path contains invalid UTF-8: {}",
+            db_path.display()
+        )
+    })?;
     let db = Db::connect(db_path_str)
         .await
         .with_context(|| format!("connecting to database {}", db_path.display()))?;
@@ -241,4 +290,199 @@ async fn gc_bundles(args: GcBundlesArgs, output: &OutputWriter) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Garbage-collect archived adapter .aos files.
+///
+/// Finds adapters that have been archived for at least `min_age_days` days,
+/// deletes their .aos files from disk, and marks them as purged in the database.
+/// The database record is preserved for audit purposes.
+async fn gc_adapters(args: GcAdaptersArgs, output: &OutputWriter) -> Result<()> {
+    let adapters_path = &args.adapters_path;
+    let db_path = &args.db_path;
+
+    // Connect to database
+    let db_path_str = db_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Database path contains invalid UTF-8"))?;
+    let db = Db::connect(db_path_str)
+        .await
+        .with_context(|| format!("connecting to database {}", db_path.display()))?;
+
+    // Find GC candidates
+    let candidates = db
+        .find_archived_adapters_for_gc(args.min_age_days, args.batch_size)
+        .await
+        .with_context(|| "finding archived adapters for GC")?;
+
+    if candidates.is_empty() {
+        let summary = GcAdaptersSummary {
+            adapters_path: adapters_path.display().to_string(),
+            db_path: db_path.display().to_string(),
+            min_age_days: args.min_age_days,
+            dry_run: args.dry_run,
+            adapters_processed: 0,
+            files_deleted: 0,
+            bytes_freed: 0,
+            errors: Vec::new(),
+        };
+        if output.is_json() {
+            output.json(&summary)?;
+        } else {
+            output.info("No adapters eligible for garbage collection");
+        }
+        return Ok(());
+    }
+
+    let mut files_deleted = 0usize;
+    let mut bytes_freed = 0u64;
+    let mut errors: Vec<String> = Vec::new();
+    let mut processed = 0usize;
+
+    for adapter in &candidates {
+        // Filter by tenant if specified
+        if let Some(ref filter_tenant) = args.tenant_id {
+            if &adapter.tenant_id != filter_tenant {
+                continue;
+            }
+        }
+
+        processed += 1;
+
+        let adapter_id = match &adapter.adapter_id {
+            Some(aid) => aid.clone(),
+            None => {
+                errors.push(format!("Adapter {} missing adapter_id", adapter.id));
+                continue;
+            }
+        };
+
+        // Get file path from adapter record or construct from adapters_path
+        let file_path = match &adapter.aos_file_path {
+            Some(path) => PathBuf::from(path),
+            None => continue, // Already purged or no file reference
+        };
+
+        if args.dry_run {
+            // Dry run: report what would be deleted
+            let file_size = if file_path.exists() {
+                fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0)
+            } else {
+                0
+            };
+
+            if !output.is_json() {
+                output.verbose(format!(
+                    "[dry-run] would delete: {} ({} bytes, archived: {})",
+                    file_path.display(),
+                    file_size,
+                    adapter.archived_at.as_deref().unwrap_or("unknown")
+                ));
+            }
+            files_deleted += 1;
+            bytes_freed += file_size;
+        } else {
+            // Actually delete the file
+            if file_path.exists() {
+                match fs::metadata(&file_path) {
+                    Ok(meta) => {
+                        let size = meta.len();
+                        match fs::remove_file(&file_path) {
+                            Ok(_) => {
+                                // Mark as purged in database
+                                if let Err(e) = db.mark_adapter_purged(&adapter_id).await {
+                                    errors.push(format!(
+                                        "Failed to mark {} as purged: {}",
+                                        adapter_id, e
+                                    ));
+                                    continue;
+                                }
+                                files_deleted += 1;
+                                bytes_freed += size;
+
+                                if !output.is_json() && output.is_verbose() {
+                                    output.verbose(format!(
+                                        "Deleted: {} ({} bytes)",
+                                        file_path.display(),
+                                        size
+                                    ));
+                                }
+                            }
+                            Err(e) => {
+                                errors.push(format!(
+                                    "Failed to delete {}: {}",
+                                    file_path.display(),
+                                    e
+                                ));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        errors.push(format!("Failed to stat {}: {}", file_path.display(), e));
+                    }
+                }
+            } else {
+                // File doesn't exist on disk, but DB record exists
+                // Mark as purged anyway to clean up the stale reference
+                if let Err(e) = db.mark_adapter_purged(&adapter_id).await {
+                    errors.push(format!(
+                        "Failed to mark {} as purged (file missing): {}",
+                        adapter_id, e
+                    ));
+                } else {
+                    files_deleted += 1;
+                    if !output.is_json() && output.is_verbose() {
+                        output.verbose(format!(
+                            "Marked as purged (file was missing): {}",
+                            adapter_id
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    let summary = GcAdaptersSummary {
+        adapters_path: adapters_path.display().to_string(),
+        db_path: db_path.display().to_string(),
+        min_age_days: args.min_age_days,
+        dry_run: args.dry_run,
+        adapters_processed: processed,
+        files_deleted,
+        bytes_freed,
+        errors: errors.clone(),
+    };
+
+    if output.is_json() {
+        output.json(&summary)?;
+    } else {
+        output.section("Adapter Garbage Collection Summary");
+        if args.dry_run {
+            output.info("Dry run complete (no files deleted)");
+        }
+        output.kv("Adapters processed", &processed.to_string());
+        output.kv("Files deleted", &files_deleted.to_string());
+        output.kv("Bytes freed", &format_bytes(bytes_freed));
+        if !errors.is_empty() {
+            output.warning(format!("{} errors occurred", errors.len()));
+            for err in &errors {
+                output.warning(err.clone());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Format bytes as human-readable string.
+fn format_bytes(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 * 1024 {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    } else if bytes >= 1024 * 1024 {
+        format!("{:.2} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else if bytes >= 1024 {
+        format!("{:.2} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} bytes", bytes)
+    }
 }

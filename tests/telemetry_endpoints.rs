@@ -37,7 +37,7 @@ fn encode_jwt(claims: &Claims, secret: &[u8]) -> Result<String> {
 /// Test database setup using consolidated fixtures
 async fn setup_test_db() -> Result<Db> {
     mod common;
-    use common::{TestDbBuilder};
+    use common::TestDbBuilder;
     TestDbBuilder::new()
         .with_default_tenant()
         .with_default_admin()
@@ -49,9 +49,7 @@ async fn setup_test_db() -> Result<Db> {
 async fn setup_test_state() -> Result<AppState> {
     mod common;
     use common::TestAppStateBuilder;
-    TestAppStateBuilder::new()
-        .build()
-        .await
+    TestAppStateBuilder::new().build().await
 }
 
 /// Test GET /v1/telemetry/events/recent endpoint

@@ -58,6 +58,9 @@ impl ConfigLoader {
     }
 
     /// Load configuration from manifest file
+    ///
+    /// Maps TOML keys to config_key using the schema's toml_key field.
+    /// For example, `db.path` in cp.toml maps to `database.url` (AOS_DATABASE_URL).
     fn load_manifest(&self, mut builder: ConfigBuilder, path: &str) -> Result<ConfigBuilder> {
         let manifest_path = Path::new(path);
         if !manifest_path.exists() {
@@ -77,12 +80,18 @@ impl ConfigLoader {
 
         builder = builder.with_manifest_path(path.to_string());
 
+        // Build TOML key mapping from schema
+        let schema = crate::schema::default_schema();
+        let toml_key_map = schema.build_toml_key_map();
+
         // Flatten nested TOML structure
         let flattened = Self::flatten_toml_value(&manifest, String::new());
         let count = flattened.len();
-        for (key, value) in flattened {
+        for (toml_key, value) in flattened {
+            // Map TOML key to config_key (e.g., db.path -> database.url)
+            let config_key = toml_key_map.get(&toml_key).cloned().unwrap_or(toml_key);
             builder = builder.add_value(
-                key,
+                config_key,
                 value,
                 PrecedenceLevel::Manifest,
                 format!("manifest:{}", path),
@@ -97,8 +106,12 @@ impl ConfigLoader {
     ///
     /// Supports two prefixes:
     /// - `ADAPTEROS_*` - Standard prefix (e.g., `ADAPTEROS_SERVER_PORT` -> `server.port`)
-    /// - `AOS_*` - Short prefix for model-related vars (e.g., `AOS_MODEL_PATH` -> `model.path`)
+    /// - `AOS_*` - All AOS_* vars mapped to config keys (e.g., `AOS_SERVER_PORT` -> `server.port`)
+    ///
+    /// Mapping uses the schema's `config_key` field when available for proper TOML integration.
     fn load_environment(&self, mut builder: ConfigBuilder) -> Result<ConfigBuilder> {
+        let schema = crate::schema::default_schema();
+
         // Collect vars with ADAPTEROS_ prefix
         let adapteros_vars: HashMap<String, String> = std::env::vars()
             .filter(|(key, _)| key.starts_with(&self.options.env_prefix))
@@ -113,30 +126,27 @@ impl ConfigLoader {
             })
             .collect();
 
-        // Collect vars with AOS_ prefix (for model-related config)
+        // Collect ALL vars with AOS_ prefix and map using schema
         let aos_prefix = "AOS_";
         let aos_vars: HashMap<String, String> = std::env::vars()
-            .filter(|(key, _)| {
-                key.starts_with(aos_prefix) && !key.starts_with("AOS_")
-                    || key.starts_with(aos_prefix)
-            })
-            .filter(|(key, _)| {
-                // Only allow specific AOS_ prefixed vars for model configuration
-                key.starts_with("AOS_MODEL_")
-            })
+            .filter(|(key, _)| key.starts_with(aos_prefix))
             .map(|(key, value)| {
-                // Remove AOS_ prefix and convert to lowercase with dots
-                let config_key = key
-                    .strip_prefix(aos_prefix)
-                    .unwrap_or(&key)
-                    .to_lowercase()
-                    .replace('_', ".");
+                // Use schema config_key if available for proper TOML mapping
+                let config_key = if let Some(var) = schema.get_variable(&key) {
+                    var.config_key.clone()
+                } else {
+                    // Fallback: Remove AOS_ prefix and convert to lowercase with dots
+                    key.strip_prefix(aos_prefix)
+                        .unwrap_or(&key)
+                        .to_lowercase()
+                        .replace('_', ".")
+                };
                 tracing::debug!(env_var = %key, config_key = %config_key, "Mapped AOS_ env var");
                 (config_key, value)
             })
             .collect();
 
-        // Merge both sets (AOS_ vars don't override ADAPTEROS_ vars)
+        // Merge both sets (ADAPTEROS_ vars override AOS_ vars)
         let mut env_vars = aos_vars;
         for (key, value) in adapteros_vars {
             // ADAPTEROS_ prefix takes precedence over AOS_ prefix
@@ -458,5 +468,102 @@ url = "sqlite://manifest.db"
         std::env::remove_var("AOS_MODEL_PATH");
         std::env::remove_var("ADAPTEROS_MODEL_PATH");
         std::env::remove_var("ADAPTEROS_DATABASE_URL");
+    }
+
+    #[test]
+    fn test_all_aos_env_vars_loaded() {
+        // Test that ALL AOS_* env vars are loaded, not just AOS_MODEL_*
+        std::env::set_var("AOS_SERVER_PORT", "9999");
+        std::env::set_var("AOS_SERVER_HOST", "0.0.0.0");
+        std::env::set_var("AOS_DATABASE_URL", "sqlite://test-env.db");
+        std::env::set_var("AOS_LOG_LEVEL", "debug");
+
+        let loader = ConfigLoader::new();
+        let config = loader.load(vec![], None).unwrap();
+
+        // Verify all AOS_* vars are mapped correctly using schema config_key
+        assert_eq!(config.get("server.port"), Some(&"9999".to_string()));
+        assert_eq!(config.get("server.host"), Some(&"0.0.0.0".to_string()));
+        assert_eq!(
+            config.get("database.url"),
+            Some(&"sqlite://test-env.db".to_string())
+        );
+        assert_eq!(config.get("log.level"), Some(&"debug".to_string()));
+
+        // Clean up
+        std::env::remove_var("AOS_SERVER_PORT");
+        std::env::remove_var("AOS_SERVER_HOST");
+        std::env::remove_var("AOS_DATABASE_URL");
+        std::env::remove_var("AOS_LOG_LEVEL");
+    }
+
+    #[test]
+    fn test_toml_key_mapping() {
+        // Test that TOML keys are mapped to config_key via schema's toml_key field
+        // cp.toml uses db.path, but schema uses database.url
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(
+            temp_file,
+            r#"
+[db]
+path = "sqlite://toml-db.db"
+
+[server]
+port = 8888
+"#
+        )
+        .unwrap();
+        temp_file.flush().unwrap();
+
+        let loader = ConfigLoader::new();
+        let config = loader
+            .load(vec![], Some(temp_file.path().to_string_lossy().to_string()))
+            .unwrap();
+
+        // db.path in TOML should map to database.url (config_key)
+        assert_eq!(
+            config.get("database.url"),
+            Some(&"sqlite://toml-db.db".to_string())
+        );
+        // server.port should work as normal (no special mapping needed)
+        assert_eq!(config.get("server.port"), Some(&"8888".to_string()));
+    }
+
+    #[test]
+    fn test_env_overrides_toml() {
+        // Test that AOS_* env vars override TOML values
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(
+            temp_file,
+            r#"
+[db]
+path = "sqlite://toml-db.db"
+
+[server]
+port = 8888
+"#
+        )
+        .unwrap();
+        temp_file.flush().unwrap();
+
+        // Set env var that should override TOML
+        std::env::set_var("AOS_SERVER_PORT", "7777");
+        std::env::set_var("AOS_DATABASE_URL", "sqlite://env-db.db");
+
+        let loader = ConfigLoader::new();
+        let config = loader
+            .load(vec![], Some(temp_file.path().to_string_lossy().to_string()))
+            .unwrap();
+
+        // ENV should override TOML
+        assert_eq!(config.get("server.port"), Some(&"7777".to_string()));
+        assert_eq!(
+            config.get("database.url"),
+            Some(&"sqlite://env-db.db".to_string())
+        );
+
+        // Clean up
+        std::env::remove_var("AOS_SERVER_PORT");
+        std::env::remove_var("AOS_DATABASE_URL");
     }
 }

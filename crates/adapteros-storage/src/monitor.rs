@@ -29,7 +29,7 @@ impl Clone for StorageMonitor {
             root_path: self.root_path.clone(),
             telemetry: self.telemetry.clone(),
             monitoring_task: None, // Cannot clone JoinHandle
-            shutdown_tx: None, // Cannot clone oneshot::Sender
+            shutdown_tx: None,     // Cannot clone oneshot::Sender
             last_alert_level: Arc::clone(&self.last_alert_level),
         }
     }

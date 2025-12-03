@@ -87,8 +87,12 @@ pub async fn verify_federation(
 
     // Connect to database
     output.progress("Connecting to database");
-    let db_path_str = database.to_str()
-        .ok_or_else(|| anyhow::anyhow!("Database path contains invalid UTF-8: {}", database.display()))?;
+    let db_path_str = database.to_str().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Database path contains invalid UTF-8: {}",
+            database.display()
+        )
+    })?;
     let db = Db::connect(db_path_str)
         .await
         .context("Failed to connect to database")?;

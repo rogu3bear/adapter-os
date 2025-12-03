@@ -10,7 +10,7 @@
 //! - Deterministic Eviction: Uses BLAKE3 hash for tiebreaking【3†adapteros-memory/src/unified_interface.rs:379-397】
 
 use crate::unified_interface::MemoryManager;
-use adapteros_core::{constants::BYTES_PER_MB, constants::BYTES_PER_GB, AosError, Result};
+use adapteros_core::{constants::BYTES_PER_GB, constants::BYTES_PER_MB, AosError, Result};
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::hash::Hash;

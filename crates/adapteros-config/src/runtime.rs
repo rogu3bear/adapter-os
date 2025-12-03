@@ -497,7 +497,11 @@ impl RuntimeConfig {
         for (name, _) in &self.values {
             if let Some(var) = self.schema.get_variable(name) {
                 if let Some(dep) = &var.deprecated {
-                    deprecated.push((name.as_str(), dep.replacement.as_str(), dep.notes.as_deref().unwrap_or("")));
+                    deprecated.push((
+                        name.as_str(),
+                        dep.replacement.as_str(),
+                        dep.notes.as_deref().unwrap_or(""),
+                    ));
                 }
             }
         }

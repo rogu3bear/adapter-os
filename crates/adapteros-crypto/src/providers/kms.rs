@@ -49,11 +49,7 @@ fn seeded_rng(context: &str) -> StdRng {
 /// Execute KMS operation with retry logic
 /// Provides exponential backoff for transient failures
 #[cfg(any(feature = "aws-kms", feature = "gcp-kms", feature = "azure-kms"))]
-async fn kms_with_retry<F, T>(
-    max_retries: u32,
-    provider_name: &str,
-    mut op: F,
-) -> Result<T>
+async fn kms_with_retry<F, T>(max_retries: u32, provider_name: &str, mut op: F) -> Result<T>
 where
     F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
 {

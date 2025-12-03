@@ -222,7 +222,9 @@ impl TestCleanupGuard {
     /// Add an environment variable to be restored
     pub fn add_env_var(&mut self, key: &str) -> &mut Self {
         let original_value = std::env::var(key).ok();
-        self.context.env_vars.insert(key.to_string(), original_value);
+        self.context
+            .env_vars
+            .insert(key.to_string(), original_value);
         self
     }
 

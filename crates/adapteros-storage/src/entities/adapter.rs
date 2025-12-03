@@ -61,7 +61,7 @@ pub struct AdapterKv {
 
     // Lineage tracking
     pub parent_id: Option<String>,
-    pub fork_type: Option<String>,    // parameter | data | architecture
+    pub fork_type: Option<String>, // parameter | data | architecture
     pub fork_reason: Option<String>,
 
     // Source tracking
@@ -82,6 +82,12 @@ pub struct AdapterKv {
     // File references
     pub aos_file_path: Option<String>,
     pub aos_file_hash: Option<String>,
+
+    // Archive/GC state (from migration 0138)
+    pub archived_at: Option<DateTime<Utc>>,
+    pub archived_by: Option<String>,
+    pub archive_reason: Option<String>,
+    pub purged_at: Option<DateTime<Utc>>,
 
     // Timestamps
     pub created_at: DateTime<Utc>,

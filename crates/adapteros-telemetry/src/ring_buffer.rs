@@ -6,7 +6,7 @@
 //! - Thread-safe concurrent access
 //! - <1ms overhead for event insertion
 //!
-//! Per PRD-08: Must support 100% event delivery guarantee with efficient storage
+//! Supports 100% event delivery guarantee with efficient storage
 
 use crate::unified_events::TelemetryEvent;
 use std::sync::atomic::{AtomicUsize, Ordering};

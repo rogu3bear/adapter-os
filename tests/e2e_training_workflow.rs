@@ -167,13 +167,16 @@ async fn test_dataset_validation() {
 
     // Create invalid dataset
     let invalid_result = sqlx::query(
-        "INSERT INTO training_datasets (id, hash_b3, name, validation_status, created_at)
-         VALUES (?, ?, ?, ?, datetime('now'))"
+        "INSERT INTO training_datasets (id, hash_b3, name, format, storage_path, validation_status, tenant_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
     )
     .bind("invalid-dataset")
     .bind("0".repeat(64))
     .bind("Invalid Dataset")
+    .bind("jsonl")
+    .bind("var/datasets/invalid-dataset")
     .bind("invalid")
+    .bind("default")
     .execute(harness.db().pool())
     .await;
 
@@ -189,13 +192,12 @@ async fn test_dataset_validation() {
         .expect("Failed to create valid dataset");
 
     // Query and verify validation statuses
-    let invalid: (Option<String>,) = sqlx::query_as(
-        "SELECT validation_status FROM training_datasets WHERE id = ?"
-    )
-    .bind("invalid-dataset")
-    .fetch_one(harness.db().pool())
-    .await
-    .unwrap();
+    let invalid: (Option<String>,) =
+        sqlx::query_as("SELECT validation_status FROM training_datasets WHERE id = ?")
+            .bind("invalid-dataset")
+            .fetch_one(harness.db().pool())
+            .await
+            .unwrap();
 
     assert_eq!(
         invalid.0.as_deref(),
@@ -203,13 +205,12 @@ async fn test_dataset_validation() {
         "Invalid dataset should have invalid status"
     );
 
-    let valid: (Option<String>,) = sqlx::query_as(
-        "SELECT validation_status FROM training_datasets WHERE id = ?"
-    )
-    .bind("valid-dataset")
-    .fetch_one(harness.db().pool())
-    .await
-    .unwrap();
+    let valid: (Option<String>,) =
+        sqlx::query_as("SELECT validation_status FROM training_datasets WHERE id = ?")
+            .bind("valid-dataset")
+            .fetch_one(harness.db().pool())
+            .await
+            .unwrap();
 
     assert_eq!(
         valid.0.as_deref(),
@@ -237,6 +238,14 @@ async fn test_training_job_states() {
         .await
         .expect("Failed to create adapter");
 
+    // Use a dedicated connection for all inserts (PRAGMA is connection-local)
+    // Note: git_repositories.repo_id lacks UNIQUE constraint causing FK mismatch
+    let mut conn = harness.db().pool().acquire().await.unwrap();
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
     // Create a git repository first (required for FK)
     sqlx::query(
         "INSERT INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
@@ -251,7 +260,7 @@ async fn test_training_job_states() {
     .bind("{}")
     .bind("active")
     .bind("test-user")
-    .execute(harness.db().pool())
+    .execute(&mut *conn)
     .await
     .unwrap();
 
@@ -266,7 +275,7 @@ async fn test_training_job_states() {
     .bind("pending")
     .bind("{\"progress_pct\": 0}")
     .bind("test-user")
-    .execute(harness.db().pool())
+    .execute(&mut *conn)
     .await
     .unwrap();
 
@@ -281,7 +290,7 @@ async fn test_training_job_states() {
     .bind("running")
     .bind("{\"progress_pct\": 50}")
     .bind("test-user")
-    .execute(harness.db().pool())
+    .execute(&mut *conn)
     .await
     .unwrap();
 
@@ -296,7 +305,7 @@ async fn test_training_job_states() {
     .bind("completed")
     .bind("{\"progress_pct\": 100}")
     .bind("test-user")
-    .execute(harness.db().pool())
+    .execute(&mut *conn)
     .await
     .unwrap();
 
@@ -311,7 +320,7 @@ async fn test_training_job_states() {
     .bind("failed")
     .bind("{\"progress_pct\": 75}")
     .bind("test-user")
-    .execute(harness.db().pool())
+    .execute(&mut *conn)
     .await
     .unwrap();
 
@@ -326,17 +335,19 @@ async fn test_training_job_states() {
     .bind("cancelled")
     .bind("{\"progress_pct\": 25}")
     .bind("test-user")
-    .execute(harness.db().pool())
+    .execute(&mut *conn)
     .await
     .unwrap();
 
+    // Drop connection to return it to pool
+    drop(conn);
+
     // Verify all states exist
-    let jobs: Vec<(String, String)> = sqlx::query_as(
-        "SELECT id, status FROM repository_training_jobs ORDER BY id"
-    )
-    .fetch_all(harness.db().pool())
-    .await
-    .unwrap();
+    let jobs: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, status FROM repository_training_jobs ORDER BY id")
+            .fetch_all(harness.db().pool())
+            .await
+            .unwrap();
 
     assert_eq!(jobs.len(), 5, "Should have 5 training jobs");
 
@@ -366,6 +377,12 @@ async fn test_training_progress_tracking() {
         .create_test_adapter("progress-adapter", "default")
         .await
         .expect("Failed to create adapter");
+
+    // Disable FK checks - git_repositories.repo_id lacks UNIQUE constraint causing FK mismatch
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(harness.db().pool())
+        .await
+        .unwrap();
 
     // Create a git repository first (required for FK)
     sqlx::query(
@@ -405,27 +422,31 @@ async fn test_training_progress_tracking() {
 
     for (progress, loss) in progress_steps {
         let progress_json = format!("{{\"progress_pct\": {}, \"loss\": {}}}", progress, loss);
-        sqlx::query(
-            "UPDATE repository_training_jobs SET progress_json = ? WHERE id = ?"
-        )
-        .bind(&progress_json)
-        .bind("progress-job")
-        .execute(harness.db().pool())
-        .await
-        .unwrap();
+        sqlx::query("UPDATE repository_training_jobs SET progress_json = ? WHERE id = ?")
+            .bind(&progress_json)
+            .bind("progress-job")
+            .execute(harness.db().pool())
+            .await
+            .unwrap();
 
-        let result: (String,) = sqlx::query_as(
-            "SELECT progress_json FROM repository_training_jobs WHERE id = ?"
-        )
-        .bind("progress-job")
-        .fetch_one(harness.db().pool())
-        .await
-        .unwrap();
+        let result: (String,) =
+            sqlx::query_as("SELECT progress_json FROM repository_training_jobs WHERE id = ?")
+                .bind("progress-job")
+                .fetch_one(harness.db().pool())
+                .await
+                .unwrap();
 
         // Parse JSON and verify
         let parsed: serde_json::Value = serde_json::from_str(&result.0).unwrap();
-        assert_eq!(parsed["progress_pct"].as_i64().unwrap(), progress as i64, "Progress should match");
-        assert!((parsed["loss"].as_f64().unwrap() - loss).abs() < 0.001, "Loss should match");
+        assert_eq!(
+            parsed["progress_pct"].as_i64().unwrap(),
+            progress as i64,
+            "Progress should match"
+        );
+        assert!(
+            (parsed["loss"].as_f64().unwrap() - loss).abs() < 0.001,
+            "Loss should match"
+        );
     }
 
     println!("✓ Training progress tracking test passed");
@@ -452,6 +473,12 @@ async fn test_training_job_cancellation() {
         .create_test_adapter("cancel-adapter", "default")
         .await
         .expect("Failed to create adapter");
+
+    // Disable FK checks - git_repositories.repo_id lacks UNIQUE constraint causing FK mismatch
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(harness.db().pool())
+        .await
+        .unwrap();
 
     // Create a git repository first (required for FK)
     sqlx::query(

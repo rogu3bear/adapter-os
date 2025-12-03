@@ -1,7 +1,7 @@
 //! Configuration management CLI commands
 //!
 //! Provides `aosctl config` subcommands for validation, migration, and display
-//! of environment configuration per PRD-CONFIG-001.
+//! of environment configuration.
 //!
 //! ## Commands
 //!
@@ -283,6 +283,12 @@ pub enum ConfigCommand {
         after_help = "Examples:\n  aosctl config show\n  aosctl config show --category model\n  aosctl config show --format env > exported.env\n  aosctl config show --format json | jq '.model.path'"
     )]
     Show(ShowArgs),
+
+    /// Show effective configuration with source annotations
+    #[command(
+        after_help = "Examples:\n  aosctl config show-effective\n  aosctl config show-effective --category SERVER\n  aosctl config show-effective --format json\n  aosctl config show-effective --format env > .env.effective"
+    )]
+    ShowEffective(ShowEffectiveArgs),
 }
 
 /// Type alias for main.rs integration
@@ -376,6 +382,26 @@ pub struct ShowArgs {
     pub no_redact: bool,
 }
 
+/// Arguments for the show-effective command
+#[derive(Debug, Clone, Args)]
+pub struct ShowEffectiveArgs {
+    /// Output format: table, json, env
+    #[arg(short = 'f', long, value_enum, default_value = "table")]
+    pub format: OutputFormat,
+
+    /// Show drift from previous session
+    #[arg(long)]
+    pub diff: bool,
+
+    /// Filter by category (e.g., SERVER, DATABASE, MODEL)
+    #[arg(short = 'c', long)]
+    pub category: Option<String>,
+
+    /// Show sensitive values (requires confirmation)
+    #[arg(long)]
+    pub no_redact: bool,
+}
+
 // ============================================================================
 // Main Entry Point
 // ============================================================================
@@ -386,6 +412,7 @@ pub async fn run_config_command(cmd: ConfigCommand, output: &OutputWriter) -> Re
         ConfigCommand::Validate(args) => validate(args, output).await,
         ConfigCommand::Migrate(args) => migrate(args, output).await,
         ConfigCommand::Show(args) => show(args, output).await,
+        ConfigCommand::ShowEffective(args) => show_effective(args, output).await,
     }
 }
 
@@ -882,9 +909,7 @@ fn validate_url(value: &str) -> std::result::Result<(), String> {
 }
 
 fn validate_database_url(value: &str) -> std::result::Result<(), String> {
-    if value.starts_with("sqlite:")
-        || value.contains(".sqlite")
-    {
+    if value.starts_with("sqlite:") || value.contains(".sqlite") {
         Ok(())
     } else {
         Err(format!(
@@ -1550,7 +1575,11 @@ fn collect_effective_config(args: &ShowArgs, should_redact: bool) -> Result<Vec<
     let env_vars: HashMap<String, String> = std::env::vars().collect();
 
     let var_definitions: Vec<(&str, &str, &str)> = vec![
-        ("AOS_MODEL_PATH", "model", "./var/model-cache/models/qwen2.5-7b-instruct-bf16"),
+        (
+            "AOS_MODEL_PATH",
+            "model",
+            "./var/model-cache/models/qwen2.5-7b-instruct-bf16",
+        ),
         ("AOS_MODEL_BACKEND", "model", "auto"),
         ("AOS_MODEL_ARCHITECTURE", "model", ""),
         ("AOS_SERVER_HOST", "server", "127.0.0.1"),
@@ -1753,6 +1782,240 @@ fn truncate(s: &str, max_len: usize) -> String {
     } else {
         format!("{}...", &s[..max_len - 3])
     }
+}
+
+// ============================================================================
+// Show Effective Command Implementation
+// ============================================================================
+
+/// Show effective configuration with source annotations
+pub async fn show_effective(args: ShowEffectiveArgs, output: &OutputWriter) -> Result<()> {
+    use adapteros_config::{effective_config, init_effective_config, is_effective_initialized};
+
+    info!("Showing effective configuration");
+
+    // Initialize effective config if not already done
+    if !is_effective_initialized() {
+        init_effective_config(Some("configs/cp.toml"), vec![])?;
+    }
+
+    let config = effective_config()?;
+
+    // Handle --no-redact flag
+    let should_redact = if args.no_redact {
+        println!("WARNING: About to display sensitive values. Continue? [y/N]");
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| AosError::Io(e.to_string()))?;
+        if input.trim().to_lowercase() != "y" {
+            output.warning("Cancelled - sensitive values will be redacted");
+            true
+        } else {
+            false
+        }
+    } else {
+        true
+    };
+
+    // Collect all config entries with their sources
+    let entries = collect_effective_entries(config, &args.category, should_redact)?;
+
+    // Output based on format
+    match args.format {
+        OutputFormat::Json => output_effective_json(&entries)?,
+        OutputFormat::Env => output_effective_env(&entries)?,
+        _ => output_effective_table(&entries, config, output)?,
+    }
+
+    Ok(())
+}
+
+/// Entry in the effective configuration
+#[derive(Debug, Clone, Serialize)]
+struct EffectiveEntry {
+    category: String,
+    key: String,
+    value: String,
+    source: String,
+}
+
+/// Collect effective configuration entries
+fn collect_effective_entries(
+    config: &adapteros_config::EffectiveConfig,
+    category_filter: &Option<String>,
+    should_redact: bool,
+) -> Result<Vec<EffectiveEntry>> {
+    let mut entries = Vec::new();
+
+    // Get all sources
+    let all_sources = config.all_sources();
+
+    // Helper to check if we should include a key based on category filter
+    let should_include = |key: &str| -> bool {
+        if let Some(ref filter) = category_filter {
+            let key_upper = key.to_uppercase();
+            let filter_upper = filter.to_uppercase();
+            key_upper.starts_with(&filter_upper)
+                || key_upper.starts_with(&format!("{}.", filter_upper))
+        } else {
+            true
+        }
+    };
+
+    // Helper to redact sensitive values
+    let maybe_redact = |key: &str, value: String| -> String {
+        if should_redact && is_sensitive_key(key) {
+            "***REDACTED***".to_string()
+        } else {
+            value
+        }
+    };
+
+    // Helper to extract category from key
+    let get_category = |key: &str| -> String { key.split('.').next().unwrap_or("").to_uppercase() };
+
+    // Iterate through all sources and add entries
+    for (key, source) in all_sources {
+        if !should_include(key) {
+            continue;
+        }
+
+        // Get the value from config
+        if let Some(value) = config.get(key) {
+            entries.push(EffectiveEntry {
+                category: get_category(key),
+                key: key.clone(),
+                value: maybe_redact(key, value.clone()),
+                source: source.clone(),
+            });
+        }
+    }
+
+    // Sort entries by category then key
+    entries.sort_by(|a, b| a.category.cmp(&b.category).then(a.key.cmp(&b.key)));
+
+    Ok(entries)
+}
+
+/// Check if a config key contains sensitive data
+fn is_sensitive_key(key: &str) -> bool {
+    let key_lower = key.to_lowercase();
+    key_lower.contains("secret")
+        || key_lower.contains("password")
+        || key_lower.contains("token")
+        || key_lower.contains("signing_key")
+        || key_lower.contains("jwt")
+}
+
+/// Output effective config as table
+fn output_effective_table(
+    entries: &[EffectiveEntry],
+    config: &adapteros_config::EffectiveConfig,
+    output: &OutputWriter,
+) -> Result<()> {
+    // Get config hash
+    let config_hash = config.config_hash();
+    let hash_short = if config_hash.len() >= 8 {
+        &config_hash[..8]
+    } else {
+        config_hash
+    };
+
+    output.result(&format!("Effective Configuration (hash: {})", hash_short));
+    output.result("============================================");
+    output.result("Precedence: CLI > ENV > TOML > Default");
+    output.blank();
+
+    let mut current_category = String::new();
+
+    for entry in entries {
+        // Print category header when it changes
+        if entry.category != current_category {
+            if !current_category.is_empty() {
+                output.blank();
+            }
+            output.result(&entry.category);
+            current_category = entry.category.clone();
+        }
+
+        // Format: key = value [source]
+        let key_display = entry
+            .key
+            .strip_prefix(&format!("{}.", entry.category.to_lowercase()))
+            .unwrap_or(&entry.key);
+
+        output.result(&format!(
+            "  {:30} = {:30} [{}]",
+            key_display,
+            truncate(&entry.value, 30),
+            entry.source
+        ));
+    }
+
+    output.blank();
+    Ok(())
+}
+
+/// Output effective config as JSON
+fn output_effective_json(entries: &[EffectiveEntry]) -> Result<()> {
+    let mut grouped: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
+
+    for entry in entries {
+        let category_entries = grouped.entry(entry.category.clone()).or_default();
+        category_entries.push(serde_json::json!({
+            "key": entry.key,
+            "value": entry.value,
+            "source": entry.source,
+        }));
+    }
+
+    let output = serde_json::json!({
+        "effective_configuration": grouped,
+        "timestamp": Utc::now().to_rfc3339(),
+    });
+
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+
+/// Output effective config as env file format
+fn output_effective_env(entries: &[EffectiveEntry]) -> Result<()> {
+    println!("# AdapterOS Effective Configuration");
+    println!("# Generated: {}", Utc::now().to_rfc3339());
+    println!("# Precedence: CLI > ENV > TOML > Default");
+    println!();
+
+    let mut current_category = String::new();
+
+    for entry in entries {
+        // Print category header when it changes
+        if entry.category != current_category {
+            println!();
+            println!("# === {} ===", entry.category);
+            current_category = entry.category.clone();
+        }
+
+        // Convert dotted key to uppercase env var format
+        let env_key = format!("AOS_{}", entry.key.replace('.', "_").to_uppercase());
+
+        // Skip redacted values
+        if entry.value == "***REDACTED***" {
+            println!("# {}=***REDACTED***", env_key);
+        } else if entry.value.contains(' ') || entry.value.contains('"') {
+            println!(
+                "{}=\"{}\"  # [{}]",
+                env_key,
+                entry.value.replace('"', "\\\""),
+                entry.source
+            );
+        } else {
+            println!("{}={}  # [{}]", env_key, entry.value, entry.source);
+        }
+    }
+
+    println!();
+    Ok(())
 }
 
 // ============================================================================

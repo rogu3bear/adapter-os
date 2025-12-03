@@ -306,36 +306,27 @@ async fn test_adapter_activation_tracking() {
 
     // Verify adapter exists and has correct initial state
     // Note: The adapters table uses 'active' column (INTEGER) for tracking active state
-    let result: (i64,) = sqlx::query_as(
-        "SELECT active FROM adapters WHERE id = ?"
-    )
-    .bind("activation-test-adapter")
-    .fetch_one(harness.db().pool())
-    .await
-    .unwrap();
+    let result: (i64,) = sqlx::query_as("SELECT active FROM adapters WHERE id = ?")
+        .bind("activation-test-adapter")
+        .fetch_one(harness.db().pool())
+        .await
+        .unwrap();
 
-    assert_eq!(
-        result.0, 1,
-        "Initial active state should be 1 (active)"
-    );
+    assert_eq!(result.0, 1, "Initial active state should be 1 (active)");
 
     // Simulate deactivation by updating active column
-    sqlx::query(
-        "UPDATE adapters SET active = ? WHERE id = ?"
-    )
-    .bind(0)
-    .bind("activation-test-adapter")
-    .execute(harness.db().pool())
-    .await
-    .unwrap();
+    sqlx::query("UPDATE adapters SET active = ? WHERE id = ?")
+        .bind(0)
+        .bind("activation-test-adapter")
+        .execute(harness.db().pool())
+        .await
+        .unwrap();
 
-    let result: (i64,) = sqlx::query_as(
-        "SELECT active FROM adapters WHERE id = ?"
-    )
-    .bind("activation-test-adapter")
-    .fetch_one(harness.db().pool())
-    .await
-    .unwrap();
+    let result: (i64,) = sqlx::query_as("SELECT active FROM adapters WHERE id = ?")
+        .bind("activation-test-adapter")
+        .fetch_one(harness.db().pool())
+        .await
+        .unwrap();
 
     assert_eq!(
         result.0, 0,

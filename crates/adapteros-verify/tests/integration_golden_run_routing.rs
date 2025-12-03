@@ -105,7 +105,7 @@ async fn test_golden_run_routing_save_load() {
 
     // Create a golden run archive with routing decisions
     let routing_decisions = create_test_routing_decisions();
-    
+
     use adapteros_verify::GoldenRunMetadata;
     let metadata = GoldenRunMetadata::new(
         "test-cpid".to_string(),
@@ -117,10 +117,12 @@ async fn test_golden_run_routing_save_load() {
     );
 
     use adapteros_verify::EpsilonStatistics;
-    let epsilon_stats = EpsilonStatistics { layer_stats: std::collections::HashMap::new() };
-    
+    let epsilon_stats = EpsilonStatistics {
+        layer_stats: std::collections::HashMap::new(),
+    };
+
     let bundle_hash = B3Hash::hash(b"test-bundle");
-    
+
     let archive = GoldenRunArchive::with_routing_decisions(
         metadata,
         epsilon_stats,
@@ -129,7 +131,11 @@ async fn test_golden_run_routing_save_load() {
     );
 
     // Verify routing decisions in archive
-    assert_eq!(archive.routing_decisions.len(), 2, "Should have 2 routing decisions");
+    assert_eq!(
+        archive.routing_decisions.len(),
+        2,
+        "Should have 2 routing decisions"
+    );
     assert_eq!(archive.routing_decisions[0].step, 0);
     assert_eq!(archive.routing_decisions[1].step, 1);
 
@@ -148,7 +154,7 @@ async fn test_golden_run_routing_save_load() {
     assert_eq!(loaded.routing_decisions[0].entropy, 0.5);
     assert_eq!(loaded.routing_decisions[1].step, 1);
     assert_eq!(loaded.routing_decisions[1].entropy, 0.6);
-    
+
     // Verify comparison works
     use adapteros_verify::{compare_routing_decisions, StrictnessLevel};
     let config = ComparisonConfig {
@@ -158,13 +164,10 @@ async fn test_golden_run_routing_save_load() {
         verify_device: false,
         verify_signature: false,
     };
-    
-    let (matched, divergences) = compare_routing_decisions(
-        &loaded.routing_decisions,
-        &routing_decisions,
-        &config,
-    );
-    
+
+    let (matched, divergences) =
+        compare_routing_decisions(&loaded.routing_decisions, &routing_decisions, &config);
+
     assert!(matched, "Routing decisions should match");
     assert_eq!(divergences.len(), 0);
 }
@@ -258,4 +261,3 @@ fn test_routing_decision_serialization() {
     assert_eq!(deserialized.entropy, 0.55);
     assert_eq!(deserialized.stack_id, Some("stack-001".to_string()));
 }
-

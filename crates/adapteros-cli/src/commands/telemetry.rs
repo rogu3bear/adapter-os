@@ -37,7 +37,7 @@ pub enum TelemetryCommand {
         #[arg(long, default_value = "./var/aos-cp.sqlite3")]
         database: PathBuf,
 
-        /// Filter by stack ID (PRD-03)
+        /// Filter by stack ID
         #[arg(long)]
         by_stack: Option<String>,
 
@@ -110,7 +110,7 @@ pub async fn handle_telemetry_command(cmd: TelemetryCommand, output: &OutputWrit
 /// List telemetry events from database with optional stack filtering
 ///
 /// This function queries telemetry bundles and their events, filtering by stack_id if provided.
-/// Supports PRD-03 stack versioning and telemetry correlation.
+/// Supports stack versioning and telemetry correlation.
 pub async fn list_telemetry_events(
     database_path: &Path,
     by_stack: Option<&str>,
@@ -171,7 +171,7 @@ pub async fn list_telemetry_events(
                 "event_count": row.get::<i64, _>("event_count"),
                 "created_at": row.get::<String, _>("created_at"),
                 // Note: stack_id and stack_version will be added when bundle metadata is updated
-                "note": "Full event-level filtering requires parsing bundle files (see PRD-03)"
+                "note": "Full event-level filtering requires parsing bundle files"
             })
         })
         .collect();

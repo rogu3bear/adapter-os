@@ -217,6 +217,33 @@ impl DeterministicConfig {
         serde_json::to_string_pretty(self)
             .map_err(|e| AosError::Config(format!("Failed to serialize config: {}", e)))
     }
+
+    /// Create a configuration for testing purposes
+    #[cfg(test)]
+    pub fn new_for_test(values: HashMap<String, String>) -> Self {
+        let metadata = ConfigMetadata {
+            frozen_at: chrono::Utc::now().to_rfc3339(),
+            hash: String::new(),
+            sources: values
+                .iter()
+                .map(|(k, v)| ConfigSource {
+                    level: PrecedenceLevel::Environment,
+                    source: "test".to_string(),
+                    key: k.clone(),
+                    value: v.clone(),
+                })
+                .collect(),
+            manifest_path: None,
+            cli_args: vec![],
+        };
+
+        Self {
+            values,
+            metadata,
+            schema: ConfigSchema::default(),
+            frozen: true,
+        }
+    }
 }
 
 impl fmt::Display for DeterministicConfig {

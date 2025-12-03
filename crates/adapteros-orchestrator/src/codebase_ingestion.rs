@@ -152,7 +152,8 @@ impl CodebaseIngestion {
         );
 
         // Resolve tokenizer via canonical discovery (config > AOS_TOKENIZER_PATH > AOS_MODEL_PATH/tokenizer.json)
-        let tokenizer_path = adapteros_config::resolve_tokenizer_path(self.config.tokenizer_path.as_ref())?;
+        let tokenizer_path =
+            adapteros_config::resolve_tokenizer_path(self.config.tokenizer_path.as_ref())?;
         let tokenizer = QwenTokenizer::from_file(&tokenizer_path).map_err(|e| {
             AosError::Training(format!(
                 "Failed to load tokenizer {}: {}",
