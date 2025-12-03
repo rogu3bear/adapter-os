@@ -35,7 +35,7 @@ pub struct RouterDeterminismConfig {
 impl Default for RouterDeterminismConfig {
     fn default() -> Self {
         Self {
-            ieee754_deterministic: true,  // Enabled by default for reproducibility
+            ieee754_deterministic: true,   // Enabled by default for reproducibility
             enable_decision_hashing: true, // Enabled by default for audit trail
         }
     }
@@ -356,7 +356,7 @@ impl Router {
                 entropy_floor: self.eps,
                 stack_hash: self.active_stack_hash.map(|h| h.to_short_hex()),
                 stack_id: self.active_stack_name.clone(),
-                stack_version: None, // Will be populated by PRD-03
+                stack_version: None, // Will be populated by stack metadata
             };
 
             // Emit event (non-blocking, logs on error)
@@ -1741,12 +1741,7 @@ mod tests {
     #[test]
     fn test_deterministic_softmax_reproducibility() {
         // Test that deterministic softmax produces identical results across multiple runs
-        let scores = vec![
-            (0, 0.9f32),
-            (1, 0.5f32),
-            (2, 0.3f32),
-            (3, 0.1f32),
-        ];
+        let scores = vec![(0, 0.9f32), (1, 0.5f32), (2, 0.3f32), (3, 0.1f32)];
         let tau = 1.0f32;
 
         // Run deterministic softmax multiple times
@@ -1805,7 +1800,10 @@ mod tests {
         let hash = decision.decision_hash.unwrap();
 
         // Hash should have all fields populated
-        assert!(!hash.input_hash.is_empty(), "Input hash should be populated");
+        assert!(
+            !hash.input_hash.is_empty(),
+            "Input hash should be populated"
+        );
         assert!(
             !hash.output_hash.is_empty(),
             "Output hash should be populated"

@@ -126,6 +126,76 @@ impl Generator {
         self
     }
 
+    // =========================================================================
+    // Setter methods for per-request sampling params (PRD-02: replay support)
+    // =========================================================================
+
+    /// Set temperature for sampling (runtime setter)
+    ///
+    /// Used to apply per-request sampling parameters during replay.
+    pub fn set_temperature(&mut self, temperature: f32) {
+        self.temperature = temperature.max(0.01); // Prevent division by zero
+    }
+
+    /// Set top-k sampling (runtime setter)
+    pub fn set_top_k(&mut self, k: Option<usize>) {
+        self.top_k = k;
+    }
+
+    /// Set top-p sampling (runtime setter)
+    pub fn set_top_p(&mut self, p: Option<f32>) {
+        self.top_p = p.map(|v| v.clamp(0.0, 1.0));
+    }
+
+    /// Reset generator with a new seed (for replay determinism)
+    ///
+    /// This replaces the base seed and reseeds the RNG, enabling
+    /// exact replay of previous inference runs when the same seed
+    /// is used.
+    ///
+    /// # Arguments
+    /// * `seed` - 64-bit seed value (will be expanded to 32 bytes)
+    pub fn set_seed(&mut self, seed: u64) {
+        // Expand u64 seed to [u8; 32] deterministically
+        let mut seed_bytes = [0u8; 32];
+        seed_bytes[..8].copy_from_slice(&seed.to_le_bytes());
+        // Fill remaining bytes with HKDF expansion for entropy
+        use hkdf::Hkdf;
+        use sha2::Sha256;
+        let hk = Hkdf::<Sha256>::new(None, &seed_bytes[..8]);
+        hk.expand(b"replay-seed-expand", &mut seed_bytes)
+            .expect("HKDF expand failed");
+
+        self.base_seed = seed_bytes;
+        self.rng = rand::rngs::StdRng::from_seed(seed_bytes);
+        self.step_counter = 0;
+    }
+
+    /// Apply sampling parameters from an inference request (PRD-02)
+    ///
+    /// Updates temperature, top_k, top_p, and seed if provided in the request.
+    /// This enables deterministic replay when the same parameters are used.
+    pub fn apply_request_params(
+        &mut self,
+        temperature: Option<f32>,
+        top_k: Option<usize>,
+        top_p: Option<f32>,
+        seed: Option<u64>,
+    ) {
+        if let Some(t) = temperature {
+            self.set_temperature(t);
+        }
+        if top_k.is_some() {
+            self.set_top_k(top_k);
+        }
+        if top_p.is_some() {
+            self.set_top_p(top_p);
+        }
+        if let Some(s) = seed {
+            self.set_seed(s);
+        }
+    }
+
     /// Generate tokens autoregressively
     ///
     /// # Arguments

@@ -19,7 +19,10 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
-use crate::{InferenceRequest, InferenceResponse, PatchProposalRequest, RequestType, Worker};
+use crate::{
+    CancelTrainingRequest, CancelTrainingResponse, InferenceRequest, InferenceResponse,
+    PatchProposalRequest, RequestType, Worker,
+};
 
 /// Request to load a model into the worker
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -209,6 +212,13 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                     request_type: RequestType::PatchProposal(patch_req.clone()),
                     stack_id: None,
                     stack_version: None,
+                    // Sampling params (use defaults for patch proposal)
+                    temperature: None,
+                    top_k: None,
+                    top_p: None,
+                    seed: None,
+                    router_seed: None,
+                    pinned_adapter_ids: None,
                 };
 
                 let mut worker_guard = worker.lock().await;
@@ -239,7 +249,11 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                             error: Some(format!("Invalid request: {}", e)),
                             loaded_at: None,
                         };
-                        Self::send_json_response(&mut stream, serde_json::to_value(&response).unwrap()).await?;
+                        Self::send_json_response(
+                            &mut stream,
+                            serde_json::to_value(&response).unwrap(),
+                        )
+                        .await?;
                         return Ok(());
                     }
                 };
@@ -257,10 +271,14 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                         status: "error".to_string(),
                         model_id: load_req.model_id,
                         memory_usage_mb: None,
-                        error: Some(format!("Model path does not exist: {}", load_req.model_path)),
+                        error: Some(format!(
+                            "Model path does not exist: {}",
+                            load_req.model_path
+                        )),
                         loaded_at: None,
                     };
-                    Self::send_json_response(&mut stream, serde_json::to_value(&response).unwrap()).await?;
+                    Self::send_json_response(&mut stream, serde_json::to_value(&response).unwrap())
+                        .await?;
                     return Ok(());
                 }
 
@@ -302,7 +320,8 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                         "Model load confirmed via UDS"
                     );
 
-                    Self::send_json_response(&mut stream, serde_json::to_value(&response).unwrap()).await?;
+                    Self::send_json_response(&mut stream, serde_json::to_value(&response).unwrap())
+                        .await?;
                 } else {
                     let response = ModelLoadResponse {
                         status: "error".to_string(),
@@ -311,7 +330,8 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                         error: Some("Worker is not healthy".to_string()),
                         loaded_at: None,
                     };
-                    Self::send_json_response(&mut stream, serde_json::to_value(&response).unwrap()).await?;
+                    Self::send_json_response(&mut stream, serde_json::to_value(&response).unwrap())
+                        .await?;
                 }
             }
             "/model/status" => {
@@ -328,6 +348,79 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
                 Self::send_json_response(&mut stream, status_response).await?;
+            }
+            "/training/cancel" => {
+                let cancel_req: CancelTrainingRequest = serde_json::from_str(&request.body)
+                    .map_err(|e| {
+                        AosError::Worker(format!("Failed to parse cancel request: {}", e))
+                    })?;
+
+                info!(
+                    job_id = %cancel_req.job_id,
+                    reason = ?cancel_req.reason,
+                    "Processing training cancel request via UDS"
+                );
+
+                let worker_guard = worker.lock().await;
+                let response = worker_guard
+                    .cancel_training_job(&cancel_req.job_id)
+                    .map_err(|e| {
+                        AosError::Worker(format!("Training cancellation failed: {}", e))
+                    })?;
+
+                Self::send_json_response(&mut stream, serde_json::to_value(&response).unwrap())
+                    .await?;
+            }
+            "/fatal" => {
+                // Worker fatal error channel for panic reporting
+                // Parse WorkerFatal from request body
+                #[derive(serde::Deserialize)]
+                struct WorkerFatal {
+                    worker_id: String,
+                    reason: String,
+                    backtrace_snippet: Option<String>,
+                    timestamp: String,
+                }
+
+                let fatal_msg: WorkerFatal = match serde_json::from_str(&request.body) {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            body = %request.body,
+                            "Failed to parse WorkerFatal message"
+                        );
+                        Self::send_error(&mut stream, 400, "Invalid WorkerFatal format").await?;
+                        return Ok(());
+                    }
+                };
+
+                // Log the fatal error with full context
+                error!(
+                    event = "worker.fatal",
+                    worker_id = %fatal_msg.worker_id,
+                    reason = %fatal_msg.reason,
+                    timestamp = %fatal_msg.timestamp,
+                    has_backtrace = fatal_msg.backtrace_snippet.is_some(),
+                    "Worker reported fatal error"
+                );
+
+                // Log backtrace separately if present (can be long)
+                if let Some(ref backtrace) = fatal_msg.backtrace_snippet {
+                    error!(
+                        worker_id = %fatal_msg.worker_id,
+                        backtrace = %backtrace,
+                        "Worker fatal error backtrace"
+                    );
+                }
+
+                // Return acknowledgment
+                let ack_response = serde_json::json!({
+                    "status": "acknowledged",
+                    "worker_id": fatal_msg.worker_id,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                });
+                Self::send_json_response(&mut stream, ack_response).await?;
             }
             _ => {
                 let duration_ms = start.elapsed().as_millis();
@@ -367,7 +460,10 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
             match tokio::time::timeout(per_byte_timeout, stream.read_exact(&mut byte)).await {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    return Err(AosError::Worker(format!("Failed to read from stream: {}", e)));
+                    return Err(AosError::Worker(format!(
+                        "Failed to read from stream: {}",
+                        e
+                    )));
                 }
                 Err(_) => {
                     return Err(AosError::Worker("Timeout reading request byte".to_string()));
@@ -429,7 +525,10 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
             match tokio::time::timeout(body_timeout, stream.read_exact(&mut body_buffer)).await {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    return Err(AosError::Worker(format!("Failed to read request body: {}", e)));
+                    return Err(AosError::Worker(format!(
+                        "Failed to read request body: {}",
+                        e
+                    )));
                 }
                 Err(_) => {
                     return Err(AosError::Worker(format!(
@@ -572,15 +671,17 @@ mod tests {
         };
 
         assert_eq!(request.path, "/inference");
-        assert_eq!(request.headers.get("Content-Type"), Some(&"application/json".to_string()));
+        assert_eq!(
+            request.headers.get("Content-Type"),
+            Some(&"application/json".to_string())
+        );
     }
 
     #[test]
     fn test_http_request_with_signal_header() {
         // Test X-Signal-Stream header parsing
-        let headers = std::collections::HashMap::from([
-            ("X-Signal-Stream".to_string(), "true".to_string()),
-        ]);
+        let headers =
+            std::collections::HashMap::from([("X-Signal-Stream".to_string(), "true".to_string())]);
 
         let wants_signals = headers
             .get("X-Signal-Stream")
@@ -689,9 +790,18 @@ mod tests {
     }
 
     #[test]
+    fn test_path_routing_training_cancel() {
+        let path = "/training/cancel";
+        assert!(matches!(path, "/training/cancel"));
+    }
+
+    #[test]
     fn test_path_routing_unknown() {
         let path = "/unknown";
-        assert!(!matches!(path, "/inference" | "/patch_proposal" | "/health"));
+        assert!(!matches!(
+            path,
+            "/inference" | "/patch_proposal" | "/health" | "/training/cancel"
+        ));
     }
 
     // ========================================================================

@@ -2,7 +2,7 @@
 //!
 //! Tests for 2-PRD[01]: Telemetry RouterDecision v1
 
-use adapteros_lora_router::{Router, RouterWeights, AdapterInfo};
+use adapteros_lora_router::{AdapterInfo, Router, RouterWeights};
 use adapteros_telemetry::writer::RouterDecisionWriter;
 
 #[test]

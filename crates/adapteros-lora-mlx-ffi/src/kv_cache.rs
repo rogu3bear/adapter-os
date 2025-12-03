@@ -213,7 +213,10 @@ impl MLXKVCache {
 
             let old_positions = cache.cached_positions;
             cache.add_position(key, value);
-            (cache.cached_positions, cache.cached_positions > old_positions)
+            (
+                cache.cached_positions,
+                cache.cached_positions > old_positions,
+            )
         };
 
         // Track statistics

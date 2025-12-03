@@ -2559,7 +2559,6 @@ pub struct BehaviorEvent {
     pub metadata: Option<String>,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

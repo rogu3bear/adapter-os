@@ -9,7 +9,7 @@
 //! Note: Router seed is used for telemetry sampling determinism, not routing decisions.
 //! Routing determinism comes from stable sorting (score desc, then index asc).
 
-use adapteros_lora_router::{Router, AdapterInfo};
+use adapteros_lora_router::{AdapterInfo, Router};
 use proptest::prelude::*;
 
 #[test]

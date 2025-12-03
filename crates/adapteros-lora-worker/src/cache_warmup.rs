@@ -122,6 +122,12 @@ impl CacheWarmupManager {
                 request_type: RequestType::Normal,
                 stack_id: None,
                 stack_version: None,
+                temperature: None,
+                top_k: None,
+                top_p: None,
+                seed: None,
+                router_seed: None,
+                pinned_adapter_ids: None,
             };
 
             match worker.infer(request).await {
@@ -176,6 +182,12 @@ impl CacheWarmupManager {
                 request_type: RequestType::Normal,
                 stack_id: None,
                 stack_version: None,
+                temperature: None,
+                top_k: None,
+                top_p: None,
+                seed: None,
+                router_seed: None,
+                pinned_adapter_ids: None,
             };
 
             match worker.infer(request).await {
@@ -367,6 +379,12 @@ where
             request_type: RequestType::Normal,
             stack_id: None,
             stack_version: None,
+            temperature: None,
+            top_k: None,
+            top_p: None,
+            seed: None,
+            router_seed: None,
+            pinned_adapter_ids: None,
         };
 
         // Run inference with timeout

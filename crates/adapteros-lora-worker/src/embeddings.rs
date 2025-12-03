@@ -68,13 +68,17 @@ impl EmbeddingModel {
                 .map_err(|e| AosError::Worker(format!("Failed to parse index JSON: {}", e)))?;
 
             // Look for embedding tensor in weight_map
-            let weight_map = index.get("weight_map")
+            let weight_map = index
+                .get("weight_map")
                 .ok_or_else(|| AosError::Worker("Index missing weight_map".into()))?;
 
-            let shard_file = weight_map.get("model.embed_tokens.weight")
+            let shard_file = weight_map
+                .get("model.embed_tokens.weight")
                 .or_else(|| weight_map.get("transformer.wte.weight"))
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| AosError::Worker("Could not find embedding tensor in index".into()))?;
+                .ok_or_else(|| {
+                    AosError::Worker("Could not find embedding tensor in index".into())
+                })?;
 
             tracing::info!(shard = %shard_file, "Loading embeddings from sharded model");
             base_path.join(shard_file)

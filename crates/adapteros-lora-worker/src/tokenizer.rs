@@ -100,7 +100,9 @@ mod tests {
     fn test_tokenizer_round_trip() {
         let tokenizer_path = std::env::var("AOS_TOKENIZER_PATH")
             .or_else(|_| std::env::var("AOS_MODEL_PATH").map(|p| format!("{}/tokenizer.json", p)))
-            .unwrap_or_else(|_| "var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json".to_string());
+            .unwrap_or_else(|_| {
+                "var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json".to_string()
+            });
         let tokenizer = QwenTokenizer::from_file(&tokenizer_path)
             .expect("Test tokenizer loading should succeed");
         let text = "Hello, world!";

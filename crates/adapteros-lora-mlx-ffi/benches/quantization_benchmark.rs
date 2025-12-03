@@ -95,8 +95,13 @@ fn benchmark_quantization(config: &BenchmarkConfig) -> Vec<BenchmarkResult> {
             results.push(result_int8);
 
             // Benchmark INT4
-            let result_int4 =
-                benchmark_int4(&data, tensor_size, group_size, shape.clone(), config.iterations);
+            let result_int4 = benchmark_int4(
+                &data,
+                tensor_size,
+                group_size,
+                shape.clone(),
+                config.iterations,
+            );
             result_int4.print_row();
             results.push(result_int4);
         }
@@ -256,8 +261,7 @@ fn benchmark_memory_efficiency(config: &BenchmarkConfig) {
             let shape = vec![tensor_size as i32];
 
             // Quantize to INT8
-            let quantized_int8 =
-                MLXQuantizer::quantize_int8(&data, group_size, &shape).unwrap();
+            let quantized_int8 = MLXQuantizer::quantize_int8(&data, group_size, &shape).unwrap();
             let original_size = tensor_size * 4; // float32
             let int8_size = quantized_int8.data.len();
             let int8_savings = original_size - int8_size;

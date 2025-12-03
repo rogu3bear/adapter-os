@@ -1,4 +1,4 @@
-//! Golden snapshot tests for Decision → RouterRing conversion (PRD-02)
+//! Golden snapshot tests for Decision → RouterRing conversion
 //!
 //! This test suite verifies that the router Decision structure is
 //! structurally compatible with the canonical RouterRing format
@@ -10,10 +10,10 @@
 //! document the canonical format and catch regression.
 //!
 //! **References:**
-//! - PRD-02: Router-Kernel Ring Buffer Unification
+//! - Router-Kernel Ring Buffer Unification
 //! - Router Decision: adapteros-lora-router/src/lib.rs:1010-1032
 
-use adapteros_lora_router::{Decision, DecisionCandidate, Router, RouterWeights, AdapterInfo};
+use adapteros_lora_router::{AdapterInfo, Decision, DecisionCandidate, Router, RouterWeights};
 use smallvec::SmallVec;
 
 /// Golden example: Typical K=3 routing decision

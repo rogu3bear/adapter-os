@@ -754,12 +754,32 @@ mod tests {
         let sin_1 = 1.0_f32.sin();
 
         // First pair [1.0, 0.0] -> [1*cos - 0*sin, 1*sin + 0*cos] = [cos, sin]
-        assert!((data[0] - cos_1).abs() < 1e-5, "data[0]={} expected {}", data[0], cos_1);
-        assert!((data[1] - sin_1).abs() < 1e-5, "data[1]={} expected {}", data[1], sin_1);
+        assert!(
+            (data[0] - cos_1).abs() < 1e-5,
+            "data[0]={} expected {}",
+            data[0],
+            cos_1
+        );
+        assert!(
+            (data[1] - sin_1).abs() < 1e-5,
+            "data[1]={} expected {}",
+            data[1],
+            sin_1
+        );
 
         // Second pair [0.0, 1.0] -> [0*cos - 1*sin, 0*sin + 1*cos] = [-sin, cos]
-        assert!((data[2] - (-sin_1)).abs() < 1e-5, "data[2]={} expected {}", data[2], -sin_1);
-        assert!((data[3] - cos_1).abs() < 1e-5, "data[3]={} expected {}", data[3], cos_1);
+        assert!(
+            (data[2] - (-sin_1)).abs() < 1e-5,
+            "data[2]={} expected {}",
+            data[2],
+            -sin_1
+        );
+        assert!(
+            (data[3] - cos_1).abs() < 1e-5,
+            "data[3]={} expected {}",
+            data[3],
+            cos_1
+        );
     }
 
     #[test]
@@ -775,8 +795,18 @@ mod tests {
         let cos_5 = 5.0_f32.cos();
         let sin_5 = 5.0_f32.sin();
 
-        assert!((data[0] - cos_5).abs() < 1e-5, "data[0]={} expected {}", data[0], cos_5);
-        assert!((data[1] - sin_5).abs() < 1e-5, "data[1]={} expected {}", data[1], sin_5);
+        assert!(
+            (data[0] - cos_5).abs() < 1e-5,
+            "data[0]={} expected {}",
+            data[0],
+            cos_5
+        );
+        assert!(
+            (data[1] - sin_5).abs() < 1e-5,
+            "data[1]={} expected {}",
+            data[1],
+            sin_5
+        );
     }
 
     #[test]

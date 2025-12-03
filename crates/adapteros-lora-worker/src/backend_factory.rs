@@ -2,12 +2,41 @@
 //!
 //! This module provides factory functions for creating different kernel backends
 //! (Metal, CoreML, MLX) and capability detection.
+//!
+//! ## Model Caching
+//!
+//! The factory uses a per-worker model cache to deduplicate loaded models.
+//! Models are cached by `(backend_type, manifest_hash)` key, so:
+//! - Different backends cache separately (Metal vs MLX)
+//! - Different model versions cache separately (different config.json)
+//! - Same model requested twice returns the cached version
 
+use crate::model_handle_cache::{ModelHandle, ModelHandleCache};
+use crate::model_key::ModelKey;
 use adapteros_config::{BackendPreference, ModelConfig};
 use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
+use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::FusedKernels;
+use once_cell::sync::Lazy;
 use std::path::Path;
+use std::sync::Arc;
 use tracing::{debug, info, warn};
+
+/// Per-worker model cache singleton
+///
+/// This cache ensures that the same model is only loaded once per worker process.
+/// The maximum memory can be configured via `AOS_MODEL_CACHE_MAX_MB` env var.
+static MODEL_CACHE: Lazy<ModelHandleCache> = Lazy::new(|| {
+    let max_mb: u64 = std::env::var("AOS_MODEL_CACHE_MAX_MB")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(16 * 1024); // Default: 16GB
+    info!(
+        max_memory_mb = max_mb,
+        "Initializing per-worker model cache"
+    );
+    ModelHandleCache::new(max_mb * 1024 * 1024)
+});
 
 /// Backend choice for kernel creation
 ///
@@ -154,10 +183,20 @@ pub fn detect_capabilities() -> BackendCapabilities {
         caps.has_ane = is_apple_silicon();
     }
 
-    // Detect MLX availability
+    // Detect MLX availability - only report true if real MLX is available
     #[cfg(feature = "multi-backend")]
     {
-        caps.has_mlx = true;
+        #[cfg(feature = "real-mlx")]
+        {
+            // Real MLX available - check if runtime can be initialized
+            use adapteros_lora_mlx_ffi::{mlx_runtime_init, mlx_runtime_is_initialized};
+            caps.has_mlx = mlx_runtime_is_initialized() || mlx_runtime_init().is_ok();
+        }
+        #[cfg(not(feature = "real-mlx"))]
+        {
+            // Only stub available - be honest about it
+            caps.has_mlx = false;
+        }
     }
 
     debug!(
@@ -297,56 +336,8 @@ pub fn create_backend_with_model(
             create_backend_with_model(selected, model_path)
         }
         BackendChoice::Metal => {
-            #[cfg(target_os = "macos")]
-            {
-                use adapteros_lora_kernel_mtl::{GqaConfig, MetalKernels};
-                info!(model_path = %model_path.display(), "Creating Metal kernel backend");
-
-                // Load model configuration from config.json if available
-                let model_config = ModelConfig::from_config_json(model_path).ok();
-                if let Some(ref cfg) = model_config {
-                    info!(
-                        architecture = %cfg.architecture,
-                        hidden_size = cfg.hidden_size,
-                        num_attention_heads = cfg.num_attention_heads,
-                        num_kv_heads = cfg.num_key_value_heads,
-                        rope_theta = cfg.rope_theta,
-                        "Loaded model configuration from config.json"
-                    );
-                }
-
-                // Find and load model weights
-                let model_bytes = load_model_bytes(model_path)?;
-                info!(
-                    model_size_mb = model_bytes.len() / BYTES_PER_MB as usize,
-                    "Loaded model weights for Metal backend"
-                );
-
-                // Create Metal backend
-                let mut kernels = MetalKernels::new()?;
-
-                // Set GQA config from model config if available
-                if let Some(cfg) = model_config {
-                    let gqa_config = GqaConfig::from_params(
-                        cfg.num_attention_heads,
-                        cfg.num_key_value_heads,
-                        cfg.hidden_size,
-                        cfg.rope_theta,
-                    );
-                    kernels.set_gqa_config(gqa_config);
-                }
-
-                // Initialize with model weights
-                kernels.load(&model_bytes)?;
-                info!("Metal kernel backend initialized successfully");
-
-                Ok(Box::new(kernels))
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                let _ = model_path;
-                Err(AosError::Config("Metal backend requires macOS".to_string()))
-            }
+            // Delegate to helper (no manifest hash in this legacy path)
+            create_metal_backend(model_path, None)
         }
         BackendChoice::CoreML => {
             #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
@@ -448,7 +439,8 @@ pub fn create_backend_with_model_and_hash(
 ) -> Result<Box<dyn FusedKernels>> {
     match choice {
         BackendChoice::Mlx => create_mlx_backend(model_path, manifest_hash),
-        // For non-MLX backends, manifest hash doesn't apply (they have their own determinism guarantees)
+        BackendChoice::Metal => create_metal_backend(model_path, manifest_hash),
+        // CoreML doesn't cache model bytes (FFI manages internally)
         _ => create_backend_with_model(choice, model_path),
     }
 }
@@ -476,19 +468,25 @@ fn create_mlx_backend(
             .map_err(|e| AosError::Config(format!("Failed to initialize MLX runtime: {}", e)))?;
     }
 
-    // Load the model
-    let model = MLXFFIModel::load(&*model_path_str).map_err(|e| {
-        AosError::Config(format!(
-            "Failed to load MLX model from '{}': {}",
-            model_path_str, e
-        ))
-    })?;
+    // Create cache key - prefer manifest hash when available for canonical identity
+    let cache_key = ModelKey::from_manifest_or_path(BackendType::Mlx, manifest_hash, model_path)?;
+    let model_arc = MODEL_CACHE.get_or_load(&cache_key, || {
+        let model = MLXFFIModel::load(&*model_path_str).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to load MLX model from '{}': {}",
+                model_path_str, e
+            ))
+        })?;
+        // Estimate memory: use config if available, otherwise estimate from architecture
+        let memory_bytes = estimate_mlx_model_memory(model_path);
+        Ok((ModelHandle::Mlx(Arc::new(model)), memory_bytes))
+    })?.as_mlx_model()?;
 
     // Create backend with or without manifest hash for deterministic seeding
     let backend: Box<dyn FusedKernels> = if let Some(hash) = manifest_hash {
         info!("Creating MLX backend with HKDF-seeded determinism from manifest hash");
         Box::new(
-            MLXFFIBackend::with_manifest_hash(model, hash.clone()).map_err(|e| {
+            MLXFFIBackend::with_manifest_hash_arc(model_arc, hash.clone()).map_err(|e| {
                 AosError::Config(format!(
                     "Failed to create MLX backend with manifest hash: {}",
                     e
@@ -496,10 +494,32 @@ fn create_mlx_backend(
             })?,
         )
     } else {
-        Box::new(MLXFFIBackend::new(model))
+        Box::new(MLXFFIBackend::new_with_arc(model_arc))
     };
 
     Ok(backend)
+}
+
+/// Estimate MLX model memory usage from config.json
+#[cfg(feature = "multi-backend")]
+fn estimate_mlx_model_memory(model_path: &Path) -> u64 {
+    // Try to load config.json for accurate estimate
+    if let Ok(config) = ModelConfig::from_config_json(model_path) {
+        // Estimate: 4 bytes per param (f32), with typical model structure
+        // hidden_size * num_layers * 12 (approx params per layer) * 4 bytes
+        let params_estimate = config.hidden_size as u64
+            * config.num_hidden_layers as u64
+            * 12  // Approximate number of weight matrices per layer
+            * config.hidden_size as u64
+            / 1000;  // Normalize
+        let memory_estimate = params_estimate * 4; // 4 bytes per f32 param
+
+        // Add 10% overhead
+        return (memory_estimate as f64 * 1.1) as u64;
+    }
+
+    // Fallback: assume 7B model (~14GB for fp16, ~28GB for fp32)
+    14 * 1024 * 1024 * 1024  // 14GB default estimate
 }
 
 #[cfg(not(feature = "multi-backend"))]
@@ -512,6 +532,73 @@ fn create_mlx_backend(
          Build with: cargo build --features multi-backend"
             .to_string(),
     ))
+}
+
+/// Internal helper to create Metal backend with optional manifest hash for cache key
+#[cfg(target_os = "macos")]
+fn create_metal_backend(
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+) -> Result<Box<dyn FusedKernels>> {
+    use adapteros_lora_kernel_mtl::{GqaConfig, MetalKernels};
+    info!(
+        model_path = %model_path.display(),
+        has_manifest_hash = manifest_hash.is_some(),
+        "Creating Metal kernel backend"
+    );
+
+    // Load model configuration from config.json if available
+    let model_config = ModelConfig::from_config_json(model_path).ok();
+    if let Some(ref cfg) = model_config {
+        info!(
+            architecture = %cfg.architecture,
+            hidden_size = cfg.hidden_size,
+            num_attention_heads = cfg.num_attention_heads,
+            num_kv_heads = cfg.num_key_value_heads,
+            rope_theta = cfg.rope_theta,
+            "Loaded model configuration from config.json"
+        );
+    }
+
+    // Create cache key - prefer manifest hash when available for canonical identity
+    let cache_key = ModelKey::from_manifest_or_path(BackendType::Metal, manifest_hash, model_path)?;
+    let model_bytes_arc = MODEL_CACHE.get_or_load(&cache_key, || {
+        let bytes = load_model_bytes(model_path)?;
+        let memory_bytes = bytes.len() as u64;
+        info!(
+            model_size_mb = memory_bytes / BYTES_PER_MB,
+            "Loaded model weights for Metal backend"
+        );
+        Ok((ModelHandle::Metal(Arc::new(bytes)), memory_bytes))
+    })?.as_metal_bytes()?;
+
+    // Create Metal backend
+    let mut kernels = MetalKernels::new()?;
+
+    // Set GQA config from model config if available
+    if let Some(cfg) = model_config {
+        let gqa_config = GqaConfig::from_params(
+            cfg.num_attention_heads,
+            cfg.num_key_value_heads,
+            cfg.hidden_size,
+            cfg.rope_theta,
+        );
+        kernels.set_gqa_config(gqa_config);
+    }
+
+    // Initialize with model weights
+    kernels.load(&model_bytes_arc)?;
+    info!("Metal kernel backend initialized successfully");
+
+    Ok(Box::new(kernels))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn create_metal_backend(
+    _model_path: &Path,
+    _manifest_hash: Option<&B3Hash>,
+) -> Result<Box<dyn FusedKernels>> {
+    Err(AosError::Config("Metal backend requires macOS".to_string()))
 }
 
 /// Create a kernel backend based on the choice (backward-compatible)

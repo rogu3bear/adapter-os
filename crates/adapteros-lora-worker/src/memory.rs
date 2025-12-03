@@ -36,12 +36,8 @@ impl UmaPressureMonitor {
             // Import backoff utilities from parent crate
             use crate::backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
 
-            let backoff = BackoffConfig::new(
-                Duration::from_millis(1000),
-                Duration::from_secs(30),
-                2.0,
-                5,
-            );
+            let backoff =
+                BackoffConfig::new(Duration::from_millis(1000), Duration::from_secs(30), 2.0, 5);
             let circuit_breaker = BackoffCircuitBreaker::new(10, Duration::from_secs(300));
             let mut consecutive_failures = 0u32;
 

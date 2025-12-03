@@ -51,6 +51,7 @@ pub mod timeout;
 pub mod training;
 pub mod validation;
 pub mod version;
+pub mod worker_status;
 
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
@@ -82,6 +83,7 @@ pub use status::{AdapterOSStatus, HealthCheckResult, HealthStatus, ServiceStatus
 pub use timeout::TimeoutExt;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 pub use version::VersionInfo;
+pub use worker_status::{WorkerStatus, WorkerStatusTransition};
 
 /// RNG module version for determinism tracking
 /// @deprecated Use `version::RNG_MODULE_VERSION` instead
@@ -90,14 +92,15 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 /// Re-export commonly used types
 pub mod prelude {
     pub use crate::{
-        bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes, AdapterEvent,
-        AdapterName, AdapterOSStatus, AosError, AuditEvent, B3Hash, CircuitBreaker,
-        CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, DriftPolicy, EventHookType,
-        ForkType, HealthCheckResult, HealthStatus, InferenceEvent, LifecycleState,
-        LifecycleTransition, MetricsTickEvent, Plugin, PluginConfig, PluginEvent, PluginHealth,
-        PluginStatus, PolicyViolationEvent, Result, ResultExt, SemanticVersion, ServiceStatus,
+        bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes, AdapterEvent, AdapterName,
+        AdapterOSStatus, AosError, AuditEvent, B3Hash, CircuitBreaker, CircuitBreakerConfig,
+        CircuitBreakerMetrics, CircuitState, DriftPolicy, EventHookType, ForkType,
+        HealthCheckResult, HealthStatus, InferenceEvent, LifecycleState, LifecycleTransition,
+        MetricsTickEvent, Plugin, PluginConfig, PluginEvent, PluginHealth, PluginStatus,
+        PolicyViolationEvent, Result, ResultExt, SemanticVersion, ServiceStatus,
         SharedCircuitBreaker, StackName, StandardCircuitBreaker, TrainingConfig, TrainingJob,
         TrainingJobEvent, TrainingJobStatus, TrainingTemplate, TransitionReason, VersionInfo,
-        BYTES_PER_GB, BYTES_PER_KB, BYTES_PER_MB, CPID, DEFAULT_TIMEOUT_SECS, SLOW_TIMEOUT_SECS,
+        WorkerStatus, WorkerStatusTransition, BYTES_PER_GB, BYTES_PER_KB, BYTES_PER_MB, CPID,
+        DEFAULT_TIMEOUT_SECS, SLOW_TIMEOUT_SECS,
     };
 }

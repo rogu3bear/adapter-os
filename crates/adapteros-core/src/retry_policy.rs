@@ -437,7 +437,6 @@ impl RetryManager {
         Duration::from_millis(jitter_amount)
     }
 
-
     /// Execute operation with retry logic
     async fn execute_with_retry<F, T>(
         &self,

@@ -260,7 +260,8 @@ fn test_router_uses_policy_config_sample_tokens() {
 
     // Verify router uses policy config value
     assert_eq!(
-        router.full_log_tokens(), 256,
+        router.full_log_tokens(),
+        256,
         "Router should use policy config sample_tokens_full"
     );
 }

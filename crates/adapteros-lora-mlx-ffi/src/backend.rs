@@ -208,6 +208,115 @@ impl MLXFFIBackend {
         })
     }
 
+    /// Create new MLX FFI backend with a pre-loaded shared model (for caching)
+    ///
+    /// This constructor accepts an `Arc<MLXFFIModel>` instead of an owned model,
+    /// allowing multiple backends to share the same loaded model via the model
+    /// cache. This is the preferred constructor when using `ModelHandleCache`.
+    pub fn new_with_arc(model: Arc<MLXFFIModel>) -> Self {
+        Self::with_arc_and_config(model, MLXResilienceConfig::default())
+    }
+
+    /// Create new MLX FFI backend with shared model and custom resilience
+    pub fn with_arc_and_config(model: Arc<MLXFFIModel>, config: MLXResilienceConfig) -> Self {
+        // Ensure MLX runtime is initialized
+        if !crate::mlx_runtime_is_initialized() {
+            if let Err(e) = crate::mlx_runtime_init() {
+                tracing::warn!("MLX runtime init in backend: {}", e);
+            }
+        }
+
+        let memory_pool_config = MLXMemoryPoolConfig::default();
+        let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
+
+        Self {
+            model,
+            adapters: ArcSwap::from_pointee(HashMap::new()),
+            device: "MLX FFI (Apple Silicon)".to_string(),
+            resilience_config: config,
+            health_status: Arc::new(RwLock::new(BackendHealth {
+                operational: true,
+                total_requests: 0,
+                successful_requests: 0,
+                failed_requests: 0,
+                last_failure: None,
+                current_failure_streak: 0,
+                stub_fallback_active: false,
+                active_adapters: 0,
+            })),
+            monitor: None,
+            memory_pool,
+            memory_pool_size: Arc::new(RwLock::new(0)),
+            performance_metrics: Arc::new(RwLock::new(PerformanceMetrics {
+                total_inference_time_ms: 0,
+                total_requests: 0,
+                average_latency_ms: 0.0,
+                peak_memory_usage_mb: 0.0,
+                cache_hit_rate: 0.0,
+            })),
+            manifest_hash: None,
+        }
+    }
+
+    /// Create new MLX FFI backend with shared model and HKDF seeding
+    ///
+    /// This ensures deterministic execution by deriving the MLX RNG seed
+    /// from the model manifest hash using HKDF with domain separation.
+    /// Accepts `Arc<MLXFFIModel>` for use with the model cache.
+    pub fn with_manifest_hash_arc(model: Arc<MLXFFIModel>, manifest_hash: B3Hash) -> Result<Self> {
+        Self::with_manifest_hash_arc_and_config(model, manifest_hash, MLXResilienceConfig::default())
+    }
+
+    /// Create new MLX FFI backend with shared model, HKDF seeding, and custom resilience
+    pub fn with_manifest_hash_arc_and_config(
+        model: Arc<MLXFFIModel>,
+        manifest_hash: B3Hash,
+        config: MLXResilienceConfig,
+    ) -> Result<Self> {
+        // Derive deterministic seed from manifest hash using HKDF
+        let seed = derive_seed(&manifest_hash, "mlx");
+
+        // Set MLX random seed for determinism
+        crate::mlx_set_seed_from_bytes(&seed)?;
+
+        tracing::info!(
+            manifest_hash = %manifest_hash.to_hex(),
+            seed_checksum = %B3Hash::hash(&seed).to_hex()[..16],
+            "Initialized MLX backend with HKDF-derived seed (shared model)"
+        );
+
+        let memory_pool_config = MLXMemoryPoolConfig::default();
+        let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
+
+        Ok(Self {
+            model,
+            adapters: ArcSwap::from_pointee(HashMap::new()),
+            device: "MLX FFI (Apple Silicon)".to_string(),
+            resilience_config: config,
+            health_status: Arc::new(RwLock::new(BackendHealth {
+                operational: true,
+                total_requests: 0,
+                successful_requests: 0,
+                failed_requests: 0,
+                last_failure: None,
+                current_failure_streak: 0,
+                stub_fallback_active: false,
+                active_adapters: 0,
+            })),
+            monitor: None,
+            memory_pool,
+            memory_pool_size: Arc::new(RwLock::new(0)),
+            performance_metrics: Arc::new(RwLock::new(PerformanceMetrics {
+                total_inference_time_ms: 0,
+                total_requests: 0,
+                average_latency_ms: 0.0,
+                peak_memory_usage_mb: 0.0,
+                cache_hit_rate: 0.0,
+            })),
+            manifest_hash: Some(manifest_hash),
+        })
+    }
+
     /// Enable monitoring for this backend
     pub fn with_monitoring(
         mut self,
@@ -360,12 +469,9 @@ impl MLXFFIBackend {
     pub fn unload_adapter_runtime(&self, adapter_id: u16) -> Result<()> {
         // Check if adapter exists and get info before removal
         let current_adapters = self.adapters.load();
-        let adapter = current_adapters
-            .get(&adapter_id)
-            .cloned()
-            .ok_or_else(|| {
-                adapteros_core::AosError::Lifecycle(format!("Adapter {} not found", adapter_id))
-            })?;
+        let adapter = current_adapters.get(&adapter_id).cloned().ok_or_else(|| {
+            adapteros_core::AosError::Lifecycle(format!("Adapter {} not found", adapter_id))
+        })?;
 
         // Copy-on-write: clone current map, remove adapter, then atomically swap
         let mut new_adapters = (**current_adapters).clone();
@@ -1297,7 +1403,12 @@ mod tests {
                         // Verify we got a valid snapshot (not corrupted)
                         for (id, adapter) in snapshot.iter() {
                             // Just accessing the adapter should work without panic
-                            assert!(!adapter.id.is_empty(), "Thread {} found empty adapter at {}", thread_id, id);
+                            assert!(
+                                !adapter.id.is_empty(),
+                                "Thread {} found empty adapter at {}",
+                                thread_id,
+                                id
+                            );
                         }
 
                         reads += 1;

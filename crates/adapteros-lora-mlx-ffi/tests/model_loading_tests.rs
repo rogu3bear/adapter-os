@@ -125,7 +125,7 @@ mod model_config_tests {
 #[cfg(test)]
 mod model_loading_tests {
     use adapteros_lora_mlx_ffi::MLXFFIModel;
-    use std::path::{PathBuf};
+    use std::path::PathBuf;
 
     /// Get path to test fixtures
     fn fixtures_dir() -> PathBuf {

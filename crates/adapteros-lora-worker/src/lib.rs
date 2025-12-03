@@ -34,7 +34,7 @@ use crate::router_bridge::decision_to_router_ring;
 use adapteros_core::{paths::AdapterPaths, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
 use adapteros_lora_rag::RagSystem;
-use adapteros_lora_router::{features::CodeFeatures, AdapterInfo, Router};
+use adapteros_lora_router::{constants::PINNED_BOOST, features::CodeFeatures, AdapterInfo, Router};
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
@@ -48,9 +48,9 @@ use tracing::info;
 
 pub mod adapter_hotswap;
 pub mod anomaly_detection;
-pub mod backoff;
 pub mod backend_coordinator;
 pub mod backend_factory;
+pub mod backoff;
 pub mod base_model_state;
 pub mod contact_discovery;
 pub mod conv_pipeline;
@@ -73,6 +73,8 @@ pub mod linter_runner;
 pub mod llm_backend;
 pub mod memory;
 pub mod metrics;
+pub mod model_handle_cache;
+pub mod model_key;
 pub mod model_loader;
 pub mod patch_generator;
 pub mod patch_telemetry;
@@ -101,10 +103,10 @@ pub use adapteros_lora_rag::TestIndexImpl;
 pub use anomaly_detection::{
     AnomalyDetectionConfig, AnomalyDetector, AnomalyScore, DetectionAlgorithm,
 };
-pub use backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
 pub use backend_factory::{
     create_backend, create_backend_from_config, create_backend_with_model, BackendChoice,
 };
+pub use backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
 pub use conv_pipeline::{
     ActivationKind, ConvPipeline, ConvPipelineConfig, ImageBatch, PoolingStrategy,
     VisionArchitecture,
@@ -127,6 +129,8 @@ pub use linter_runner::{
 };
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
 pub use memory::UmaPressureMonitor as MemoryMonitor;
+pub use model_handle_cache::{CacheStats, CachedModelEntry, ModelHandle, ModelHandleCache};
+pub use model_key::ModelKey;
 pub use model_loader::{ModelInfo, ModelLoader, QwenModel, QwenModelConfig, TransformerLayer};
 pub use telemetry_adapter::{
     SignalChannel, SignalSample, TelemetryAdapter, TelemetryAdapterConfig, TelemetryAdapterMetrics,
@@ -151,6 +155,10 @@ pub use vision_lora::{
 };
 
 /// Inference request
+///
+/// Includes full sampling parameters for deterministic replay (PRD-02).
+/// When router_seed is provided, it overrides the manifest-derived seed
+/// for deterministic adapter selection during replay.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InferenceRequest {
     pub cpid: String,
@@ -161,12 +169,36 @@ pub struct InferenceRequest {
     /// Optional: Request patch proposal mode
     #[serde(default)]
     pub request_type: RequestType,
-    /// Stack ID for telemetry correlation (PRD-03)
+    /// Stack ID for telemetry correlation
     #[serde(default)]
     pub stack_id: Option<String>,
-    /// Stack version for telemetry correlation (PRD-03)
+    /// Stack version for telemetry correlation
     #[serde(default)]
     pub stack_version: Option<i64>,
+    /// Sampling temperature (0.0 = deterministic, higher = more random)
+    /// Defaults to manifest setting if not provided
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    /// Top-K sampling (limits vocabulary to K most likely tokens)
+    #[serde(default)]
+    pub top_k: Option<usize>,
+    /// Top-P (nucleus) sampling (limits vocabulary to tokens with cumulative prob <= P)
+    #[serde(default)]
+    pub top_p: Option<f32>,
+    /// Random seed for deterministic sampling (PRD-02: critical for replay)
+    #[serde(default)]
+    pub seed: Option<u64>,
+    /// Router seed override for deterministic adapter selection (PRD-02: replay)
+    /// When provided, overrides the manifest-derived router seed to reproduce
+    /// exact routing decisions from a previous inference.
+    #[serde(default)]
+    pub router_seed: Option<String>,
+    /// Pinned adapter IDs that receive prior boost in routing (CHAT-PIN-02)
+    ///
+    /// These adapters receive PINNED_BOOST (0.3) added to their prior scores
+    /// before the router's scoring algorithm runs.
+    #[serde(default)]
+    pub pinned_adapter_ids: Option<Vec<String>>,
 }
 
 /// Request type for different inference modes
@@ -202,12 +234,25 @@ pub struct InferenceResponse {
     /// Patch proposal if requested
     #[serde(skip_serializing_if = "Option::is_none")]
     pub patch_proposal: Option<PatchProposalResponse>,
-    /// Stack ID for telemetry correlation (PRD-03)
+    /// Stack ID for telemetry correlation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack_id: Option<String>,
-    /// Stack version for telemetry correlation (PRD-03)
+    /// Stack version for telemetry correlation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack_version: Option<i64>,
+    /// Pinned adapters that were unavailable (CHAT-PIN-02)
+    ///
+    /// These are pinned adapter IDs that were not present in the worker's
+    /// loaded adapter set (manifest.adapters). Returned for UI warning display.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_pinned_adapters: Option<Vec<String>>,
+    /// Routing fallback mode when pinned adapters are unavailable (PRD-6A)
+    ///
+    /// - `None`: All pinned adapters were available (or no pins configured)
+    /// - `Some("partial")`: Some pinned adapters unavailable, using available pins + stack
+    /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_routing_fallback: Option<String>,
 }
 
 /// Patch proposal response with patches and citations
@@ -268,9 +313,35 @@ pub struct RouterSummary {
     pub avg_activations: Vec<f32>,
 }
 
+/// Request to cancel a training job
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelTrainingRequest {
+    /// ID of the training job to cancel
+    pub job_id: String,
+    /// Optional reason for cancellation
+    pub reason: Option<String>,
+}
+
+/// Response from training job cancellation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelTrainingResponse {
+    /// ID of the job that was cancelled
+    pub job_id: String,
+    /// Status: "cancelled", "not_found", "already_complete", "not_running"
+    pub status: String,
+    /// Number of tokens processed before cancellation (if available)
+    pub tokens_processed: Option<u64>,
+    /// Final loss value at cancellation (if available)
+    pub final_loss: Option<f32>,
+    /// Epoch at which training was stopped
+    pub stopped_at_epoch: Option<u32>,
+}
+
 use crate::embeddings::EmbeddingModel;
 use crate::evidence::EvidenceRetriever;
 use crate::tokenizer::QwenTokenizer;
+use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 
@@ -307,6 +378,8 @@ pub struct Worker<K: FusedKernels + Send + Sync> {
     // Retirement task management
     retirement_handle: Option<tokio::task::JoinHandle<()>>,
     shutdown_tx: watch::Sender<()>,
+    /// Active training jobs with their cancellation tokens
+    pub active_training_jobs: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
 }
 
 impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
@@ -387,7 +460,9 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         };
 
         // Initialize kv_cache with Arc<StdMutex<>> for interior mutability
-        let kv_cache = Arc::new(StdMutex::new(KvCache::new(adapteros_core::constants::BYTES_PER_GB))); // 1GB default
+        let kv_cache = Arc::new(StdMutex::new(KvCache::new(
+            adapteros_core::constants::BYTES_PER_GB,
+        ))); // 1GB default
         let last_stack_hash = RwLock::new(None);
 
         // Initialize profiler
@@ -431,6 +506,9 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         let (shutdown_tx, _shutdown_rx) = watch::channel(());
         let retirement_handle = Some(hotswap.clone().start_retirement_task());
 
+        // Initialize active training jobs tracking
+        let active_training_jobs = Arc::new(RwLock::new(HashMap::new()));
+
         Ok(Self {
             manifest,
             policy,
@@ -456,6 +534,7 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             hotswap,
             retirement_handle,
             shutdown_tx,
+            active_training_jobs,
         })
     }
 
@@ -485,7 +564,8 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                 2.0,
                 5,
             );
-            let circuit_breaker = BackoffCircuitBreaker::new(10, tokio::time::Duration::from_secs(600));
+            let circuit_breaker =
+                BackoffCircuitBreaker::new(10, tokio::time::Duration::from_secs(600));
             let mut consecutive_failures = 0u32;
 
             let mut interval =
@@ -682,6 +762,39 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             })?;
         }
 
+        // Compute unavailable pinned adapters (CHAT-PIN-02)
+        // These are pinned adapter IDs not present in the worker's loaded adapters
+        let unavailable_pinned_adapters = request.pinned_adapter_ids.as_ref().map(|pinned_ids| {
+            let loaded_adapter_ids: Vec<&str> = self
+                .manifest
+                .adapters
+                .iter()
+                .map(|a| a.id.as_str())
+                .collect();
+            let unavailable: Vec<String> = pinned_ids
+                .iter()
+                .filter(|id| !loaded_adapter_ids.contains(&id.as_str()))
+                .cloned()
+                .collect();
+            if unavailable.is_empty() {
+                None
+            } else {
+                Some(unavailable)
+            }
+        }).flatten();
+
+        // Compute pinned_routing_fallback based on unavailability (PRD-6A)
+        let pinned_routing_fallback = match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
+            (Some(pinned), Some(unavailable)) if !pinned.is_empty() && !unavailable.is_empty() => {
+                if unavailable.len() >= pinned.len() {
+                    Some("stack_only".to_string())
+                } else {
+                    Some("partial".to_string())
+                }
+            }
+            _ => None,
+        };
+
         // Retrieve evidence if required
         let mut evidence = Vec::new();
         if request.require_evidence {
@@ -730,10 +843,21 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                         patch_proposal: None,
                         stack_id: request.stack_id.clone(),
                         stack_version: request.stack_version,
+                        unavailable_pinned_adapters: unavailable_pinned_adapters.clone(),
+                        pinned_routing_fallback: pinned_routing_fallback.clone(),
                     });
                 }
             }
         }
+
+        // Apply request-provided sampling parameters (PRD-02: replay support)
+        // This enables deterministic replay when the same parameters are provided
+        self.generator.apply_request_params(
+            request.temperature,
+            request.top_k,
+            request.top_p,
+            request.seed,
+        );
 
         // Generate tokens using autoregressive loop
         let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
@@ -793,7 +917,15 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                     .unwrap_or_else(|_| "".to_string());
                 CodeFeatures::from_context(&context_text).to_vector()
             };
-            let priors = vec![1.0; self.manifest.adapters.len()];
+            // Build priors with PINNED_BOOST for pinned adapters (CHAT-PIN-02)
+            let mut priors = vec![1.0f32; self.manifest.adapters.len()];
+            if let Some(ref pinned_ids) = request.pinned_adapter_ids {
+                for (idx, adapter) in self.manifest.adapters.iter().enumerate() {
+                    if pinned_ids.contains(&adapter.id) {
+                        priors[idx] += PINNED_BOOST;
+                    }
+                }
+            }
             // Create dummy adapter info for route_with_adapter_info
             let adapter_info: Vec<AdapterInfo> = self
                 .manifest
@@ -903,6 +1035,8 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             patch_proposal: None,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
+            unavailable_pinned_adapters,
+            pinned_routing_fallback,
         })
     }
 
@@ -923,6 +1057,38 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             "Generating patch proposal for: {}",
             patch_request.description
         );
+
+        // Compute unavailable pinned adapters (CHAT-PIN-02)
+        let unavailable_pinned_adapters = request.pinned_adapter_ids.as_ref().map(|pinned_ids| {
+            let loaded_adapter_ids: Vec<&str> = self
+                .manifest
+                .adapters
+                .iter()
+                .map(|a| a.id.as_str())
+                .collect();
+            let unavailable: Vec<String> = pinned_ids
+                .iter()
+                .filter(|id| !loaded_adapter_ids.contains(&id.as_str()))
+                .cloned()
+                .collect();
+            if unavailable.is_empty() {
+                None
+            } else {
+                Some(unavailable)
+            }
+        }).flatten();
+
+        // Compute pinned_routing_fallback based on unavailability (PRD-6A)
+        let pinned_routing_fallback = match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
+            (Some(pinned), Some(unavailable)) if !pinned.is_empty() && !unavailable.is_empty() => {
+                if unavailable.len() >= pinned.len() {
+                    Some("stack_only".to_string())
+                } else {
+                    Some("partial".to_string())
+                }
+            }
+            _ => None,
+        };
 
         // Initialize telemetry
         let mut telemetry = PatchTelemetry::new();
@@ -1115,6 +1281,8 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             patch_proposal,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
+            unavailable_pinned_adapters,
+            pinned_routing_fallback,
         })
     }
 
@@ -1551,6 +1719,75 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
     /// Get reference to the telemetry writer
     pub fn telemetry(&self) -> &Option<TelemetryWriter> {
         &self.telemetry
+    }
+
+    /// Register an active training job with its cancellation token
+    ///
+    /// Call this when starting a training job to enable cancellation.
+    pub fn register_training_job(&self, job_id: &str) -> Arc<AtomicBool> {
+        let cancel_token = Arc::new(AtomicBool::new(false));
+        let mut jobs = self.active_training_jobs.write();
+        jobs.insert(job_id.to_string(), cancel_token.clone());
+        tracing::info!(job_id = %job_id, "Registered training job for cancellation tracking");
+        cancel_token
+    }
+
+    /// Unregister a training job (call when job completes/fails/cancels)
+    pub fn unregister_training_job(&self, job_id: &str) {
+        let mut jobs = self.active_training_jobs.write();
+        jobs.remove(job_id);
+        tracing::debug!(job_id = %job_id, "Unregistered training job");
+    }
+
+    /// Cancel an active training job
+    ///
+    /// Sets the cancellation token for the job, causing the training loop
+    /// to stop at the next epoch boundary.
+    pub fn cancel_training_job(&self, job_id: &str) -> Result<CancelTrainingResponse> {
+        let jobs = self.active_training_jobs.read();
+
+        if let Some(cancel_token) = jobs.get(job_id) {
+            // Check if already cancelled
+            if cancel_token.load(std::sync::atomic::Ordering::SeqCst) {
+                tracing::info!(job_id = %job_id, "Training job already cancelled");
+                return Ok(CancelTrainingResponse {
+                    job_id: job_id.to_string(),
+                    status: "already_cancelled".to_string(),
+                    tokens_processed: None,
+                    final_loss: None,
+                    stopped_at_epoch: None,
+                });
+            }
+
+            // Set cancellation flag
+            cancel_token.store(true, std::sync::atomic::Ordering::SeqCst);
+            tracing::info!(job_id = %job_id, "Training job cancellation requested");
+
+            Ok(CancelTrainingResponse {
+                job_id: job_id.to_string(),
+                status: "cancelled".to_string(),
+                tokens_processed: None, // Will be filled by training loop when it stops
+                final_loss: None,
+                stopped_at_epoch: None,
+            })
+        } else {
+            tracing::warn!(job_id = %job_id, "Training job not found for cancellation");
+            Ok(CancelTrainingResponse {
+                job_id: job_id.to_string(),
+                status: "not_found".to_string(),
+                tokens_processed: None,
+                final_loss: None,
+                stopped_at_epoch: None,
+            })
+        }
+    }
+
+    /// Check if a training job has been cancelled
+    pub fn is_training_cancelled(&self, job_id: &str) -> bool {
+        let jobs = self.active_training_jobs.read();
+        jobs.get(job_id)
+            .map(|token| token.load(std::sync::atomic::Ordering::SeqCst))
+            .unwrap_or(false)
     }
 }
 

@@ -96,9 +96,7 @@ impl GqaConfig {
             ));
         }
         if hidden_size == 0 {
-            return Err(AosError::Validation(
-                "hidden_size must be > 0".to_string(),
-            ));
+            return Err(AosError::Validation("hidden_size must be > 0".to_string()));
         }
 
         // Validate divisibility
@@ -151,8 +149,13 @@ impl GqaConfig {
         hidden_size: usize,
         rope_theta: f32,
     ) -> Self {
-        Self::try_from_params(num_attention_heads, num_key_value_heads, hidden_size, rope_theta)
-            .expect("GqaConfig::from_params called with invalid parameters")
+        Self::try_from_params(
+            num_attention_heads,
+            num_key_value_heads,
+            hidden_size,
+            rope_theta,
+        )
+        .expect("GqaConfig::from_params called with invalid parameters")
     }
 }
 
@@ -554,21 +557,30 @@ mod tests {
     fn test_gqa_config_zero_heads() {
         let result = GqaConfig::try_from_params(0, 4, 3584, 1_000_000.0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("num_attention_heads must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("num_attention_heads must be > 0"));
     }
 
     #[test]
     fn test_gqa_config_zero_kv_heads() {
         let result = GqaConfig::try_from_params(28, 0, 3584, 1_000_000.0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("num_key_value_heads must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("num_key_value_heads must be > 0"));
     }
 
     #[test]
     fn test_gqa_config_zero_hidden() {
         let result = GqaConfig::try_from_params(28, 4, 0, 1_000_000.0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("hidden_size must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("hidden_size must be > 0"));
     }
 
     #[test]
@@ -576,7 +588,10 @@ mod tests {
         // 3583 is not divisible by 28
         let result = GqaConfig::try_from_params(28, 4, 3583, 1_000_000.0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("hidden_size must be divisible"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("hidden_size must be divisible"));
     }
 
     #[test]
@@ -584,7 +599,10 @@ mod tests {
         // 28 is not divisible by 5
         let result = GqaConfig::try_from_params(28, 5, 3584, 1_000_000.0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("num_attention_heads must be divisible by num_key_value_heads"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("num_attention_heads must be divisible by num_key_value_heads"));
     }
 
     #[test]

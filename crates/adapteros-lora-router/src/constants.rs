@@ -26,3 +26,11 @@ pub const MAX_K: usize = 8;
 
 /// Default compression ratio for MPLoRA
 pub const DEFAULT_COMPRESSION_RATIO: f32 = 0.8;
+
+/// Boost value added to priors for pinned adapters (CHAT-PIN-02).
+///
+/// Creates preference without exclusivity - pinned adapters are more likely
+/// to be selected but non-pinned can still win with higher feature scores.
+/// This value is added to the prior score for each pinned adapter before
+/// the router's scoring algorithm runs.
+pub const PINNED_BOOST: f32 = 0.3;

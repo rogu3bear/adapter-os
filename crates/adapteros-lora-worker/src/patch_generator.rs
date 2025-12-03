@@ -950,6 +950,9 @@ pub fn parse_patch_response(response: &str) -> (String, String) {
         (rationale, patch)
     } else {
         // Fallback: treat entire response as patch
-        ("Generated patch from evidence".to_string(), response.to_string())
+        (
+            "Generated patch from evidence".to_string(),
+            response.to_string(),
+        )
     }
 }

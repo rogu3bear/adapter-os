@@ -57,6 +57,7 @@ thiserror = { workspace = true }
 tokenizers = { workspace = true }
 safetensors = { workspace = true }
 memmap2 = { workspace = true }
+once_cell = { workspace = true }
 half = "2.3"
 crossbeam = { workspace = true }
 parking_lot = { workspace = true }

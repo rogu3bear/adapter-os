@@ -858,12 +858,8 @@ where
         tokio::spawn(async move {
             use crate::backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
 
-            let backoff = BackoffConfig::new(
-                Duration::from_millis(500),
-                Duration::from_secs(60),
-                2.0,
-                5,
-            );
+            let backoff =
+                BackoffConfig::new(Duration::from_millis(500), Duration::from_secs(60), 2.0, 5);
             let circuit_breaker = BackoffCircuitBreaker::new(5, Duration::from_secs(120));
             let mut consecutive_failures = 0u32;
 

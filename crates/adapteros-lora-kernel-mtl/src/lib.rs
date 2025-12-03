@@ -17,7 +17,9 @@
 #![allow(clippy::identity_op)]
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_lora_kernel_api::{attestation, FusedKernels, GpuBufferFingerprint, IoBuffers, RouterRing};
+use adapteros_lora_kernel_api::{
+    attestation, FusedKernels, GpuBufferFingerprint, IoBuffers, RouterRing,
+};
 
 #[cfg(target_os = "macos")]
 use metal::*;
@@ -1614,7 +1616,8 @@ impl FusedKernels for MetalKernels {
         };
 
         // Track VRAM attribution (adapter_id as u32, weights bytes, 0 for kv_cache estimate)
-        self.vram_tracker.track_adapter(id as u32, total_vram_bytes, 0);
+        self.vram_tracker
+            .track_adapter(id as u32, total_vram_bytes, 0);
 
         tracing::info!(
             adapter_id = id,
@@ -1650,7 +1653,10 @@ impl FusedKernels for MetalKernels {
             Ok(())
         } else {
             // Not an error to unload a non-existent adapter (idempotent)
-            tracing::debug!(adapter_id = id, "Adapter not found in GPU cache, nothing to unload");
+            tracing::debug!(
+                adapter_id = id,
+                "Adapter not found in GPU cache, nothing to unload"
+            );
             Ok(())
         }
     }
@@ -1662,9 +1668,8 @@ impl FusedKernels for MetalKernels {
         checkpoint_hash_hex: &str,
     ) -> Result<()> {
         // Parse the hex hash string back to B3Hash
-        let checkpoint_hash = B3Hash::from_hex(checkpoint_hash_hex).map_err(|e| {
-            AosError::Kernel(format!("Invalid checkpoint hash hex: {}", e))
-        })?;
+        let checkpoint_hash = B3Hash::from_hex(checkpoint_hash_hex)
+            .map_err(|e| AosError::Kernel(format!("Invalid checkpoint hash hex: {}", e)))?;
 
         self.gpu_fingerprints.insert(
             id,
