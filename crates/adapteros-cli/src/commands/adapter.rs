@@ -563,6 +563,46 @@ pub enum AdapterCommand {
         #[arg(short, long)]
         tenant: String,
     },
+
+    /// PRD-ART-01: Export adapter to a .aos file
+    #[command(
+        after_help = "Examples:\n  aosctl adapter export adapter-1\n  aosctl adapter export adapter-1 -o ./exported.aos\n  aosctl adapter export adapter-1 --out path/to/file.aos"
+    )]
+    Export {
+        /// Adapter ID to export
+        #[arg()]
+        adapter_id: String,
+
+        /// Output file path (default: ./{adapter_id}.aos)
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+
+        /// Control plane base URL
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
+        base_url: String,
+    },
+
+    /// PRD-ART-01: Import adapter from a .aos file
+    #[command(
+        after_help = "Examples:\n  aosctl adapter import ./my-adapter.aos --tenant dev\n  aosctl adapter import ./adapter.aos --tenant dev --auto-load"
+    )]
+    Import {
+        /// Path to .aos file
+        #[arg()]
+        path: PathBuf,
+
+        /// Tenant ID (required)
+        #[arg(long)]
+        tenant: String,
+
+        /// Auto-load adapter after import
+        #[arg(long)]
+        auto_load: bool,
+
+        /// Control plane base URL
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
+        base_url: String,
+    },
 }
 
 /// Get adapter command name for telemetry
@@ -583,6 +623,8 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::Swap { .. } => "adapter_swap".to_string(),
         AdapterCommand::Info { .. } => "adapter_info".to_string(),
         AdapterCommand::ListPinned { .. } => "adapter_list_pinned".to_string(),
+        AdapterCommand::Export { .. } => "adapter_export".to_string(),
+        AdapterCommand::Import { .. } => "adapter_import".to_string(),
     }
 }
 
@@ -604,6 +646,8 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::Swap { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::Info { .. } => None, // No tenant parameter
         AdapterCommand::ListPinned { tenant } => Some(tenant.clone()),
+        AdapterCommand::Export { .. } => None,          // Export uses auth context
+        AdapterCommand::Import { tenant, .. } => Some(tenant.clone()),
     }
 }
 
@@ -700,6 +744,17 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
                 .await
                 .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
         }
+        AdapterCommand::Export {
+            adapter_id,
+            out,
+            base_url,
+        } => export_adapter_cmd(&adapter_id, out, &base_url, output).await,
+        AdapterCommand::Import {
+            path,
+            tenant,
+            auto_load,
+            base_url,
+        } => import_adapter_cmd(&path, &tenant, auto_load, &base_url, output).await,
     }
 }
 
@@ -1397,7 +1452,7 @@ async fn unpin_adapter(
 
 /// Show adapter lineage tree (ancestors and descendants)
 ///
-/// **PRD-08:** Displays full lineage tree including parent, children, and fork relationships.
+/// Displays full lineage tree including parent, children, and fork relationships.
 async fn lineage_adapter(
     adapter_id: &str,
     json_output: bool,
@@ -1823,6 +1878,171 @@ async fn register_adapter(
         output.result(&serde_json::to_string_pretty(&value).unwrap());
     } else {
         output.success(&format!("Adapter registered: {}", adapter_id));
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// PRD-ART-01: Export/Import Commands
+// ============================================================================
+
+/// Export an adapter to a .aos file
+///
+/// Downloads the adapter from the control plane and saves it to a file.
+async fn export_adapter_cmd(
+    adapter_id: &str,
+    out_path: Option<PathBuf>,
+    base_url: &str,
+    output: &OutputWriter,
+) -> Result<()> {
+    output.info(&format!("Exporting adapter: {}", adapter_id));
+
+    let client = reqwest::Client::new();
+    let url = format!(
+        "{}/v1/adapters/{}/export",
+        base_url.trim_end_matches('/'),
+        adapter_id
+    );
+
+    let response = client.get(&url).send().await.map_err(|e| {
+        AosError::Http(format!("Failed to connect to control plane: {}", e))
+    })?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(AosError::Http(format!(
+            "Export failed ({}): {}",
+            status, error_text
+        )));
+    }
+
+    // Get hash from header for verification
+    let content_hash = response
+        .headers()
+        .get("x-adapter-hash")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Determine output path
+    let file_path = out_path.unwrap_or_else(|| PathBuf::from(format!("{}.aos", adapter_id)));
+
+    // Download and save
+    let bytes = response.bytes().await.map_err(|e| {
+        AosError::Http(format!("Failed to download adapter file: {}", e))
+    })?;
+
+    tokio::fs::write(&file_path, &bytes).await.map_err(|e| {
+        AosError::Io(format!("Failed to write file {}: {}", file_path.display(), e))
+    })?;
+
+    output.kv("Output file", &file_path.display().to_string());
+    output.kv("Size", &format!("{} bytes", bytes.len()));
+    if let Some(hash) = content_hash {
+        output.kv("Content hash", &hash);
+    }
+    output.success(&format!("Adapter exported to: {}", file_path.display()));
+
+    Ok(())
+}
+
+/// Import an adapter from a .aos file
+///
+/// Uploads the adapter file to the control plane for registration.
+async fn import_adapter_cmd(
+    file_path: &Path,
+    tenant_id: &str,
+    auto_load: bool,
+    base_url: &str,
+    output: &OutputWriter,
+) -> Result<()> {
+    output.info(&format!("Importing adapter from: {}", file_path.display()));
+    output.kv("Tenant", tenant_id);
+
+    // Verify file exists
+    if !file_path.exists() {
+        return Err(AosError::Io(format!(
+            "File not found: {}",
+            file_path.display()
+        )));
+    }
+
+    // Read file
+    let file_data = tokio::fs::read(file_path).await.map_err(|e| {
+        AosError::Io(format!("Failed to read file {}: {}", file_path.display(), e))
+    })?;
+
+    output.kv("File size", &format!("{} bytes", file_data.len()));
+
+    // Build multipart form
+    let file_name = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("adapter.aos")
+        .to_string();
+
+    let part = reqwest::multipart::Part::bytes(file_data)
+        .file_name(file_name)
+        .mime_str("application/octet-stream")
+        .map_err(|e| AosError::Http(format!("Failed to create multipart: {}", e)))?;
+
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    // Build URL with query params
+    let url = format!(
+        "{}/v1/adapters/import?load={}",
+        base_url.trim_end_matches('/'),
+        auto_load
+    );
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| AosError::Http(format!("Failed to connect to control plane: {}", e)))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(AosError::Http(format!(
+            "Import failed ({}): {}",
+            status, error_text
+        )));
+    }
+
+    let value: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| AosError::Http(format!("Failed to parse response: {}", e)))?;
+
+    // Check if deduplicated
+    let deduplicated = value
+        .get("deduplicated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let adapter_id = value
+        .get("adapter_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    if output.is_json() {
+        output.result(&serde_json::to_string_pretty(&value).unwrap());
+    } else {
+        if deduplicated {
+            output.success(&format!(
+                "Adapter already exists (deduplicated): {}",
+                adapter_id
+            ));
+        } else {
+            output.success(&format!("Adapter imported: {}", adapter_id));
+        }
+        if auto_load {
+            output.kv("Auto-load", "enabled");
+        }
     }
 
     Ok(())

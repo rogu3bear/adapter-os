@@ -19,14 +19,16 @@ use adapteros_db::adapters::Adapter;
 use adapteros_db::users::Role;
 use adapteros_db::{AdapterRegistrationBuilder, AdapterTrainingSnapshot};
 use axum::{
+    body::Body,
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::Json,
+    http::{header, StatusCode},
+    response::{IntoResponse, Json},
     Extension,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio_util::io::ReaderStream;
 use tracing::{error, info, warn};
 use utoipa::ToSchema;
 
@@ -2047,6 +2049,151 @@ pub async fn import_adapter(
         )
     })?;
 
+    // === PRD-ART-01: ARTIFACT HARDENING VALIDATIONS ===
+
+    // A. Schema Version Validation
+    // Current manifest schema version (keep in sync with format.rs MANIFEST_SCHEMA_VERSION)
+    const MANIFEST_SCHEMA_VERSION: &str = "1.0.0";
+
+    let schema_version = manifest
+        .get("schema_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("1.0.0");
+
+    // Simple major version check: extract first number and compare
+    let file_major: u32 = schema_version
+        .split('.')
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let current_major: u32 = MANIFEST_SCHEMA_VERSION
+        .split('.')
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    if file_major > current_major {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(format!(
+                    "Schema version {} is newer than supported {}. Update AdapterOS.",
+                    schema_version, MANIFEST_SCHEMA_VERSION
+                ))
+                .with_code("INCOMPATIBLE_SCHEMA_VERSION"),
+            ),
+        ));
+    }
+
+    // B. Base Model Compatibility Check
+    let base_model = manifest.get("base_model").and_then(|v| v.as_str());
+    let resolved_base_model_id: Option<String> = if let Some(base_model_name) = base_model {
+        match state.db.get_model_by_name(base_model_name).await {
+            Ok(Some(model)) => Some(model.id),
+            Ok(None) => {
+                warn!(
+                    base_model = %base_model_name,
+                    "Imported adapter references base model not available on this system"
+                );
+                // Don't fail - allow import but log warning (model might be acquired later)
+                None
+            }
+            Err(e) => {
+                warn!(
+                    base_model = %base_model_name,
+                    error = %e,
+                    "Failed to check base model availability"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // C. Backend Family Validation
+    if let Some(backend) = manifest.get("backend_family").and_then(|v| v.as_str()) {
+        if !matches!(backend, "metal" | "coreml" | "mlx" | "auto") {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!("Unsupported backend family: {}", backend))
+                        .with_code("UNSUPPORTED_BACKEND"),
+                ),
+            ));
+        }
+    }
+
+    // D. Hash Integrity Cross-Check (weights hash from manifest vs computed)
+    let weights_data = &data[weights_offset..weights_offset + weights_size];
+    let computed_weights_hash = B3Hash::hash(weights_data).to_hex().to_string();
+    if let Some(manifest_weights_hash) = manifest.get("weights_hash").and_then(|v| v.as_str()) {
+        if manifest_weights_hash != computed_weights_hash {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            error!(
+                manifest_hash = %manifest_weights_hash,
+                computed_hash = %computed_weights_hash,
+                "Weights hash mismatch - file may be corrupted"
+            );
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!(
+                        "Weights hash mismatch: manifest says {}, computed {}",
+                        manifest_weights_hash, computed_weights_hash
+                    ))
+                    .with_code("HASH_INTEGRITY_FAILURE"),
+                ),
+            ));
+        }
+    }
+    let weights_hash = computed_weights_hash;
+
+    // E. Signature Policy Check
+    let policy = state
+        .db
+        .get_execution_policy_or_default(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get tenant execution policy: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to check tenant policy")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if policy.require_signed_adapters {
+        let is_signed = manifest.get("signature").is_some();
+        if !is_signed {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            warn!(
+                tenant_id = %claims.tenant_id,
+                "Rejected unsigned adapter import due to tenant policy"
+            );
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(
+                    ErrorResponse::new("Tenant policy requires signed adapters")
+                        .with_code("SIGNATURE_REQUIRED"),
+                ),
+            ));
+        }
+        // TODO: Verify signature validity once signing infrastructure is in place
+    }
+
+    // F. Content Hash Identity (compute BLAKE3 of manifest + weights for dedup/identity)
+    let content_hash_b3 = B3Hash::hash_multi(&[manifest_bytes, weights_data])
+        .to_hex()
+        .to_string();
+
+    // === END PRD-ART-01 VALIDATIONS ===
+
     // Extract adapter fields from manifest
     let adapter_id = manifest
         .get("adapter_id")
@@ -2072,9 +2219,7 @@ pub async fn import_adapter(
         .map(|s| s.to_string())
         .unwrap_or_else(|| "1.0.0".to_string());
 
-    // Compute weights hash from the weights section
-    let weights_data = &data[weights_offset..weights_offset + weights_size];
-    let weights_hash = B3Hash::hash(weights_data).to_hex().to_string();
+    // Note: weights_hash was computed in PRD-ART-01 validation section above
 
     // === TRANSACTIONAL SAFETY (Issue 1) ===
     // Step 1: Atomic rename from temp to final path
@@ -2105,6 +2250,10 @@ pub async fn import_adapter(
         .tier(tier)
         .aos_file_path(Some(&file_path_str))
         .aos_file_hash(Some(&file_hash)) // Store whole-file hash separately from weights hash
+        // PRD-ART-01: Artifact hardening fields
+        .manifest_schema_version(Some(schema_version))
+        .content_hash_b3(Some(&content_hash_b3))
+        .base_model_id(resolved_base_model_id)
         .build()
         .map_err(|e| {
             // Rollback: remove the file we just created
@@ -2599,10 +2748,7 @@ pub async fn archive_adapter(
     if adapter.archived_at.is_some() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("adapter is already archived")
-                    .with_code("ALREADY_ARCHIVED"),
-            ),
+            Json(ErrorResponse::new("adapter is already archived").with_code("ALREADY_ARCHIVED")),
         ));
     }
 
@@ -2732,10 +2878,7 @@ pub async fn unarchive_adapter(
     if adapter.archived_at.is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("adapter is not archived")
-                    .with_code("NOT_ARCHIVED"),
-            ),
+            Json(ErrorResponse::new("adapter is not archived").with_code("NOT_ARCHIVED")),
         ));
     }
 
@@ -2751,21 +2894,17 @@ pub async fn unarchive_adapter(
     }
 
     // Unarchive the adapter
-    state
-        .db
-        .unarchive_adapter(&adapter_id)
-        .await
-        .map_err(|e| {
-            error!("Failed to unarchive adapter {}: {}", adapter_id, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to unarchive adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    state.db.unarchive_adapter(&adapter_id).await.map_err(|e| {
+        error!("Failed to unarchive adapter {}: {}", adapter_id, e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to unarchive adapter")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     let unarchived_by = claims.sub.clone();
 
@@ -2873,4 +3012,194 @@ pub async fn get_archive_status(
         archived_at: adapter.archived_at,
         purged_at: adapter.purged_at,
     }))
+}
+
+// ============================================================================
+// PRD-ART-01: Adapter Export
+// ============================================================================
+
+/// Export an adapter as a .aos file
+///
+/// Returns the .aos file as a binary stream for download.
+/// The response includes:
+/// - Content-Type: application/octet-stream
+/// - Content-Disposition: attachment; filename="{adapter_id}.aos"
+/// - X-Adapter-Hash: BLAKE3 content hash for verification
+///
+/// **Permissions:** Requires `AdapterView` permission.
+///
+/// # Example
+/// ```
+/// GET /v1/adapters/{adapter_id}/export
+/// ```
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/{adapter_id}/export",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID to export")
+    ),
+    responses(
+        (status = 200, description = "Adapter file stream", content_type = "application/octet-stream"),
+        (status = 404, description = "Adapter not found or no .aos file available", body = ErrorResponse),
+        (status = 403, description = "Forbidden - tenant isolation violation", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
+pub async fn export_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // Permission check
+    require_permission(&claims, Permission::AdapterView).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
+        )
+    })?;
+
+    // Get adapter details
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            error!(adapter_id = %adapter_id, error = %e, "Failed to get adapter for export");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get adapter")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            warn!(adapter_id = %adapter_id, "Adapter not found for export");
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
+    // Check if adapter is archived/purged
+    if adapter.purged_at.is_some() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("Adapter has been purged - .aos file no longer available")
+                    .with_code("ADAPTER_PURGED"),
+            ),
+        ));
+    }
+
+    // Get the .aos file path
+    let aos_path = adapter.aos_file_path.as_ref().ok_or_else(|| {
+        warn!(adapter_id = %adapter_id, "No .aos file path for adapter");
+        (
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("No .aos file available for this adapter")
+                    .with_code("NO_AOS_FILE"),
+            ),
+        )
+    })?;
+
+    // Verify the file exists
+    let path = std::path::Path::new(aos_path);
+    if !path.exists() {
+        error!(adapter_id = %adapter_id, path = %aos_path, "Adapter .aos file not found on disk");
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("Adapter .aos file not found on disk")
+                    .with_code("FILE_NOT_FOUND"),
+            ),
+        ));
+    }
+
+    // Open the file for streaming
+    let file = tokio::fs::File::open(path).await.map_err(|e| {
+        error!(adapter_id = %adapter_id, path = %aos_path, error = %e, "Failed to open .aos file");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to open adapter file")
+                    .with_code("IO_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Get file metadata for content-length
+    let metadata = file.metadata().await.map_err(|e| {
+        error!(adapter_id = %adapter_id, error = %e, "Failed to get file metadata");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to read file metadata")
+                    .with_code("IO_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Create streaming response body
+    let stream = ReaderStream::new(file);
+    let body = Body::from_stream(stream);
+
+    // Build filename for Content-Disposition
+    let filename = format!("{}.aos", adapter_id);
+
+    // Get content hash for X-Adapter-Hash header (use aos_file_hash if available, else hash_b3)
+    let content_hash = adapter
+        .aos_file_hash
+        .as_ref()
+        .or(Some(&adapter.hash_b3))
+        .cloned()
+        .unwrap_or_default();
+
+    info!(
+        adapter_id = %adapter_id,
+        tenant_id = %adapter.tenant_id,
+        file_size = metadata.len(),
+        actor = %claims.sub,
+        "Exporting adapter as .aos file"
+    );
+
+    // Audit log: adapter exported
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        "adapter.exported",
+        crate::audit_helper::resources::ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
+    // Build response with headers
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", filename),
+            ),
+            (header::CONTENT_LENGTH, metadata.len().to_string()),
+            (
+                header::HeaderName::from_static("x-adapter-hash"),
+                content_hash,
+            ),
+            (
+                header::HeaderName::from_static("x-adapter-id"),
+                adapter_id.clone(),
+            ),
+        ],
+        body,
+    ))
 }
