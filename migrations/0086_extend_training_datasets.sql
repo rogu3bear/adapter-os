@@ -1,9 +1,9 @@
 -- ============================================================================
--- Extend Training Datasets Schema (PRD-DATA-01)
+-- Extend Training Datasets Schema
 -- ============================================================================
 -- File: migrations/0084_extend_training_datasets.sql
 -- Purpose: Add dataset type, purpose, source, ownership fields for Dataset Lab
--- Status: New migration for PRD-DATA-01 Dataset Lab & Evidence Explorer
+-- Status: New migration for Dataset Lab & Evidence Explorer
 -- Dependencies: training_datasets table (migration 0041)
 -- Notes: Extends datasets to be first-class assets with roles and evidence ties
 -- ============================================================================

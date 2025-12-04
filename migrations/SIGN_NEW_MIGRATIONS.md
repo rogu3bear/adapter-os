@@ -2,7 +2,6 @@
 
 **Status:** PENDING SIGNATURE
 **Date:** 2025-11-19
-**PRD:** PRD-01 Database Schema & Migration Completion
 
 ## Migrations Needing Signatures
 
@@ -67,5 +66,5 @@ The migration verification system will reject unsigned migrations when `require_
 
 ---
 
-**Maintained by:** James KC Auchterlonie (PRD-01)
+**Maintained by:** James KC Auchterlonie
 **Sign Before:** Production deployment

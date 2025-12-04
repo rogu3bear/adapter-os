@@ -1,4 +1,4 @@
--- Tenant enhancements for PRD-MULTI-01
+-- Tenant enhancements
 -- Migration: 0089
 -- Created: 2025-11-25
 -- Purpose: Add status, timestamps, and limits/quotas to tenants table

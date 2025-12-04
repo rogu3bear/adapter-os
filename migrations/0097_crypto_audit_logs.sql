@@ -1,7 +1,7 @@
 -- Crypto Audit Logs with Hash Chain
 -- Migration: 0097
 -- Purpose: Immutable audit trail for cryptographic operations with hash chain integrity
--- PRD: PRD-SEC-01 (Cryptographic Audit Hash Chain Persistence)
+-- Cryptographic Audit Hash Chain Persistence
 
 -- Crypto audit logs table with hash chain
 CREATE TABLE IF NOT EXISTS crypto_audit_logs (

@@ -1,5 +1,5 @@
 -- Migration: 0131_harden_tenant_fks.sql
--- Purpose: Harden tenant isolation with REAL composite FK constraints (PRD-03)
+-- Purpose: Harden tenant isolation with REAL composite FK constraints
 -- Created: 2025-12-02
 --
 -- This migration properly enforces tenant isolation at the schema level by:
@@ -16,35 +16,35 @@
 -- ========================================
 
 -- Create temp table to store orphan check results (will fail with constraint if orphans exist)
-CREATE TABLE _prd03_orphan_check (
+CREATE TABLE _orphan_check (
     check_name TEXT PRIMARY KEY,
     orphan_count INTEGER NOT NULL CHECK(orphan_count = 0)  -- FAILS if orphan_count > 0
 );
 
 -- 1a. Check for orphaned document_chunks (no parent document)
 -- If orphans exist, this INSERT violates the CHECK constraint and migration fails
-INSERT INTO _prd03_orphan_check (check_name, orphan_count)
+INSERT INTO _orphan_check (check_name, orphan_count)
 SELECT 'document_chunks', COUNT(*)
 FROM document_chunks dc
 LEFT JOIN documents d ON dc.document_id = d.id
 WHERE d.id IS NULL;
 
 -- 1b. Check for orphaned inference_evidence (no parent document)
-INSERT INTO _prd03_orphan_check (check_name, orphan_count)
+INSERT INTO _orphan_check (check_name, orphan_count)
 SELECT 'inference_evidence', COUNT(*)
 FROM inference_evidence ie
 LEFT JOIN documents d ON ie.document_id = d.id
 WHERE d.id IS NULL;
 
 -- 1c. Check for orphaned adapter_training_snapshots (no parent training job)
-INSERT INTO _prd03_orphan_check (check_name, orphan_count)
+INSERT INTO _orphan_check (check_name, orphan_count)
 SELECT 'adapter_training_snapshots', COUNT(*)
 FROM adapter_training_snapshots ats
 LEFT JOIN repository_training_jobs j ON ats.training_job_id = j.id
 WHERE j.id IS NULL;
 
 -- 1d. Check for cross-tenant collection_documents (collection and document have different tenants)
-INSERT INTO _prd03_orphan_check (check_name, orphan_count)
+INSERT INTO _orphan_check (check_name, orphan_count)
 SELECT 'cross_tenant_collection_documents', COUNT(*)
 FROM collection_documents cd
 JOIN document_collections c ON cd.collection_id = c.id
@@ -52,7 +52,7 @@ JOIN documents d ON cd.document_id = d.id
 WHERE c.tenant_id != d.tenant_id;
 
 -- If we get here, no orphans exist. Drop the check table.
-DROP TABLE _prd03_orphan_check;
+DROP TABLE _orphan_check;
 
 -- IMPORTANT: If migration fails above, run these queries to find orphans:
 -- SELECT dc.id, dc.document_id FROM document_chunks dc LEFT JOIN documents d ON dc.document_id = d.id WHERE d.id IS NULL;
@@ -439,7 +439,7 @@ BEGIN
 END;
 
 -- ========================================
--- PHASE 8: Additional FK enforcement (PRD-03 remaining 7 relationships)
+-- PHASE 8: Additional FK enforcement
 -- ========================================
 
 -- 8a. Trigger: adapters.training_job_id must match tenant

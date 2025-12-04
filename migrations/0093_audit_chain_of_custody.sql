@@ -1,6 +1,6 @@
 -- Migration: 0093_audit_chain_of_custody.sql
 -- Purpose: Add remaining chain-of-custody field to audit_logs for tamper-evident audit trail
--- Author: AI Assistant (implementing PRD-GOV-01 requirement)
+-- Author: AI Assistant
 -- Date: 2025-11-25
 -- Note: previous_hash and chain_sequence already added in migration 0090
 

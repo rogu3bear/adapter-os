@@ -1,4 +1,4 @@
--- Migration 0070: Routing Decisions Table for Router & Stack Visibility (PRD-04)
+-- Migration 0070: Routing Decisions Table for Router & Stack Visibility
 -- Purpose: Store router decision events with timing metrics, candidate sets, and stack relationships
 -- Author: JKCA
 -- Date: 2025-11-17

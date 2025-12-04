@@ -1,4 +1,4 @@
--- PRD-01: Worker Lifecycle & Manifest Binding
+-- Worker Lifecycle & Manifest Binding
 -- Adds manifest binding columns and state transition tracking
 
 -- Add manifest binding columns to workers table

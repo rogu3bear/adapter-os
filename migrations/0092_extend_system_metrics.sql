@@ -1,6 +1,6 @@
 -- Migration 0092: Extend System Metrics Table
 -- Purpose: Add missing columns for time series metrics handler
--- PRD-INFRA-01: System, Nodes, Workers, Memory, Metrics
+-- System, Nodes, Workers, Memory, Metrics
 -- Citation: Based on metrics_time_series.rs requirements and 0011_system_metrics.sql
 
 -- Add missing columns to system_metrics table

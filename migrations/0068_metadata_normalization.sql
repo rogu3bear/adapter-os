@@ -1,4 +1,4 @@
--- PRD-02: Adapter & Stack Metadata Normalization
+-- Adapter & Stack Metadata Normalization
 -- Adds version and lifecycle state fields to adapters
 -- Adds lifecycle state field to stacks (version already added in 0066)
 

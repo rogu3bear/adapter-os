@@ -1,5 +1,5 @@
 -- Migration: 0128_tenant_token_baseline.sql
--- Purpose: Add per-tenant token revocation baseline for PRD-03
+-- Purpose: Add per-tenant token revocation baseline
 -- Created: 2025-12-02
 --
 -- This migration adds a token_issued_at_min column to tenants table.

@@ -2,7 +2,7 @@
 -- Add policy_assignments table for tenant/stack/resource policy associations
 -- Migration: 0090
 -- Created: 2025-11-25
--- Purpose: PRD-GOV-01 - Policies, audit, compliance storage
+-- Purpose: Policies, audit, compliance storage
 
 -- Policy packs table: stores signed policy pack definitions
 CREATE TABLE IF NOT EXISTS policy_packs (

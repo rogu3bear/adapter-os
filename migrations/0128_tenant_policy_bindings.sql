@@ -1,4 +1,4 @@
--- PRD-06: Per-tenant policy pack bindings
+-- Per-tenant policy pack bindings
 -- Allows tenants to enable/disable policy packs independently
 
 CREATE TABLE IF NOT EXISTS tenant_policy_bindings (

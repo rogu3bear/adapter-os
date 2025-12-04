@@ -1,4 +1,4 @@
--- PRD-09: Worker Health, Hung Detection & Log Centralization
+-- Worker Health, Hung Detection & Log Centralization
 -- Adds health tracking columns to workers table and creates worker_incidents table
 
 -- Add health status tracking columns to workers table

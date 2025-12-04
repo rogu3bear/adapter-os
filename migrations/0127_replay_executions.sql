@@ -1,4 +1,4 @@
--- Migration 0127: Replay Executions Audit Trail (PRD-02)
+-- Migration 0127: Replay Executions Audit Trail
 -- Records each replay attempt with match analysis and divergence details
 -- Multiple executions can exist per original inference
 

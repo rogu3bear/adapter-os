@@ -1,4 +1,4 @@
--- Migration 0126: Inference Replay Metadata (PRD-02)
+-- Migration 0126: Inference Replay Metadata
 -- Stores replay key and content for deterministic inference reproduction
 -- One row per inference operation (1:1 relationship with inference_id)
 

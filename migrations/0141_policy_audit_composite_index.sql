@@ -1,6 +1,5 @@
 -- Migration 0141: Add composite index for policy audit chain verification
 -- Purpose: Optimize tenant-scoped chain traversal and Merkle chain verification queries
--- PRD: PRD-06 (Policy audit Merkle chain)
 -- Created: 2025-12-03
 
 -- Composite index for efficient tenant + chain_sequence queries.

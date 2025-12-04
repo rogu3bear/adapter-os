@@ -1,4 +1,4 @@
--- PRD-04: Lifecycle & Versioning Engine - History Tracking
+-- Lifecycle & Versioning Engine - History Tracking
 -- Adds version history tables to track all lifecycle transitions and version changes
 -- for adapters and stacks, enabling audit trails and replay capabilities.
 

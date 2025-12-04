@@ -1,6 +1,6 @@
 -- Migration: Base Models Registry Enhancement
 -- Purpose: Add fields for model import tracking, format detection, and capabilities
--- PRD-MODEL-01: Make Base Models page reflect real models on disk
+-- Make Base Models page reflect real models on disk
 -- Citation: Based on existing model schema in 0053_add_model_metadata.sql and 0055_add_model_backend_fields.sql
 
 -- Add registry fields to models table

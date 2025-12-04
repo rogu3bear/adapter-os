@@ -1,5 +1,5 @@
 -- Migration 0075: SQL Trigger Enforcement for Lifecycle State Transitions
--- PRD-02 Critical Gap Fix: Database-Level State Machine Enforcement
+-- Critical Gap Fix: Database-Level State Machine Enforcement
 --
 -- Purpose: Enforce lifecycle state transition rules at the database level to prevent
 --          invalid state transitions via direct SQL updates, scripts, or bugs.
@@ -9,7 +9,6 @@
 --   - adapteros-core/src/lifecycle.rs (application-layer validation)
 --   - adapteros-db/src/metadata.rs (validate_state_transition function)
 --
--- Author: PRD-02 Verification Agent
 -- Date: 2025-11-19
 
 -- ============================================================================
@@ -147,6 +146,6 @@ CREATE INDEX IF NOT EXISTS idx_adapters_tier_lifecycle
 -- ============================================================================
 
 -- This migration adds critical database-level enforcement of lifecycle state
--- transition rules, closing the PRD-02 gap identified in verification report.
+-- transition rules, closing the gap identified in verification report.
 --
 -- Database layer is now production-ready with integrity guarantees.

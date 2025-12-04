@@ -1,4 +1,4 @@
--- PRD-06: Policy audit decisions with Merkle chain
+-- Policy audit decisions with Merkle chain
 -- Logs every policy decision (allow/deny) for audit trail
 
 CREATE TABLE IF NOT EXISTS policy_audit_decisions (

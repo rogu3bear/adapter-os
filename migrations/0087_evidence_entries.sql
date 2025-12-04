@@ -1,9 +1,9 @@
 -- ============================================================================
--- Evidence Entries Table (PRD-DATA-01)
+-- Evidence Entries Table
 -- ============================================================================
 -- File: migrations/0085_evidence_entries.sql
 -- Purpose: Track evidence entries for datasets and adapters (cp-evidence-004)
--- Status: New migration for PRD-DATA-01 Dataset Lab & Evidence Explorer
+-- Status: New migration for Dataset Lab & Evidence Explorer
 -- Dependencies: training_datasets (0041), adapters (0001)
 -- Notes: Links evidence (docs, tickets, commits, approvals) to datasets/adapters
 -- ============================================================================

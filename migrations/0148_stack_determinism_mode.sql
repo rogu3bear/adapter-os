@@ -1,6 +1,5 @@
 -- Migration: Add determinism_mode to adapter_stacks
 -- Purpose: Allow per-stack determinism configuration override
--- PRD: PRD-CORE-02/03 deterministic mode and chat bootstrap
 
 -- Add determinism_mode column to adapter_stacks table
 -- Valid values: 'strict', 'besteffort', 'relaxed'

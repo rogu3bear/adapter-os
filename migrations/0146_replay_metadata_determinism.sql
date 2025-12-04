@@ -1,6 +1,5 @@
 -- Migration: Add determinism tracking to replay metadata
 -- Purpose: Track determinism mode and fallback status for replay verification
--- PRD: PRD-CORE-02 (BackendCoordinator integration & deterministic mode)
 
 -- Add determinism_mode to track which mode was used for the inference
 -- Valid values: 'strict', 'besteffort', 'relaxed'

@@ -1,9 +1,9 @@
 -- ============================================================================
--- Add Primary Dataset Link to Adapters (PRD-DATA-01)
+-- Add Primary Dataset Link to Adapters
 -- ============================================================================
 -- File: migrations/0086_adapters_primary_dataset.sql
 -- Purpose: Link adapters to their primary training dataset (cp-evidence-004)
--- Status: New migration for PRD-DATA-01 Dataset Lab & Evidence Explorer
+-- Status: New migration for Dataset Lab & Evidence Explorer
 -- Dependencies: adapters (0001), training_datasets (0041)
 -- Notes: Enables policy enforcement for T1 adapters requiring dataset provenance
 -- ============================================================================

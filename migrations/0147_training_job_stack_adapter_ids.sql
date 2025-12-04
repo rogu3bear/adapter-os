@@ -1,4 +1,4 @@
--- PRD-CORE-03: Index for stack_id lookups on training jobs
+-- Index for stack_id lookups on training jobs
 -- Note: stack_id and adapter_id columns already added in migration 0118
 -- This migration adds the missing stack_id index for chat bootstrap queries
 

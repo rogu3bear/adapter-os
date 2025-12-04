@@ -1,5 +1,5 @@
 -- Migration 0096: Plugin configuration persistence
--- PRD-PLUG-01: Plugin system infrastructure
+-- Plugin system infrastructure
 -- Created: 2025-11-25
 
 -- Global plugin configuration table

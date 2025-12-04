@@ -1,6 +1,5 @@
 -- Migration: Add determinism_mode to tenants
 -- Purpose: Allow per-tenant default determinism configuration
--- PRD: PRD-CORE-02 (BackendCoordinator integration & deterministic mode)
 
 -- Add determinism_mode column to tenants table
 -- Valid values: 'strict', 'besteffort', 'relaxed'
