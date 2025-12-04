@@ -158,6 +158,71 @@ impl ApiError {
         error!("Bad gateway: {}", msg);
         Self::new(StatusCode::BAD_GATEWAY, "BAD_GATEWAY", msg)
     }
+
+    // --- Artifact-specific error codes (PRD-ART-01) ---
+
+    /// Incompatible schema version - adapter manifest uses unsupported version
+    pub fn incompatible_schema_version(file_version: &str, current_version: &str) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "INCOMPATIBLE_SCHEMA_VERSION",
+            format!(
+                "Schema version {} is newer than supported {}. Update AdapterOS.",
+                file_version, current_version
+            ),
+        )
+    }
+
+    /// Incompatible base model - base model not found or unavailable
+    pub fn incompatible_base_model(model: &str) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "INCOMPATIBLE_BASE_MODEL",
+            format!("Base model '{}' not found or not available", model),
+        )
+    }
+
+    /// Unsupported backend family - adapter requires unsupported backend
+    pub fn unsupported_backend(backend: &str) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "UNSUPPORTED_BACKEND",
+            format!("Unsupported backend family: {}", backend),
+        )
+    }
+
+    /// Hash integrity failure - computed hash doesn't match manifest
+    pub fn hash_integrity_failure(expected: &str, computed: &str) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "HASH_INTEGRITY_FAILURE",
+            format!(
+                "Weights hash mismatch: manifest says {}, computed {}",
+                expected, computed
+            ),
+        )
+    }
+
+    /// Signature required - tenant policy requires signed adapters
+    pub fn signature_required() -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "SIGNATURE_REQUIRED",
+            "Tenant policy requires signed adapters",
+        )
+    }
+
+    /// Signature invalid - adapter signature verification failed
+    pub fn signature_invalid(msg: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, "SIGNATURE_INVALID", msg)
+    }
+
+    /// Export failed - adapter export operation failed
+    pub fn export_failed(msg: impl Into<String>) -> Self {
+        let msg = msg.into();
+        error!("Export failed: {}", msg);
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "EXPORT_FAILED", msg)
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -245,6 +310,16 @@ impl From<AosError> for ApiError {
             AosError::InvalidManifest(_) => {
                 ApiError::new(StatusCode::BAD_REQUEST, "INVALID_MANIFEST", err.to_string())
             }
+            AosError::AdapterNotInManifest { .. } => ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "ADAPTER_NOT_IN_MANIFEST",
+                err.to_string(),
+            ),
+            AosError::AdapterNotInEffectiveSet { .. } => ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "ADAPTER_NOT_IN_EFFECTIVE_SET",
+                err.to_string(),
+            ),
             AosError::KernelLayoutMismatch { .. } => ApiError::new(
                 StatusCode::BAD_REQUEST,
                 "KERNEL_LAYOUT_MISMATCH",
@@ -447,6 +522,7 @@ impl From<AosError> for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_core::AosError;
 
     #[test]
     fn test_api_error_into_response() {
@@ -466,5 +542,24 @@ mod tests {
         let error = ApiError::db_error("connection failed");
         assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(error.code, "DATABASE_ERROR");
+    }
+
+    #[test]
+    fn test_adapter_gate_errors_map_to_bad_request() {
+        let effective_err = AosError::AdapterNotInEffectiveSet {
+            adapter_id: "adapter-x".to_string(),
+            effective_set: vec!["adapter-a".to_string(), "adapter-b".to_string()],
+        };
+        let api_err: ApiError = effective_err.into();
+        assert_eq!(api_err.status, StatusCode::BAD_REQUEST);
+        assert_eq!(api_err.code, "ADAPTER_NOT_IN_EFFECTIVE_SET");
+
+        let manifest_err = AosError::AdapterNotInManifest {
+            adapter_id: "adapter-y".to_string(),
+            available: vec!["adapter-a".to_string()],
+        };
+        let api_err: ApiError = manifest_err.into();
+        assert_eq!(api_err.status, StatusCode::BAD_REQUEST);
+        assert_eq!(api_err.code, "ADAPTER_NOT_IN_MANIFEST");
     }
 }

@@ -40,6 +40,7 @@ pub mod diagnostics;
 pub mod documents;
 pub mod domain_adapters;
 pub mod evidence;
+pub mod execution_policy;
 pub mod federation;
 pub mod git;
 pub mod git_repository;

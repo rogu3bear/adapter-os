@@ -251,7 +251,7 @@ pub struct SpawnWorkerRequest {
     pub gid: u32,
 }
 
-/// Worker fatal error message (PRD-09 Phase 4)
+/// Worker fatal error message
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct WorkerFatal {
     /// Worker identifier
@@ -904,13 +904,19 @@ pub struct CitationData {
 
 /// Worker inference request (for UDS communication)
 ///
-/// Includes all sampling parameters required for deterministic replay (PRD-02).
+/// Includes all sampling parameters required for deterministic replay.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct WorkerInferRequest {
     pub cpid: String,
     pub prompt: String,
     pub max_tokens: usize,
     pub require_evidence: bool,
+    /// Stack identifier associated with this inference (if any)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+    /// Stack version for telemetry correlation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack_version: Option<i64>,
     /// Sampling temperature (0.0 = deterministic, higher = more random)
     #[serde(default)]
     pub temperature: f32,
@@ -920,10 +926,10 @@ pub struct WorkerInferRequest {
     /// Top-P (nucleus) sampling (limits vocabulary to tokens with cumulative prob <= P)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
-    /// Random seed for deterministic sampling (PRD-02: critical for replay)
+    /// Random seed for deterministic sampling (critical for replay)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
-    /// Router seed for audit purposes (PRD-02: replay)
+    /// Router seed for audit purposes
     ///
     /// **Note:** The router uses a deterministic algorithm (sorted by score,
     /// then by index for tie-breaking). This seed is stored for audit trail
@@ -931,12 +937,24 @@ pub struct WorkerInferRequest {
     /// produce identical routing given identical inputs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub router_seed: Option<String>,
+    /// Determinism mode to apply in the worker (strict, besteffort, relaxed)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub determinism_mode: Option<String>,
     /// Pinned adapter IDs that receive prior boost in routing (CHAT-PIN-02)
     ///
     /// These adapters receive PINNED_BOOST (0.3) added to their prior scores
     /// before the router's scoring algorithm runs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pinned_adapter_ids: Option<Vec<String>>,
+    /// Strict mode disables backend fallback in the worker
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strict_mode: Option<bool>,
+    /// Effective adapter set resolved by the control plane
+    ///
+    /// When provided, the worker must restrict routing to this set and error
+    /// if adapters outside the set are requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_adapter_ids: Option<Vec<String>>,
 }
 
 /// Worker inference response (from worker via UDS)
@@ -945,10 +963,19 @@ pub struct WorkerInferResponse {
     pub text: Option<String>,
     pub status: String,
     pub trace: WorkerTrace,
+    /// Backend used to execute the request (e.g., metal, coreml, mlx)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_used: Option<String>,
+    /// Whether backend fallback occurred during execution
+    #[serde(default)]
+    pub fallback_triggered: bool,
+    /// Determinism mode applied after resolution
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub determinism_mode_applied: Option<String>,
     /// Pinned adapters that were unavailable (CHAT-PIN-02)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unavailable_pinned_adapters: Option<Vec<String>>,
-    /// Routing fallback mode when pinned adapters are unavailable (PRD-6A)
+    /// Routing fallback mode when pinned adapters are unavailable
     ///
     /// - `None`: All pinned adapters were available (or no pins configured)
     /// - `Some("partial")`: Some pinned adapters unavailable, using available pins + stack
@@ -2459,9 +2486,25 @@ pub struct InferenceRequestInternal {
 
     // === Adapter Selection ===
     /// Adapter stack to use for inference
+    ///
+    /// Legacy: this is an explicit list of adapter IDs, **not** a stack_id alias.
     pub adapter_stack: Option<Vec<String>>,
     /// Specific adapters to use (alternative to adapter_stack)
+    ///
+    /// Explicit adapter IDs for this request. Takes precedence over stack_id.
     pub adapters: Option<Vec<String>>,
+    /// Adapter stack identifier (preferred over adapter_stack list)
+    ///
+    /// References a stack in the DB; resolved to adapter IDs before sending to the worker.
+    pub stack_id: Option<String>,
+    /// Stack version for telemetry/audit (populated when stack_id resolves)
+    pub stack_version: Option<i64>,
+    /// Determinism mode configured on the resolved stack (if any)
+    pub stack_determinism_mode: Option<String>,
+    /// Effective adapter IDs after control plane resolution
+    pub effective_adapter_ids: Option<Vec<String>>,
+    /// Resolved determinism mode applied to this request
+    pub determinism_mode: Option<String>,
 
     // === Sampling Parameters ===
     /// Maximum tokens to generate
@@ -2491,7 +2534,8 @@ pub struct InferenceRequestInternal {
     ///
     /// These adapters receive PINNED_BOOST added to their priors during routing,
     /// making them more likely to be selected while still allowing non-pinned
-    /// adapters to win with sufficiently high feature scores.
+    /// adapters to win with sufficiently high feature scores. When an effective
+    /// adapter set is present, pins must also be members of that set.
     pub pinned_adapter_ids: Option<Vec<String>>,
     /// BLAKE3 hash of sorted message IDs for multi-turn context verification
     ///
@@ -2521,6 +2565,11 @@ impl InferenceRequestInternal {
             rag_collection_id: None,
             adapter_stack: None,
             adapters: None,
+            stack_id: None,
+            stack_version: None,
+            stack_determinism_mode: None,
+            effective_adapter_ids: None,
+            determinism_mode: None,
             max_tokens: 100,
             temperature: 0.7,
             top_k: None,
@@ -2580,9 +2629,19 @@ pub struct InferenceResult {
     /// - `Some("partial")`: Some pinned adapters unavailable, using available pins + stack
     /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
     pub pinned_routing_fallback: Option<String>,
+    /// Effective adapter set applied for this inference (if any)
+    pub effective_adapter_ids: Option<Vec<String>>,
+    /// Backend used to execute the inference (e.g., coreml, metal, mlx)
+    pub backend_used: Option<String>,
+    /// Whether backend fallback occurred during execution
+    pub fallback_triggered: bool,
+    /// Determinism mode applied after resolution
+    pub determinism_mode_applied: Option<String>,
+    /// Replay guarantee level computed for this inference
+    pub replay_guarantee: Option<ReplayGuarantee>,
 }
 
-/// Router decision record for audit trail (PRD-05)
+/// Router decision record for audit trail
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouterDecisionRecord {
     /// Token generation step
@@ -2608,7 +2667,7 @@ pub struct RouterCandidateRecord {
     pub gate_q15: i16,
 }
 
-/// RAG evidence for provenance tracking (PRD-05)
+/// RAG evidence for provenance tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RagEvidence {
     /// Collection ID used for retrieval
@@ -2634,7 +2693,7 @@ pub struct ChunkReference {
     pub rank: usize,
 }
 
-/// Error type for inference operations (PRD-05)
+/// Error type for inference operations
 #[derive(Debug, Clone)]
 pub enum InferenceError {
     /// Prompt validation failed
@@ -2653,7 +2712,7 @@ pub enum InferenceError {
     BackpressureError(String),
     /// Routing was bypassed (should never happen)
     RoutingBypass(String),
-    /// No compatible worker available for the required manifest (PRD-01)
+    /// No compatible worker available for the required manifest
     NoCompatibleWorker {
         required_hash: String,
         tenant_id: String,
@@ -2745,6 +2804,11 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             rag_collection_id: req.collection_id.clone(),
             adapter_stack: req.adapter_stack.clone(),
             adapters: req.adapters.clone(),
+            stack_id: req.stack_id.clone(),
+            stack_version: None,
+            stack_determinism_mode: None,
+            effective_adapter_ids: None, // Computed in InferenceCore
+            determinism_mode: None,
             max_tokens: req.max_tokens.unwrap_or(100),
             temperature: req.temperature.unwrap_or(0.7),
             top_k: req.top_k,
@@ -2814,6 +2878,10 @@ impl From<InferenceResult> for InferResponse {
             error: None,
             unavailable_pinned_adapters: result.unavailable_pinned_adapters,
             pinned_routing_fallback: result.pinned_routing_fallback,
+            backend_used: result.backend_used,
+            fallback_triggered: result.fallback_triggered,
+            determinism_mode_applied: result.determinism_mode_applied,
+            replay_guarantee: result.replay_guarantee,
         }
     }
 }
@@ -2832,7 +2900,7 @@ impl From<InferenceError> for (axum::http::StatusCode, axum::Json<ErrorResponse>
 }
 
 // ============================================================================
-// Deterministic Replay Types (PRD-02)
+// Deterministic Replay Types
 // ============================================================================
 
 /// Current sampling algorithm version for replay compatibility checking
@@ -3094,7 +3162,7 @@ pub struct ReplayHistoryResponse {
     pub total_count: usize,
 }
 
-// ===== Replay Execution Context (PRD-02) =====
+// ===== Replay Execution Context =====
 
 /// Context for replay execution through InferenceCore
 ///
@@ -3113,7 +3181,7 @@ pub struct ReplayContext {
     pub skip_metadata_capture: bool,
 }
 
-// ===== Tenant Token Revocation (PRD-03) =====
+// ===== Tenant Token Revocation =====
 
 /// Response from tenant-wide token revocation operation
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

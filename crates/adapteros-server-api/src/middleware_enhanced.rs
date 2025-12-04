@@ -120,6 +120,16 @@ pub async fn enhanced_auth_middleware(
         })?
     };
 
+    // Debug logging for JWT validation - helps diagnose auth issues in development
+    #[cfg(debug_assertions)]
+    debug!(
+        user_id = %claims.sub,
+        tenant_id = %claims.tenant_id,
+        admin_tenants = ?claims.admin_tenants,
+        jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
+        "JWT validated successfully"
+    );
+
     // Check token revocation
     if is_token_revoked(&state.db, &claims.jti)
         .await
@@ -331,6 +341,16 @@ pub async fn basic_auth_middleware(
             Json(ErrorResponse::new("invalid token").with_code("UNAUTHORIZED")),
         )
     })?;
+
+    // Debug logging for JWT validation - helps diagnose auth issues in development
+    #[cfg(debug_assertions)]
+    debug!(
+        user_id = %claims.sub,
+        tenant_id = %claims.tenant_id,
+        admin_tenants = ?claims.admin_tenants,
+        jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
+        "JWT validated successfully (basic auth)"
+    );
 
     // SECURITY: Check if token has been revoked (critical for basic_auth_middleware)
     if is_token_revoked(&state.db, &claims.jti)

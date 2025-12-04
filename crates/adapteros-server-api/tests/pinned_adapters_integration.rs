@@ -47,8 +47,7 @@ async fn create_test_session(
         collection_id: None,
         name: "Test Session".to_string(),
         metadata_json: None,
-        pinned_adapter_ids: pinned_adapter_ids
-            .map(|ids| serde_json::to_string(&ids).unwrap()),
+        pinned_adapter_ids: pinned_adapter_ids.map(|ids| serde_json::to_string(&ids).unwrap()),
     })
     .await
     .expect("Failed to create test session");
@@ -156,6 +155,11 @@ fn test_inference_request_internal_with_pinned_adapters() {
         rag_collection_id: None,
         adapter_stack: None,
         adapters: None,
+        stack_id: None,
+        stack_version: None,
+        stack_determinism_mode: None,
+        effective_adapter_ids: None,
+        determinism_mode: None,
         max_tokens: 512,
         temperature: 0.7,
         top_k: None,
@@ -180,7 +184,10 @@ fn test_inference_request_internal_with_pinned_adapters() {
 
 #[test]
 fn test_inference_result_with_unavailable_pinned_adapters() {
-    let unavailable = vec!["adapter-missing-1".to_string(), "adapter-missing-2".to_string()];
+    let unavailable = vec![
+        "adapter-missing-1".to_string(),
+        "adapter-missing-2".to_string(),
+    ];
 
     let result = InferenceResult {
         text: "test response".to_string(),
@@ -193,6 +200,11 @@ fn test_inference_result_with_unavailable_pinned_adapters() {
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: Some(unavailable.clone()),
         pinned_routing_fallback: Some("partial".to_string()),
+        effective_adapter_ids: None,
+        backend_used: None,
+        fallback_triggered: false,
+        determinism_mode_applied: None,
+        replay_guarantee: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -212,6 +224,11 @@ fn test_inference_result_without_unavailable_pinned_adapters() {
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: None,
         pinned_routing_fallback: None,
+        effective_adapter_ids: None,
+        backend_used: None,
+        fallback_triggered: false,
+        determinism_mode_applied: None,
+        replay_guarantee: None,
     };
 
     assert!(result.unavailable_pinned_adapters.is_none());
@@ -238,10 +255,18 @@ fn test_inference_result_all_pins_unavailable_stack_only_fallback() {
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: Some(unavailable.clone()),
         pinned_routing_fallback: Some("stack_only".to_string()),
+        effective_adapter_ids: None,
+        backend_used: None,
+        fallback_triggered: false,
+        determinism_mode_applied: None,
+        replay_guarantee: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
-    assert_eq!(result.pinned_routing_fallback, Some("stack_only".to_string()));
+    assert_eq!(
+        result.pinned_routing_fallback,
+        Some("stack_only".to_string())
+    );
 }
 
 #[test]
@@ -260,6 +285,11 @@ fn test_inference_result_partial_pins_unavailable() {
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: Some(unavailable.clone()),
         pinned_routing_fallback: Some("partial".to_string()),
+        effective_adapter_ids: None,
+        backend_used: None,
+        fallback_triggered: false,
+        determinism_mode_applied: None,
+        replay_guarantee: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -293,7 +323,10 @@ fn test_worker_response_unavailable_pinned_deserialization() {
         response.unavailable_pinned_adapters.unwrap(),
         vec!["adapter-missing".to_string()]
     );
-    assert_eq!(response.pinned_routing_fallback, Some("partial".to_string()));
+    assert_eq!(
+        response.pinned_routing_fallback,
+        Some("partial".to_string())
+    );
 }
 
 #[test]
@@ -336,7 +369,10 @@ fn test_worker_response_stack_only_fallback() {
 
     assert!(response.unavailable_pinned_adapters.is_some());
     assert_eq!(response.unavailable_pinned_adapters.unwrap().len(), 2);
-    assert_eq!(response.pinned_routing_fallback, Some("stack_only".to_string()));
+    assert_eq!(
+        response.pinned_routing_fallback,
+        Some("stack_only".to_string())
+    );
 }
 
 // =============================================================================
@@ -349,7 +385,10 @@ async fn test_tenant_default_pinned_adapters_inheritance() {
     let tenant_id = create_test_tenant(&db, "Test Tenant").await;
 
     // Set tenant default pinned adapters
-    let default_adapters = vec!["default-adapter-1".to_string(), "default-adapter-2".to_string()];
+    let default_adapters = vec![
+        "default-adapter-1".to_string(),
+        "default-adapter-2".to_string(),
+    ];
     db.set_tenant_default_pinned_adapters(&tenant_id, Some(&default_adapters))
         .await
         .unwrap();
@@ -389,7 +428,10 @@ async fn test_session_explicit_pinned_overrides_tenant_default() {
         .unwrap();
 
     // Create session WITH explicit pinned adapters - should NOT inherit
-    let explicit_adapters = vec!["explicit-adapter-1".to_string(), "explicit-adapter-2".to_string()];
+    let explicit_adapters = vec![
+        "explicit-adapter-1".to_string(),
+        "explicit-adapter-2".to_string(),
+    ];
     db.create_chat_session(CreateChatSessionParams {
         id: "explicit-session".to_string(),
         tenant_id: tenant_id.clone(),
@@ -469,7 +511,11 @@ fn test_fallback_mode_partial_one_of_two() {
 #[test]
 fn test_fallback_mode_partial_one_of_three() {
     // Case: 1 of 3 pinned unavailable -> "partial"
-    let pinned = vec!["pin-1".to_string(), "pin-2".to_string(), "pin-3".to_string()];
+    let pinned = vec![
+        "pin-1".to_string(),
+        "pin-2".to_string(),
+        "pin-3".to_string(),
+    ];
     let unavailable = vec!["pin-2".to_string()];
     let fallback = compute_fallback_mode(Some(&pinned), Some(&unavailable));
     assert_eq!(fallback, Some("partial".to_string()));
@@ -478,7 +524,11 @@ fn test_fallback_mode_partial_one_of_three() {
 #[test]
 fn test_fallback_mode_partial_two_of_three() {
     // Case: 2 of 3 pinned unavailable -> "partial"
-    let pinned = vec!["pin-1".to_string(), "pin-2".to_string(), "pin-3".to_string()];
+    let pinned = vec![
+        "pin-1".to_string(),
+        "pin-2".to_string(),
+        "pin-3".to_string(),
+    ];
     let unavailable = vec!["pin-1".to_string(), "pin-3".to_string()];
     let fallback = compute_fallback_mode(Some(&pinned), Some(&unavailable));
     assert_eq!(fallback, Some("partial".to_string()));
@@ -496,8 +546,16 @@ fn test_fallback_mode_stack_only_all_two_unavailable() {
 #[test]
 fn test_fallback_mode_stack_only_all_three_unavailable() {
     // Case: 3 of 3 pinned unavailable -> "stack_only"
-    let pinned = vec!["pin-1".to_string(), "pin-2".to_string(), "pin-3".to_string()];
-    let unavailable = vec!["pin-1".to_string(), "pin-2".to_string(), "pin-3".to_string()];
+    let pinned = vec![
+        "pin-1".to_string(),
+        "pin-2".to_string(),
+        "pin-3".to_string(),
+    ];
+    let unavailable = vec![
+        "pin-1".to_string(),
+        "pin-2".to_string(),
+        "pin-3".to_string(),
+    ];
     let fallback = compute_fallback_mode(Some(&pinned), Some(&unavailable));
     assert_eq!(fallback, Some("stack_only".to_string()));
 }
@@ -517,7 +575,10 @@ fn test_fallback_mode_empty_unavailable() {
     let pinned = vec!["pin-1".to_string(), "pin-2".to_string()];
     let unavailable: Vec<String> = vec![];
     let fallback = compute_fallback_mode(Some(&pinned), Some(&unavailable));
-    assert!(fallback.is_none(), "No fallback when unavailable list is empty");
+    assert!(
+        fallback.is_none(),
+        "No fallback when unavailable list is empty"
+    );
 }
 
 // =============================================================================
@@ -538,11 +599,20 @@ fn test_inference_event_done_serializes_pinned_fields() {
     let json = serde_json::to_string(&event).expect("Failed to serialize");
 
     // Verify all fields are present
-    assert!(json.contains("\"event\":\"Done\"") || json.contains("\"Done\""), "Should contain Done event type");
+    assert!(
+        json.contains("\"event\":\"Done\"") || json.contains("\"Done\""),
+        "Should contain Done event type"
+    );
     assert!(json.contains("42"), "Should contain total_tokens");
     assert!(json.contains("1234"), "Should contain latency_ms");
-    assert!(json.contains("missing-1"), "Should contain first unavailable adapter");
-    assert!(json.contains("missing-2"), "Should contain second unavailable adapter");
+    assert!(
+        json.contains("missing-1"),
+        "Should contain first unavailable adapter"
+    );
+    assert!(
+        json.contains("missing-2"),
+        "Should contain second unavailable adapter"
+    );
     assert!(json.contains("partial"), "Should contain fallback mode");
 }
 
@@ -560,6 +630,12 @@ fn test_inference_event_done_skips_none_fields() {
     let json = serde_json::to_string(&event).expect("Failed to serialize");
 
     // None fields should not be serialized (skip_serializing_if)
-    assert!(!json.contains("unavailable_pinned_adapters"), "Should not contain unavailable_pinned_adapters when None");
-    assert!(!json.contains("pinned_routing_fallback"), "Should not contain pinned_routing_fallback when None");
+    assert!(
+        !json.contains("unavailable_pinned_adapters"),
+        "Should not contain unavailable_pinned_adapters when None"
+    );
+    assert!(
+        !json.contains("pinned_routing_fallback"),
+        "Should not contain pinned_routing_fallback when None"
+    );
 }

@@ -6,7 +6,7 @@
 //! Citation: PRD-06 - Per-tenant policy customization
 
 use crate::auth::Claims;
-use crate::error_helpers::{db_error, db_error_msg};
+use crate::error_helpers::db_error_msg;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;

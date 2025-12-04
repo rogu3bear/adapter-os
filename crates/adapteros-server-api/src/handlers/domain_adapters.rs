@@ -681,6 +681,8 @@ pub async fn test_domain_adapter(
                 router_seed: None,
                 pinned_adapter_ids: None,
                 determinism_mode: "strict".to_string(), // Determinism tests use strict mode
+                strict_mode: true,
+                effective_adapter_ids: None,
             };
 
             match worker_guard.infer(inference_req).await {
@@ -962,6 +964,8 @@ pub async fn execute_domain_adapter(
             router_seed: None,
             pinned_adapter_ids: None,
             determinism_mode: "strict".to_string(), // Default to strict mode for domain adapter execution
+            strict_mode: true,
+            effective_adapter_ids: None,
         };
 
         match worker_guard.infer(inference_req).await {

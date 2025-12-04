@@ -28,9 +28,15 @@ async fn create_test_metadata(db: &Db, inference_id: &str, tenant_id: &str) -> S
         response_text: Some("Test response for comparison".to_string()),
         response_truncated: false,
         rag_doc_ids: Some(vec!["doc-001".to_string(), "doc-002".to_string()]),
+        chat_context_hash: None,
         replay_status: Some("available".to_string()),
         latency_ms: Some(100),
         tokens_generated: Some(10),
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: false,
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
     };
 
     db.create_replay_metadata(params).await.unwrap()
@@ -361,9 +367,15 @@ async fn test_truncated_flags_stored_correctly() {
         response_text: Some("truncated response".to_string()),
         response_truncated: true, // Flag set
         rag_doc_ids: None,
+        chat_context_hash: None,
         replay_status: Some("approximate".to_string()),
         latency_ms: None,
         tokens_generated: None,
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: false,
+        replay_guarantee: Some("approximate".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
     };
 
     db.create_replay_metadata(params).await.unwrap();
@@ -411,9 +423,15 @@ async fn test_rag_doc_ids_stored_and_retrieved() {
         response_text: Some("response".to_string()),
         response_truncated: false,
         rag_doc_ids: Some(rag_doc_ids.clone()),
+        chat_context_hash: None,
         replay_status: Some("available".to_string()),
         latency_ms: None,
         tokens_generated: None,
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: false,
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
     };
 
     db.create_replay_metadata(params).await.unwrap();

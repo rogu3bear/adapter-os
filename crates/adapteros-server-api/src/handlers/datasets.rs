@@ -2200,15 +2200,7 @@ pub async fn create_dataset_from_documents(
     let dataset_name = request.name.unwrap_or(source_name);
 
     // Get datasets storage path from config or use default
-    let datasets_dir = PathBuf::from(
-        state
-            .config
-            .read()
-            .unwrap()
-            .paths
-            .datasets_root
-            .clone(),
-    );
+    let datasets_dir = PathBuf::from(state.config.read().unwrap().paths.datasets_root.clone());
 
     // Create dataset record first to get the canonical ID
     // Use a placeholder path initially, then update after directory creation
@@ -2331,7 +2323,7 @@ pub async fn create_dataset_from_documents(
     let now = chrono::Utc::now().to_rfc3339();
 
     // Audit log
-    log_success(
+    let _ = log_success(
         &state.db,
         &claims,
         actions::DATASET_CREATE,

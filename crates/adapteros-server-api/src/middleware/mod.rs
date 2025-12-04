@@ -88,7 +88,10 @@ fn dev_no_auth_claims() -> Claims {
         role: "admin".to_string(),
         roles: vec!["admin".to_string()],
         tenant_id: "system".to_string(),
-        admin_tenants: vec![], // Dev mode: no cross-tenant access by default
+        // Dev mode: wildcard grants access to ALL tenants
+        // SECURITY: This only works in debug builds via dev_no_auth_enabled() check
+        // The "*" wildcard is recognized by check_tenant_access_core() in security/mod.rs
+        admin_tenants: vec!["*".to_string()],
         exp: (now + Duration::hours(8)).timestamp(),
         iat: now.timestamp(),
         jti: Uuid::new_v4().to_string(),
@@ -159,6 +162,16 @@ pub async fn auth_middleware(
         };
         match claims_result {
             Ok(claims) => {
+                // Debug logging for JWT validation - helps diagnose auth issues in development
+                #[cfg(debug_assertions)]
+                tracing::debug!(
+                    user_id = %claims.sub,
+                    tenant_id = %claims.tenant_id,
+                    admin_tenants = ?claims.admin_tenants,
+                    jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
+                    "JWT validated successfully"
+                );
+
                 // Check if token has been revoked
                 if let Err(e) = is_token_revoked(&state.db, &claims.jti).await {
                     tracing::warn!(error = %e, "Failed to check token revocation");
@@ -295,6 +308,16 @@ pub async fn dual_auth_middleware(
         };
         match claims_result {
             Ok(claims) => {
+                // Debug logging for JWT validation - helps diagnose auth issues in development
+                #[cfg(debug_assertions)]
+                tracing::debug!(
+                    user_id = %claims.sub,
+                    tenant_id = %claims.tenant_id,
+                    admin_tenants = ?claims.admin_tenants,
+                    jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
+                    "JWT validated successfully (dual auth)"
+                );
+
                 let tenant_id = claims.tenant_id.clone();
                 req.extensions_mut().insert(claims);
                 let identity = IdentityEnvelope::new(
@@ -403,6 +426,16 @@ pub async fn optional_auth_middleware(
                     tracing::debug!(jti = %claims.jti, "Token is revoked, proceeding without authentication");
                     // Don't inject claims for revoked tokens
                 } else {
+                    // Debug logging for JWT validation - helps diagnose auth issues in development
+                    #[cfg(debug_assertions)]
+                    tracing::debug!(
+                        user_id = %claims.sub,
+                        tenant_id = %claims.tenant_id,
+                        admin_tenants = ?claims.admin_tenants,
+                        jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
+                        "JWT validated successfully (optional auth)"
+                    );
+
                     // Valid token - inject claims and identity
                     let tenant_id = claims.tenant_id.clone();
                     req.extensions_mut().insert(claims);

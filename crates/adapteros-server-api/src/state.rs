@@ -63,6 +63,9 @@ pub struct ApiConfig {
     /// Timeout in seconds for directory analysis operations (default: 120)
     #[serde(default = "default_directory_analysis_timeout")]
     pub directory_analysis_timeout_secs: u64,
+    /// Whether to fall back to session.stack_id when no explicit adapters/stack_id are provided
+    #[serde(default)]
+    pub use_session_stack_for_routing: bool,
     /// Capacity limits configuration
     #[serde(default)]
     pub capacity_limits: CapacityLimits,
@@ -100,6 +103,9 @@ pub struct GeneralConfig {
     pub system_name: Option<String>,
     pub environment: Option<String>,
     pub api_base_url: Option<String>,
+    /// Global default determinism mode (strict, besteffort, relaxed)
+    #[serde(default)]
+    pub determinism_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -175,6 +181,33 @@ impl Default for ChatContextConfig {
             max_history_messages: default_max_history_messages(),
             max_history_tokens: default_max_history_tokens(),
             include_system_messages: default_include_system_messages(),
+        }
+    }
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            metrics: MetricsConfig {
+                enabled: true,
+                bearer_token: String::new(),
+            },
+            directory_analysis_timeout_secs: default_directory_analysis_timeout(),
+            use_session_stack_for_routing: false,
+            capacity_limits: Default::default(),
+            general: None,
+            server: Default::default(),
+            security: Default::default(),
+            performance: Default::default(),
+            paths: crate::config::PathsConfig {
+                artifacts_root: "var/artifacts".to_string(),
+                bundles_root: "var/bundles".to_string(),
+                adapters_root: "var/adapters".to_string(),
+                plan_dir: "var/plan".to_string(),
+                datasets_root: "var/datasets".to_string(),
+                documents_root: "var/documents".to_string(),
+            },
+            chat_context: Default::default(),
         }
     }
 }
@@ -455,6 +488,44 @@ impl AppState {
         // Create telemetry broadcast channel
         let (telemetry_tx, _) = broadcast::channel(1000);
 
+        // JWT algorithm selection: respect jwt_mode config, with build-type defaults
+        // Must compute before struct init since config is moved
+        let use_ed25519 = {
+            let cfg = config.read().unwrap();
+            match cfg.security.jwt_mode.as_deref() {
+                Some("hmac") | Some("hs256") => {
+                    tracing::info!("JWT mode configured as HMAC-SHA256");
+                    false
+                }
+                Some("eddsa") | Some("ed25519") => {
+                    tracing::info!("JWT mode configured as Ed25519");
+                    true
+                }
+                None => {
+                    // Default based on build type:
+                    // - Debug: HMAC for simpler dev setup (no key files needed)
+                    // - Release: Ed25519 for production security
+                    #[cfg(debug_assertions)]
+                    {
+                        tracing::info!("JWT mode defaulting to HMAC-SHA256 (debug build)");
+                        false
+                    }
+                    #[cfg(not(debug_assertions))]
+                    {
+                        tracing::info!("JWT mode defaulting to Ed25519 (release build)");
+                        true
+                    }
+                }
+                Some(other) => {
+                    tracing::warn!(
+                        jwt_mode = %other,
+                        "Unknown jwt_mode value, defaulting to Ed25519"
+                    );
+                    true
+                }
+            }
+        };
+
         Self {
             db: db.clone(),
             jwt_secret: Arc::new(jwt_secret),
@@ -475,7 +546,7 @@ impl AppState {
             response_validator: Arc::new(
                 crate::validation::response_schemas::ResponseSchemaValidator::new(None),
             ),
-            use_ed25519: true, // Default to Ed25519 for production
+            use_ed25519,
             ed25519_keypair: ed25519_keypair.clone(),
             ed25519_public_key,
             metrics_collector,

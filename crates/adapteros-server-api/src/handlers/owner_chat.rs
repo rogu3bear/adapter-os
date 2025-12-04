@@ -346,12 +346,17 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         prompt,
         max_tokens: 512,
         require_evidence: false,
+        stack_id: None,
+        stack_version: None,
         temperature: 0.7,
         top_k: None,
         top_p: None,
         seed: None,
         router_seed: None,
+        strict_mode: Some(false),
+        determinism_mode: None,
         pinned_adapter_ids: None,
+        effective_adapter_ids: None,
     };
 
     // Send inference request via UDS

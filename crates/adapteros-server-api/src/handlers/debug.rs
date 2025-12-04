@@ -139,7 +139,7 @@ pub async fn debug_infer_with_mode(
 
     // Parse and validate override mode if provided
     let (was_overridden, effective_mode_str) = if let Some(ref mode_str) = query.mode {
-        let override_mode: adapteros_core::DeterminismMode = mode_str.parse().map_err(|e| {
+        let override_mode: crate::inference_core::DeterminismMode = mode_str.parse().map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
                 Json(

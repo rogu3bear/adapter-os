@@ -77,12 +77,17 @@ fn check_tenant_access_core(claims: &Claims, resource_tenant_id: &str) -> bool {
     }
 
     // Admin with explicit access
-    if claims.role == "admin"
-        && claims
-            .admin_tenants
-            .contains(&resource_tenant_id.to_string())
-    {
-        return true;
+    if claims.role == "admin" {
+        // Wildcard "*" grants access to ALL tenants (used by dev_no_auth_claims)
+        // SECURITY: Tokens with wildcard can only be generated in debug builds
+        // via dev_no_auth_claims() or dev_bootstrap_handler()
+        if claims.admin_tenants.contains(&"*".to_string()) {
+            return true;
+        }
+        // Specific tenant grant
+        if claims.admin_tenants.contains(&resource_tenant_id.to_string()) {
+            return true;
+        }
     }
 
     false

@@ -61,18 +61,18 @@ async fn test_hung_worker_detection_marks_degraded_after_consecutive_slow() {
     }
 
     // Verify: Worker should be marked as degraded
-    let health = monitor.get_worker_health(worker_id);
-    assert!(health.is_some(), "Worker health should be tracked");
+    let metrics = monitor.get_worker_metrics(worker_id);
+    assert!(metrics.is_some(), "Worker health should be tracked");
 
-    let health = health.unwrap();
+    let metrics = metrics.unwrap();
     assert_eq!(
-        health.health_status,
+        metrics.health_status,
         WorkerHealthStatus::Degraded,
         "Worker should be degraded after {} consecutive slow responses",
         3
     );
     assert!(
-        health.avg_latency_ms >= 100.0,
+        metrics.avg_latency_ms >= 100.0,
         "Average latency should reflect slow responses"
     );
 }
@@ -103,12 +103,12 @@ async fn test_worker_stays_healthy_with_fast_responses() {
     }
 
     // Verify: Worker should stay healthy
-    let health = monitor.get_worker_health(worker_id);
-    assert!(health.is_some(), "Worker health should be tracked");
+    let metrics = monitor.get_worker_metrics(worker_id);
+    assert!(metrics.is_some(), "Worker health should be tracked");
 
-    let health = health.unwrap();
+    let metrics = metrics.unwrap();
     assert_eq!(
-        health.health_status,
+        metrics.health_status,
         WorkerHealthStatus::Healthy,
         "Worker should stay healthy with fast responses"
     );
@@ -130,9 +130,7 @@ async fn test_fatal_incident_recorded_in_database() {
         .expect("Failed to create test worker");
 
     // Simulate fatal error by inserting incident directly
-    let incident_id = uuid::Uuid::now_v7().to_string();
     db.insert_worker_incident(
-        &incident_id,
         worker_id,
         tenant_id,
         "fatal",
@@ -168,9 +166,7 @@ async fn test_multiple_incident_types_recorded() {
 
     // Insert various incident types
     for (i, incident_type) in ["fatal", "crash", "hung", "degraded"].iter().enumerate() {
-        let incident_id = format!("incident-{}", i);
         db.insert_worker_incident(
-            &incident_id,
             worker_id,
             tenant_id,
             incident_type,
@@ -228,11 +224,11 @@ async fn test_worker_recovers_from_degraded_with_fast_responses() {
     }
 
     // Verify degraded
-    let health = monitor
-        .get_worker_health(worker_id)
-        .expect("Health should exist");
+    let metrics = monitor
+        .get_worker_metrics(worker_id)
+        .expect("Metrics should exist");
     assert_eq!(
-        health.health_status,
+        metrics.health_status,
         WorkerHealthStatus::Degraded,
         "Worker should be degraded"
     );
@@ -243,11 +239,11 @@ async fn test_worker_recovers_from_degraded_with_fast_responses() {
     }
 
     // Verify recovery
-    let health = monitor
-        .get_worker_health(worker_id)
-        .expect("Health should exist");
+    let metrics = monitor
+        .get_worker_metrics(worker_id)
+        .expect("Metrics should exist");
     assert_eq!(
-        health.health_status,
+        metrics.health_status,
         WorkerHealthStatus::Healthy,
         "Worker should recover to healthy after {} fast responses",
         3
@@ -285,11 +281,11 @@ async fn test_mixed_responses_dont_trigger_state_change() {
     monitor.record_response(worker_id, 20).await; // Fast - breaks consecutive
 
     // Verify: Worker should stay healthy (no 3 consecutive slow)
-    let health = monitor
-        .get_worker_health(worker_id)
-        .expect("Health should exist");
+    let metrics = monitor
+        .get_worker_metrics(worker_id)
+        .expect("Metrics should exist");
     assert_eq!(
-        health.health_status,
+        metrics.health_status,
         WorkerHealthStatus::Healthy,
         "Worker should stay healthy with non-consecutive slow responses"
     );
@@ -318,15 +314,15 @@ async fn test_failure_increments_and_crash_detection() {
     }
 
     // Verify: Worker should be marked as crashed
-    let health = monitor
-        .get_worker_health(worker_id)
-        .expect("Health should exist");
+    let metrics = monitor
+        .get_worker_metrics(worker_id)
+        .expect("Metrics should exist");
     assert_eq!(
-        health.health_status,
+        metrics.health_status,
         WorkerHealthStatus::Crashed,
         "Worker should be crashed after multiple failures"
     );
-    assert_eq!(health.consecutive_failures, 5);
+    assert_eq!(metrics.consecutive_failures, 5);
 }
 
 #[tokio::test]
@@ -363,17 +359,11 @@ async fn test_health_summary_counts() {
     monitor.record_response("worker-degraded", 200).await;
 
     // Verify health statuses
-    let h1 = monitor
-        .get_worker_health("worker-healthy-1")
-        .expect("Should have health");
-    let h2 = monitor
-        .get_worker_health("worker-healthy-2")
-        .expect("Should have health");
-    let hd = monitor
-        .get_worker_health("worker-degraded")
-        .expect("Should have health");
+    let h1 = monitor.get_worker_health("worker-healthy-1");
+    let h2 = monitor.get_worker_health("worker-healthy-2");
+    let hd = monitor.get_worker_health("worker-degraded");
 
-    assert_eq!(h1.health_status, WorkerHealthStatus::Healthy);
-    assert_eq!(h2.health_status, WorkerHealthStatus::Healthy);
-    assert_eq!(hd.health_status, WorkerHealthStatus::Degraded);
+    assert_eq!(h1, WorkerHealthStatus::Healthy);
+    assert_eq!(h2, WorkerHealthStatus::Healthy);
+    assert_eq!(hd, WorkerHealthStatus::Degraded);
 }

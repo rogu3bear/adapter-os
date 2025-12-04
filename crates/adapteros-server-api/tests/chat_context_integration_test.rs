@@ -78,7 +78,9 @@ async fn test_build_chat_prompt_with_real_db() {
 
     // Verify format
     assert!(
-        result.prompt_text.contains("[system]: You are a helpful assistant."),
+        result
+            .prompt_text
+            .contains("[system]: You are a helpful assistant."),
         "Missing system message in: {}",
         result.prompt_text
     );
@@ -88,7 +90,9 @@ async fn test_build_chat_prompt_with_real_db() {
         result.prompt_text
     );
     assert!(
-        result.prompt_text.contains("[assistant]: I'm doing well, thank you!"),
+        result
+            .prompt_text
+            .contains("[assistant]: I'm doing well, thank you!"),
         "Missing assistant message in: {}",
         result.prompt_text
     );
@@ -233,7 +237,9 @@ async fn test_build_chat_prompt_excludes_system_messages() {
         result.prompt_text
     );
     assert!(result.prompt_text.contains("[user]: User message"));
-    assert!(result.prompt_text.contains("[assistant]: Assistant response"));
+    assert!(result
+        .prompt_text
+        .contains("[assistant]: Assistant response"));
 
     // Only 2 history messages (user + assistant, not system)
     assert_eq!(result.message_count, 2);

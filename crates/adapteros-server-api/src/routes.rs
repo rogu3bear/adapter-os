@@ -50,6 +50,12 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::chat_sessions::get_session_summary,
         handlers::chat_sessions::update_session_collection,
         handlers::chat_sessions::get_message_evidence,
+        handlers::chat_sessions::get_chat_provenance,
+        // Execution policy handlers
+        handlers::execution_policy::get_execution_policy,
+        handlers::execution_policy::create_execution_policy,
+        handlers::execution_policy::deactivate_execution_policy,
+        handlers::execution_policy::get_execution_policy_history,
         handlers::list_adapters,
         handlers::get_adapter,
         handlers::register_adapter,
@@ -590,10 +596,15 @@ pub fn build(state: AppState) -> Router {
 
     #[cfg(all(feature = "dev-bypass", debug_assertions))]
     {
-        public_routes = public_routes.route(
-            "/v1/auth/dev-bypass",
-            post(handlers::auth_enhanced::dev_bypass_handler),
-        );
+        public_routes = public_routes
+            .route(
+                "/v1/auth/dev-bypass",
+                post(handlers::auth_enhanced::dev_bypass_handler),
+            )
+            .route(
+                "/v1/dev/bootstrap",
+                post(handlers::auth_enhanced::dev_bootstrap_handler),
+            );
     }
 
     let public_routes =
@@ -695,6 +706,20 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/tenants/{tenant_id}/revoke-all-tokens",
             post(handlers::tenants::revoke_tenant_tokens),
+        )
+        // Tenant execution policy routes
+        .route(
+            "/v1/tenants/{tenant_id}/execution-policy",
+            get(handlers::execution_policy::get_execution_policy)
+                .post(handlers::execution_policy::create_execution_policy),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/execution-policy/{policy_id}",
+            axum::routing::delete(handlers::execution_policy::deactivate_execution_policy),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/execution-policy/history",
+            get(handlers::execution_policy::get_execution_policy_history),
         )
         .route("/v1/nodes", get(handlers::list_nodes))
         .route("/v1/nodes/register", post(handlers::register_node))
@@ -1006,6 +1031,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/chat/messages/{message_id}/evidence",
             get(handlers::chat_sessions::get_message_evidence),
         )
+        .route(
+            "/v1/chat/sessions/{session_id}/provenance",
+            get(handlers::chat_sessions::get_chat_provenance),
+        )
         // Chat tags routes
         .route(
             "/v1/chat/tags",
@@ -1136,6 +1165,11 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/adapters/{adapter_id}/training-export",
             get(handlers::adapters::export_training_provenance),
+        )
+        // PRD-ART-01: Adapter export as .aos file
+        .route(
+            "/v1/adapters/{adapter_id}/export",
+            get(handlers::adapters::export_adapter),
         )
         .route(
             "/v1/adapters/directory/upsert",

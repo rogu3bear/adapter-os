@@ -14,7 +14,9 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
         .bind(tenant_id)
         .execute(db.pool())
         .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to create tenant: {}", e)))?;
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to create tenant: {}", e))
+        })?;
     Ok(())
 }
 
@@ -52,7 +54,13 @@ async fn test_archived_adapter_not_loadable() -> Result<()> {
 
     // Create tenant and adapter
     create_test_tenant(&db, "tenant-archive-test").await?;
-    create_test_adapter(&db, "adapter-to-archive", "tenant-archive-test", "Test Adapter").await?;
+    create_test_adapter(
+        &db,
+        "adapter-to-archive",
+        "tenant-archive-test",
+        "Test Adapter",
+    )
+    .await?;
 
     // Verify adapter is loadable initially
     let loadable = db.is_adapter_loadable("adapter-to-archive").await?;
@@ -70,7 +78,10 @@ async fn test_archived_adapter_not_loadable() -> Result<()> {
     );
 
     // Verify adapter is marked as archived
-    let adapter = db.get_adapter("adapter-to-archive").await?.expect("Adapter should exist");
+    let adapter = db
+        .get_adapter("adapter-to-archive")
+        .await?
+        .expect("Adapter should exist");
     assert!(
         adapter.archived_at.is_some(),
         "Adapter should have archived_at timestamp"
@@ -100,8 +111,13 @@ async fn test_unarchived_adapter_becomes_loadable() -> Result<()> {
 
     // Create tenant and adapter
     create_test_tenant(&db, "tenant-unarchive-test").await?;
-    create_test_adapter(&db, "adapter-to-unarchive", "tenant-unarchive-test", "Test Adapter")
-        .await?;
+    create_test_adapter(
+        &db,
+        "adapter-to-unarchive",
+        "tenant-unarchive-test",
+        "Test Adapter",
+    )
+    .await?;
 
     // Archive the adapter
     db.archive_adapter("adapter-to-unarchive", "test_user", "Temporary archival")
@@ -122,7 +138,10 @@ async fn test_unarchived_adapter_becomes_loadable() -> Result<()> {
     );
 
     // Verify archive fields are cleared
-    let adapter = db.get_adapter("adapter-to-unarchive").await?.expect("Adapter should exist");
+    let adapter = db
+        .get_adapter("adapter-to-unarchive")
+        .await?
+        .expect("Adapter should exist");
     assert!(
         adapter.archived_at.is_none(),
         "Archived_at should be cleared after unarchive"
@@ -164,7 +183,10 @@ async fn test_purged_adapter_not_loadable() -> Result<()> {
     assert!(!loadable, "Purged adapter should NOT be loadable");
 
     // Verify purged_at is set
-    let adapter = db.get_adapter("adapter-to-purge").await?.expect("Adapter should exist");
+    let adapter = db
+        .get_adapter("adapter-to-purge")
+        .await?
+        .expect("Adapter should exist");
     assert!(
         adapter.purged_at.is_some(),
         "Adapter should have purged_at timestamp"

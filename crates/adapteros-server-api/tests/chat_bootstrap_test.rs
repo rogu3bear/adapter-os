@@ -104,7 +104,10 @@ async fn test_insert_stack_with_proper_name_format() {
         determinism_mode: None,
     };
 
-    let stack_id = db.insert_stack(&stack_req).await.expect("Failed to insert stack");
+    let stack_id = db
+        .insert_stack(&stack_req)
+        .await
+        .expect("Failed to insert stack");
     assert!(!stack_id.is_empty(), "Stack ID should be returned");
 
     // Verify we can retrieve the stack
@@ -156,7 +159,10 @@ async fn test_update_training_job_result_ids() {
         workflow_type: None,
         determinism_mode: None,
     };
-    let stack_id = db.insert_stack(&stack_req).await.expect("Failed to insert stack");
+    let stack_id = db
+        .insert_stack(&stack_req)
+        .await
+        .expect("Failed to insert stack");
 
     // Create training job
     if let Err(e) = create_test_training_job(&db, job_id, tenant_id, repo_id, "running").await {
@@ -170,8 +176,14 @@ async fn test_update_training_job_result_ids() {
         .await
         .expect("Failed to get job")
         .expect("Job not found");
-    assert!(job_before.stack_id.is_none(), "stack_id should be None initially");
-    assert!(job_before.adapter_id.is_none(), "adapter_id should be None initially");
+    assert!(
+        job_before.stack_id.is_none(),
+        "stack_id should be None initially"
+    );
+    assert!(
+        job_before.adapter_id.is_none(),
+        "adapter_id should be None initially"
+    );
 
     // Update with result IDs
     let adapter_id = "adapter-update-001";
@@ -185,8 +197,16 @@ async fn test_update_training_job_result_ids() {
         .await
         .expect("Failed to get job")
         .expect("Job not found");
-    assert_eq!(job_after.stack_id, Some(stack_id.clone()), "stack_id should be set");
-    assert_eq!(job_after.adapter_id, Some(adapter_id.to_string()), "adapter_id should be set");
+    assert_eq!(
+        job_after.stack_id,
+        Some(stack_id.clone()),
+        "stack_id should be set"
+    );
+    assert_eq!(
+        job_after.adapter_id,
+        Some(adapter_id.to_string()),
+        "adapter_id should be set"
+    );
 }
 
 #[tokio::test]
@@ -256,7 +276,10 @@ async fn test_create_chat_session_with_stack() {
         workflow_type: None,
         determinism_mode: None,
     };
-    let stack_id = db.insert_stack(&stack_req).await.expect("Failed to insert stack");
+    let stack_id = db
+        .insert_stack(&stack_req)
+        .await
+        .expect("Failed to insert stack");
 
     // Create chat session with stack_id (no collection_id to avoid FK constraint)
     let session_id = "session-chat-001";

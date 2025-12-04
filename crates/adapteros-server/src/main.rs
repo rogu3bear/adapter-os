@@ -862,6 +862,7 @@ async fn main() -> Result<()> {
                 bearer_token: cfg.metrics.bearer_token.clone(),
             },
             directory_analysis_timeout_secs: 120,
+            use_session_stack_for_routing: false, // Default until routing config is added
             capacity_limits: Default::default(),
             general: None,
             server: adapteros_server_api::state::ServerConfigApi {
@@ -1157,12 +1158,38 @@ async fn main() -> Result<()> {
     };
 
     // Build application state
-    let jwt_secret = server_config
-        .read()
-        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
-        .security
-        .jwt_secret
-        .clone();
+    let jwt_secret = {
+        let config_secret = server_config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+            .security
+            .jwt_secret
+            .clone();
+
+        // SECURITY: In debug builds, allow AOS_DEV_JWT_SECRET env var to override
+        // This simplifies dev setup by not requiring key file configuration
+        #[cfg(debug_assertions)]
+        {
+            if let Ok(dev_secret) = std::env::var("AOS_DEV_JWT_SECRET") {
+                if !dev_secret.is_empty() {
+                    info!("Using AOS_DEV_JWT_SECRET for JWT signing (debug build only)");
+                    dev_secret.into_bytes()
+                } else {
+                    config_secret.into_bytes()
+                }
+            } else {
+                config_secret.into_bytes()
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            // SECURITY: In release builds, always use config - never allow env override
+            if std::env::var("AOS_DEV_JWT_SECRET").is_ok() {
+                warn!("AOS_DEV_JWT_SECRET is ignored in release builds for security");
+            }
+            config_secret.into_bytes()
+        }
+    };
 
     // UMA monitor for memory pressure detection
     // Start polling before wrapping in Arc since start_polling requires &mut self
@@ -1170,7 +1197,7 @@ async fn main() -> Result<()> {
     uma_monitor.start_polling().await;
     let uma_monitor = Arc::new(uma_monitor);
 
-    // Initialize worker health monitor for PRD-09: Worker Health, Hung Detection & Log Centralization
+    // Initialize worker health monitor for Worker Health, Hung Detection & Log Centralization
     info!("Initializing worker health monitor");
     let health_monitor = Arc::new(WorkerHealthMonitor::with_defaults(db.clone()));
     {
@@ -1207,7 +1234,7 @@ async fn main() -> Result<()> {
 
     let mut state = AppState::new(
         db.clone(),
-        jwt_secret.as_bytes().to_vec(),
+        jwt_secret,
         api_config.clone(),
         Arc::clone(&metrics_exporter),
         Arc::clone(&metrics_collector),

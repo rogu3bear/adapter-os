@@ -15,6 +15,8 @@ pub struct Config {
     pub git: Option<adapteros_git::GitConfig>,
     #[serde(default)]
     pub policies: PoliciesConfig,
+    #[serde(default)]
+    pub routing: RoutingConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +148,13 @@ pub struct AlertingConfig {
     pub alert_dir: String,
     pub max_alerts_per_file: usize,
     pub rotate_size_mb: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RoutingConfig {
+    /// Allow routing to inherit session.stack_id when no explicit adapters/stack_id provided
+    #[serde(default)]
+    pub use_session_stack_for_routing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
