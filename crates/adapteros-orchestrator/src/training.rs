@@ -1058,7 +1058,7 @@ async fn run_training_job(
                                         }
                                     }
 
-                                    // PRD-CORE-03: Persist stack_id and adapter_id to database for chat_bootstrap endpoint
+                                    // Persist stack_id and adapter_id to database for chat_bootstrap endpoint
                                     if let Err(e) = database
                                         .update_training_job_result_ids(
                                             &job_id,
@@ -1072,8 +1072,8 @@ async fn run_training_job(
                                     }
 
                                     // IMPORTANT: We intentionally do NOT call set_default_stack() here.
-                                    // Per PRD decision 5B: "Training finishes → adapter registered →
-                                    // stack auto-created, but NOT set as default."
+                                    // Training finishes → adapter registered →
+                                    // stack auto-created, but NOT set as default.
                                     // Users must explicitly set their default stack via the API:
                                     // PUT /v1/tenants/{tenant_id}/default-stack
                                 }

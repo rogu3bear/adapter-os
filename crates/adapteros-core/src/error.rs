@@ -187,6 +187,20 @@ pub enum AosError {
         current_state: String,
     },
 
+    /// Requested adapter is not present in the current manifest
+    #[error("Adapter '{adapter_id}' not found in manifest. Available adapters: {available:?}")]
+    AdapterNotInManifest {
+        adapter_id: String,
+        available: Vec<String>,
+    },
+
+    /// Requested adapter is not part of the effective adapter set
+    #[error("Adapter '{adapter_id}' is not in the effective adapter set: {effective_set:?}")]
+    AdapterNotInEffectiveSet {
+        adapter_id: String,
+        effective_set: Vec<String>,
+    },
+
     #[error("Adapter hash mismatch for {adapter_id}: expected {expected}, got {actual}")]
     AdapterHashMismatch {
         adapter_id: String,

@@ -264,7 +264,11 @@ impl MLXFFIBackend {
     /// from the model manifest hash using HKDF with domain separation.
     /// Accepts `Arc<MLXFFIModel>` for use with the model cache.
     pub fn with_manifest_hash_arc(model: Arc<MLXFFIModel>, manifest_hash: B3Hash) -> Result<Self> {
-        Self::with_manifest_hash_arc_and_config(model, manifest_hash, MLXResilienceConfig::default())
+        Self::with_manifest_hash_arc_and_config(
+            model,
+            manifest_hash,
+            MLXResilienceConfig::default(),
+        )
     }
 
     /// Create new MLX FFI backend with shared model, HKDF seeding, and custom resilience

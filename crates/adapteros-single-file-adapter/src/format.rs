@@ -13,6 +13,15 @@ use std::collections::HashMap;
 /// - v2: Added separate positive/negative weight groups for better LoRA training
 pub const AOS_FORMAT_VERSION: u8 = 2;
 
+/// Current manifest schema version (semantic versioning)
+///
+/// This is distinct from AOS_FORMAT_VERSION which tracks binary format.
+/// Schema version tracks the JSON manifest structure for backward compatibility.
+pub const MANIFEST_SCHEMA_VERSION: &str = "1.0.0";
+
+/// Minimum supported manifest schema version for import
+pub const MIN_SUPPORTED_SCHEMA_VERSION: &str = "1.0.0";
+
 /// Single-file adapter container
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SingleFileAdapter {
@@ -104,15 +113,36 @@ impl CompressionLevel {
 }
 
 /// Adapter manifest (enhanced version of existing manifest)
+///
+/// PRD-ART-01: This manifest is the source of truth for adapter identity and portability.
+/// The `schema_version` field enables backward-compatible evolution of this structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdapterManifest {
-    /// .aos format version (for compatibility checks)
+    /// .aos format version (for binary compatibility checks)
     pub format_version: u8,
+    /// Manifest schema version (semantic versioning, e.g., "1.0.0")
+    /// Used for backward-compatible JSON structure evolution
+    #[serde(default = "default_schema_version")]
+    pub schema_version: String,
     pub adapter_id: String,
+    /// Content hash: BLAKE3(manifest_json + weights_bytes)
+    /// This is the canonical identity for the adapter across systems
+    #[serde(default)]
+    pub content_hash: Option<String>,
     pub version: String,
     pub rank: u32,
     pub alpha: f32,
+    /// Base model name (e.g., "qwen2.5-7b")
     pub base_model: String,
+    /// Base model ID (FK reference to models.id for validation)
+    #[serde(default)]
+    pub base_model_id: Option<String>,
+    /// Backend family: "metal", "coreml", "mlx", or "auto"
+    #[serde(default)]
+    pub backend_family: Option<String>,
+    /// Quantization format: "q15", "f16", "f32", etc.
+    #[serde(default)]
+    pub quantization: Option<String>,
     pub category: String,
     pub scope: String,
     pub tier: String,
@@ -125,7 +155,46 @@ pub struct AdapterManifest {
     pub compression_method: String,
     /// Weight group configuration
     pub weight_groups: WeightGroupConfig,
+    /// Full training provenance (embedded for portability)
+    #[serde(default)]
+    pub provenance: Option<ProvenanceData>,
     pub metadata: HashMap<String, String>,
+}
+
+fn default_schema_version() -> String {
+    MANIFEST_SCHEMA_VERSION.to_string()
+}
+
+/// Full training provenance data for portable adapters
+///
+/// PRD-ART-01: Embedded in .aos files for complete audit trail across systems
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProvenanceData {
+    /// Training job ID that produced this adapter
+    pub training_job_id: Option<String>,
+    /// Dataset ID used for training
+    pub dataset_id: Option<String>,
+    /// BLAKE3 hash of the dataset
+    pub dataset_hash: Option<String>,
+    /// Training configuration (hyperparameters, etc.)
+    pub training_config: Option<serde_json::Value>,
+    /// Documents used in training with their content hashes
+    pub documents: Vec<ProvenanceDocument>,
+    /// Timestamp when provenance was captured
+    pub export_timestamp: String,
+    /// BLAKE3 hash of the provenance data for integrity
+    pub export_hash: String,
+}
+
+/// Document reference with content hash for provenance tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProvenanceDocument {
+    /// Document ID
+    pub id: String,
+    /// Document name
+    pub name: String,
+    /// BLAKE3 hash of document content
+    pub content_hash: String,
 }
 
 /// Configuration for weight groups
@@ -201,6 +270,50 @@ pub struct AosSignature {
     pub key_id: String,
 }
 
+/// Options for creating a single-file adapter with extended metadata
+///
+/// PRD-ART-01: These options enable portable adapters with full provenance
+#[derive(Debug, Clone, Default)]
+pub struct CreateOptions {
+    /// Base model name (e.g., "qwen2.5-7b")
+    pub base_model: Option<String>,
+    /// Base model ID (FK reference to models.id)
+    pub base_model_id: Option<String>,
+    /// Backend family: "metal", "coreml", "mlx", or "auto"
+    pub backend_family: Option<String>,
+    /// Quantization format: "q15", "f16", "f32"
+    pub quantization: Option<String>,
+    /// Full training provenance for portability
+    pub provenance: Option<ProvenanceData>,
+}
+
+impl CreateOptions {
+    /// Create options with base model information
+    pub fn with_base_model(mut self, name: &str, id: Option<String>) -> Self {
+        self.base_model = Some(name.to_string());
+        self.base_model_id = id;
+        self
+    }
+
+    /// Set backend family
+    pub fn with_backend(mut self, backend: &str) -> Self {
+        self.backend_family = Some(backend.to_string());
+        self
+    }
+
+    /// Set quantization format
+    pub fn with_quantization(mut self, quant: &str) -> Self {
+        self.quantization = Some(quant.to_string());
+        self
+    }
+
+    /// Set provenance data
+    pub fn with_provenance(mut self, provenance: ProvenanceData) -> Self {
+        self.provenance = Some(provenance);
+        self
+    }
+}
+
 impl SingleFileAdapter {
     /// Create a new single-file adapter
     pub fn create(
@@ -210,16 +323,40 @@ impl SingleFileAdapter {
         config: TrainingConfig,
         lineage: LineageInfo,
     ) -> Result<Self> {
+        Self::create_with_options(
+            adapter_id,
+            weights,
+            training_data,
+            config,
+            lineage,
+            CreateOptions::default(),
+        )
+    }
+
+    /// Create a new single-file adapter with extended options
+    pub fn create_with_options(
+        adapter_id: String,
+        weights: AdapterWeights,
+        training_data: Vec<TrainingExample>,
+        config: TrainingConfig,
+        lineage: LineageInfo,
+        options: CreateOptions,
+    ) -> Result<Self> {
         let weights_hash = B3Hash::hash(&serde_json::to_vec(&weights)?).to_hex();
         let training_data_hash = B3Hash::hash(&serde_json::to_vec(&training_data)?).to_hex();
 
         let manifest = AdapterManifest {
             format_version: AOS_FORMAT_VERSION,
+            schema_version: MANIFEST_SCHEMA_VERSION.to_string(),
             adapter_id: adapter_id.clone(),
+            content_hash: None, // Computed after manifest is finalized
             version: lineage.version.clone(),
             rank: config.rank as u32,
             alpha: config.alpha,
-            base_model: "qwen2.5-7b".to_string(),
+            base_model: options.base_model.unwrap_or_else(|| "qwen2.5-7b".to_string()),
+            base_model_id: options.base_model_id,
+            backend_family: options.backend_family,
+            quantization: options.quantization,
             category: "code".to_string(),
             scope: "global".to_string(),
             tier: "persistent".to_string(),
@@ -229,21 +366,48 @@ impl SingleFileAdapter {
                 "v_proj".to_string(),
             ],
             created_at: chrono::Utc::now().to_rfc3339(),
-            weights_hash,
+            weights_hash: weights_hash.clone(),
             training_data_hash,
             compression_method: "deflate-fast".to_string(),
             weight_groups: WeightGroupConfig::default(),
+            provenance: options.provenance,
             metadata: HashMap::new(),
         };
 
-        Ok(Self {
+        let mut adapter = Self {
             manifest,
             weights,
             training_data,
             config,
             lineage,
             signature: None,
-        })
+        };
+
+        // Compute content hash for identity
+        adapter.compute_and_set_content_hash()?;
+
+        Ok(adapter)
+    }
+
+    /// Compute and set the content hash (BLAKE3 of manifest + weights)
+    ///
+    /// This hash serves as the canonical identity for the adapter across systems.
+    pub fn compute_and_set_content_hash(&mut self) -> Result<()> {
+        let content_hash = self.compute_content_hash()?;
+        self.manifest.content_hash = Some(content_hash);
+        Ok(())
+    }
+
+    /// Compute content hash without setting it
+    pub fn compute_content_hash(&self) -> Result<String> {
+        // Serialize manifest without content_hash to avoid circular dependency
+        let mut manifest_for_hash = self.manifest.clone();
+        manifest_for_hash.content_hash = None;
+        let manifest_bytes = serde_json::to_vec(&manifest_for_hash)?;
+        let weights_bytes = serde_json::to_vec(&self.weights)?;
+
+        let hash = B3Hash::hash_multi(&[&manifest_bytes, &weights_bytes]);
+        Ok(hash.to_hex())
     }
 
     /// Sign the adapter with the provided keypair

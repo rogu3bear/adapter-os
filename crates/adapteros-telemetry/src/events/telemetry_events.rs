@@ -789,3 +789,186 @@ impl PolicyHashValidationEvent {
         }
     }
 }
+
+/// Residency probe result for audit trail
+///
+/// Tracks base model residency during adapter hot-swap cycles.
+/// Emitted by the hardware residency harness and admin debug endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResidencyProbeEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// Base model identifier
+    pub base_model_id: String,
+    /// BLAKE3 hash of the model manifest
+    pub manifest_hash: String,
+    /// Number of adapters involved in the churn test
+    pub adapter_count: u32,
+    /// Number of load/unload cycles completed
+    pub cycle_count: u32,
+    /// Baseline RSS before warmup (bytes)
+    pub baseline_rss_bytes: u64,
+    /// Peak RSS during test (bytes)
+    pub peak_rss_bytes: u64,
+    /// Final RSS after test (bytes)
+    pub final_rss_bytes: u64,
+    /// RSS growth (final - baseline, can be negative)
+    pub rss_growth_bytes: i64,
+    /// Load latency p95 (microseconds)
+    pub load_latency_p95_us: u64,
+    /// Probe result status
+    pub result: ResidencyProbeResult,
+    /// Determinism mode active during probe (if any)
+    pub determinism_mode: Option<String>,
+    /// Backend used (e.g., "coreml", "metal", "mlx")
+    pub backend: String,
+    /// Cache hits during test
+    pub cache_hits: u64,
+    /// Cache misses during test
+    pub cache_misses: u64,
+    /// Evictions blocked due to pinned entries
+    pub eviction_blocked_pinned: u64,
+}
+
+/// Residency probe result status
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ResidencyProbeResult {
+    /// Probe passed - base model remained resident
+    Ok,
+    /// Probe passed with warnings
+    Degraded { reason: String },
+    /// Probe failed - base model was evicted or unpinned
+    Failed { reason: String },
+}
+
+impl ResidencyProbeEvent {
+    /// Create a successful residency probe event
+    #[allow(clippy::too_many_arguments)]
+    pub fn ok(
+        base_model_id: String,
+        manifest_hash: String,
+        adapter_count: u32,
+        cycle_count: u32,
+        baseline_rss_bytes: u64,
+        peak_rss_bytes: u64,
+        final_rss_bytes: u64,
+        load_latency_p95_us: u64,
+        backend: String,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            base_model_id,
+            manifest_hash,
+            adapter_count,
+            cycle_count,
+            baseline_rss_bytes,
+            peak_rss_bytes,
+            final_rss_bytes,
+            rss_growth_bytes: final_rss_bytes as i64 - baseline_rss_bytes as i64,
+            load_latency_p95_us,
+            result: ResidencyProbeResult::Ok,
+            determinism_mode: None,
+            backend,
+            cache_hits: 0,
+            cache_misses: 0,
+            eviction_blocked_pinned: 0,
+        }
+    }
+
+    /// Create a degraded residency probe event
+    #[allow(clippy::too_many_arguments)]
+    pub fn degraded(
+        base_model_id: String,
+        manifest_hash: String,
+        adapter_count: u32,
+        cycle_count: u32,
+        baseline_rss_bytes: u64,
+        peak_rss_bytes: u64,
+        final_rss_bytes: u64,
+        load_latency_p95_us: u64,
+        backend: String,
+        reason: String,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            base_model_id,
+            manifest_hash,
+            adapter_count,
+            cycle_count,
+            baseline_rss_bytes,
+            peak_rss_bytes,
+            final_rss_bytes,
+            rss_growth_bytes: final_rss_bytes as i64 - baseline_rss_bytes as i64,
+            load_latency_p95_us,
+            result: ResidencyProbeResult::Degraded { reason },
+            determinism_mode: None,
+            backend,
+            cache_hits: 0,
+            cache_misses: 0,
+            eviction_blocked_pinned: 0,
+        }
+    }
+
+    /// Create a failed residency probe event
+    #[allow(clippy::too_many_arguments)]
+    pub fn failed(
+        base_model_id: String,
+        manifest_hash: String,
+        adapter_count: u32,
+        cycle_count: u32,
+        baseline_rss_bytes: u64,
+        peak_rss_bytes: u64,
+        final_rss_bytes: u64,
+        load_latency_p95_us: u64,
+        backend: String,
+        reason: String,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            base_model_id,
+            manifest_hash,
+            adapter_count,
+            cycle_count,
+            baseline_rss_bytes,
+            peak_rss_bytes,
+            final_rss_bytes,
+            rss_growth_bytes: final_rss_bytes as i64 - baseline_rss_bytes as i64,
+            load_latency_p95_us,
+            result: ResidencyProbeResult::Failed { reason },
+            determinism_mode: None,
+            backend,
+            cache_hits: 0,
+            cache_misses: 0,
+            eviction_blocked_pinned: 0,
+        }
+    }
+
+    /// Add determinism mode to the event
+    pub fn with_determinism_mode(mut self, mode: Option<String>) -> Self {
+        self.determinism_mode = mode;
+        self
+    }
+
+    /// Add cache statistics to the event
+    pub fn with_cache_stats(
+        mut self,
+        hits: u64,
+        misses: u64,
+        eviction_blocked_pinned: u64,
+    ) -> Self {
+        self.cache_hits = hits;
+        self.cache_misses = misses;
+        self.eviction_blocked_pinned = eviction_blocked_pinned;
+        self
+    }
+}

@@ -817,7 +817,7 @@ impl PolicyPackManager {
                 "incident" => Some(PolicyPackId::Incident),
                 "output" | "llm_output" => Some(PolicyPackId::LlmOutput),
                 "adapters" | "adapter_lifecycle" => Some(PolicyPackId::AdapterLifecycle),
-                // PRD-06: These policies exist in CLAUDE.md but don't have validators yet.
+                // These policies exist in CLAUDE.md but don't have validators yet.
                 // Return None here - they will be handled in the None branch below.
                 "deterministic_io" | "drift" | "mplora" | "naming" | "dependency_security" => None,
                 _ => None,
@@ -877,7 +877,7 @@ impl PolicyPackManager {
             "incident" => PolicyPackId::Incident,
             "output" | "llm_output" => PolicyPackId::LlmOutput,
             "adapters" | "adapter_lifecycle" => PolicyPackId::AdapterLifecycle,
-            // PRD-06: These 5 policies exist in CLAUDE.md canonical 24 but don't have validators yet.
+            // These 5 policies exist in CLAUDE.md canonical 24 but don't have validators yet.
             // Return a passing result with a warning until validators are implemented.
             "deterministic_io" | "drift" | "mplora" | "naming" | "dependency_security" => {
                 return Ok(PolicyValidationResult {

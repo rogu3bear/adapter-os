@@ -527,6 +527,59 @@ impl Default for MockKernels {
     }
 }
 
+/// Failing kernel implementation for testing strict mode behavior
+///
+/// This kernel always fails on `run_step()` to test that strict mode
+/// properly prevents backend fallback when the primary backend fails.
+pub struct FailingKernel {
+    device_name: String,
+    fail_message: String,
+}
+
+impl FailingKernel {
+    /// Create a new failing kernel that returns the specified error message
+    pub fn new(fail_message: &str) -> Self {
+        Self {
+            device_name: "FailingKernel (Test)".to_string(),
+            fail_message: fail_message.to_string(),
+        }
+    }
+}
+
+impl FusedKernels for FailingKernel {
+    fn load(&mut self, _plan_bytes: &[u8]) -> Result<()> {
+        // Load succeeds - we only fail on run_step
+        Ok(())
+    }
+
+    fn run_step(&mut self, _ring: &RouterRing, _io: &mut IoBuffers) -> Result<()> {
+        // Always fail to test strict mode behavior
+        Err(adapteros_core::AosError::Kernel(self.fail_message.clone()))
+    }
+
+    fn device_name(&self) -> &str {
+        &self.device_name
+    }
+
+    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+        Ok(attestation::DeterminismReport {
+            backend_type: attestation::BackendType::Mock,
+            metallib_hash: None,
+            manifest: None,
+            rng_seed_method: attestation::RngSeedingMethod::FixedSeed(0),
+            floating_point_mode: attestation::FloatingPointMode::Deterministic,
+            compiler_flags: vec![],
+            deterministic: false, // Failing kernel is not deterministic
+        })
+    }
+}
+
+impl Default for FailingKernel {
+    fn default() -> Self {
+        Self::new("FailingKernel: intentional failure for testing")
+    }
+}
+
 /// Macro to implement FusedKernels for Box<dyn FusedKernels> variants
 /// Eliminates 138 lines of duplication between two nearly-identical impls
 macro_rules! impl_fused_kernels_for_box {

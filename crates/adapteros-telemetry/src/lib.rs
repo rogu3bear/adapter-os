@@ -57,7 +57,8 @@ pub use compression::{
 };
 pub use event::Event;
 pub use events::{
-    InferenceEvent, PolicyHashValidationEvent, RngSnapshot, RouterDecisionEvent, ValidationStatus,
+    InferenceEvent, PolicyHashValidationEvent, ResidencyProbeEvent, ResidencyProbeResult,
+    RngSnapshot, RouterDecisionEvent, ValidationStatus,
 };
 pub use health_monitoring::{HealthCheck, HealthMonitor, HealthReport, HealthState, HealthStatus};
 pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
@@ -342,6 +343,14 @@ impl TelemetryWriter {
         event: crate::events::PolicyHashValidationEvent,
     ) -> Result<()> {
         self.log("policy.hash_validation", event)
+    }
+
+    /// Log a residency probe event
+    ///
+    /// Tracks base model residency during adapter hot-swap cycles.
+    /// Emitted by the hardware residency harness and admin debug endpoints.
+    pub fn log_residency_probe(&self, event: crate::events::ResidencyProbeEvent) -> Result<()> {
+        self.log("residency.probe", event)
     }
 }
 

@@ -70,6 +70,16 @@ pub struct CriticalComponentMetrics {
     pub adapter_activation_percentage: GaugeVec,
     pub adapter_evictions_total: CounterVec,
 
+    // Model cache metrics
+    pub model_cache_hits_total: Counter,
+    pub model_cache_misses_total: Counter,
+    pub model_cache_eviction_blocked_pinned_total: Counter,
+    pub model_cache_pinned_entries: Gauge,
+
+    // Residency probe metrics
+    pub residency_probe_ok: Gauge,
+    pub residency_probe_runs_total: Counter,
+
     // Checkpoint metrics
     pub checkpoint_operations_total: CounterVec,
 
@@ -415,6 +425,47 @@ impl CriticalComponentMetrics {
             adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
         })?;
 
+        // Model cache metrics
+        let model_cache_hits_total =
+            Counter::new("model_cache_hits_total", "Total model cache hits").map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+            })?;
+
+        let model_cache_misses_total =
+            Counter::new("model_cache_misses_total", "Total model cache misses").map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+            })?;
+
+        let model_cache_eviction_blocked_pinned_total = Counter::new(
+            "model_cache_eviction_blocked_pinned_total",
+            "Total eviction attempts blocked due to pinned entries",
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        let model_cache_pinned_entries = Gauge::new(
+            "model_cache_pinned_entries",
+            "Current number of pinned cache entries",
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
+        })?;
+
+        // Residency probe metrics
+        let residency_probe_ok = Gauge::new(
+            "residency_probe_ok",
+            "1 if last residency probe passed, 0 otherwise",
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
+        })?;
+
+        let residency_probe_runs_total =
+            Counter::new("residency_probe_runs_total", "Total residency probe runs").map_err(
+                |e| adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e)),
+            )?;
+
         // Adapter lifecycle transitions counter (canonical metric with from_state and to_state labels)
         let adapter_lifecycle_transitions_total = CounterVec::new(
             Opts::new(
@@ -645,6 +696,42 @@ impl CriticalComponentMetrics {
             })?;
 
         registry_arc
+            .register(Box::new(model_cache_hits_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(model_cache_misses_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(model_cache_eviction_blocked_pinned_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(model_cache_pinned_entries.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(residency_probe_ok.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(residency_probe_runs_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
             .register(Box::new(adapter_lifecycle_transitions_total.clone()))
             .map_err(|e| {
                 adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
@@ -721,6 +808,14 @@ impl CriticalComponentMetrics {
             gpu_fingerprint_mismatches_total,
             gpu_fingerprint_sample_time_us,
             gpu_buffer_corruption_detections,
+            // Model cache metrics
+            model_cache_hits_total,
+            model_cache_misses_total,
+            model_cache_eviction_blocked_pinned_total,
+            model_cache_pinned_entries,
+            // Residency probe metrics
+            residency_probe_ok,
+            residency_probe_runs_total,
         })
     }
 
@@ -1108,6 +1203,70 @@ impl CriticalComponentMetrics {
     pub fn pool_type_adapter() -> &'static str {
         "adapter"
     }
+
+    // ========================================
+    // Model cache metrics helper functions
+    // ========================================
+
+    /// Record a model cache hit
+    pub fn record_model_cache_hit(&self) {
+        self.model_cache_hits_total.inc();
+    }
+
+    /// Record a model cache miss
+    pub fn record_model_cache_miss(&self) {
+        self.model_cache_misses_total.inc();
+    }
+
+    /// Record an eviction blocked due to pinned entry
+    pub fn record_eviction_blocked_pinned(&self) {
+        self.model_cache_eviction_blocked_pinned_total.inc();
+    }
+
+    /// Get current model cache hits count
+    pub fn get_model_cache_hits(&self) -> f64 {
+        self.model_cache_hits_total.get()
+    }
+
+    /// Get current model cache misses count
+    pub fn get_model_cache_misses(&self) -> f64 {
+        self.model_cache_misses_total.get()
+    }
+
+    /// Set the current number of pinned cache entries
+    pub fn set_pinned_entries_count(&self, count: usize) {
+        self.model_cache_pinned_entries.set(count as f64);
+    }
+
+    /// Get current number of pinned cache entries
+    pub fn get_pinned_entries_count(&self) -> usize {
+        self.model_cache_pinned_entries.get() as usize
+    }
+
+    // ========================================
+    // Residency probe metrics helper functions
+    // ========================================
+
+    /// Record residency probe result
+    pub fn record_residency_probe(&self, ok: bool) {
+        self.residency_probe_runs_total.inc();
+        self.residency_probe_ok.set(if ok { 1.0 } else { 0.0 });
+    }
+
+    /// Set residency probe ok status directly
+    pub fn set_residency_probe_ok(&self, ok: bool) {
+        self.residency_probe_ok.set(if ok { 1.0 } else { 0.0 });
+    }
+
+    /// Get current residency probe ok status
+    pub fn get_residency_probe_ok(&self) -> bool {
+        self.residency_probe_ok.get() == 1.0
+    }
+
+    /// Get total residency probe runs
+    pub fn get_residency_probe_runs(&self) -> f64 {
+        self.residency_probe_runs_total.get()
+    }
 }
 
 impl Default for CriticalComponentMetrics {
@@ -1368,5 +1527,51 @@ mod tests {
         assert_eq!(CriticalComponentMetrics::pool_type_gpu(), "gpu");
         assert_eq!(CriticalComponentMetrics::pool_type_system(), "system");
         assert_eq!(CriticalComponentMetrics::pool_type_adapter(), "adapter");
+    }
+
+    #[test]
+    fn test_model_cache_metrics() {
+        let metrics = Arc::new(CriticalComponentMetrics::new().expect("Failed to create metrics"));
+
+        // Record cache hits and misses
+        metrics.record_model_cache_hit();
+        metrics.record_model_cache_hit();
+        metrics.record_model_cache_miss();
+        metrics.record_eviction_blocked_pinned();
+
+        // Verify counts
+        assert_eq!(metrics.get_model_cache_hits(), 2.0);
+        assert_eq!(metrics.get_model_cache_misses(), 1.0);
+
+        let export = metrics.export().expect("Failed to export");
+        assert!(export.contains("model_cache_hits_total"));
+        assert!(export.contains("model_cache_misses_total"));
+        assert!(export.contains("model_cache_eviction_blocked_pinned_total"));
+    }
+
+    #[test]
+    fn test_residency_probe_metrics() {
+        let metrics = Arc::new(CriticalComponentMetrics::new().expect("Failed to create metrics"));
+
+        // Initial state - no probes run
+        assert_eq!(metrics.get_residency_probe_runs(), 0.0);
+
+        // Record successful probe
+        metrics.record_residency_probe(true);
+        assert!(metrics.get_residency_probe_ok());
+        assert_eq!(metrics.get_residency_probe_runs(), 1.0);
+
+        // Record failed probe
+        metrics.record_residency_probe(false);
+        assert!(!metrics.get_residency_probe_ok());
+        assert_eq!(metrics.get_residency_probe_runs(), 2.0);
+
+        // Set ok status directly
+        metrics.set_residency_probe_ok(true);
+        assert!(metrics.get_residency_probe_ok());
+
+        let export = metrics.export().expect("Failed to export");
+        assert!(export.contains("residency_probe_ok"));
+        assert!(export.contains("residency_probe_runs_total"));
     }
 }

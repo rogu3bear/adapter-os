@@ -180,8 +180,8 @@ fn test_post_actions_create_stack_does_not_imply_default() {
 /// 6. The stack is NOT set as the tenant's default
 /// 7. User must explicitly call PUT /v1/tenants/{tenant_id}/default-stack to set default
 ///
-/// PRD Reference: Decision 5B - "Training finishes → adapter registered →
-/// stack auto-created, but NOT set as default."
+/// Training finishes → adapter registered →
+/// stack auto-created, but NOT set as default.
 #[test]
 #[ignore = "Requires running infrastructure - documents expected E2E flow"]
 fn test_e2e_training_creates_stack_without_setting_default() {
