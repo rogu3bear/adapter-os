@@ -1,6 +1,6 @@
 # Router Decision Validation Dataset
 
-**Category:** Router Telemetry (PRD-04)
+**Category:** Router Telemetry
 **Format:** JSON routing decisions
 **Count:** 1 file
 **Endpoints:** Router decision queries
@@ -114,5 +114,5 @@ fn test_routing_decisions_k_sparse() {
 
 - [API Contract Tests](../../../crates/adapteros-server-api/tests/api_contracts.rs)
 - [Router Implementation](../../../crates/adapteros-lora-router/)
-- [PRD-04: Router Telemetry](../../../docs/PRD-04-router-telemetry.md)
+- [Router Telemetry](../../../docs/PRD-04-router-telemetry.md)
 - [Q15 Quantization](../../../CLAUDE.md#k-sparse-routing)

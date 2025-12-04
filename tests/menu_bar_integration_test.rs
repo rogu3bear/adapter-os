@@ -8,6 +8,7 @@ use adapteros_db::Db;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::TrainingService;
 use adapteros_server::status_writer::{write_status, AdapterOSStatus};
+use adapteros_server_api::config::PathsConfig;
 use adapteros_server_api::state::ApiConfig;
 use adapteros_server_api::AppState;
 use std::fs;
@@ -191,11 +192,23 @@ async fn create_test_app_state(db: Db) -> AppState {
         metrics: adapteros_server_api::state::MetricsConfig {
             enabled: false,
             bearer_token: String::new(),
-            system_metrics_interval_secs: 0,
         },
-        golden_gate: None,
-        bundles_root: "var/bundles".to_string(),
-        rate_limits: None,
+        directory_analysis_timeout_secs: 120,
+        use_session_stack_for_routing: false,
+        capacity_limits: Default::default(),
+        general: None,
+        server: Default::default(),
+        security: Default::default(),
+        performance: Default::default(),
+        paths: PathsConfig {
+            artifacts_root: "var/artifacts".to_string(),
+            bundles_root: "var/bundles".to_string(),
+            adapters_root: "var/adapters".to_string(),
+            plan_dir: "var/plan".to_string(),
+            datasets_root: "var/datasets".to_string(),
+            documents_root: "var/documents".to_string(),
+        },
+        chat_context: Default::default(),
     }));
 
     let metrics_exporter = Arc::new(MetricsExporter::new(Default::default()).unwrap());

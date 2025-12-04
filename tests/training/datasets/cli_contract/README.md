@@ -42,7 +42,7 @@
 
 **Test Coverage:**
 - Schema validation
-- Semantic naming format (PRD-08)
+- Semantic naming format
 - Tier values (tier_1, tier_2, tier_3)
 - State machine (unloaded, cold, warm, hot, resident)
 - BLAKE3 hash format
@@ -110,4 +110,4 @@ fn test_adapters_list_contract() {
 
 - [API Contract Tests](../../../crates/adapteros-server-api/tests/api_contracts.rs)
 - [Type Definitions](../../../crates/adapteros-server-api/src/types.rs)
-- [PRD-08: Semantic Naming](../../../docs/PRD-08-semantic-naming.md)
+- [Semantic Naming](../../../docs/PRD-08-semantic-naming.md)

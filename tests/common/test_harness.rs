@@ -72,6 +72,7 @@ impl ApiTestHarness {
                 bearer_token: "test-bearer-token".to_string(),
             },
             directory_analysis_timeout_secs: 120,
+            use_session_stack_for_routing: false,
             capacity_limits: Default::default(),
             general: None,
             server: Default::default(),

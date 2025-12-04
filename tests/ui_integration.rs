@@ -156,6 +156,7 @@ async fn create_test_app_state() -> AppState {
             bearer_token: "test-token".to_string(),
         },
         directory_analysis_timeout_secs: 120,
+        ..Default::default()
     }));
 
     // Create test metrics components

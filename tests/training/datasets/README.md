@@ -40,7 +40,7 @@ tests/training/datasets/
 **Files:**
 - `routing_decisions.json` - /v1/routing/decisions endpoint with candidates
 
-**Usage:** Tests for PRD-04 router telemetry compliance
+**Usage:** Tests for router telemetry compliance
 
 ---
 
@@ -146,8 +146,8 @@ When API schemas change:
 
 - [API Contract Tests](../../crates/adapteros-server-api/tests/API_CONTRACT_TESTS.md)
 - [CLAUDE.md](../../CLAUDE.md) - Developer guide
-- [PRD-04](../../docs/PRD-04-router-telemetry.md) - Router telemetry
-- [PRD-08](../../docs/PRD-08-semantic-naming.md) - Semantic naming
+- [Router telemetry](../../docs/PRD-04-router-telemetry.md)
+- [Semantic naming](../../docs/PRD-08-semantic-naming.md)
 
 ## License
 

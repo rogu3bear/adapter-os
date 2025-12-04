@@ -1,4 +1,4 @@
-//! E2E Test for PRD-6A: Missing Pinned Adapters Graceful Degradation
+//! E2E Test for Missing Pinned Adapters Graceful Degradation
 //!
 //! Tests the graceful degradation behavior when pinned adapters are unavailable:
 //! 1. Session creation with pinned adapters
@@ -10,8 +10,8 @@
 //! the control plane behavior without actual inference execution.
 //!
 //! Citations:
-//! - PRD-6A: Missing Pinned Adapters & Error Signaling
-//! - CHAT-PIN-02: Pinned Adapter Router Integration
+//! - Missing Pinned Adapters & Error Signaling
+//! - Pinned Adapter Router Integration
 
 mod common;
 
@@ -58,11 +58,7 @@ async fn test_create_session_with_pinned_adapters() {
 
     assert!(retrieved.is_some(), "Pinned adapters should be present");
     let retrieved_ids = retrieved.unwrap();
-    assert_eq!(
-        retrieved_ids.len(),
-        3,
-        "Should have 3 pinned adapters"
-    );
+    assert_eq!(retrieved_ids.len(), 3, "Should have 3 pinned adapters");
     assert!(
         retrieved_ids.contains(&"adapter-a".to_string()),
         "Should contain adapter-a"
@@ -175,7 +171,7 @@ async fn test_session_explicit_pins_override_tenant_default() {
 }
 
 // =============================================================================
-// InferenceResult Structure Tests (PRD-6A Response Fields)
+// InferenceResult Structure Tests (Response Fields)
 // =============================================================================
 
 #[test]
@@ -197,12 +193,20 @@ fn test_inference_result_has_pinned_adapter_fields() {
             "missing-pin-2".to_string(),
         ]),
         pinned_routing_fallback: Some("partial".to_string()),
+        effective_adapter_ids: None,
+        backend_used: None,
+        fallback_triggered: false,
+        determinism_mode_applied: None,
+        replay_guarantee: None,
     };
 
     // Verify fields are present and correct
     assert_eq!(
         result.unavailable_pinned_adapters,
-        Some(vec!["missing-pin-1".to_string(), "missing-pin-2".to_string()])
+        Some(vec![
+            "missing-pin-1".to_string(),
+            "missing-pin-2".to_string()
+        ])
     );
     assert_eq!(result.pinned_routing_fallback, Some("partial".to_string()));
 
@@ -228,6 +232,11 @@ fn test_inference_result_omits_none_pinned_fields() {
         request_id: "test-request-456".to_string(),
         unavailable_pinned_adapters: None,
         pinned_routing_fallback: None,
+        effective_adapter_ids: None,
+        backend_used: None,
+        fallback_triggered: false,
+        determinism_mode_applied: None,
+        replay_guarantee: None,
     };
 
     // Verify None fields are properly set
@@ -236,7 +245,7 @@ fn test_inference_result_omits_none_pinned_fields() {
 }
 
 // =============================================================================
-// Fallback Mode Logic Tests (PRD-6A)
+// Fallback Mode Logic Tests
 // =============================================================================
 
 /// Mirrors the fallback computation logic from InferenceCore
@@ -259,7 +268,11 @@ fn compute_pinned_routing_fallback(
 #[test]
 fn test_graceful_degradation_partial_pins_available() {
     // Scenario: 2 of 3 pinned adapters are available
-    let pinned = vec!["pin-a".to_string(), "pin-b".to_string(), "pin-c".to_string()];
+    let pinned = vec![
+        "pin-a".to_string(),
+        "pin-b".to_string(),
+        "pin-c".to_string(),
+    ];
     let unavailable = vec!["pin-b".to_string()];
 
     let fallback = compute_pinned_routing_fallback(Some(&pinned), Some(&unavailable));
@@ -321,9 +334,14 @@ fn test_graceful_degradation_http_200_behavior() {
         request_id: "graceful-degradation-test".to_string(),
         unavailable_pinned_adapters: Some(vec!["requested-pin".to_string()]),
         pinned_routing_fallback: Some("stack_only".to_string()),
+        effective_adapter_ids: None,
+        backend_used: None,
+        fallback_triggered: false,
+        determinism_mode_applied: None,
+        replay_guarantee: None,
     };
 
-    // Key assertions for PRD-6A compliance:
+    // Key assertions for graceful degradation compliance:
     // 1. Response has generated text (inference succeeded)
     assert!(!result.text.is_empty(), "Inference should produce output");
 
@@ -342,7 +360,7 @@ fn test_graceful_degradation_http_200_behavior() {
 }
 
 // =============================================================================
-// Telemetry Event Structure Tests (PRD-6A)
+// Telemetry Event Structure Tests
 // =============================================================================
 
 #[test]
@@ -392,8 +410,5 @@ fn test_telemetry_event_structure_for_missing_pins() {
         event.message.contains("pinned adapters unavailable"),
         "Message should describe the issue"
     );
-    assert!(
-        event.metadata.is_some(),
-        "Metadata should be present"
-    );
+    assert!(event.metadata.is_some(), "Metadata should be present");
 }
