@@ -41,7 +41,7 @@ pub struct TrainingJobRecord {
     pub retryable: Option<i64>,
     /// ID of the original job this is a retry of (for retry chain tracking)
     pub retry_of_job_id: Option<String>,
-    // Fields from migration 0073 - PRD-CORE-03 train-to-chat
+    // Fields from migration 0073 - unified train-to-chat pipeline
     /// Stack ID created from this training job (if post_actions.create_stack = true)
     pub stack_id: Option<String>,
     /// Adapter ID created from this training job
@@ -887,7 +887,7 @@ impl Db {
     /// Called by orchestrator after stack creation to persist the result IDs
     /// for the chat_bootstrap endpoint.
     ///
-    /// Evidence: PRD-CORE-03 unified train-to-chat pipeline
+    /// Evidence: unified train-to-chat pipeline
     /// Evidence: migrations/0073_training_job_stack_adapter_ids.sql
     /// Pattern: Link training job to its output artifacts (adapter + stack)
     ///

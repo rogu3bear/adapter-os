@@ -1,4 +1,4 @@
-//! Integration tests for stack versioning (PRD-03)
+//! Integration tests for stack versioning
 
 use adapteros_db::sqlite_backend::SqliteBackend;
 use adapteros_db::traits::{CreateStackRequest, DatabaseBackend};

@@ -125,9 +125,9 @@ async fn test_core_tables_exist() -> Result<()> {
         // Migration 0071_lifecycle_version_history.sql
         "adapter_version_history",
         "stack_version_history",
-        // Migration 0072_tenant_snapshots.sql (PRD-01)
+        // Migration 0072_tenant_snapshots.sql
         "tenant_snapshots",
-        // Migration 0073_index_hashes.sql (PRD-01)
+        // Migration 0073_index_hashes.sql
         "index_hashes",
     ];
 
@@ -859,7 +859,7 @@ async fn test_migration_history_recorded() -> Result<()> {
 ///    - Run test_foreign_key_constraints_exist()
 ///    - Compare row counts before/after with timestamped logs
 ///
-/// PRD-05 Citation: "Database schema changes require documented rollback procedures"
+/// Note: Database schema changes require documented rollback procedures
 ///
 /// Implementation Note:
 /// In-place rollback is not feasible for SQLite migrations. The recommended approach

@@ -1,4 +1,4 @@
-//! Integration tests for PRD-06: Per-tenant policy bindings and audit
+//! Integration tests for per-tenant policy bindings and audit
 //!
 //! Tests verify:
 //! 1. Policy enable/disable per tenant

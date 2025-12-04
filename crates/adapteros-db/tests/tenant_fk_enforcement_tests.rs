@@ -1,4 +1,4 @@
-//! Tenant Foreign Key Enforcement Tests (PRD-03)
+//! Tenant Foreign Key Enforcement Tests
 //!
 //! These tests verify that composite FK constraints prevent cross-tenant data access
 //! at the database level. Migration 0131_harden_tenant_fks.sql provides:

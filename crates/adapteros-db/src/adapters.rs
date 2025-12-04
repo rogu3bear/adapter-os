@@ -53,6 +53,10 @@ pub struct AdapterRegistrationBuilder {
     fork_reason: Option<String>,
     // Base model reference (from migration 0098)
     base_model_id: Option<String>,
+    // Artifact hardening (from migration 0153)
+    manifest_schema_version: Option<String>,
+    content_hash_b3: Option<String>,
+    provenance_json: Option<String>,
 }
 
 /// Parameters for adapter registration
@@ -91,6 +95,10 @@ pub struct AdapterRegistrationParams {
     pub fork_reason: Option<String>,
     // Base model reference (from migration 0098)
     pub base_model_id: Option<String>,
+    // Artifact hardening (from migration 0153)
+    pub manifest_schema_version: Option<String>,
+    pub content_hash_b3: Option<String>,
+    pub provenance_json: Option<String>,
 }
 
 impl AdapterRegistrationBuilder {
@@ -282,6 +290,30 @@ impl AdapterRegistrationBuilder {
         self
     }
 
+    /// Set the manifest schema version (optional, from migration 0153)
+    /// Semantic versioning string (e.g., "1.0.0")
+    pub fn manifest_schema_version(
+        mut self,
+        manifest_schema_version: Option<impl Into<String>>,
+    ) -> Self {
+        self.manifest_schema_version = manifest_schema_version.map(|s| s.into());
+        self
+    }
+
+    /// Set the content hash (optional, from migration 0153)
+    /// BLAKE3 hash of manifest + weights for identity/deduplication
+    pub fn content_hash_b3(mut self, content_hash_b3: Option<impl Into<String>>) -> Self {
+        self.content_hash_b3 = content_hash_b3.map(|s| s.into());
+        self
+    }
+
+    /// Set the provenance JSON (optional, from migration 0153)
+    /// Full training provenance embedded in the adapter
+    pub fn provenance_json(mut self, provenance_json: Option<impl Into<String>>) -> Self {
+        self.provenance_json = provenance_json.map(|s| s.into());
+        self
+    }
+
     /// Build the adapter registration parameters
     pub fn build(self) -> Result<AdapterRegistrationParams> {
         let rank = self
@@ -337,6 +369,9 @@ impl AdapterRegistrationBuilder {
             fork_type: self.fork_type,
             fork_reason: self.fork_reason,
             base_model_id: self.base_model_id,
+            manifest_schema_version: self.manifest_schema_version,
+            content_hash_b3: self.content_hash_b3,
+            provenance_json: self.provenance_json,
         })
     }
 }
@@ -404,6 +439,14 @@ pub struct Adapter {
     pub archived_by: Option<String>,    // User/system that initiated archive
     pub archive_reason: Option<String>, // Reason for archival (e.g., "tenant_archived")
     pub purged_at: Option<String>,      // When .aos file was deleted by GC
+
+    // Base model reference (from migration 0098)
+    pub base_model_id: Option<String>,
+
+    // Artifact hardening (from migration 0153)
+    pub manifest_schema_version: Option<String>,
+    pub content_hash_b3: Option<String>,
+    pub provenance_json: Option<String>,
 
     pub created_at: String,
     pub updated_at: String,
@@ -545,8 +588,8 @@ impl Db {
 
         // Write to SQL (primary storage)
         sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
+            "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, manifest_schema_version, content_hash_b3, provenance_json, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
         )
         .bind(&id)
         .bind(&params.tenant_id)
@@ -579,6 +622,9 @@ impl Db {
         .bind(&params.aos_file_path)
         .bind(&params.aos_file_hash)
         .bind(&params.base_model_id)
+        .bind(&params.manifest_schema_version)
+        .bind(&params.content_hash_b3)
+        .bind(&params.provenance_json)
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
@@ -1550,7 +1596,7 @@ impl Db {
     }
 
     // ============================================================================
-    // PRD-08: Adapter Lineage Queries
+    // Adapter Lineage Queries
     // ============================================================================
 
     /// Get full lineage tree for an adapter (ancestors and descendants)
@@ -1900,7 +1946,10 @@ impl Db {
             let mut kv_error_count = 0u64;
 
             for adapter_id in &affected_adapter_ids {
-                match repo.archive_adapter_kv(adapter_id, archived_by, reason).await {
+                match repo
+                    .archive_adapter_kv(adapter_id, archived_by, reason)
+                    .await
+                {
                     Ok(()) => {
                         kv_success_count += 1;
                     }

@@ -278,7 +278,6 @@ impl Db {
 
         Ok(ids)
     }
-
 }
 
 /// Internal row type for SQLx query mapping

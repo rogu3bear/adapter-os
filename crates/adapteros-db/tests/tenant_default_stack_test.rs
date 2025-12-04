@@ -1,7 +1,7 @@
 //! Integration tests for tenant default stack functionality
 //!
 //! Tests the behavior of set_default_stack(), get_default_stack(), and clear_default_stack()
-//! as specified in the PRD for adapter registration and stack management.
+//! for adapter registration and stack management.
 
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::Db;

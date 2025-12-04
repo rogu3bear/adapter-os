@@ -201,7 +201,7 @@ fn test_migration_sequence_valid() -> Result<()> {
         println!("This is expected if migrations were consolidated or removed.");
     }
 
-    // Verify we have expected count (74 after PRD-01)
+    // Verify we have expected migration count
     assert!(
         numbers.len() >= 71,
         "Expected at least 71 migrations, found {}",

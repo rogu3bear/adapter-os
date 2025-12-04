@@ -309,6 +309,9 @@ impl Db {
             fork_type: adapter.fork_type.clone(),
             fork_reason: adapter.fork_reason.clone(),
             base_model_id: None, // Not available during KV migration
+            manifest_schema_version: None, // Not available during KV migration
+            content_hash_b3: None, // Not available during KV migration
+            provenance_json: None, // Not available during KV migration
         };
 
         // Register in KV

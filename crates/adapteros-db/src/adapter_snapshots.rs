@@ -174,14 +174,12 @@ impl Db {
             Ok(id) => Ok(id),
             Err(SqlxError::RowNotFound) => {
                 let auto_name = format!("auto-tenant-{}", Uuid::now_v7());
-                self.create_tenant(&auto_name, false)
-                    .await
-                    .map_err(|e| {
-                        AosError::Database(format!(
-                            "Failed to create fallback tenant for training job {}: {}",
-                            training_job_id, e
-                        ))
-                    })
+                self.create_tenant(&auto_name, false).await.map_err(|e| {
+                    AosError::Database(format!(
+                        "Failed to create fallback tenant for training job {}: {}",
+                        training_job_id, e
+                    ))
+                })
             }
             Err(e) => Err(AosError::Database(format!(
                 "Failed to resolve tenant for training job {}: {}",
@@ -201,14 +199,12 @@ impl Db {
             Ok(id) => Ok(id),
             Err(SqlxError::RowNotFound) => {
                 let auto_name = format!("auto-tenant-{}", Uuid::now_v7());
-                self.create_tenant(&auto_name, false)
-                    .await
-                    .map_err(|e| {
-                        AosError::Database(format!(
-                            "Failed to create fallback tenant for collection {}: {}",
-                            collection_id, e
-                        ))
-                    })
+                self.create_tenant(&auto_name, false).await.map_err(|e| {
+                    AosError::Database(format!(
+                        "Failed to create fallback tenant for collection {}: {}",
+                        collection_id, e
+                    ))
+                })
             }
             Err(e) => Err(AosError::Database(format!(
                 "Failed to resolve tenant for collection {}: {}",

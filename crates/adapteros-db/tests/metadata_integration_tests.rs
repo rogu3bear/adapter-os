@@ -204,7 +204,7 @@ async fn test_multiple_adapters_metadata_consistency() -> anyhow::Result<()> {
 }
 
 // ============================================================================
-// Test Case 5: AdapterMeta Field Presence (PRD-02 Compliance)
+// Test Case 5: AdapterMeta Field Presence (Metadata Normalization)
 // ============================================================================
 
 #[tokio::test]
@@ -235,15 +235,15 @@ async fn test_adapter_meta_has_all_required_fields() -> anyhow::Result<()> {
     // Convert to canonical AdapterMeta
     let meta: AdapterMeta = adapter.into();
 
-    // PRD-02: Verify required fields for metadata normalization
+    // Verify required fields for metadata normalization
     assert_eq!(meta.id, adapter_id);
     assert_eq!(meta.tenant_id, "tenant-1");
     assert!(!meta.name.is_empty());
-    assert!(!meta.version.is_empty()); // Version field (PRD-02)
+    assert!(!meta.version.is_empty()); // Version field
     assert!(!meta.hash_b3.is_empty());
     assert_eq!(meta.rank, 16);
     assert!(!meta.tier.is_empty());
-    assert_eq!(meta.lifecycle_state, LifecycleState::Active); // Lifecycle state (PRD-02)
+    assert_eq!(meta.lifecycle_state, LifecycleState::Active); // Lifecycle state
     assert!(!meta.category.is_empty());
     assert!(!meta.scope.is_empty());
     assert!(!meta.created_at.is_empty());

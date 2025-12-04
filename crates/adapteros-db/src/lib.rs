@@ -20,6 +20,7 @@ pub mod constants;
 pub mod kv_backend;
 pub mod kv_metrics;
 pub mod sqlite_backend;
+pub mod tenant_execution_policies;
 pub mod tenant_policies;
 pub mod traits;
 
@@ -43,7 +44,7 @@ pub use tenant_policies::{
     TenantPolicyCustomization, TenantPolicyCustomizationOps,
 };
 
-// Re-export tenant policy binding types (PRD-06)
+// Re-export tenant policy binding types
 pub mod tenant_policy_bindings;
 pub use tenant_policy_bindings::{TenantPolicyBinding, ALL_POLICIES, CORE_POLICIES};
 
@@ -680,7 +681,7 @@ impl Db {
 
     /// Verify database is at the expected migration version
     ///
-    /// Per PRD-05: Fail fast with clear error if schema version doesn't match expected.
+    /// Fail fast with clear error if schema version doesn't match expected.
     /// Prevents version drift where code expects newer schema than DB has.
     ///
     /// **Critical:** This method now FAILS if database version != expected version.
@@ -719,7 +720,7 @@ impl Db {
                     version, description, expected_version
                 );
 
-                // PRD-05: FAIL FAST if version mismatch
+                // FAIL FAST if version mismatch
                 if version != expected_version {
                     error!(
                         "❌ SCHEMA VERSION MISMATCH: Database at version {}, expected {}",

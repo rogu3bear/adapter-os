@@ -1,4 +1,4 @@
-//! Worker Manifest Binding Integration Tests (PRD-01)
+//! Worker Manifest Binding Integration Tests
 //!
 //! Tests for worker registration, manifest compatibility, and schema version filtering.
 //!

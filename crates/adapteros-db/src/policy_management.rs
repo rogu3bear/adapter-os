@@ -1,4 +1,4 @@
-//! Policy Management - Database methods for PRD-GOV-01
+//! Policy Management - Database methods for policy governance
 //!
 //! Provides database operations for policy packs, policy assignments, violations,
 //! and compliance scoring. Supports the 23 canonical policy packs with Ed25519 signing.

@@ -1,4 +1,4 @@
-//! Replay execution audit trail for deterministic replay feature (PRD-02).
+//! Replay execution audit trail for deterministic replay feature.
 //!
 //! Records each replay attempt with match analysis and divergence details.
 //! Multiple executions can exist per original inference for different replay modes.

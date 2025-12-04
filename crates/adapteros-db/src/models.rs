@@ -313,6 +313,24 @@ impl Db {
         Ok(model)
     }
 
+    /// PRD-ART-01: Get model by name for base model compatibility checking during import
+    ///
+    /// Looks up a model by its name (e.g., "qwen2.5-7b") to validate that
+    /// an imported adapter is compatible with an available base model.
+    pub async fn get_model_by_name(&self, name: &str) -> Result<Option<Model>> {
+        let model = sqlx::query_as::<_, Model>(
+            "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3,
+             tokenizer_cfg_hash_b3, metadata_json, created_at, model_type, model_path, config,
+             status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
+             size_bytes, format, capabilities, import_status, import_error, imported_at, imported_by
+             FROM models WHERE name = ? AND import_status = 'available'",
+        )
+        .bind(name)
+        .fetch_optional(&*self.pool())
+        .await?;
+        Ok(model)
+    }
+
     pub async fn list_models(&self) -> Result<Vec<Model>> {
         let models = sqlx::query_as::<_, Model>(
             "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3,

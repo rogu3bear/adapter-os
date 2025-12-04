@@ -23,8 +23,10 @@ pub const ADAPTER_COLUMNS: &str =
      repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, \
      activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash, \
      adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, \
-     created_at, updated_at, active, version, lifecycle_state, \
-     archived_at, archived_by, archive_reason, purged_at";
+     version, lifecycle_state, \
+     archived_at, archived_by, archive_reason, purged_at, \
+     base_model_id, manifest_schema_version, content_hash_b3, provenance_json, \
+     created_at, updated_at, active";
 
 /// Training dataset table columns for SELECT queries
 ///

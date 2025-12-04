@@ -246,6 +246,11 @@ impl From<AdapterKv> for Adapter {
             archived_by: kv.archived_by,
             archive_reason: kv.archive_reason,
             purged_at: kv.purged_at,
+            // Base model and artifact hardening (not stored in KV yet)
+            base_model_id: None,
+            manifest_schema_version: None,
+            content_hash_b3: None,
+            provenance_json: None,
         }
     }
 }

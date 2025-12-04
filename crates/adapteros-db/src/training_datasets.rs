@@ -618,7 +618,7 @@ impl Db {
         Ok(links)
     }
 
-    /// Alias for get_dataset_adapters (PRD naming)
+    /// Alias for get_dataset_adapters
     pub async fn get_adapters_for_dataset(
         &self,
         dataset_id: &str,
@@ -641,7 +641,7 @@ impl Db {
         Ok(links)
     }
 
-    /// Alias for get_adapter_datasets (PRD naming)
+    /// Alias for get_adapter_datasets
     pub async fn get_datasets_for_adapter(
         &self,
         adapter_id: &str,
