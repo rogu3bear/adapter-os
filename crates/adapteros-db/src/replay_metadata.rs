@@ -47,6 +47,16 @@ pub struct InferenceReplayMetadata {
     pub latency_ms: Option<i32>,
     /// Number of tokens generated
     pub tokens_generated: Option<i32>,
+    /// Determinism mode applied for this inference (strict, besteffort, relaxed)
+    pub determinism_mode: Option<String>,
+    /// Whether backend fallback occurred during execution
+    pub fallback_triggered: Option<bool>,
+    /// Replay guarantee level (exact, approximate, none)
+    pub replay_guarantee: Option<String>,
+    /// Execution policy ID applied (if any)
+    pub execution_policy_id: Option<String>,
+    /// Execution policy version applied (if any)
+    pub execution_policy_version: Option<i32>,
     pub created_at: String,
 }
 
@@ -74,6 +84,11 @@ pub struct CreateReplayMetadataParams {
     pub replay_status: Option<String>,
     pub latency_ms: Option<i32>,
     pub tokens_generated: Option<i32>,
+    pub determinism_mode: Option<String>,
+    pub fallback_triggered: bool,
+    pub replay_guarantee: Option<String>,
+    pub execution_policy_id: Option<String>,
+    pub execution_policy_version: Option<i32>,
 }
 
 impl Db {
@@ -111,6 +126,7 @@ impl Db {
             .unwrap_or_else(|| "available".to_string());
         let prompt_truncated = if params.prompt_truncated { 1 } else { 0 };
         let response_truncated = if params.response_truncated { 1 } else { 0 };
+        let fallback_triggered = if params.fallback_triggered { 1 } else { 0 };
 
         sqlx::query(
             r#"
@@ -119,9 +135,11 @@ impl Db {
                 sampling_params_json, backend, sampling_algorithm_version,
                 rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                 response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
-                replay_status, latency_ms, tokens_generated, created_at
+                replay_status, latency_ms, tokens_generated, determinism_mode,
+                fallback_triggered, replay_guarantee, execution_policy_id,
+                execution_policy_version, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(&id)
@@ -143,6 +161,11 @@ impl Db {
         .bind(&replay_status)
         .bind(&params.latency_ms)
         .bind(&params.tokens_generated)
+        .bind(&params.determinism_mode)
+        .bind(fallback_triggered)
+        .bind(&params.replay_guarantee)
+        .bind(&params.execution_policy_id)
+        .bind(&params.execution_policy_version)
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create replay metadata: {}", e)))?;
@@ -164,7 +187,9 @@ impl Db {
                    sampling_params_json, backend, sampling_algorithm_version,
                    rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
-                   replay_status, latency_ms, tokens_generated, created_at
+                   replay_status, latency_ms, tokens_generated, determinism_mode,
+                   fallback_triggered, replay_guarantee, execution_policy_id,
+                   execution_policy_version, created_at
             FROM inference_replay_metadata
             WHERE inference_id = ?
             "#,
@@ -188,7 +213,9 @@ impl Db {
                    sampling_params_json, backend, sampling_algorithm_version,
                    rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
-                   replay_status, latency_ms, tokens_generated, created_at
+                   replay_status, latency_ms, tokens_generated, determinism_mode,
+                   fallback_triggered, replay_guarantee, execution_policy_id,
+                   execution_policy_version, created_at
             FROM inference_replay_metadata
             WHERE id = ?
             "#,
@@ -238,7 +265,9 @@ impl Db {
                    sampling_params_json, backend, sampling_algorithm_version,
                    rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
-                   replay_status, latency_ms, tokens_generated, created_at
+                   replay_status, latency_ms, tokens_generated, determinism_mode,
+                   fallback_triggered, replay_guarantee, execution_policy_id,
+                   execution_policy_version, created_at
             FROM inference_replay_metadata
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -278,6 +307,11 @@ struct InferenceReplayMetadataRow {
     replay_status: String,
     latency_ms: Option<i32>,
     tokens_generated: Option<i32>,
+    determinism_mode: Option<String>,
+    fallback_triggered: Option<i32>,
+    replay_guarantee: Option<String>,
+    execution_policy_id: Option<String>,
+    execution_policy_version: Option<i32>,
     created_at: String,
 }
 
@@ -303,6 +337,11 @@ impl From<InferenceReplayMetadataRow> for InferenceReplayMetadata {
             replay_status: row.replay_status,
             latency_ms: row.latency_ms,
             tokens_generated: row.tokens_generated,
+            determinism_mode: row.determinism_mode,
+            fallback_triggered: row.fallback_triggered.map(|v| v != 0),
+            replay_guarantee: row.replay_guarantee,
+            execution_policy_id: row.execution_policy_id,
+            execution_policy_version: row.execution_policy_version,
             created_at: row.created_at,
         }
     }
@@ -353,6 +392,11 @@ mod tests {
             replay_status: Some("available".to_string()),
             latency_ms: Some(150),
             tokens_generated: Some(25),
+            determinism_mode: Some("strict".to_string()),
+            fallback_triggered: false,
+            replay_guarantee: Some("exact".to_string()),
+            execution_policy_id: None,
+            execution_policy_version: None,
         };
 
         let id = db.create_replay_metadata(params).await.unwrap();
@@ -418,6 +462,11 @@ mod tests {
             replay_status: Some("available".to_string()),
             latency_ms: None,
             tokens_generated: None,
+            determinism_mode: Some("strict".to_string()),
+            fallback_triggered: false,
+            replay_guarantee: Some("exact".to_string()),
+            execution_policy_id: None,
+            execution_policy_version: None,
         };
 
         db.create_replay_metadata(params).await.unwrap();
@@ -462,6 +511,11 @@ mod tests {
                 replay_status: None,
                 latency_ms: Some(100 + i),
                 tokens_generated: Some(20 + i),
+                determinism_mode: Some("strict".to_string()),
+                fallback_triggered: false,
+                replay_guarantee: Some("exact".to_string()),
+                execution_policy_id: None,
+                execution_policy_version: None,
             };
 
             db.create_replay_metadata(params).await.unwrap();
@@ -513,6 +567,11 @@ mod tests {
             replay_status: None,
             latency_ms: None,
             tokens_generated: None,
+            determinism_mode: None,
+            fallback_triggered: false,
+            replay_guarantee: None,
+            execution_policy_id: None,
+            execution_policy_version: None,
         };
 
         db.create_replay_metadata(params).await.unwrap();

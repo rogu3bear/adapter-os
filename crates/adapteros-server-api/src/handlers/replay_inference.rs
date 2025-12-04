@@ -488,6 +488,11 @@ pub async fn execute_replay(
         rag_collection_id: None, // RAG context will be reconstructed from doc IDs if needed
         adapter_stack: None,
         adapters: adapter_ids.clone(),
+        stack_id: None,
+        stack_version: None,
+        stack_determinism_mode: None,
+        effective_adapter_ids: None,
+        determinism_mode: None,
         max_tokens: sampling_params.max_tokens,
         temperature: sampling_params.temperature,
         top_k: sampling_params.top_k,

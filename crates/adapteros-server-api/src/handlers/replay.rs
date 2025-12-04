@@ -540,6 +540,11 @@ pub async fn execute_replay_session(
         rag_collection_id: None,
         adapter_stack: None,
         adapters: None,
+        stack_id: None,
+        stack_version: None,
+        stack_determinism_mode: None,
+        effective_adapter_ids: None,
+        determinism_mode: None,
         max_tokens: req.max_tokens,
         temperature: 0.7, // Default, could be stored in session
         top_k: None,
