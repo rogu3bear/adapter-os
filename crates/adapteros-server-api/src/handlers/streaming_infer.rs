@@ -21,9 +21,7 @@ use crate::security::check_tenant_access;
 use crate::state::AppState;
 use crate::types::*;
 use crate::uds_client::UdsClient;
-use crate::worker_health::WorkerHealthMonitor;
 use adapteros_core::identity::IdentityEnvelope;
-use adapteros_lora_rag::EmbeddingModel;
 use adapteros_policy::hooks::PolicyHook;
 use axum::{
     extract::{Extension, State},
@@ -52,6 +50,9 @@ pub struct StreamingInferRequest {
     /// Model identifier (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Adapter stack identifier to use for inference
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
     /// Maximum number of tokens to generate
     #[serde(default = "default_max_tokens")]
     pub max_tokens: usize,
@@ -85,6 +86,9 @@ pub struct StreamingInferRequest {
     /// Session ID for linking inference to chat sessions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Effective adapter IDs (control-plane computed; ignored from clients)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_adapter_ids: Option<Vec<String>>,
 }
 
 impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
@@ -99,6 +103,11 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             rag_collection_id: req.collection_id.clone(),
             adapter_stack: req.adapter_stack.clone(),
             adapters: req.adapters.clone(),
+            stack_id: req.stack_id.clone(),
+            stack_version: None,
+            stack_determinism_mode: None,
+            effective_adapter_ids: None, // Computed inside InferenceCore
+            determinism_mode: None,
             max_tokens: req.max_tokens,
             temperature: req.temperature,
             top_k: req.top_k,
@@ -107,7 +116,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             require_evidence: req.require_evidence,
             session_id: req.session_id.clone(),
             pinned_adapter_ids: None, // Looked up from session in route_and_infer if session_id is set
-            chat_context_hash: None, // Set later after build_chat_prompt
+            chat_context_hash: None,  // Set later after build_chat_prompt
             model: req.model.clone(),
             created_at: std::time::Instant::now(),
             router_seed: None, // Use default router behavior for streaming
@@ -195,10 +204,10 @@ pub enum InferenceEvent {
     Done {
         total_tokens: usize,
         latency_ms: u64,
-        /// Pinned adapters that were unavailable (PRD-6A)
+        /// Pinned adapters that were unavailable
         #[serde(skip_serializing_if = "Option::is_none")]
         unavailable_pinned_adapters: Option<Vec<String>>,
-        /// Routing fallback mode (PRD-6A)
+        /// Routing fallback mode
         #[serde(skip_serializing_if = "Option::is_none")]
         pinned_routing_fallback: Option<String>,
     },
@@ -290,7 +299,7 @@ pub async fn streaming_infer_with_progress(
         ));
     }
 
-    // Extract adapter ID from request
+    // Extract adapter ID from request (for policy context)
     let adapter_id = if let Some(adapters) = &req.adapters {
         if adapters.is_empty() {
             return Err((
@@ -313,11 +322,13 @@ pub async fn streaming_infer_with_progress(
             ));
         }
         stack[0].clone()
+    } else if let Some(stack_id) = &req.stack_id {
+        stack_id.clone()
     } else {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("must specify adapters or adapter_stack")
+                ErrorResponse::new("must specify adapters, adapter_stack, or stack_id")
                     .with_code("VALIDATION_ERROR"),
             ),
         ));
@@ -343,7 +354,7 @@ pub async fn streaming_infer_with_progress(
     // Generate request ID for hook contexts
     let request_id = uuid::Uuid::new_v4().to_string();
 
-    // PRD-06: Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
+    // Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
     let routing_hook_ctx = create_hook_context(
         &claims,
         &request_id,
@@ -362,7 +373,7 @@ pub async fn streaming_infer_with_progress(
         ));
     }
 
-    // PRD-06: Enforce policies at OnBeforeInference hook
+    // Enforce policies at OnBeforeInference hook
     let hook_ctx = create_hook_context(
         &claims,
         &request_id,
@@ -545,7 +556,7 @@ pub async fn streaming_infer(
         }
     }
 
-    // PRD-06: Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
+    // Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
     let routing_hook_ctx = create_hook_context(
         &claims,
         &request_id,
@@ -564,7 +575,7 @@ pub async fn streaming_infer(
         ));
     }
 
-    // PRD-06: Enforce policies at OnBeforeInference hook
+    // Enforce policies at OnBeforeInference hook
     let adapter_id = req.adapters.as_ref().and_then(|a| a.first()).cloned();
     let hook_ctx = create_hook_context(
         &claims,
@@ -749,7 +760,7 @@ pub async fn streaming_infer(
     )
     .await;
 
-    // Get available workers with manifest filtering (PRD-01: manifest binding)
+    // Get available workers with manifest filtering
     let required_manifest = state.manifest_hash.as_deref();
     let workers = if let Some(manifest_hash) = required_manifest {
         // Use manifest-aware worker selection for production
@@ -820,7 +831,7 @@ pub async fn streaming_infer(
     let temperature = req.temperature;
     let session_id = req.session_id.clone();
     let adapters = req.adapters.clone();
-    // PRD-06: Pass hook context to stream state
+    // Pass hook context to stream state
     let tenant_id = claims.tenant_id.clone();
     let user_id = claims.sub.clone();
 
@@ -907,9 +918,9 @@ struct LoadingStreamState {
     start_time: std::time::Instant,
     token_count: usize,
     request_id: String,
-    /// Pinned adapters that were unavailable (PRD-6A)
+    /// Pinned adapters that were unavailable
     unavailable_pinned_adapters: Option<Vec<String>>,
-    /// Routing fallback mode (PRD-6A)
+    /// Routing fallback mode
     pinned_routing_fallback: Option<String>,
 }
 
@@ -1031,7 +1042,7 @@ impl LoadingStreamState {
                         self.phase = LoadingPhase::Complete;
                         let latency_ms = self.start_time.elapsed().as_millis() as u64;
 
-                        // PRD-06: Fire OnAfterInference hook at stream completion
+                        // Fire OnAfterInference hook at stream completion
                         // NOTE: For streaming, this is fire-and-forget audit logging only.
                         // Tokens have already been sent to the client, so we cannot block
                         // the response based on Evidence/Refusal policy violations.
@@ -1156,7 +1167,7 @@ impl LoadingStreamState {
         let _handle = state
             .load_coordinator
             .load_or_wait(&adapter_id.clone(), || async move {
-                // Get available workers with manifest filtering (PRD-01: manifest binding)
+                // Get available workers with manifest filtering
                 let required_manifest = state.manifest_hash.as_deref();
                 let workers = if let Some(manifest_hash) = required_manifest {
                     state
@@ -1270,7 +1281,7 @@ impl LoadingStreamState {
     }
 
     async fn run_inference(&mut self) -> Result<Option<String>, String> {
-        // PRD-05: Use InferenceCore for all inference - single unified path
+        // Use InferenceCore for all inference - single unified path
         // This ensures routing enforcement, RAG, evidence recording, and session activity
         // are all handled consistently.
 
@@ -1304,7 +1315,7 @@ impl LoadingStreamState {
                     "Received inference response via InferenceCore"
                 );
 
-                // Store pinned adapter metadata (PRD-6A)
+                // Store pinned adapter metadata
                 self.unavailable_pinned_adapters = result.unavailable_pinned_adapters.clone();
                 self.pinned_routing_fallback = result.pinned_routing_fallback.clone();
 
@@ -1351,7 +1362,7 @@ struct StreamState {
     // Session tracking
     session_id: Option<String>,
     adapters: Option<Vec<String>>,
-    // PRD-06: Hook context for OnAfterInference
+    // Hook context for OnAfterInference
     tenant_id: String,
     user_id: String,
     // Track if after-hook has been fired (one-shot)
@@ -1512,7 +1523,7 @@ impl StreamState {
     }
 
     async fn generate_response(&self) -> Result<String, String> {
-        // PRD-05: Use InferenceCore for all inference - single unified path
+        // Use InferenceCore for all inference - single unified path
         // This ensures routing enforcement, RAG, evidence recording, and session activity
         // are all handled consistently.
 
@@ -1527,12 +1538,17 @@ impl StreamState {
             rag_collection_id: None,
             adapter_stack: None,
             adapters: self.adapters.clone(),
+            stack_id: None,
+            stack_version: None,
+            stack_determinism_mode: None,
+            effective_adapter_ids: None,
+            determinism_mode: None,
             max_tokens: self.max_tokens,
             temperature: self.temperature,
             top_k: None,
             top_p: None,
             seed: None,
-            router_seed: None, // PRD-02: deterministic routing (not set for streaming)
+            router_seed: None, // deterministic routing (not set for streaming)
             require_evidence: false,
             session_id: self.session_id.clone(),
             pinned_adapter_ids: None, // Pinning not yet exposed in streaming API
@@ -1599,7 +1615,7 @@ impl StreamState {
                 Event::default().data(serialize_safe(&chunk, "stream_token"))
             }
             StreamEvent::Done { finish_reason } => {
-                // PRD-06: Fire OnAfterInference hook at stream completion
+                // Fire OnAfterInference hook at stream completion
                 // NOTE: For streaming, this is fire-and-forget audit logging only.
                 // Tokens have already been sent to the client, so we cannot block
                 // the response based on Evidence/Refusal policy violations.
@@ -1851,14 +1867,32 @@ mod tests {
 
         // Standard format: document_id__chunk_index
         let result = parse_rag_doc_id("doc-123__chunk_0");
-        assert_eq!(result, Some(ParsedRagDocId { document_id: "doc-123".to_string(), chunk_index: 0 }));
+        assert_eq!(
+            result,
+            Some(ParsedRagDocId {
+                document_id: "doc-123".to_string(),
+                chunk_index: 0
+            })
+        );
 
         let result = parse_rag_doc_id("my-document-uuid__chunk_42");
-        assert_eq!(result, Some(ParsedRagDocId { document_id: "my-document-uuid".to_string(), chunk_index: 42 }));
+        assert_eq!(
+            result,
+            Some(ParsedRagDocId {
+                document_id: "my-document-uuid".to_string(),
+                chunk_index: 42
+            })
+        );
 
         // Document ID with underscores (edge case - uses rfind)
         let result = parse_rag_doc_id("doc_with_underscores__chunk_5");
-        assert_eq!(result, Some(ParsedRagDocId { document_id: "doc_with_underscores".to_string(), chunk_index: 5 }));
+        assert_eq!(
+            result,
+            Some(ParsedRagDocId {
+                document_id: "doc_with_underscores".to_string(),
+                chunk_index: 5
+            })
+        );
     }
 
     #[test]
@@ -1873,12 +1907,21 @@ mod tests {
         assert_eq!(parse_rag_doc_id("doc-123__chunk_abc"), None);
 
         // Empty document ID
-        assert_eq!(parse_rag_doc_id("__chunk_0"), Some(ParsedRagDocId { document_id: "".to_string(), chunk_index: 0 }));
+        assert_eq!(
+            parse_rag_doc_id("__chunk_0"),
+            Some(ParsedRagDocId {
+                document_id: "".to_string(),
+                chunk_index: 0
+            })
+        );
 
         // Negative chunk index (should still parse as i32)
         assert_eq!(
             parse_rag_doc_id("doc__chunk_-1"),
-            Some(ParsedRagDocId { document_id: "doc".to_string(), chunk_index: -1 })
+            Some(ParsedRagDocId {
+                document_id: "doc".to_string(),
+                chunk_index: -1
+            })
         );
     }
 
@@ -1890,12 +1933,21 @@ mod tests {
         let result = parse_rag_doc_id("550e8400-e29b-41d4-a716-446655440000__chunk_99");
         assert_eq!(
             result,
-            Some(ParsedRagDocId { document_id: "550e8400-e29b-41d4-a716-446655440000".to_string(), chunk_index: 99 })
+            Some(ParsedRagDocId {
+                document_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                chunk_index: 99
+            })
         );
 
         // Document ID with path-like format (sanitized)
         let result = parse_rag_doc_id("documents_report_2024_pdf__chunk_0");
-        assert_eq!(result, Some(ParsedRagDocId { document_id: "documents_report_2024_pdf".to_string(), chunk_index: 0 }));
+        assert_eq!(
+            result,
+            Some(ParsedRagDocId {
+                document_id: "documents_report_2024_pdf".to_string(),
+                chunk_index: 0
+            })
+        );
     }
 
     #[test]
@@ -1906,6 +1958,7 @@ mod tests {
         let streaming_req = StreamingInferRequest {
             prompt: "Test prompt".to_string(),
             model: Some("test-model".to_string()),
+            stack_id: None,
             max_tokens: 100,
             temperature: 0.8,
             top_p: Some(0.9),
@@ -1917,6 +1970,7 @@ mod tests {
             require_evidence: true,
             collection_id: Some("test-collection".to_string()),
             session_id: Some("test-session".to_string()),
+            effective_adapter_ids: None,
         };
 
         // Create mock claims
@@ -1969,6 +2023,7 @@ mod tests {
         let streaming_req = StreamingInferRequest {
             prompt: "Test".to_string(),
             model: None,
+            stack_id: None,
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
             top_p: None,
@@ -1980,6 +2035,7 @@ mod tests {
             require_evidence: false,
             collection_id: None, // No collection
             session_id: None,
+            effective_adapter_ids: None,
         };
 
         let claims = Claims {

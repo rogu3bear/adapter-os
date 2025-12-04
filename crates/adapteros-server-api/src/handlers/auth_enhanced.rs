@@ -155,6 +155,33 @@ pub async fn bootstrap_admin_handler(
         ));
     }
 
+    // Ensure system tenant exists before creating admin user
+    let system_tenant_exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tenants WHERE id = 'system'")
+        .fetch_one(state.db.pool())
+        .await
+        .unwrap_or(0) > 0;
+
+    if !system_tenant_exists {
+        info!("Creating system tenant during bootstrap");
+        sqlx::query(
+            "INSERT INTO tenants (id, name, itar_flag, created_at) VALUES ('system', 'System', 0, datetime('now'))"
+        )
+        .execute(state.db.pool())
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Failed to create system tenant during bootstrap");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("system tenant creation failed").with_code("DATABASE_ERROR")),
+            )
+        })?;
+
+        // Initialize policy bindings for system tenant
+        if let Err(e) = state.db.initialize_tenant_policy_bindings("system", "system").await {
+            warn!(error = %e, "Failed to initialize system tenant policy bindings (non-fatal)");
+        }
+    }
+
     // Hash password
     let pw_hash = hash_password(&req.password).map_err(|e| {
         warn!(error = %e, "Failed to hash password");
@@ -182,6 +209,19 @@ pub async fn bootstrap_admin_handler(
                 Json(ErrorResponse::new("user creation failed").with_code("DATABASE_ERROR")),
             )
         })?;
+
+    // Grant admin user access to system tenant for cross-tenant operations
+    if let Err(e) = adapteros_db::grant_user_tenant_access(
+        &state.db,
+        &user_id,
+        "system",
+        &user_id, // Self-granted during bootstrap
+        Some("Bootstrap admin auto-grant"),
+        None, // No expiration
+    ).await {
+        warn!(error = %e, user_id = %user_id, "Failed to grant system tenant access during bootstrap (non-fatal)");
+        // Non-fatal - user can still access their own tenant
+    }
 
     // Log to audit (no user context yet, so use system)
     state
@@ -1139,6 +1179,277 @@ pub async fn dev_bypass_handler(
             tenant_id: ctx.user.tenant_id.clone(),
             role: ctx.role.to_string(),
             expires_in: auth_cfg.effective_ttl(),
+        }),
+    ))
+}
+
+/// Request for dev bootstrap endpoint
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DevBootstrapRequest {
+    /// Admin email (defaults to "dev-admin@adapteros.local")
+    #[serde(default = "default_dev_email")]
+    pub email: String,
+    /// Admin password (defaults to "dev-password-123")
+    #[serde(default = "default_dev_password")]
+    pub password: String,
+}
+
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+fn default_dev_email() -> String {
+    "dev-admin@adapteros.local".to_string()
+}
+
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+fn default_dev_password() -> String {
+    "dev-password-123".to_string()
+}
+
+/// Response from dev bootstrap endpoint
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DevBootstrapResponse {
+    /// The system tenant ID
+    pub system_tenant_id: String,
+    /// The created admin user ID
+    pub admin_user_id: String,
+    /// Admin email
+    pub email: String,
+    /// Admin password (only shown once)
+    pub password: String,
+    /// JWT token for immediate use
+    pub token: String,
+    /// Instructions message
+    pub message: String,
+}
+
+/// Development bootstrap endpoint - creates system tenant and admin user
+///
+/// This endpoint is only available in debug builds with the dev-bypass feature.
+/// It creates the "system" tenant if it doesn't exist, creates an admin user,
+/// grants the admin access to the system tenant, and returns a valid JWT token.
+///
+/// **WARNING**: This endpoint is for development only and should never be enabled in production.
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+#[utoipa::path(
+    post,
+    path = "/v1/dev/bootstrap",
+    request_body = DevBootstrapRequest,
+    responses(
+        (status = 200, description = "Dev environment bootstrapped", body = DevBootstrapResponse),
+        (status = 403, description = "Not in development mode"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "dev"
+)]
+pub async fn dev_bootstrap_handler(
+    State(state): State<AppState>,
+    Extension(client_ip): Extension<ClientIp>,
+    Json(req): Json<DevBootstrapRequest>,
+) -> Result<(HeaderMap, Json<DevBootstrapResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let auth_cfg = AuthConfig::from_state(&state);
+
+    if !auth_cfg.dev_login_allowed() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("dev bootstrap not available")
+                    .with_code("DEV_BOOTSTRAP_DISABLED")
+                    .with_string_details("this endpoint is only available in development mode"),
+            ),
+        ));
+    }
+
+    info!(email = %req.email, ip = %client_ip.0, "Dev bootstrap requested");
+
+    // 1. Create or get "system" tenant
+    let system_tenant_id = match sqlx::query_scalar::<_, String>("SELECT id FROM tenants WHERE id = 'system'")
+        .fetch_optional(state.db.pool())
+        .await
+    {
+        Ok(Some(id)) => {
+            info!("System tenant already exists");
+            id
+        }
+        Ok(None) => {
+            // Create system tenant with known ID "system"
+            info!("Creating system tenant");
+            sqlx::query(
+                "INSERT INTO tenants (id, name, itar_flag, created_at) VALUES ('system', 'System', 0, datetime('now'))"
+            )
+            .execute(state.db.pool())
+            .await
+            .map_err(|e| {
+                warn!(error = %e, "Failed to create system tenant");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("Failed to create system tenant").with_code("DATABASE_ERROR")),
+                )
+            })?;
+
+            // Initialize policy bindings for system tenant
+            if let Err(e) = state.db.initialize_tenant_policy_bindings("system", "system").await {
+                warn!(error = %e, "Failed to initialize system tenant policy bindings (non-fatal)");
+            }
+
+            "system".to_string()
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to check for system tenant");
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("database error").with_code("DATABASE_ERROR")),
+            ));
+        }
+    };
+
+    // 2. Create admin user (or get existing)
+    let admin_user_id = match state.db.get_user_by_email(&req.email).await {
+        Ok(Some(user)) => {
+            info!(email = %req.email, user_id = %user.id, "Admin user already exists");
+            user.id
+        }
+        Ok(None) => {
+            // Hash password and create user
+            let pw_hash = hash_password(&req.password).map_err(|e| {
+                warn!(error = %e, "Failed to hash password");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("password hashing failed").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+
+            let user_id = state.db.create_user(
+                &req.email,
+                "Dev Admin",
+                &pw_hash,
+                Role::Admin,
+                &system_tenant_id,
+            ).await.map_err(|e| {
+                warn!(error = %e, "Failed to create admin user");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("user creation failed").with_code("DATABASE_ERROR")),
+                )
+            })?;
+
+            info!(user_id = %user_id, email = %req.email, "Created dev admin user");
+            user_id
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to check for admin user");
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("database error").with_code("DATABASE_ERROR")),
+            ));
+        }
+    };
+
+    // 3. Grant admin access to system tenant
+    if let Err(e) = adapteros_db::grant_user_tenant_access(
+        &state.db,
+        &admin_user_id,
+        &system_tenant_id,
+        "dev-bootstrap",
+        Some("Dev bootstrap auto-grant"),
+        None, // No expiration
+    ).await {
+        warn!(error = %e, "Failed to grant tenant access (may already exist)");
+        // Non-fatal - may already have access
+    }
+
+    // 4. Generate token with admin_tenants populated
+    let admin_tenants = vec![system_tenant_id.clone()];
+
+    let token = if state.use_ed25519 {
+        generate_token_ed25519_with_admin_tenants(
+            &admin_user_id,
+            &req.email,
+            "admin",
+            &system_tenant_id,
+            &admin_tenants,
+            &state.ed25519_keypair,
+            auth_cfg.effective_ttl(),
+        )
+    } else {
+        generate_token_with_admin_tenants(
+            &admin_user_id,
+            &req.email,
+            "admin",
+            &system_tenant_id,
+            &admin_tenants,
+            &state.jwt_secret,
+            auth_cfg.effective_ttl(),
+        )
+    }.map_err(|e| {
+        warn!(error = %e, "Failed to generate token");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    // Validate the generated token
+    let claims = if state.use_ed25519 {
+        crate::auth::validate_token_ed25519(&token, &state.ed25519_public_key)
+    } else {
+        crate::auth::validate_token(&token, &state.jwt_secret)
+    }
+    .map_err(|e| {
+        warn!(error = %e, "Token validation failed after generation");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    // Create session
+    let expires_at = Utc::now() + Duration::seconds(auth_cfg.effective_ttl() as i64);
+    create_session(
+        &state.db,
+        &claims.jti,
+        &admin_user_id,
+        &system_tenant_id,
+        &expires_at.to_rfc3339(),
+        Some(&client_ip.0),
+        None,
+    )
+    .await
+    .map_err(|e| {
+        warn!(error = %e, "Failed to create session");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("session creation failed").with_code("SESSION_ERROR")),
+        )
+    })?;
+
+    // 5. Attach cookie
+    let mut response_headers = HeaderMap::new();
+    attach_auth_cookie(&mut response_headers, &token, &auth_cfg).map_err(|e| {
+        warn!(error = %e, "Failed to attach auth cookie");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    info!(
+        admin_user_id = %admin_user_id,
+        email = %req.email,
+        system_tenant_id = %system_tenant_id,
+        ip = %client_ip.0,
+        "Dev bootstrap completed successfully"
+    );
+
+    Ok((
+        response_headers,
+        Json(DevBootstrapResponse {
+            system_tenant_id,
+            admin_user_id,
+            email: req.email,
+            password: req.password,
+            token,
+            message: "Dev environment bootstrapped. Use the token or credentials to authenticate. This endpoint is only available in debug builds.".to_string(),
         }),
     ))
 }

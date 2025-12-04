@@ -830,49 +830,67 @@ pub async fn get_chat_bootstrap(
     require_permission(&claims, Permission::TrainingView)?;
 
     // Try in-memory first (for running jobs), fall back to DB (for completed jobs after restart)
-    let (stack_id, adapter_name, base_model_id, collection_id, status_completed, tenant_id) =
-        match state.training_service.get_job(&job_id).await {
-            Ok(job) => (
+    let (
+        stack_id,
+        adapter_name,
+        base_model_id,
+        collection_id,
+        status_completed,
+        tenant_id,
+        adapter_id,
+        dataset_id,
+        status_str,
+    ) = match state.training_service.get_job(&job_id).await {
+        Ok(job) => {
+            let status_str = format!("{:?}", job.status).to_lowercase();
+            (
                 job.stack_id,
                 job.adapter_name,
                 job.base_model_id,
                 job.collection_id,
                 job.status == TrainingJobStatus::Completed,
                 job.tenant_id,
-            ),
-            Err(_) => {
-                // Fall back to database for completed jobs not in memory (e.g., after server restart)
-                let db_job = state.db.get_training_job(&job_id).await.map_err(|e| {
-                    error!(job_id = %job_id, error = %e, "Failed to get training job from DB");
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new(&format!("Failed to get job: {}", e))
-                                .with_code("DATABASE_ERROR"),
-                        ),
-                    )
-                })?;
-
-                let job = db_job.ok_or_else(|| {
-                    (
-                        StatusCode::NOT_FOUND,
-                        Json(
-                            ErrorResponse::new(&format!("Training job not found: {}", job_id))
-                                .with_code("NOT_FOUND"),
-                        ),
-                    )
-                })?;
-
+                job.adapter_id,
+                job.dataset_id,
+                status_str,
+            )
+        }
+        Err(_) => {
+            // Fall back to database for completed jobs not in memory (e.g., after server restart)
+            let db_job = state.db.get_training_job(&job_id).await.map_err(|e| {
+                error!(job_id = %job_id, error = %e, "Failed to get training job from DB");
                 (
-                    job.stack_id,
-                    job.adapter_name.unwrap_or_default(),
-                    job.base_model_id,
-                    job.collection_id,
-                    job.status == "completed",
-                    job.tenant_id,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new(&format!("Failed to get job: {}", e))
+                            .with_code("DATABASE_ERROR"),
+                    ),
                 )
-            }
-        };
+            })?;
+
+            let job = db_job.ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new(&format!("Training job not found: {}", job_id))
+                            .with_code("NOT_FOUND"),
+                    ),
+                )
+            })?;
+
+            (
+                job.stack_id,
+                job.adapter_name.unwrap_or_default(),
+                job.base_model_id,
+                job.collection_id,
+                job.status == "completed",
+                job.tenant_id,
+                job.adapter_id,
+                job.dataset_id,
+                job.status.clone(),
+            )
+        }
+    };
 
     // Tenant isolation check - require tenant_id for security
     let tid = tenant_id.as_deref().ok_or_else(|| {
@@ -907,6 +925,11 @@ pub async fn get_chat_bootstrap(
         base_model,
         collection_id,
         suggested_chat_title: suggested_title,
+        // Provenance fields
+        training_job_id: job_id,
+        status: status_str,
+        adapter_id,
+        dataset_id,
     }))
 }
 
@@ -935,17 +958,23 @@ pub async fn create_chat_from_training_job(
     require_permission(&claims, Permission::InferenceExecute)?;
 
     // Try in-memory first, fall back to DB for completed jobs after server restart
-    let (stack_id_opt, adapter_name, collection_id, status_completed, tenant_id) = match state
-        .training_service
-        .get_job(&req.training_job_id)
-        .await
-    {
+    let (
+        stack_id_opt,
+        adapter_name,
+        collection_id,
+        status_completed,
+        tenant_id,
+        adapter_id,
+        dataset_id,
+    ) = match state.training_service.get_job(&req.training_job_id).await {
         Ok(job) => (
             job.stack_id,
             job.adapter_name,
             job.collection_id,
             job.status == TrainingJobStatus::Completed,
             job.tenant_id,
+            job.adapter_id,
+            job.dataset_id,
         ),
         Err(_) => {
             // Fall back to database
@@ -980,9 +1009,11 @@ pub async fn create_chat_from_training_job(
             (
                 job.stack_id,
                 job.adapter_name.unwrap_or_default(),
-                job.collection_id,
+                job.collection_id.clone(),
                 job.status == "completed",
                 job.tenant_id,
+                job.adapter_id,
+                job.dataset_id,
             )
         }
     };
@@ -1023,6 +1054,9 @@ pub async fn create_chat_from_training_job(
         .name
         .unwrap_or_else(|| format!("Chat with {}", adapter_name));
 
+    // Clone collection_id for response before moving into params
+    let collection_id_for_response = collection_id.clone();
+
     // Create chat session
     let session_id = format!("session-{}", Uuid::new_v4());
     let params = adapteros_db::CreateChatSessionParams {
@@ -1054,5 +1088,10 @@ pub async fn create_chat_from_training_job(
         stack_id,
         name,
         created_at,
+        // Provenance fields
+        training_job_id: req.training_job_id,
+        adapter_id,
+        dataset_id,
+        collection_id: collection_id_for_response,
     }))
 }

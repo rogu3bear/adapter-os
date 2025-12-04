@@ -1,4 +1,4 @@
-//! Unified inference execution core (PRD-05)
+//! Unified inference execution core
 //!
 //! This module provides `InferenceCore` - the ONLY path to execute inference.
 //! All handlers (standard, streaming, batch) MUST use this module.
@@ -14,7 +14,7 @@
 //! RAG context retrieval is available on all inference paths (not just streaming).
 //! Set `rag_enabled = true` and provide a `rag_collection_id` to enable RAG.
 //!
-//! # Deterministic Replay (PRD-02)
+//! # Deterministic Replay
 //!
 //! Replay uses the same inference path as normal requests. The routing is
 //! deterministic by design (sorted by score, then by index for ties) - the
@@ -32,8 +32,9 @@ use crate::types::{
     SAMPLING_ALGORITHM_VERSION,
 };
 use crate::uds_client::UdsClient;
+use adapteros_api_types::inference::ReplayGuarantee;
 use adapteros_core::identity::IdentityEnvelope;
-use adapteros_db::CreateReplayMetadataParams;
+use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -49,6 +50,258 @@ use tracing::{debug, error, info, warn};
 /// is treated as "no pinned adapters" rather than an error).
 pub fn parse_pinned_adapter_ids(json: Option<&str>) -> Option<Vec<String>> {
     json.and_then(|s| serde_json::from_str(s).ok())
+}
+
+/// Ensure pinned adapters (if any) are within the effective adapter set when present.
+fn validate_pinned_within_effective_set(
+    effective_adapter_ids: &Option<Vec<String>>,
+    pinned_adapter_ids: &Option<Vec<String>>,
+) -> Result<(), InferenceError> {
+    if let (Some(effective), Some(pinned)) = (effective_adapter_ids, pinned_adapter_ids) {
+        for pinned_id in pinned {
+            if !effective.iter().any(|id| id == pinned_id) {
+                return Err(InferenceError::ValidationError(format!(
+                    "Pinned adapter '{}' is not in effective_adapter_ids: {:?}",
+                    pinned_id, effective
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Determinism mode hierarchy for inference execution
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeterminismMode {
+    Strict,
+    BestEffort,
+    Relaxed,
+}
+
+impl DeterminismMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Strict => "strict",
+            Self::BestEffort => "besteffort",
+            Self::Relaxed => "relaxed",
+        }
+    }
+}
+
+impl std::fmt::Display for DeterminismMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<&str> for DeterminismMode {
+    fn from(value: &str) -> Self {
+        let normalized = value.to_ascii_lowercase().replace(['_', '-'], "");
+        match normalized.as_str() {
+            "strict" => DeterminismMode::Strict,
+            "besteffort" => DeterminismMode::BestEffort,
+            "relaxed" => DeterminismMode::Relaxed,
+            _ => DeterminismMode::Strict, // fail-safe to strict
+        }
+    }
+}
+
+impl std::str::FromStr for DeterminismMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let normalized = s.to_ascii_lowercase().replace(['_', '-'], "");
+        match normalized.as_str() {
+            "strict" => Ok(DeterminismMode::Strict),
+            "besteffort" => Ok(DeterminismMode::BestEffort),
+            "relaxed" => Ok(DeterminismMode::Relaxed),
+            _ => Err(format!(
+                "Invalid determinism mode: {} (expected strict, besteffort, relaxed)",
+                s
+            )),
+        }
+    }
+}
+
+/// Resolve determinism mode using stack > tenant > global precedence
+pub fn resolve_determinism_mode(
+    stack_mode: Option<&str>,
+    tenant_mode: Option<&str>,
+    global_mode: &str,
+) -> DeterminismMode {
+    if let Some(mode) = stack_mode {
+        return DeterminismMode::from(mode);
+    }
+    if let Some(mode) = tenant_mode {
+        return DeterminismMode::from(mode);
+    }
+    DeterminismMode::from(global_mode)
+}
+
+/// Compute strict_mode flag for worker/coordinator behavior
+pub fn compute_strict_mode(mode: DeterminismMode, allow_fallback: bool) -> bool {
+    mode == DeterminismMode::Strict || !allow_fallback
+}
+
+/// Validate strict mode requirements (seed required)
+pub fn validate_strict_mode_constraints(
+    mode: DeterminismMode,
+    seed: Option<u64>,
+) -> Result<(), InferenceError> {
+    if mode == DeterminismMode::Strict && seed.is_none() {
+        return Err(InferenceError::ValidationError(
+            "Strict determinism mode requires a seed".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Compute replay guarantee based on determinism mode and execution path
+pub fn compute_replay_guarantee(
+    mode: DeterminismMode,
+    fallback_triggered: bool,
+    prompt_truncated: bool,
+    response_truncated: bool,
+    seed_present: bool,
+) -> ReplayGuarantee {
+    match mode {
+        DeterminismMode::Strict => {
+            if fallback_triggered || prompt_truncated || response_truncated || !seed_present {
+                ReplayGuarantee::Approximate
+            } else {
+                ReplayGuarantee::Exact
+            }
+        }
+        DeterminismMode::BestEffort => ReplayGuarantee::Approximate,
+        DeterminismMode::Relaxed => ReplayGuarantee::None,
+    }
+}
+
+// =============================================================================
+// TenantExecutionPolicy Resolution (Bundle E)
+// =============================================================================
+
+/// Resolved routing policy knobs (carry-forward, not enforced in Bundle E)
+#[derive(Debug, Clone)]
+pub struct RoutingPolicyResolved {
+    /// Whether to use session's stack_id when no explicit stack is provided
+    pub use_session_stack_for_routing: bool,
+    /// Whether pins outside effective set are allowed (always false per Bundle A)
+    pub allow_pins_outside_effective_set: bool,
+}
+
+impl Default for RoutingPolicyResolved {
+    fn default() -> Self {
+        Self {
+            use_session_stack_for_routing: false,
+            allow_pins_outside_effective_set: false,
+        }
+    }
+}
+
+/// Resolved golden-run policy knobs (carry-forward, not enforced in Bundle E)
+#[derive(Debug, Clone)]
+pub struct GoldenPolicyResolved {
+    /// Whether to fail inference when golden drift is detected
+    pub fail_on_drift: bool,
+    /// Golden baseline ID to compare against (if any)
+    pub golden_baseline_id: Option<String>,
+    /// Epsilon threshold for floating-point comparison of gate values
+    pub epsilon_threshold: f64,
+}
+
+impl Default for GoldenPolicyResolved {
+    fn default() -> Self {
+        Self {
+            fail_on_drift: false,
+            golden_baseline_id: None,
+            epsilon_threshold: 1e-6,
+        }
+    }
+}
+
+/// Resolved execution policy combining all policy dimensions
+///
+/// This struct unifies the policy resolution for a tenant's inference request,
+/// combining determinism, routing, and golden-run policies into a single source
+/// of truth for the inference path.
+#[derive(Debug, Clone)]
+pub struct ResolvedExecutionPolicy {
+    /// The underlying tenant execution policy
+    pub policy: adapteros_api_types::TenantExecutionPolicy,
+    /// The effective determinism mode after stack > tenant > global resolution
+    pub effective_determinism_mode: DeterminismMode,
+    /// Whether strict mode is active (for worker/coordinator behavior)
+    pub strict_mode: bool,
+    /// Resolved routing policy knobs (carry-forward, not enforced yet)
+    pub routing: RoutingPolicyResolved,
+    /// Resolved golden-run policy knobs (carry-forward, not enforced yet)
+    pub golden: GoldenPolicyResolved,
+}
+
+/// Resolve execution policy for a tenant's inference request
+///
+/// Combines:
+/// - Database-stored execution policy (determinism, routing, golden)
+/// - Config-level defaults (use_session_stack_for_routing, global determinism mode)
+/// - Stack-level overrides (determinism_mode on the stack)
+///
+/// Returns a unified ResolvedExecutionPolicy that can be used throughout the
+/// inference path.
+pub async fn resolve_tenant_execution_policy(
+    db: &adapteros_db::Db,
+    config: &crate::state::ApiConfig,
+    tenant_id: &str,
+    stack_determinism_mode: Option<&str>,
+) -> Result<ResolvedExecutionPolicy, InferenceError> {
+    // 1. Fetch tenant execution policy (or permissive default)
+    let policy = db
+        .get_execution_policy_or_default(tenant_id)
+        .await
+        .map_err(|e| InferenceError::WorkerError(format!("Failed to load execution policy: {}", e)))?;
+
+    // 2. Get global determinism mode from config
+    let global_mode = config
+        .general
+        .as_ref()
+        .and_then(|g| g.determinism_mode.clone())
+        .unwrap_or_else(|| "besteffort".to_string());
+
+    // 3. Resolve determinism mode (stack > tenant > global)
+    let effective_determinism_mode = resolve_determinism_mode(
+        stack_determinism_mode,
+        Some(policy.determinism.default_mode.as_str()),
+        global_mode.as_str(),
+    );
+
+    // 4. Compute strict mode
+    let strict_mode = compute_strict_mode(effective_determinism_mode, policy.determinism.allow_fallback);
+
+    // 5. Resolve routing policy knobs
+    let routing = RoutingPolicyResolved {
+        use_session_stack_for_routing: config.use_session_stack_for_routing,
+        // Per Bundle A: pins outside effective set are never allowed
+        allow_pins_outside_effective_set: false,
+    };
+
+    // 6. Resolve golden policy knobs from policy or defaults
+    let golden = if let Some(ref golden_policy) = policy.golden {
+        GoldenPolicyResolved {
+            fail_on_drift: golden_policy.fail_on_drift,
+            golden_baseline_id: golden_policy.golden_baseline_id.clone(),
+            epsilon_threshold: golden_policy.epsilon_threshold,
+        }
+    } else {
+        GoldenPolicyResolved::default()
+    };
+
+    Ok(ResolvedExecutionPolicy {
+        policy,
+        effective_determinism_mode,
+        strict_mode,
+        routing,
+        golden,
+    })
 }
 
 /// Inference core that enforces router execution.
@@ -77,14 +330,14 @@ impl<'a> InferenceCore<'a> {
     ///
     /// # Arguments
     /// * `request` - The unified internal inference request
-    /// * `replay_context` - Optional replay context for deterministic replay (PRD-02)
+    /// * `replay_context` - Optional replay context for deterministic replay
     ///
     /// # Returns
     /// * `Ok(InferenceResult)` - Successful inference result
     /// * `Err(InferenceError)` - Error during inference
     pub async fn route_and_infer(
         &self,
-        request: InferenceRequestInternal,
+        mut request: InferenceRequestInternal,
         replay_context: Option<ReplayContext>,
     ) -> Result<InferenceResult, InferenceError> {
         let start_time = std::time::Instant::now();
@@ -100,6 +353,69 @@ impl<'a> InferenceCore<'a> {
             );
         }
 
+        // 0. Preload chat session (for pinned adapters and optional stack fallback)
+        let session = if let Some(ref session_id) = request.session_id {
+            match self.state.db.get_chat_session(session_id).await {
+                Ok(Some(session)) => {
+                    if session.tenant_id != request.cpid {
+                        return Err(InferenceError::PermissionDenied(format!(
+                            "Session '{}' does not belong to tenant '{}'",
+                            session_id, request.cpid
+                        )));
+                    }
+                    Some(session)
+                }
+                Ok(None) => {
+                    debug!(session_id = %session_id, "Session not found for request");
+                    None
+                }
+                Err(e) => {
+                    warn!(
+                        session_id = %session_id,
+                        error = %e,
+                        "Failed to fetch session for pinned adapters/stack"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // 0.5 Resolve effective adapter set and stack metadata
+        self.resolve_effective_adapters(&mut request, session.as_ref())
+            .await?;
+
+        // 0.6 Resolve execution policy (determinism, routing, golden)
+        // Uses the unified resolve_tenant_execution_policy function which handles:
+        // - Database-stored execution policy
+        // - Config-level defaults
+        // - Stack-level overrides
+        let config = self
+            .state
+            .config
+            .read()
+            .ok()
+            .map(|guard| (*guard).clone())
+            .unwrap_or_default();
+
+        let resolved_policy = resolve_tenant_execution_policy(
+            &self.state.db,
+            &config,
+            &request.cpid,
+            request.stack_determinism_mode.as_deref(),
+        )
+        .await?;
+
+        // Validate strict mode constraints (seed required for strict mode)
+        validate_strict_mode_constraints(resolved_policy.effective_determinism_mode, request.seed)?;
+        request.determinism_mode = Some(resolved_policy.effective_determinism_mode.as_str().to_string());
+
+        // Extract values for use later in the function
+        let resolved_mode = resolved_policy.effective_determinism_mode;
+        let strict_mode = resolved_policy.strict_mode;
+        let execution_policy = resolved_policy.policy;
+
         // 0. Validate adapters are loadable (not archived/purged)
         // This is a defense-in-depth check - handlers should also validate
         self.validate_adapters_loadable(&request).await?;
@@ -113,7 +429,7 @@ impl<'a> InferenceCore<'a> {
         });
 
         // 1. Resolve worker UDS path
-        // For replay: enforce manifest/backend constraints (PRD-02)
+        // For replay: enforce manifest/backend constraints
         // For normal: use standard tenant-based resolution
         let uds_path = if let Some(ref ctx) = replay_context {
             self.resolve_worker_path_for_replay(
@@ -147,14 +463,20 @@ impl<'a> InferenceCore<'a> {
         // │ - Non-pinned adapters can still be selected with high scores    │
         // │ - Unavailable pinned adapters are tracked for UI warning        │
         // └─────────────────────────────────────────────────────────────────┘
-        let (pinned_adapter_ids, unavailable_pinned_adapters) = if let Some(ref session_id) =
-            request.session_id
+        let (pinned_adapter_ids, unavailable_pinned_adapters) = if let Some(session) =
+            session.as_ref()
         {
-            // Use request.pinned_adapter_ids if already set, otherwise fetch from session
             let pinned_ids = if request.pinned_adapter_ids.is_some() {
                 request.pinned_adapter_ids.clone()
             } else {
-                // Fetch session to get pinned adapter IDs
+                parse_pinned_adapter_ids(session.pinned_adapter_ids.as_deref())
+            };
+            (pinned_ids, None::<Vec<String>>)
+        } else if let Some(ref session_id) = request.session_id {
+            // Fallback: session not preloaded (shouldn't happen, but keep legacy path)
+            let pinned_ids = if request.pinned_adapter_ids.is_some() {
+                request.pinned_adapter_ids.clone()
+            } else {
                 match self.state.db.get_chat_session(session_id).await {
                     Ok(Some(session)) => {
                         parse_pinned_adapter_ids(session.pinned_adapter_ids.as_deref())
@@ -170,17 +492,15 @@ impl<'a> InferenceCore<'a> {
                 }
             };
 
-            // Compute unavailable pinned adapters
-            // Note: We use adapters_used from the response to check availability.
-            // For now, we track pinned IDs and compute unavailable after inference.
-            // This is a simplification - full availability check would require
-            // querying the manifest before inference.
             (pinned_ids, None::<Vec<String>>)
         } else {
             (None, None)
         };
 
-        // 3. Create worker request with full sampling parameters (PRD-02: determinism)
+        // Enforce pinned adapters must be within effective set (if provided)
+        validate_pinned_within_effective_set(&request.effective_adapter_ids, &pinned_adapter_ids)?;
+
+        // 3. Create worker request with full sampling parameters
         // ┌─────────────────────────────────────────────────────────────────┐
         // │ Adapter Pipeline: Worker will apply K-sparse routing            │
         // │ - Adapters provide persistent learned behavior (trained weights)│
@@ -193,12 +513,17 @@ impl<'a> InferenceCore<'a> {
             prompt: augmented_prompt.clone(),
             max_tokens: request.max_tokens,
             require_evidence: request.require_evidence,
+            stack_id: request.stack_id.clone(),
+            stack_version: request.stack_version,
             temperature: request.temperature,
             top_k: request.top_k,
             top_p: request.top_p,
             seed: request.seed,
             router_seed: request.router_seed.clone(),
             pinned_adapter_ids: pinned_adapter_ids.clone(),
+            strict_mode: Some(strict_mode),
+            determinism_mode: request.determinism_mode.clone(),
+            effective_adapter_ids: request.effective_adapter_ids.clone(),
         };
 
         // 4. Call worker via UDS
@@ -232,6 +557,25 @@ impl<'a> InferenceCore<'a> {
         // 7. Log inference completion
         let latency_ms = start_time.elapsed().as_millis() as u64;
         let response_text = worker_response.text.clone().unwrap_or_default();
+        let prompt_truncated = augmented_prompt.len() > MAX_REPLAY_TEXT_SIZE;
+        let response_truncated = response_text.len() > MAX_REPLAY_TEXT_SIZE;
+        let backend_used = worker_response
+            .backend_used
+            .clone()
+            .or_else(|| self.state.backend_name.clone());
+        let fallback_triggered = worker_response.fallback_triggered;
+        let determinism_mode_applied = worker_response
+            .determinism_mode_applied
+            .clone()
+            .or_else(|| request.determinism_mode.clone())
+            .unwrap_or_else(|| resolved_mode.as_str().to_string());
+        let replay_guarantee = compute_replay_guarantee(
+            resolved_mode,
+            fallback_triggered,
+            prompt_truncated,
+            response_truncated,
+            request.seed.is_some(),
+        );
 
         if is_replay {
             info!(
@@ -250,7 +594,7 @@ impl<'a> InferenceCore<'a> {
             );
         }
 
-        // 8. Capture replay metadata (PRD-02: deterministic replay)
+        // 8. Capture replay metadata for deterministic replay
         // ┌─────────────────────────────────────────────────────────────────┐
         // │ Combined Evidence: Both RAG and adapter decisions are recorded  │
         // │ - rag_snapshot_hash: BLAKE3 hash of sorted doc hashes           │
@@ -268,8 +612,16 @@ impl<'a> InferenceCore<'a> {
                 &request,
                 &augmented_prompt,
                 &response_text,
+                backend_used.as_deref(),
                 &rag_evidence,
                 latency_ms,
+                prompt_truncated,
+                response_truncated,
+                &determinism_mode_applied,
+                fallback_triggered,
+                &replay_guarantee,
+                Some(&execution_policy.id),
+                Some(execution_policy.version),
             )
             .await;
         } else {
@@ -279,14 +631,14 @@ impl<'a> InferenceCore<'a> {
             );
         }
 
-        // 9. Get unavailable pinned adapters from worker response (CHAT-PIN-02, PRD-6A)
+        // 9. Get unavailable pinned adapters from worker response
         // The worker computes this by checking pinned IDs against loaded adapters
         let unavailable_pinned = worker_response
             .unavailable_pinned_adapters
             .clone()
             .or(unavailable_pinned_adapters);
 
-        // Compute pinned_routing_fallback based on unavailability (PRD-6A)
+        // Compute pinned_routing_fallback based on unavailability
         // - None: All pinned adapters were available (or no pins configured)
         // - "partial": Some pinned adapters unavailable, using available pins + stack
         // - "stack_only": All pinned adapters unavailable, routing uses stack only
@@ -309,7 +661,7 @@ impl<'a> InferenceCore<'a> {
             .clone()
             .or(pinned_routing_fallback);
 
-        // Log warning (not debug) when pinned adapters are missing for observability (PRD-6A)
+        // Log warning (not debug) when pinned adapters are missing for observability
         if let Some(ref unavailable) = unavailable_pinned {
             let fallback = pinned_routing_fallback.as_deref().unwrap_or("none");
             warn!(
@@ -322,7 +674,7 @@ impl<'a> InferenceCore<'a> {
                 "Pinned adapters unavailable - using fallback routing"
             );
 
-            // Emit structured telemetry event for missing pinned adapters (PRD-6A)
+            // Emit structured telemetry event for missing pinned adapters
             let identity = IdentityEnvelope::new(
                 request.cpid.clone(),
                 "inference_core".to_string(),
@@ -376,10 +728,15 @@ impl<'a> InferenceCore<'a> {
             request_id: request.request_id,
             unavailable_pinned_adapters: unavailable_pinned,
             pinned_routing_fallback,
+            effective_adapter_ids: request.effective_adapter_ids.clone(),
+            backend_used,
+            fallback_triggered,
+            determinism_mode_applied: Some(determinism_mode_applied),
+            replay_guarantee: Some(replay_guarantee),
         })
     }
 
-    /// Execute inference replay through the unified pipeline (PRD-02)
+    /// Execute inference replay through the unified pipeline
     ///
     /// This is a convenience wrapper for `route_and_infer` with replay context.
     /// It enforces:
@@ -410,22 +767,20 @@ impl<'a> InferenceCore<'a> {
         &self,
         request: &InferenceRequestInternal,
     ) -> Result<(), InferenceError> {
-        // Collect all adapter IDs from the request
-        let adapter_ids: Vec<&str> = request
-            .adapters
-            .as_ref()
-            .map(|a| a.iter().map(|s| s.as_str()).collect())
-            .unwrap_or_default();
-
-        // Also check adapter_stack if present
-        let stack_ids: Vec<&str> = request
-            .adapter_stack
-            .as_ref()
-            .map(|a| a.iter().map(|s| s.as_str()).collect())
-            .unwrap_or_default();
+        // Collect adapter IDs with priority: effective set > adapters > adapter_stack
+        let adapter_ids: Vec<&str> = if let Some(effective) = request.effective_adapter_ids.as_ref()
+        {
+            effective.iter().map(|s| s.as_str()).collect()
+        } else if let Some(adapters) = request.adapters.as_ref() {
+            adapters.iter().map(|s| s.as_str()).collect()
+        } else if let Some(stack_list) = request.adapter_stack.as_ref() {
+            stack_list.iter().map(|s| s.as_str()).collect()
+        } else {
+            Vec::new()
+        };
 
         // Check each adapter
-        for adapter_id in adapter_ids.into_iter().chain(stack_ids.into_iter()) {
+        for adapter_id in adapter_ids {
             match self.state.db.is_adapter_loadable(adapter_id).await {
                 Ok(true) => continue, // Adapter is loadable
                 Ok(false) => {
@@ -440,13 +795,15 @@ impl<'a> InferenceCore<'a> {
                     )));
                 }
                 Err(e) => {
-                    // Log but don't fail - adapter might not exist yet or DB error
-                    // The worker will handle the actual adapter resolution
-                    debug!(
+                    warn!(
                         adapter_id = %adapter_id,
                         error = %e,
-                        "Could not verify adapter loadability (may be resolved by worker)"
+                        "Rejected inference request: adapter not found or not loadable"
                     );
+                    return Err(InferenceError::AdapterNotFound(format!(
+                        "Adapter '{}' is not loadable: {}",
+                        adapter_id, e
+                    )));
                 }
             }
         }
@@ -454,7 +811,103 @@ impl<'a> InferenceCore<'a> {
         Ok(())
     }
 
-    /// Resolve the worker UDS path from database or environment (PRD-01)
+    /// Resolve the effective adapter set for this request based on priority:
+    /// 1) Explicit adapters (or legacy adapter_stack list)
+    /// 2) stack_id
+    /// 3) session.stack_id when enabled via config
+    /// 4) Fallback to manifest (None effective set)
+    async fn resolve_effective_adapters(
+        &self,
+        request: &mut InferenceRequestInternal,
+        session: Option<&ChatSession>,
+    ) -> Result<(), InferenceError> {
+        // 1. Explicit adapters take precedence
+        if let Some(adapters) = request.adapters.as_ref() {
+            if adapters.is_empty() {
+                return Err(InferenceError::ValidationError(
+                    "adapters cannot be empty".to_string(),
+                ));
+            }
+            request.effective_adapter_ids = Some(adapters.clone());
+            return Ok(());
+        }
+
+        // 1b. Legacy adapter_stack acts as explicit adapter list
+        if let Some(stack_list) = request.adapter_stack.as_ref() {
+            if stack_list.is_empty() {
+                return Err(InferenceError::ValidationError(
+                    "adapter_stack cannot be empty".to_string(),
+                ));
+            }
+            // Prefer explicit stack_id going forward; adapter_stack is deprecated
+            request.effective_adapter_ids = Some(stack_list.clone());
+            return Ok(());
+        }
+
+        // 2. stack_id provided on request
+        let use_session_stack = self
+            .state
+            .config
+            .read()
+            .map(|c| c.use_session_stack_for_routing)
+            .unwrap_or(false);
+
+        let stack_id_candidate = request.stack_id.clone().or_else(|| {
+            if use_session_stack {
+                session.and_then(|s| s.stack_id.clone())
+            } else {
+                None
+            }
+        });
+
+        if let Some(stack_id) = stack_id_candidate {
+            let stack = self
+                .state
+                .db
+                .get_stack(&request.cpid, &stack_id)
+                .await
+                .map_err(|e| {
+                    InferenceError::AdapterNotFound(format!(
+                        "Failed to load stack '{}': {}",
+                        stack_id, e
+                    ))
+                })?
+                .ok_or_else(|| {
+                    InferenceError::AdapterNotFound(format!(
+                        "Stack '{}' not found for tenant {}",
+                        stack_id, request.cpid
+                    ))
+                })?;
+
+            let adapter_ids: Vec<String> =
+                serde_json::from_str(&stack.adapter_ids_json).map_err(|e| {
+                    InferenceError::ValidationError(format!(
+                        "Invalid adapter_ids_json for stack {}: {}",
+                        stack_id, e
+                    ))
+                })?;
+
+            if adapter_ids.is_empty() {
+                return Err(InferenceError::ValidationError(format!(
+                    "Stack '{}' has no adapters configured",
+                    stack_id
+                )));
+            }
+
+            request.stack_id = Some(stack_id);
+            request.stack_version = Some(stack.version);
+            request.stack_determinism_mode = stack.determinism_mode.clone();
+            request.effective_adapter_ids = Some(adapter_ids);
+            return Ok(());
+        }
+
+        // 4. Fallback: no explicit set -> None (use manifest-wide in worker)
+        request.effective_adapter_ids = None;
+        request.stack_version = None;
+        Ok(())
+    }
+
+    /// Resolve the worker UDS path from database or environment
     ///
     /// Uses manifest-based routing to select a compatible worker:
     /// 1. If AppState has a manifest_hash, filters workers by that hash + tenant
@@ -466,7 +919,7 @@ impl<'a> InferenceCore<'a> {
         // Get the current manifest hash from AppState (if available)
         let required_manifest = self.state.manifest_hash.as_deref();
 
-        // Get workers - filter by manifest if we have one (PRD-01: manifest binding)
+        // Get workers - filter by manifest if we have one (manifest binding)
         let workers = if let Some(manifest_hash) = required_manifest {
             // Use manifest-aware worker selection
             self.state
@@ -482,7 +935,7 @@ impl<'a> InferenceCore<'a> {
                 InferenceError::WorkerError(format!("Failed to list workers: {}", e))
             })?;
 
-            // Filter by tenant (PRD-01: tenant isolation)
+            // Filter by tenant (tenant isolation)
             all_workers
                 .into_iter()
                 .filter(|w| w.tenant_id == tenant_id)
@@ -528,7 +981,7 @@ impl<'a> InferenceCore<'a> {
             return Ok(PathBuf::from(socket_path));
         }
 
-        // No compatible worker available - build detailed error (PRD-01)
+        // No compatible worker available - build detailed error
         // Determine the specific reason for failure
         let (all_count, reason) = {
             // Get all serving workers (already filtered by schema version)
@@ -600,7 +1053,7 @@ impl<'a> InferenceCore<'a> {
         })
     }
 
-    /// Resolve worker UDS path for replay with manifest/backend constraints (PRD-02)
+    /// Resolve worker UDS path for replay with manifest/backend constraints
     ///
     /// Unlike `resolve_worker_path()`, this method enforces strict compatibility:
     /// - Current loaded manifest_hash must match required
@@ -794,7 +1247,7 @@ impl<'a> InferenceCore<'a> {
     /// 1. Include detailed routing decisions in `WorkerInferResponse`, or
     /// 2. Write routing decisions directly to DB from the worker
     ///
-    /// For PRD-05, routing is still _enforced_ (happens in worker's inference_pipeline),
+    /// Routing is still _enforced_ (happens in worker's inference_pipeline),
     /// but detailed decision records are not captured in the control plane.
     fn extract_router_decisions(
         &self,
@@ -838,7 +1291,7 @@ impl<'a> InferenceCore<'a> {
         }
     }
 
-    /// Capture replay metadata for deterministic replay (PRD-02)
+    /// Capture replay metadata for deterministic replay
     ///
     /// Stores all parameters needed to replay this inference exactly:
     /// - Sampling parameters (temperature, top_k, top_p, max_tokens, seed)
@@ -860,8 +1313,16 @@ impl<'a> InferenceCore<'a> {
         request: &InferenceRequestInternal,
         prompt_text: &str,
         response_text: &str,
+        backend_used: Option<&str>,
         rag_evidence: &Option<RagEvidence>,
         latency_ms: u64,
+        prompt_truncated: bool,
+        response_truncated: bool,
+        determinism_mode: &str,
+        fallback_triggered: bool,
+        replay_guarantee: &ReplayGuarantee,
+        execution_policy_id: Option<&str>,
+        execution_policy_version: Option<i64>,
     ) {
         // Get manifest hash from state (current loaded manifest)
         let manifest_hash = self
@@ -872,12 +1333,16 @@ impl<'a> InferenceCore<'a> {
             .to_string();
 
         // Get backend from state
-        let backend = self
-            .state
-            .backend_name
-            .as_deref()
-            .unwrap_or("unknown")
-            .to_string();
+        let backend = backend_used
+            .map(|s| s.to_string())
+            .or_else(|| self.state.backend_name.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let replay_guarantee_str = match replay_guarantee {
+            ReplayGuarantee::Exact => "exact",
+            ReplayGuarantee::Approximate => "approximate",
+            ReplayGuarantee::None => "none",
+        };
 
         // Build sampling params JSON
         let sampling_params = SamplingParams {
@@ -917,8 +1382,6 @@ impl<'a> InferenceCore<'a> {
         };
 
         // Truncate prompt and response if needed
-        let prompt_truncated = prompt_text.len() > MAX_REPLAY_TEXT_SIZE;
-        let response_truncated = response_text.len() > MAX_REPLAY_TEXT_SIZE;
         let prompt_for_storage = if prompt_truncated {
             prompt_text.chars().take(MAX_REPLAY_TEXT_SIZE).collect()
         } else {
@@ -930,8 +1393,11 @@ impl<'a> InferenceCore<'a> {
             response_text.to_string()
         };
 
-        // Get adapter IDs from request or default to empty
-        let adapter_ids = request.adapters.clone();
+        // Get adapter IDs from effective set (preferred) or requested adapters
+        let adapter_ids = request
+            .effective_adapter_ids
+            .clone()
+            .or_else(|| request.adapters.clone());
 
         // Determine replay status based on truncation
         let replay_status = if prompt_truncated || response_truncated {
@@ -963,6 +1429,11 @@ impl<'a> InferenceCore<'a> {
             replay_status: Some(replay_status.to_string()),
             latency_ms: Some(latency_ms as i32),
             tokens_generated,
+            determinism_mode: Some(determinism_mode.to_string()),
+            fallback_triggered,
+            replay_guarantee: Some(replay_guarantee_str.to_string()),
+            execution_policy_id: execution_policy_id.map(|s| s.to_string()),
+            execution_policy_version: execution_policy_version.map(|v| v as i32),
         };
 
         // Store to database (best effort - don't fail inference on capture error)
@@ -970,7 +1441,7 @@ impl<'a> InferenceCore<'a> {
             warn!(
                 request_id = %request.request_id,
                 error = %e,
-                "Failed to capture replay metadata (PRD-02)"
+                "Failed to capture replay metadata"
             );
         } else {
             debug!(
@@ -984,10 +1455,20 @@ impl<'a> InferenceCore<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::PathsConfig;
+    use crate::state::{ApiConfig, MetricsConfig};
+    use crate::telemetry::MetricsRegistry;
+    use adapteros_db::chat_sessions::CreateChatSessionParams;
+    use adapteros_db::traits::CreateStackRequest;
+    use adapteros_db::Db;
+    use adapteros_metrics_exporter::MetricsExporter;
+    use adapteros_telemetry::MetricsCollector;
+    use std::sync::{Arc, RwLock};
+    use uuid::Uuid;
 
     #[test]
     fn test_replay_context_structure() {
-        // Verify ReplayContext has all required fields for PRD-02
+        // Verify ReplayContext has all required fields
         let ctx = ReplayContext {
             original_inference_id: "test-123".to_string(),
             required_manifest_hash: "abc123".to_string(),
@@ -1010,6 +1491,116 @@ mod tests {
             skip_metadata_capture: false,
         };
         assert!(!ctx.skip_metadata_capture);
+    }
+
+    async fn insert_stack(db: &Db, tenant: &str, adapter_ids: &[&str]) -> String {
+        let req = CreateStackRequest {
+            tenant_id: tenant.to_string(),
+            name: format!("stack-{}", Uuid::now_v7()),
+            description: None,
+            adapter_ids: adapter_ids.iter().map(|s| s.to_string()).collect(),
+            workflow_type: None,
+            determinism_mode: None,
+        };
+        db.insert_stack(&req).await.expect("insert stack")
+    }
+
+    #[tokio::test]
+    async fn test_resolve_effective_adapters_adapters_only() {
+        let state = build_test_state(false).await;
+        let core = InferenceCore::new(&state);
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "hi".to_string());
+        req.adapters = Some(vec!["adapter-a".to_string(), "adapter-b".to_string()]);
+
+        core.resolve_effective_adapters(&mut req, None)
+            .await
+            .expect("resolve");
+
+        assert_eq!(
+            req.effective_adapter_ids,
+            Some(vec!["adapter-a".to_string(), "adapter-b".to_string()])
+        );
+        assert!(req.stack_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_effective_adapters_stack_only() {
+        let state = build_test_state(false).await;
+        let stack_id = insert_stack(&state.db, "tenant-1", &["adapter-a", "adapter-c"]).await;
+        let core = InferenceCore::new(&state);
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "hi".to_string());
+        req.stack_id = Some(stack_id.clone());
+
+        core.resolve_effective_adapters(&mut req, None)
+            .await
+            .expect("resolve");
+
+        assert_eq!(
+            req.effective_adapter_ids,
+            Some(vec!["adapter-a".to_string(), "adapter-c".to_string()])
+        );
+        assert_eq!(req.stack_id, Some(stack_id));
+        assert!(req.stack_version.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_session_stack_fallback_disabled() {
+        let state = build_test_state(false).await;
+        let session = adapteros_db::chat_sessions::ChatSession {
+            id: "s1".to_string(),
+            tenant_id: "tenant-1".to_string(),
+            user_id: None,
+            stack_id: Some("stack-session".to_string()),
+            collection_id: None,
+            name: "test".to_string(),
+            created_at: "now".to_string(),
+            last_activity_at: "now".to_string(),
+            metadata_json: None,
+            pinned_adapter_ids: None,
+        };
+        let core = InferenceCore::new(&state);
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "hi".to_string());
+        req.session_id = Some(session.id.clone());
+
+        core.resolve_effective_adapters(&mut req, Some(&session))
+            .await
+            .expect("resolve");
+
+        assert!(
+            req.effective_adapter_ids.is_none(),
+            "fallback disabled should not use session stack"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_session_stack_fallback_enabled() {
+        let state = build_test_state(true).await;
+        let stack_id = insert_stack(&state.db, "tenant-1", &["adapter-a", "adapter-c"]).await;
+        let session = adapteros_db::chat_sessions::ChatSession {
+            id: "s1".to_string(),
+            tenant_id: "tenant-1".to_string(),
+            user_id: None,
+            stack_id: Some(stack_id.clone()),
+            collection_id: None,
+            name: "test".to_string(),
+            created_at: "now".to_string(),
+            last_activity_at: "now".to_string(),
+            metadata_json: None,
+            pinned_adapter_ids: None,
+        };
+        let core = InferenceCore::new(&state);
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "hi".to_string());
+        req.session_id = Some(session.id.clone());
+
+        core.resolve_effective_adapters(&mut req, Some(&session))
+            .await
+            .expect("resolve");
+
+        assert_eq!(
+            req.effective_adapter_ids,
+            Some(vec!["adapter-a".to_string(), "adapter-c".to_string()])
+        );
+        assert_eq!(req.stack_id, Some(stack_id));
     }
 
     #[test]
@@ -1082,5 +1673,276 @@ mod tests {
         let required = "MLX";
         let current = "mlx";
         assert!(current.eq_ignore_ascii_case(required));
+    }
+
+    // =========================================================================
+    // Effective adapter set resolution tests (bundle A)
+    // =========================================================================
+    async fn build_test_state(use_session_stack: bool) -> AppState {
+        let db = Db::new_in_memory().await.unwrap();
+        // Seed tenant
+        adapteros_db::sqlx::query(
+            "INSERT OR IGNORE INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')",
+        )
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        let config = Arc::new(RwLock::new(ApiConfig {
+            metrics: MetricsConfig {
+                enabled: true,
+                bearer_token: "test".to_string(),
+            },
+            directory_analysis_timeout_secs: 120,
+            use_session_stack_for_routing: use_session_stack,
+            capacity_limits: Default::default(),
+            general: None,
+            server: Default::default(),
+            security: Default::default(),
+            performance: Default::default(),
+            paths: PathsConfig {
+                artifacts_root: "var/artifacts".into(),
+                bundles_root: "var/bundles".into(),
+                adapters_root: "var/adapters".into(),
+                plan_dir: "var/plan".into(),
+                datasets_root: "var/datasets".into(),
+                documents_root: "var/documents".into(),
+            },
+            chat_context: Default::default(),
+        }));
+
+        let metrics_exporter = Arc::new(MetricsExporter::new(vec![0.1]).unwrap());
+        let metrics_collector = Arc::new(MetricsCollector::new(Default::default()));
+        let metrics_registry = Arc::new(MetricsRegistry::new());
+        let uma_monitor = Arc::new(adapteros_lora_worker::memory::UmaPressureMonitor::new(
+            15, None,
+        ));
+
+        AppState::new(
+            db,
+            b"test-jwt-secret-for-effective-adapters".to_vec(),
+            config,
+            metrics_exporter,
+            metrics_collector,
+            metrics_registry,
+            uma_monitor,
+        )
+    }
+
+    #[tokio::test]
+    async fn test_effective_adapters_explicit_list() {
+        let state = build_test_state(false).await;
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+        req.adapters = Some(vec!["adapter-a".to_string(), "adapter-b".to_string()]);
+
+        let core = InferenceCore::new(&state);
+        core.resolve_effective_adapters(&mut req, None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            req.effective_adapter_ids,
+            Some(vec!["adapter-a".to_string(), "adapter-b".to_string()])
+        );
+        assert!(req.stack_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_effective_adapters_from_stack_id() {
+        let state = build_test_state(false).await;
+        let stack_req = CreateStackRequest {
+            tenant_id: "tenant-1".to_string(),
+            name: "stack-one".to_string(),
+            description: None,
+            adapter_ids: vec!["stack-a".to_string(), "stack-b".to_string()],
+            workflow_type: None,
+            determinism_mode: None,
+        };
+        let stack_id = state.db.insert_stack(&stack_req).await.unwrap();
+
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+        req.stack_id = Some(stack_id.clone());
+
+        let core = InferenceCore::new(&state);
+        core.resolve_effective_adapters(&mut req, None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            req.effective_adapter_ids,
+            Some(vec!["stack-a".to_string(), "stack-b".to_string()])
+        );
+        assert_eq!(req.stack_id, Some(stack_id));
+        assert_eq!(req.stack_version, Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_stack_with_pinned_adapters_subset_allowed() {
+        let state = build_test_state(false).await;
+        let stack_req = CreateStackRequest {
+            tenant_id: "tenant-1".to_string(),
+            name: "stack-pinned".to_string(),
+            description: None,
+            adapter_ids: vec!["stack-a".to_string(), "stack-b".to_string()],
+            workflow_type: None,
+            determinism_mode: None,
+        };
+        let stack_id = state.db.insert_stack(&stack_req).await.unwrap();
+
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+        req.stack_id = Some(stack_id);
+        req.pinned_adapter_ids = Some(vec!["stack-b".to_string()]);
+
+        let core = InferenceCore::new(&state);
+        core.resolve_effective_adapters(&mut req, None)
+            .await
+            .unwrap();
+
+        // Pinned adapter is part of the resolved effective set, so validation should pass
+        validate_pinned_within_effective_set(&req.effective_adapter_ids, &req.pinned_adapter_ids)
+            .expect("pinned adapters should be allowed");
+    }
+
+    #[tokio::test]
+    async fn test_effective_adapters_from_session_stack_when_enabled() {
+        let state = build_test_state(true).await;
+        let stack_req = CreateStackRequest {
+            tenant_id: "tenant-1".to_string(),
+            name: "stack-session".to_string(),
+            description: None,
+            adapter_ids: vec!["s1".to_string(), "s2".to_string()],
+            workflow_type: None,
+            determinism_mode: None,
+        };
+        let stack_id = state.db.insert_stack(&stack_req).await.unwrap();
+
+        // Create a session that references the stack
+        let session_id = "session-1".to_string();
+        let session_params = CreateChatSessionParams {
+            id: session_id.clone(),
+            tenant_id: "tenant-1".to_string(),
+            user_id: None,
+            stack_id: Some(stack_id.clone()),
+            collection_id: None,
+            name: "test".to_string(),
+            metadata_json: None,
+            pinned_adapter_ids: None,
+        };
+        state.db.create_chat_session(session_params).await.unwrap();
+        let session = state
+            .db
+            .get_chat_session(&session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+        req.session_id = Some(session_id.clone());
+
+        let core = InferenceCore::new(&state);
+        core.resolve_effective_adapters(&mut req, Some(&session))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            req.effective_adapter_ids,
+            Some(vec!["s1".to_string(), "s2".to_string()])
+        );
+        assert_eq!(req.stack_id, Some(stack_id));
+    }
+
+    #[tokio::test]
+    async fn test_session_stack_ignored_when_disabled() {
+        let state = build_test_state(false).await;
+        let stack_req = CreateStackRequest {
+            tenant_id: "tenant-1".to_string(),
+            name: "stack-session".to_string(),
+            description: None,
+            adapter_ids: vec!["s1".to_string()],
+            workflow_type: None,
+            determinism_mode: None,
+        };
+        let stack_id = state.db.insert_stack(&stack_req).await.unwrap();
+
+        let session_id = "session-2".to_string();
+        let session_params = CreateChatSessionParams {
+            id: session_id.clone(),
+            tenant_id: "tenant-1".to_string(),
+            user_id: None,
+            stack_id: Some(stack_id),
+            collection_id: None,
+            name: "test".to_string(),
+            metadata_json: None,
+            pinned_adapter_ids: None,
+        };
+        state.db.create_chat_session(session_params).await.unwrap();
+        let session = state
+            .db
+            .get_chat_session(&session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+        req.session_id = Some(session_id);
+
+        let core = InferenceCore::new(&state);
+        core.resolve_effective_adapters(&mut req, Some(&session))
+            .await
+            .unwrap();
+
+        // Without the flag, we should not inherit session.stack_id
+        assert!(req.effective_adapter_ids.is_none());
+        assert!(req.stack_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_pinned_not_in_effective_set_rejected_in_core() {
+        let state = build_test_state(false).await;
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+        req.adapters = Some(vec!["adapter-a".to_string()]);
+        req.pinned_adapter_ids = Some(vec!["adapter-b".to_string()]);
+
+        let core = InferenceCore::new(&state);
+        core.resolve_effective_adapters(&mut req, None)
+            .await
+            .unwrap();
+
+        let err = validate_pinned_within_effective_set(
+            &req.effective_adapter_ids,
+            &req.pinned_adapter_ids,
+        )
+        .expect_err("pinned adapter not in effective set should be rejected");
+
+        match err {
+            InferenceError::ValidationError(msg) => {
+                assert!(
+                    msg.contains("adapter-b"),
+                    "error message should name the pinned adapter: {}",
+                    msg
+                );
+            }
+            other => panic!("expected ValidationError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bad_adapter_id_rejected() {
+        let state = build_test_state(false).await;
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+        req.adapters = Some(vec!["missing-adapter".to_string()]);
+
+        let core = InferenceCore::new(&state);
+        core.resolve_effective_adapters(&mut req, None)
+            .await
+            .unwrap();
+
+        let err = core.validate_adapters_loadable(&req).await.unwrap_err();
+        match err {
+            InferenceError::AdapterNotFound(msg) => {
+                assert!(msg.contains("missing-adapter"));
+            }
+            other => panic!("expected AdapterNotFound, got {:?}", other),
+        }
     }
 }
