@@ -22,6 +22,9 @@ use std::path::Path;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
+/// Shared kernel object type with Send + Sync for use across async boundaries
+pub type KernelBox = Box<dyn FusedKernels + Send + Sync>;
+
 /// Per-worker model cache singleton
 ///
 /// This cache ensures that the same model is only loaded once per worker process.
@@ -298,7 +301,7 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
 /// # Ok(())
 /// # }
 /// ```
-pub fn create_backend_from_config(config: &ModelConfig) -> Result<Box<dyn FusedKernels>> {
+pub fn create_backend_from_config(config: &ModelConfig) -> Result<KernelBox> {
     let choice = match config.backend {
         BackendPreference::Auto => BackendChoice::Auto,
         BackendPreference::CoreML => BackendChoice::CoreML,
@@ -325,10 +328,7 @@ pub fn create_backend_from_config(config: &ModelConfig) -> Result<Box<dyn FusedK
 /// let backend = create_backend_with_model(BackendChoice::Mlx, Path::new("./var/model-cache/models/qwen2.5-7b-instruct-bf16"))?;
 /// # Ok::<(), adapteros_core::AosError>(())
 /// ```
-pub fn create_backend_with_model(
-    choice: BackendChoice,
-    model_path: &Path,
-) -> Result<Box<dyn FusedKernels>> {
+pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Result<KernelBox> {
     match choice {
         BackendChoice::Auto => {
             let capabilities = detect_capabilities();
@@ -436,7 +436,7 @@ pub fn create_backend_with_model_and_hash(
     choice: BackendChoice,
     model_path: &Path,
     manifest_hash: Option<&B3Hash>,
-) -> Result<Box<dyn FusedKernels>> {
+) -> Result<KernelBox> {
     match choice {
         BackendChoice::Mlx => create_mlx_backend(model_path, manifest_hash),
         BackendChoice::Metal => create_metal_backend(model_path, manifest_hash),
@@ -447,10 +447,7 @@ pub fn create_backend_with_model_and_hash(
 
 /// Internal helper to create MLX backend with optional manifest hash
 #[cfg(feature = "multi-backend")]
-fn create_mlx_backend(
-    model_path: &Path,
-    manifest_hash: Option<&B3Hash>,
-) -> Result<Box<dyn FusedKernels>> {
+fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Result<KernelBox> {
     use adapteros_lora_mlx_ffi::{
         mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
     };
@@ -470,20 +467,22 @@ fn create_mlx_backend(
 
     // Create cache key - prefer manifest hash when available for canonical identity
     let cache_key = ModelKey::from_manifest_or_path(BackendType::Mlx, manifest_hash, model_path)?;
-    let model_arc = MODEL_CACHE.get_or_load(&cache_key, || {
-        let model = MLXFFIModel::load(&*model_path_str).map_err(|e| {
-            AosError::Config(format!(
-                "Failed to load MLX model from '{}': {}",
-                model_path_str, e
-            ))
-        })?;
-        // Estimate memory: use config if available, otherwise estimate from architecture
-        let memory_bytes = estimate_mlx_model_memory(model_path);
-        Ok((ModelHandle::Mlx(Arc::new(model)), memory_bytes))
-    })?.as_mlx_model()?;
+    let model_arc = MODEL_CACHE
+        .get_or_load(&cache_key, || {
+            let model = MLXFFIModel::load(&*model_path_str).map_err(|e| {
+                AosError::Config(format!(
+                    "Failed to load MLX model from '{}': {}",
+                    model_path_str, e
+                ))
+            })?;
+            // Estimate memory: use config if available, otherwise estimate from architecture
+            let memory_bytes = estimate_mlx_model_memory(model_path);
+            Ok((ModelHandle::Mlx(Arc::new(model)), memory_bytes))
+        })?
+        .as_mlx_model()?;
 
     // Create backend with or without manifest hash for deterministic seeding
-    let backend: Box<dyn FusedKernels> = if let Some(hash) = manifest_hash {
+    let backend: KernelBox = if let Some(hash) = manifest_hash {
         info!("Creating MLX backend with HKDF-seeded determinism from manifest hash");
         Box::new(
             MLXFFIBackend::with_manifest_hash_arc(model_arc, hash.clone()).map_err(|e| {
@@ -511,7 +510,7 @@ fn estimate_mlx_model_memory(model_path: &Path) -> u64 {
             * config.num_hidden_layers as u64
             * 12  // Approximate number of weight matrices per layer
             * config.hidden_size as u64
-            / 1000;  // Normalize
+            / 1000; // Normalize
         let memory_estimate = params_estimate * 4; // 4 bytes per f32 param
 
         // Add 10% overhead
@@ -519,14 +518,11 @@ fn estimate_mlx_model_memory(model_path: &Path) -> u64 {
     }
 
     // Fallback: assume 7B model (~14GB for fp16, ~28GB for fp32)
-    14 * 1024 * 1024 * 1024  // 14GB default estimate
+    14 * 1024 * 1024 * 1024 // 14GB default estimate
 }
 
 #[cfg(not(feature = "multi-backend"))]
-fn create_mlx_backend(
-    _model_path: &Path,
-    _manifest_hash: Option<&B3Hash>,
-) -> Result<Box<dyn FusedKernels>> {
+fn create_mlx_backend(_model_path: &Path, _manifest_hash: Option<&B3Hash>) -> Result<KernelBox> {
     Err(AosError::Config(
         "MLX backend requires 'multi-backend' feature to be enabled. \
          Build with: cargo build --features multi-backend"
@@ -536,10 +532,7 @@ fn create_mlx_backend(
 
 /// Internal helper to create Metal backend with optional manifest hash for cache key
 #[cfg(target_os = "macos")]
-fn create_metal_backend(
-    model_path: &Path,
-    manifest_hash: Option<&B3Hash>,
-) -> Result<Box<dyn FusedKernels>> {
+fn create_metal_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Result<KernelBox> {
     use adapteros_lora_kernel_mtl::{GqaConfig, MetalKernels};
     info!(
         model_path = %model_path.display(),
@@ -562,15 +555,17 @@ fn create_metal_backend(
 
     // Create cache key - prefer manifest hash when available for canonical identity
     let cache_key = ModelKey::from_manifest_or_path(BackendType::Metal, manifest_hash, model_path)?;
-    let model_bytes_arc = MODEL_CACHE.get_or_load(&cache_key, || {
-        let bytes = load_model_bytes(model_path)?;
-        let memory_bytes = bytes.len() as u64;
-        info!(
-            model_size_mb = memory_bytes / BYTES_PER_MB,
-            "Loaded model weights for Metal backend"
-        );
-        Ok((ModelHandle::Metal(Arc::new(bytes)), memory_bytes))
-    })?.as_metal_bytes()?;
+    let model_bytes_arc = MODEL_CACHE
+        .get_or_load(&cache_key, || {
+            let bytes = load_model_bytes(model_path)?;
+            let memory_bytes = bytes.len() as u64;
+            info!(
+                model_size_mb = memory_bytes / BYTES_PER_MB,
+                "Loaded model weights for Metal backend"
+            );
+            Ok((ModelHandle::Metal(Arc::new(bytes)), memory_bytes))
+        })?
+        .as_metal_bytes()?;
 
     // Create Metal backend
     let mut kernels = MetalKernels::new()?;
@@ -594,10 +589,7 @@ fn create_metal_backend(
 }
 
 #[cfg(not(target_os = "macos"))]
-fn create_metal_backend(
-    _model_path: &Path,
-    _manifest_hash: Option<&B3Hash>,
-) -> Result<Box<dyn FusedKernels>> {
+fn create_metal_backend(_model_path: &Path, _manifest_hash: Option<&B3Hash>) -> Result<KernelBox> {
     Err(AosError::Config("Metal backend requires macOS".to_string()))
 }
 
@@ -608,7 +600,7 @@ fn create_metal_backend(
 /// - For Mlx: Reads model path from `AOS_MODEL_PATH` env var, errors if not set
 ///
 /// For new code, prefer using `create_backend_from_config` or `create_backend_with_model`.
-pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
+pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
     match choice {
         BackendChoice::Auto => {
             let capabilities = detect_capabilities();
@@ -712,7 +704,7 @@ pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
 }
 
 /// Create backend with automatic selection and model size consideration
-pub fn create_backend_auto(model_size_bytes: Option<usize>) -> Result<Box<dyn FusedKernels>> {
+pub fn create_backend_auto(model_size_bytes: Option<usize>) -> Result<KernelBox> {
     let capabilities = detect_capabilities();
 
     // Check if model fits in available GPU memory

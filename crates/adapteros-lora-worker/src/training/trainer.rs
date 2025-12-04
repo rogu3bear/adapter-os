@@ -78,7 +78,7 @@ impl TrainingBackend {
 pub struct MicroLoRATrainer {
     pub config: TrainingConfig,
     /// GPU kernels for accelerated training
-    kernels: Option<Box<dyn FusedKernels>>,
+    kernels: Option<crate::backend_factory::KernelBox>,
     /// Selected backend for this training session
     selected_backend: Option<TrainingBackend>,
     /// Telemetry writer for training events

@@ -17,14 +17,15 @@ use tracing::{error, info, warn};
 
 use crate::backend_factory::{
     create_backend, detect_capabilities, BackendCapabilities, BackendChoice, BackendStrategy,
+    KernelBox,
 };
 
 /// Backend coordinator for managing multiple backends and runtime switching
 pub struct BackendCoordinator {
     /// Primary backend
-    primary: Arc<RwLock<Box<dyn FusedKernels>>>,
+    primary: Arc<RwLock<KernelBox>>,
     /// Fallback backend (optional)
-    fallback: Option<Arc<RwLock<Box<dyn FusedKernels>>>>,
+    fallback: Option<Arc<RwLock<KernelBox>>>,
     /// Backend health status
     primary_health: Arc<RwLock<BackendHealth>>,
     fallback_health: Option<Arc<RwLock<BackendHealth>>>,
@@ -144,7 +145,7 @@ impl BackendCoordinator {
     }
 
     /// Select appropriate fallback backend based on primary
-    fn select_fallback_backend(
+    pub fn select_fallback_backend(
         primary: &BackendChoice,
         capabilities: &BackendCapabilities,
     ) -> Result<BackendChoice> {

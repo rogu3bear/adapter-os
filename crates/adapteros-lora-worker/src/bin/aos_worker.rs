@@ -9,9 +9,13 @@
 
 use adapteros_core::{B3Hash, Result};
 use adapteros_lora_worker::{
-    backend_factory::{create_backend_with_model_and_hash, BackendChoice},
+    backend_coordinator::BackendCoordinator,
+    backend_factory::{
+        create_backend_with_model_and_hash, detect_capabilities as detect_backend_capabilities,
+        BackendChoice,
+    },
     uds_server::UdsServer,
-    Worker,
+    CoordinatedKernels, DirectKernels, KernelWrapper, Worker,
 };
 use adapteros_manifest::ManifestV3;
 use adapteros_telemetry::TelemetryWriter;
@@ -262,6 +266,9 @@ struct Args {
     /// Control plane URL for fatal error reporting
     #[arg(long, env = "AOS_CP_URL", default_value = "http://127.0.0.1:8080")]
     cp_url: String,
+    /// Enable backend coordinator (primary + fallback) for runtime failover
+    #[arg(long, env = "AOS_COORDINATOR_ENABLED", default_value_t = false)]
+    coordinator_enabled: bool,
 }
 
 #[tokio::main]
@@ -371,7 +378,40 @@ async fn main() -> Result<()> {
 
     // Create kernel backend with manifest hash for deterministic caching
     info!(backend = %args.backend, "Creating kernel backend with manifest hash");
-    let kernels = create_backend_with_model_and_hash(backend_choice, &model_path, Some(&manifest_hash))?;
+    let primary_kernels =
+        create_backend_with_model_and_hash(backend_choice, &model_path, Some(&manifest_hash))?;
+
+    // Optional fallback backend via coordinator
+    let fallback_kernels = if args.coordinator_enabled {
+        let capabilities = detect_backend_capabilities();
+        match BackendCoordinator::select_fallback_backend(&backend_choice, &capabilities) {
+            Ok(choice) => {
+                match create_backend_with_model_and_hash(choice, &model_path, Some(&manifest_hash))
+                {
+                    Ok(k) => {
+                        info!(fallback_backend = ?choice, "Created fallback backend");
+                        Some(k)
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to create fallback backend, continuing without fallback");
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "No suitable fallback backend available, continuing without fallback");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let kernels = if args.coordinator_enabled {
+        KernelWrapper::Coordinated(CoordinatedKernels::new(primary_kernels, fallback_kernels))
+    } else {
+        KernelWrapper::Direct(DirectKernels::new(primary_kernels))
+    };
 
     // Create telemetry writer - use env var or ./var/telemetry
     let telemetry_dir =

@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
+use crate::backend_factory::KernelBox;
 use crate::generation::Generator;
 use crate::router_bridge::decision_to_router_ring;
 use crate::tokenizer::QwenTokenizer;
@@ -165,7 +166,7 @@ pub struct InferencePipeline {
     /// Router for K-sparse selection
     router: Router,
     /// Kernel backend
-    kernels: Box<dyn FusedKernels>,
+    kernels: KernelBox,
     /// Policy engine (reserved for inline policy enforcement)
     _policy: PolicyEngine,
     /// Telemetry writer
@@ -188,7 +189,7 @@ impl InferencePipeline {
     pub fn new(
         tokenizer_path: &Path,
         router: Router,
-        kernels: Box<dyn FusedKernels>,
+        kernels: KernelBox,
         policy: PolicyEngine,
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,
@@ -210,7 +211,7 @@ impl InferencePipeline {
     pub fn with_adapter_count(
         tokenizer_path: &Path,
         router: Router,
-        kernels: Box<dyn FusedKernels>,
+        kernels: KernelBox,
         policy: PolicyEngine,
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,
@@ -262,7 +263,7 @@ impl InferencePipeline {
     pub fn with_quarantine(
         tokenizer_path: &Path,
         router: Router,
-        kernels: Box<dyn FusedKernels>,
+        kernels: KernelBox,
         policy: PolicyEngine,
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,

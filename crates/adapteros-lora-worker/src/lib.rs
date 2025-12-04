@@ -1,4 +1,6 @@
-//! AdapterOS Worker
+//! LORAX Worker
+//!
+//! Core worker implementation for the LORAX (Low Rank Adapter Exchange) runtime.
 //!
 //! This crate provides:
 //! - Core worker implementation for ML inference
@@ -32,7 +34,7 @@
 
 use crate::router_bridge::decision_to_router_ring;
 use adapteros_core::{paths::AdapterPaths, AosError, B3Hash, Result};
-use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
+use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::{
     constants::PINNED_BOOST, features::CodeFeatures, AdapterInfo, Router, RouterDeterminismConfig,
@@ -156,6 +158,207 @@ pub use vision_lora::{
     load_vision_lora, VisionLoraRegistry, VisionLoraWeights, VisionMergePlan, VisionTask,
 };
 
+/// Strictness control for backend execution (strict mode disables fallback)
+pub trait StrictnessControl {
+    /// Set strict mode for subsequent operations
+    fn set_strict_mode(&mut self, strict: bool);
+    /// Reset fallback tracking for a new request
+    fn reset_fallback(&mut self);
+    /// Whether fallback occurred on the last operation
+    fn fallback_triggered(&self) -> bool;
+    /// Backend name used on the last operation (if known)
+    fn last_backend_used(&self) -> Option<String>;
+}
+
+// Default strictness control for plain backends (no fallback)
+impl StrictnessControl for Box<dyn FusedKernels + Send + Sync> {
+    fn set_strict_mode(&mut self, _strict: bool) {}
+    fn reset_fallback(&mut self) {}
+    fn fallback_triggered(&self) -> bool {
+        false
+    }
+    fn last_backend_used(&self) -> Option<String> {
+        Some(self.device_name().to_string())
+    }
+}
+
+/// Direct single-backend wrapper (no fallback)
+pub struct DirectKernels {
+    inner: Box<dyn FusedKernels + Send + Sync>,
+    last_backend: String,
+}
+
+impl DirectKernels {
+    pub fn new(inner: Box<dyn FusedKernels + Send + Sync>) -> Self {
+        let last_backend = inner.device_name().to_string();
+        Self {
+            inner,
+            last_backend,
+        }
+    }
+}
+
+/// Coordinated backend wrapper with optional fallback backend
+pub struct CoordinatedKernels {
+    primary: Box<dyn FusedKernels + Send + Sync>,
+    fallback: Option<Box<dyn FusedKernels + Send + Sync>>,
+    strict_mode: bool,
+    fallback_triggered: bool,
+    last_backend: String,
+}
+
+impl CoordinatedKernels {
+    pub fn new(
+        primary: Box<dyn FusedKernels + Send + Sync>,
+        fallback: Option<Box<dyn FusedKernels + Send + Sync>>,
+    ) -> Self {
+        let last_backend = primary.device_name().to_string();
+        Self {
+            primary,
+            fallback,
+            strict_mode: false,
+            fallback_triggered: false,
+            last_backend,
+        }
+    }
+}
+
+/// Unified kernel wrapper supporting strictness control and optional fallback
+pub enum KernelWrapper {
+    Direct(DirectKernels),
+    Coordinated(CoordinatedKernels),
+}
+
+impl StrictnessControl for KernelWrapper {
+    fn set_strict_mode(&mut self, strict: bool) {
+        if let KernelWrapper::Coordinated(k) = self {
+            k.strict_mode = strict;
+        }
+    }
+
+    fn reset_fallback(&mut self) {
+        match self {
+            KernelWrapper::Direct(k) => {
+                k.last_backend = k.inner.device_name().to_string();
+            }
+            KernelWrapper::Coordinated(k) => {
+                k.fallback_triggered = false;
+                k.last_backend = k.primary.device_name().to_string();
+            }
+        }
+    }
+
+    fn fallback_triggered(&self) -> bool {
+        match self {
+            KernelWrapper::Direct(_) => false,
+            KernelWrapper::Coordinated(k) => k.fallback_triggered,
+        }
+    }
+
+    fn last_backend_used(&self) -> Option<String> {
+        match self {
+            KernelWrapper::Direct(k) => Some(k.last_backend.clone()),
+            KernelWrapper::Coordinated(k) => Some(k.last_backend.clone()),
+        }
+    }
+}
+
+impl FusedKernels for KernelWrapper {
+    fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.load(plan_bytes),
+            KernelWrapper::Coordinated(k) => {
+                k.primary.load(plan_bytes)?;
+                if let Some(fallback) = k.fallback.as_mut() {
+                    fallback.load(plan_bytes)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.run_step(ring, io),
+            KernelWrapper::Coordinated(k) => {
+                k.fallback_triggered = false;
+                match k.primary.run_step(ring, io) {
+                    Ok(_) => {
+                        k.last_backend = k.primary.device_name().to_string();
+                        Ok(())
+                    }
+                    Err(e) => {
+                        if k.strict_mode {
+                            return Err(e);
+                        }
+                        if let Some(fallback) = k.fallback.as_mut() {
+                            tracing::warn!(error = %e, "Primary backend failed, attempting fallback");
+                            match fallback.run_step(ring, io) {
+                                Ok(_) => {
+                                    k.fallback_triggered = true;
+                                    k.last_backend = fallback.device_name().to_string();
+                                    Ok(())
+                                }
+                                Err(fallback_err) => {
+                                    tracing::error!(error = %fallback_err, "Fallback backend failed");
+                                    Err(AosError::Kernel(format!(
+                                        "Primary and fallback failed: primary={}, fallback={}",
+                                        e, fallback_err
+                                    )))
+                                }
+                            }
+                        } else {
+                            Err(e)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn device_name(&self) -> &str {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.device_name(),
+            KernelWrapper::Coordinated(k) => k.last_backend.as_str(),
+        }
+    }
+
+    fn attest_determinism(
+        &self,
+    ) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.attest_determinism(),
+            KernelWrapper::Coordinated(k) => k.primary.attest_determinism(),
+        }
+    }
+
+    fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.load_adapter(id, weights),
+            KernelWrapper::Coordinated(k) => {
+                k.primary.load_adapter(id, weights)?;
+                if let Some(fallback) = k.fallback.as_mut() {
+                    fallback.load_adapter(id, weights)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn unload_adapter(&mut self, id: u16) -> Result<()> {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.unload_adapter(id),
+            KernelWrapper::Coordinated(k) => {
+                k.primary.unload_adapter(id)?;
+                if let Some(fallback) = k.fallback.as_mut() {
+                    fallback.unload_adapter(id)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// Inference request
 ///
 /// Includes full sampling parameters for deterministic replay (PRD-02).
@@ -205,6 +408,12 @@ pub struct InferenceRequest {
     /// Controls router behavior for reproducibility vs performance tradeoffs
     #[serde(default = "default_determinism_mode")]
     pub determinism_mode: String,
+    /// Strict mode flag (disables backend fallback when true)
+    #[serde(default)]
+    pub strict_mode: bool,
+    /// Effective adapter IDs (control-plane gate)
+    #[serde(default)]
+    pub effective_adapter_ids: Option<Vec<String>>,
 }
 
 fn default_determinism_mode() -> String {
@@ -250,6 +459,15 @@ pub struct InferenceResponse {
     /// Stack version for telemetry correlation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack_version: Option<i64>,
+    /// Backend used to execute the request (e.g., metal, coreml, mlx)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_used: Option<String>,
+    /// Whether backend fallback occurred during execution
+    #[serde(default)]
+    pub fallback_triggered: bool,
+    /// Determinism mode applied after resolution
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub determinism_mode_applied: Option<String>,
     /// Pinned adapters that were unavailable (CHAT-PIN-02)
     ///
     /// These are pinned adapter IDs that were not present in the worker's
@@ -350,13 +568,13 @@ pub struct CancelTrainingResponse {
 use crate::embeddings::EmbeddingModel;
 use crate::evidence::EvidenceRetriever;
 use crate::tokenizer::QwenTokenizer;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 
 /// Worker for running inference with comprehensive safety mechanisms
-pub struct Worker<K: FusedKernels + Send + Sync> {
+pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
     manifest: ManifestV3,
     policy: PolicyEngine,
     router: Router,
@@ -392,7 +610,7 @@ pub struct Worker<K: FusedKernels + Send + Sync> {
     pub active_training_jobs: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
 }
 
-impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
+impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
     /// Create a new worker with comprehensive safety mechanisms
     pub async fn new(
         manifest: ManifestV3,
@@ -772,38 +990,48 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             })?;
         }
 
+        // Validate effective adapter gate (if provided)
+        let allowed_indices = self.validate_effective_adapter_gate(&request)?;
+
         // Compute unavailable pinned adapters (CHAT-PIN-02)
         // These are pinned adapter IDs not present in the worker's loaded adapters
-        let unavailable_pinned_adapters = request.pinned_adapter_ids.as_ref().map(|pinned_ids| {
-            let loaded_adapter_ids: Vec<&str> = self
-                .manifest
-                .adapters
-                .iter()
-                .map(|a| a.id.as_str())
-                .collect();
-            let unavailable: Vec<String> = pinned_ids
-                .iter()
-                .filter(|id| !loaded_adapter_ids.contains(&id.as_str()))
-                .cloned()
-                .collect();
-            if unavailable.is_empty() {
-                None
-            } else {
-                Some(unavailable)
-            }
-        }).flatten();
+        let unavailable_pinned_adapters = request
+            .pinned_adapter_ids
+            .as_ref()
+            .map(|pinned_ids| {
+                let loaded_adapter_ids: Vec<&str> = self
+                    .manifest
+                    .adapters
+                    .iter()
+                    .map(|a| a.id.as_str())
+                    .collect();
+                let unavailable: Vec<String> = pinned_ids
+                    .iter()
+                    .filter(|id| !loaded_adapter_ids.contains(&id.as_str()))
+                    .cloned()
+                    .collect();
+                if unavailable.is_empty() {
+                    None
+                } else {
+                    Some(unavailable)
+                }
+            })
+            .flatten();
 
         // Compute pinned_routing_fallback based on unavailability (PRD-6A)
-        let pinned_routing_fallback = match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
-            (Some(pinned), Some(unavailable)) if !pinned.is_empty() && !unavailable.is_empty() => {
-                if unavailable.len() >= pinned.len() {
-                    Some("stack_only".to_string())
-                } else {
-                    Some("partial".to_string())
+        let pinned_routing_fallback =
+            match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
+                (Some(pinned), Some(unavailable))
+                    if !pinned.is_empty() && !unavailable.is_empty() =>
+                {
+                    if unavailable.len() >= pinned.len() {
+                        Some("stack_only".to_string())
+                    } else {
+                        Some("partial".to_string())
+                    }
                 }
-            }
-            _ => None,
-        };
+                _ => None,
+            };
 
         // Retrieve evidence if required
         let mut evidence = Vec::new();
@@ -833,6 +1061,16 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                 // Check evidence policy
                 if let Err(_e) = self.policy.check_evidence(evidence.len()) {
                     // Insufficient evidence, returning refusal
+                    let (backend_used, fallback_triggered) = {
+                        let kernels = self.kernels.lock().await;
+                        (
+                            kernels
+                                .last_backend_used()
+                                .unwrap_or_else(|| kernels.device_name().to_string()),
+                            kernels.fallback_triggered(),
+                        )
+                    };
+
                     return Ok(InferenceResponse {
                         text: None,
                         status: "insufficient_evidence".to_string(),
@@ -853,6 +1091,9 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                         patch_proposal: None,
                         stack_id: request.stack_id.clone(),
                         stack_version: request.stack_version,
+                        backend_used: Some(backend_used),
+                        fallback_triggered,
+                        determinism_mode_applied: Some(request.determinism_mode.clone()),
                         unavailable_pinned_adapters: unavailable_pinned_adapters.clone(),
                         pinned_routing_fallback: pinned_routing_fallback.clone(),
                     });
@@ -913,6 +1154,13 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         };
         self.router.set_determinism_config(router_config);
 
+        // Configure backend strictness (disable fallback when strict_mode=true)
+        {
+            let mut kernels = self.kernels.lock().await;
+            kernels.set_strict_mode(request.strict_mode);
+            kernels.reset_fallback();
+        }
+
         let mut generated_tokens = Vec::new();
 
         // Autoregressive generation loop
@@ -943,11 +1191,24 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                 CodeFeatures::from_context(&context_text).to_vector()
             };
             // Build priors with PINNED_BOOST for pinned adapters (CHAT-PIN-02)
-            let mut priors = vec![1.0f32; self.manifest.adapters.len()];
+            let mut priors = if let Some(ref allowed) = allowed_indices {
+                let mut p = vec![0.0f32; self.manifest.adapters.len()];
+                for idx in allowed {
+                    if let Some(slot) = p.get_mut(*idx) {
+                        *slot = 1.0;
+                    }
+                }
+                p
+            } else {
+                vec![1.0f32; self.manifest.adapters.len()]
+            };
+
             if let Some(ref pinned_ids) = request.pinned_adapter_ids {
                 for (idx, adapter) in self.manifest.adapters.iter().enumerate() {
                     if pinned_ids.contains(&adapter.id) {
-                        priors[idx] += PINNED_BOOST;
+                        if let Some(slot) = priors.get_mut(idx) {
+                            *slot += PINNED_BOOST;
+                        }
                     }
                 }
             }
@@ -973,6 +1234,26 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             {
                 let lifecycle = self.lifecycle.lock().await;
                 lifecycle.record_router_decision(&decision.indices).await?;
+
+                // Enforce effective_adapter_ids gate: disallow adapters outside allowed set
+                if let Some(ref allowed) = allowed_indices {
+                    for &adapter_idx in &decision.indices {
+                        if !allowed.contains(&(adapter_idx as usize)) {
+                            return Err(AosError::AdapterNotInEffectiveSet {
+                                adapter_id: self
+                                    .manifest
+                                    .adapters
+                                    .get(adapter_idx as usize)
+                                    .map(|a| a.id.clone())
+                                    .unwrap_or_else(|| format!("adapter_{}", adapter_idx)),
+                                effective_set: request
+                                    .effective_adapter_ids
+                                    .clone()
+                                    .unwrap_or_default(),
+                            });
+                        }
+                    }
+                }
 
                 // Validate all selected adapters are in a ready state (warm, hot, or resident)
                 for &adapter_idx in &decision.indices {
@@ -1052,6 +1333,16 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         // Decode to text
         let generated_text = self.tokenizer.decode(&generated_tokens)?;
 
+        let (backend_used, fallback_triggered) = {
+            let kernels = self.kernels.lock().await;
+            (
+                kernels
+                    .last_backend_used()
+                    .unwrap_or_else(|| kernels.device_name().to_string()),
+                kernels.fallback_triggered(),
+            )
+        };
+
         Ok(InferenceResponse {
             text: Some(generated_text),
             status: "ok".to_string(),
@@ -1060,9 +1351,74 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             patch_proposal: None,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
+            backend_used: Some(backend_used),
+            fallback_triggered,
+            determinism_mode_applied: Some(request.determinism_mode.clone()),
             unavailable_pinned_adapters,
             pinned_routing_fallback,
         })
+    }
+
+    /// Validate and derive the allowed adapter indices for this request.
+    ///
+    /// - If no effective_adapter_ids provided, allow all (backward compatibility)
+    /// - All effective_adapter_ids must exist in the manifest
+    /// - Pinned adapters must be in both the manifest and the effective set
+    fn validate_effective_adapter_gate(
+        &self,
+        request: &InferenceRequest,
+    ) -> Result<Option<HashSet<usize>>> {
+        let manifest_ids: Vec<&str> = self
+            .manifest
+            .adapters
+            .iter()
+            .map(|a| a.id.as_str())
+            .collect();
+
+        let Some(effective_ids) = request.effective_adapter_ids.as_ref() else {
+            return Ok(None);
+        };
+
+        if effective_ids.is_empty() {
+            return Err(AosError::AdapterNotInEffectiveSet {
+                adapter_id: "(empty)".to_string(),
+                effective_set: vec![],
+            });
+        }
+
+        let mut allowed_indices = HashSet::new();
+
+        for effective_id in effective_ids {
+            let Some(idx) = manifest_ids
+                .iter()
+                .position(|id| id == &effective_id.as_str())
+            else {
+                return Err(AosError::AdapterNotInManifest {
+                    adapter_id: effective_id.clone(),
+                    available: manifest_ids.iter().map(|s| s.to_string()).collect(),
+                });
+            };
+            allowed_indices.insert(idx);
+        }
+
+        if let Some(pinned_ids) = request.pinned_adapter_ids.as_ref() {
+            for pinned in pinned_ids {
+                let Some(idx) = manifest_ids.iter().position(|id| id == &pinned.as_str()) else {
+                    return Err(AosError::AdapterNotInManifest {
+                        adapter_id: pinned.clone(),
+                        available: manifest_ids.iter().map(|s| s.to_string()).collect(),
+                    });
+                };
+                if !allowed_indices.contains(&idx) {
+                    return Err(AosError::AdapterNotInEffectiveSet {
+                        adapter_id: pinned.clone(),
+                        effective_set: effective_ids.clone(),
+                    });
+                }
+            }
+        }
+
+        Ok(Some(allowed_indices))
     }
 
     /// Generate patch proposal with evidence retrieval
@@ -1084,36 +1440,43 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         );
 
         // Compute unavailable pinned adapters (CHAT-PIN-02)
-        let unavailable_pinned_adapters = request.pinned_adapter_ids.as_ref().map(|pinned_ids| {
-            let loaded_adapter_ids: Vec<&str> = self
-                .manifest
-                .adapters
-                .iter()
-                .map(|a| a.id.as_str())
-                .collect();
-            let unavailable: Vec<String> = pinned_ids
-                .iter()
-                .filter(|id| !loaded_adapter_ids.contains(&id.as_str()))
-                .cloned()
-                .collect();
-            if unavailable.is_empty() {
-                None
-            } else {
-                Some(unavailable)
-            }
-        }).flatten();
+        let unavailable_pinned_adapters = request
+            .pinned_adapter_ids
+            .as_ref()
+            .map(|pinned_ids| {
+                let loaded_adapter_ids: Vec<&str> = self
+                    .manifest
+                    .adapters
+                    .iter()
+                    .map(|a| a.id.as_str())
+                    .collect();
+                let unavailable: Vec<String> = pinned_ids
+                    .iter()
+                    .filter(|id| !loaded_adapter_ids.contains(&id.as_str()))
+                    .cloned()
+                    .collect();
+                if unavailable.is_empty() {
+                    None
+                } else {
+                    Some(unavailable)
+                }
+            })
+            .flatten();
 
         // Compute pinned_routing_fallback based on unavailability (PRD-6A)
-        let pinned_routing_fallback = match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
-            (Some(pinned), Some(unavailable)) if !pinned.is_empty() && !unavailable.is_empty() => {
-                if unavailable.len() >= pinned.len() {
-                    Some("stack_only".to_string())
-                } else {
-                    Some("partial".to_string())
+        let pinned_routing_fallback =
+            match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
+                (Some(pinned), Some(unavailable))
+                    if !pinned.is_empty() && !unavailable.is_empty() =>
+                {
+                    if unavailable.len() >= pinned.len() {
+                        Some("stack_only".to_string())
+                    } else {
+                        Some("partial".to_string())
+                    }
                 }
-            }
-            _ => None,
-        };
+                _ => None,
+            };
 
         // Initialize telemetry
         let mut telemetry = PatchTelemetry::new();
@@ -1306,6 +1669,9 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             patch_proposal,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
+            backend_used: Some(self.kernels.lock().await.device_name().to_string()),
+            fallback_triggered: false,
+            determinism_mode_applied: Some(request.determinism_mode.clone()),
             unavailable_pinned_adapters,
             pinned_routing_fallback,
         })
@@ -1816,7 +2182,7 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
     }
 }
 
-impl<K: FusedKernels + Send + Sync> Drop for Worker<K> {
+impl<K: FusedKernels + StrictnessControl + Send + Sync> Drop for Worker<K> {
     fn drop(&mut self) {
         if let Some(handle) = self.retirement_handle.take() {
             let _ = self.shutdown_tx.send(());

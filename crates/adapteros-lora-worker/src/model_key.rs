@@ -149,7 +149,12 @@ impl Hash for ModelKey {
 
 impl std::fmt::Display for ModelKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.backend_type_str(), self.manifest_hash.to_hex())
+        write!(
+            f,
+            "{}:{}",
+            self.backend_type_str(),
+            self.manifest_hash.to_hex()
+        )
     }
 }
 

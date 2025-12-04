@@ -49,12 +49,14 @@ pub struct ModelLoadResponse {
 }
 
 /// UDS server for worker communication
-pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels> {
+use crate::StrictnessControl;
+
+pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl> {
     socket_path: PathBuf,
     worker: Arc<Mutex<Worker<K>>>,
 }
 
-impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
+impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> UdsServer<K> {
     /// Create a new UDS server
     pub fn new(socket_path: PathBuf, worker: Arc<Mutex<Worker<K>>>) -> Self {
         Self {
@@ -219,7 +221,9 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                     seed: None,
                     router_seed: None,
                     pinned_adapter_ids: None,
+                    strict_mode: true,
                     determinism_mode: "strict".to_string(), // Patch proposals use strict mode
+                    effective_adapter_ids: None,
                 };
 
                 let mut worker_guard = worker.lock().await;

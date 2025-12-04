@@ -128,6 +128,8 @@ impl CacheWarmupManager {
                 seed: None,
                 router_seed: None,
                 pinned_adapter_ids: None,
+                determinism_mode: "strict".to_string(),
+                effective_adapter_ids: None,
             };
 
             match worker.infer(request).await {
@@ -188,6 +190,8 @@ impl CacheWarmupManager {
                 seed: None,
                 router_seed: None,
                 pinned_adapter_ids: None,
+                determinism_mode: "strict".to_string(),
+                effective_adapter_ids: None,
             };
 
             match worker.infer(request).await {
@@ -381,11 +385,13 @@ where
             stack_version: None,
             temperature: None,
             top_k: None,
-            top_p: None,
-            seed: None,
-            router_seed: None,
-            pinned_adapter_ids: None,
-        };
+                top_p: None,
+                seed: None,
+                router_seed: None,
+                pinned_adapter_ids: None,
+                determinism_mode: "strict".to_string(),
+                effective_adapter_ids: None,
+            };
 
         // Run inference with timeout
         let result = tokio::time::timeout(config.timeout, worker.infer(request)).await;

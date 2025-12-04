@@ -471,8 +471,8 @@ fn test_model_cache_deduplication() {
     use adapteros_lora_kernel_api::attestation::BackendType;
     use adapteros_lora_worker::model_handle_cache::{ModelHandle, ModelHandleCache};
     use adapteros_lora_worker::model_key::ModelKey;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     let cache = ModelHandleCache::new(1024 * 1024 * 1024); // 1GB max
     let hash = B3Hash::hash(b"test-model-data");
@@ -488,7 +488,11 @@ fn test_model_cache_deduplication() {
         Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3, 4])), 4))
     });
     assert!(result1.is_ok());
-    assert_eq!(load_count_clone.load(Ordering::SeqCst), 1, "First load should call loader");
+    assert_eq!(
+        load_count_clone.load(Ordering::SeqCst),
+        1,
+        "First load should call loader"
+    );
 
     // Second load: cache hit (loader should NOT be called)
     let result2 = cache.get_or_load(&key, || {
@@ -496,7 +500,11 @@ fn test_model_cache_deduplication() {
         Ok((ModelHandle::Metal(Arc::new(vec![5, 6, 7, 8])), 4))
     });
     assert!(result2.is_ok());
-    assert_eq!(load_count_clone.load(Ordering::SeqCst), 1, "Second load should NOT call loader (cache hit)");
+    assert_eq!(
+        load_count_clone.load(Ordering::SeqCst),
+        1,
+        "Second load should NOT call loader (cache hit)"
+    );
 
     // Verify cache stats
     let stats = cache.stats();
@@ -524,30 +532,42 @@ fn test_different_backends_get_separate_cache_entries() {
     let mut mock_load_count = 0;
 
     // Load Metal backend
-    cache.get_or_load(&metal_key, || {
-        metal_load_count += 1;
-        Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3])), 3))
-    }).unwrap();
+    cache
+        .get_or_load(&metal_key, || {
+            metal_load_count += 1;
+            Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3])), 3))
+        })
+        .unwrap();
 
     // Load Mock backend (same hash, different backend type)
-    cache.get_or_load(&mock_key, || {
-        mock_load_count += 1;
-        Ok((ModelHandle::CoreML, 0))
-    }).unwrap();
+    cache
+        .get_or_load(&mock_key, || {
+            mock_load_count += 1;
+            Ok((ModelHandle::CoreML, 0))
+        })
+        .unwrap();
 
     // Both should have been loaded (separate cache entries)
     assert_eq!(metal_load_count, 1, "Metal should have been loaded once");
     assert_eq!(mock_load_count, 1, "Mock should have been loaded once");
-    assert_eq!(cache.len(), 2, "Cache should have 2 entries (one per backend)");
+    assert_eq!(
+        cache.len(),
+        2,
+        "Cache should have 2 entries (one per backend)"
+    );
 
     // Now hit each cache entry
-    cache.get_or_load(&metal_key, || {
-        panic!("Metal should be cached, loader should not be called");
-    }).unwrap();
+    cache
+        .get_or_load(&metal_key, || {
+            panic!("Metal should be cached, loader should not be called");
+        })
+        .unwrap();
 
-    cache.get_or_load(&mock_key, || {
-        panic!("Mock should be cached, loader should not be called");
-    }).unwrap();
+    cache
+        .get_or_load(&mock_key, || {
+            panic!("Mock should be cached, loader should not be called");
+        })
+        .unwrap();
 
     let stats = cache.stats();
     assert_eq!(stats.hits, 2, "Should have 2 cache hits");
@@ -569,11 +589,17 @@ fn test_model_key_from_path_determinism() {
 
     // Should produce identical keys (deterministic)
     assert_eq!(key1, key2, "Same path should produce same ModelKey");
-    assert_eq!(key1.manifest_hash, key2.manifest_hash, "Hash should be deterministic");
+    assert_eq!(
+        key1.manifest_hash, key2.manifest_hash,
+        "Hash should be deterministic"
+    );
 
     // Different backend should produce different key
     let key3 = ModelKey::from_path(BackendType::Mlx, path).unwrap();
-    assert_ne!(key1, key3, "Different backend should produce different ModelKey");
+    assert_ne!(
+        key1, key3,
+        "Different backend should produce different ModelKey"
+    );
 }
 
 #[test]
