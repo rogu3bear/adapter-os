@@ -215,7 +215,7 @@ export interface Dataset {
   storage_path?: string;
   validation_errors?: string;
   description?: string;
-  // PRD-DATA-01: Dataset Lab extensions
+  // Dataset Lab extensions
   dataset_type?: DatasetType;
   purpose?: string;
   source_location?: string;
@@ -528,7 +528,7 @@ export interface TrainingSession {
   metrics?: TrainingMetrics;
 }
 
-// PRD-DATA-01: Evidence entries for datasets and adapters
+// Evidence entries for datasets and adapters
 export type EvidenceType = 'doc' | 'ticket' | 'commit' | 'policy_approval' | 'data_agreement' | 'review' | 'audit' | 'other';
 export type EvidenceConfidence = 'high' | 'medium' | 'low';
 
@@ -554,7 +554,7 @@ export interface DatasetAdapterLink {
 }
 
 // ============================================================================
-// PRD-CORE-03: Chat Bootstrap Types
+// Chat Bootstrap Types
 // ============================================================================
 
 /** Response from GET /v1/training/jobs/{id}/chat_bootstrap */
@@ -571,6 +571,16 @@ export interface ChatBootstrapResponse {
   collection_id?: string;
   /** Suggested title for the chat session */
   suggested_chat_title: string;
+
+  // Provenance fields for Bundle E readiness
+  /** Training job ID (always present, echoed from path) */
+  training_job_id: string;
+  /** Training job status ("pending"|"running"|"completed"|"failed"|"cancelled") */
+  status: string;
+  /** Primary adapter ID from training job (set after training completes) */
+  adapter_id?: string;
+  /** Training dataset ID */
+  dataset_id?: string;
 }
 
 /** Request for POST /v1/chats/from_training_job */
@@ -593,5 +603,15 @@ export interface CreateChatFromJobResponse {
   name: string;
   /** Creation timestamp */
   created_at: string;
+
+  // Provenance fields for Bundle E readiness
+  /** Training job ID (echoed from request for confirmation) */
+  training_job_id: string;
+  /** Primary adapter ID from the training job */
+  adapter_id?: string;
+  /** Training dataset ID */
+  dataset_id?: string;
+  /** RAG collection ID if linked */
+  collection_id?: string;
 }
 

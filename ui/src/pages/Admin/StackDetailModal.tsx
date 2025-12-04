@@ -70,7 +70,7 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
     enabled: open,
   });
 
-  // Fetch stack policies (PRD-GOV-01)
+  // Fetch stack policies
   const {
     data: stackPolicies,
     isLoading: loadingPolicies,
@@ -403,7 +403,7 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
             </Card>
           )}
 
-          {/* Policy Compliance Section (PRD-GOV-01) */}
+          {/* Policy Compliance Section */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

@@ -301,7 +301,7 @@ export interface WorkerResponse {
   pid?: number;
   plan_id?: string;
   started_at?: string;
-  manifest_hash?: string;  // PRD-09: Manifest hash for worker binding verification
+  manifest_hash?: string;  // Manifest hash for worker binding verification
 }
 
 export interface WorkerDetailsResponse extends WorkerResponse {
@@ -582,6 +582,11 @@ export interface InferResponse {
   // PRD-6A: Pinned adapter fallback tracking
   unavailable_pinned_adapters?: string[];
   pinned_routing_fallback?: 'stack_only' | 'partial' | null;
+  // Determinism/back-end tracking
+  backend_used?: BackendName | string;
+  fallback_triggered?: boolean;
+  determinism_mode_applied?: string;
+  replay_guarantee?: string | null;
 }
 
 export interface BatchInferRequest {
@@ -1553,7 +1558,7 @@ export interface ExtendedRouterDecision {
   candidates?: RouterCandidateInfo[]; // Extended: detailed candidate info instead of string[]
   k_value?: number; // Extended: K-sparse value
   adapter_map?: Map<number, string>; // Extended: For debugging: maps adapter_idx to adapter_id
-  // PRD-6A: Pinned adapter fallback tracking
+  // Pinned adapter fallback tracking
   unavailable_pinned_adapters?: string[];
   pinned_routing_fallback?: 'stack_only' | 'partial' | null;
 }

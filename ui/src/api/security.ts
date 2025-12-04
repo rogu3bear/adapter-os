@@ -1,7 +1,6 @@
 //! Security API Client
 //!
 //! Provides API methods for security configuration and key management.
-//! Part of PRD-SEC-01 implementation.
 //!
 //! Citation: CLAUDE.md - Security Settings (JWT Ed25519, key rotation)
 

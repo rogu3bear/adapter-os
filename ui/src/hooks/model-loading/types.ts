@@ -168,7 +168,7 @@ export interface AdapterStateInfo extends AdapterLoadingItem {
  * ```
  */
 export interface UseModelLoadingStateResult {
-  // PRD-specified primary properties
+  // Primary properties
   /** Overall ready state - true when base model AND all adapters ready */
   isReady: boolean;
 

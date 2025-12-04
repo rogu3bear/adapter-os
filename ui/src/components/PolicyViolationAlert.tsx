@@ -9,7 +9,7 @@
  * - API error handling for policy-blocked operations
  * - Real-time SSE violation notifications
  *
- * Citation: [2025-11-25†ui†policy-violation-alert] PRD-GOV-01
+ * Citation: [2025-11-25†ui†policy-violation-alert] Policy violation alerts
  */
 
 import React from 'react';

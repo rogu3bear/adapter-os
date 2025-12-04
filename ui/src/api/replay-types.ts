@@ -1,5 +1,5 @@
 /**
- * Deterministic Replay Types (PRD-02)
+ * Deterministic Replay Types
  *
  * TypeScript types corresponding to Rust types in:
  * crates/adapteros-server-api/src/types.rs

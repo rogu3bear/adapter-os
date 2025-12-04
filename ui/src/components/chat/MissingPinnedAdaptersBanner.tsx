@@ -6,7 +6,7 @@
  * - 'stack_only': All pinned adapters unavailable, using stack routing only
  * - 'partial': Some pinned adapters unavailable, using partial routing
  *
- * Citation: [2025-12-02†PRD-6A] Pinned adapter unavailability handling
+ * Citation: [2025-12-02†pinned-adapters] Pinned adapter unavailability handling
  */
 
 import React from 'react';

@@ -247,11 +247,11 @@ export function useTemplate(
   });
 }
 
-// Chat Bootstrap Hooks (PRD-CORE-03)
+// Chat Bootstrap Hooks
 
 /**
  * Hook to get chat bootstrap data for a training job
- * PRD-CORE-03: Returns the "recipe" for starting a chat from a completed training job
+ * Returns the "recipe" for starting a chat from a completed training job
  *
  * @param jobId - Training job ID (hook is disabled if undefined)
  */
@@ -269,7 +269,7 @@ export function useChatBootstrap(
 
 /**
  * Mutation hook to create a chat session from a training job
- * PRD-CORE-03: Creates a chat session bound to the training job's stack in one call
+ * Creates a chat session bound to the training job's stack in one call
  */
 export function useCreateChatFromJob(
   options?: UseMutationOptions<CreateChatFromJobResponse, Error, CreateChatFromJobRequest>

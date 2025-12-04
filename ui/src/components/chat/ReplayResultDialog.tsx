@@ -2,7 +2,7 @@
  * Replay Result Dialog Component
  *
  * Displays replay execution results with comparison, details, and statistics.
- * Part of PRD-02 Deterministic Replay feature.
+ * Part of Deterministic Replay feature.
  *
  * Copyright JKCA | 2025 James KC Auchterlonie
  */

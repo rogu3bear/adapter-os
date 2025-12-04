@@ -435,7 +435,7 @@ function getDefaultRemediation(policyId: string): string {
 }
 
 // ============================================================================
-// Stack Policy Types (PRD-GOV-01)
+// Stack Policy Types
 // Types for /v1/adapter-stacks/{id}/policies endpoint
 // ============================================================================
 

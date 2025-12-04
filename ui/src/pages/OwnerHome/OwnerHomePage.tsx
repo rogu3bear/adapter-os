@@ -9,7 +9,7 @@
  * - Mobile: Single column with FAB for Chat/CLI
  *
  * Citations:
- * - docs/PRD_OWNER_HOME_IMPLEMENTATION.md: PRD-OH-01
+ * - docs/PRD_OWNER_HOME_IMPLEMENTATION.md: Owner Home Implementation
  * - CLAUDE.md: RBAC section (Admin role = System Owner)
  */
 

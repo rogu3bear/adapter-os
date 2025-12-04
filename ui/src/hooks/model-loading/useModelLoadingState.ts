@@ -171,7 +171,7 @@ export function useModelLoadingState(
   );
   const isLoading = isModelLoading || isAdaptersLoading || hasAdaptersLoading;
 
-  // Compute adapter arrays (PRD-specified format)
+  // Compute adapter arrays
   const loadingAdapters = useMemo(
     () => Array.from(adapterStates.values()).filter((a) => a.isLoading),
     [adapterStates]
@@ -297,7 +297,7 @@ export function useModelLoadingState(
   const sseConnected = adapterState.sseConnected || bootSSEConnected;
 
   return {
-    // PRD-specified primary properties
+    // Primary properties
     isReady: overallReady,
     isLoading,
     loadingAdapters,

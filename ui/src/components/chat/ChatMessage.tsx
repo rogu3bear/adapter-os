@@ -161,7 +161,7 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
         {!isUser && message.isVerified && (
           <ProofBadge isVerified={message.isVerified} timestamp={message.verifiedAt} />
         )}
-        {/* Replay button for assistant messages with request ID (PRD-02) */}
+        {/* Replay button for assistant messages with request ID */}
         {!isUser && message.requestId && !message.isStreaming && (
           <ReplayButton
             inferenceId={message.requestId}

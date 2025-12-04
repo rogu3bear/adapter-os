@@ -39,7 +39,7 @@ interface ReplayButtonProps {
  * - degraded: orange dot, confirmation dialog with warnings
  * - unavailable: gray dot, disabled with tooltip explaining why
  *
- * Based on PRD-02 Deterministic Replay feature.
+ * Based on Deterministic Replay feature.
  *
  * @example
  * ```tsx

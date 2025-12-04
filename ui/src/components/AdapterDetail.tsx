@@ -1,4 +1,4 @@
-// PRD-08: Adapter Detail View with Lineage Visualization
+// Adapter Detail View with Lineage Visualization
 //
 // Displays comprehensive adapter information including:
 // - Core metadata (name, state, tier, memory, activations)

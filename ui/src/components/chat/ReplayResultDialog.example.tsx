@@ -2,7 +2,7 @@
  * Usage Example for ReplayResultDialog Component
  *
  * This file demonstrates how to integrate the ReplayResultDialog
- * into your chat interface for PRD-02 Deterministic Replay.
+ * into your chat interface for Deterministic Replay.
  *
  * Copyright JKCA | 2025 James KC Auchterlonie
  */

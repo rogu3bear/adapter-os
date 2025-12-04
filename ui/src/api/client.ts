@@ -1066,7 +1066,7 @@ class ApiClient {
 
   /**
    * Get chat bootstrap data for a training job
-   * PRD-CORE-03: Returns the "recipe" for starting a chat from a completed training job
+   * Returns the "recipe" for starting a chat from a completed training job
    */
   async getChatBootstrap(jobId: string): Promise<trainingTypes.ChatBootstrapResponse> {
     return this.request<trainingTypes.ChatBootstrapResponse>(`/v1/training/jobs/${jobId}/chat_bootstrap`);
@@ -1074,7 +1074,7 @@ class ApiClient {
 
   /**
    * Create a chat session from a training job
-   * PRD-CORE-03: Creates a chat session bound to the training job's stack in one call
+   * Creates a chat session bound to the training job's stack in one call
    */
   async createChatFromTrainingJob(request: trainingTypes.CreateChatFromJobRequest): Promise<trainingTypes.CreateChatFromJobResponse> {
     return this.request<trainingTypes.CreateChatFromJobResponse>('/v1/chats/from_training_job', {
@@ -1977,7 +1977,7 @@ class ApiClient {
 
   /**
    * Get policies assigned to a stack with compliance summary
-   * PRD-GOV-01: Stack-Policy API
+   * Stack-Policy API
    */
   async getStackPolicies(stackId: string): Promise<policyTypes.StackPoliciesResponse> {
     return this.request<policyTypes.StackPoliciesResponse>(
@@ -5404,7 +5404,7 @@ class ApiClient {
   }
 
   // ============================================================================
-  // Deterministic Replay API (PRD-02)
+  // Deterministic Replay API
   // ============================================================================
 
   /**

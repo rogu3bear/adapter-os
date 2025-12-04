@@ -572,7 +572,7 @@ export function isStreamingChunk(data: unknown): data is StreamingChunk {
 }
 
 // ============================================================================
-// Stack Policy Stream Events (PRD-GOV-01)
+// Stack Policy Stream Events
 // Endpoint: /v1/stream/stack-policies/{stack_id}
 // ============================================================================
 

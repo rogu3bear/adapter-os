@@ -175,7 +175,7 @@ export const useTelemetryStream = createStreamHook<TelemetryStreamEvent>('/v1/st
 export const useAdaptersStream = createStreamHook<AdapterStreamEvent>('/v1/stream/adapters');
 
 /**
- * Base hook for stack policy stream events (PRD-GOV-01)
+ * Base hook for stack policy stream events
  * Endpoint: /v1/stream/stack-policies/{stackId}
  *
  * Provides real-time updates for:
