@@ -54,7 +54,7 @@ comfy-table = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["multipart"] }
 nix = { workspace = true }
 owo-colors = "4.0"
 serde_yaml = "0.9"

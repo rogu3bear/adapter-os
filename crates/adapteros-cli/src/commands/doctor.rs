@@ -1,4 +1,4 @@
-//! System health diagnostics command for aosctl (PRD-06)
+//! System health diagnostics command for aosctl
 //!
 //! Provides:
 //! - `aosctl doctor` – comprehensive health check of all components

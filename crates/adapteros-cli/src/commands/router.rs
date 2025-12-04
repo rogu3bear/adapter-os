@@ -15,7 +15,7 @@ pub enum RouterCmd {
     Show(ShowArgs),
     /// Enable or disable safe mode (routes through safety adapter only)
     SafeMode(SafeModeArgs),
-    /// Query routing decisions from database (PRD-04)
+    /// Query routing decisions from database
     Decisions(DecisionsArgs),
 }
 

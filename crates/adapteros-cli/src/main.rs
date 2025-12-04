@@ -193,7 +193,7 @@ Examples:
     /// Show system status (adapters, cluster, tick, memory)
     Status(commands::status::StatusCommand),
 
-    /// Run system health diagnostics (PRD-06)
+    /// Run system health diagnostics
     #[command(after_help = "\
 Examples:
   # Run comprehensive health check
@@ -1344,7 +1344,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::status::run(cmd.clone(), &output).await?;
         }
 
-        // System Health Diagnostics (PRD-06)
+        // System Health Diagnostics
         Commands::Doctor(cmd) => {
             commands::doctor::run(cmd.clone(), &output).await?;
         }

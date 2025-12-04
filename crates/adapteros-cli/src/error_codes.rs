@@ -755,6 +755,8 @@ impl From<&adapteros_core::AosError> for ExitCode {
             AosError::ModelNotFound { .. } => ExitCode::ModelNotFound,
             AosError::ModelAcquisitionInProgress { .. } => ExitCode::ModelAcquisitionInProgress,
             AosError::Platform(_) => ExitCode::Platform,
+            AosError::AdapterNotInManifest { .. } => ExitCode::Validation,
+            AosError::AdapterNotInEffectiveSet { .. } => ExitCode::Validation,
         }
     }
 }
