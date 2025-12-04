@@ -52,13 +52,14 @@ pub use streaming::{
 };
 
 use adapteros_lora_kernel_api::FusedKernels;
+use adapteros_lora_worker::StrictnessControl;
 
 /// API server state
-pub struct ApiState<K: FusedKernels + Send + Sync> {
+pub struct ApiState<K: FusedKernels + StrictnessControl + Send + Sync> {
     worker: Arc<tokio::sync::Mutex<adapteros_lora_worker::Worker<K>>>,
 }
 
-impl<K: FusedKernels + Send + Sync> ApiState<K> {
+impl<K: FusedKernels + StrictnessControl + Send + Sync> ApiState<K> {
     /// Create new API state with worker
     pub fn new(worker: adapteros_lora_worker::Worker<K>) -> Self {
         Self {
@@ -71,7 +72,7 @@ impl<K: FusedKernels + Send + Sync> ApiState<K> {
 ///
 /// Creates a Unix Domain Socket HTTP server with streaming responses
 /// and proper error handling for AdapterOS inference requests.
-pub async fn serve_uds_with_worker<K: FusedKernels + Send + Sync + 'static, P: AsRef<Path>>(
+pub async fn serve_uds_with_worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static, P: AsRef<Path>>(
     socket_path: P,
     worker: adapteros_lora_worker::Worker<K>,
 ) -> adapteros_core::Result<()> {
@@ -186,7 +187,7 @@ pub async fn serve_uds_with_worker<K: FusedKernels + Send + Sync + 'static, P: A
 }
 
 /// Inference endpoint handler
-async fn inference_handler<K: FusedKernels + Send + Sync + 'static>(
+async fn inference_handler<K: FusedKernels + StrictnessControl + Send + Sync + 'static>(
     State(state): State<Arc<ApiState<K>>>,
     Json(request): Json<InferenceRequest>,
 ) -> Result<Json<InferenceResponse>, ApiError> {
@@ -213,7 +214,7 @@ async fn health_handler() -> impl IntoResponse {
 /// Reserved: Currently disabled due to axum Handler trait bound issues with generic enum types.
 /// The AdapterCommand enum contains B3Hash which may require special handling.
 /// Will be enabled when axum generic handler compatibility is resolved.
-async fn _adapter_command_handler<K: FusedKernels + Send + Sync + 'static>(
+async fn _adapter_command_handler<K: FusedKernels + StrictnessControl + Send + Sync + 'static>(
     State(state): State<Arc<ApiState<K>>>,
     Json(command): Json<adapteros_lora_worker::AdapterCommand>,
 ) -> std::result::Result<Json<adapteros_lora_worker::AdapterCommandResult>, ApiError> {

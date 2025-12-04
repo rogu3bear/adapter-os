@@ -389,7 +389,7 @@ impl Default for TrainingJobListResponse {
 }
 
 // ============================================================================
-// PRD-CORE-03: Chat Bootstrap Types
+// Chat Bootstrap Types
 // ============================================================================
 
 /// Response for GET /v1/training/jobs/{id}/chat_bootstrap
@@ -410,6 +410,16 @@ pub struct ChatBootstrapResponse {
     pub collection_id: Option<String>,
     /// Suggested title for the chat session
     pub suggested_chat_title: String,
+
+    // Provenance fields for Bundle E readiness
+    /// Training job ID (always present, echoed from path)
+    pub training_job_id: String,
+    /// Training job status ("pending"|"running"|"completed"|"failed"|"cancelled")
+    pub status: String,
+    /// Primary adapter ID from training job (set after training completes)
+    pub adapter_id: Option<String>,
+    /// Training dataset ID
+    pub dataset_id: Option<String>,
 }
 
 /// Request for POST /v1/chats/from_training_job
@@ -436,4 +446,14 @@ pub struct CreateChatFromJobResponse {
     pub name: String,
     /// Creation timestamp
     pub created_at: String,
+
+    // Provenance fields for Bundle E readiness
+    /// Training job ID (echoed from request for confirmation)
+    pub training_job_id: String,
+    /// Primary adapter ID from the training job
+    pub adapter_id: Option<String>,
+    /// Training dataset ID
+    pub dataset_id: Option<String>,
+    /// RAG collection ID if linked
+    pub collection_id: Option<String>,
 }

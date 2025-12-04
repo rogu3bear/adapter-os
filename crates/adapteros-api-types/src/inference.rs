@@ -12,6 +12,9 @@ pub struct InferRequest {
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Adapter stack identifier to use for inference
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -26,12 +29,18 @@ pub struct InferRequest {
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub require_evidence: Option<bool>,
-    /// Adapter stack to use for inference
+    /// Explicit adapter list to use for inference (legacy field)
+    ///
+    /// Historically used as a "stack" placeholder, this now represents a concrete
+    /// adapter list when provided. Prefer `stack_id` for named stacks.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapter_stack: Option<Vec<String>>,
     /// Specific adapters to use (alternative to adapter_stack)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapters: Option<Vec<String>>,
+    /// Effective adapter set computed by the control plane (debug/audit only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_adapter_ids: Option<Vec<String>>,
     /// Chat session ID for trace linkage
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -73,19 +82,43 @@ pub struct InferResponse {
     /// Error message if inference failed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Pinned adapters that were unavailable for this inference (CHAT-PIN-02)
+    /// Pinned adapters that were unavailable for this inference
     ///
     /// These are adapters that were in the session's pinned set but were not
     /// available in the candidate adapter set. Returned for UI warning display.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unavailable_pinned_adapters: Option<Vec<String>>,
-    /// Routing fallback mode when pinned adapters are unavailable (PRD-6A)
+    /// Routing fallback mode when pinned adapters are unavailable
     ///
     /// - `None`: All pinned adapters were available (or no pins configured)
     /// - `Some("partial")`: Some pinned adapters unavailable, using available pins + stack
     /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pinned_routing_fallback: Option<String>,
+    /// Backend used to execute the request (e.g., coreml, metal, mlx)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_used: Option<String>,
+    /// Whether backend fallback occurred during execution
+    #[serde(default)]
+    pub fallback_triggered: bool,
+    /// Determinism mode that was applied after resolution
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub determinism_mode_applied: Option<String>,
+    /// Replay guarantee level for this inference
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_guarantee: Option<ReplayGuarantee>,
+}
+
+/// Replay guarantee level for an inference
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplayGuarantee {
+    /// Exact replay possible (strict mode, seeded, no fallback/backend drift, no truncation)
+    Exact,
+    /// Replay approximate (seed missing or fallback/backend drift/truncation)
+    Approximate,
+    /// No replay guarantee (relaxed mode)
+    None,
 }
 
 /// Inference trace for observability
