@@ -1,9 +1,9 @@
-# AdapterOS Runtime Architecture Diagrams
+# LORAX Runtime Architecture Diagrams
 
-**Version:** 1.0.0  
+**Version:** 1.0.0
 **Last Updated:** 2025-10-09
 
-This document contains comprehensive Mermaid.js diagrams for the AdapterOS runtime system.
+This document contains comprehensive Mermaid.js diagrams for the **LORAX (Low Rank Adapter Exchange)** runtime system powering AdapterOS.
 
 ---
 
@@ -42,7 +42,7 @@ graph TB
         RateLimit[Rate Limiter]
     end
 
-    subgraph "AdapterOS Runtime"
+    subgraph "LORAX Runtime"
         subgraph "Core Services"
             Router[Adapter Router<br/>Top-K Selection]
             Policy[Policy Engine<br/>Gate Enforcement]

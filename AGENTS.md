@@ -4,8 +4,9 @@
 
 ### What is AdapterOS?
 
-AdapterOS is an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems, targeting Mac/Metal environments and unified memory machines. It provides:
+AdapterOS is an ML inference platform powered by the **LORAX (Low Rank Adapter Exchange)** runtime — an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems, targeting Mac/Metal environments and unified memory machines. It provides:
 
+- **LORAX Runtime**: Deterministic inference engine with K-sparse routing and multi-backend support
 - **Control Plane** (`adapteros-server`): HTTP API with SQLite, JWT auth, and policy enforcement
 - **Worker Processes** (`aos-worker`): LoRA-based inference and training over Unix Domain Sockets (UDS)
 - **K-Sparse Router**: Multi-adapter mixing with Q15 quantization
@@ -59,8 +60,9 @@ This assistant can:
 validate_tenant_isolation(claims, resource_tenant_id)
 ```
 - Same tenant: always allowed
-- Admin cross-tenant: requires explicit `admin_tenants` claim
-- Dev mode bypass: debug builds only (`AOS_DEV_NO_AUTH`)
+- Admin cross-tenant: requires explicit `admin_tenants` claim (list of tenant IDs)
+- Wildcard `"*"` in `admin_tenants`: grants access to ALL tenants (dev mode only)
+- Dev mode bypass: debug builds only (`AOS_DEV_NO_AUTH`) - injects `admin_tenants: ["*"]`
 
 **Database-Level (migration 0131):**
 - Composite FKs: `FOREIGN KEY (tenant_id, document_id) REFERENCES documents(tenant_id, id)`
@@ -254,6 +256,58 @@ LOOM_MAX_PREEMPTIONS=3 cargo test test_name  # Concurrency tests
 - **Database**: SQLite at `var/aos-cp.sqlite3`
 - **Default Model**: Qwen2.5-7B
 
+### 5.5 Dev Authentication Setup
+
+**Three ways to authenticate in development (debug builds only):**
+
+#### Option 1: Dev Bootstrap (Recommended)
+Creates system tenant, admin user, and returns a valid JWT in one call:
+```bash
+curl -X POST http://localhost:8080/v1/dev/bootstrap \
+  -H "Content-Type: application/json" \
+  -d '{"email": "dev@local", "password": "dev123"}'
+```
+Returns: `{ "token": "...", "system_tenant_id": "system", ... }`
+
+Use the token in subsequent requests:
+```bash
+curl -H "Authorization: Bearer <token>" http://localhost:8080/v1/adapters
+```
+
+#### Option 2: No-Auth Bypass
+Skip authentication entirely (all requests get admin access to all tenants):
+```bash
+AOS_DEV_NO_AUTH=1 cargo run --bin adapteros-server
+```
+- Claims are injected with `admin_tenants: ["*"]` (wildcard = all tenants)
+- **SECURITY**: Only works in debug builds; release builds ignore this env var
+
+#### Option 3: Custom JWT Secret
+Override the JWT signing secret for simpler local testing:
+```bash
+AOS_DEV_JWT_SECRET="my-test-secret" cargo run --bin adapteros-server
+```
+- **SECURITY**: Only works in debug builds; release builds ignore this env var
+
+**JWT Algorithm Selection:**
+
+| Build Type | Default Algorithm | Override via `jwt_mode` config |
+|------------|-------------------|-------------------------------|
+| Debug | HMAC-SHA256 | `"eddsa"` or `"ed25519"` for Ed25519 |
+| Release | Ed25519 | `"hmac"` or `"hs256"` for HMAC |
+
+Config example (`config.toml`):
+```toml
+[security]
+jwt_mode = "hmac"  # or "eddsa"
+```
+
+**Key Files:**
+- JWT algorithm selection: `crates/adapteros-server/src/main.rs` (line ~1161)
+- Dev bypass claims: `crates/adapteros-server-api/src/middleware/mod.rs` (`dev_no_auth_claims()`)
+- Dev bootstrap handler: `crates/adapteros-server-api/src/handlers/auth_enhanced.rs` (`dev_bootstrap_handler()`)
+- Tenant access check: `crates/adapteros-server-api/src/security/mod.rs` (`check_tenant_access_core()`)
+
 ---
 
 ## 6. Change Safety Guidelines
@@ -331,7 +385,6 @@ Feature flags affect determinism and available backends. Check feature configura
 When committing:
 - Summarize the "why" not the "what"
 - Note impact on: determinism, tenant isolation, policy enforcement, egress
-- Reference PRD numbers if applicable (e.g., PRD-02, PRD-03, PRD-09)
 
 ---
 

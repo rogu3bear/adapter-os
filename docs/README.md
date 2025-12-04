@@ -1,6 +1,6 @@
 # AdapterOS Documentation
 
-Welcome to the AdapterOS documentation. This directory contains comprehensive technical documentation for understanding, deploying, and extending the AdapterOS inference runtime.
+Welcome to the AdapterOS documentation. This directory contains comprehensive technical documentation for understanding, deploying, and extending the **LORAX (Low Rank Adapter Exchange)** inference runtime.
 
 ## Quick Navigation
 

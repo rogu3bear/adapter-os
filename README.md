@@ -1,4 +1,4 @@
-# AdapterOS: Deterministic ML Inference Runtime
+# AdapterOS: LORAX Deterministic ML Inference Runtime
 
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%2FMIT-blue.svg)](LICENSE)
@@ -7,15 +7,15 @@
 [![Stars](https://img.shields.io/github/stars/rogu3bear/adapter-os.svg)](https://github.com/rogu3bear/adapter-os/stargazers)
 [![Forks](https://img.shields.io/github/forks/rogu3bear/adapter-os.svg)](https://github.com/rogu3bear/adapter-os/network/members)
 
-**High-performance inference runtime with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.**
+**LORAX (Low Rank Adapter Exchange)** — High-performance inference runtime with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.
 
-AdapterOS (v0.3-alpha) is a Rust-based ML inference engine optimized for Apple Silicon, featuring deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
+AdapterOS (v0.3-alpha) is a Rust-based ML inference platform powered by the **LORAX runtime**, optimized for Apple Silicon. Features deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
 
 ---
 
 ## [TARGET] What is AdapterOS?
 
-AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
+AdapterOS is an ML inference platform built on the **LORAX (Low Rank Adapter Exchange)** runtime. It enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
@@ -50,7 +50,7 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 ```mermaid
 graph TB
-    subgraph Runtime[AdapterOS Runtime v0.1.0]
+    subgraph Runtime[LORAX Runtime v0.1.0]
         subgraph Control[Control Layer]
             Policy[Policy Registry<br/>28 Canonical Packs]
             Router[K-Sparse Router<br/>Q15 Quantized Gates]

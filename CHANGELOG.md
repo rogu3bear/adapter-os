@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixes
 - Rectified UMA backpressure: fixed compilation, real eviction candidates from lifecycle, mounted API route, CLI check, tests without stubs. [source: crates/adapteros-lora-worker/src/memory.rs L1-L188]
-- **Hot-Swap Cut Corners Fixes**: Completed per PRD 5.3.4 - added `get_adapter_by_id` DB method, KV cache alignment checks, async swap wrapping, trace_id in telemetry, signed migration 0069, enhanced test realism. Zero runtime panics, SLO test framework established. [source: crates/adapteros-server-api/src/handlers/adapter_stacks.rs L346-L382]
+- **Hot-Swap Cut Corners Fixes**: Added `get_adapter_by_id` DB method, KV cache alignment checks, async swap wrapping, trace_id in telemetry, signed migration 0069, enhanced test realism. Zero runtime panics, SLO test framework established. [source: crates/adapteros-server-api/src/handlers/adapter_stacks.rs L346-L382]
 
 ### Added
 - **Secure Keychain Integration** - Comprehensive multi-platform key storage system
