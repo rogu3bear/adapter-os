@@ -15,7 +15,7 @@ export MLX_LIB_DIR=$MLX_PATH/lib
 `make verify-mlx-env` validates the paths; `scripts/build-mlx.sh` auto-detects Homebrew if unset.
 
 ## 3) Build Real Backend
-- Build: `make build-mlx` (uses features `multi-backend,real-mlx`).
+- Build: `make build-mlx` (uses features `multi-backend,mlx`).
 - Scripted: `scripts/build-mlx.sh --tests` (build + tests).
 - Expected log line: `MLX FFI build: REAL`.
 
@@ -28,7 +28,7 @@ export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
 ## 5) Validate
 - Unit/Integration: `make test-mlx`
 - Benchmarks: `make bench-mlx`
-- Determinism: `cargo test -p adapteros-lora-mlx-ffi determinism_tests --features real-mlx`
+- Determinism: `cargo test -p adapteros-lora-mlx-ffi determinism_tests --features mlx`
 
 ## 6) Common Issues
 - **Headers not found**: set `MLX_INCLUDE_DIR` explicitly; rerun `make verify-mlx-env`.

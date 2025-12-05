@@ -306,3 +306,31 @@ All backend infrastructure is complete and properly integrated with UI component
 3. Verify SSE event format matches UI expectations
 4. Consider enhancing TrainingMonitor to use SSE instead of polling
 
+## Rectification surfaces (design + data contracts)
+
+### Base Models page (U15)
+- Route: `/base-models`
+- Data: `id`, `name`, `hash` (B3), `manifest_id`, `quantization`, `size_bytes`, `frozen: true`, `backend_family`, `created_at`, `tenants_allowed` (list or `*`).
+- API: read-only GET; if no endpoint exists, add minimal `GET /v1/models/base`.
+
+### Adapter Detail & Lifecycle (U3)
+- Route: `/adapters/:id`
+- Data: `id`, `name`, `base_model`, `state` (`unloaded|cold|warm|hot|resident`), `activation_count`, `last_activated`, `memory_bytes`, `tenant_id`, `signature_status`, `per_layer_hashes_ok`, `mounted_on` (workers/plans).
+- Actions: view manifest, view mount/eligibility; pin/unpin and tenant-scope controls can be added later.
+- Source: lifecycle + telemetry tables as in `docs/database-schema/workflows/adapter-lifecycle.md`.
+
+### Router Config UI (U9)
+- Route: `/router` (tenant-scoped) or `/tenants/:id/router`.
+- Data: allowlist (from routing policy), `k`/k-sparse, `tau`, `eps` (entropy floor), current adapter set with weights/priorities.
+- Behavior: read-only first; reflects live policy from worker/router config; deterministic ordering.
+
+### Telemetry Viewer (U8)
+- Route: `/sessions/:id/telemetry`
+- Data: token timeline; per-token (or chunked) adapter activations; gate q15 (aggregated); tokens/sec; total tokens; worker/backend id.
+- Source: advanced metrics plugin (router decisions + token stream); transport via SSE/streaming hook (`useStreamingInference`).
+
+### Training flow simplification (wizard primary)
+- Primary entry: Training Wizard; code-intel/session path labeled “Advanced.”
+- Dataset validation surfaced from T1: status `valid|pending|invalid` + reason on start and monitor screens.
+- Monitor: move from polling to SSE when ready; show phases, timestamps, adapter artifact link (to U3), clear error reasons (dataset invalid, worker error, policy block).
+

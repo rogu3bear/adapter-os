@@ -527,7 +527,7 @@ cargo test -p adapteros-lora-mlx-ffi --test 'memory_management_integration'
 ### Verify Integration in Production Mode
 ```bash
 # Build with all features
-cargo build --workspace --features multi-backend,real-mlx --release
+cargo build --workspace --features multi-backend,mlx --release
 
 # Run health check
 ./target/release/aosctl healthz --component backend

@@ -29,6 +29,18 @@ This assistant can:
 
 ---
 
+### Execution & Training Reality Check (Dec 2025)
+
+- Immutable base (language runtime): Base model weights are loaded once per worker via `MODEL_CACHE`/`ModelHandleCache` (`Arc`-shared handles) and are only read during inference. The vision helper `vision_lora.merge_into` performs an in-place add on a provided buffer; treat that buffer as a scratch copy to keep the canonical base immutable.
+- Adapters as separate deltas: LoRA adapters keep their own buffers (`AdapterWeights` / `LoRAAdapter`) with a BLAKE3 content hash; kernels dequantize Q15 gates and add adapter deltas to intermediate/residual activations or logits, leaving base weights untouched.
+- Manifest verification: .aos loading enforces a whole-adapter BLAKE3 hash and signature; per-layer hash enforcement is not implemented yet.
+- Routing determinism: Per-token routing uses HKDF-derived seeds plus deterministic softmax and Q15 gate quantization; routing policy enforcement is currently stubbed (hooks reserved for future checks).
+- Training scope: MicroLoRA training updates only adapter A/B matrices on datasets; base model parameters are never included and there is no “train from live inference stream” path.
+- Packaging/export boundary: .aos bundles only adapter deltas + manifest (base excluded); CoreML backend is forward-only with LoRA deltas applied post-gate.
+- Known gaps to track: vision helper mutability, missing per-layer hash checks, and routing policy enforcement still stubbed.
+
+---
+
 ## 2. Core Principles & Invariants
 
 ### 2.1 Determinism and Replay
@@ -611,3 +623,5 @@ Replay does **NOT** bypass InferenceCore:
 `router_seed` is stored for **AUDIT only**:
 - Routing is deterministic by algorithm (sorted scores, tie-breaking)
 - NOT by RNG seeding
+
+MLNavigator Inc 2025-12-04.

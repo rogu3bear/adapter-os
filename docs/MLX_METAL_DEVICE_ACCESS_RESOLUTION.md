@@ -6,7 +6,7 @@
 
 ## Problem Description
 
-Running `cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib` aborted in `attention::tests::test_softmax_no_nan` with:
+Running `cargo test -p adapteros-lora-mlx-ffi --features mlx --lib` aborted in `attention::tests::test_softmax_no_nan` with:
 
 ```
 NSRangeException: __NSArray0 objectAtIndex:0
@@ -36,7 +36,7 @@ swift -e 'import Metal; print(MTLCreateSystemDefaultDevice() != nil ? "✅ Metal
 # Output: ✅ Metal OK
 
 # Run tests
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib
+cargo test -p adapteros-lora-mlx-ffi --features mlx --lib
 ```
 
 ### Test Results
@@ -52,7 +52,7 @@ cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib
 
 **Verification:**
 ```bash
-$ cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib attention::tests
+$ cargo test -p adapteros-lora-mlx-ffi --features mlx --lib attention::tests
 running 20 tests
 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 121 filtered out; finished in 0.17s
 ```
@@ -95,7 +95,7 @@ MLX tests support **dual-mode** operation:
 cargo test -p adapteros-lora-mlx-ffi --lib
 
 # Real GPU mode (Metal required, local development)
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib
+cargo test -p adapteros-lora-mlx-ffi --features mlx --lib
 ```
 
 ## Documentation Created

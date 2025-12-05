@@ -71,7 +71,7 @@ cargo test -p adapteros-lora-mlx-ffi
 ### With Real MLX Feature
 ```bash
 # Compile with real MLX
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 
 # Run specific test
 cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration model_loading::test_mlx_is_installed -- --nocapture
@@ -153,7 +153,7 @@ RUST_LOG=debug cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration 
 ### Run with Custom MLX Path
 ```bash
 export MLX_PATH=/custom/path/to/mlx
-cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features real-mlx -- --nocapture
+cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features mlx -- --nocapture
 ```
 
 ### Skip Network Tests (If Any)
@@ -261,9 +261,17 @@ For issues or questions:
 - Rust Testing: https://doc.rust-lang.org/book/ch11-00-testing.html
 - Cargo Features: https://doc.rust-lang.org/cargo/reference/features.html
 
+## Determinism and immutability checkpoints
+
+- Base model buffers remain frozen; Metal loader re-hashes bytes when a manifest hash is provided or verification is enabled.
+- MLX backend seeds deterministically from manifest hash; adapters stay isolated from base buffers.
+- Per-layer hashes are keyed by canonical logical layer paths; loader fails fast on mismatch.
+- Routing policy filtering is deterministic (allow/deny/max) and fails closed when no adapters remain.
+
 ---
 
-**Last Updated:** 2025-11-22
+**Last Updated:** 2025-12-04
 **Status:** Ready for Production
 **Test Count:** 30+ comprehensive tests
 **Documentation:** Complete with examples
+MLNavigator Inc 2025-12-04.

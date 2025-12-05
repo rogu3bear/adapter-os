@@ -47,7 +47,7 @@ return Err(AosError::Kernel(
 - **File:** `crates/adapteros-lora-mlx-ffi/src/backend.rs`
 - **Lines:** 383-442
 - **Type:** Stub with Dummy Data
-- **Description:** MLX backend returns dummy logits with fake patterns when `real-mlx` feature is not enabled (default). Comments explicitly state this is a stub.
+- **Description:** MLX backend returns dummy logits with fake patterns when `mlx` feature is not enabled (default). Comments explicitly state this is a stub.
 
 ```rust
 // ⚠️  MLX BACKEND STATUS: STUB IMPLEMENTATION ⚠️
@@ -282,7 +282,7 @@ Err(AosError::Kernel(
 
 | Feature Flag | Crate | Purpose | Status |
 |--------------|-------|---------|--------|
-| `real-mlx` | adapteros-lora-mlx-ffi | Real MLX library integration | Stub without flag |
+| `mlx` | adapteros-lora-mlx-ffi | Real MLX library integration | Stub without flag |
 | `multi-backend` | workspace | Enables MLX development backend | Stub |
 | `coreml-backend` | adapteros-lora-worker | CoreML + Neural Engine support | Partial |
 | `ane-optimizations` | adapteros-lora-kernel-coreml | ANE-specific code paths | Placeholder |

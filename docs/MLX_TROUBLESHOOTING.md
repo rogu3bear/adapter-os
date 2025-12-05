@@ -4,10 +4,10 @@
 - **`mlx/` headers not found**: set `MLX_INCLUDE_DIR` (e.g., `/opt/homebrew/include`) and rerun `make verify-mlx-env`.
 - **`libmlx.dylib` missing**: set `MLX_LIB_DIR` (e.g., `/opt/homebrew/lib`) or reinstall via Homebrew.
 - **Swift/Metal toolchain missing**: install Xcode CLT (`xcode-select --install`).
-- **Wrong feature set**: ensure `--features multi-backend,real-mlx` (not stub `mlx-backend` only).
+- **Wrong feature set**: ensure `--features multi-backend,mlx` (not stub `mlx-backend` only).
 
 ## Runtime Issues
-- **Backend reports stub mode**: build with `real-mlx`, clear `target/` if necessary, and rerun `make build-mlx`.
+- **Backend reports stub mode**: build with `mlx`, clear `target/` if necessary, and rerun `make build-mlx`.
 - **Circuit breaker trips**: raise `circuit_breaker_timeout_secs` gradually; check GPU/ANE telemetry.
 - **OOM / memory pressure**: lower `max_memory_mb` or use quantized model; ensure swap not used heavily.
 - **Latency regression**: compare against Metal baseline; enable HKDF-seeded determinism in configs.
@@ -40,7 +40,7 @@ swift -e 'import Metal; print(MTLCreateSystemDefaultDevice() != nil ? "✅ Metal
 - Backend list: `curl -s /v1/backends | jq`
 - Capabilities: `curl -s /v1/backends/capabilities | jq`
 - MLX status: `curl -s /v1/backends/mlx/status | jq`
-- Determinism tests: `cargo test -p adapteros-lora-mlx-ffi determinism_tests --features real-mlx`
+- Determinism tests: `cargo test -p adapteros-lora-mlx-ffi determinism_tests --features mlx`
 - Benchmarks: `make bench-mlx`
 
 ## Log Signals

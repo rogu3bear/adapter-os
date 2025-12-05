@@ -16,7 +16,7 @@
 
 ## Configuration
 - CoreML: `backend = "coreml"` (default), works with ANE-first routing.
-- MLX: `backend = "mlx"` with `real-mlx` build; configs in `configs/mlx-*.toml`.
+- MLX: `backend = "mlx"` with `mlx` build; configs in `configs/mlx-*.toml`.
 - Metal fallback: `backend = "metal"` for non-ANE hardware.
 
 ## Operational Notes

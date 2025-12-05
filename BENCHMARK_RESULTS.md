@@ -167,7 +167,7 @@ cargo test -p adapteros-lora-mlx-ffi --test integration_verification -- --nocapt
 
 ```bash
 # Requires MLX C++ library installed
-cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark --features real-mlx
+cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark --features mlx
 ```
 
 ### View HTML Reports
@@ -224,7 +224,7 @@ test result: ok. 5 passed; 0 failed; 0 ignored
 ## Notes
 
 - Benchmarks use **stub MLX implementation** (default)
-- Enable `--features real-mlx` for GPU-accelerated benchmarks
+- Enable `--features mlx` for GPU-accelerated benchmarks
 - Results measured on Apple Silicon with unified memory
 - Criterion.rs provides 95% confidence intervals
 - All timings are wall-clock time

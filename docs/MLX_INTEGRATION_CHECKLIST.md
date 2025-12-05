@@ -257,7 +257,7 @@ create_backend(BackendChoice::Mlx {
 | Flag | Crate | Purpose | Default |
 |------|-------|---------|---------|
 | `multi-backend` | `adapteros-lora-worker` | Enable MLX backend in factory | false |
-| `real-mlx` | `adapteros-lora-mlx-ffi` | Build with real MLX C++ lib (vs stub) | false |
+| `mlx` | `adapteros-lora-mlx-ffi` | Build with real MLX C++ lib (vs stub) | false |
 
 ### Build Commands
 
@@ -266,10 +266,10 @@ create_backend(BackendChoice::Mlx {
 cargo build -p adapteros-lora-mlx-ffi
 
 # Real MLX build
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 
 # Full workspace with MLX enabled
-cargo build --workspace --features multi-backend,real-mlx --release
+cargo build --workspace --features multi-backend,mlx --release
 ```
 
 ---
@@ -349,7 +349,7 @@ cargo test -p adapteros-lora-mlx-ffi --test '*memory*'
 ### Verify Integration in Production
 ```bash
 # Build with all features
-cargo build --workspace --features multi-backend,real-mlx --release
+cargo build --workspace --features multi-backend,mlx --release
 
 # Check backend availability
 ./target/release/aosctl server-info | grep -A5 "Backend"

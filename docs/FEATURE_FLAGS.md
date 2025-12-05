@@ -167,7 +167,7 @@ cargo build --release --features metal-backend
 **Requirements**:
 - macOS 13.0+
 - Xcode Command Line Tools
-- MLX C++ library (with `real-mlx` feature)
+- MLX C++ library (with `mlx` feature)
 
 **Usage**:
 ```bash
@@ -177,8 +177,8 @@ cargo build --release --features mlx-backend
 
 **Compilation behavior**:
 - ✅ Compiles successfully
-- ✅ Full MLX functionality (with `real-mlx` feature)
-- ✅ Stub fallback for testing (without `real-mlx`)
+- ✅ Full MLX functionality (with `mlx` feature)
+- ✅ Stub fallback for testing (without `mlx`)
 
 **Status**: ✅ **Production-Ready**
 
@@ -186,7 +186,7 @@ cargo build --release --features mlx-backend
 
 ---
 
-#### `real-mlx`
+#### `mlx`
 
 **Purpose**: Enable real MLX library integration (vs stub implementation for testing).
 
@@ -206,13 +206,13 @@ cargo build --release --features mlx-backend
 **Usage**:
 ```bash
 # Enable real MLX (requires mlx C++ installed)
-cargo build --release --features real-mlx
+cargo build --release --features mlx
 ```
 
 **Status**: ✅ **Production-Ready** (requires external MLX C++ library installation)
 
 **Note**: Without this feature, `adapteros-lora-mlx-ffi` uses stub implementations
-for testing purposes. With this feature, full production MLX functionality is enabled.
+for testing purposes. With this feature enabled, full production MLX functionality is available. A deprecated alias `real-mlx` remains accepted for compatibility only.
 
 ---
 
@@ -372,7 +372,6 @@ cargo build --release --features mlx-backend
 | `coreml-backend` | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `metal-backend` | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `mlx-backend` | ⚠️ Stub only | ⚠️ Stub only | ❌ | ❌ | ❌ |
-| `real-mlx` | ⚠️ Requires MLX | ⚠️ Requires MLX | ❌ | ❌ | ❌ |
 | `multi-backend` | ⚠️ Stub only | ⚠️ Stub only | ❌ | ❌ | ❌ |
 | `telemetry` | ✅ | ✅ | ✅ | ⚠️ Untested | ✅ |
 | `metrics` | ✅ | ✅ | ✅ | ⚠️ Untested | ✅ |
@@ -711,7 +710,6 @@ cargo xtask check-all
 | `coreml-backend,full` | ⏳ | macOS | Production + observability |
 | `metal-backend,full` | ⏳ | macOS | Metal + observability |
 | `multi-backend` | ⚠️ | macOS | Stub implementation only (alias for mlx-backend) |
-| `real-mlx` | ⚠️ | macOS | Requires MLX C++ library installed |
 
 **Legend**:
 - ✅ Verified - Tested and works

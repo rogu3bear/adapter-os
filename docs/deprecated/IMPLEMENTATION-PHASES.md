@@ -101,13 +101,13 @@ Unblock all downstream work by completing at least one functional backend and fi
 
 **Alternate Focus: MLX (if CoreML blocked)**
 **Tasks:**
-- [ ] **C2:** Enable `--features real-mlx`
+- [ ] **C2:** Enable `--features mlx`
 - [ ] Link MLX C++ library
 - [ ] Replace stub `MLXFFIModel::load()`
 
 **Deliverables:**
 - CoreML backend loads model (basic functionality)
-- OR MLX backend with real-mlx feature works
+- OR MLX backend with mlx feature works
 
 **Blockers:**
 - CoreML complexity may require Week 3 spillover
@@ -137,7 +137,7 @@ Unblock all downstream work by completing at least one functional backend and fi
 
 **Milestone 1.2 (Week 2 End):**
 - ✅ CoreML backend partially functional (model loads)
-- ✅ OR MLX backend with `real-mlx` compiles
+- ✅ OR MLX backend with `mlx` compiles
 
 ---
 

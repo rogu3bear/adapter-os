@@ -43,7 +43,7 @@ Complete AdapterOS v0.3-alpha by addressing 100+ incomplete features, stubs, and
 | Component | Documentation Says | Reality |
 |-----------|-------------------|---------|
 | **CoreML Backend** | "Primary production backend, ANE acceleration" | FFI bridge not implemented (C1) |
-| **MLX Backend** | "Production inference, training" | Stub with dummy data without `real-mlx` (C2/C3) |
+| **MLX Backend** | "Production inference, training" | Stub with dummy data without `mlx` (C2/C3) |
 | **Metal Backend** | "Deterministic GPU kernels, fallback" | Toolchain missing, can't compile (H1) |
 | **Training Pipeline** | "5-step flow complete" | Trainer integration missing (T3-T4) |
 | **KMS Providers** | "Cloud provider support" | All mocks (S1-S5) |
@@ -289,7 +289,7 @@ The following items identified in the audit are **intentionally deferred**:
 
 ### External Dependencies
 - **Metal Toolchain:** Requires macOS + Xcode Command Line Tools
-- **MLX Library:** Optional, only for `real-mlx` feature
+- **MLX Library:** Optional, only for `mlx` feature
 - **Cloud SDKs:** AWS/GCP/Azure for KMS providers (Team 4)
 
 ### Assumptions
@@ -301,8 +301,6 @@ The following items identified in the audit are **intentionally deferred**:
 ---
 
 ## 10. Communication Plan
-
-See [AGENT-COORDINATION.md](teams/AGENT-COORDINATION.md) for coordination protocols.
 
 ### Cadence
 - **Daily:** Team 1 & 2 standup (critical path sync)
@@ -347,8 +345,6 @@ See [AGENT-COORDINATION.md](teams/AGENT-COORDINATION.md) for coordination protoc
 - **IMPLEMENTATION-PHASES.md:** Week-by-week execution timeline
 - **VERIFICATION-STRATEGY.md:** Test plans and QA procedures
 - **RISKS-MITIGATIONS.md:** Risk register with mitigation strategies
-- **AGENT-COORDINATION.md:** Inter-team communication protocols
-
 ---
 
 **Document Control:**
@@ -356,3 +352,4 @@ See [AGENT-COORDINATION.md](teams/AGENT-COORDINATION.md) for coordination protoc
 - **Last Updated:** 2025-01-23
 - **Next Review:** Week 4 (mid-Phase 2 checkpoint)
 - **Approval Required:** Engineering Lead, Product Owner
+MLNavigator Inc 2025-12-04.

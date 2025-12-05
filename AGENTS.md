@@ -19,6 +19,13 @@ AdapterOS is an ML inference platform powered by the **LORAX (Low Rank Adapter E
 - Strongly focused on determinism, replay, tenant isolation, and auditable policies
 - Adapters hot-swap as an alternative to stuffing tokens into context
 
+#### UI Reality (current state)
+- Base Models page shows id/hash/arch/quant/size/tenant/memory, sourced from the API.
+- Adapter detail shows lifecycle, activations, memory, tenant, and manifest/signature status with live streaming updates.
+- Router Config page shows effective routing parameters and policy (allow/deny/max adapters per token) pulled from worker/manifest.
+- Telemetry Viewer surfaces per-session tokens over time, adapters fired, tokens/sec, latency, and stack-mapped adapters.
+- Training entry uses the primary flow; dataset validation is surfaced where available.
+
 ### Scope of This Assistant
 
 This assistant can:
@@ -26,6 +33,17 @@ This assistant can:
 - Run tests and build commands
 - Reason about architecture, invariants, and design decisions
 - Help implement features, fix bugs, and refactor code
+
+---
+
+### Execution & Training Reality Check (Dec 2025, updated)
+
+- Immutable base (language runtime): Base model weights are loaded once via `ModelHandleCache` and treated as read-only; vision/telemetry LoRA helpers compose on scratch buffers. Metal load now rehashes in debug or when `AOS_VERIFY_MODEL_BYTES` is set to prove immutability.
+- Adapters as separate deltas: LoRA adapters keep their own buffers with BLAKE3 hashes; kernels dequantize Q15 gates and blend into activations/residuals/logits without touching base weights.
+- Manifest verification: .aos loading enforces whole-adapter BLAKE3 + signature and now verifies per-layer hashes keyed by canonical logical layer path (`transformer.layer_N.*.lora_A/B`); safetensors names are kept only as secondary metadata.
+- Routing determinism: Per-token routing is deterministic (HKDF seeds + sorted scores + Q15 gates) and a routing policy filter (allow/deny/max adapters per token) runs before kernels; empty effective sets fail fast.
+- Training scope: MicroLoRA training mutates only adapter A/B matrices; base params are never part of optimizer sets. Checkpointing is deterministic and uses adapter-only state.
+- Packaging/export boundary: .aos bundles adapter deltas + manifest only (no base weights).
 
 ---
 
@@ -445,6 +463,13 @@ Query � Embedding � Vector Retrieval (tenant-scoped)
 | PF rule validation | Returns error | Full packet filter validation |
 | 5 policy packs | Pass with warnings | Full implementation |
 
+### Recent rectifications (Dec 2025)
+- Base model buffers remain frozen; vision LoRA merge now composes on a scratch copy (no in-place mutation).
+- .aos manifests emit and enforce per-layer BLAKE3 hashes in addition to whole-adapter hash; loader fails on any per-layer mismatch.
+- Routing policy: deterministic per-tenant allowlist applied before kernel invocation; empty allowlists fail fast.
+- Training boundary: MicroLoRATrainer updates only LoRA matrices; adapter-only update test guards base immutability.
+- UI surfaces: see `docs/UI_INTEGRATION.md` rectification section for Base Models, Adapter Lifecycle, Router Config, Telemetry Viewer, and simplified training flow designs.
+
 ### Partially Implemented Features
 
 - **Replay**: Infrastructure complete, determinism verification ongoing
@@ -571,3 +596,5 @@ Replay does **NOT** bypass InferenceCore:
 `router_seed` is stored for **AUDIT only**:
 - Routing is deterministic by algorithm (sorted scores, tie-breaking)
 - NOT by RNG seeding
+
+MLNavigator Inc 2025-12-04.

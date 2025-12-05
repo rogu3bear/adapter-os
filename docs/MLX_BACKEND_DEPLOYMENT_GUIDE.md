@@ -95,7 +95,7 @@ cd aos
 cargo build --workspace --lib --release
 
 # Build with MLX backend enabled
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx --release
+cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 ```
 
 ### Step 3: Build CLI with MLX Support
@@ -112,12 +112,12 @@ cargo build -p adapteros-orchestrator --release
 
 ```bash
 # Standard (auto-detects Homebrew)
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 
 # Custom MLX installation
 export MLX_INCLUDE_DIR=/usr/local/include
 export MLX_LIB_DIR=/usr/local/lib
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 
 # Verify real build (not stub)
 # Look for: "MLX FFI build: REAL" in build output
@@ -436,7 +436,7 @@ tar -czf aos-config-$(date +%Y%m%d).tar.gz /etc/aos/ /etc/systemd/system/aos-*.s
 
 # Update MLX library
 brew upgrade mlx
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx --release
+cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 ```
 
 ---
@@ -462,7 +462,7 @@ brew --cellar mlx
 export MLX_INCLUDE_DIR=/opt/homebrew/include
 export MLX_LIB_DIR=/opt/homebrew/lib
 cargo clean
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx --release
+cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 ```
 
 ### Runtime Issues

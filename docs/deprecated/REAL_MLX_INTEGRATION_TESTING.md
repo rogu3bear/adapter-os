@@ -46,7 +46,7 @@ The crate uses conditional compilation via Cargo feature flags:
 
 ```toml
 # Cargo.toml
-real-mlx = []     # Enable real MLX library (requires mlx C++ installed)
+mlx = []     # Enable real MLX library (requires mlx C++ installed)
 test-utils = []   # Enable test utilities and mocks
 ```
 
@@ -66,13 +66,13 @@ cargo test -p adapteros-lora-mlx-ffi
 
 ```bash
 # Enable real MLX feature
-export CARGO_FEATURES="real-mlx"
+export CARGO_FEATURES="mlx"
 
 # Build with real MLX
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 
 # Run all real MLX integration tests
-cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features real-mlx -- --nocapture
+cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features mlx -- --nocapture
 ```
 
 ## Test File Organization
@@ -292,7 +292,7 @@ cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration -- --nocapture 
 
 ### Run Specific Feature Combination
 ```bash
-cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features "real-mlx" -- --nocapture
+cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features "mlx" -- --nocapture
 ```
 
 ## Test Output Interpretation
@@ -319,8 +319,8 @@ Active allocations: 1024
 
 ## Feature Flag Behavior
 
-### real-mlx Feature Gate
-When `real-mlx` feature is enabled:
+### mlx Feature Gate
+When `mlx` feature is enabled:
 1. Build script detects MLX installation
 2. Compiles real MLX wrapper (mlx_cpp_wrapper_real.cpp)
 3. Links against system MLX library
@@ -342,7 +342,7 @@ brew install mlx
 
 # Method 2: Set MLX_PATH manually
 export MLX_PATH=/opt/homebrew/opt/mlx
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 
 # Method 3: Force stub mode for testing
 export MLX_FORCE_STUB=1
@@ -404,7 +404,7 @@ RUST_LOG=adapteros_lora_mlx_ffi::memory=trace cargo test -p adapteros-lora-mlx-f
 - name: Run Real MLX Integration Tests
   run: |
     brew install mlx
-    cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features real-mlx -- --nocapture
+    cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features mlx -- --nocapture
   env:
     RUST_BACKTRACE: 1
 ```
@@ -413,7 +413,7 @@ RUST_LOG=adapteros_lora_mlx_ffi::memory=trace cargo test -p adapteros-lora-mlx-f
 ```bash
 # Only run if MLX is available
 if command -v brew &> /dev/null && brew list mlx &> /dev/null; then
-    cargo test -p adapteros-lora-mlx-ffi --features real-mlx
+    cargo test -p adapteros-lora-mlx-ffi --features mlx
 else
     cargo test -p adapteros-lora-mlx-ffi
 fi
@@ -425,7 +425,7 @@ fi
 
 1. **Create test in appropriate module:**
    ```rust
-   #[cfg(all(test, feature = "real-mlx"))]
+   #[cfg(all(test, feature = "mlx"))]
    mod my_feature {
        #[test]
        fn test_my_feature() {
@@ -483,12 +483,12 @@ fixtures/
 
 2. **Run Full Test Suite:**
    ```bash
-   cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features real-mlx -- --nocapture
+   cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features mlx -- --nocapture
    ```
 
 3. **Monitor Output:**
    ```bash
-   RUST_LOG=debug cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features real-mlx -- --nocapture --test-threads=1
+   RUST_LOG=debug cargo test -p adapteros-lora-mlx-ffi --test real_mlx_integration --features mlx -- --nocapture --test-threads=1
    ```
 
 4. **Integrate into Build Pipeline:**

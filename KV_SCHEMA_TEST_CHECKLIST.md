@@ -19,28 +19,12 @@
 
 ## Implementation Steps
 
-### Step 1: Wait for Path Access
+### Step 1: Prepare
 
-**Check agent status:**
-```bash
-python3 scripts/dev_context.py status
-```
+- Ensure no one else is modifying `crates/adapteros-db/tests/schema_consistency_tests.rs`.
+- Open the target file alongside `SCHEMA_KV_TESTS_TO_ADD.rs` for copy/paste.
 
-**Wait for these contexts to release:**
-- [ ] `ctx-99163` (crates/adapteros-db/tests)
-- [ ] `ctx-18637` (migration_tests.rs)
-- [ ] `ctx-69786` (kv_primary_reads.rs)
-
-### Step 2: Claim Path
-
-```bash
-python3 scripts/dev_context.py claim \
-  --intent "Add KV schema consistency tests for AdapterKv, TenantKv, UserKv" \
-  --paths "crates/adapteros-db/tests/schema_consistency_tests.rs"
-# Save the returned ctx-ID
-```
-
-### Step 3: Add Test Code
+### Step 2: Add Test Code
 
 ```bash
 # Append the 7 new tests to the file
@@ -49,7 +33,7 @@ cat SCHEMA_KV_TESTS_TO_ADD.rs >> crates/adapteros-db/tests/schema_consistency_te
 
 **Or manually copy tests 9-15 from `SCHEMA_KV_TESTS_TO_ADD.rs`**
 
-### Step 4: Update File Header
+### Step 3: Update File Header
 
 Edit `/crates/adapteros-db/tests/schema_consistency_tests.rs`:
 
@@ -68,7 +52,7 @@ Edit `/crates/adapteros-db/tests/schema_consistency_tests.rs`:
 /// Priority: CRITICAL - Prevents struct-schema drift
 ```
 
-### Step 5: Run Tests Locally
+### Step 4: Run Tests Locally
 
 ```bash
 # Run just the schema consistency tests
@@ -79,14 +63,14 @@ cargo test --test schema_consistency_tests
 # - 7 new KV compatibility tests
 ```
 
-### Step 6: Fix Any Failures
+### Step 5: Fix Any Failures
 
 If tests fail, check:
 - [ ] Import statements for KV types correct
 - [ ] Conversion functions match current implementations
 - [ ] Test data matches current schema constraints
 
-### Step 7: Run Full Test Suite
+### Step 6: Run Full Test Suite
 
 ```bash
 # Run all DB tests
@@ -95,13 +79,11 @@ cargo test -p adapteros-db
 # Ensure no regressions
 ```
 
-### Step 8: Commit and Release Context
+### Step 7: Commit Changes
 
 ```bash
-# Generate diff for your changes only
-python3 scripts/dev_context.py diff --id <ctx-ID>
-
 # Review the diff, then commit
+git diff
 git add crates/adapteros-db/tests/schema_consistency_tests.rs
 git commit -m "test(db): add KV schema compatibility tests
 
@@ -118,8 +100,7 @@ Closes schema test gap identified in multi-agent audit.
 🤖 Generated with Claude Code
 Co-Authored-By: Claude <noreply@anthropic.com>"
 
-# Release context
-python3 scripts/dev_context.py release --id <ctx-ID>
+# Push or open a PR per repository guidelines
 ```
 
 ---
@@ -267,3 +248,4 @@ After merging, ensure CI pipeline includes:
 ---
 
 **Copyright:** 2025 JKCA / James KC Auchterlonie
+MLNavigator Inc 2025-12-04.

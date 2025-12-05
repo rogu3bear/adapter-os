@@ -82,7 +82,7 @@ sysctl -n machdep.cpu.brand_string
 ssh user@localhost "cargo test"
 
 # ✅ Run from local Terminal.app
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib
+cargo test -p adapteros-lora-mlx-ffi --features mlx --lib
 ```
 
 ### Cause 2: tmux/screen Session
@@ -95,7 +95,7 @@ cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib
 exit
 
 # Run directly in Terminal.app
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib
+cargo test -p adapteros-lora-mlx-ffi --features mlx --lib
 ```
 
 ### Cause 3: Virtualization (Docker/VM)
@@ -108,7 +108,7 @@ cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib
 docker run rust-test cargo test
 
 # ✅ Run on host macOS
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib
+cargo test -p adapteros-lora-mlx-ffi --features mlx --lib
 ```
 
 ### Cause 4: Code Signing / Entitlements
@@ -135,7 +135,7 @@ Sign test binary:
 
 ```bash
 # Build test binary
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib --no-run
+cargo test -p adapteros-lora-mlx-ffi --features mlx --lib --no-run
 
 # Find test binary
 TEST_BINARY=$(find target/debug/deps -name "adapteros_lora_mlx_ffi-*" -type f -perm +111 | head -1)
@@ -160,7 +160,7 @@ open -a Terminal.app
 cd /Users/mln-dev/Dev/adapter-os
 
 # Run tests
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib
+cargo test -p adapteros-lora-mlx-ffi --features mlx --lib
 ```
 
 ### Cause 6: XPC Services / Background Processes
@@ -183,10 +183,10 @@ cd /Users/mln-dev/Dev/adapter-os
 swift -e 'import Metal; print(MTLCreateSystemDefaultDevice() != nil ? "✅ Metal OK" : "❌ No Metal")'
 
 # 4. If Metal OK, run tests
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib -- --nocapture
+cargo test -p adapteros-lora-mlx-ffi --features mlx --lib -- --nocapture
 
 # 5. Run specific attention tests
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx attention::tests --nocapture
+cargo test -p adapteros-lora-mlx-ffi --features mlx attention::tests --nocapture
 ```
 
 ## MLX Test Strategy
@@ -194,7 +194,7 @@ cargo test -p adapteros-lora-mlx-ffi --features real-mlx attention::tests --noca
 MLX tests have **dual-mode** operation:
 
 1. **Stub mode** (default): Tests compile/run without Metal (CI-safe)
-2. **Real mode** (`--features real-mlx`): Requires Metal device access
+2. **Real mode** (`--features mlx`): Requires Metal device access
 
 To test without Metal requirement:
 
@@ -203,7 +203,7 @@ To test without Metal requirement:
 cargo test -p adapteros-lora-mlx-ffi --lib
 
 # Real GPU tests (Metal required)
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib
+cargo test -p adapteros-lora-mlx-ffi --features mlx --lib
 ```
 
 ## Debugging Commands
@@ -227,14 +227,14 @@ sudo dtruss -t open ./target/debug/deps/adapteros_lora_mlx_ffi-* 2>&1 | grep Met
 Add Metal device check at test startup:
 
 ```rust
-#[cfg(all(test, feature = "real-mlx", target_os = "macos"))]
+#[cfg(all(test, feature = "mlx", target_os = "macos"))]
 fn ensure_metal_available() {
     use metal::Device;
     if Device::system_default().is_none() {
         eprintln!("⚠️  WARNING: Metal device not visible");
         eprintln!("   Run from Terminal.app, not SSH/tmux/IDE");
         eprintln!("   See docs/MLX_METAL_DEVICE_ACCESS.md");
-        panic!("Metal device required for real-mlx tests");
+        panic!("Metal device required for mlx (real) tests");
     }
 }
 ```
@@ -243,7 +243,7 @@ fn ensure_metal_available() {
 
 1. **Verify environment:** Run from Terminal.app (not Cursor/SSH)
 2. **Test Metal access:** `swift -e 'import Metal; print(MTLCreateSystemDefaultDevice())'`
-3. **Run tests:** `cargo test -p adapteros-lora-mlx-ffi --features real-mlx --lib`
+3. **Run tests:** `cargo test -p adapteros-lora-mlx-ffi --features mlx --lib`
 4. **If still failing:** Add entitlements to test binary (see Cause 4)
 
 ## References

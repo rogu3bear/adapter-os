@@ -15,7 +15,7 @@ brew install mlx
 
 ### 2. Build with MLX
 ```bash
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx --release
+cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 # Check output for: "MLX FFI build: REAL"
 ```
 
@@ -260,7 +260,7 @@ FROM rust:1.75 as builder
 RUN apt-get update && apt-get install -y mlx-dev
 COPY . /app
 WORKDIR /app
-RUN cargo build -p adapteros-lora-mlx-ffi --features real-mlx --release
+RUN cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 
 FROM debian:bookworm
 RUN apt-get update && apt-get install -y mlx-runtime
@@ -345,7 +345,7 @@ ls -la /opt/homebrew/lib/libmlx*
 
 # Rebuild
 cargo clean
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx --release
+cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 ```
 
 ### Runtime Issues

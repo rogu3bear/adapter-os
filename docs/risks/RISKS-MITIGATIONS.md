@@ -203,7 +203,7 @@ MLX backend (C2/C3) requires MLX C++ library and Python bindings. Installation m
 **Mitigation:**
 1. **Stub Fallback:** MLX backend has stub mode (no MLX library)
 2. **Documentation:** Clear installation guide for MLX
-3. **CI/CD:** Test with and without MLX (`--features real-mlx`)
+3. **CI/CD:** Test with and without MLX (`--features mlx`)
 4. **Fallback:** CPU-only training acceptable for v0.3
 
 **Status:** **Low Priority** - Stub mode working

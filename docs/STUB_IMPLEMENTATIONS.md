@@ -46,13 +46,13 @@ Stubs in AdapterOS follow a consistent pattern:
 
 ```rust
 // Feature-gated real implementation
-#[cfg(feature = "real-mlx")]
+#[cfg(feature = "mlx")]
 fn operation() -> Result<T> {
     // Real implementation using actual hardware/library
 }
 
 // Stub fallback
-#[cfg(not(feature = "real-mlx"))]
+#[cfg(not(feature = "mlx"))]
 fn operation() -> Result<T> {
     // Stub implementation with predictable behavior
 }
@@ -65,10 +65,10 @@ fn operation() -> Result<T> {
 ### Overview
 
 The MLX (Apple ML eXtension) backend provides GPU-accelerated inference on Apple Silicon.
-When the `real-mlx` feature is disabled, stub implementations provide a compatible API
+When the `mlx` feature is disabled, stub implementations provide a compatible API
 without actual GPU acceleration.
 
-### Feature Flag: `real-mlx`
+### Feature Flag: `mlx`
 
 | Feature | Stub Behavior | Real Behavior |
 |---------|--------------|---------------|
@@ -93,7 +93,7 @@ without actual GPU acceleration.
 cargo build -p adapteros-lora-mlx-ffi
 
 # Build with real MLX (requires mlx C++ library installed)
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 ```
 
 ### Link-Time Selection
@@ -101,8 +101,8 @@ cargo build -p adapteros-lora-mlx-ffi --features real-mlx
 The Rust code uses conditional linking:
 
 ```rust
-#[cfg_attr(feature = "real-mlx", link(name = "mlx_wrapper"))]
-#[cfg_attr(not(feature = "real-mlx"), link(name = "mlx_wrapper_stub"))]
+#[cfg_attr(feature = "mlx", link(name = "mlx_wrapper"))]
+#[cfg_attr(not(feature = "mlx"), link(name = "mlx_wrapper_stub"))]
 extern "C" {
     // FFI declarations
 }
@@ -471,7 +471,7 @@ grep -n "NOT_IMPLEMENTED" crates/adapteros-server-api/src/handlers.rs
 
 | Feature Flag | Crate | Stub Behavior | Real Behavior |
 |-------------|-------|---------------|---------------|
-| `real-mlx` | `adapteros-lora-mlx-ffi` | C++ stub with dummy ops | Real MLX GPU acceleration |
+| `mlx` | `adapteros-lora-mlx-ffi` | C++ stub with dummy ops | Real MLX GPU acceleration |
 | `aws-kms` | `adapteros-crypto` | Falls back to MockKmsBackend | Real AWS KMS integration |
 | `gcp-kms` | `adapteros-crypto` | Falls back to MockKmsBackend | Real GCP Cloud KMS |
 | `azure-keyvault` | `adapteros-crypto` | Falls back to MockKmsBackend | Real Azure Key Vault |
@@ -494,7 +494,7 @@ grep -n "NOT_IMPLEMENTED" crates/adapteros-server-api/src/handlers.rs
 cargo build --release
 
 # Production macOS build with real MLX
-cargo build --release --features real-mlx
+cargo build --release --features mlx
 
 # Build with AWS KMS support
 cargo build --release --features aws-kms
@@ -545,7 +545,7 @@ cargo build --features test-utils
 
 Before deploying to production, verify:
 
-- [ ] **MLX Backend:** `real-mlx` feature enabled if GPU inference required
+- [ ] **MLX Backend:** `mlx` feature enabled if GPU inference required
 - [ ] **Secure Enclave:** Hardware enclave available (not software fallback)
 - [ ] **KMS Provider:** Real cloud KMS configured (not MockKmsBackend)
 - [ ] **Keychain:** Native keychain available (not password fallback)
@@ -555,7 +555,7 @@ Before deploying to production, verify:
 
 | Symptom | Likely Cause | Solution |
 |---------|-------------|----------|
-| No GPU acceleration | `real-mlx` not enabled | Build with `--features real-mlx` |
+| No GPU acceleration | `mlx` not enabled | Build with `--features mlx` |
 | "Mock KMS" in logs | Feature not enabled | Add `aws-kms`, `gcp-kms`, etc. |
 | "Software fallback" warning | No Secure Enclave | Use hardware with SEP |
 | Zero memory stats | IOKit stubs on non-macOS | Expected on Linux/Windows |

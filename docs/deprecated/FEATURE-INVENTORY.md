@@ -79,7 +79,7 @@ VERIFIED: crates/adapteros-lora-kernel-coreml/src/coreml_bridge.mm
 
 ---
 
-### C2: MLX Backend (real-mlx Feature)
+### C2: MLX Backend (mlx Feature)
 
 **Status:** ✅ COMPLETE (Verified 2025-11-23)
 **Complexity:** L (~1166 LOC Rust + 2366 LOC C++)
@@ -91,7 +91,7 @@ VERIFIED: crates/adapteros-lora-kernel-coreml/src/coreml_bridge.mm
 VERIFIED: crates/adapteros-lora-mlx-ffi/
 - src/backend.rs: 1,166 lines (real MLX integration)
 - src/mlx_cpp_wrapper_real.cpp: 2,366 lines (C++ wrapper)
-- Build test: cargo build --features real-mlx ✅ SUCCEEDS
+- Build test: cargo build --features mlx ✅ SUCCEEDS
 - Circuit breaker with health tracking implemented
 - HKDF-seeded deterministic execution working
 ```
@@ -101,14 +101,14 @@ VERIFIED: crates/adapteros-lora-mlx-ffi/
 - C2 (MLX C++ Wrapper)
 
 **Deliverables:**
-1. Add `--features real-mlx` detection in `build.rs`
+1. Add `--features mlx` detection in `build.rs`
 2. Link MLX C++ library (`-lmlx`)
 3. Replace stub `MLXFFIModel::load()` with real implementation
 4. Replace dummy `forward()` with MLX computation graph
 5. Add HKDF-seeded RNG initialization
 
 **Acceptance Criteria:** ✅ ALL MET
-- [x] `cargo build --features real-mlx` succeeds
+- [x] `cargo build --features mlx` succeeds
 - [x] Model loads from directory (`.safetensors` files)
 - [x] Forward pass returns real logits (not dummy data)
 - [x] HKDF seeding produces deterministic results
@@ -116,7 +116,7 @@ VERIFIED: crates/adapteros-lora-mlx-ffi/
 
 **Test Requirements:**
 - Unit tests: ≥75% coverage
-- Integration test: `--features real-mlx` vs stub (verify different outputs)
+- Integration test: `--features mlx` vs stub (verify different outputs)
 - Determinism test: Seeded RNG produces identical sequences
 
 **Resources:**

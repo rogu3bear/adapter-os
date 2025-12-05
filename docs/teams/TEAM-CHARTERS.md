@@ -12,7 +12,7 @@ This document defines the responsibilities, deliverables, and coordination model
 
 **Total Team Size:** 15-19 engineers across 6 core teams + 1 optional support team
 **Timeline:** 12 weeks (4 phases)
-**Coordination Model:** See [AGENT-COORDINATION.md](AGENT-COORDINATION.md)
+**Coordination Model:** Defined per team milestones and sprint plans
 
 ---
 
@@ -34,7 +34,7 @@ This document defines the responsibilities, deliverables, and coordination model
 | ID | Task | Lines of Code | Complexity | Dependencies |
 |----|------|---------------|------------|--------------|
 | **C1** | CoreML FFI Bridge (`coreml_bridge.mm`) | ~500-800 | XL | Objective-C++, CoreML framework |
-| **C2** | MLX Backend (real-mlx feature) | ~300-500 | L | MLX C++ library |
+| **C2** | MLX Backend (mlx feature) | ~300-500 | L | MLX C++ library |
 | **C3** | MLX C++ Wrapper (replace stubs) | ~600-800 | XL | MLX installation, Python bindings |
 | **C4** | ANE Execution Path | ~400-600 | XL | CoreML MLProgram, Metal shaders |
 | **H1** | Metal Kernel Compilation | ~100-200 | M | Xcode MetalToolchain |
@@ -437,4 +437,5 @@ This document defines the responsibilities, deliverables, and coordination model
 - **Version:** 1.0
 - **Last Updated:** 2025-01-23
 - **Next Review:** Week 2 (after Phase 1 kickoff)
-- **Related:** [AGENT-COORDINATION.md](AGENT-COORDINATION.md), [PRD](../PRD-COMPLETION-V03-ALPHA.md)
+- **Related:** [PRD](../PRD-COMPLETION-V03-ALPHA.md)
+MLNavigator Inc 2025-12-04.

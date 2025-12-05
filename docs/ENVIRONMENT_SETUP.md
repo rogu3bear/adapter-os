@@ -322,7 +322,7 @@ AOS_MEMORY_EVICTION_THRESHOLD=0.85
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `AOS_DEBUG_DETERMINISTIC` | `false` | Enable determinism debug logging |
-| `AOS_DEBUG_SKIP_KERNEL_SIG` | `false` | Skip kernel signature verification (VERY DANGEROUS) |
+| `AOS_DEBUG_SKIP_KERNEL_SIG` | `false` | Skip kernel signature verification (DEV-ONLY; blocked when `AOS_SERVER_PRODUCTION_MODE` is set) |
 
 ---
 

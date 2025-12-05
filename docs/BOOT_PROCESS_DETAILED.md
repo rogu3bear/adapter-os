@@ -95,8 +95,8 @@ tracing_subscriber::registry()
 | Argument | Default | Purpose |
 |----------|---------|---------|
 | `--config` | `configs/cp.toml` | Server configuration |
-| `--skip-pf-check` | false | Bypass egress firewall check |
-| `--skip-drift-check` | false | Bypass environment fingerprint |
+| `--skip-pf-check` | false | Bypass egress firewall check (not needed when `require_pf_deny=false` in dev config) |
+| `--skip-drift-check` | false | Bypass environment fingerprint (dev auto-baselines; avoid in production) |
 | `--manifest-path` | auto-discover | Model manifest for HKDF seeding |
 | `--migrate-only` | false | Run migrations and exit |
 | `--single-writer` | true | PID lock for single instance |
@@ -138,7 +138,7 @@ pfctl -s rules → count "block out" (TCP + UDP required)
 iptables -L OUTPUT → DROP policy required
 ```
 
-**Bypass:** `--skip-pf-check` (development only)
+**Bypass:** `--skip-pf-check` (only for debugging; dev config sets `require_pf_deny=false` so this is not needed)
 
 ### 2.2 Environment Drift Detection
 
@@ -150,6 +150,8 @@ iptables -L OUTPUT → DROP policy required
 | Critical Libraries | Hash | Block on tampering |
 
 **Baseline Location:** `var/baseline_fingerprint.json`
+
+**Development Behavior:** First run auto-creates the baseline; non-critical drift only warns. Production still blocks on critical drift—do not bypass checks in production.
 
 ---
 
@@ -582,7 +584,7 @@ AOS_DEV_SKIP_METALLIB_CHECK=1 cargo run -p adapteros-lora-worker \
 
 # 3. Start control plane (HTTP server, connects to worker)
 AOS_WORKER_SOCKET=./var/run/worker.sock cargo run -p adapteros-server -- \
-  --config configs/cp.toml --skip-pf-check --single-writer
+  --config configs/cp.toml --single-writer
 
 # 4. Start UI (optional)
 cd ui && pnpm dev
@@ -629,3 +631,5 @@ sudo systemctl start aos-cp
 ---
 
 *Copyright JKCA | 2025 James KC Auchterlonie*
+
+MLNavigator Inc 2025-12-05.

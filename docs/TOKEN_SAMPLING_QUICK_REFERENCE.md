@@ -244,7 +244,7 @@ cargo check -p adapteros-lora-mlx-ffi --lib
 
 ### Build with Real MLX
 ```bash
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 ```
 
 ### Run Tests

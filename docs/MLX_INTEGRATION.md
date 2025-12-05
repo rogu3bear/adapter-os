@@ -43,17 +43,17 @@ See [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) for th
 
 ## Feature Flag
 
-MLX backend is enabled via the `real-mlx` feature flag in the `adapteros-lora-mlx-ffi` crate:
+MLX backend is enabled via the `mlx` feature flag in the `adapteros-lora-mlx-ffi` crate:
 
 ```bash
 # Build with stub implementation (default, no MLX C++ required)
 cargo build -p adapteros-lora-mlx-ffi
 
 # Build with real MLX integration (requires MLX C++ library)
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 ```
 
-The `real-mlx` feature enables GPU-accelerated inference through the MLX C++ framework.
+The `mlx` feature enables GPU-accelerated inference through the MLX C++ framework.
 
 ## Build Requirements
 
@@ -71,14 +71,14 @@ Requires MLX C++ library installation. Set environment variables to specify libr
 # Option 1: Explicit paths (highest precedence)
 export MLX_INCLUDE_DIR=/path/to/mlx/include
 export MLX_LIB_DIR=/path/to/mlx/lib
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 
 # Option 2: Base path (uses lib/include subdirectories)
 export MLX_PATH=/opt/homebrew  # or path to MLX installation
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 
 # Option 3: Homebrew default (auto-detected on macOS)
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 ```
 
 ### Build Configuration Precedence
@@ -442,7 +442,7 @@ if !model.is_healthy() {
 brew install mlx
 
 # Auto-detection should work
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 ```
 
 #### Scenario 2: Custom MLX Installation
@@ -450,7 +450,7 @@ cargo build -p adapteros-lora-mlx-ffi --features real-mlx
 # For non-standard locations
 export MLX_INCLUDE_DIR=/usr/local/include
 export MLX_LIB_DIR=/usr/local/lib
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 ```
 
 #### Scenario 3: Testing Without MLX Installed

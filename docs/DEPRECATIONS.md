@@ -151,7 +151,7 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
 
 - `scripts/run-mlx-tests.sh`
   - Status: **DEPRECATED**
-  - Replacement: `cargo test --features real-mlx`
+  - Replacement: `cargo test --features mlx`
   - Notes: Zero active usage. MLX backend testing is integrated into standard Rust test infrastructure.
   - Sources: `[source: scripts/run-mlx-tests.sh L1-L100]`
 

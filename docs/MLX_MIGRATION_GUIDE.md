@@ -11,7 +11,7 @@
 
 ## Migration Steps
 1) **Enable real feature**  
-   Build with `--features multi-backend,real-mlx` or run `make build-mlx`.
+   Build with `--features multi-backend,mlx` or run `make build-mlx`.
 2) **Update config**  
    Use `configs/mlx-development.toml` (dev) or `configs/mlx-production.toml` (prod).
 3) **Validate backend**  
