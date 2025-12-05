@@ -743,7 +743,7 @@ fn test_rag_identical_queries_same_ordering() {
     ];
 
     // Apply deterministic sorting to both
-    let sort_deterministically = |mut results: Vec<(&str, f64)>| {
+    let sort_deterministically = |mut results: Vec<(&'static str, f64)>| {
         results.sort_by(|a, b| match b.1.partial_cmp(&a.1) {
             Some(std::cmp::Ordering::Equal) => a.0.cmp(b.0),
             Some(ordering) => ordering,
