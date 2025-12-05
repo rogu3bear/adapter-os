@@ -15,19 +15,32 @@ export interface PaginatedResponse<T> {
   pages: number;
 }
 
+export interface ModelArchitectureSummary {
+  architecture?: string | null;
+  num_layers?: number | null;
+  hidden_size?: number | null;
+  vocab_size?: number | null;
+}
+
 export interface ModelWithStatsResponse {
   id: string;
   name: string;
+  hash_b3: string;
+  config_hash_b3: string;
+  tokenizer_hash_b3: string;
   format?: string | null;
   backend?: string | null;
   size_bytes?: number | null;
   import_status?: string | null;
   model_path?: string | null;
   capabilities?: string[] | null;
+  quantization?: string | null;
+  tenant_id?: string | null;
   adapter_count: number;
   training_job_count: number;
   imported_at?: string | null;
   updated_at?: string | null;
+  architecture?: ModelArchitectureSummary | null;
 }
 
 export interface ModelListResponse {
@@ -382,11 +395,51 @@ export interface RoutingDecision {
   candidates?: string[];
 }
 
-export interface RouterConfig {
+export interface RoutingPolicy {
+  allowed_stack_ids?: string[];
+  allowed_adapter_ids?: string[];
+  denied_adapter_ids?: string[];
+  max_adapters_per_token?: number;
+  pin_enforcement?: string;
+  require_stack?: boolean;
+  require_pins?: boolean;
+}
+
+export interface RouterParameters {
   k_sparse: number;
-  gate_quant: string;
+  tau: number;
   entropy_floor: number;
+  gate_quant: string;
   sample_tokens_full: number;
+  algorithm: string;
+  warmup: boolean;
+}
+
+export interface RouterStackSummary {
+  stack_id: string;
+  version?: number;
+  lifecycle_state?: string;
+  adapter_ids: string[];
+}
+
+export interface RouterAdapterSummary {
+  adapter_id: string;
+  name?: string;
+  tier?: string;
+  category?: string;
+  scope?: string;
+  rank?: number;
+  alpha?: number;
+  in_default_stack: boolean;
+}
+
+export interface RouterConfigView {
+  tenant_id: string;
+  manifest_hash?: string;
+  router: RouterParameters;
+  routing_policy?: RoutingPolicy;
+  stack?: RouterStackSummary;
+  adapters: RouterAdapterSummary[];
 }
 
 // Promotion types
@@ -1301,6 +1354,7 @@ export interface RoutingDecisionFilters {
   offset?: number;
   tenant_id?: string;
   anomalies_only?: boolean;
+  request_id?: string;
 }
 
 export interface AdapterFired {

@@ -36,7 +36,6 @@ const backend = spawn('cargo', [
   '--bin', 'adapteros-server',
   '--',
   '--config', 'configs/cp.toml',
-  '--skip-pf-check',
   '--single-writer'
 ], {
   cwd: projectRoot,

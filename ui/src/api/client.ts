@@ -174,9 +174,21 @@ class ApiClient {
     const body = options.body || '';
     const requestId = await this.computeRequestId(method, path, body.toString());
 
+    const hasAuthHeader = (() => {
+      if (!options.headers) return false;
+      if (options.headers instanceof Headers) {
+        return options.headers.has('Authorization');
+      }
+      if (Array.isArray(options.headers)) {
+        return options.headers.some(([key]) => key?.toString().toLowerCase() === 'authorization');
+      }
+      return Object.keys(options.headers).some(key => key.toLowerCase() === 'authorization');
+    })();
+
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       'X-Request-ID': requestId,
+      ...(this.token && !hasAuthHeader ? { Authorization: `Bearer ${this.token}` } : {}),
       ...options.headers,
     };
 
@@ -1462,6 +1474,36 @@ class ApiClient {
     return extractArrayFromResponse<apiTypes.ModelWithStatsResponse>(resp);
   }
 
+  /**
+   * Helper: list models with optional runtime status data.
+   * Falls back gracefully if status endpoint is not accessible to the user.
+   */
+  async listModelsWithStatus(
+    tenantId?: string
+  ): Promise<
+    Array<apiTypes.ModelWithStatsResponse & { status?: types.BaseModelStatus }>
+  > {
+    const [models, statusResp] = await Promise.all([
+      this.listModels(),
+      this.getAllModelsStatus(tenantId).catch(() => null),
+    ]);
+
+    const statusModels: types.BaseModelStatus[] = statusResp?.models ?? [];
+
+    const statusById = statusModels.reduce<Record<string, types.BaseModelStatus>>(
+      (acc, s) => {
+        acc[s.model_id] = s;
+        return acc;
+      },
+      {},
+    );
+
+    return models.map((model) => ({
+      ...model,
+      status: statusById[model.id],
+    }));
+  }
+
   // Base Model Management API Methods - Citation: IMPLEMENTATION_PLAN.md Phase 2
   async importModel(data: types.ImportModelRequest, options: RequestInit = {}, skipRetry: boolean = false, cancelToken?: AbortSignal): Promise<types.ImportModelResponse> {
     return this.request<types.ImportModelResponse>('/v1/models/import', {
@@ -2457,6 +2499,13 @@ class ApiClient {
   // Routing methods
   async getSessionRouterView(requestId: string): Promise<types.SessionRouterViewResponse> {
     return this.request<types.SessionRouterViewResponse>(`/v1/routing/sessions/${requestId}`);
+  }
+
+  async getRouterConfig(tenantId: string): Promise<types.RouterConfigView> {
+    const effectiveTenant = tenantId || 'default';
+    return this.request<types.RouterConfigView>(
+      `/v1/tenants/${effectiveTenant}/router/config`
+    );
   }
 
   async getDeterminismStatus(): Promise<types.DeterminismStatusResponse> {

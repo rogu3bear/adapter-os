@@ -140,7 +140,21 @@ function AuthProvider({ children }: { children: ReactNode }) {
         user_id: response.user_id,
         tenant_id: response.tenant_id,
       });
-      await refreshUser();
+
+      // Optimistically set user from login response to avoid auth/me flakiness
+      setUser({
+        id: response.user_id,
+        email: credentials.email ?? response.user_id,
+        display_name: credentials.email ?? response.user_id,
+        role: response.role as User['role'],
+        tenant_id: response.tenant_id ?? '',
+        permissions: [], // refreshed below
+      });
+
+      // Best-effort hydration from /auth/me
+      refreshUser().catch(err => {
+        logger.warn('Post-login user refresh failed; using optimistic user state', { component: 'AuthProvider' }, toError(err));
+      });
     } catch (error) {
       const err = toError(error);
       setAuthError(err);

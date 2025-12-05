@@ -14,6 +14,7 @@
 
 export const CHART_COLORS = {
   primary: 'hsl(var(--chart-1))',
+  secondary: 'hsl(var(--chart-5))',
   success: 'hsl(var(--chart-2))',
   warning: 'hsl(var(--chart-3))',
   error: 'hsl(var(--chart-4))',

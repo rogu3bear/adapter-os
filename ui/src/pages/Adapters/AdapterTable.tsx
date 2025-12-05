@@ -26,6 +26,7 @@ import {
   MemoryStick,
 } from 'lucide-react';
 import type { Adapter, AdapterState } from '@/api/adapter-types';
+import { Link } from 'react-router-dom';
 import { AdapterActions } from './AdapterActions';
 
 interface AdapterTableProps {
@@ -210,7 +211,9 @@ function AdapterTableRow({
           {getCategoryIcon(adapter.category)}
           <div>
             <div className="font-medium flex items-center gap-1">
-              {adapter.name}
+              <Link to={`/adapters/${adapter.adapter_id}`} className="hover:underline">
+                {adapter.name}
+              </Link>
               {adapter.pinned && (
                 <Pin className="h-3 w-3 text-muted-foreground" />
               )}

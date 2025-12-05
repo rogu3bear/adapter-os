@@ -1,105 +1,103 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Slider } from './ui/slider';
-import { Badge } from './ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import {
-  Settings,
-  Sliders,
-  TrendingUp,
-  Target,
-  Save,
-  RotateCcw,
-  AlertCircle,
-  CheckCircle,
-  BarChart3,
-  Zap
-} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 import apiClient from '@/api/client';
-import { RouterConfig, FeatureVector, AdapterScore } from '@/api/types';
-
-import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
+import { RouterAdapterSummary, RouterConfigView, RoutingPolicy } from '@/api/types';
 import { logger } from '@/utils/logger';
-import { Alert, AlertDescription } from './ui/alert';
-import { toast } from 'sonner';
-import { GlossaryTooltip } from './ui/glossary-tooltip';
 
 interface RouterConfigPageProps {
   selectedTenant: string;
 }
 
-interface FeatureWeights {
-  language: number;
-  framework: number;
-  symbol_hits: number;
-  path_tokens: number;
-  prompt_verb: number;
+function InfoRow({ label, value }: { label: string; value: string | number | undefined }) {
+  return (
+    <div className="flex justify-between text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium">{value ?? '—'}</span>
+    </div>
+  );
+}
+
+function renderPolicy(policy?: RoutingPolicy) {
+  if (!policy) {
+    return <p className="text-sm text-muted-foreground">No routing policy configured for this tenant.</p>;
+  }
+
+  return (
+    <div className="space-y-2 text-sm">
+      <InfoRow label="Allowed stacks" value={policy.allowed_stack_ids?.join(', ') || 'Any'} />
+      <InfoRow label="Allowed adapters" value={policy.allowed_adapter_ids?.join(', ') || 'Any'} />
+      <InfoRow label="Denied adapters" value={policy.denied_adapter_ids?.join(', ') || 'None'} />
+      <InfoRow
+        label="Max adapters per token"
+        value={policy.max_adapters_per_token ?? 'Router default (k_sparse)'}
+      />
+      <InfoRow label="Pin enforcement" value={policy.pin_enforcement ?? 'warn'} />
+      <InfoRow label="Require stack" value={policy.require_stack ? 'Yes' : 'No'} />
+      <InfoRow label="Require pins" value={policy.require_pins ? 'Yes' : 'No'} />
+    </div>
+  );
+}
+
+function renderAdapters(adapters: RouterAdapterSummary[]) {
+  if (!adapters.length) {
+    return <p className="text-sm text-muted-foreground">No adapters found for the effective routing set.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {adapters.map((adapter) => (
+        <div
+          key={adapter.adapter_id}
+          className="flex items-center justify-between rounded-md border border-border p-3"
+        >
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{adapter.adapter_id}</span>
+              {adapter.in_default_stack && <Badge variant="secondary">default stack</Badge>}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {adapter.name ? `${adapter.name} • ` : ''}
+              {adapter.category ?? 'category: unknown'} • {adapter.tier ?? 'tier: unknown'}
+            </div>
+          </div>
+          <div className="text-xs text-muted-foreground text-right">
+            <div>scope: {adapter.scope ?? 'n/a'}</div>
+            <div>rank: {adapter.rank ?? 'n/a'} | alpha: {adapter.alpha ?? 'n/a'}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
-  const [config, setConfig] = useState<RouterConfig>({
-    k_sparse: 8,
-    gate_quant: 'q15',
-    entropy_floor: 0.1,
-    sample_tokens_full: 128
-  });
-
-  const [featureWeights, setFeatureWeights] = useState<FeatureWeights>({
-    language: 0.30,
-    framework: 0.25,
-    symbol_hits: 0.20,
-    path_tokens: 0.15,
-    prompt_verb: 0.10
-  });
-
+  const [config, setConfig] = useState<RouterConfigView | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [testPrompt, setTestPrompt] = useState('');
-  const [testResults, setTestResults] = useState<AdapterScore[] | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-
-  const [pageError, setPageError] = useState<Error | null>(null);
-  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'warning' | 'info' } | null>(null);
-  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
 
   const loadRouterConfig = useCallback(async () => {
+    if (!selectedTenant) return;
+
     setIsLoading(true);
-    setPageError(null);
+    setError(null);
 
     try {
-      // Load current policy to get router config
-      const policies = await apiClient.listPolicies();
-      if (policies.length > 0) {
-        const policyData = JSON.parse(policies[0].policy_json);
-        if (policyData.packs?.router) {
-          const routerConfig = policyData.packs.router;
-          setConfig({
-            k_sparse: routerConfig.k_max || 8,
-            gate_quant: routerConfig.gate_quantization || 'q15',
-            entropy_floor: routerConfig.entropy_floor || 0.1,
-            sample_tokens_full: routerConfig.sample_tokens_full || 128
-          });
-
-          if (routerConfig.feature_weights) {
-            setFeatureWeights(routerConfig.feature_weights);
-          }
-        }
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to load router config';
-      logger.error('Failed to load router config', {
+      const response = await apiClient.getRouterConfig(selectedTenant);
+      setConfig(response);
+    } catch (err) {
+      const parsed = err instanceof Error ? err : new Error('Failed to load router configuration');
+      setError(parsed);
+      logger.error('Failed to load router configuration', {
         component: 'RouterConfigPage',
-        operation: 'loadRouterConfig',
         tenant: selectedTenant,
-        error: errorMessage
+        error: parsed.message,
       });
-
-      const err = error instanceof Error ? error : new Error(errorMessage);
-      setPageError(err);
-      setStatusMessage({ message: 'Failed to load router configuration.', variant: 'warning' });
     } finally {
       setIsLoading(false);
     }
@@ -109,508 +107,120 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
     loadRouterConfig();
   }, [loadRouterConfig]);
 
-  const handleConfigChange = (field: keyof RouterConfig, value: unknown) => {
-    setConfig(prev => ({ ...prev, [field]: value }));
-    setHasUnsavedChanges(true);
-  };
-
-  const handleWeightChange = (feature: keyof FeatureWeights, value: number) => {
-    setFeatureWeights(prev => ({ ...prev, [feature]: value }));
-    setHasUnsavedChanges(true);
-  };
-
-  const normalizeWeights = () => {
-    const total = Object.values(featureWeights).reduce((sum, w) => sum + w, 0);
-    const normalized = Object.entries(featureWeights).reduce((acc, [key, value]) => ({
-      ...acc,
-      [key]: value / total
-    }), {} as FeatureWeights);
-    setFeatureWeights(normalized);
-
-    setStatusMessage({ message: 'Feature weights normalized to sum to 1.0.', variant: 'success' });
-  };
-
-  const resetToDefaults = () => {
-    setConfig({
-      k_sparse: 8,
-      gate_quant: 'q15',
-      entropy_floor: 0.1,
-      sample_tokens_full: 128
-    });
-    setFeatureWeights({
-      language: 0.30,
-      framework: 0.25,
-      symbol_hits: 0.20,
-      path_tokens: 0.15,
-      prompt_verb: 0.10
-    });
-    setHasUnsavedChanges(false);
-
-    setStatusMessage({ message: 'Router configuration reset to defaults.', variant: 'success' });
-  };
-
-  const saveConfiguration = async () => {
-    setIsSaving(true);
-    setPageError(null);
-
-    try {
-      // Get current policy
-      const policies = await apiClient.listPolicies();
-      if (policies.length === 0) {
-        throw new Error('No policy found to update');
-      }
-
-      const currentPolicy = JSON.parse(policies[0].policy_json);
-
-      // Update router configuration
-      const updatedPolicy = {
-        ...currentPolicy,
-        packs: {
-          ...currentPolicy.packs,
-          router: {
-            k_min: Math.floor(config.k_sparse / 2),
-            k_max: config.k_sparse,
-            entropy_floor: config.entropy_floor,
-            gate_quantization: config.gate_quant,
-            sample_tokens_full: config.sample_tokens_full,
-            feature_weights: featureWeights
-          }
-        }
-      };
-
-      // Apply updated policy
-      await apiClient.applyPolicy({
-        cpid: policies[0].cpid,
-        content: JSON.stringify(updatedPolicy)
-      });
-
-      setHasUnsavedChanges(false);
-      logger.info('Router configuration saved', {
-        component: 'RouterConfigPage',
-        operation: 'saveConfiguration',
-        tenant: selectedTenant,
-        config
-      });
-
-      setStatusMessage({ message: 'Router configuration saved successfully.', variant: 'success' });
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error('Failed to save router config');
-      logger.error('Failed to save router config', {
-        component: 'RouterConfigPage',
-        operation: 'saveConfiguration',
-        tenant: selectedTenant,
-        error: err.message
-      });
-
-      setPageError(err);
-      setStatusMessage({ message: 'Failed to save configuration.', variant: 'warning' });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const testRouterConfig = async () => {
-    setValidationMessage(null);
-    setPageError(null);
-    if (!testPrompt.trim()) {
-      setValidationMessage('Please enter a test prompt before running the router test.');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const result = await apiClient.debugRouting({
-        prompt: testPrompt
-      });
-      // Transform string[] to AdapterScore[]
-      const adapterScores: AdapterScore[] = result.selected_adapters.map((adapterId, idx) => ({
-        adapter_id: adapterId,
-        score: result.all_scores[adapterId] || 0,
-        gate_value: result.gate_values[idx]
-      }));
-      setTestResults(adapterScores);
-      logger.info('Router test completed', {
-        component: 'RouterConfigPage',
-        operation: 'testRouterConfig',
-        resultCount: result.selected_adapters.length
-      });
-
-      setStatusMessage({ message: 'Router test completed successfully.', variant: 'success' });
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error('Failed to test router');
-      logger.error('Failed to test router', {
-        component: 'RouterConfigPage',
-        operation: 'testRouterConfig',
-        testPrompt,
-        error: err.message
-      });
-
-      setPageError(err);
-      setStatusMessage({ message: 'Router test failed.', variant: 'warning' });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const weightTotal = Object.values(featureWeights).reduce((sum, w) => sum + w, 0);
-  const isWeightBalanced = Math.abs(weightTotal - 1.0) < 0.001;
+  const isEmpty = !config && !isLoading;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Router Configuration</h1>
+          <p className="text-sm text-muted-foreground">
+            Read-only view of the router parameters and effective adapter set used during inference.
+          </p>
+        </div>
+        <Button variant="outline" onClick={loadRouterConfig} disabled={isLoading}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+      </div>
 
-      {pageError && errorRecoveryTemplates.genericError(
-        pageError.message,
-        () => {
-          if (validationMessage) {
-            setValidationMessage(null);
-          }
-          loadRouterConfig();
-        }
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Failed to load router configuration</AlertTitle>
+          <AlertDescription>{error.message}</AlertDescription>
+        </Alert>
       )}
 
-      {statusMessage && (
-        <Alert
-          className={
-            statusMessage.variant === 'success'
-              ? 'border-green-200 bg-green-50'
-              : statusMessage.variant === 'warning'
-                ? 'border-amber-200 bg-amber-50'
-                : 'border-blue-200 bg-blue-50'
-          }
-        >
-          {statusMessage.variant === 'success' ? (
-            <CheckCircle className="w-4 h-4 text-green-600" />
-          ) : (
-            <AlertCircle className={`w-4 h-4 ${statusMessage.variant === 'warning' ? 'text-amber-600' : 'text-blue-600'}`} />
-          )}
-          <AlertDescription
-            className={
-              statusMessage.variant === 'success'
-                ? 'text-green-700'
-                : statusMessage.variant === 'warning'
-                  ? 'text-amber-700'
-                  : 'text-blue-700'
-            }
-          >
-            {statusMessage.message}
+      {isLoading && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Loading router configuration…</CardTitle>
+            <CardDescription>Fetching manifest-backed router settings.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-4 w-1/4" />
+          </CardContent>
+        </Card>
+      )}
+
+      {isEmpty && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>No router configuration available</AlertTitle>
+          <AlertDescription>
+            No configuration was found for this tenant. The router will fall back to manifest defaults.
           </AlertDescription>
         </Alert>
       )}
 
-      {validationMessage && (
-        <Alert className="border-amber-200 bg-amber-50">
-          <AlertCircle className="w-4 h-4 text-amber-600" />
-          <AlertDescription className="text-amber-700">{validationMessage}</AlertDescription>
-        </Alert>
-      )}
-
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Router Configuration</h2>
-          <p className="text-muted-foreground">
-            Configure K-sparse routing, feature weights, and gate quantization
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {hasUnsavedChanges && (
-            <Badge variant="outline" className="text-amber-600">
-              <AlertCircle className="w-3 h-3 mr-1" />
-              Unsaved Changes
-            </Badge>
-          )}
-          <Button variant="outline" onClick={resetToDefaults}>
-            <RotateCcw className="w-4 h-4 mr-2" />
-            Reset
-          </Button>
-          <Button onClick={saveConfiguration} disabled={isSaving}>
-            <Save className="w-4 h-4 mr-2" />
-            {isSaving ? 'Saving...' : 'Save Configuration'}
-          </Button>
-        </div>
-      </div>
-
-      <Tabs defaultValue="basic" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="basic">
-            <Settings className="w-4 h-4 mr-2" />
-            Basic Settings
-          </TabsTrigger>
-          <TabsTrigger value="weights">
-            <Sliders className="w-4 h-4 mr-2" />
-            Feature Weights
-          </TabsTrigger>
-          <TabsTrigger value="calibration">
-            <TrendingUp className="w-4 h-4 mr-2" />
-            Calibration
-          </TabsTrigger>
-          <TabsTrigger value="test">
-            <Zap className="w-4 h-4 mr-2" />
-            Test Router
-          </TabsTrigger>
-        </TabsList>
-
-        {/* Basic Settings */}
-        <TabsContent value="basic" className="space-y-4">
+      {config && (
+        <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                K-Sparse Configuration
-                <GlossaryTooltip termId="router" variant="icon" />
-              </CardTitle>
+              <CardTitle>Router Parameters</CardTitle>
               <CardDescription>
-                Configure the number of adapters selected per token (K-sparse routing)
+                Derived from the active manifest so values match worker routing during inference.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="k-sparse">K Value (Adapters per Token)</Label>
-                  <span className="text-2xl font-bold text-primary">{config.k_sparse}</span>
-                </div>
-                <Slider
-                  id="k-sparse"
-                  min={1}
-                  max={32}
-                  step={1}
-                  value={[config.k_sparse]}
-                  onValueChange={([value]) => handleConfigChange('k_sparse', value)}
-                  className="w-full"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Recommended: 8-16 for balanced performance. Higher K increases compute cost.
-                </p>
+            <CardContent className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary">k={config.router.k_sparse}</Badge>
+                <Badge variant="secondary">tau={config.router.tau}</Badge>
+                <Badge variant="secondary">entropy floor={config.router.entropy_floor}</Badge>
+                <Badge variant="secondary">quant={config.router.gate_quant}</Badge>
+                <Badge variant="secondary">sample tokens={config.router.sample_tokens_full}</Badge>
+                <Badge variant="outline">{config.router.algorithm}</Badge>
+                {config.manifest_hash && <Badge variant="default">manifest {config.manifest_hash}</Badge>}
               </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="entropy-floor">Entropy Floor</Label>
-                  <span className="text-lg font-mono">{config.entropy_floor.toFixed(3)}</span>
-                </div>
-                <Slider
-                  id="entropy-floor"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={[config.entropy_floor]}
-                  onValueChange={([value]) => handleConfigChange('entropy_floor', value)}
-                  className="w-full"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Minimum entropy threshold for routing decisions (0.0 - 1.0)
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <Label htmlFor="sample-tokens">Full Sampling Tokens</Label>
-                <Input
-                  id="sample-tokens"
-                  type="number"
-                  min={32}
-                  max={512}
-                  value={config.sample_tokens_full}
-                  onChange={(e) => handleConfigChange('sample_tokens_full', parseInt(e.target.value))}
-                />
-                <p className="text-sm text-muted-foreground">
-                  Number of initial tokens to log with full router decisions (default: 128)
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <Label htmlFor="gate-quant">Gate Quantization</Label>
-                <select
-                  id="gate-quant"
-                  value={config.gate_quant}
-                  onChange={(e) => handleConfigChange('gate_quant', e.target.value)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2"
-                >
-                  <option value="q15">Q15 (15-bit, recommended)</option>
-                  <option value="q8">Q8 (8-bit, faster)</option>
-                  <option value="f16">FP16 (16-bit float, precise)</option>
-                </select>
-                <p className="text-sm text-muted-foreground">
-                  Gate value quantization format for memory efficiency
-                </p>
+              <Separator />
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <InfoRow label="K-sparse (top-k)" value={config.router.k_sparse} />
+                <InfoRow label="Tau (temperature)" value={config.router.tau} />
+                <InfoRow label="Entropy floor" value={config.router.entropy_floor} />
+                <InfoRow label="Gate quantization" value={config.router.gate_quant} />
+                <InfoRow label="Sample full tokens" value={config.router.sample_tokens_full} />
+                <InfoRow label="Algorithm" value={config.router.algorithm} />
+                <InfoRow label="Warmup enabled" value={config.router.warmup ? 'Yes' : 'No'} />
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Feature Weights */}
-        <TabsContent value="weights" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Feature Vector Weights</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-normal text-muted-foreground">
-                    Total: {weightTotal.toFixed(3)}
-                  </span>
-                  {isWeightBalanced ? (
-                    <CheckCircle className="w-5 h-5 text-green-500" />
-                  ) : (
-                    <AlertCircle className="w-5 h-5 text-amber-500" />
-                  )}
-                </div>
-              </CardTitle>
-              <CardDescription>
-                Configure feature importance for adapter selection (should sum to 1.0)
-              </CardDescription>
+              <CardTitle>Routing Policy</CardTitle>
+              <CardDescription>Tenant execution policy constraints applied before routing.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {(Object.keys(featureWeights) as Array<keyof FeatureWeights>).map((feature) => (
-                <div key={feature} className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor={`weight-${feature}`} className="capitalize">
-                      {feature.replace('_', ' ')}
-                    </Label>
-                    <span className="text-lg font-mono">{featureWeights[feature].toFixed(2)}</span>
-                  </div>
-                  <Slider
-                    id={`weight-${feature}`}
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={[featureWeights[feature]]}
-                    onValueChange={([value]) => handleWeightChange(feature, value)}
-                    className="w-full"
-                  />
-                  <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary transition-all"
-                      style={{ width: `${featureWeights[feature] * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-
-              <div className="pt-4 border-t">
-                <Button onClick={normalizeWeights} variant="outline" className="w-full">
-                  <Target className="w-4 h-4 mr-2" />
-                  Normalize Weights to 1.0
-                </Button>
-              </div>
-
-              <div className="p-4 bg-muted rounded-lg space-y-2">
-                <h4 className="font-semibold text-sm">Weight Recommendations:</h4>
-                <ul className="text-sm text-muted-foreground space-y-1">
-                  <li>Language: 0.30 (strong signal for language-specific adapters)</li>
-                  <li>Framework: 0.25 (strong signal for framework adapters)</li>
-                  <li>Symbol Hits: 0.20 (moderate signal from code index)</li>
-                  <li>Path Tokens: 0.15 (moderate signal from file paths)</li>
-                  <li>Prompt Verb: 0.10 (weak signal from action verbs)</li>
-                </ul>
-              </div>
-            </CardContent>
+            <CardContent>{renderPolicy(config.routing_policy)}</CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Calibration */}
-        <TabsContent value="calibration" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Router Calibration</CardTitle>
+              <CardTitle>Adapters in Scope</CardTitle>
               <CardDescription>
-                Automatic calibration using historical routing data
+                Effective adapter set from the tenant&apos;s default stack (if configured) or manifest adapters.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="p-4 bg-muted rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  Calibration analyzes routing performance and automatically adjusts feature weights
-                  to optimize adapter selection quality. This process uses telemetry data from
-                  previous routing decisions.
-                </p>
-              </div>
-
-              <Button className="w-full" variant="outline" disabled>
-                <BarChart3 className="w-4 h-4 mr-2" />
-                Run Automatic Calibration (Coming Soon)
-              </Button>
-
-              <div className="pt-4 space-y-2">
-                <h4 className="font-semibold text-sm">Calibration Metrics:</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-3 bg-muted rounded-lg">
-                    <div className="text-xs text-muted-foreground">Hit Rate</div>
-                    <div className="text-2xl font-bold">--</div>
-                  </div>
-                  <div className="p-3 bg-muted rounded-lg">
-                    <div className="text-xs text-muted-foreground">Avg Confidence</div>
-                    <div className="text-2xl font-bold">--</div>
-                  </div>
-                  <div className="p-3 bg-muted rounded-lg">
-                    <div className="text-xs text-muted-foreground">Latency Overhead</div>
-                    <div className="text-2xl font-bold">--</div>
-                  </div>
-                  <div className="p-3 bg-muted rounded-lg">
-                    <div className="text-xs text-muted-foreground">Quality Score</div>
-                    <div className="text-2xl font-bold">--</div>
-                  </div>
+            <CardContent className="space-y-3">
+              {config.stack ? (
+                <div className="text-sm text-muted-foreground">
+                  Default stack <span className="font-medium">{config.stack.stack_id}</span>
+                  {config.stack.version !== undefined && ` • version ${config.stack.version}`}
+                  {config.stack.lifecycle_state && ` • ${config.stack.lifecycle_state}`}
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Test Router */}
-        <TabsContent value="test" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Test Router Configuration</CardTitle>
-              <CardDescription>
-                Test routing decisions with sample prompts
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="test-prompt">Test Prompt</Label>
-                <Input
-                  id="test-prompt"
-                  placeholder="Enter a prompt to test routing..."
-                  value={testPrompt}
-                  onChange={(e) => setTestPrompt(e.target.value)}
-                />
-              </div>
-
-              <Button onClick={testRouterConfig} disabled={isLoading} className="w-full">
-                <Zap className="w-4 h-4 mr-2" />
-                {isLoading ? 'Testing...' : 'Test Router'}
-              </Button>
-
-              {testResults && testResults.length > 0 && (
-                <div className="mt-4 space-y-3">
-                  <h4 className="font-semibold">Selected Adapters:</h4>
-                  <div className="space-y-2">
-                    {testResults.map((adapter, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between p-3 bg-muted rounded-lg"
-                      >
-                        <div className="flex items-center gap-3">
-                          <Badge variant="outline">{idx + 1}</Badge>
-                          <span className="font-mono text-sm">{adapter.adapter_id}</span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <div className="text-xs text-muted-foreground">Score</div>
-                            <div className="font-mono text-sm">{adapter.score.toFixed(4)}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xs text-muted-foreground">Gate</div>
-                            <div className="font-mono text-sm">{adapter.gate_value}</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  No default stack set; showing manifest/tenant adapter set.
                 </div>
               )}
+              {renderAdapters(config.adapters)}
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
     </div>
   );
 }
+

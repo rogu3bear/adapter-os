@@ -249,7 +249,7 @@ export const systemEntries: GlossaryEntry[] = [
     category: 'system',
     content: {
       brief: 'Apple\'s MLX framework for ML research and inference.',
-      detailed: 'MLX is Apple\'s machine learning framework designed for research and experimentation on Apple Silicon. AdapterOS supports MLX as a secondary backend with HKDF-seeded randomness for determinism. MLX provides Python-like APIs in Rust through FFI bindings and includes features like hot-swap, circuit breakers, and memory pooling. Enabled with --features real-mlx.'
+      detailed: 'MLX is Apple\'s machine learning framework designed for research and experimentation on Apple Silicon. AdapterOS supports MLX as a secondary backend with HKDF-seeded randomness for determinism. MLX provides Python-like APIs in Rust through FFI bindings and includes features like hot-swap, circuit breakers, and memory pooling. Enable with --features mlx.'
     },
     relatedTerms: ['coreml', 'backend', 'metal'],
     aliases: ['apple mlx', 'mlx framework']

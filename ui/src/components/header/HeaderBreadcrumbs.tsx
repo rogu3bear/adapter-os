@@ -1,5 +1,5 @@
 import { useLocation, Link } from 'react-router-dom';
-import { getBreadcrumbs } from '@/config/routes';
+import { getBreadcrumbs, getClusterForPath } from '@/config/routes';
 import { cn } from '@/components/ui/utils';
 
 interface HeaderBreadcrumbsProps {
@@ -8,18 +8,26 @@ interface HeaderBreadcrumbsProps {
 
 export function HeaderBreadcrumbs({ className }: HeaderBreadcrumbsProps) {
   const location = useLocation();
+  const clusterLabel = getClusterForPath(location.pathname);
   const breadcrumbs = getBreadcrumbs(location.pathname);
 
-  if (breadcrumbs.length === 0) {
+  if (!clusterLabel && breadcrumbs.length === 0) {
     return null;
   }
 
   return (
     <nav aria-label="Breadcrumb" className={cn('hidden md:flex items-center gap-1 text-sm truncate', className)}>
+      {clusterLabel ? (
+        <span className="flex items-center gap-1 text-foreground font-semibold">
+          <span>{clusterLabel}</span>
+          {breadcrumbs.length > 0 && <span className="text-muted-foreground/30">/</span>}
+        </span>
+      ) : null}
+
       {breadcrumbs.map((crumb, index) => {
         const isLast = index === breadcrumbs.length - 1;
         return (
-          <span key={crumb.path} className="flex items-center gap-1">
+          <span key={`${crumb.path}-${crumb.label}`} className="flex items-center gap-1">
             {index > 0 && <span className="text-muted-foreground/30">/</span>}
             {isLast ? (
               <span className="text-foreground truncate">{crumb.label}</span>

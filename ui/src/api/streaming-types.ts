@@ -807,3 +807,73 @@ export function isModelReadyEvent(data: unknown): data is ModelReadyEvent {
 export function isFullyReadyEvent(data: unknown): data is FullyReadyEvent {
   return typeof data === 'object' && data !== null && 'event_type' in data && (data as FullyReadyEvent).event_type === 'FullyReady';
 }
+
+// ============================================================================
+// Inference Stream Events (with Loading Progress)
+// Endpoint: /v1/infer/stream/progress
+// ============================================================================
+
+/**
+ * Load phases for model loading progress
+ * Matches LoadPhase enum from streaming_infer.rs
+ */
+export type LoadPhase = 'Downloading' | 'LoadingWeights' | 'Warmup';
+
+/**
+ * Inference event types for progress streaming
+ * Matches InferenceEvent enum from crates/adapteros-server-api/src/handlers/streaming_infer.rs
+ * Uses 'event' as discriminant field (from #[serde(tag = "event")])
+ */
+export type InferenceEvent =
+  | { event: 'Loading'; phase: LoadPhase; progress: number; eta_seconds?: number }
+  | { event: 'Ready'; warmup_latency_ms: number }
+  | { event: 'Token'; text: string; token_id?: number }
+  | { event: 'Done'; total_tokens: number; latency_ms: number; unavailable_pinned_adapters?: string[]; pinned_routing_fallback?: string }
+  | { event: 'Error'; message: string; recoverable: boolean };
+
+/**
+ * Type guard for InferenceEvent
+ * Validates that the object has an 'event' field matching one of the valid event types
+ */
+export function isInferenceEvent(obj: unknown): obj is InferenceEvent {
+  if (typeof obj !== 'object' || obj === null || !('event' in obj)) {
+    return false;
+  }
+  const eventType = (obj as { event: string }).event;
+  return ['Loading', 'Ready', 'Token', 'Done', 'Error'].includes(eventType);
+}
+
+/**
+ * Helper to check if event is a Loading event
+ */
+export function isInferenceLoadingEvent(data: unknown): data is Extract<InferenceEvent, { event: 'Loading' }> {
+  return typeof data === 'object' && data !== null && 'event' in data && (data as InferenceEvent).event === 'Loading';
+}
+
+/**
+ * Helper to check if event is a Ready event
+ */
+export function isInferenceReadyEvent(data: unknown): data is Extract<InferenceEvent, { event: 'Ready' }> {
+  return typeof data === 'object' && data !== null && 'event' in data && (data as InferenceEvent).event === 'Ready';
+}
+
+/**
+ * Helper to check if event is a Token event
+ */
+export function isInferenceTokenEvent(data: unknown): data is Extract<InferenceEvent, { event: 'Token' }> {
+  return typeof data === 'object' && data !== null && 'event' in data && (data as InferenceEvent).event === 'Token';
+}
+
+/**
+ * Helper to check if event is a Done event
+ */
+export function isInferenceDoneEvent(data: unknown): data is Extract<InferenceEvent, { event: 'Done' }> {
+  return typeof data === 'object' && data !== null && 'event' in data && (data as InferenceEvent).event === 'Done';
+}
+
+/**
+ * Helper to check if event is an Error event
+ */
+export function isInferenceErrorEvent(data: unknown): data is Extract<InferenceEvent, { event: 'Error' }> {
+  return typeof data === 'object' && data !== null && 'event' in data && (data as InferenceEvent).event === 'Error';
+}

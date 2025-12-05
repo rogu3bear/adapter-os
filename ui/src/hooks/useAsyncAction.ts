@@ -287,7 +287,10 @@ export function useAsyncAction<TData, TVariables = void>(
           // Error is captured by React Query's error state, just return null
           // The mutation.isError and mutation.error will contain the error details
           if (import.meta.env.DEV) {
-            console.debug('[useAsyncAction] Mutation failed, error available via isError/error:', e);
+            logger.debug('[useAsyncAction] Mutation failed, error available via isError/error', {
+              hook: 'useAsyncAction',
+              error: e instanceof Error ? e.message : String(e),
+            });
           }
           return null;
         }

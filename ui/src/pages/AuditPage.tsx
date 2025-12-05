@@ -19,6 +19,274 @@ import { Download, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatTimestamp } from '@/utils/format';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
+type BadgeVariant = NonNullable<React.ComponentProps<typeof Badge>['variant']>;
+
+const LoadingSpinner = () => (
+  <div className="flex justify-center py-8">
+    <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+  </div>
+);
+
+function PermissionDeniedView() {
+  return (
+    <FeatureLayout title="Audit Log" description="Security and system audit events">
+      <ErrorRecovery
+        error="You do not have permission to view audit logs. This page requires the audit:view permission (Admin, SRE, or Compliance role)."
+        onRetry={() => window.location.reload()}
+      />
+    </FeatureLayout>
+  );
+}
+
+function ItemsPerPageSelect({
+  limit,
+  onChange,
+}: {
+  limit: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <GlossaryTooltip termId="audit-items-per-page">
+        <label className="cursor-help text-sm font-medium">Items per page:</label>
+      </GlossaryTooltip>
+      <Select value={limit.toString()} onValueChange={(value) => onChange(parseInt(value))}>
+        <SelectTrigger className="w-24">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="25">25</SelectItem>
+          <SelectItem value="50">50</SelectItem>
+          <SelectItem value="100">100</SelectItem>
+          <SelectItem value="200">200</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function ControlsCard({
+  limit,
+  onLimitChange,
+  onRefresh,
+  loading,
+  onExport,
+  canExport,
+  lastUpdated,
+}: {
+  limit: number;
+  onLimitChange: (value: number) => void;
+  onRefresh: () => void;
+  loading: boolean;
+  onExport: () => void;
+  canExport: boolean;
+  lastUpdated?: Date;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Controls
+          <GlossaryTooltip termId="audit-controls">
+            <span className="cursor-help text-muted-foreground">(?)</span>
+          </GlossaryTooltip>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap items-center gap-4">
+          <ItemsPerPageSelect limit={limit} onChange={onLimitChange} />
+          <GlossaryTooltip termId="audit-refresh">
+            <Button onClick={onRefresh} disabled={loading} variant="outline">
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </GlossaryTooltip>
+          <GlossaryTooltip termId="audit-export">
+            <Button onClick={onExport} disabled={!canExport} variant="outline">
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+          </GlossaryTooltip>
+          {lastUpdated && (
+            <span className="text-xs text-muted-foreground">
+              Last updated: {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const TableHeaderCell = ({ termId, children }: { termId: string; children: React.ReactNode }) => (
+  <TableHead>
+    <GlossaryTooltip termId={termId}>
+      <div className="flex cursor-help items-center gap-1">{children}</div>
+    </GlossaryTooltip>
+  </TableHead>
+);
+
+function AuditTableRow({
+  log,
+  getSeverityColor,
+}: {
+  log: TelemetryEvent;
+  getSeverityColor: (level: string) => BadgeVariant;
+}) {
+  return (
+    <TableRow>
+      <TableCell className="font-mono text-sm">{formatTimestamp(log.timestamp, 'long')}</TableCell>
+      <TableCell>
+        <Badge variant={getSeverityColor(log.level)}>{log.level?.toUpperCase()}</Badge>
+      </TableCell>
+      <TableCell className="font-medium">{log.event_type || 'Unknown'}</TableCell>
+      <TableCell>{log.user_id || 'System'}</TableCell>
+      <TableCell className="max-w-md truncate">
+        {log.metadata ? JSON.stringify(log.metadata) : 'No metadata'}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function AuditTableContent({
+  auditLogs,
+  getSeverityColor,
+}: {
+  auditLogs: TelemetryEvent[];
+  getSeverityColor: (level: string) => BadgeVariant;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHeaderCell termId="audit-timestamp">Timestamp</TableHeaderCell>
+            <TableHeaderCell termId="audit-level">Level</TableHeaderCell>
+            <TableHeaderCell termId="audit-event">Event</TableHeaderCell>
+            <TableHeaderCell termId="audit-user">User</TableHeaderCell>
+            <TableHeaderCell termId="audit-details">Details</TableHeaderCell>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {auditLogs.map((log, index) => (
+            <AuditTableRow key={index} log={log} getSeverityColor={getSeverityColor} />
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function PaginationControls({
+  total,
+  limit,
+  offset,
+  onOffsetChange,
+}: {
+  total: number;
+  limit: number;
+  offset: number;
+  onOffsetChange: (value: number) => void;
+}) {
+  const prev = () => onOffsetChange(Math.max(0, offset - limit));
+  const next = () => onOffsetChange(offset + limit);
+  return (
+    <div className="mt-4 flex items-center justify-between">
+      <GlossaryTooltip termId="audit-pagination-prev">
+        <Button variant="outline" onClick={prev} disabled={offset === 0}>
+          <ChevronLeft className="mr-1 h-4 w-4" />
+          Previous
+        </Button>
+      </GlossaryTooltip>
+      <span className="text-sm text-muted-foreground">
+        Showing {offset + 1} - {Math.min(offset + limit, total)} of {total}
+      </span>
+      <GlossaryTooltip termId="audit-pagination-next">
+        <Button variant="outline" onClick={next} disabled={offset + limit >= total}>
+          Next
+          <ChevronRight className="ml-1 h-4 w-4" />
+        </Button>
+      </GlossaryTooltip>
+    </div>
+  );
+}
+
+function AuditTableCard({
+  auditLogs,
+  filteredAuditLogs,
+  allAuditLogs,
+  loading,
+  error,
+  onRetry,
+  getSeverityColor,
+  limit,
+  offset,
+  onOffsetChange,
+}: {
+  auditLogs: TelemetryEvent[];
+  filteredAuditLogs: TelemetryEvent[];
+  allAuditLogs: TelemetryEvent[];
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  getSeverityColor: (level: string) => BadgeVariant;
+  limit: number;
+  offset: number;
+  onOffsetChange: (value: number) => void;
+}) {
+  const showCounts = filteredAuditLogs.length !== allAuditLogs.length && filteredAuditLogs.length > 0;
+  const showTotalOnly = filteredAuditLogs.length === allAuditLogs.length && allAuditLogs.length > 0;
+  const hasPagination = filteredAuditLogs.length > limit;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Audit Events
+          <GlossaryTooltip termId="audit-events">
+            <span className="cursor-help text-muted-foreground">(?)</span>
+          </GlossaryTooltip>
+          {showCounts && (
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              ({filteredAuditLogs.length} of {allAuditLogs.length} total)
+            </span>
+          )}
+          {showTotalOnly && (
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              ({allAuditLogs.length} total)
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {error && errorRecoveryTemplates.genericError(error, onRetry)}
+        {loading && allAuditLogs.length === 0 && <LoadingSpinner />}
+        {!loading && filteredAuditLogs.length === 0 && (
+          <div className="py-8 text-center text-muted-foreground">
+            {allAuditLogs.length === 0 ? 'No audit events found' : 'No audit events match the current filters'}
+          </div>
+        )}
+        {!loading && filteredAuditLogs.length > 0 && auditLogs.length === 0 && (
+          <div className="py-8 text-center text-muted-foreground">No results on this page</div>
+        )}
+        {!loading && auditLogs.length > 0 && (
+          <>
+            <AuditTableContent auditLogs={auditLogs} getSeverityColor={getSeverityColor} />
+            {hasPagination && (
+              <PaginationControls
+                total={filteredAuditLogs.length}
+                limit={limit}
+                offset={offset}
+                onOffsetChange={onOffsetChange}
+              />
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function AuditPageInner() {
   const { density, setDensity } = useDensity();
   const { can, userRole } = useRBAC();
@@ -32,14 +300,7 @@ function AuditPageInner() {
 
   // RBAC: Check if user has audit:view permission
   if (!can('audit:view')) {
-    return (
-      <FeatureLayout title="Audit Log" description="Security and system audit events">
-        <ErrorRecovery
-          error="You do not have permission to view audit logs. This page requires the audit:view permission (Admin, SRE, or Compliance role)."
-          onRetry={() => window.location.reload()}
-        />
-      </FeatureLayout>
-    );
+    return <PermissionDeniedView />;
   }
 
   // Filter configurations for audit logs
@@ -216,15 +477,17 @@ function AuditPageInner() {
     }
   }, [polledLogs]);
 
-  const getSeverityColor = (level: string) => {
-    switch (level?.toLowerCase()) {
-      case 'error': return 'destructive';
-      case 'warn': case 'warning': return 'secondary';
-      case 'info': return 'default';
-      case 'debug': return 'outline';
-      default: return 'default';
-    }
+  const severityVariantMap: Record<string, BadgeVariant> = {
+    critical: 'destructive',
+    error: 'error',
+    warn: 'warning',
+    warning: 'warning',
+    info: 'info',
+    debug: 'outline',
   };
+
+  const getSeverityColor = (level: string): BadgeVariant =>
+    severityVariantMap[level?.toLowerCase()] ?? 'default';
 
   // Export audit logs as JSON
   const handleExportLogs = useCallback(() => {
@@ -248,7 +511,6 @@ function AuditPageInner() {
     >
       <SectionErrorBoundary sectionName="Audit Log">
         <div className="space-y-6">
-          {/* Advanced Filters */}
           <AdvancedFilter
             configs={auditFilterConfigs}
             values={filterValues}
@@ -256,197 +518,27 @@ function AuditPageInner() {
             className="mb-4"
             title="Filter Audit Logs"
           />
-
-          {/* Basic Controls */}
-          <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Controls
-              <GlossaryTooltip termId="audit-controls">
-                <span className="cursor-help text-muted-foreground">(?)</span>
-              </GlossaryTooltip>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-4 items-center flex-wrap">
-              <div className="flex items-center gap-2">
-                <GlossaryTooltip termId="audit-items-per-page">
-                  <label className="text-sm font-medium cursor-help">Items per page:</label>
-                </GlossaryTooltip>
-                <Select value={limit.toString()} onValueChange={(value) => setLimit(parseInt(value))}>
-                  <SelectTrigger className="w-24">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="25">25</SelectItem>
-                    <SelectItem value="50">50</SelectItem>
-                    <SelectItem value="100">100</SelectItem>
-                    <SelectItem value="200">200</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <GlossaryTooltip termId="audit-refresh">
-                <Button onClick={loadAuditLogs} disabled={loading} variant="outline">
-                  <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                  Refresh
-                </Button>
-              </GlossaryTooltip>
-              <GlossaryTooltip termId="audit-export">
-                <Button
-                  onClick={handleExportLogs}
-                  disabled={!can('audit:view') || allAuditLogs.length === 0}
-                  variant="outline"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Export
-                </Button>
-              </GlossaryTooltip>
-              {lastUpdated && (
-                <span className="text-xs text-muted-foreground">
-                  Last updated: {lastUpdated.toLocaleTimeString()}
-                </span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Audit Logs Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Audit Events
-              <GlossaryTooltip termId="audit-events">
-                <span className="cursor-help text-muted-foreground">(?)</span>
-              </GlossaryTooltip>
-              {filteredAuditLogs.length !== allAuditLogs.length && (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  ({filteredAuditLogs.length} of {allAuditLogs.length} total)
-                </span>
-              )}
-              {filteredAuditLogs.length === allAuditLogs.length && allAuditLogs.length > 0 && (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  ({allAuditLogs.length} total)
-                </span>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {error && errorRecoveryTemplates.genericError(error, loadAuditLogs)}
-
-            {loading && allAuditLogs.length === 0 ? (
-              <div className="flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-              </div>
-            ) : filteredAuditLogs.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                {allAuditLogs.length === 0 ? 'No audit events found' : 'No audit events match the current filters'}
-              </div>
-            ) : auditLogs.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No results on this page
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>
-                        <GlossaryTooltip termId="audit-timestamp">
-                          <div className="flex items-center gap-1 cursor-help">
-                            Timestamp
-                          </div>
-                        </GlossaryTooltip>
-                      </TableHead>
-                      <TableHead>
-                        <GlossaryTooltip termId="audit-level">
-                          <div className="flex items-center gap-1 cursor-help">
-                            Level
-                          </div>
-                        </GlossaryTooltip>
-                      </TableHead>
-                      <TableHead>
-                        <GlossaryTooltip termId="audit-event">
-                          <div className="flex items-center gap-1 cursor-help">
-                            Event
-                          </div>
-                        </GlossaryTooltip>
-                      </TableHead>
-                      <TableHead>
-                        <GlossaryTooltip termId="audit-user">
-                          <div className="flex items-center gap-1 cursor-help">
-                            User
-                          </div>
-                        </GlossaryTooltip>
-                      </TableHead>
-                      <TableHead>
-                        <GlossaryTooltip termId="audit-details">
-                          <div className="flex items-center gap-1 cursor-help">
-                            Details
-                          </div>
-                        </GlossaryTooltip>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {auditLogs.map((log, index) => (
-                      <TableRow key={index}>
-                        <TableCell className="font-mono text-sm">
-                          {formatTimestamp(log.timestamp, 'long')}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={getSeverityColor(log.level)}>
-                            {log.level?.toUpperCase()}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {log.event_type || 'Unknown'}
-                        </TableCell>
-                        <TableCell>
-                          {log.user_id || 'System'}
-                        </TableCell>
-                        <TableCell className="max-w-md truncate">
-                          {log.metadata
-                            ? JSON.stringify(log.metadata)
-                            : 'No metadata'
-                          }
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-
-            {/* Pagination */}
-            {filteredAuditLogs.length > limit && (
-              <div className="flex justify-between items-center mt-4">
-                <GlossaryTooltip termId="audit-pagination-prev">
-                  <Button
-                    variant="outline"
-                    onClick={() => setOffset(Math.max(0, offset - limit))}
-                    disabled={offset === 0}
-                  >
-                    <ChevronLeft className="h-4 w-4 mr-1" />
-                    Previous
-                  </Button>
-                </GlossaryTooltip>
-                <span className="text-sm text-muted-foreground">
-                  Showing {offset + 1} - {Math.min(offset + limit, filteredAuditLogs.length)} of {filteredAuditLogs.length}
-                </span>
-                <GlossaryTooltip termId="audit-pagination-next">
-                  <Button
-                    variant="outline"
-                    onClick={() => setOffset(offset + limit)}
-                    disabled={offset + limit >= filteredAuditLogs.length}
-                  >
-                    Next
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  </Button>
-                </GlossaryTooltip>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          <ControlsCard
+            limit={limit}
+            onLimitChange={setLimit}
+            onRefresh={loadAuditLogs}
+            loading={loading}
+            onExport={handleExportLogs}
+            canExport={can('audit:view') && allAuditLogs.length > 0}
+            lastUpdated={lastUpdated}
+          />
+          <AuditTableCard
+            auditLogs={auditLogs}
+            filteredAuditLogs={filteredAuditLogs}
+            allAuditLogs={allAuditLogs}
+            loading={loading}
+            error={error}
+            onRetry={loadAuditLogs}
+            getSeverityColor={getSeverityColor}
+            limit={limit}
+            offset={offset}
+            onOffsetChange={setOffset}
+          />
         </div>
       </SectionErrorBoundary>
     </FeatureLayout>

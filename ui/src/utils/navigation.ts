@@ -27,7 +27,7 @@ export function generateNavigationGroups(userRole?: string, userPermissions?: st
   // Process each route from the central config
   for (const route of routes) {
     // Skip routes without navigation metadata
-    if (!route.navGroup || !route.navTitle) {
+    if (!route.navTitle) {
       continue;
     }
 
@@ -36,7 +36,7 @@ export function generateNavigationGroups(userRole?: string, userPermissions?: st
       continue;
     }
 
-    const groupKey = route.navGroup;
+    const groupKey = route.cluster;
     const group = groupsMap.get(groupKey) || {
       title: groupKey,
       items: [],
@@ -59,8 +59,8 @@ export function generateNavigationGroups(userRole?: string, userPermissions?: st
   // Convert map to array and sort
   const groups = Array.from(groupsMap.values());
 
-  // Sort groups by predefined order (Home first, then alphabetical)
-  const groupOrder = ['Home', 'Build', 'Monitor', 'Run', 'Secure', 'Admin'];
+  // Sort groups by predefined order matching IA clusters
+  const groupOrder = ['Build', 'Run', 'Observe', 'Verify'];
   groups.sort((a, b) => {
     const aIndex = groupOrder.indexOf(a.title);
     const bIndex = groupOrder.indexOf(b.title);
@@ -134,13 +134,15 @@ export function getBreadcrumbs(path: string): Array<{ label: string; to?: string
 
   const breadcrumbs = [];
 
-  // Add group breadcrumb if available
-  if (route.navGroup) {
-    breadcrumbs.push({ label: route.navGroup });
+  // Prefix with cluster to satisfy IA breadcrumb rule
+  if (route.cluster) {
+    breadcrumbs.push({ label: route.cluster });
   }
 
   // Add page breadcrumb
-  breadcrumbs.push({ label: route.navTitle, to: route.path });
+  if (route.navTitle) {
+    breadcrumbs.push({ label: route.navTitle, to: route.path });
+  }
 
   return breadcrumbs;
 }

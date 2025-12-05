@@ -276,7 +276,10 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
 
   // Select which state to use based on feature flag
   const allReady = autoLoadEnabled ? newModelLoadingState.overallReady : allAdaptersReady;
-  const isLoadingModels = autoLoadEnabled ? newModelLoadingState.isLoading : isCheckingAdapters;
+  // Guard against an overlay lingering after readiness or error: only treat as loading when not ready and no error.
+  const isLoadingModels = autoLoadEnabled
+    ? newModelLoadingState.isLoading && !newModelLoadingState.overallReady && !newModelLoadingState.error
+    : isCheckingAdapters;
 
   // Router decisions hook
   const {

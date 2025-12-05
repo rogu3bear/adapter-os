@@ -24,6 +24,7 @@ import { HelpCenter } from '@/components/HelpCenter';
 import { NotificationCenter } from '@/components/NotificationCenter';
 import { useKeyboardShortcuts } from '@/utils/accessibility';
 import { generateNavigationGroups, shouldShowNavGroup } from '@/utils/navigation';
+import { logger } from '@/utils/logger';
 import { cn } from '@/components/ui/utils';
 import { Lock, ChevronDown, ChevronRight } from 'lucide-react';
 import { LiveDataStatusProvider } from '@/hooks/useLiveDataStatus';
@@ -73,7 +74,11 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
       return saved ? JSON.parse(saved) : {};
     } catch (e) {
       if (import.meta.env.DEV) {
-        console.warn('[RootLayout] Failed to load collapsed groups from localStorage:', e);
+        logger.warn('[RootLayout] Failed to load collapsed groups from localStorage', {
+          component: 'RootLayout',
+          operation: 'loadCollapsedGroups',
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
       return {};
     }
@@ -86,7 +91,12 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
         localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(next));
       } catch (e) {
         if (import.meta.env.DEV) {
-          console.warn('[RootLayout] Failed to save collapsed groups to localStorage:', e);
+          logger.warn('[RootLayout] Failed to save collapsed groups to localStorage', {
+            component: 'RootLayout',
+            operation: 'saveCollapsedGroups',
+            groupTitle,
+            error: e instanceof Error ? e.message : String(e),
+          });
         }
       }
       return next;

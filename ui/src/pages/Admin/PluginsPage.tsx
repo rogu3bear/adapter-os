@@ -58,6 +58,388 @@ import {
   Save,
 } from 'lucide-react';
 
+const PermissionDeniedView = () => (
+  <DensityProvider pageKey="plugins">
+    <FeatureLayout title="Plugin Management" description="Manage system plugins">
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Permission Denied</AlertTitle>
+        <AlertDescription>
+          You do not have permission to manage plugins. Admin role required.
+        </AlertDescription>
+      </Alert>
+    </FeatureLayout>
+  </DensityProvider>
+);
+
+const LoadingView = () => (
+  <DensityProvider pageKey="plugins">
+    <FeatureLayout title="Plugin Management" description="Enable, disable, and configure system plugins">
+      <LoadingState message="Loading plugins..." />
+    </FeatureLayout>
+  </DensityProvider>
+);
+
+const ErrorView = ({ message, onRetry }: { message: string; onRetry: () => void }) => (
+  <DensityProvider pageKey="plugins">
+    <FeatureLayout title="Plugin Management" description="Enable, disable, and configure system plugins">
+      <ErrorRecovery error={message} onRetry={onRetry} />
+    </FeatureLayout>
+  </DensityProvider>
+);
+
+const StatTile = ({
+  title,
+  value,
+  icon,
+  iconClassName,
+}: {
+  title: string;
+  value: number;
+  icon: React.ReactNode;
+  iconClassName?: string;
+}) => (
+  <Card>
+    <CardContent className="pt-6">
+      <div className="flex items-center gap-4">
+        <div className={`rounded-lg p-3 ${iconClassName || 'bg-muted'}`}>{icon}</div>
+        <div>
+          <p className="text-sm text-muted-foreground">{title}</p>
+          <p className="text-2xl font-bold">{value}</p>
+        </div>
+      </div>
+    </CardContent>
+  </Card>
+);
+
+const StatsGrid = ({ total, enabled, disabled }: { total: number; enabled: number; disabled: number }) => (
+  <div className="mb-6 grid grid-cols-3 gap-4">
+    <StatTile title="Total Plugins" value={total} icon={<Package className="h-6 w-6 text-primary" />} iconClassName="bg-primary/10" />
+    <StatTile title="Enabled" value={enabled} icon={<CheckCircle className="h-6 w-6 text-green-500" />} iconClassName="bg-green-500/10" />
+    <StatTile title="Disabled" value={disabled} icon={<XCircle className="h-6 w-6 text-muted-foreground" />} />
+  </div>
+);
+
+const StatusBadge = ({ status }: { status: PluginInfo['status'] }) => {
+  switch (status) {
+    case 'enabled':
+      return (
+        <Badge variant="default" className="gap-1">
+          <CheckCircle className="h-3 w-3" />
+          Enabled
+        </Badge>
+      );
+    case 'disabled':
+      return (
+        <Badge variant="secondary" className="gap-1">
+          <XCircle className="h-3 w-3" />
+          Disabled
+        </Badge>
+      );
+    default:
+      return <Badge variant="outline">{status}</Badge>;
+  }
+};
+
+const PluginRow = ({
+  plugin,
+  onConfigure,
+  onToggle,
+  isMutating,
+}: {
+  plugin: PluginInfo;
+  onConfigure: () => void;
+  onToggle: () => void;
+  isMutating: boolean;
+}) => (
+  <TableRow>
+    <TableCell>
+      <div className="flex flex-col gap-1">
+        <span className="font-medium">{plugin.display_name}</span>
+        <span className="text-sm text-muted-foreground">{plugin.description}</span>
+        <code className="text-xs text-muted-foreground">{plugin.name}</code>
+      </div>
+    </TableCell>
+    <TableCell>
+      <Badge variant="outline">{plugin.version}</Badge>
+    </TableCell>
+    <TableCell>
+      <StatusBadge status={plugin.status} />
+    </TableCell>
+    <TableCell>{plugin.author || <span className="text-muted-foreground">-</span>}</TableCell>
+    <TableCell>
+      {plugin.enabled_tenants && plugin.enabled_tenants.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {plugin.enabled_tenants.slice(0, 3).map((tenant) => (
+            <Badge key={tenant} variant="outline" className="text-xs">
+              {tenant}
+            </Badge>
+          ))}
+          {plugin.enabled_tenants.length > 3 && (
+            <Badge variant="outline" className="text-xs">
+              +{plugin.enabled_tenants.length - 3}
+            </Badge>
+          )}
+        </div>
+      ) : (
+        <span className="text-sm text-muted-foreground">Global</span>
+      )}
+    </TableCell>
+    <TableCell className="text-right">
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onConfigure} title="Configure plugin">
+          <Settings2 className="h-4 w-4" />
+        </Button>
+        <Switch
+          checked={plugin.status === 'enabled'}
+          onCheckedChange={onToggle}
+          disabled={isMutating}
+        />
+      </div>
+    </TableCell>
+  </TableRow>
+);
+
+const PluginsTableCard = ({
+  plugins,
+  searchQuery,
+  onSearchChange,
+  onConfigure,
+  onToggle,
+  isMutating,
+}: {
+  plugins: PluginInfo[];
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+  onConfigure: (plugin: PluginInfo) => void;
+  onToggle: (plugin: PluginInfo) => void;
+  isMutating: boolean;
+}) => (
+  <Card>
+    <CardHeader>
+      <div className="flex items-center justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Plug className="h-5 w-5" />
+            Installed Plugins
+          </CardTitle>
+          <CardDescription>Manage plugins installed on this system</CardDescription>
+        </div>
+        <div className="relative w-64">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search plugins..."
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+      </div>
+    </CardHeader>
+    <CardContent>
+      {plugins.length === 0 ? (
+        <div className="py-12 text-center">
+          <Plug className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+          <h3 className="mb-2 text-lg font-semibold">No Matching Plugins</h3>
+          <p className="text-muted-foreground">Try adjusting your search criteria.</p>
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Plugin</TableHead>
+              <TableHead>Version</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Author</TableHead>
+              <TableHead>Organizations</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {plugins.map((plugin) => (
+              <PluginRow
+                key={plugin.name}
+                plugin={plugin}
+                onConfigure={() => onConfigure(plugin)}
+                onToggle={() => onToggle(plugin)}
+                isMutating={isMutating}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </CardContent>
+  </Card>
+);
+
+const ActionDialog = ({
+  open,
+  onOpenChange,
+  actionType,
+  plugin,
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  actionType: 'enable' | 'disable';
+  plugin: PluginInfo | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) => (
+  <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>{actionType === 'enable' ? 'Enable Plugin' : 'Disable Plugin'}</DialogTitle>
+        <DialogDescription>
+          {actionType === 'enable'
+            ? `Enable "${plugin?.display_name}" for all organizations.`
+            : `Disable "${plugin?.display_name}". This may affect organizations using it.`}
+        </DialogDescription>
+      </DialogHeader>
+      {plugin && (
+        <div className="space-y-4 py-4">
+          <div className="flex items-center gap-4 rounded-lg bg-muted p-4">
+            <Plug className="h-8 w-8 text-muted-foreground" />
+            <div>
+              <p className="font-medium">{plugin.display_name}</p>
+              <p className="text-sm text-muted-foreground">{plugin.description}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Version: {plugin.version}</p>
+            </div>
+          </div>
+          {actionType === 'disable' &&
+            plugin.enabled_tenants &&
+            plugin.enabled_tenants.length > 0 && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Warning</AlertTitle>
+                <AlertDescription>
+                  This plugin is currently enabled for {plugin.enabled_tenants.length} organization(s).
+                  Disabling it may affect their workflows.
+                </AlertDescription>
+              </Alert>
+            )}
+        </div>
+      )}
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          variant={actionType === 'disable' ? 'destructive' : 'default'}
+          onClick={onConfirm}
+          disabled={isPending}
+        >
+          {isPending ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {actionType === 'enable' ? 'Enabling...' : 'Disabling...'}
+            </>
+          ) : (
+            <>
+              {actionType === 'enable' ? (
+                <CheckCircle className="mr-2 h-4 w-4" />
+              ) : (
+                <XCircle className="mr-2 h-4 w-4" />
+              )}
+              {actionType === 'enable' ? 'Enable' : 'Disable'}
+            </>
+          )}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+);
+
+const ConfigDialog = ({
+  open,
+  onOpenChange,
+  plugin,
+  configJson,
+  onConfigChange,
+  error,
+  isLoading,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  plugin: PluginInfo | null;
+  configJson: string;
+  onConfigChange: (value: string) => void;
+  error: string | null;
+  isLoading: boolean;
+  onSave: () => void;
+}) => (
+  <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Settings2 className="h-5 w-5" />
+          Plugin Configuration
+        </DialogTitle>
+        <DialogDescription>Configure settings for {plugin?.display_name}</DialogDescription>
+      </DialogHeader>
+      {plugin && (
+        <div className="space-y-4 py-4">
+          <div className="flex items-center gap-4 rounded-lg bg-muted p-4">
+            <Plug className="h-8 w-8 text-muted-foreground" />
+            <div className="flex-1">
+              <p className="font-medium">{plugin.display_name}</p>
+              <p className="text-sm text-muted-foreground">{plugin.description}</p>
+              <div className="mt-1 flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  {plugin.version}
+                </Badge>
+                <StatusBadge status={plugin.status} />
+              </div>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="config-json">Configuration JSON</Label>
+            <Textarea
+              id="config-json"
+              value={configJson}
+              onChange={(e) => onConfigChange(e.target.value)}
+              placeholder='{"key": "value"}'
+              className="min-h-[300px] font-mono text-sm"
+              disabled={isLoading}
+            />
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <p className="text-xs text-muted-foreground">
+              Enter plugin configuration as JSON. Leave empty or enter {} for default settings.
+            </p>
+          </div>
+          {isLoading && (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </div>
+      )}
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
+          Cancel
+        </Button>
+        <Button onClick={onSave} disabled={isLoading || !!error}>
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save className="mr-2 h-4 w-4" />
+              Save Configuration
+            </>
+          )}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+);
+
 export function PluginsPage() {
   const queryClient = useQueryClient();
   const { can, userRole } = useRBAC();
@@ -289,19 +671,8 @@ export function PluginsPage() {
   }
 
   if (error) {
-    return (
-      <DensityProvider pageKey="plugins">
-        <FeatureLayout
-          title="Plugin Management"
-          description="Enable, disable, and configure system plugins"
-        >
-          <ErrorRecovery
-            error={error instanceof Error ? error.message : String(error)}
-            onRetry={refetch}
-          />
-        </FeatureLayout>
-      </DensityProvider>
-    );
+    const message = error instanceof Error ? error.message : String(error);
+    return <ErrorView message={message} onRetry={refetch} />;
   }
 
   return (
@@ -320,326 +691,47 @@ export function PluginsPage() {
           },
         ]}
       >
+        <StatsGrid
+          total={pluginsResponse?.total || 0}
+          enabled={pluginsResponse?.enabled_count || 0}
+          disabled={pluginsResponse?.disabled_count || 0}
+        />
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-primary/10 rounded-lg">
-                  <Package className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Plugins</p>
-                  <p className="text-2xl font-bold">{pluginsResponse?.total || 0}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-green-500/10 rounded-lg">
-                  <CheckCircle className="h-6 w-6 text-green-500" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Enabled</p>
-                  <p className="text-2xl font-bold">{pluginsResponse?.enabled_count || 0}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-muted rounded-lg">
-                  <XCircle className="h-6 w-6 text-muted-foreground" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Disabled</p>
-                  <p className="text-2xl font-bold">{pluginsResponse?.disabled_count || 0}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        <PluginsTableCard
+          plugins={filteredPlugins}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onConfigure={handleOpenConfig}
+          onToggle={handleTogglePlugin}
+          isMutating={enableMutation.isPending || disableMutation.isPending}
+        />
 
-        {/* Plugins Table */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Plug className="h-5 w-5" />
-                  Installed Plugins
-                </CardTitle>
-                <CardDescription>
-                  Manage plugins installed on this system
-                </CardDescription>
-              </div>
-              <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search plugins..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {filteredPlugins.length === 0 ? (
-              <div className="text-center py-12">
-                <Plug className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">
-                  {plugins.length === 0 ? 'No Plugins Installed' : 'No Matching Plugins'}
-                </h3>
-                <p className="text-muted-foreground">
-                  {plugins.length === 0
-                    ? 'There are no plugins installed on this system.'
-                    : 'No plugins match your search criteria.'}
-                </p>
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Plugin</TableHead>
-                    <TableHead>Version</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Author</TableHead>
-                    <TableHead>Organizations</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredPlugins.map((plugin) => (
-                    <TableRow key={plugin.name}>
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <span className="font-medium">{plugin.display_name}</span>
-                          <span className="text-sm text-muted-foreground">
-                            {plugin.description}
-                          </span>
-                          <code className="text-xs text-muted-foreground">
-                            {plugin.name}
-                          </code>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{plugin.version}</Badge>
-                      </TableCell>
-                      <TableCell>{getStatusBadge(plugin.status)}</TableCell>
-                      <TableCell>
-                        {plugin.author || <span className="text-muted-foreground">-</span>}
-                      </TableCell>
-                      <TableCell>
-                        {plugin.enabled_tenants && plugin.enabled_tenants.length > 0 ? (
-                          <div className="flex gap-1 flex-wrap">
-                            {plugin.enabled_tenants.slice(0, 3).map((tenant) => (
-                              <Badge key={tenant} variant="outline" className="text-xs">
-                                {tenant}
-                              </Badge>
-                            ))}
-                            {plugin.enabled_tenants.length > 3 && (
-                              <Badge variant="outline" className="text-xs">
-                                +{plugin.enabled_tenants.length - 3}
-                              </Badge>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">Global</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenConfig(plugin)}
-                            title="Configure plugin"
-                          >
-                            <Settings2 className="h-4 w-4" />
-                          </Button>
-                          <Switch
-                            checked={plugin.status === 'enabled'}
-                            onCheckedChange={() => handleTogglePlugin(plugin)}
-                            disabled={enableMutation.isPending || disableMutation.isPending}
-                          />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+        <ActionDialog
+          open={actionDialogOpen}
+          onOpenChange={setActionDialogOpen}
+          actionType={actionType}
+          plugin={selectedPlugin}
+          onConfirm={handleConfirmAction}
+          onCancel={() => {
+            setActionDialogOpen(false);
+            setSelectedPlugin(null);
+          }}
+          isPending={enableMutation.isPending || disableMutation.isPending}
+        />
 
-        {/* Confirmation Dialog */}
-        <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {actionType === 'enable' ? 'Enable Plugin' : 'Disable Plugin'}
-              </DialogTitle>
-              <DialogDescription>
-                {actionType === 'enable'
-                  ? `Are you sure you want to enable "${selectedPlugin?.display_name}"? This will activate the plugin for all organizations.`
-                  : `Are you sure you want to disable "${selectedPlugin?.display_name}"? This may affect functionality for organizations using this plugin.`}
-              </DialogDescription>
-            </DialogHeader>
-
-            {selectedPlugin && (
-              <div className="space-y-4 py-4">
-                <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                  <Plug className="h-8 w-8 text-muted-foreground" />
-                  <div>
-                    <p className="font-medium">{selectedPlugin.display_name}</p>
-                    <p className="text-sm text-muted-foreground">{selectedPlugin.description}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Version: {selectedPlugin.version}
-                    </p>
-                  </div>
-                </div>
-
-                {actionType === 'disable' && selectedPlugin.enabled_tenants && selectedPlugin.enabled_tenants.length > 0 && (
-                  <Alert>
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Warning</AlertTitle>
-                    <AlertDescription>
-                      This plugin is currently enabled for {selectedPlugin.enabled_tenants.length} organization(s).
-                      Disabling it may affect their workflows.
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </div>
-            )}
-
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setActionDialogOpen(false);
-                  setSelectedPlugin(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant={actionType === 'disable' ? 'destructive' : 'default'}
-                onClick={handleConfirmAction}
-                disabled={enableMutation.isPending || disableMutation.isPending}
-              >
-                {(enableMutation.isPending || disableMutation.isPending) ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {actionType === 'enable' ? 'Enabling...' : 'Disabling...'}
-                  </>
-                ) : (
-                  <>
-                    {actionType === 'enable' ? (
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                    ) : (
-                      <XCircle className="h-4 w-4 mr-2" />
-                    )}
-                    {actionType === 'enable' ? 'Enable' : 'Disable'}
-                  </>
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Configuration Dialog */}
-        <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Settings2 className="h-5 w-5" />
-                Plugin Configuration
-              </DialogTitle>
-              <DialogDescription>
-                Configure settings for {configPlugin?.display_name}
-              </DialogDescription>
-            </DialogHeader>
-
-            {configPlugin && (
-              <div className="space-y-4 py-4">
-                <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                  <Plug className="h-8 w-8 text-muted-foreground" />
-                  <div className="flex-1">
-                    <p className="font-medium">{configPlugin.display_name}</p>
-                    <p className="text-sm text-muted-foreground">{configPlugin.description}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline" className="text-xs">{configPlugin.version}</Badge>
-                      {getStatusBadge(configPlugin.status)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="config-json">Configuration JSON</Label>
-                  <Textarea
-                    id="config-json"
-                    value={configJson}
-                    onChange={(e) => {
-                      setConfigJson(e.target.value);
-                      setConfigJsonError(null);
-                    }}
-                    placeholder='{"key": "value"}'
-                    className="font-mono text-sm min-h-[300px]"
-                    disabled={loadingConfig || updateConfigMutation.isPending}
-                  />
-                  {configJsonError && (
-                    <p className="text-sm text-destructive">{configJsonError}</p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Enter plugin configuration as JSON. Leave empty or enter {} for default settings.
-                  </p>
-                </div>
-
-                {loadingConfig && (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                )}
-              </div>
-            )}
-
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setConfigDialogOpen(false);
-                  setConfigPlugin(null);
-                  setConfigJson('');
-                  setConfigJsonError(null);
-                }}
-                disabled={updateConfigMutation.isPending}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSaveConfig}
-                disabled={loadingConfig || updateConfigMutation.isPending || !!configJsonError}
-              >
-                {updateConfigMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4 mr-2" />
-                    Save Configuration
-                  </>
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <ConfigDialog
+          open={configDialogOpen}
+          onOpenChange={setConfigDialogOpen}
+          plugin={configPlugin}
+          configJson={configJson}
+          onConfigChange={(value) => {
+            setConfigJson(value);
+            setConfigJsonError(null);
+          }}
+          error={configJsonError}
+          isLoading={loadingConfig || updateConfigMutation.isPending}
+          onSave={handleSaveConfig}
+        />
       </FeatureLayout>
     </DensityProvider>
   );

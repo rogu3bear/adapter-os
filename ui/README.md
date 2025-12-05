@@ -99,8 +99,10 @@ The development server automatically starts the Rust backend. If you need to sta
 
 ```bash
 # From project root
-cargo run -p adapteros-server -- --config configs/cp.toml --skip-pf-check
+cargo run -p adapteros-server -- --config configs/cp.toml
 ```
+
+Dev config disables PF deny checks and auto-creates the drift baseline on first run. Do not skip these checks in production deployments.
 
 
 Backend logs: `tail -f server-dev.log` (from pnpm dev) or `server.log`
@@ -110,7 +112,7 @@ The dev server runs on http://localhost:3200 and proxies API requests to the bac
 
 ### Real MLX backend (Apple Silicon)
 - Install MLX: `brew install mlx` (or set `MLX_PATH`/`MLX_INCLUDE_DIR`/`MLX_LIB_DIR`).
-- Build backend: `make build-mlx` (features: `multi-backend,real-mlx`).
+- Build backend: `make build-mlx` (features: `multi-backend,mlx`).
 - Test/bench: `make test-mlx` / `make bench-mlx`.
 - Model: `./scripts/download_model.sh --format mlx --size 7b --quantized`; then `export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx`.
 - More detail: `docs/MLX_INSTALLATION_GUIDE.md`, `docs/MLX_INTEGRATION.md`.
@@ -311,3 +313,5 @@ cargo build --release --bin mplora-server
 ## License
 
 Same as parent project (MIT OR Apache-2.0).
+
+MLNavigator Inc 2025-12-05.

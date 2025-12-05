@@ -54,6 +54,19 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
   const metrics = adapter.metrics;
   const manifest = adapter.manifest;
 
+  const tenantId = adapter.tenant_id || adapterData?.tenant_id;
+  const runtimeState =
+    adapter.runtime_state ||
+    adapter.current_state ||
+    adapterData?.runtime_state ||
+    adapterData?.current_state ||
+    'unknown';
+  const lifecycleState = adapter.lifecycle_state || adapterData?.lifecycle_state || 'active';
+  const signatureValid =
+    adapter.signature_valid ??
+    adapterData?.signature_valid ??
+    (adapter.content_hash_b3 || adapterData?.content_hash_b3 ? true : false);
+
   // Format timestamp helper
   const formatTime = (timestamp: string | undefined): string => {
     if (!timestamp) return 'Never';
@@ -126,6 +139,11 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
               value={adapterData?.name || adapterData?.adapter_name || 'Unknown'}
             />
             <InfoRow
+              icon={<User className="h-4 w-4" />}
+              label="Tenant"
+              value={tenantId || adapter.tenant_namespace || 'N/A'}
+            />
+            <InfoRow
               icon={<Hash className="h-4 w-4" />}
               label="Hash (B3)"
               value={adapterData?.hash_b3 || adapter.hash_b3 || 'N/A'}
@@ -164,6 +182,11 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
               label="Scope"
               value={adapterData?.scope || adapter.scope || 'global'}
             />
+            <InfoRow
+              icon={<Cpu className="h-4 w-4" />}
+              label="Base Model"
+              value={adapter.base_model_id || adapterData?.base_model_id || manifest?.base_model || 'Unknown'}
+            />
           </CardContent>
         </Card>
 
@@ -182,10 +205,7 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
               label="Current State"
               value={
                 <Badge>
-                  {LIFECYCLE_STATE_LABELS[adapter.current_state || adapterData?.current_state || 'unknown'] || 
-                   adapter.current_state || 
-                   adapterData?.current_state || 
-                   'unknown'}
+                  {LIFECYCLE_STATE_LABELS[runtimeState] || runtimeState}
                 </Badge>
               }
             />
@@ -193,8 +213,8 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
               icon={<Activity className="h-4 w-4" />}
               label="Lifecycle State"
               value={
-                <Badge variant={getLifecycleVariant(adapterData?.lifecycle_state)}>
-                  {adapterData?.lifecycle_state || 'active'}
+                <Badge variant={getLifecycleVariant(lifecycleState)}>
+                  {lifecycleState}
                 </Badge>
               }
             />
@@ -265,6 +285,21 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
               label="Framework"
               value={adapterData?.framework || adapter.framework || 'N/A'}
             />
+            <InfoRow
+              label="Signature / Compliance"
+              value={
+                <Badge variant={signatureValid ? 'default' : 'destructive'}>
+                  {signatureValid ? 'Valid' : 'Missing'}
+                </Badge>
+              }
+            />
+            {adapter.content_hash_b3 && (
+              <InfoRow
+                label="Content Hash"
+                value={adapter.content_hash_b3 || adapterData?.content_hash_b3}
+                truncate
+              />
+            )}
           </CardContent>
         </Card>
 

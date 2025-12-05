@@ -259,7 +259,7 @@ function inferComponentFile(route: RouteConfig): string {
     if (path.endsWith('/lineage')) return 'pages/Adapters/AdapterLineage.tsx';
     if (path.endsWith('/manifest')) return 'pages/Adapters/AdapterManifest.tsx';
     if (path.endsWith('/usage')) return 'pages/Adapters/AdapterUsage.tsx';
-    return 'components/AdapterDetail.tsx';
+    return 'pages/Adapters/AdapterDetailPage.tsx';
   }
   if (path.includes(':jobId')) return 'pages/Training/TrainingJobDetail.tsx';
   if (path.includes(':datasetId')) return 'pages/Training/DatasetDetailPage.tsx';

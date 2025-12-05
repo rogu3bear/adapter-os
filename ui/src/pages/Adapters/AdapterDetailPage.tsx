@@ -88,6 +88,51 @@ export default function AdapterDetailPage() {
     },
   });
 
+  if (error) {
+    return (
+      <FeatureLayout
+        title="Adapter Detail"
+        description={`Adapter ID: ${adapterId}`}
+        maxWidth="xl"
+        contentPadding="default"
+      >
+        <ErrorRecovery
+          error={`Unable to load adapter: ${error.message}`}
+          onRetry={refetch}
+        />
+      </FeatureLayout>
+    );
+  }
+
+  if (!adapter && isLoadingDetail) {
+    return (
+      <FeatureLayout
+        title="Adapter Detail"
+        description={`Adapter ID: ${adapterId}`}
+        maxWidth="xl"
+        contentPadding="default"
+      >
+        <LoadingState />
+      </FeatureLayout>
+    );
+  }
+
+  if (!adapter && !isLoadingDetail) {
+    return (
+      <FeatureLayout
+        title="Adapter Detail"
+        description={`Adapter ID: ${adapterId}`}
+        maxWidth="xl"
+        contentPadding="default"
+      >
+        <ErrorRecovery
+          error="Adapter not found. This adapter could not be located. It may have been deleted."
+          onRetry={refetch}
+        />
+      </FeatureLayout>
+    );
+  }
+
   // Keep refetch ref updated
   useEffect(() => {
     refetchRef.current = refetch;
@@ -302,8 +347,18 @@ export default function AdapterDetailPage() {
   const adapterData = adapter?.adapter;
   const adapterName = adapterData?.name || adapterData?.adapter_name || adapterId;
   // Streaming state takes precedence for real-time fields
-  const currentState = streamingState?.currentState || adapter?.current_state || adapterData?.current_state || 'unknown';
-  const lifecycleState = streamingState?.lifecycleState || adapterData?.lifecycle_state || 'active';
+  const currentState =
+    streamingState?.currentState ||
+    adapter?.runtime_state ||
+    adapter?.current_state ||
+    adapterData?.runtime_state ||
+    adapterData?.current_state ||
+    'unknown';
+  const lifecycleState =
+    streamingState?.lifecycleState ||
+    adapter?.lifecycle_state ||
+    adapterData?.lifecycle_state ||
+    'active';
   const isPinned = streamingState?.isPinned ?? adapterData?.pinned ?? false;
 
   return (

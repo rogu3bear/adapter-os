@@ -27,6 +27,7 @@ import DatasetPreview from './DatasetPreview';
 import DatasetValidation from './DatasetValidation';
 
 type TabValue = 'overview' | 'files' | 'preview' | 'validation';
+type TrainingJobSummary = { id: string; status: string; progress_pct?: number };
 
 const STATUS_CONFIG: Record<DatasetValidationStatus, {
   icon: React.ElementType;
@@ -72,6 +73,197 @@ function StatusBadge({ status }: { status: DatasetValidationStatus }) {
   );
 }
 
+const LoadingView = () => (
+  <FeatureLayout title="Dataset Details">
+    <LoadingState message="Loading dataset details..." />
+  </FeatureLayout>
+);
+
+function ErrorView({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <FeatureLayout title="Dataset Details">
+      <ErrorRecovery error={message} onRetry={onRetry} />
+    </FeatureLayout>
+  );
+}
+
+function BackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" onClick={onClick}>
+      <ArrowLeft className="mr-2 h-4 w-4" />
+      Back
+    </Button>
+  );
+}
+
+function HeaderSection({
+  datasetId,
+  status,
+  canStartTraining,
+  canValidate,
+  canDelete,
+  onStartTraining,
+  onValidate,
+  onDelete,
+  isValidating,
+  isDeleting,
+  onNavigateBack,
+}: {
+  datasetId: string;
+  status: DatasetValidationStatus;
+  canStartTraining: boolean;
+  canValidate: boolean;
+  canDelete: boolean;
+  onStartTraining: () => void;
+  onValidate: () => void;
+  onDelete: () => void;
+  isValidating: boolean;
+  isDeleting: boolean;
+  onNavigateBack: () => void;
+}) {
+  const showValidate = (status === 'draft' || status === 'invalid') && canValidate;
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-4">
+        <BackButton onClick={onNavigateBack} />
+        <p className="text-sm text-muted-foreground">{datasetId}</p>
+        <StatusBadge status={status} />
+      </div>
+      <div className="flex items-center gap-2">
+        {status === 'valid' && canStartTraining && (
+          <Button onClick={onStartTraining}>
+            <Play className="mr-2 h-4 w-4" />
+            Start Training Job
+          </Button>
+        )}
+        {showValidate && (
+          <Button variant="outline" onClick={onValidate} disabled={isValidating}>
+            <CheckCircle className="mr-2 h-4 w-4" />
+            {isValidating ? 'Validating...' : 'Validate'}
+          </Button>
+        )}
+        {canDelete && (
+          <Button variant="destructive" onClick={onDelete} disabled={isDeleting}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TrainingJobRow({
+  jobId,
+  status,
+  progress,
+  onClick,
+}: {
+  jobId: string;
+  status: string;
+  progress?: number;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      className="flex cursor-pointer items-center justify-between rounded-lg border p-3 hover:bg-muted/50"
+      onClick={onClick}
+    >
+      <div className="flex-1">
+        <p className="font-medium">{jobId}</p>
+        <p className="text-sm text-muted-foreground">
+          Status: <Badge variant="outline">{status}</Badge>
+          {progress !== undefined && <span className="ml-2">Progress: {progress.toFixed(1)}%</span>}
+        </p>
+      </div>
+      <Button variant="ghost" size="sm">
+        <ExternalLink className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
+function TrainingJobsCard({
+  jobs,
+  onNavigateJob,
+  onViewAll,
+}: {
+  jobs: TrainingJobSummary[];
+  onNavigateJob: (jobId: string) => void;
+  onViewAll: () => void;
+}) {
+  if (!jobs || jobs.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Training Jobs Using This Dataset</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {jobs.map((job) => (
+            <TrainingJobRow
+              key={job.id}
+              jobId={job.id}
+              status={job.status}
+              progress={job.progress_pct}
+              onClick={() => onNavigateJob(job.id)}
+            />
+          ))}
+        </div>
+        <Button variant="outline" className="mt-4" onClick={onViewAll}>
+          View All Jobs
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OverviewTab({
+  dataset,
+  isLoading,
+  relatedJobs,
+  onNavigateJob,
+  onViewAllJobs,
+}: {
+  dataset: Dataset;
+  isLoading: boolean;
+  relatedJobs: TrainingJobSummary[];
+  onNavigateJob: (jobId: string) => void;
+  onViewAllJobs: () => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <DatasetOverview dataset={dataset} isLoading={isLoading} />
+      <TrainingJobsCard jobs={relatedJobs} onNavigateJob={onNavigateJob} onViewAll={onViewAllJobs} />
+    </div>
+  );
+}
+
+function TrainingWizardDialog({
+  isOpen,
+  onOpenChange,
+  datasetId,
+  onComplete,
+  onCancel,
+}: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  datasetId?: string;
+  onComplete: (jobId: string) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Start Training Job</DialogTitle>
+        </DialogHeader>
+        <TrainingWizard initialDatasetId={datasetId} onComplete={onComplete} onCancel={onCancel} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function DatasetDetailPage() {
   const { datasetId } = useParams<{ datasetId: string }>();
   const navigate = useNavigate();
@@ -90,7 +282,7 @@ export default function DatasetDetailPage() {
 
   // Fetch training jobs using this dataset (server-side filtered)
   const { data: jobsData } = useTraining.useTrainingJobs({ dataset_id: datasetId });
-  const relatedJobs = jobsData?.jobs || [];
+  const relatedJobs: TrainingJobSummary[] = jobsData?.jobs || [];
 
   const { mutateAsync: validateDataset, isPending: isValidating } = useTraining.useValidateDataset({
     onSuccess: () => {
@@ -128,79 +320,30 @@ export default function DatasetDetailPage() {
 
 
   if (isLoading) {
-    return (
-      <FeatureLayout title="Dataset Details">
-        <LoadingState message="Loading dataset details..." />
-      </FeatureLayout>
-    );
+    return <LoadingView />;
   }
 
   if (error || !dataset) {
-    return (
-      <FeatureLayout title="Dataset Details">
-        <ErrorRecovery
-          error={(error as Error)?.message || 'Dataset not found'}
-          onRetry={() => refetch()}
-        />
-      </FeatureLayout>
-    );
+    return <ErrorView message={(error as Error)?.message || 'Dataset not found'} onRetry={() => refetch()} />;
   }
 
   return (
     <FeatureLayout title={dataset.name}>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/training/datasets')}
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            <div>
-              <p className="text-sm text-muted-foreground">
-                {dataset.id}
-              </p>
-            </div>
-            <StatusBadge status={dataset.validation_status} />
-          </div>
+        <HeaderSection
+          datasetId={dataset.id}
+          status={dataset.validation_status}
+          canStartTraining={can('training:start')}
+          canValidate={can('dataset:validate')}
+          canDelete={can('dataset:delete')}
+          onStartTraining={() => setIsTrainingWizardOpen(true)}
+          onValidate={handleValidate}
+          onDelete={handleDelete}
+          isValidating={isValidating}
+          isDeleting={isDeleting}
+          onNavigateBack={() => navigate('/training/datasets')}
+        />
 
-          <div className="flex items-center gap-2">
-            {dataset.validation_status === 'valid' && can('training:start') && (
-              <Button
-                onClick={() => setIsTrainingWizardOpen(true)}
-              >
-                <Play className="h-4 w-4 mr-2" />
-                Start Training Job
-              </Button>
-            )}
-            {(dataset.validation_status === 'draft' || dataset.validation_status === 'invalid') && can('dataset:validate') && (
-              <Button
-                variant="outline"
-                onClick={handleValidate}
-                disabled={isValidating}
-              >
-                <CheckCircle className="h-4 w-4 mr-2" />
-                {isValidating ? 'Validating...' : 'Validate'}
-              </Button>
-            )}
-            {can('dataset:delete') && (
-              <Button
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={isDeleting}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                {isDeleting ? 'Deleting...' : 'Delete'}
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -210,93 +353,38 @@ export default function DatasetDetailPage() {
           </TabsList>
 
           <TabsContent value="overview" className="mt-6">
-            <div className="space-y-6">
-              <DatasetOverview
-                dataset={dataset}
-                isLoading={isLoading}
-              />
-              
-              {/* Training Jobs Section */}
-              {relatedJobs.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Training Jobs Using This Dataset</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {relatedJobs.map(job => (
-                        <div
-                          key={job.id}
-                          className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
-                          onClick={() => navigate(`/training/jobs/${job.id}`)}
-                        >
-                          <div className="flex-1">
-                            <p className="font-medium">{job.id}</p>
-                            <p className="text-sm text-muted-foreground">
-                              Status: <Badge variant="outline">{job.status}</Badge>
-                              {job.progress_pct !== undefined && (
-                                <span className="ml-2">Progress: {job.progress_pct.toFixed(1)}%</span>
-                              )}
-                            </p>
-                          </div>
-                          <Button variant="ghost" size="sm">
-                            <ExternalLink className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    <Button
-                      variant="outline"
-                      className="mt-4"
-                      onClick={() => navigate(`/training/jobs?dataset_id=${datasetId}`)}
-                    >
-                      View All Jobs
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+            <OverviewTab
+              dataset={dataset}
+              isLoading={isLoading}
+              relatedJobs={relatedJobs}
+              onNavigateJob={(jobId) => navigate(`/training/jobs/${jobId}`)}
+              onViewAllJobs={() => navigate(`/training/jobs?dataset_id=${datasetId}`)}
+            />
           </TabsContent>
 
           <TabsContent value="files" className="mt-6">
-            <DatasetFiles
-              datasetId={datasetId!}
-              isLoading={isLoading}
-            />
+            <DatasetFiles datasetId={datasetId!} isLoading={isLoading} />
           </TabsContent>
 
           <TabsContent value="preview" className="mt-6">
-            <DatasetPreview
-              datasetId={datasetId!}
-              isLoading={isLoading}
-            />
+            <DatasetPreview datasetId={datasetId!} isLoading={isLoading} />
           </TabsContent>
 
           <TabsContent value="validation" className="mt-6">
-            <DatasetValidation
-              dataset={dataset}
-              onValidate={handleValidate}
-              isValidating={isValidating}
-            />
+            <DatasetValidation dataset={dataset} onValidate={handleValidate} isValidating={isValidating} />
           </TabsContent>
         </Tabs>
 
-        {/* Training Wizard Dialog */}
-        <Dialog open={isTrainingWizardOpen} onOpenChange={setIsTrainingWizardOpen}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Start Training Job</DialogTitle>
-            </DialogHeader>
-            <TrainingWizard
-              initialDatasetId={datasetId}
-              onComplete={(jobId) => {
-                setIsTrainingWizardOpen(false);
-                navigate(`/training/jobs/${jobId}`);
-              }}
-              onCancel={() => setIsTrainingWizardOpen(false)}
-            />
-          </DialogContent>
-        </Dialog>
+        <TrainingWizardDialog
+          isOpen={isTrainingWizardOpen}
+          onOpenChange={setIsTrainingWizardOpen}
+          datasetId={datasetId}
+          onComplete={(jobId) => {
+            setIsTrainingWizardOpen(false);
+            navigate(`/training/jobs/${jobId}`);
+          }}
+          onCancel={() => setIsTrainingWizardOpen(false)}
+        />
       </div>
     </FeatureLayout>
   );

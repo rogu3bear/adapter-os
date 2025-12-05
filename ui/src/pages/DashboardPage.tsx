@@ -6,10 +6,14 @@ import { ModelSelector } from '@/components/ModelSelector';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/useRBAC';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
+import { PageHeader as IaPageHeader } from '@/components/shared/PageHeader';
+import { Button } from '@/components/ui/button';
+import { useNavigate } from 'react-router-dom';
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const { userRole } = useRBAC();
+  const navigate = useNavigate();
   const greeting = user
     ? `Welcome back, ${user.display_name || user.email}`
     : 'System overview, health monitoring, and alerts';
@@ -20,7 +24,25 @@ export default function DashboardPage() {
         title="Dashboard"
         description={greeting}
         maxWidth="xl"
-        headerActions={<ModelSelector />}
+        customHeader={
+          <IaPageHeader
+            cluster="Run"
+            title="Dashboard"
+            description={greeting}
+            secondaryActions={[
+              {
+                label: 'Onboarding checklist',
+                onClick: () => navigate('/workflow'),
+              },
+              {
+                label: 'Run probe',
+                onClick: () => navigate('/inference'),
+              },
+            ]}
+          >
+            <ModelSelector />
+          </IaPageHeader>
+        }
       >
         <DashboardProvider>
           <SectionErrorBoundary sectionName="Dashboard">

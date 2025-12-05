@@ -28,6 +28,409 @@ import {
 import { toast } from 'sonner';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
+const LoadingSpinner = () => (
+  <div className="flex justify-center py-8">
+    <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+  </div>
+);
+
+const formatTimestamp = (timestamp: string) => new Date(timestamp).toLocaleString();
+
+function StatusBadge({ operational, quarantined }: { operational: boolean; quarantined: boolean }) {
+  if (quarantined) {
+    return (
+      <Badge variant="destructive" className="flex items-center gap-1">
+        <ShieldAlert className="h-3 w-3" />
+        Quarantined
+      </Badge>
+    );
+  }
+  if (operational) {
+    return (
+      <Badge variant="default" className="flex items-center gap-1">
+        <CheckCircle className="h-3 w-3" />
+        Operational
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="secondary" className="flex items-center gap-1">
+      <AlertTriangle className="h-3 w-3" />
+      Degraded
+    </Badge>
+  );
+}
+
+const VerificationBadge = ({ hasVerification }: { hasVerification: boolean }) =>
+  hasVerification ? <Badge variant="outline">Available</Badge> : <Badge variant="secondary">None</Badge>;
+
+function StatusStat({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: React.ReactNode;
+  valueClassName?: string;
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-sm text-muted-foreground">{label}</div>
+      <div className={valueClassName}>{value}</div>
+    </div>
+  );
+}
+
+function QuarantineNotice({
+  reason,
+  canRelease,
+  onReleaseClick,
+}: {
+  reason: string;
+  canRelease: boolean;
+  onReleaseClick: () => void;
+}) {
+  return (
+    <Alert variant="destructive">
+      <ShieldAlert className="h-4 w-4" />
+      <AlertDescription>
+        <div className="flex flex-wrap items-center gap-3">
+          <span>
+            <strong>Quarantine Active:</strong> {reason}
+          </span>
+          {canRelease && (
+            <Button variant="outline" size="sm" onClick={onReleaseClick}>
+              Release Quarantine
+            </Button>
+          )}
+        </div>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+function QuarantineDetails({
+  details,
+  canRelease,
+  onReleaseClick,
+}: {
+  details: NonNullable<QuarantineStatusResponse['details']>;
+  canRelease: boolean;
+  onReleaseClick: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <Alert variant="destructive">
+        <ShieldAlert className="h-4 w-4" />
+        <AlertDescription>
+          <div className="space-y-2">
+            <div>
+              <strong>Reason:</strong> {details.reason}
+            </div>
+            <div>
+              <strong>Violation Type:</strong> {details.violation_type}
+            </div>
+            <div>
+              <strong>Triggered At:</strong> {formatTimestamp(details.triggered_at)}
+            </div>
+            {details.cpid && (
+              <div>
+                <strong>Control Plane ID:</strong> {details.cpid}
+              </div>
+            )}
+          </div>
+        </AlertDescription>
+      </Alert>
+      {canRelease && (
+        <Button variant="outline" onClick={onReleaseClick}>
+          <ShieldAlert className="mr-2 h-4 w-4" />
+          Release Quarantine
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function ControlsCard({
+  onRefresh,
+  lastUpdated,
+  isLoading,
+}: {
+  onRefresh: () => void;
+  lastUpdated?: Date;
+  isLoading: boolean;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Controls
+          <GlossaryTooltip termId="federation-controls">
+            <span className="cursor-help text-muted-foreground">(?)</span>
+          </GlossaryTooltip>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap items-center gap-4">
+          <Button onClick={onRefresh} disabled={isLoading} variant="outline">
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh All
+          </Button>
+          {lastUpdated && (
+            <span className="text-xs text-muted-foreground">
+              Last updated: {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StatusSummaryCard({
+  status,
+  isLoading,
+  error,
+  onRetry,
+  canRelease,
+  onReleaseClick,
+}: {
+  status?: FederationStatusResponse;
+  isLoading: boolean;
+  error: Error | null;
+  onRetry: () => void;
+  canRelease: boolean;
+  onReleaseClick: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Server className="h-5 w-5" />
+          Federation Status
+          <GlossaryTooltip termId="federation-status">
+            <span className="cursor-help text-muted-foreground">(?)</span>
+          </GlossaryTooltip>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {error && errorRecoveryTemplates.genericError(error.message, onRetry)}
+        {isLoading && !status && <LoadingSpinner />}
+        {status ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 rounded-lg border p-4 md:grid-cols-2 lg:grid-cols-4">
+              <StatusStat
+                label="Status"
+                value={<StatusBadge operational={status.operational} quarantined={status.quarantined} />}
+                valueClassName=""
+              />
+              <StatusStat label="Total Hosts" value={status.total_hosts} valueClassName="text-2xl font-semibold" />
+              <StatusStat
+                label="Last Updated"
+                value={formatTimestamp(status.timestamp)}
+                valueClassName="text-sm"
+              />
+              <StatusStat
+                label="Verification"
+                value={<VerificationBadge hasVerification={!!status.latest_verification} />}
+                valueClassName="text-sm"
+              />
+            </div>
+            {status.quarantined && status.quarantine_reason && (
+              <QuarantineNotice
+                reason={status.quarantine_reason}
+                canRelease={canRelease}
+                onReleaseClick={onReleaseClick}
+              />
+            )}
+          </div>
+        ) : (
+          !isLoading && <div className="py-8 text-center text-muted-foreground">No federation status data available</div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function QuarantineCard({
+  status,
+  isLoading,
+  error,
+  onRetry,
+  canRelease,
+  onReleaseClick,
+}: {
+  status?: QuarantineStatusResponse;
+  isLoading: boolean;
+  error: Error | null;
+  onRetry: () => void;
+  canRelease: boolean;
+  onReleaseClick: () => void;
+}) {
+  const showDetails = status?.quarantined && status.details;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShieldAlert className="h-5 w-5" />
+          Quarantine Status
+          <GlossaryTooltip termId="quarantine-status">
+            <span className="cursor-help text-muted-foreground">(?)</span>
+          </GlossaryTooltip>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {error && errorRecoveryTemplates.genericError(error.message, onRetry)}
+        {isLoading && !status && <LoadingSpinner />}
+        {showDetails && status?.details && (
+          <QuarantineDetails
+            details={status.details}
+            canRelease={canRelease}
+            onReleaseClick={onReleaseClick}
+          />
+        )}
+        {!showDetails && !isLoading && (
+          <div className="flex items-center gap-2 text-green-600">
+            <CheckCircle className="h-5 w-5" />
+            <span>No active quarantine</span>
+          </div>
+        )}
+        {!status && !isLoading && !error && (
+          <div className="py-8 text-center text-muted-foreground">No quarantine status data available</div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function HostChainsTable({ chains }: { chains: FederationAuditResponse['host_chains'] }) {
+  if (!chains || chains.length === 0) return null;
+  return (
+    <div className="mt-6">
+      <h3 className="mb-4 text-lg font-semibold">Host Chains</h3>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Host ID</TableHead>
+              <TableHead>Bundle Count</TableHead>
+              <TableHead>Latest Bundle</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {chains.map((host) => (
+              <TableRow key={host.host_id}>
+                <TableCell className="font-mono text-sm">{host.host_id}</TableCell>
+                <TableCell>{host.bundle_count}</TableCell>
+                <TableCell className="max-w-xs truncate font-mono text-xs">
+                  {host.latest_bundle || 'N/A'}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+function AuditCard({
+  audit,
+  isLoading,
+  error,
+  onRetry,
+}: {
+  audit?: FederationAuditResponse;
+  isLoading: boolean;
+  error: Error | null;
+  onRetry: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="h-5 w-5" />
+          Sync Summary
+          <GlossaryTooltip termId="federation-audit">
+            <span className="cursor-help text-muted-foreground">(?)</span>
+          </GlossaryTooltip>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {error && errorRecoveryTemplates.genericError(error.message, onRetry)}
+        {isLoading && !audit && <LoadingSpinner />}
+        {audit ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 rounded-lg border p-4 md:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <div className="mb-1 text-sm text-muted-foreground">Total Hosts</div>
+                <div className="text-2xl font-semibold">{audit.total_hosts}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-sm text-muted-foreground">Total Signatures</div>
+                <div className="text-2xl font-semibold">{audit.total_signatures}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-sm text-muted-foreground">Verified</div>
+                <div className="text-2xl font-semibold text-green-600">
+                  {audit.verified_signatures}
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-sm text-muted-foreground">Verification Rate</div>
+                <div className="text-2xl font-semibold">
+                  {audit.total_signatures > 0
+                    ? Math.round((audit.verified_signatures / audit.total_signatures) * 100)
+                    : 0}
+                  %
+                </div>
+              </div>
+            </div>
+            <HostChainsTable chains={audit.host_chains} />
+          </div>
+        ) : (
+          !isLoading && <div className="py-8 text-center text-muted-foreground">No sync data available</div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReleaseQuarantineDialog({
+  isOpen,
+  onClose,
+  onConfirm,
+  isLoading,
+}: {
+  isOpen: boolean;
+  onClose: (open: boolean) => void;
+  onConfirm: () => void;
+  isLoading: boolean;
+}) {
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Release Quarantine</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to release this node from quarantine? This will allow it to participate in federation again.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onClose(false)} disabled={isLoading}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} disabled={isLoading}>
+            {isLoading && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}
+            Release Quarantine
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function FederationPageInner() {
   const { density, setDensity } = useDensity();
   const { can } = useRBAC();
@@ -155,29 +558,6 @@ function FederationPageInner() {
     refetchPeers();
   };
 
-  const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString();
-  };
-
-  const getStatusBadge = (operational: boolean, quarantined: boolean) => {
-    if (quarantined) {
-      return <Badge variant="destructive" className="flex items-center gap-1">
-        <ShieldAlert className="h-3 w-3" />
-        Quarantined
-      </Badge>;
-    }
-    if (operational) {
-      return <Badge variant="default" className="flex items-center gap-1">
-        <CheckCircle className="h-3 w-3" />
-        Operational
-      </Badge>;
-    }
-    return <Badge variant="secondary" className="flex items-center gap-1">
-      <AlertTriangle className="h-3 w-3" />
-      Degraded
-    </Badge>;
-  };
-
   return (
     <FeatureLayout
       title="Federation Status"
@@ -186,282 +566,50 @@ function FederationPageInner() {
     >
       <SectionErrorBoundary sectionName="Federation Status">
         <div className="space-y-6">
-          {/* Controls */}
-          <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Controls
-              <GlossaryTooltip termId="federation-controls">
-                <span className="cursor-help text-muted-foreground">(?)</span>
-              </GlossaryTooltip>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-4 items-center flex-wrap">
-              <Button onClick={handleRefreshAll} disabled={statusLoading} variant="outline">
-                <RefreshCw className={`h-4 w-4 mr-2 ${statusLoading ? 'animate-spin' : ''}`} />
-                Refresh All
-              </Button>
-              {statusLastUpdated && (
-                <span className="text-xs text-muted-foreground">
-                  Last updated: {statusLastUpdated.toLocaleTimeString()}
-                </span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Federation Status Summary */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="h-5 w-5" />
-              Federation Status
-              <GlossaryTooltip termId="federation-status">
-                <span className="cursor-help text-muted-foreground">(?)</span>
-              </GlossaryTooltip>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {statusError && errorRecoveryTemplates.genericError(statusError.message, refetchStatus)}
-
-            {statusLoading && !federationStatus ? (
-              <div className="flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-              </div>
-            ) : federationStatus ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-4 border rounded-lg">
-                    <div className="text-sm text-muted-foreground mb-1">Status</div>
-                    <div>{getStatusBadge(federationStatus.operational, federationStatus.quarantined)}</div>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <div className="text-sm text-muted-foreground mb-1">Total Hosts</div>
-                    <div className="text-2xl font-semibold">{federationStatus.total_hosts}</div>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <div className="text-sm text-muted-foreground mb-1">Last Updated</div>
-                    <div className="text-sm">{formatTimestamp(federationStatus.timestamp)}</div>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <div className="text-sm text-muted-foreground mb-1">Verification</div>
-                    <div className="text-sm">
-                      {federationStatus.latest_verification ? (
-                        <Badge variant="outline">Available</Badge>
-                      ) : (
-                        <Badge variant="secondary">None</Badge>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {federationStatus.quarantined && federationStatus.quarantine_reason && (
-                  <Alert variant="destructive">
-                    <ShieldAlert className="h-4 w-4" />
-                    <AlertDescription>
-                      <strong>Quarantine Active:</strong> {federationStatus.quarantine_reason}
-                      {canReleaseFederation && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="ml-4"
-                          onClick={() => setQuarantineDialogOpen(true)}
-                        >
-                          Release Quarantine
-                        </Button>
-                      )}
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                No federation status data available
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Peer Sync Status */}
-        {peersError && errorRecoveryTemplates.genericError(peersError.message, refetchPeers)}
-        {peersData && (
-          <PeerSyncStatusCard
-            peers={derivePeerSyncInfoList(peersData.peers)}
-            isLoading={peersLoading}
-            showTitle={true}
-            compact={false}
+          <ControlsCard
+            onRefresh={handleRefreshAll}
+            lastUpdated={statusLastUpdated}
+            isLoading={statusLoading}
           />
-        )}
-
-        {/* Quarantine Status */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ShieldAlert className="h-5 w-5" />
-              Quarantine Status
-              <GlossaryTooltip termId="quarantine-status">
-                <span className="cursor-help text-muted-foreground">(?)</span>
-              </GlossaryTooltip>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {quarantineError && errorRecoveryTemplates.genericError(quarantineError.message, refetchQuarantine)}
-
-            {quarantineLoading && !quarantineStatus ? (
-              <div className="flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-              </div>
-            ) : quarantineStatus ? (
-              quarantineStatus.quarantined && quarantineStatus.details ? (
-                <div className="space-y-4">
-                  <Alert variant="destructive">
-                    <ShieldAlert className="h-4 w-4" />
-                    <AlertDescription>
-                      <div className="space-y-2">
-                        <div><strong>Reason:</strong> {quarantineStatus.details.reason}</div>
-                        <div><strong>Violation Type:</strong> {quarantineStatus.details.violation_type}</div>
-                        <div><strong>Triggered At:</strong> {formatTimestamp(quarantineStatus.details.triggered_at)}</div>
-                        {quarantineStatus.details.cpid && (
-                          <div><strong>Control Plane ID:</strong> {quarantineStatus.details.cpid}</div>
-                        )}
-                      </div>
-                    </AlertDescription>
-                  </Alert>
-                  {canReleaseFederation && (
-                    <Button
-                      variant="outline"
-                      onClick={() => setQuarantineDialogOpen(true)}
-                    >
-                      <ShieldAlert className="h-4 w-4 mr-2" />
-                      Release Quarantine
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-green-600">
-                  <CheckCircle className="h-5 w-5" />
-                  <span>No active quarantine</span>
-                </div>
-              )
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                No quarantine status data available
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Federation Audit Summary */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
-              Sync Summary
-              <GlossaryTooltip termId="federation-audit">
-                <span className="cursor-help text-muted-foreground">(?)</span>
-              </GlossaryTooltip>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {auditError && errorRecoveryTemplates.genericError(auditError.message, refetchAudit)}
-
-            {auditLoading && !auditData ? (
-              <div className="flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-              </div>
-            ) : auditData ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-4 border rounded-lg">
-                    <div className="text-sm text-muted-foreground mb-1">Total Hosts</div>
-                    <div className="text-2xl font-semibold">{auditData.total_hosts}</div>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <div className="text-sm text-muted-foreground mb-1">Total Signatures</div>
-                    <div className="text-2xl font-semibold">{auditData.total_signatures}</div>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <div className="text-sm text-muted-foreground mb-1">Verified</div>
-                    <div className="text-2xl font-semibold text-green-600">{auditData.verified_signatures}</div>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <div className="text-sm text-muted-foreground mb-1">Verification Rate</div>
-                    <div className="text-2xl font-semibold">
-                      {auditData.total_signatures > 0
-                        ? Math.round((auditData.verified_signatures / auditData.total_signatures) * 100)
-                        : 0}%
-                    </div>
-                  </div>
-                </div>
-
-                {/* Host Chains Table */}
-                {auditData.host_chains && auditData.host_chains.length > 0 && (
-                  <div className="mt-6">
-                    <h3 className="text-lg font-semibold mb-4">Host Chains</h3>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Host ID</TableHead>
-                            <TableHead>Bundle Count</TableHead>
-                            <TableHead>Latest Bundle</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {auditData.host_chains.map((host) => (
-                            <TableRow key={host.host_id}>
-                              <TableCell className="font-mono text-sm">{host.host_id}</TableCell>
-                              <TableCell>{host.bundle_count}</TableCell>
-                              <TableCell className="font-mono text-xs truncate max-w-xs">
-                                {host.latest_bundle || 'N/A'}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                No sync data available
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          <StatusSummaryCard
+            status={federationStatus}
+            isLoading={statusLoading}
+            error={statusError instanceof Error ? statusError : statusError ? new Error(String(statusError)) : null}
+            onRetry={refetchStatus}
+            canRelease={canReleaseFederation}
+            onReleaseClick={() => setQuarantineDialogOpen(true)}
+          />
+          {peersError && errorRecoveryTemplates.genericError(peersError.message, refetchPeers)}
+          {peersData && (
+            <PeerSyncStatusCard
+              peers={derivePeerSyncInfoList(peersData.peers)}
+              isLoading={peersLoading}
+              showTitle={true}
+              compact={false}
+            />
+          )}
+          <QuarantineCard
+            status={quarantineStatus}
+            isLoading={quarantineLoading}
+            error={quarantineError instanceof Error ? quarantineError : quarantineError ? new Error(String(quarantineError)) : null}
+            onRetry={refetchQuarantine}
+            canRelease={canReleaseFederation}
+            onReleaseClick={() => setQuarantineDialogOpen(true)}
+          />
+          <AuditCard
+            audit={auditData}
+            isLoading={auditLoading}
+            error={auditError instanceof Error ? auditError : auditError ? new Error(String(auditError)) : null}
+            onRetry={refetchAudit}
+          />
         </div>
       </SectionErrorBoundary>
-
-      {/* Release Quarantine Dialog */}
-      <Dialog open={quarantineDialogOpen} onOpenChange={setQuarantineDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Release Quarantine</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to release this node from quarantine? This will allow it to participate in
-              federation again.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setQuarantineDialogOpen(false)}
-              disabled={releasing}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleReleaseQuarantine}
-              disabled={releasing}
-            >
-              {releasing && <RefreshCw className="h-4 w-4 mr-2 animate-spin" />}
-              Release Quarantine
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ReleaseQuarantineDialog
+        isOpen={quarantineDialogOpen}
+        onClose={setQuarantineDialogOpen}
+        onConfirm={handleReleaseQuarantine}
+        isLoading={releasing}
+      />
     </FeatureLayout>
   );
 }

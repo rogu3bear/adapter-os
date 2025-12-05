@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -98,6 +98,372 @@ function StatusBadge({ status }: { status: DatasetValidationStatus }) {
   );
 }
 
+type DatasetListItem = Dataset;
+
+const ActionBar = ({
+  canUpload,
+  onOpenUpload,
+  onRefresh,
+  isLoading,
+}: {
+  canUpload: boolean;
+  onOpenUpload: () => void;
+  onRefresh: () => void;
+  isLoading: boolean;
+}) => (
+  <div className="flex items-center justify-between">
+    <div className="flex items-center gap-4">
+      {canUpload && (
+        <div className="flex items-center gap-2">
+          <Button onClick={onOpenUpload}>
+            <Upload className="mr-2 h-4 w-4" />
+            {TERMS.uploadDataset}
+          </Button>
+          <GlossaryTooltip brief="For large or complex collections. Use Training Wizard for simple uploads." />
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Tip: Train an adapter for consistent, repeatable responses. Use document collections for one-time lookups.
+      </p>
+    </div>
+    <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
+      <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+      Refresh
+    </Button>
+  </div>
+);
+
+const DatasetTableRow = ({
+  dataset,
+  canStartTraining,
+  canValidate,
+  canDelete,
+  onView,
+  onStartTraining,
+  onValidate,
+  onDelete,
+}: {
+  dataset: DatasetListItem;
+  canStartTraining: boolean;
+  canValidate: boolean;
+  canDelete: boolean;
+  onView: (id: string) => void;
+  onStartTraining: (id: string) => void;
+  onValidate: (id: string) => void;
+  onDelete: (id: string) => void;
+}) => (
+  <TableRow>
+    <TableCell className="font-medium">
+      <div className="flex flex-col">
+        <span className="max-w-[200px] truncate" title={dataset.name}>
+          {dataset.name}
+        </span>
+        <span className="max-w-[200px] truncate text-xs text-muted-foreground">{dataset.id.slice(0, 8)}...</span>
+      </div>
+    </TableCell>
+    <TableCell>
+      <Badge variant="outline">{formatSourceType(dataset.source_type)}</Badge>
+    </TableCell>
+    <TableCell className="text-muted-foreground">{dataset.language || '-'}</TableCell>
+    <TableCell className="text-muted-foreground">{formatNumber(dataset.file_count || 0)}</TableCell>
+    <TableCell className="text-muted-foreground">{formatNumber(dataset.total_tokens || 0)}</TableCell>
+    <TableCell>
+      <StatusBadge status={dataset.validation_status} />
+    </TableCell>
+    <TableCell className="text-sm text-muted-foreground">
+      {formatTimestamp(dataset.created_at, 'long')}
+    </TableCell>
+    <TableCell>
+      <div className="flex items-center gap-1">
+        <Button size="sm" variant="outline" onClick={() => onView(dataset.id)} title="View collection details">
+          <Eye className="h-4 w-4" />
+        </Button>
+        {dataset.validation_status === 'valid' && canStartTraining && (
+          <Button
+            size="sm"
+            variant="default"
+            onClick={() => onStartTraining(dataset.id)}
+            title="Start training with this collection"
+          >
+            <Play className="mr-1 h-4 w-4" />
+            Train
+          </Button>
+        )}
+        {(dataset.validation_status === 'draft' || dataset.validation_status === 'invalid') && canValidate && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onValidate(dataset.id)}
+            title="Validate collection"
+          >
+            <CheckCircle className="h-4 w-4" />
+          </Button>
+        )}
+        {canDelete && (
+          <Button size="sm" variant="destructive" onClick={() => onDelete(dataset.id)} title="Delete collection">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    </TableCell>
+  </TableRow>
+);
+
+const DatasetsTable = ({
+  datasets,
+  canStartTraining,
+  canValidate,
+  canDelete,
+  onView,
+  onStartTraining,
+  onValidate,
+  onDelete,
+}: {
+  datasets: DatasetListItem[];
+  canStartTraining: boolean;
+  canValidate: boolean;
+  canDelete: boolean;
+  onView: (id: string) => void;
+  onStartTraining: (id: string) => void;
+  onValidate: (id: string) => void;
+  onDelete: (id: string) => void;
+}) => (
+  <div className="max-h-[600px] overflow-auto">
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{TERMS.datasetName}</TableHead>
+          <TableHead>Source Type</TableHead>
+          <TableHead>Language</TableHead>
+          <TableHead>{TERMS.documents}</TableHead>
+          <TableHead>Tokens</TableHead>
+          <TableHead>{TERMS.datasetStatus}</TableHead>
+          <TableHead>Created</TableHead>
+          <TableHead>Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {datasets.map((dataset) => (
+          <DatasetTableRow
+            key={dataset.id}
+            dataset={dataset}
+            canStartTraining={canStartTraining}
+            canValidate={canValidate}
+            canDelete={canDelete}
+            onView={onView}
+            onStartTraining={onStartTraining}
+            onValidate={onValidate}
+            onDelete={onDelete}
+          />
+        ))}
+      </TableBody>
+    </Table>
+  </div>
+);
+
+const DatasetsCard = ({
+  datasets,
+  isLoading,
+  canStartTraining,
+  canValidate,
+  canDelete,
+  onView,
+  onStartTraining,
+  onValidate,
+  onDelete,
+}: {
+  datasets: DatasetListItem[];
+  isLoading: boolean;
+  canStartTraining: boolean;
+  canValidate: boolean;
+  canDelete: boolean;
+  onView: (id: string) => void;
+  onStartTraining: (id: string) => void;
+  onValidate: (id: string) => void;
+  onDelete: (id: string) => void;
+}) => (
+  <Card>
+    <CardHeader>
+      <CardTitle className="flex items-center gap-2">
+        <Database className="h-5 w-5" />
+        Document Collections
+        {datasets.length > 0 && (
+          <span className="text-sm font-normal text-muted-foreground">({datasets.length} total)</span>
+        )}
+      </CardTitle>
+    </CardHeader>
+    <CardContent>
+      {isLoading && datasets.length === 0 && (
+        <div className="py-8 text-center text-muted-foreground">
+          <RefreshCw className="mx-auto mb-2 h-6 w-6 animate-spin" />
+          Loading {TERMS.datasets}...
+        </div>
+      )}
+      {!isLoading && datasets.length === 0 && (
+        <div className="py-8 text-center text-muted-foreground">
+          <Database className="mx-auto mb-2 h-8 w-8 opacity-50" />
+          <p>{TERMS.noDatasets}</p>
+          <p className="mt-1 text-sm">{TERMS.noDatasetsDescription}</p>
+        </div>
+      )}
+      {!isLoading && datasets.length > 0 && (
+        <DatasetsTable
+          datasets={datasets}
+          canStartTraining={canStartTraining}
+          canValidate={canValidate}
+          canDelete={canDelete}
+          onView={onView}
+          onStartTraining={onStartTraining}
+          onValidate={onValidate}
+          onDelete={onDelete}
+        />
+      )}
+    </CardContent>
+  </Card>
+);
+
+const UploadDatasetDialog = ({
+  isOpen,
+  onOpenChange,
+  onSuccess,
+  onCancel,
+}: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: () => void;
+  onCancel: () => void;
+}) => (
+  <Dialog open={isOpen} onOpenChange={onOpenChange}>
+    <DialogContent className="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle>{TERMS.uploadDataset}</DialogTitle>
+      </DialogHeader>
+      <UploadDatasetForm onSuccess={onSuccess} onCancel={onCancel} />
+    </DialogContent>
+  </Dialog>
+);
+
+const DeleteDatasetDialog = ({
+  datasetId,
+  onClose,
+  onConfirm,
+  isDeleting,
+}: {
+  datasetId: string | null;
+  onClose: () => void;
+  onConfirm: () => void;
+  isDeleting: boolean;
+}) => (
+  <AlertDialog open={!!datasetId} onOpenChange={onClose}>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{TERMS.deleteDataset}</AlertDialogTitle>
+        <AlertDialogDescription>
+          Are you sure you want to delete this collection? This action cannot be undone.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction
+          onClick={onConfirm}
+          disabled={isDeleting}
+          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        >
+          {isDeleting ? 'Deleting...' : 'Delete'}
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+);
+
+const DatasetDetailDialog = ({
+  dataset,
+  onClose,
+}: {
+  dataset: Dataset | null;
+  onClose: () => void;
+}) => (
+  <Dialog open={!!dataset} onOpenChange={onClose}>
+    <DialogContent className="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle>Collection Details</DialogTitle>
+      </DialogHeader>
+      {dataset && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-muted-foreground">Name</Label>
+              <p className="font-medium">{dataset.name}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground">ID</Label>
+              <p className="font-mono text-sm">{dataset.id}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Source Type</Label>
+              <p className="font-medium capitalize">{dataset.source_type}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Language</Label>
+              <p className="font-medium">{dataset.language || '-'}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Framework</Label>
+              <p className="font-medium">{dataset.framework || '-'}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Status</Label>
+              <StatusBadge status={dataset.validation_status} />
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Files</Label>
+              <p className="font-medium">{formatNumber(dataset.file_count || 0)}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Total Tokens</Label>
+              <p className="font-medium">{formatNumber(dataset.total_tokens || 0)}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Created At</Label>
+              <p className="text-sm">{formatTimestamp(dataset.created_at, 'long')}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Updated At</Label>
+              <p className="text-sm">{formatTimestamp(dataset.updated_at, 'long')}</p>
+            </div>
+          </div>
+          <div>
+            <Label className="text-muted-foreground">Hash (BLAKE3)</Label>
+            <p className="break-all font-mono text-xs">{dataset.hash_b3}</p>
+          </div>
+        </div>
+      )}
+    </DialogContent>
+  </Dialog>
+);
+
+const TrainingWizardDialogWrapper = ({
+  isOpen,
+  onOpenChange,
+  initialDatasetId,
+  onComplete,
+}: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialDatasetId?: string;
+  onComplete: (jobId: string) => void;
+}) => (
+  <Dialog open={isOpen} onOpenChange={onOpenChange}>
+    <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+      <TrainingWizard
+        initialDatasetId={initialDatasetId}
+        onComplete={onComplete}
+        onCancel={() => onOpenChange(false)}
+      />
+    </DialogContent>
+  </Dialog>
+);
+
 export function DatasetsTab() {
   const { can } = useRBAC();
   const { errors, addError, clearError } = usePageErrors();
@@ -174,33 +540,12 @@ export function DatasetsTab() {
 
   return (
     <div className="space-y-6">
-      {/* Action Bar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          {can('dataset:upload') && (
-            <div className="flex items-center gap-2">
-              <Button onClick={() => setIsUploadDialogOpen(true)}>
-                <Upload className="h-4 w-4 mr-2" />
-                {TERMS.uploadDataset}
-              </Button>
-              <GlossaryTooltip brief="For large or complex collections. Use Training Wizard for simple uploads." />
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Tip: Train an adapter for consistent, repeatable responses. Use document collections for one-time lookups.
-          </p>
-        </div>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isLoading}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
-      </div>
+      <ActionBar
+        canUpload={can('dataset:upload')}
+        onOpenUpload={() => setIsUploadDialogOpen(true)}
+        onRefresh={refetch}
+        isLoading={isLoading}
+      />
 
       <PageErrors errors={errors} />
 
@@ -215,251 +560,54 @@ export function DatasetsTab() {
         </Card>
       )}
 
-      {/* Document Collections Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Database className="h-5 w-5" />
-            Document Collections
-            {datasets.length > 0 && (
-              <span className="text-sm font-normal text-muted-foreground">
-                ({datasets.length} total)
-              </span>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading && datasets.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
-              Loading {TERMS.datasets}...
-            </div>
-          ) : datasets.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>{TERMS.noDatasets}</p>
-              <p className="text-sm mt-1">{TERMS.noDatasetsDescription}</p>
-            </div>
-          ) : (
-            <div className="max-h-[600px] overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{TERMS.datasetName}</TableHead>
-                    <TableHead>Source Type</TableHead>
-                    <TableHead>Language</TableHead>
-                    <TableHead>{TERMS.documents}</TableHead>
-                    <TableHead>Tokens</TableHead>
-                    <TableHead>{TERMS.datasetStatus}</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {datasets.map((dataset) => (
-                    <TableRow key={dataset.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex flex-col">
-                          <span className="truncate max-w-[200px]" title={dataset.name}>
-                            {dataset.name}
-                          </span>
-                          <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                            {dataset.id.slice(0, 8)}...
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {formatSourceType(dataset.source_type)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {dataset.language || '-'}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatNumber(dataset.file_count || 0)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatNumber(dataset.total_tokens || 0)}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={dataset.validation_status} />
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">
-                        {formatTimestamp(dataset.created_at, 'long')}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigate(`/training/datasets/${dataset.id}`)}
-                            title="View collection details"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
+      <DatasetsCard
+        datasets={datasets}
+        isLoading={isLoading}
+        canStartTraining={can('training:start')}
+        canValidate={can('dataset:validate')}
+        canDelete={can('dataset:delete')}
+        onView={(id) => navigate(`/training/datasets/${id}`)}
+        onStartTraining={(id) => {
+          setInitialDatasetId(id);
+          setIsTrainingWizardOpen(true);
+        }}
+        onValidate={handleValidateDataset}
+        onDelete={(id) => setDeleteDatasetId(id)}
+      />
 
-                          {dataset.validation_status === 'valid' && can('training:start') && (
-                            <Button
-                              size="sm"
-                              variant="default"
-                              onClick={() => {
-                                setInitialDatasetId(dataset.id);
-                                setIsTrainingWizardOpen(true);
-                              }}
-                              title="Start training with this collection"
-                            >
-                              <Play className="h-4 w-4 mr-1" />
-                              Train
-                            </Button>
-                          )}
+      <UploadDatasetDialog
+        isOpen={isUploadDialogOpen}
+        onOpenChange={setIsUploadDialogOpen}
+        onSuccess={() => {
+          setIsUploadDialogOpen(false);
+          refetch();
+        }}
+        onCancel={() => setIsUploadDialogOpen(false)}
+      />
 
-                          {(dataset.validation_status === 'draft' || dataset.validation_status === 'invalid') && can('dataset:validate') && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleValidateDataset(dataset.id)}
-                              title="Validate collection"
-                            >
-                              <CheckCircle className="h-4 w-4" />
-                            </Button>
-                          )}
+      <DeleteDatasetDialog
+        datasetId={deleteDatasetId}
+        onClose={() => setDeleteDatasetId(null)}
+        onConfirm={handleDeleteDataset}
+        isDeleting={isDeleting}
+      />
 
-                          {can('dataset:delete') && (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => setDeleteDatasetId(dataset.id)}
-                              title="Delete collection"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <DatasetDetailDialog dataset={selectedDataset} onClose={() => setSelectedDataset(null)} />
 
-      {/* Upload Documents Dialog */}
-      <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{TERMS.uploadDataset}</DialogTitle>
-          </DialogHeader>
-          <UploadDatasetForm
-            onSuccess={() => {
-              setIsUploadDialogOpen(false);
-              refetch();
-            }}
-            onCancel={() => setIsUploadDialogOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!deleteDatasetId} onOpenChange={() => setDeleteDatasetId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{TERMS.deleteDataset}</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this collection? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteDataset}
-              disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting ? 'Deleting...' : 'Delete'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Collection Detail Dialog */}
-      <Dialog open={!!selectedDataset} onOpenChange={() => setSelectedDataset(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Collection Details</DialogTitle>
-          </DialogHeader>
-          {selectedDataset && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-muted-foreground">Name</Label>
-                  <p className="font-medium">{selectedDataset.name}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">ID</Label>
-                  <p className="font-mono text-sm">{selectedDataset.id}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Source Type</Label>
-                  <p className="font-medium capitalize">{selectedDataset.source_type}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Language</Label>
-                  <p className="font-medium">{selectedDataset.language || '-'}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Framework</Label>
-                  <p className="font-medium">{selectedDataset.framework || '-'}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Status</Label>
-                  <StatusBadge status={selectedDataset.validation_status} />
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Files</Label>
-                  <p className="font-medium">{formatNumber(selectedDataset.file_count || 0)}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Total Tokens</Label>
-                  <p className="font-medium">{formatNumber(selectedDataset.total_tokens || 0)}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Created At</Label>
-                  <p className="text-sm">{formatTimestamp(selectedDataset.created_at, 'long')}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Updated At</Label>
-                  <p className="text-sm">{formatTimestamp(selectedDataset.updated_at, 'long')}</p>
-                </div>
-              </div>
-              <div>
-                <Label className="text-muted-foreground">Hash (BLAKE3)</Label>
-                <p className="font-mono text-xs break-all">{selectedDataset.hash_b3}</p>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Training Wizard Dialog */}
-      <Dialog open={isTrainingWizardOpen} onOpenChange={setIsTrainingWizardOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <TrainingWizard
-            initialDatasetId={initialDatasetId}
-            onComplete={(jobId) => {
-              setIsTrainingWizardOpen(false);
-              setInitialDatasetId(undefined);
-              // Optionally navigate to training jobs page or show notification
-            }}
-            onCancel={() => {
-              setIsTrainingWizardOpen(false);
-              setInitialDatasetId(undefined);
-            }}
-          />
-        </DialogContent>
-      </Dialog>
+      <TrainingWizardDialogWrapper
+        isOpen={isTrainingWizardOpen}
+        onOpenChange={(open) => {
+          setIsTrainingWizardOpen(open);
+          if (!open) {
+            setInitialDatasetId(undefined);
+          }
+        }}
+        initialDatasetId={initialDatasetId}
+        onComplete={() => {
+          setIsTrainingWizardOpen(false);
+          setInitialDatasetId(undefined);
+        }}
+      />
     </div>
   );
 }

@@ -98,8 +98,8 @@ Scores are stored as Q15 (15-bit fixed point) to reduce memory and computation o
 
 **Q15 format:**
 - 15-bit signed fixed point representation
-- Range: -1.0 to +1.0 (mapped to -32768 to +32767)
-- Precision: ~0.00003 (1/32768)
+- Range: -1.0 to +1.0 (int range -32768 to +32767; gates dequantize with 32767.0)
+- Precision: ~0.00003 (1/32767)
 - Storage: 2 bytes per gate value
 
 **Benefits:**
@@ -132,12 +132,12 @@ Scores are stored as Q15 (15-bit fixed point) to reduce memory and computation o
 **Format specification:**
 - Total bits: 16 (1 sign bit + 15 fractional bits)
 - Range: -1.0 to +0.999969482421875 (≈1.0)
-- Resolution: 1/32768 ≈ 0.00003
-- Integer representation: -32768 to +32767
+- Resolution: 1/32767 ≈ 0.00003
+- Integer representation: -32768 to +32767 (dequantized with 32767.0 for gates)
 
 **Conversion:**
-- Float to Q15: round(value × 32768)
-- Q15 to float: value / 32768.0
+- Float to Q15: round(value × 32767)
+- Q15 to float: value / 32767.0
 
 **Usage in AdapterOS:**
 - Router gate values are stored as Q15

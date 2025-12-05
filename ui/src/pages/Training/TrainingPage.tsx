@@ -12,6 +12,7 @@ import { BehaviorEventsTab } from './BehaviorEventsTab';
 import { Brain, Database, FileText, Activity } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { TrainingWizard } from '@/components/TrainingWizard';
+import { PageHeader as IaPageHeader } from '@/components/shared/PageHeader';
 
 function TrainingPageContent() {
   const [activeTab, setActiveTab] = useState('jobs');
@@ -95,7 +96,17 @@ function TrainingPageContent() {
 export default function TrainingPage() {
   return (
     <DensityProvider pageKey="training">
-      <FeatureLayout title="Training" description="Manage training jobs, datasets, and templates">
+      <FeatureLayout
+        title="Training"
+        description="Manage training jobs, datasets, and templates"
+        customHeader={
+          <IaPageHeader
+            cluster="Build"
+            title="Training"
+            description="Manage training jobs, datasets, and templates"
+          />
+        }
+      >
         <PageErrorsProvider>
           <TrainingPageContent />
         </PageErrorsProvider>

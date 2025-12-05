@@ -1,18 +1,14 @@
 import FeatureLayout from '@/layout/FeatureLayout';
 import { WorkflowWizard } from '@/components/WorkflowWizard';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { useRBAC } from '@/hooks/useRBAC';
-import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
 
 export default function WorkflowPage() {
-  const { can, userRole } = useRBAC();
-
   return (
     <DensityProvider pageKey="workflow">
       <FeatureLayout
         title="Getting Started"
-        description="Onboarding and workflow wizard"
-        brief="Step-by-step guide to configure your AdapterOS workflow"
+        description="Complete the onboarding checklist to finish setup"
+        brief="Connect a model, run a probe, and verify evidence."
       >
         <div className="space-y-6">
           <WorkflowWizard />

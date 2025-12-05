@@ -15,11 +15,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { RouterDetailsModal } from './RouterDetailsModal';
-import { Layers, ChevronDown, Info, AlertTriangle } from 'lucide-react';
+import { Layers, ChevronDown, Info, AlertTriangle, Activity } from 'lucide-react';
 import type { ExtendedRouterDecision } from '@/api/types';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '@/api/client';
 import { logger } from '@/utils/logger';
+import { Link } from 'react-router-dom';
 
 interface RouterIndicatorProps {
   decision: ExtendedRouterDecision | null;
@@ -137,6 +138,19 @@ export function RouterIndicator({ decision, className, unavailablePinnedAdapters
               </span>
             )}
           </Button>
+          {decision.request_id && (
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1"
+            >
+              <Link to={`/telemetry/viewer?requestId=${encodeURIComponent(decision.request_id)}`}>
+                <Activity className="h-3.5 w-3.5" />
+                View telemetry
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 

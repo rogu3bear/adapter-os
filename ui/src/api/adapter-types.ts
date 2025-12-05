@@ -59,6 +59,7 @@ export interface Adapter {
   id: string;
   adapter_id: string;
   name: string;
+  tenant_id?: string;
   hash_b3: string;
   rank: number;
   // Storage tier: 'persistent', 'warm', or 'ephemeral'
@@ -88,15 +89,19 @@ export interface Adapter {
   repo_id?: string;
   commit_sha?: string;
   intent?: string;
+  base_model_id?: string;
 
   // Lifecycle state management
   current_state?: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
-  lifecycle_state?: string;        // Alternative name for current_state
+  lifecycle_state?: string;        // Release lifecycle state (draft/active/...)
   runtime_state?: string;          // Memory/runtime status
   pinned?: boolean;
   memory_bytes?: number;
   last_activated?: string;
   activation_count?: number;
+  manifest_schema_version?: string;
+  content_hash_b3?: string;
+  signature_valid?: boolean;
 
   created_at: string;
   updated_at?: string;
@@ -295,6 +300,9 @@ export interface AdapterDetailResponse {
   metrics: AdapterMetrics;
   lineage?: AdapterLineage;
   current_state?: AdapterState;
+  runtime_state?: AdapterState;
+  lifecycle_state?: string;
+  tenant_id?: string;
   tenant_namespace?: string;
   revision?: string;
   last_activated?: string;
@@ -304,6 +312,7 @@ export interface AdapterDetailResponse {
   name?: string;
   domain?: string;
   purpose?: string;
+  base_model_id?: string;
   memory_bytes?: number;
   activation_count?: number;
   hash_b3?: string;
@@ -312,6 +321,9 @@ export interface AdapterDetailResponse {
   category?: string;
   scope?: string;
   tier?: string;
+  manifest_schema_version?: string;
+  content_hash_b3?: string;
+  signature_valid?: boolean;
 }
 
 export interface AdapterManifest {

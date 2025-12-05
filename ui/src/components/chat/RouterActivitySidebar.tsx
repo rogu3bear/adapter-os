@@ -15,6 +15,18 @@ import type { RoutingDecision } from '@/api/types';
 import type { RouterDecision } from '@/hooks/chat/useChatRouterDecisions';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 
+type CombinedDecision = {
+  id: string;
+  timestamp: string;
+  adapters: string[];
+  isLocal: boolean;
+  latency?: number;
+  entropy?: number;
+  adapterId?: string;
+  adapterName?: string;
+  confidence?: number;
+};
+
 interface RouterActivitySidebarProps {
   open: boolean;
   onClose: () => void;
@@ -57,8 +69,8 @@ export function RouterActivitySidebar({
   }, [routingHistory, stackId]);
 
   // Combine local decisions with API history, prioritizing local decisions
-  const allDecisions = useMemo(() => {
-    const localDecisions = decisions.map(decision => ({
+  const allDecisions: CombinedDecision[] = useMemo(() => {
+    const localDecisions: CombinedDecision[] = decisions.map(decision => ({
       id: decision.messageId,
       timestamp: decision.timestamp.toISOString(),
       adapters: decision.routingPath || [],
@@ -68,14 +80,20 @@ export function RouterActivitySidebar({
       isLocal: true,
     }));
     
-    const apiDecisions = filteredHistory.map(decision => ({
-      id: decision.request_id,
-      timestamp: decision.timestamp,
-      adapters: decision.selected_adapters || [],
-      latency: decision.latency_ms,
-      entropy: decision.entropy,
-      isLocal: false,
-    }));
+    const apiDecisions: CombinedDecision[] = filteredHistory.map((decision: RoutingDecision) => {
+      const scoreValues = Object.values(decision.scores || {});
+      return {
+        id: decision.request_id,
+        timestamp: decision.timestamp,
+        adapters: decision.selected_adapters || [],
+        latency: decision.latency_ms,
+        entropy: decision.entropy,
+        adapterId: decision.stack_hash,
+        adapterName: decision.candidates?.[0],
+        confidence: scoreValues.length ? Math.max(...scoreValues) : undefined,
+        isLocal: false,
+      };
+    });
 
     // Combine and sort by timestamp (most recent first)
     return [...localDecisions, ...apiDecisions].sort((a, b) => 

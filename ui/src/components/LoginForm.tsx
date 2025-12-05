@@ -91,7 +91,11 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
       return localStorage.getItem(LAST_ROLE_KEY);
     } catch (e) {
       if (import.meta.env.DEV) {
-        console.warn('[LoginForm] localStorage read failed:', e);
+        logger.warn('[LoginForm] localStorage read failed', {
+          component: 'LoginForm',
+          operation: 'localStorageRead',
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
       return null;
     }
@@ -230,6 +234,34 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
     checkBackendHealth();
   }, [checkBackendHealth]);
 
+  // Keep system health/model status fresh while on the login screen
+  const refreshSystemStatus = useCallback(async () => {
+    const [systemHealthRes, modelStatusRes] = await Promise.allSettled([
+      apiClient.getHealthzAll(),
+      apiClient.getBaseModelStatus(),
+    ]);
+
+    if (systemHealthRes.status === 'fulfilled') {
+      setSystemHealth(systemHealthRes.value);
+    }
+
+    if (modelStatusRes.status === 'fulfilled') {
+      setModelStatus(modelStatusRes.value);
+    } else if (modelStatusRes.status === 'rejected') {
+      // 401 before login is expected; keep showing "Login for status"
+      setModelStatus(null);
+    }
+  }, []);
+
+  // Poll for system health/model status once backend is ready
+  useEffect(() => {
+    if (backendState !== 'ready') return;
+
+    refreshSystemStatus();
+    const interval = setInterval(refreshSystemStatus, HEALTH_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [backendState, refreshSystemStatus]);
+
   // Handle role badge click with debounce
   const handleRoleBadgeClick = useCallback(async (role: string) => {
     const now = Date.now();
@@ -250,7 +282,12 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
         setLastRole(role);
       } catch (e) {
         if (import.meta.env.DEV) {
-          console.warn('[LoginForm] localStorage write failed:', e);
+          logger.warn('[LoginForm] localStorage write failed', {
+            component: 'LoginForm',
+            operation: 'localStorageWrite',
+            role,
+            error: e instanceof Error ? e.message : String(e),
+          });
         }
       }
       if (onDevBypass) await onDevBypass();
@@ -304,6 +341,15 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
       unhealthy: components.filter(c => c.status === 'unhealthy').length,
       total: components.length,
     };
+  }, [systemHealth]);
+
+  const workerAvailable = useMemo(() => {
+    if (!systemHealth?.components) return false;
+    const components = Object.values(systemHealth.components);
+    const kernelComponent = components.find((c) => c.component === 'kernel');
+    return kernelComponent?.details && typeof kernelComponent.details === 'object' && 'worker_available' in kernelComponent.details
+      ? (kernelComponent.details as Record<string, unknown>).worker_available === true
+      : false;
   }, [systemHealth]);
 
   // Loading/Error State - Full Screen
@@ -467,17 +513,7 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
                     if (modelStatus?.model_path && modelStatus.model_path.trim()) {
                       return modelStatus.model_path.split('/').pop()?.substring(0, 15);
                     }
-                    // If modelStatus is null (401 error), show "Login Required"
-                    if (modelStatus === null) {
-                      return 'Login for status';
-                    }
                     // Fallback to checking worker availability
-                    if (!systemHealth?.components) return 'No Model';
-                    const components = Object.values(systemHealth.components);
-                    const kernelComponent = components.find((c) => c.component === 'kernel');
-                    const workerAvailable = kernelComponent?.details && typeof kernelComponent.details === 'object' && 'worker_available' in kernelComponent.details
-                      ? (kernelComponent.details as Record<string, unknown>).worker_available === true
-                      : false;
                     return workerAvailable ? 'Worker Ready' : 'No Model';
                   })()}
                 </span>
@@ -594,8 +630,8 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
                 {/* Login Button */}
                 <Button
                   type="submit"
-                  className="w-full shadow-sm"
-                  disabled={isLoading || isDevBypassLoading || !isValid || !watchedFields.email?.trim() || !watchedFields.password?.trim()}
+                  className="w-full shadow-sm border border-border"
+                  disabled={isLoading || isDevBypassLoading || !watchedFields.email?.trim() || !watchedFields.password?.trim()}
                 >
                   {isLoading ? (
                     <>
@@ -751,25 +787,18 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
                         {healthSummary.degraded > 0 && `, ${healthSummary.degraded} degraded`}
                       </span>
                     </div>
-                    {modelStatus !== null && (modelStatus.model_name || modelStatus.model_path) && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground/70">Model:</span>
-                        <span
-                          className="truncate max-w-[180px]"
-                          title={modelStatus.model_path || modelStatus.model_name}
-                        >
-                          {modelStatus.model_name && modelStatus.model_name !== 'No Model Loaded'
-                            ? modelStatus.model_name.split('/').pop()
-                            : modelStatus.model_path?.split('/').pop() || 'Unknown'}
-                        </span>
-                      </div>
-                    )}
-                    {modelStatus === null && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground/70">Model:</span>
-                        <span className="text-warning/70">Login required</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground/70">Model:</span>
+                      <span
+                        className="truncate max-w-[180px]"
+                        title={modelStatus?.model_path || modelStatus?.model_name || (workerAvailable ? 'Worker Ready' : 'No Model')}
+                      >
+                        {modelStatus?.model_name && modelStatus.model_name !== 'No Model Loaded'
+                          ? modelStatus.model_name.split('/').pop()
+                          : modelStatus?.model_path?.split('/').pop()
+                            || (workerAvailable ? 'Worker Ready' : 'No Model')}
+                      </span>
+                    </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground/70">Dev Bypass:</span>
                       <span className="text-success">enabled</span>
