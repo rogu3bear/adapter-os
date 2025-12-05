@@ -184,12 +184,12 @@ impl Db {
                         policy_pack_id: policy_id.to_string(),
                         scope: "global".to_string(),
                         enabled,
-                        created_at: Utc::now(),
+                        created_at: Utc::now().to_string(),
                         created_by: created_by.to_string(),
-                        updated_at: Utc::now(),
+                        updated_at: Utc::now().to_string(),
                         updated_by: Some(created_by.to_string()),
                     };
-                    repo.put_binding(binding).await?;
+                    repo.upsert_binding(binding).await?;
                 }
             }
         }
@@ -270,13 +270,17 @@ impl Db {
             }
         }
 
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL backend unavailable for get_tenant".to_string())
+        })?;
+
         let tenant = sqlx::query_as::<_, Tenant>(
             "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
                     max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
              FROM tenants WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(pool)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(tenant)
@@ -303,12 +307,16 @@ impl Db {
             }
         }
 
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL backend unavailable for list_tenants".to_string())
+        })?;
+
         let tenants = sqlx::query_as::<_, Tenant>(
             "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
                     max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
              FROM tenants ORDER BY created_at DESC",
         )
-        .fetch_all(&*self.pool())
+        .fetch_all(pool)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(tenants)
@@ -350,9 +358,13 @@ impl Db {
             }
         }
 
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL backend unavailable for list_tenants_paginated".to_string())
+        })?;
+
         // Get total count
         let total = sqlx::query("SELECT COUNT(*) as cnt FROM tenants")
-            .fetch_one(&*self.pool())
+            .fetch_one(pool)
             .await
             .db_err("count tenants")?
             .get::<i64, _>(0);
@@ -365,11 +377,57 @@ impl Db {
         )
         .bind(limit)
         .bind(offset)
-        .fetch_all(&*self.pool())
+        .fetch_all(pool)
         .await
         .db_err("list tenants paginated")?;
 
         Ok((tenants, total))
+    }
+
+    /// Ensure the system tenant exists across storage backends.
+    pub async fn ensure_system_tenant(&self) -> Result<()> {
+        if self.get_tenant("system").await?.is_some() {
+            return Ok(());
+        }
+
+        // KV creation when allowed
+        if self.storage_mode().write_to_kv() {
+            if let Some(repo) = self.get_tenant_kv_repo() {
+                let params = CreateTenantParams {
+                    name: "System".to_string(),
+                    itar_flag: false,
+                };
+                // Ignore already-exists errors (best effort)
+                if let Err(e) = repo.create_tenant_kv_with_id("system", &params).await {
+                    if !self.storage_mode().write_to_sql() {
+                        return Err(e);
+                    } else {
+                        warn!(error = %e, "KV system tenant creation failed; will attempt SQL");
+                    }
+                }
+            }
+        }
+
+        // SQL creation when available
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                sqlx::query(
+                    "INSERT OR IGNORE INTO tenants (id, name, itar_flag, created_at) VALUES ('system', 'System', 0, datetime('now'))",
+                )
+                .execute(pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to create system tenant: {}", e)))?;
+            } else if !self.storage_mode().write_to_kv() {
+                return Err(AosError::Database(
+                    "SQL backend unavailable for system tenant creation".to_string(),
+                ));
+            }
+        }
+
+        // Initialize default policy bindings (covers KV + SQL)
+        self.initialize_tenant_policy_bindings("system", "system")
+            .await?;
+        Ok(())
     }
 
     /// Rename a tenant

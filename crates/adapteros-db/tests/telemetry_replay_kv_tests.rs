@@ -220,12 +220,12 @@ async fn replay_round_trip_kv_primary() {
         rag_state_json: None,
     };
 
-    sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(db.pool())
-        .await
-        .unwrap();
-
-    db.create_replay_session(&session).await.unwrap();
+    if let Some(repo) = db.replay_repo_if_write() {
+        let kv_session = Db::kv_replay_session_from_record(&session);
+        repo.store_session(kv_session).await.unwrap();
+    } else {
+        db.create_replay_session(&session).await.unwrap();
+    }
 
     // KV primary read path
     db.set_storage_mode(StorageMode::KvPrimary);

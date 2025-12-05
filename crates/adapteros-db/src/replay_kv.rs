@@ -20,7 +20,7 @@ impl Db {
             .map(|kv| ReplayRepository::new(kv.backend().clone(), kv.index_manager().clone()))
     }
 
-    pub(crate) fn replay_repo_if_write(&self) -> Option<ReplayRepository> {
+    pub fn replay_repo_if_write(&self) -> Option<ReplayRepository> {
         if self.storage_mode().write_to_kv() {
             self.replay_repo()
         } else {
@@ -200,7 +200,7 @@ impl Db {
         })
     }
 
-    pub(crate) fn kv_replay_session_from_record(session: &ReplaySession) -> ReplaySessionKv {
+    pub fn kv_replay_session_from_record(session: &ReplaySession) -> ReplaySessionKv {
         ReplaySessionKv {
             id: session.id.clone(),
             tenant_id: session.tenant_id.clone(),

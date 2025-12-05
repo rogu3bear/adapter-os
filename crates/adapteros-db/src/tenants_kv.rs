@@ -19,6 +19,12 @@ use crate::tenants::Tenant;
 pub trait TenantKvOps {
     /// Create a new tenant
     async fn create_tenant_kv(&self, params: &CreateTenantParams) -> Result<String>;
+    /// Create a tenant with a specific ID (used for system tenant bootstrap)
+    async fn create_tenant_kv_with_id(
+        &self,
+        id: &str,
+        params: &CreateTenantParams,
+    ) -> Result<String>;
 
     /// Get a tenant by ID
     async fn get_tenant_kv(&self, id: &str) -> Result<Option<TenantKv>>;
@@ -251,8 +257,19 @@ impl TenantKvOps for TenantKvRepository {
         let now = Utc::now();
         let id = uuid::Uuid::now_v7().to_string();
 
+        self.create_tenant_kv_with_id(&id, params).await?;
+        Ok(id)
+    }
+
+    async fn create_tenant_kv_with_id(
+        &self,
+        id: &str,
+        params: &CreateTenantParams,
+    ) -> Result<String> {
+        let now = Utc::now();
+
         let tenant = TenantKv {
-            id: id.clone(),
+            id: id.to_string(),
             name: params.name.clone(),
             itar_flag: params.itar_flag,
             status: "active".to_string(),
@@ -269,7 +286,7 @@ impl TenantKvOps for TenantKvRepository {
         self.store_tenant(&tenant).await?;
 
         info!(tenant_id = %id, name = %params.name, "Tenant created in KV");
-        Ok(id)
+        Ok(id.to_string())
     }
 
     async fn get_tenant_kv(&self, id: &str) -> Result<Option<TenantKv>> {

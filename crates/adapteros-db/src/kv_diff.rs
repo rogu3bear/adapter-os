@@ -1,10 +1,14 @@
 //! Dual-write diff utilities for KV vs SQL
 
 use crate::{
-    kv_backend::KvBackend, plans_kv::PlanKvRepository, tenants_kv::TenantKvOps,
-    tenants_kv::TenantKvRepository, users_kv::UserKvOps, users_kv::UserKvRepository, Db,
+    kv_backend::KvBackend, plans_kv::PlanKvRepository, stacks_kv::StackKvOps,
+    stacks_kv::StackKvRepository, tenant_policy_bindings_kv::PolicyBindingKvRepository,
+    tenants_kv::TenantKvOps, tenants_kv::TenantKvRepository, users_kv::UserKvOps,
+    users_kv::UserKvRepository, Db,
 };
+use crate::adapters_kv::AdapterKvOps;
 use adapteros_core::AosError;
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,6 +188,183 @@ impl Db {
         Ok(issues)
     }
 
+    pub async fn diff_adapters(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+
+        let sql_adapters = sqlx::query!(
+            r#"SELECT id, tenant_id, name, hash_b3, tier, created_at FROM adapters WHERE active = 1"#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let mut cache: HashMap<String, HashMap<String, crate::adapters::Adapter>> = HashMap::new();
+
+        for row in sql_adapters {
+            let kv_map = if let Some(existing) = cache.get(&row.tenant_id) {
+                existing.clone()
+            } else {
+                let Some(kv_repo) = self.get_adapter_kv_repo(&row.tenant_id) else {
+                    continue;
+                };
+                let map: HashMap<String, crate::adapters::Adapter> = kv_repo
+                    .list_adapters_for_tenant_kv(&row.tenant_id)
+                    .await?
+                    .into_iter()
+                    .map(|a| (a.id.clone(), a))
+                    .collect();
+                cache.insert(row.tenant_id.clone(), map.clone());
+                map
+            };
+            let row_id = row.id.clone().unwrap_or_default();
+            match kv_map.get(&row_id) {
+                Some(kv_adapter) => {
+                    if kv_adapter.name != row.name {
+                        issues.push(DiffIssue {
+                            domain: "adapters".into(),
+                            id: row_id.clone(),
+                            field: "name".into(),
+                            sql_value: row.name.clone(),
+                            kv_value: kv_adapter.name.clone(),
+                        });
+                    }
+                    if kv_adapter.hash_b3 != row.hash_b3 {
+                        issues.push(DiffIssue {
+                            domain: "adapters".into(),
+                            id: row_id.clone(),
+                            field: "hash_b3".into(),
+                            sql_value: row.hash_b3.clone(),
+                            kv_value: kv_adapter.hash_b3.clone(),
+                        });
+                    }
+                    if kv_adapter.tier != row.tier {
+                        issues.push(DiffIssue {
+                            domain: "adapters".into(),
+                            id: row_id.clone(),
+                            field: "tier".into(),
+                            sql_value: row.tier.clone(),
+                            kv_value: kv_adapter.tier.clone(),
+                        });
+                    }
+                }
+                None => issues.push(DiffIssue {
+                    domain: "adapters".into(),
+                    id: row_id.clone(),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                }),
+            }
+        }
+
+        Ok(issues)
+    }
+
+    pub async fn diff_stacks(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+
+        let sql_stacks = sqlx::query!(
+            r#"SELECT id, tenant_id, name, description, lifecycle_state FROM adapter_stacks"#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let Some(kv) = self.kv_backend() else {
+            return Ok(issues);
+        };
+        let kv_repo = StackKvRepository::new(kv.backend().clone());
+
+        for row in sql_stacks {
+            let kv_stack = kv_repo
+                .get_stack(&row.tenant_id, row.id.as_deref().unwrap_or_default())
+                .await?;
+            let row_id = row.id.clone().unwrap_or_default();
+            match kv_stack {
+                Some(stack) => {
+                    if stack.name != row.name {
+                        issues.push(DiffIssue {
+                            domain: "adapter_stacks".into(),
+                            id: row_id.clone(),
+                            field: "name".into(),
+                            sql_value: row.name.clone(),
+                            kv_value: stack.name.clone(),
+                        });
+                    }
+                    let kv_state = stack.lifecycle_state.to_string();
+                    if kv_state != row.lifecycle_state {
+                        issues.push(DiffIssue {
+                            domain: "adapter_stacks".into(),
+                            id: row_id.clone(),
+                            field: "lifecycle_state".into(),
+                            sql_value: row.lifecycle_state.clone(),
+                            kv_value: kv_state,
+                        });
+                    }
+                }
+                None => issues.push(DiffIssue {
+                    domain: "adapter_stacks".into(),
+                    id: row_id.clone(),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                }),
+            }
+        }
+
+        Ok(issues)
+    }
+
+    pub async fn diff_policy_bindings(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+
+        let sql_bindings = sqlx::query!(
+            r#"SELECT tenant_id, policy_pack_id, enabled FROM tenant_policy_bindings WHERE scope = 'global'"#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let Some(kv) = self.kv_backend() else {
+            return Ok(issues);
+        };
+        let repo = PolicyBindingKvRepository::new(kv.backend().clone());
+
+        for row in sql_bindings {
+            let kv_binding = repo
+                .get_binding(&row.tenant_id, &row.policy_pack_id)
+                .await?;
+            match kv_binding {
+                Some(binding) => {
+                    if binding.enabled != (row.enabled != 0) {
+                        issues.push(DiffIssue {
+                            domain: "tenant_policy_bindings".into(),
+                            id: row.policy_pack_id.clone(),
+                            field: "enabled".into(),
+                            sql_value: format!("{}", row.enabled != 0),
+                            kv_value: format!("{}", binding.enabled),
+                        });
+                    }
+                }
+                None => issues.push(DiffIssue {
+                    domain: "tenant_policy_bindings".into(),
+                    id: row.policy_pack_id.clone(),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                }),
+            }
+        }
+
+        Ok(issues)
+    }
+
     pub async fn diff_all_supported(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
         if !self.has_kv_backend() {
             return Err(AosError::Config(
@@ -195,6 +376,9 @@ impl Db {
         issues.extend(self.diff_users().await?);
         issues.extend(self.diff_tenants().await?);
         issues.extend(self.diff_plans().await?);
+        issues.extend(self.diff_adapters().await?);
+        issues.extend(self.diff_stacks().await?);
+        issues.extend(self.diff_policy_bindings().await?);
         Ok(issues)
     }
 }
