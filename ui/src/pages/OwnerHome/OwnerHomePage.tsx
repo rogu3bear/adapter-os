@@ -20,6 +20,7 @@ import { Crown, RefreshCw, ExternalLink, PlusCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useAuth } from '@/providers/CoreProviders';
+import PageWrapper from '@/layout/PageWrapper';
 import apiClient from '@/api/client';
 import type { ModelWithStatsResponse } from '@/api/types';
 import type { MetricsSnapshotEvent } from '@/api/streaming-types';
@@ -229,7 +230,71 @@ export default function OwnerHomePage() {
 
   return (
     <div className="min-h-full bg-slate-50">
-      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <PageWrapper
+        pageKey="owner-home"
+        title="Owner Home"
+        description={`Welcome, ${user?.display_name || user?.email}`}
+        maxWidth="xl"
+        contentPadding="default"
+        customHeader={
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Crown className="h-7 w-7 text-amber-500" />
+              <div>
+                <h1 className="text-xl font-bold text-slate-900">Owner Home</h1>
+                <p className="text-sm text-slate-600">
+                  Welcome, {user?.display_name || user?.email}
+                </p>
+              </div>
+              <Badge
+                variant="default"
+                className="ml-2 bg-amber-500 hover:bg-amber-600 hidden sm:flex"
+              >
+                Owner
+              </Badge>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <LiveDataBadge
+                isLive={metricsConnected}
+                connectionStatus={metricsConnectionStatus}
+                freshnessLevel={metricsFreshness}
+                lastUpdated={metricsLastUpdated}
+                onReconnect={reconnectMetrics}
+              />
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => navigate('/create-adapter')}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <PlusCircle className="h-4 w-4 mr-1.5" />
+                <span className="hidden sm:inline">Create Adapter</span>
+                <span className="sm:hidden">Create</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isLoading}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''} sm:mr-1.5`}
+                />
+                <span className="hidden sm:inline">Refresh</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/dashboard')}
+                className="hidden md:flex"
+              >
+                Dashboard
+                <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
+              </Button>
+            </div>
+          </div>
+        }
+      >
         {/* Main Layout: Content + Sidebar */}
         <div className="flex gap-6">
           {/* Main Content */}
@@ -246,64 +311,6 @@ export default function OwnerHomePage() {
                 isLive={metricsConnected}
               />
             </SectionErrorBoundary>
-
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <Crown className="h-7 w-7 text-amber-500" />
-                <div>
-                  <h1 className="text-xl font-bold text-slate-900">Owner Home</h1>
-                  <p className="text-sm text-slate-600">
-                    Welcome, {user?.display_name || user?.email}
-                  </p>
-                </div>
-                <Badge
-                  variant="default"
-                  className="ml-2 bg-amber-500 hover:bg-amber-600 hidden sm:flex"
-                >
-                  Owner
-                </Badge>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <LiveDataBadge
-                  isLive={metricsConnected}
-                  connectionStatus={metricsConnectionStatus}
-                  freshnessLevel={metricsFreshness}
-                  lastUpdated={metricsLastUpdated}
-                  onReconnect={reconnectMetrics}
-                />
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => navigate('/create-adapter')}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  <PlusCircle className="h-4 w-4 mr-1.5" />
-                  <span className="hidden sm:inline">Create Adapter</span>
-                  <span className="sm:hidden">Create</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRefresh}
-                  disabled={isLoading}
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''} sm:mr-1.5`}
-                  />
-                  <span className="hidden sm:inline">Refresh</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate('/dashboard')}
-                  className="hidden md:flex"
-                >
-                  Dashboard
-                  <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
-                </Button>
-              </div>
-            </div>
 
             {/* Alert Hero (conditional) */}
             <SectionErrorBoundary sectionName="Alerts">
@@ -380,7 +387,7 @@ export default function OwnerHomePage() {
             </div>
           </CollapsibleSidebar>
         </div>
-      </div>
+      </PageWrapper>
     </div>
   );
 }

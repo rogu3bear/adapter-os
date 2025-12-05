@@ -20,9 +20,12 @@ if (ensure.status !== 0) {
   process.exit(ensure.status ?? 1);
 }
 
-// Ensure backend port
-process.env.AOS_DEV_PORT = '3300';
-const ensureBackend = spawnSync('node', [ensureScript, '--mode=dev'], { stdio: 'inherit', env: process.env });
+// Ensure backend port (control plane default: 8080)
+process.env.AOS_DEV_PORT = process.env.AOS_DEV_PORT ?? '8080';
+const ensureBackend = spawnSync('node', [ensureScript, '--mode=dev'], {
+  stdio: 'inherit',
+  env: process.env,
+});
 
 if (ensureBackend.status !== 0) {
   console.warn('Backend port ensure failed, continuing');
@@ -30,18 +33,31 @@ if (ensureBackend.status !== 0) {
 
 // Start backend server
 const backendLog = path.resolve(projectRoot, 'server-dev.log');
-const backend = spawn('cargo', [
-  'run',
-  '-p', 'adapteros-server',
-  '--bin', 'adapteros-server',
-  '--',
-  '--config', 'configs/cp.toml',
-  '--single-writer'
-], {
-  cwd: projectRoot,
-  stdio: ['ignore', 'pipe', 'pipe'],
-  detached: true
-});
+const backend = spawn(
+  'cargo',
+  [
+    'run',
+    '-p',
+    'adapteros-server',
+    '--bin',
+    'adapteros-server',
+    '--',
+    '--config',
+    'configs/cp.toml',
+    '--single-writer',
+  ],
+  {
+    cwd: projectRoot,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+    env: {
+      ...process.env,
+      // Force control plane to bind on 8080 in dev; fail fast if occupied
+      AOS_SERVER_PORT: process.env.AOS_SERVER_PORT ?? '8080',
+      AOS_SERVER__PORT: process.env.AOS_SERVER__PORT ?? '8080',
+    },
+  },
+);
 
 backend.stdout.pipe(createWriteStream(backendLog, { flags: 'a' }));
 backend.stderr.pipe(createWriteStream(backendLog, { flags: 'a' }));

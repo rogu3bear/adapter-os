@@ -42,12 +42,10 @@ function TenantProvider({ children }: { children: ReactNode }) {
     try {
       const tenantList = await apiClient.listTenants();
       setTenants(tenantList);
-      
-      // If no tenant is selected and we have tenants, select the first one
-      // Also validate that currently selected tenant still exists
+
+      // Prefer the authenticated user's tenant when available to avoid stale selections
       setSelectedTenantState((current) => {
         if (!tenantList || tenantList.length === 0) {
-          // No tenants available
           try {
             localStorage.removeItem('selectedTenant');
           } catch (error) {
@@ -56,41 +54,37 @@ function TenantProvider({ children }: { children: ReactNode }) {
           return '';
         }
 
-        // If current tenant doesn't exist in list, select first available
-        if (current && !tenantList.some((t) => t.id === current)) {
-          logger.warn('Selected tenant no longer exists, selecting first available', {
-            component: 'TenantProvider',
-            previousTenant: current,
-            newTenant: tenantList[0].id
-          });
-          const firstTenantId = tenantList[0].id;
+        const userTenantId = user?.tenant_id;
+        const hasUserTenant = Boolean(userTenantId && tenantList.some((t) => t.id === userTenantId));
+        const hasCurrent = Boolean(current && tenantList.some((t) => t.id === current));
+
+        if (hasUserTenant && current !== userTenantId) {
           try {
-            localStorage.setItem('selectedTenant', firstTenantId);
+            localStorage.setItem('selectedTenant', userTenantId!);
           } catch (error) {
             logger.warn('Failed to save selected tenant to localStorage', { component: 'TenantProvider' });
           }
-          return firstTenantId;
+          return userTenantId!;
         }
 
-        // If no tenant selected, select first one
-        if (!current) {
-          const firstTenantId = tenantList[0].id;
-          try {
-            localStorage.setItem('selectedTenant', firstTenantId);
-          } catch (error) {
-            logger.warn('Failed to save selected tenant to localStorage', { component: 'TenantProvider' });
-          }
-          return firstTenantId;
+        if (hasCurrent) {
+          return current;
         }
 
-        return current;
+        const firstTenantId = tenantList[0].id;
+        try {
+          localStorage.setItem('selectedTenant', firstTenantId);
+        } catch (error) {
+          logger.warn('Failed to save selected tenant to localStorage', { component: 'TenantProvider' });
+        }
+        return firstTenantId;
       });
     } catch (error) {
       logger.error('Failed to fetch tenants', { component: 'TenantProvider' }, toError(error));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [user?.tenant_id]);
 
   const setSelectedTenant = useCallback((tenantId: string): boolean => {
     // Validate tenant exists in list (unless we're still loading)

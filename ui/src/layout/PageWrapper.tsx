@@ -40,6 +40,8 @@ interface PageWrapperProps {
   title: string;
   /** Optional page description */
   description?: string;
+  /** Optional fully custom header content */
+  customHeader?: React.ReactNode;
   /** Page content */
   children: React.ReactNode;
 
@@ -104,6 +106,7 @@ export function PageWrapper({
   right,
   defaultLayout,
   headerActions,
+  customHeader,
 }: PageWrapperProps) {
   return (
     <DensityProvider
@@ -127,6 +130,7 @@ export function PageWrapper({
         right={right}
         defaultLayout={defaultLayout}
         headerActions={headerActions}
+        customHeader={customHeader}
       >
         <PageErrorsProvider>
           {children}

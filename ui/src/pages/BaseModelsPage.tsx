@@ -56,7 +56,7 @@ function formatMemory(mb?: number | null) {
 
 function BaseModelsAlert() {
   return (
-    <Alert className="border-blue-200 bg-blue-50">
+    <Alert className="border-slate-700 bg-slate-900 text-slate-50">
       <Info className="h-4 w-4 text-blue-500" />
       <AlertTitle>Immutable base models</AlertTitle>
       <AlertDescription>

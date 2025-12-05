@@ -42,6 +42,7 @@ import {
   Lock,
   XCircle,
 } from 'lucide-react';
+import PageWrapper from '@/layout/PageWrapper';
 
 type ViewMode = 'table' | 'grouped';
 type FilterMode = 'all' | 'issues' | 'orphans' | 'duplicates' | 'hubs' | 'deprecated' | 'draft' | 'hidden';
@@ -512,207 +513,214 @@ export default function RoutesDebugPage() {
   }, [manifest, filterMode, searchTerm]);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Routes Manifest</h1>
-        <p className="text-muted-foreground">
-          Dev-only route inventory. {stats.total} total routes registered.
-        </p>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-        <StatCard label="Total Routes" value={stats.total} onClick={() => setFilterMode('all')} />
-        <StatCard label="In Sidebar" value={stats.inSidebar} />
-        <StatCard label="Hub Pages" value={stats.hubs} onClick={() => setFilterMode('hubs')} />
-        <StatCard
-          label="With Issues"
-          value={stats.withIssues}
-          highlight={stats.withIssues > 0}
-          onClick={() => setFilterMode('issues')}
-        />
-        <StatCard
-          label="Orphans"
-          value={stats.orphans}
-          highlight={stats.orphans > 0}
-          onClick={() => setFilterMode('orphans')}
-        />
-        <StatCard
-          label="Hidden"
-          value={stats.hidden}
-          onClick={() => setFilterMode('hidden')}
-        />
-        <StatCard
-          label="Draft"
-          value={stats.byStatus.draft}
-          highlight={stats.byStatus.draft > 0}
-          onClick={() => setFilterMode('draft')}
-        />
-        <StatCard
-          label="Deprecated"
-          value={stats.byStatus.deprecated}
-          highlight={stats.byStatus.deprecated > 0}
-          onClick={() => setFilterMode('deprecated')}
-        />
-      </div>
-
-      {/* Primary Spine */}
-      <SpineOverview />
-
-      {/* Section breakdown */}
-      <div className="flex flex-wrap gap-2">
-        {Object.entries(stats.bySection)
-          .filter(([, count]) => count > 0)
-          .sort(([, a], [, b]) => b - a)
-          .map(([section, count]) => (
-            <Badge key={section} className={SECTION_COLORS[section as RouteSection]}>
-              {section}: {count}
-            </Badge>
-          ))}
-      </div>
-
-      {/* Reachability breakdown */}
-      <div className="flex flex-wrap gap-2">
-        {Object.entries(stats.byReachability)
-          .filter(([, count]) => count > 0)
-          .map(([reach, count]) => {
-            const r = reach as Reachability;
-            const Icon = REACHABILITY_BADGES[r].icon;
-            return (
-              <div key={reach} className="flex items-center gap-1">
-                <Icon className="h-3 w-3" />
-                <Badge className={REACHABILITY_BADGES[r].className}>
-                  {reach}: {count}
-                </Badge>
-              </div>
-            );
-          })}
-      </div>
-
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-4">
-        {/* View mode toggle */}
-        <div className="flex items-center border rounded-lg overflow-hidden">
-          <button
-            onClick={() => setViewMode('table')}
-            className={cn(
-              'p-2',
-              viewMode === 'table' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-            )}
-            title="Table view"
-          >
-            <List className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setViewMode('grouped')}
-            className={cn(
-              'p-2',
-              viewMode === 'grouped' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-            )}
-            title="Grouped view"
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </button>
+    <PageWrapper
+      pageKey="routes-manifest"
+      title="Routes Manifest"
+      description={`Dev-only route inventory. ${stats.total} total routes registered.`}
+      maxWidth="xl"
+    >
+      <div className="space-y-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold">Routes Manifest</h1>
+          <p className="text-muted-foreground">
+            Dev-only route inventory. {stats.total} total routes registered.
+          </p>
         </div>
 
-        {/* Extended columns toggle */}
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={showExtended}
-            onChange={(e) => setShowExtended(e.target.checked)}
-            className="rounded"
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+          <StatCard label="Total Routes" value={stats.total} onClick={() => setFilterMode('all')} />
+          <StatCard label="In Sidebar" value={stats.inSidebar} />
+          <StatCard label="Hub Pages" value={stats.hubs} onClick={() => setFilterMode('hubs')} />
+          <StatCard
+            label="With Issues"
+            value={stats.withIssues}
+            highlight={stats.withIssues > 0}
+            onClick={() => setFilterMode('issues')}
           />
-          Show component files
-        </label>
-
-        {/* Filter mode */}
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <select
-            value={filterMode}
-            onChange={(e) => setFilterMode(e.target.value as FilterMode)}
-            className="border rounded px-2 py-1 text-sm bg-background"
-          >
-            <option value="all">All routes</option>
-            <option value="issues">With issues</option>
-            <option value="orphans">Orphans only</option>
-            <option value="hidden">Hidden only</option>
-            <option value="duplicates">Duplicates only</option>
-            <option value="hubs">Hubs only</option>
-            <option value="deprecated">Deprecated only</option>
-            <option value="draft">Draft only</option>
-          </select>
+          <StatCard
+            label="Orphans"
+            value={stats.orphans}
+            highlight={stats.orphans > 0}
+            onClick={() => setFilterMode('orphans')}
+          />
+          <StatCard
+            label="Hidden"
+            value={stats.hidden}
+            onClick={() => setFilterMode('hidden')}
+          />
+          <StatCard
+            label="Draft"
+            value={stats.byStatus.draft}
+            highlight={stats.byStatus.draft > 0}
+            onClick={() => setFilterMode('draft')}
+          />
+          <StatCard
+            label="Deprecated"
+            value={stats.byStatus.deprecated}
+            highlight={stats.byStatus.deprecated > 0}
+            onClick={() => setFilterMode('deprecated')}
+          />
         </div>
 
-        {/* Search */}
-        <input
-          type="text"
-          placeholder="Search routes..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="border rounded px-3 py-1 text-sm bg-background flex-1 max-w-xs"
-        />
+        {/* Primary Spine */}
+        <SpineOverview />
 
-        <span className="text-sm text-muted-foreground">
-          Showing {filteredRoutes.length} of {manifest.length}
-        </span>
-      </div>
-
-      {/* Main content */}
-      <div className="border rounded-lg overflow-hidden">
-        {viewMode === 'table' ? (
-          <RouteTable routes={filteredRoutes} showExtended={showExtended} />
-        ) : (
-          <GroupedView routes={filteredRoutes} />
-        )}
-      </div>
-
-      {/* Flow validation */}
-      <div className="border rounded-lg p-4">
-        <FlowValidator />
-      </div>
-
-      {/* Legend */}
-      <div className="border rounded-lg p-4 space-y-4">
-        <h3 className="text-sm font-medium text-muted-foreground">Legend</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs">
-          <div className="space-y-2">
-            <div className="font-medium">Route Types:</div>
-            {Object.entries(TYPE_BADGES).map(([type, { label, className }]) => (
-              <div key={type} className="flex items-center gap-2">
-                <Badge className={className}>{label}</Badge>
-                <span className="text-muted-foreground capitalize">{type}</span>
-              </div>
+        {/* Section breakdown */}
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(stats.bySection)
+            .filter(([, count]) => count > 0)
+            .sort(([, a], [, b]) => b - a)
+            .map(([section, count]) => (
+              <Badge key={section} className={SECTION_COLORS[section as RouteSection]}>
+                {section}: {count}
+              </Badge>
             ))}
+        </div>
+
+        {/* Reachability breakdown */}
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(stats.byReachability)
+            .filter(([, count]) => count > 0)
+            .map(([reach, count]) => {
+              const r = reach as Reachability;
+              const Icon = REACHABILITY_BADGES[r].icon;
+              return (
+                <div key={reach} className="flex items-center gap-1">
+                  <Icon className="h-3 w-3" />
+                  <Badge className={REACHABILITY_BADGES[r].className}>
+                    {reach}: {count}
+                  </Badge>
+                </div>
+              );
+            })}
+        </div>
+
+        {/* Controls */}
+        <div className="flex flex-wrap items-center gap-4">
+          {/* View mode toggle */}
+          <div className="flex items-center border rounded-lg overflow-hidden">
+            <button
+              onClick={() => setViewMode('table')}
+              className={cn(
+                'p-2',
+                viewMode === 'table' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+              )}
+              title="Table view"
+            >
+              <List className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('grouped')}
+              className={cn(
+                'p-2',
+                viewMode === 'grouped' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+              )}
+              title="Grouped view"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
           </div>
-          <div className="space-y-2">
-            <div className="font-medium">Status:</div>
-            {Object.entries(STATUS_BADGES).map(([status, { label, className }]) => (
-              <div key={status} className="flex items-center gap-2">
-                <Badge className={className}>{label}</Badge>
-                <span className="text-muted-foreground capitalize">{status}</span>
-              </div>
-            ))}
+
+          {/* Extended columns toggle */}
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={showExtended}
+              onChange={(e) => setShowExtended(e.target.checked)}
+              className="rounded"
+            />
+            Show component files
+          </label>
+
+          {/* Filter mode */}
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <select
+              value={filterMode}
+              onChange={(e) => setFilterMode(e.target.value as FilterMode)}
+              className="border rounded px-2 py-1 text-sm bg-background"
+            >
+              <option value="all">All routes</option>
+              <option value="issues">With issues</option>
+              <option value="orphans">Orphans only</option>
+              <option value="hidden">Hidden only</option>
+              <option value="duplicates">Duplicates only</option>
+              <option value="hubs">Hubs only</option>
+              <option value="deprecated">Deprecated only</option>
+              <option value="draft">Draft only</option>
+            </select>
           </div>
-          <div className="space-y-2">
-            <div className="font-medium">Reachability:</div>
-            {Object.entries(REACHABILITY_BADGES).map(([reach, { label, className, icon: Icon }]) => (
-              <div key={reach} className="flex items-center gap-2">
-                <Icon className="h-3 w-3" />
-                <Badge className={className}>{label}</Badge>
-                <span className="text-muted-foreground">
-                  {reach === 'primary' && '= in sidebar'}
-                  {reach === 'nested' && '= via parent/tabs'}
-                  {reach === 'hidden' && '= direct URL only'}
-                  {reach === 'orphan' && '= unreachable'}
-                </span>
-              </div>
-            ))}
+
+          {/* Search */}
+          <input
+            type="text"
+            placeholder="Search routes..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="border rounded px-3 py-1 text-sm bg-background flex-1 max-w-xs"
+          />
+
+          <span className="text-sm text-muted-foreground">
+            Showing {filteredRoutes.length} of {manifest.length}
+          </span>
+        </div>
+
+        {/* Main content */}
+        <div className="border rounded-lg overflow-hidden">
+          {viewMode === 'table' ? (
+            <RouteTable routes={filteredRoutes} showExtended={showExtended} />
+          ) : (
+            <GroupedView routes={filteredRoutes} />
+          )}
+        </div>
+
+        {/* Flow validation */}
+        <div className="border rounded-lg p-4">
+          <FlowValidator />
+        </div>
+
+        {/* Legend */}
+        <div className="border rounded-lg p-4 space-y-4">
+          <h3 className="text-sm font-medium text-muted-foreground">Legend</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs">
+            <div className="space-y-2">
+              <div className="font-medium">Route Types:</div>
+              {Object.entries(TYPE_BADGES).map(([type, { label, className }]) => (
+                <div key={type} className="flex items-center gap-2">
+                  <Badge className={className}>{label}</Badge>
+                  <span className="text-muted-foreground capitalize">{type}</span>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <div className="font-medium">Status:</div>
+              {Object.entries(STATUS_BADGES).map(([status, { label, className }]) => (
+                <div key={status} className="flex items-center gap-2">
+                  <Badge className={className}>{label}</Badge>
+                  <span className="text-muted-foreground capitalize">{status}</span>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <div className="font-medium">Reachability:</div>
+              {Object.entries(REACHABILITY_BADGES).map(([reach, { label, className, icon: Icon }]) => (
+                <div key={reach} className="flex items-center gap-2">
+                  <Icon className="h-3 w-3" />
+                  <Badge className={className}>{label}</Badge>
+                  <span className="text-muted-foreground">
+                    {reach === 'primary' && '= in sidebar'}
+                    {reach === 'nested' && '= via parent/tabs'}
+                    {reach === 'hidden' && '= direct URL only'}
+                    {reach === 'orphan' && '= unreachable'}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </PageWrapper>
   );
 }
