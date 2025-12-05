@@ -15,12 +15,18 @@ use zip::{result::ZipError, ZipArchive};
 /// Load options for .aos files
 #[derive(Debug, Clone, Default)]
 pub struct LoadOptions {
-    /// Skip integrity verification (faster but unsafe)
+    /// Skip integrity verification (faster but unsafe) — DEV ONLY
     pub skip_verification: bool,
-    /// Skip signature verification even if present
+    /// Skip signature verification even if present — DEV ONLY
     pub skip_signature_check: bool,
     /// Use memory-mapped loading path (zero-copy weights, lazy decompression)
     pub use_mmap: bool,
+}
+
+pub(crate) fn production_mode_enabled() -> bool {
+    std::env::var("AOS_SERVER_PRODUCTION_MODE")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
 }
 
 fn read_weight_manifest<R: Read + Seek>(
@@ -257,6 +263,23 @@ impl SingleFileAdapterLoader {
         options: LoadOptions,
     ) -> Result<SingleFileAdapter> {
         let path = path.as_ref();
+
+        // Disallow unsafe skips when production_mode is enabled
+        let production_mode = production_mode_enabled();
+        if production_mode && (options.skip_verification || options.skip_signature_check) {
+            return Err(AosError::PolicyViolation(
+                "Adapter load skips are disabled when production_mode is enabled".to_string(),
+            ));
+        }
+        if options.skip_verification || options.skip_signature_check {
+            tracing::warn!(
+                production_mode,
+                path = %path.display(),
+                skip_verification = options.skip_verification,
+                skip_signature_check = options.skip_signature_check,
+                "DEV-ONLY adapter load bypass requested"
+            );
+        }
 
         // Detect format first
         let format = detect_format(path)?;

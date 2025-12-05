@@ -174,7 +174,7 @@ fn test_url_validation_http_valid() {
 }
 
 #[test]
-fn test_url_validation_sqlite_valid() {
+fn test_url_validation_sqlite_valid_absolute_path() {
     let mut schema = ConfigSchema::default();
     schema.fields.insert(
         "database.url".to_string(),

@@ -390,6 +390,11 @@ impl From<AosError> for ApiError {
                 "ADAPTER_HASH_MISMATCH",
                 err.to_string(),
             ),
+            AosError::AdapterLayerHashMismatch { .. } => ApiError::new(
+                StatusCode::CONFLICT,
+                "ADAPTER_LAYER_HASH_MISMATCH",
+                err.to_string(),
+            ),
             AosError::PolicyHashMismatch { .. } => ApiError::new(
                 StatusCode::CONFLICT,
                 "POLICY_HASH_MISMATCH",

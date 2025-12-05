@@ -224,6 +224,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     strict_mode: true,
                     determinism_mode: "strict".to_string(), // Patch proposals use strict mode
                     effective_adapter_ids: None,
+                    routing_policy: None,
                 };
 
                 let mut worker_guard = worker.lock().await;
@@ -426,6 +427,98 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
                 Self::send_json_response(&mut stream, ack_response).await?;
+            }
+            path if path.starts_with("/adapter/") => {
+                // Handle adapter command routes: /adapter/{adapter_id}/{command}
+                // Also supports /adapter/command for JSON-based commands
+                let parts: Vec<&str> = path.split('/').collect();
+                // parts = ["", "adapter", "{id_or_command}", "{command}"]
+
+                if parts.len() == 3 && parts[2] == "command" {
+                    // JSON-based adapter command: POST /adapter/command
+                    // Expects AdapterCommand in request body
+                    use crate::adapter_hotswap::AdapterCommand;
+
+                    let command: AdapterCommand = match serde_json::from_str(&request.body) {
+                        Ok(cmd) => cmd,
+                        Err(e) => {
+                            error!(
+                                error = %e,
+                                body = %request.body,
+                                "Failed to parse AdapterCommand"
+                            );
+                            Self::send_error(&mut stream, 400, "Invalid AdapterCommand format")
+                                .await?;
+                            return Ok(());
+                        }
+                    };
+
+                    info!(
+                        command = ?command,
+                        "Processing adapter command via UDS"
+                    );
+
+                    let mut worker_guard = worker.lock().await;
+                    match worker_guard.execute_adapter_command(command).await {
+                        Ok(result) => {
+                            Self::send_json_response(
+                                &mut stream,
+                                serde_json::to_value(&result).unwrap(),
+                            )
+                            .await?;
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Adapter command execution failed");
+                            Self::send_error(&mut stream, 500, &e.to_string()).await?;
+                        }
+                    }
+                } else if parts.len() >= 3 {
+                    // Simple command format: /adapter/{adapter_id}/{command}
+                    let adapter_id = parts[2];
+                    let command = if parts.len() >= 4 { parts[3] } else { "status" };
+
+                    info!(
+                        adapter_id = %adapter_id,
+                        command = %command,
+                        "Processing simple adapter command via UDS"
+                    );
+
+                    // For simple commands, we convert them to AdapterCommand enum
+                    // This provides backward compatibility with the simple UDS client API
+                    match command {
+                        "status" => {
+                            // Get adapter states
+                            let worker_guard = worker.lock().await;
+                            let adapter_states = worker_guard.get_adapter_states();
+                            let adapter_state =
+                                adapter_states.iter().find(|s| s.id == adapter_id).map(|s| {
+                                    serde_json::json!({
+                                        "id": s.id,
+                                        "hash": s.hash,
+                                        "vram_mb": s.vram_mb,
+                                        "active": s.active,
+                                    })
+                                });
+
+                            if let Some(state) = adapter_state {
+                                Self::send_json_response(&mut stream, state).await?;
+                            } else {
+                                Self::send_error(&mut stream, 404, "Adapter not found").await?;
+                            }
+                        }
+                        _ => {
+                            // Unknown command
+                            warn!(
+                                adapter_id = %adapter_id,
+                                command = %command,
+                                "Unknown adapter command"
+                            );
+                            Self::send_error(&mut stream, 400, "Unknown adapter command").await?;
+                        }
+                    }
+                } else {
+                    Self::send_error(&mut stream, 400, "Invalid adapter path").await?;
+                }
             }
             _ => {
                 let duration_ms = start.elapsed().as_millis();
@@ -807,6 +900,45 @@ mod tests {
             path,
             "/inference" | "/patch_proposal" | "/health" | "/training/cancel"
         ));
+    }
+
+    #[test]
+    fn test_path_routing_adapter_command() {
+        let path = "/adapter/command";
+        assert!(path.starts_with("/adapter/"));
+    }
+
+    #[test]
+    fn test_path_routing_adapter_status() {
+        let path = "/adapter/adapter-123/status";
+        assert!(path.starts_with("/adapter/"));
+        let parts: Vec<&str> = path.split('/').collect();
+        assert_eq!(parts.len(), 4);
+        assert_eq!(parts[2], "adapter-123");
+        assert_eq!(parts[3], "status");
+    }
+
+    #[test]
+    fn test_adapter_path_parsing() {
+        let path = "/adapter/my-adapter/status";
+        let parts: Vec<&str> = path.split('/').collect();
+
+        // parts = ["", "adapter", "my-adapter", "status"]
+        assert_eq!(parts.len(), 4);
+        assert_eq!(parts[0], "");
+        assert_eq!(parts[1], "adapter");
+        assert_eq!(parts[2], "my-adapter");
+        assert_eq!(parts[3], "status");
+    }
+
+    #[test]
+    fn test_adapter_command_path_parsing() {
+        let path = "/adapter/command";
+        let parts: Vec<&str> = path.split('/').collect();
+
+        // parts = ["", "adapter", "command"]
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[2], "command");
     }
 
     // ========================================================================

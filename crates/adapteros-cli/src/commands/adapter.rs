@@ -646,7 +646,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::Swap { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::Info { .. } => None, // No tenant parameter
         AdapterCommand::ListPinned { tenant } => Some(tenant.clone()),
-        AdapterCommand::Export { .. } => None,          // Export uses auth context
+        AdapterCommand::Export { .. } => None, // Export uses auth context
         AdapterCommand::Import { tenant, .. } => Some(tenant.clone()),
     }
 }
@@ -1905,13 +1905,18 @@ async fn export_adapter_cmd(
         adapter_id
     );
 
-    let response = client.get(&url).send().await.map_err(|e| {
-        AosError::Http(format!("Failed to connect to control plane: {}", e))
-    })?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AosError::Http(format!("Failed to connect to control plane: {}", e)))?;
 
     let status = response.status();
     if !status.is_success() {
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
         return Err(AosError::Http(format!(
             "Export failed ({}): {}",
             status, error_text
@@ -1929,12 +1934,17 @@ async fn export_adapter_cmd(
     let file_path = out_path.unwrap_or_else(|| PathBuf::from(format!("{}.aos", adapter_id)));
 
     // Download and save
-    let bytes = response.bytes().await.map_err(|e| {
-        AosError::Http(format!("Failed to download adapter file: {}", e))
-    })?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| AosError::Http(format!("Failed to download adapter file: {}", e)))?;
 
     tokio::fs::write(&file_path, &bytes).await.map_err(|e| {
-        AosError::Io(format!("Failed to write file {}: {}", file_path.display(), e))
+        AosError::Io(format!(
+            "Failed to write file {}: {}",
+            file_path.display(),
+            e
+        ))
     })?;
 
     output.kv("Output file", &file_path.display().to_string());
@@ -1970,7 +1980,11 @@ async fn import_adapter_cmd(
 
     // Read file
     let file_data = tokio::fs::read(file_path).await.map_err(|e| {
-        AosError::Io(format!("Failed to read file {}: {}", file_path.display(), e))
+        AosError::Io(format!(
+            "Failed to read file {}: {}",
+            file_path.display(),
+            e
+        ))
     })?;
 
     output.kv("File size", &format!("{} bytes", file_data.len()));
@@ -2006,7 +2020,10 @@ async fn import_adapter_cmd(
 
     let status = response.status();
     if !status.is_success() {
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
         return Err(AosError::Http(format!(
             "Import failed ({}): {}",
             status, error_text

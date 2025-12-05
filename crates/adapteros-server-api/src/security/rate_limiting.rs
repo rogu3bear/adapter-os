@@ -1,6 +1,7 @@
 ///! Rate limiting per tenant for DDoS protection
 ///!
 ///! Implements sliding window rate limiting with tenant-specific quotas.
+use adapteros_config::try_effective_config;
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use chrono::{DateTime, Utc};
@@ -29,10 +30,16 @@ pub struct RateLimitResult {
 ///
 /// Returns `Ok(RateLimitResult)` with allowed=true if within limit,
 /// or allowed=false if rate limit exceeded.
+///
+/// Rate limits are read from EffectiveConfig if available, with safe defaults.
 pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResult> {
     let now = Utc::now();
     let window_size = 60; // 60 seconds (1 minute)
-    let default_max = 1000; // Default: 1000 requests per minute
+
+    // Read rate limit from config, with safe default
+    let default_max = try_effective_config()
+        .map(|cfg| cfg.rate_limits.requests_per_minute as i64)
+        .unwrap_or(100); // Safe default: 100 rpm (not 1000)
 
     // Get or create bucket
     let bucket = sqlx::query_as::<_, RateLimitBucket>(

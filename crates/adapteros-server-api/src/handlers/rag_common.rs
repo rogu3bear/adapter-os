@@ -33,10 +33,14 @@ use tracing::{debug, info, warn};
 /// Result of RAG context retrieval with full metadata for evidence tracking
 #[derive(Debug, Clone)]
 pub struct RagContextResult {
+    /// Tenant ID for evidence creation
+    pub tenant_id: String,
     /// Concatenated context string from retrieved documents
     pub context: String,
     /// Document IDs in retrieval order (score DESC, doc_id ASC)
     pub doc_ids: Vec<String>,
+    /// Chunk indices parallel to doc_ids for evidence creation
+    pub chunk_indices: Vec<i32>,
     /// Relevance scores parallel to doc_ids
     pub scores: Vec<f64>,
     /// Collection ID used for scoped retrieval
@@ -182,8 +186,10 @@ pub async fn retrieve_rag_context(
 
     if results.is_empty() {
         return Ok(RagContextResult {
+            tenant_id: tenant_id.to_string(),
             context: String::new(),
             doc_ids: Vec::new(),
+            chunk_indices: Vec::new(),
             scores: Vec::new(),
             collection_id: collection_id.to_string(),
             embedding_model_hash: model_hash.to_hex(),
@@ -206,11 +212,15 @@ pub async fn retrieve_rag_context(
     // Compute context hash for evidence
     let context_hash = B3Hash::hash(context.as_bytes());
 
-    // Collect aggregate RAG trace info (doc_ids and scores in retrieval order)
-    let doc_ids: Vec<String> = results
-        .iter()
-        .filter_map(|doc| parse_rag_doc_id(&doc.doc_id).map(|p| p.document_id))
-        .collect();
+    // Collect aggregate RAG trace info (doc_ids, chunk_indices, and scores in retrieval order)
+    let mut doc_ids = Vec::new();
+    let mut chunk_indices = Vec::new();
+    for doc in results.iter() {
+        if let Some(parsed) = parse_rag_doc_id(&doc.doc_id) {
+            doc_ids.push(parsed.document_id);
+            chunk_indices.push(parsed.chunk_index);
+        }
+    }
     let scores: Vec<f64> = results.iter().map(|doc| doc.score as f64).collect();
 
     info!(
@@ -223,8 +233,10 @@ pub async fn retrieve_rag_context(
     );
 
     Ok(RagContextResult {
+        tenant_id: tenant_id.to_string(),
         context,
         doc_ids,
+        chunk_indices,
         scores,
         collection_id: collection_id.to_string(),
         embedding_model_hash: model_hash.to_hex(),
@@ -262,40 +274,52 @@ pub async fn store_rag_evidence(
 
     let mut evidence_params_list = Vec::new();
 
-    for (rank, (doc_id, score)) in rag_result
+    // Iterate over all retrieved chunks (doc_id, chunk_index, score)
+    for (rank, ((doc_id, chunk_index), score)) in rag_result
         .doc_ids
         .iter()
+        .zip(rag_result.chunk_indices.iter())
         .zip(rag_result.scores.iter())
         .enumerate()
     {
-        // Look up all chunks for this document to find the one that was retrieved
-        // This is a simplified approach - in production we'd track chunk_index in RagContextResult
-        match state.db.get_document_chunks(doc_id).await {
-            Ok(chunks) => {
-                if let Some(chunk) = chunks.first() {
-                    evidence_params_list.push(adapteros_db::CreateEvidenceParams {
-                        inference_id: request_id.to_string(),
-                        session_id: session_id.map(|s| s.to_string()),
-                        message_id: None,
-                        document_id: doc_id.clone(),
-                        chunk_id: chunk.id.clone(),
-                        page_number: chunk.page_number,
-                        document_hash: chunk.chunk_hash.clone(),
-                        chunk_hash: chunk.chunk_hash.clone(),
-                        relevance_score: *score,
-                        rank: rank as i32,
-                        context_hash: rag_result.context_hash.clone(),
-                        rag_doc_ids: Some(rag_result.doc_ids.clone()),
-                        rag_scores: Some(rag_result.scores.clone()),
-                        rag_collection_id: Some(rag_result.collection_id.clone()),
-                    });
-                }
+        // Look up the specific chunk by document_id and chunk_index
+        match state
+            .db
+            .get_chunk_by_document_and_index(doc_id, *chunk_index)
+            .await
+        {
+            Ok(Some(chunk)) => {
+                evidence_params_list.push(adapteros_db::CreateEvidenceParams {
+                    tenant_id: rag_result.tenant_id.clone(),
+                    inference_id: request_id.to_string(),
+                    session_id: session_id.map(|s| s.to_string()),
+                    message_id: None,
+                    document_id: doc_id.clone(),
+                    chunk_id: chunk.id.clone(),
+                    page_number: chunk.page_number,
+                    document_hash: chunk.chunk_hash.clone(),
+                    chunk_hash: chunk.chunk_hash.clone(),
+                    relevance_score: *score,
+                    rank: rank as i32,
+                    context_hash: rag_result.context_hash.clone(),
+                    rag_doc_ids: Some(rag_result.doc_ids.clone()),
+                    rag_scores: Some(rag_result.scores.clone()),
+                    rag_collection_id: Some(rag_result.collection_id.clone()),
+                });
+            }
+            Ok(None) => {
+                warn!(
+                    document_id = %doc_id,
+                    chunk_index = %chunk_index,
+                    "Chunk not found for evidence creation"
+                );
             }
             Err(e) => {
                 warn!(
                     document_id = %doc_id,
+                    chunk_index = %chunk_index,
                     error = %e,
-                    "Failed to look up document chunks for evidence"
+                    "Failed to look up document chunk for evidence"
                 );
             }
         }
@@ -336,15 +360,20 @@ pub async fn store_rag_evidence(
 /// rather than performing a new vector search. This ensures deterministic replay
 /// with the original documents.
 ///
+/// Doc IDs are expected to be in the format `{document_id}__chunk_{index}`.
+/// For legacy doc IDs without chunk suffix, falls back to first chunk.
+///
 /// # Arguments
 /// * `state` - Application state with database
-/// * `doc_ids` - Document IDs to retrieve (in desired order)
+/// * `tenant_id` - Tenant ID for isolation
+/// * `doc_ids` - Document IDs to retrieve (in desired order, with chunk indices)
 /// * `max_context_chars` - Maximum characters in concatenated context
 ///
 /// # Returns
 /// Tuple of (context string, missing document IDs)
 pub async fn reconstruct_rag_context(
     state: &AppState,
+    tenant_id: &str,
     doc_ids: &[String],
     max_context_chars: usize,
 ) -> adapteros_core::Result<(String, Vec<String>)> {
@@ -352,39 +381,64 @@ pub async fn reconstruct_rag_context(
         return Ok((String::new(), Vec::new()));
     }
 
-    // Fetch documents preserving order
-    let documents = state.db.get_documents_by_ids_ordered(doc_ids).await?;
-
     let mut context = String::new();
     let mut missing_doc_ids = Vec::new();
 
-    for (doc_opt, doc_id) in documents.iter().zip(doc_ids.iter()) {
-        match doc_opt {
-            Some(doc) => {
-                // Get first chunk text for this document
-                match state.db.get_document_chunks(&doc.id).await {
-                    Ok(chunks) => {
-                        if let Some(chunk) = chunks.first() {
-                            if let Some(preview) = &chunk.text_preview {
-                                if context.len() + preview.len() <= max_context_chars {
-                                    if !context.is_empty() {
-                                        context.push_str("\n\n---\n\n");
-                                    }
-                                    context.push_str(preview);
-                                }
-                            }
+    for doc_id in doc_ids.iter() {
+        // Parse doc_id to extract document_id and chunk_index
+        let (document_id, chunk_index) = if let Some(parsed) = parse_rag_doc_id(doc_id) {
+            (parsed.document_id, Some(parsed.chunk_index))
+        } else {
+            // Legacy doc_id without chunk suffix - use doc_id as-is and fetch first chunk
+            (doc_id.clone(), None)
+        };
+
+        // Fetch the specific chunk
+        let chunk_result = if let Some(chunk_idx) = chunk_index {
+            // Fetch specific chunk by index
+            state
+                .db
+                .get_chunk_by_document_and_index(&document_id, chunk_idx)
+                .await
+        } else {
+            // Fallback: fetch first chunk for legacy doc_ids
+            match state.db.get_document_chunks(tenant_id, &document_id).await {
+                Ok(chunks) => Ok(chunks.first().cloned()),
+                Err(e) => Err(e),
+            }
+        };
+
+        match chunk_result {
+            Ok(Some(chunk)) => {
+                if let Some(preview) = &chunk.text_preview {
+                    if context.len() + preview.len() <= max_context_chars {
+                        if !context.is_empty() {
+                            context.push_str("\n\n---\n\n");
                         }
-                    }
-                    Err(e) => {
-                        warn!(
-                            document_id = %doc.id,
-                            error = %e,
-                            "Failed to get chunks for document during replay"
-                        );
+                        context.push_str(preview);
+                    } else {
+                        // Reached max context size, stop adding more chunks
+                        break;
                     }
                 }
             }
-            None => {
+            Ok(None) => {
+                warn!(
+                    doc_id = %doc_id,
+                    document_id = %document_id,
+                    chunk_index = ?chunk_index,
+                    "Chunk not found during RAG context reconstruction"
+                );
+                missing_doc_ids.push(doc_id.clone());
+            }
+            Err(e) => {
+                warn!(
+                    doc_id = %doc_id,
+                    document_id = %document_id,
+                    chunk_index = ?chunk_index,
+                    error = %e,
+                    "Failed to retrieve chunk during RAG context reconstruction"
+                );
                 missing_doc_ids.push(doc_id.clone());
             }
         }

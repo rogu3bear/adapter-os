@@ -63,6 +63,8 @@ pub mod coreml;
 #[cfg(all(feature = "coreml-backend", target_os = "macos"))]
 pub mod coreml_backend;
 
+use crate::manifest::allow_dev_bypass;
+
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 pub use coreml_backend::{
     init_coreml, is_coreml_available, is_neural_engine_available, shutdown_coreml, CoreMLBackend,
@@ -468,7 +470,10 @@ impl MetalKernels {
             .map_err(|e| AosError::Kernel(format!("Invalid metallib hash constant: {}", e)))?;
 
         // Allow hash mismatch in development mode (useful when build environment differs)
-        let skip_hash_check = std::env::var("AOS_DEV_SKIP_METALLIB_CHECK").is_ok();
+        let skip_hash_check = allow_dev_bypass(
+            &["AOS_DEV_SKIP_METALLIB_CHECK"],
+            "metallib hash verification",
+        )?;
 
         if actual_hash != expected_hash {
             if skip_hash_check {

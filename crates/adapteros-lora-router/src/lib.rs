@@ -233,6 +233,14 @@ pub struct Router {
     // Determinism controls
     /// Determinism configuration for reproducible routing
     determinism_config: RouterDeterminismConfig,
+
+    // Abstain thresholds
+    /// Entropy threshold above which to abstain (high uncertainty)
+    abstain_entropy_threshold: Option<f32>,
+    /// Confidence threshold below which to abstain (low max gate)
+    abstain_confidence_threshold: Option<f32>,
+    /// Optional telemetry writer for abstain events
+    abstain_telemetry_writer: Option<std::sync::Arc<adapteros_telemetry::TelemetryWriter>>,
 }
 
 impl Router {
@@ -255,6 +263,9 @@ impl Router {
             telemetry_writer: None,
             step_counter: 0,
             determinism_config: RouterDeterminismConfig::default(),
+            abstain_entropy_threshold: None,
+            abstain_confidence_threshold: None,
+            abstain_telemetry_writer: None,
         }
     }
 
@@ -303,6 +314,9 @@ impl Router {
             telemetry_writer: None,
             step_counter: 0,
             determinism_config: RouterDeterminismConfig::default(),
+            abstain_entropy_threshold: policy_config.abstain_entropy_threshold,
+            abstain_confidence_threshold: policy_config.abstain_confidence_threshold,
+            abstain_telemetry_writer: None,
         }
     }
 
@@ -314,6 +328,24 @@ impl Router {
     /// Clear the telemetry writer (useful for testing)
     pub fn clear_telemetry_writer(&mut self) {
         self.telemetry_writer = None;
+    }
+
+    /// Set the telemetry writer for abstain events
+    pub fn set_abstain_telemetry_writer(
+        &mut self,
+        writer: std::sync::Arc<adapteros_telemetry::TelemetryWriter>,
+    ) {
+        self.abstain_telemetry_writer = Some(writer);
+    }
+
+    /// Set abstain thresholds
+    pub fn set_abstain_thresholds(
+        &mut self,
+        entropy_threshold: Option<f32>,
+        confidence_threshold: Option<f32>,
+    ) {
+        self.abstain_entropy_threshold = entropy_threshold;
+        self.abstain_confidence_threshold = confidence_threshold;
     }
 
     /// Set determinism configuration
@@ -370,6 +402,62 @@ impl Router {
 
             // Increment step counter
             self.step_counter += 1;
+        }
+    }
+
+    /// Check abstain conditions and emit AbstainEvent if triggered
+    ///
+    /// This method checks both entropy and confidence thresholds:
+    /// - High entropy: indicates router uncertainty about adapter selection
+    /// - Low confidence: max gate value is below threshold, indicating no strong selection
+    ///
+    /// Events are emitted via telemetry writer if thresholds are configured and exceeded.
+    fn check_abstain_conditions(&self, entropy: f32, gates: &[f32]) {
+        use adapteros_telemetry::events::AbstainEvent;
+
+        if let Some(ref writer) = self.abstain_telemetry_writer {
+            // Check high entropy threshold
+            if let Some(entropy_threshold) = self.abstain_entropy_threshold {
+                if entropy > entropy_threshold {
+                    let event = AbstainEvent::high_entropy(entropy, entropy_threshold);
+                    if let Err(e) = writer.log_abstain(event) {
+                        tracing::debug!(
+                            error = %e,
+                            entropy = entropy,
+                            threshold = entropy_threshold,
+                            "Failed to emit high entropy abstain event"
+                        );
+                    } else {
+                        tracing::info!(
+                            entropy = entropy,
+                            threshold = entropy_threshold,
+                            "Router abstaining due to high entropy (uncertainty)"
+                        );
+                    }
+                }
+            }
+
+            // Check low confidence threshold (max gate below threshold)
+            if let Some(confidence_threshold) = self.abstain_confidence_threshold {
+                let max_gate = gates.iter().fold(0.0f32, |a, &b| a.max(b));
+                if max_gate < confidence_threshold {
+                    let event = AbstainEvent::low_confidence(max_gate, confidence_threshold);
+                    if let Err(e) = writer.log_abstain(event) {
+                        tracing::debug!(
+                            error = %e,
+                            max_gate = max_gate,
+                            threshold = confidence_threshold,
+                            "Failed to emit low confidence abstain event"
+                        );
+                    } else {
+                        tracing::info!(
+                            max_gate = max_gate,
+                            threshold = confidence_threshold,
+                            "Router abstaining due to low confidence (max gate below threshold)"
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -698,7 +786,7 @@ impl Router {
             })
             .collect();
 
-        // Sort by score descending, then by index for determinism
+        // Sort by score descending, then by index for determinism (tie-breaker keeps per-token decisions stable)
         scores.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
@@ -732,7 +820,7 @@ impl Router {
             *g /= sum_gates;
         }
 
-        // Quantize to Q15
+        // Quantize to Q15 (denominator 32767.0) so that identical inputs produce the same gates_q15 on every run
         let gates_q15: SmallVec<[i16; 8]> = gates
             .iter()
             .map(|&g| {
@@ -1015,7 +1103,7 @@ impl Router {
             *g /= sum_gates;
         }
 
-        // Quantize to Q15
+        // Quantize to Q15 (denominator 32767.0) so identical inputs keep the same per-token gates across runs
         let gates_q15: SmallVec<[i16; 8]> = gates
             .iter()
             .map(|&g| {
@@ -1025,6 +1113,9 @@ impl Router {
             .collect();
 
         let entropy = Self::compute_entropy(&gates);
+
+        // Check abstain conditions and emit telemetry if triggered
+        self.check_abstain_conditions(entropy, &gates);
 
         let candidate_entries: Vec<DecisionCandidate> = top_k
             .iter()
@@ -1425,6 +1516,29 @@ impl From<&Decision> for adapteros_lora_kernel_api::RouterRing {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_core::seed::{derive_seed_full, hash_adapter_dir};
+    use std::path::Path;
+
+    fn pivot_from_seed(seed: [u8; 32], len: usize) -> usize {
+        let prefix = u32::from_le_bytes([seed[0], seed[1], seed[2], seed[3]]);
+        (prefix as usize) % len.max(1)
+    }
+
+    fn seeded_priors(seed: [u8; 32], len: usize) -> Vec<f32> {
+        let pivot = pivot_from_seed(seed, len);
+        let mut priors = Vec::with_capacity(len);
+
+        for i in 0..len {
+            let byte = seed[(i * 3) % seed.len()] as f32;
+            priors.push(0.05 + byte / 255.0);
+        }
+
+        if len > 0 {
+            priors[pivot] += 1.0; // Strong, deterministic bias driven by seed
+        }
+
+        priors
+    }
 
     #[test]
     fn test_router_topk() {
@@ -1770,6 +1884,94 @@ mod tests {
     }
 
     #[test]
+    fn test_seeded_routing_reproducible_for_same_inputs() {
+        let global = B3Hash::hash(b"global-router-seed");
+        let manifest = B3Hash::hash(b"manifest-router-a");
+        let adapter_dir_hash = hash_adapter_dir(Path::new("/adapters/seeded/a"));
+
+        // Same seed context should yield identical priors and routing outcomes
+        let seed = derive_seed_full(&global, &manifest, &adapter_dir_hash, 7, "router", 0);
+        let priors = seeded_priors(seed, 4);
+
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
+
+        let features = vec![0.0f32; 3];
+
+        let mut router_run1 = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
+        let mut router_run2 = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
+
+        let decision1 = router_run1.route_with_adapter_info(&features, &priors, &adapter_info);
+        let decision2 = router_run2.route_with_adapter_info(&features, &priors, &adapter_info);
+
+        assert_eq!(
+            decision1.indices, decision2.indices,
+            "Same seed-derived priors must yield identical adapter choices"
+        );
+        assert_eq!(
+            decision1.gates_q15, decision2.gates_q15,
+            "Same seed-derived priors must yield identical quantized gates"
+        );
+    }
+
+    #[test]
+    fn test_seed_changes_can_shift_routing() {
+        let global = B3Hash::hash(b"global-router-seed");
+        let manifest = B3Hash::hash(b"manifest-router-a");
+        let adapter_dir_hash = hash_adapter_dir(Path::new("/adapters/seeded/a"));
+        let adapter_count = 4usize;
+
+        // Different nonces give us different seeds; fall back to a third if the pivot collides
+        let seed_a = derive_seed_full(&global, &manifest, &adapter_dir_hash, 7, "router", 1);
+        let mut seed_b = derive_seed_full(&global, &manifest, &adapter_dir_hash, 7, "router", 2);
+        let pivot_a = pivot_from_seed(seed_a, adapter_count);
+        let mut pivot_b = pivot_from_seed(seed_b, adapter_count);
+        if pivot_a == pivot_b {
+            seed_b = derive_seed_full(&global, &manifest, &adapter_dir_hash, 7, "router", 3);
+            pivot_b = pivot_from_seed(seed_b, adapter_count);
+        }
+        assert_ne!(
+            pivot_a, pivot_b,
+            "Different seed contexts should map to different adapter pivots"
+        );
+
+        let priors_a = seeded_priors(seed_a, adapter_count);
+        let priors_b = seeded_priors(seed_b, adapter_count);
+        assert_ne!(
+            priors_a, priors_b,
+            "Different seeds must produce different priors for routing"
+        );
+
+        let adapter_info: Vec<AdapterInfo> = (0..adapter_count)
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
+        let features = vec![0.0f32; 3];
+
+        let mut router_a = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
+        let mut router_b = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
+
+        let decision_a = router_a.route_with_adapter_info(&features, &priors_a, &adapter_info);
+        let decision_b = router_b.route_with_adapter_info(&features, &priors_b, &adapter_info);
+
+        assert!(
+            decision_a.indices != decision_b.indices
+                || decision_a.gates_q15 != decision_b.gates_q15,
+            "Different seed contexts should change routing choices or gates when priors differ"
+        );
+    }
+
+    #[test]
     fn test_decision_hash_computation() {
         let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
 
@@ -1938,5 +2140,43 @@ mod tests {
             decision.decision_hash.is_none(),
             "Decision should not have hash when hashing is disabled"
         );
+    }
+
+    #[test]
+    fn test_abstain_thresholds_from_policy_config() {
+        // Create a policy config with abstain thresholds
+        let mut policy_config = adapteros_policy::packs::router::RouterConfig::default();
+        policy_config.abstain_entropy_threshold = Some(0.9);
+        policy_config.abstain_confidence_threshold = Some(0.3);
+
+        let router =
+            Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
+
+        // Verify that thresholds are set from policy config
+        assert_eq!(
+            router.abstain_entropy_threshold,
+            Some(0.9),
+            "Entropy threshold should match policy config"
+        );
+        assert_eq!(
+            router.abstain_confidence_threshold,
+            Some(0.3),
+            "Confidence threshold should match policy config"
+        );
+    }
+
+    #[test]
+    fn test_set_abstain_thresholds() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+
+        // Initially no thresholds
+        assert!(router.abstain_entropy_threshold.is_none());
+        assert!(router.abstain_confidence_threshold.is_none());
+
+        // Set thresholds
+        router.set_abstain_thresholds(Some(0.85), Some(0.25));
+
+        assert_eq!(router.abstain_entropy_threshold, Some(0.85));
+        assert_eq!(router.abstain_confidence_threshold, Some(0.25));
     }
 }

@@ -913,7 +913,10 @@ pub async fn get_chat_provenance(
                                         .clone()
                                         .unwrap_or_else(|| "training".to_string()),
                                     timestamp: completed_at.clone(),
-                                    description: format!("Training job completed with status: {}", job.status),
+                                    description: format!(
+                                        "Training job completed with status: {}",
+                                        job.status
+                                    ),
                                 });
                             }
 

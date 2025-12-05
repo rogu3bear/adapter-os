@@ -1605,9 +1605,18 @@ impl FusedKernels for CoreMLBackend {
     }
 
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        let model_hash_snapshot = self.model_hash;
         // Check for stub mode first - this works on all platforms
         if self.is_stub_mode() {
-            return self.run_step_stub(ring, io);
+            let result = self.run_step_stub(ring, io);
+            if cfg!(debug_assertions) {
+                debug_assert_eq!(
+                    model_hash_snapshot,
+                    self.model_hash,
+                    "CoreML base model hash changed in stub path; base parameters must stay immutable"
+                );
+            }
+            return result;
         }
 
         #[cfg(target_os = "macos")]
@@ -1644,6 +1653,14 @@ impl FusedKernels for CoreMLBackend {
             io.position += 1;
             self.metrics.total_operations += 1;
             self.metrics.successful_operations += 1;
+
+            if cfg!(debug_assertions) {
+                debug_assert_eq!(
+                    model_hash_snapshot,
+                    self.model_hash,
+                    "CoreML base model hash changed during inference; base parameters must stay immutable"
+                );
+            }
 
             Ok(())
         }
@@ -1812,6 +1829,10 @@ pub fn is_neural_engine_available() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_core::B3Hash;
+    use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+    use safetensors::{serialize, tensor::TensorView};
+    use std::path::PathBuf;
 
     #[test]
     fn test_mltensor_availability() {
@@ -1823,6 +1844,49 @@ mod tests {
     fn test_coreml_availability() {
         // Check is_coreml_available runs without panic
         let _ = is_coreml_available();
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn stub_lora_preserves_coreml_model_bytes() -> Result<()> {
+        let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../var/model-cache/models/qwen2.5-7b-instruct-fp16-512.mlpackage/Manifest.json",
+        );
+        let base_bytes = std::fs::read(&manifest_path).expect(
+            "CoreML fixture at var/model-cache/models/qwen2.5-7b-instruct-fp16-512.mlpackage",
+        );
+        let hash_before = B3Hash::hash(&base_bytes);
+
+        // Stub backend exercises LoRA path without touching base weights on disk.
+        let mut backend = CoreMLBackend::new_stub(ComputeUnits::CpuAndNeuralEngine)?;
+
+        // Minimal adapter payload to hit the LoRA fusion branch.
+        let weights = vec![0.1f32; 4];
+        let adapter_tensors = [(
+            "dummy.weight".to_string(),
+            TensorView::new(safetensors::Dtype::F32, vec![2, 2], unsafe {
+                std::slice::from_raw_parts(weights.as_ptr() as *const u8, weights.len() * 4)
+            })
+            .expect("tensor view"),
+        )];
+        let adapter_bytes =
+            serialize(adapter_tensors, &Default::default()).expect("serialize adapter");
+        FusedKernels::load_adapter(&mut backend, 0, &adapter_bytes)?;
+
+        let mut ring = RouterRing::new(1);
+        ring.set(&[0u16], &[1200i16]);
+
+        let mut io = IoBuffers::new(8);
+        io.input_ids = vec![1, 2, 3];
+        backend.run_step(&mut ring, &mut io)?;
+
+        let hash_after = B3Hash::hash(&std::fs::read(&manifest_path).expect("re-read manifest"));
+        assert_eq!(
+            hash_before, hash_after,
+            "CoreML LoRA path must not mutate base model bytes"
+        );
+
+        Ok(())
     }
 
     #[test]

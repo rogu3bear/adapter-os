@@ -550,6 +550,21 @@ pub async fn activate_stack(
         internal_error(format!("Invalid adapter list in stack '{}': {}", name, e))
     })?;
 
+    // Persist lifecycle transition to Active for this stack
+    state
+        .db
+        .activate_stack(&tenant_id, &id)
+        .await
+        .map_err(|e| {
+            warn!(
+                tenant_id = %tenant_id,
+                stack_id = %id,
+                error = %e,
+                "Failed to mark stack active in database"
+            );
+            db_error(e)
+        })?;
+
     // Store the active stack ID in application state
     // This would be used by the routing logic
     let previous_stack = {
@@ -699,15 +714,60 @@ pub async fn activate_stack(
         );
     }
 
-    // Also notify lifecycle manager if available
+    // CRITICAL FIX: Promote adapters in lifecycle manager when stack is activated
+    // This ensures adapters are at least Warm state when they become part of active stack
+    // Without this, adapters remain Unloaded/Cold even when stack is active
     if let Some(ref lifecycle) = state.lifecycle_manager {
         let lm = lifecycle.lock().await;
-        // Log the stack change for lifecycle tracking
-        debug!(
+
+        // Ensure lifecycle manager knows which stack is active (in-memory routing state)
+        lm.load_and_activate_stack(&id).await.map_err(|e| {
+            warn!(
+                tenant_id = %tenant_id,
+                stack_id = %id,
+                error = %e,
+                "Failed to activate stack in lifecycle manager"
+            );
+            internal_error("Failed to activate stack in lifecycle manager")
+        })?;
+
+        let mut promotion_results = Vec::new();
+        for adapter_id_str in &adapter_ids {
+            if let Some(adapter_idx) = lm.get_adapter_idx(adapter_id_str) {
+                // Promote to at least Warm state for active stack usage
+                // Multiple promotions are safe (idempotent if already at higher state)
+                match lm.promote_adapter(adapter_idx).await {
+                    Ok(_) => {
+                        debug!(
+                            adapter_id = %adapter_id_str,
+                            "Promoted adapter for stack activation"
+                        );
+                        promotion_results.push((adapter_id_str.clone(), true));
+                    }
+                    Err(e) => {
+                        // Log but don't fail - adapter may already be at maximum state
+                        debug!(
+                            adapter_id = %adapter_id_str,
+                            error = %e,
+                            "Could not promote adapter (may already be at target state)"
+                        );
+                        promotion_results.push((adapter_id_str.clone(), false));
+                    }
+                }
+            } else {
+                debug!(
+                    adapter_id = %adapter_id_str,
+                    "Adapter not found in lifecycle manager (may need registration)"
+                );
+            }
+        }
+
+        info!(
             tenant_id = %tenant_id,
             stack_id = %id,
             adapter_count = adapter_ids.len(),
-            "Notified lifecycle manager of stack activation"
+            promoted_count = promotion_results.iter().filter(|(_, success)| *success).count(),
+            "Promoted adapters for stack activation via lifecycle manager"
         );
         drop(lm);
     }

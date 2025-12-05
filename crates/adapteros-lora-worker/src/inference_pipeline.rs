@@ -16,8 +16,11 @@ use adapteros_core::{
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
 use adapteros_lora_router::{AdapterInfo, Router};
 use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
-use adapteros_telemetry::events::{RouterCandidate, RouterDecisionEvent};
+use adapteros_telemetry::events::{
+    PerformanceBudgetViolationEvent, RouterCandidate, RouterDecisionEvent,
+};
 use adapteros_telemetry::TelemetryWriter;
+use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -27,6 +30,7 @@ use tracing::{debug, info, warn};
 use crate::backend_factory::KernelBox;
 use crate::generation::Generator;
 use crate::router_bridge::decision_to_router_ring;
+use crate::routing_policy_filter::filter_decision_by_policy;
 use crate::tokenizer::QwenTokenizer;
 
 /// Configuration for inference pipeline
@@ -46,6 +50,8 @@ pub struct InferencePipelineConfig {
     pub top_p: Option<f32>,
     /// Manifest hash for HKDF seed derivation (determinism)
     pub manifest_hash: Option<B3Hash>,
+    /// Optional allowlist of adapter IDs permitted for routing
+    pub allowed_adapters: Option<Vec<String>>,
 }
 
 impl Default for InferencePipelineConfig {
@@ -59,6 +65,7 @@ impl Default for InferencePipelineConfig {
             top_k: Some(50),
             top_p: Some(0.95),
             manifest_hash: None,
+            allowed_adapters: None,
         }
     }
 }
@@ -74,6 +81,7 @@ impl InferencePipelineConfig {
             top_k: Some(50),
             top_p: Some(0.95),
             manifest_hash: None,
+            allowed_adapters: None,
         }
     }
 
@@ -92,6 +100,7 @@ impl InferencePipelineConfig {
             top_k,
             top_p,
             manifest_hash: None,
+            allowed_adapters: None,
         }
     }
 
@@ -121,6 +130,8 @@ pub struct InferenceRequest {
     pub stack_id: Option<String>,
     /// Stack version for telemetry correlation (PRD-03)
     pub stack_version: Option<i64>,
+    /// Optional routing policy resolved by control plane
+    pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
 }
 
 /// Inference response with trace
@@ -157,6 +168,65 @@ pub struct InferenceTrace {
 
 pub type RouterDecision = RouterDecisionEvent;
 
+/// Performance budget tracker for inference pipeline
+struct BudgetTracker {
+    /// Rolling window of latency samples (microseconds)
+    latency_samples: VecDeque<u64>,
+    /// Maximum samples to keep (for p95 calculation)
+    max_samples: usize,
+    /// Router duration in microseconds (per request)
+    router_duration_us: u64,
+    /// Total inference duration in microseconds (per request)
+    total_inference_us: u64,
+}
+
+impl BudgetTracker {
+    /// Create a new budget tracker with rolling window of 20 samples
+    fn new() -> Self {
+        Self {
+            latency_samples: VecDeque::new(),
+            max_samples: 20,
+            router_duration_us: 0,
+            total_inference_us: 0,
+        }
+    }
+
+    /// Record a kernel latency sample
+    fn record_latency(&mut self, latency_us: u64) {
+        self.latency_samples.push_back(latency_us);
+        if self.latency_samples.len() > self.max_samples {
+            self.latency_samples.pop_front();
+        }
+    }
+
+    /// Calculate p95 latency in milliseconds
+    fn p95_latency_ms(&self) -> Option<f64> {
+        if self.latency_samples.is_empty() {
+            return None;
+        }
+
+        let mut sorted: Vec<u64> = self.latency_samples.iter().copied().collect();
+        sorted.sort_unstable();
+
+        let idx = ((sorted.len() as f64 * 0.95).ceil() as usize).saturating_sub(1);
+        Some(sorted[idx] as f64 / 1000.0) // Convert to milliseconds
+    }
+
+    /// Record router and total inference times
+    fn record_router_timing(&mut self, router_us: u64, total_us: u64) {
+        self.router_duration_us = router_us;
+        self.total_inference_us = total_us;
+    }
+
+    /// Calculate router overhead percentage
+    fn router_overhead_pct(&self) -> Option<f64> {
+        if self.total_inference_us == 0 {
+            return None;
+        }
+        Some((self.router_duration_us as f64 / self.total_inference_us as f64) * 100.0)
+    }
+}
+
 /// Base model inference pipeline
 pub struct InferencePipeline {
     /// Tokenizer
@@ -179,6 +249,8 @@ pub struct InferencePipeline {
     circuit_breaker: Arc<StandardCircuitBreaker>,
     /// Maximum adapter count for router bridge bounds checking
     max_adapter_count: u16,
+    /// Performance budget tracker
+    budget_tracker: BudgetTracker,
 }
 
 impl InferencePipeline {
@@ -254,7 +326,16 @@ impl InferencePipeline {
             quarantine_manager,
             circuit_breaker,
             max_adapter_count,
+            budget_tracker: BudgetTracker::new(),
         })
+    }
+
+    fn filter_adapters(
+        &self,
+        adapter_info: &[AdapterInfo],
+        priors: &[f32],
+    ) -> Result<(Vec<AdapterInfo>, Vec<f32>)> {
+        apply_allowlist(self.config.allowed_adapters.as_ref(), adapter_info, priors)
     }
 
     /// Create new inference pipeline with quarantine manager
@@ -303,6 +384,7 @@ impl InferencePipeline {
             quarantine_manager,
             circuit_breaker,
             max_adapter_count: Self::DEFAULT_MAX_ADAPTER_COUNT,
+            budget_tracker: BudgetTracker::new(),
         })
     }
 
@@ -343,6 +425,35 @@ impl InferencePipeline {
         request: InferenceRequest,
         start_time: Instant,
     ) -> Result<InferenceResponse> {
+        // 0. Enforce routing policy preconditions deterministically before work
+        if let Some(policy) = &request.routing_policy {
+            if policy.require_stack && request.stack_id.is_none() {
+                return Err(AosError::PolicyViolation(
+                    "Routing policy requires stack_id on request".to_string(),
+                ));
+            }
+
+            if let Some(allowed_stacks) = &policy.allowed_stack_ids {
+                let stack = request.stack_id.as_ref().ok_or_else(|| {
+                    AosError::PolicyViolation(
+                        "Routing policy requires stack_id for stack allowlist".to_string(),
+                    )
+                })?;
+                if !allowed_stacks.contains(stack) {
+                    return Err(AosError::PolicyViolation(format!(
+                        "Routing policy denied stack '{}'",
+                        stack
+                    )));
+                }
+            }
+
+            if policy.require_pins {
+                return Err(AosError::PolicyViolation(
+                    "Routing policy requires pinned adapters; none provided".to_string(),
+                ));
+            }
+        }
+
         // 1. Apply chat template and tokenize
         let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
         let input_tokens = self.tokenizer.encode(&formatted_prompt)?;
@@ -362,6 +473,7 @@ impl InferencePipeline {
         let mut generated_tokens = Vec::new();
         let mut router_decisions = Vec::new();
         let mut current_tokens = input_tokens.clone();
+        let mut total_router_time_us = 0u64;
 
         // 4. Autoregressive generation loop
         for step in 0..request.max_tokens {
@@ -391,9 +503,22 @@ impl InferencePipeline {
                     tier: "persistent".to_string(),
                 })
                 .collect();
+
+            let (adapter_info, priors) = self.filter_adapters(&adapter_info, &priors)?;
+
+            let router_start = Instant::now();
             let decision = self
                 .router
                 .route_with_adapter_info(&features, &priors, &adapter_info);
+
+            // Enforce resolved routing policy deterministically before kernels run
+            let decision = enforce_routing_policy_on_decision(
+                decision,
+                &adapter_info,
+                request.routing_policy.as_ref(),
+            )?;
+            let router_latency = router_start.elapsed();
+            total_router_time_us += router_latency.as_micros() as u64;
 
             // Emit router decision telemetry
             let router_event = RouterDecisionEvent {
@@ -441,6 +566,20 @@ impl InferencePipeline {
             let kernel_start = Instant::now();
             self.kernels.run_step(&router_ring, &mut io_buffers)?;
             let kernel_latency = kernel_start.elapsed();
+
+            // Track kernel latency for p95 calculation
+            self.budget_tracker
+                .record_latency(kernel_latency.as_micros() as u64);
+
+            // Check p95 latency budget (24ms threshold)
+            if let Some(p95_ms) = self.budget_tracker.p95_latency_ms() {
+                if p95_ms > 24.0 {
+                    let violation = PerformanceBudgetViolationEvent::p95_latency(p95_ms, None);
+                    if let Err(e) = self.telemetry.log_budget_violation(violation) {
+                        warn!(error = %e, p95_ms = p95_ms, "Failed to log P95 latency violation");
+                    }
+                }
+            }
 
             // 8. Sample next token
             let next_token = self.generator.next_token(&io_buffers.output_logits)?;
@@ -518,6 +657,19 @@ impl InferencePipeline {
         };
 
         let latency = start_time.elapsed();
+
+        // Check router overhead budget (8% threshold)
+        let total_inference_us = latency.as_micros() as u64;
+        self.budget_tracker
+            .record_router_timing(total_router_time_us, total_inference_us);
+        if let Some(overhead_pct) = self.budget_tracker.router_overhead_pct() {
+            if overhead_pct > 8.0 {
+                let violation = PerformanceBudgetViolationEvent::router_overhead(overhead_pct);
+                if let Err(e) = self.telemetry.log_budget_violation(violation) {
+                    warn!(error = %e, overhead_pct = overhead_pct, "Failed to log router overhead violation");
+                }
+            }
+        }
 
         // 15. Log final telemetry
         let _ = self.telemetry.log(
@@ -638,6 +790,50 @@ impl InferencePipeline {
     }
 }
 
+fn apply_allowlist(
+    allowlist: Option<&Vec<String>>,
+    adapter_info: &[AdapterInfo],
+    priors: &[f32],
+) -> Result<(Vec<AdapterInfo>, Vec<f32>)> {
+    if adapter_info.len() != priors.len() {
+        return Err(AosError::PolicyViolation(
+            "adapter_info and priors length mismatch".to_string(),
+        ));
+    }
+
+    if let Some(allow) = allowlist {
+        let allowed: HashSet<&String> = allow.iter().collect();
+        let mut filtered_info = Vec::new();
+        let mut filtered_priors = Vec::new();
+
+        for (info, prior) in adapter_info.iter().zip(priors.iter()) {
+            if allowed.contains(&info.id) {
+                filtered_info.push(info.clone());
+                filtered_priors.push(*prior);
+            }
+        }
+
+        if filtered_info.is_empty() {
+            return Err(AosError::PolicyViolation(
+                "No adapters allowed by routing policy".to_string(),
+            ));
+        }
+
+        Ok((filtered_info, filtered_priors))
+    } else {
+        Ok((adapter_info.to_vec(), priors.to_vec()))
+    }
+}
+
+fn enforce_routing_policy_on_decision(
+    decision: adapteros_lora_router::Decision,
+    adapter_info: &[AdapterInfo],
+    policy: Option<&adapteros_api_types::RoutingPolicy>,
+) -> Result<adapteros_lora_router::Decision> {
+    let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+    filter_decision_by_policy(decision, &adapter_ids, policy)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -691,7 +887,46 @@ mod tests {
             require_evidence: false,
             stack_id: None,
             stack_version: None,
+            routing_policy: None,
         };
         assert_eq!(request.max_tokens, 100);
+    }
+
+    #[test]
+    fn test_apply_allowlist_filters() {
+        let adapters: Vec<AdapterInfo> = (0..3)
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![0],
+                tier: "persistent".to_string(),
+            })
+            .collect();
+        let priors = vec![1.0, 2.0, 3.0];
+        let allow = vec!["adapter_1".to_string(), "adapter_2".to_string()];
+
+        let (filtered, priors_filtered) =
+            apply_allowlist(Some(&allow), &adapters, &priors).expect("filter should pass");
+
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(filtered[0].id, "adapter_1");
+        assert_eq!(priors_filtered, vec![2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_apply_allowlist_empty_fails() {
+        let adapters: Vec<AdapterInfo> = (0..1)
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![0],
+                tier: "persistent".to_string(),
+            })
+            .collect();
+        let priors = vec![1.0];
+        let allow = vec!["other".to_string()];
+
+        let result = apply_allowlist(Some(&allow), &adapters, &priors);
+        assert!(matches!(result, Err(AosError::PolicyViolation(_))));
     }
 }

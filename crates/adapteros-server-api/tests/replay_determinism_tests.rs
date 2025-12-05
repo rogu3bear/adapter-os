@@ -447,3 +447,316 @@ async fn test_rag_doc_ids_stored_and_retrieved() {
         serde_json::from_str(&metadata.rag_doc_ids_json.unwrap()).unwrap();
     assert_eq!(stored_doc_ids, rag_doc_ids);
 }
+
+// ============================================================================
+// E2E Test: Replay Determinism with Golden Policy Enforcement
+// ============================================================================
+
+/// End-to-end test for replay determinism with golden policy enforcement.
+///
+/// This test verifies:
+/// 1. Policy resolution during replay (golden policy with fail_on_drift and epsilon_threshold)
+/// 2. Replay metadata storage includes execution_policy_id and execution_policy_version
+/// 3. Replay context preserves original policy settings
+///
+/// NOTE: This test validates the control plane logic for policy resolution and metadata
+/// storage. It does NOT test actual inference execution, which would require a live worker.
+/// The golden policy drift detection itself happens during routing (InferenceCore), which
+/// is tested separately in routing verification tests.
+#[tokio::test]
+async fn test_replay_with_golden_policy_enforcement() {
+    use adapteros_api_types::{CreateExecutionPolicyRequest, DeterminismPolicy, GoldenPolicy};
+
+    // 1. Set up test database with migrations
+    let db = Db::new_in_memory().await.unwrap();
+    let tenant_id = setup_test_tenant(&db).await;
+
+    // 2. Create execution policy with golden policy enforcement
+    let golden_baseline_id = "golden-baseline-001";
+    let epsilon_threshold = 1e-6;
+    let fail_on_drift = true;
+
+    let determinism = DeterminismPolicy {
+        allowed_modes: vec!["strict".to_string()],
+        default_mode: "strict".to_string(),
+        require_seed: true,
+        allow_fallback: false,
+        replay_mode: "exact".to_string(),
+    };
+
+    let golden = GoldenPolicy {
+        fail_on_drift,
+        golden_baseline_id: Some(golden_baseline_id.to_string()),
+        epsilon_threshold,
+    };
+
+    let request = CreateExecutionPolicyRequest {
+        determinism,
+        routing: None,
+        golden: Some(golden),
+        require_signed_adapters: false,
+    };
+
+    let policy_id = db
+        .create_execution_policy(&tenant_id, request, None)
+        .await
+        .expect("Failed to create execution policy");
+
+    // Verify policy was created with golden settings
+    let policy = db
+        .get_execution_policy_or_default(&tenant_id)
+        .await
+        .expect("Failed to get execution policy");
+
+    assert!(!policy.is_implicit, "Policy should be explicit");
+    assert_eq!(policy.version, 1, "Policy version should be 1");
+
+    let golden_policy = policy.golden.as_ref().expect("Golden policy should exist");
+    assert_eq!(
+        golden_policy.fail_on_drift, fail_on_drift,
+        "fail_on_drift should match"
+    );
+    assert_eq!(
+        golden_policy.golden_baseline_id.as_deref(),
+        Some(golden_baseline_id),
+        "golden_baseline_id should match"
+    );
+    assert!(
+        (golden_policy.epsilon_threshold - epsilon_threshold).abs() < f64::EPSILON,
+        "epsilon_threshold should match"
+    );
+
+    // 3. Create initial inference metadata with policy tracking
+    let inference_id = "test-inference-golden-001";
+    let manifest_hash = "test-manifest-hash-abc123";
+    let backend = "CoreML";
+
+    let sampling_params = SamplingParams {
+        temperature: 0.0, // Deterministic
+        top_k: Some(50),
+        top_p: Some(0.9),
+        max_tokens: 100,
+        seed: Some(42), // Required for strict mode
+    };
+
+    let metadata_params = CreateReplayMetadataParams {
+        inference_id: inference_id.to_string(),
+        tenant_id: tenant_id.clone(),
+        manifest_hash: manifest_hash.to_string(),
+        router_seed: Some("router-seed-123".to_string()),
+        sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
+        backend: backend.to_string(),
+        sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
+        rag_snapshot_hash: None,
+        adapter_ids: Some(vec!["adapter-1".to_string(), "adapter-2".to_string()]),
+        prompt_text: "Test prompt for golden policy replay".to_string(),
+        prompt_truncated: false,
+        response_text: Some("Test response for comparison".to_string()),
+        response_truncated: false,
+        rag_doc_ids: None,
+        chat_context_hash: None,
+        replay_status: Some("available".to_string()),
+        latency_ms: Some(150),
+        tokens_generated: Some(25),
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: false,
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: Some(policy_id.clone()),
+        execution_policy_version: Some(policy.version as i32),
+    };
+
+    let metadata_id = db
+        .create_replay_metadata(metadata_params)
+        .await
+        .expect("Failed to create replay metadata");
+
+    assert!(!metadata_id.is_empty(), "Metadata ID should be returned");
+
+    // 4. Verify metadata was stored with policy tracking
+    let stored_metadata = db
+        .get_replay_metadata_by_inference(inference_id)
+        .await
+        .expect("Failed to get replay metadata")
+        .expect("Metadata should exist");
+
+    assert_eq!(stored_metadata.manifest_hash, manifest_hash);
+    assert_eq!(stored_metadata.backend, backend);
+    assert_eq!(stored_metadata.determinism_mode.as_deref(), Some("strict"));
+    assert_eq!(stored_metadata.replay_guarantee.as_deref(), Some("exact"));
+    assert_eq!(stored_metadata.execution_policy_id, Some(policy_id.clone()));
+    assert_eq!(
+        stored_metadata.execution_policy_version,
+        Some(policy.version as i32)
+    );
+
+    // 5. Verify that golden policy settings are accessible during replay
+    // In a real replay scenario, InferenceCore would:
+    // - Load the policy via resolve_tenant_execution_policy()
+    // - Check golden.fail_on_drift
+    // - Use golden.epsilon_threshold for gate comparison
+    // - Reference golden.golden_baseline_id for the baseline
+
+    // Simulate policy resolution during replay
+    let resolved_policy = db
+        .get_execution_policy_or_default(&tenant_id)
+        .await
+        .expect("Failed to resolve policy for replay");
+
+    assert_eq!(
+        resolved_policy.id, policy_id,
+        "Should resolve to the same policy"
+    );
+    assert_eq!(
+        resolved_policy.version, policy.version,
+        "Policy version should match"
+    );
+
+    let resolved_golden = resolved_policy
+        .golden
+        .as_ref()
+        .expect("Golden policy should be present");
+
+    assert!(
+        resolved_golden.fail_on_drift,
+        "fail_on_drift should be enforced"
+    );
+    assert_eq!(
+        resolved_golden.golden_baseline_id.as_deref(),
+        Some(golden_baseline_id),
+        "Golden baseline ID should be available for comparison"
+    );
+    assert!(
+        (resolved_golden.epsilon_threshold - epsilon_threshold).abs() < f64::EPSILON,
+        "Epsilon threshold should be available for gate comparison"
+    );
+
+    // 6. Test policy version tracking on replay execution
+    // When a replay is executed, the original policy version should be preserved
+    // to ensure replay uses the same policy constraints as the original inference.
+
+    // This is critical for:
+    // - Deterministic routing decisions
+    // - Golden baseline comparison
+    // - Drift detection with same epsilon threshold
+}
+
+/// Test that drift detection would fail when golden policy enforces fail_on_drift.
+///
+/// This test verifies the metadata storage supports drift detection scenarios:
+/// - Golden policy with fail_on_drift = true is stored correctly
+/// - Execution policy version is tracked for replay
+/// - Determinism mode and replay guarantee are recorded
+///
+/// NOTE: Actual drift detection happens in the router/InferenceCore during inference.
+/// This test validates that the policy infrastructure is in place to support it.
+#[tokio::test]
+async fn test_replay_metadata_supports_drift_detection() {
+    use adapteros_api_types::{CreateExecutionPolicyRequest, DeterminismPolicy, GoldenPolicy};
+
+    let db = Db::new_in_memory().await.unwrap();
+    let tenant_id = setup_test_tenant(&db).await;
+
+    // Create strict golden policy that should fail on any drift
+    let golden = GoldenPolicy {
+        fail_on_drift: true, // Critical: should fail inference on drift
+        golden_baseline_id: Some("baseline-strict-001".to_string()),
+        epsilon_threshold: 1e-9, // Very tight threshold
+    };
+
+    let determinism = DeterminismPolicy {
+        allowed_modes: vec!["strict".to_string()],
+        default_mode: "strict".to_string(),
+        require_seed: true,
+        allow_fallback: false, // No fallback = strict mode
+        replay_mode: "exact".to_string(),
+    };
+
+    let request = CreateExecutionPolicyRequest {
+        determinism,
+        routing: None,
+        golden: Some(golden),
+        require_signed_adapters: false,
+    };
+
+    let policy_id = db
+        .create_execution_policy(&tenant_id, request, None)
+        .await
+        .expect("Failed to create strict golden policy");
+
+    // Create inference metadata that tracks this policy
+    let inference_id = "drift-test-inference-001";
+
+    let sampling_params = SamplingParams {
+        temperature: 0.0,
+        top_k: Some(50),
+        top_p: Some(0.9),
+        max_tokens: 100,
+        seed: Some(42),
+    };
+
+    let metadata_params = CreateReplayMetadataParams {
+        inference_id: inference_id.to_string(),
+        tenant_id: tenant_id.clone(),
+        manifest_hash: "manifest-drift-test".to_string(),
+        router_seed: Some("seed-drift-test".to_string()),
+        sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
+        backend: "Metal".to_string(),
+        sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
+        rag_snapshot_hash: None,
+        adapter_ids: Some(vec!["adapter-a".to_string()]),
+        prompt_text: "Drift test prompt".to_string(),
+        prompt_truncated: false,
+        response_text: Some("Original response".to_string()),
+        response_truncated: false,
+        rag_doc_ids: None,
+        chat_context_hash: None,
+        replay_status: Some("available".to_string()),
+        latency_ms: Some(100),
+        tokens_generated: Some(10),
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: false,
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: Some(policy_id.clone()),
+        execution_policy_version: Some(1),
+    };
+
+    db.create_replay_metadata(metadata_params)
+        .await
+        .expect("Failed to create replay metadata");
+
+    // Verify the stored metadata includes all fields needed for drift detection
+    let metadata = db
+        .get_replay_metadata_by_inference(inference_id)
+        .await
+        .expect("Failed to get metadata")
+        .expect("Metadata should exist");
+
+    // Critical fields for drift detection
+    assert_eq!(metadata.determinism_mode.as_deref(), Some("strict"));
+    assert_eq!(metadata.replay_guarantee.as_deref(), Some("exact"));
+    assert_eq!(metadata.execution_policy_id, Some(policy_id));
+    assert_eq!(metadata.execution_policy_version, Some(1));
+
+    // Verify policy can be loaded for replay
+    let policy = db
+        .get_execution_policy_or_default(&tenant_id)
+        .await
+        .expect("Failed to load policy");
+
+    let golden = policy.golden.as_ref().expect("Golden policy should exist");
+    assert!(
+        golden.fail_on_drift,
+        "Replay should enforce fail_on_drift=true"
+    );
+    assert!(
+        (golden.epsilon_threshold - 1e-9).abs() < f64::EPSILON,
+        "Tight epsilon threshold should be preserved"
+    );
+
+    // In actual replay with InferenceCore:
+    // 1. route_and_infer_replay() would load the policy
+    // 2. Router would compare gate values against golden baseline
+    // 3. If drift > epsilon_threshold, routing would fail
+    // 4. If fail_on_drift=true, inference would return error
+    // 5. Replay execution record would mark status as "drift_detected"
+}

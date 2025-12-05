@@ -6,6 +6,8 @@
 //! - Request/response helpers for common patterns
 //! - Test data fixtures and cleanup
 
+#![allow(dead_code)]
+
 use adapteros_db::Db;
 use adapteros_server_api::routes;
 use adapteros_server_api::AppState;

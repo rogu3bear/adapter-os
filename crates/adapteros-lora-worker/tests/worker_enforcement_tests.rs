@@ -8,7 +8,12 @@
 //!
 //! Run with: cargo test -p adapteros-lora-worker --test worker_enforcement_tests
 
+use adapteros_api_types::RoutingPolicy;
 use adapteros_core::{AosError, Result};
+use adapteros_lora_router::{Decision, DecisionCandidate};
+use adapteros_lora_worker::router_bridge::decision_to_router_ring;
+use adapteros_lora_worker::routing_policy_filter::filter_decision_by_policy;
+use smallvec::SmallVec;
 use std::collections::HashSet;
 
 // =============================================================================
@@ -116,6 +121,82 @@ fn validate_effective_adapter_gate_logic(
     }
 
     Ok(())
+}
+
+#[test]
+fn test_routing_policy_denies_specific_adapter() {
+    let adapter_ids = vec!["adapter_a".to_string(), "adapter_b".to_string()];
+    let decision = Decision {
+        indices: SmallVec::from_slice(&[0, 1]),
+        gates_q15: SmallVec::from_slice(&[20000, 12000]),
+        entropy: 0.0,
+        candidates: vec![
+            DecisionCandidate {
+                adapter_idx: 0,
+                raw_score: 0.8,
+                gate_q15: 20000,
+            },
+            DecisionCandidate {
+                adapter_idx: 1,
+                raw_score: 0.7,
+                gate_q15: 12000,
+            },
+        ],
+        decision_hash: None,
+    };
+
+    let policy = RoutingPolicy {
+        allowed_stack_ids: None,
+        allowed_adapter_ids: None,
+        denied_adapter_ids: Some(vec!["adapter_b".to_string()]),
+        max_adapters_per_token: Some(2),
+        pin_enforcement: "warn".to_string(),
+        require_stack: false,
+        require_pins: false,
+    };
+
+    let filtered =
+        filter_decision_by_policy(decision, &adapter_ids, Some(&policy)).expect("filter succeeds");
+
+    assert_eq!(filtered.indices.as_slice(), &[0]);
+    let ring =
+        decision_to_router_ring(&filtered, adapter_ids.len() as u16).expect("router ring builds");
+    assert_eq!(ring.active_indices(), &[0]);
+}
+
+#[test]
+fn test_routing_policy_denies_all_adapters() {
+    let adapter_ids = vec!["adapter_a".to_string()];
+    let decision = Decision {
+        indices: SmallVec::from_slice(&[0]),
+        gates_q15: SmallVec::from_slice(&[16000]),
+        entropy: 0.0,
+        candidates: vec![DecisionCandidate {
+            adapter_idx: 0,
+            raw_score: 1.0,
+            gate_q15: 16000,
+        }],
+        decision_hash: None,
+    };
+
+    let policy = RoutingPolicy {
+        allowed_stack_ids: None,
+        allowed_adapter_ids: Some(vec!["other".to_string()]), // excludes adapter_a
+        denied_adapter_ids: None,
+        max_adapters_per_token: None,
+        pin_enforcement: "warn".to_string(),
+        require_stack: false,
+        require_pins: false,
+    };
+
+    let result = filter_decision_by_policy(decision, &adapter_ids, Some(&policy));
+    let err = result.expect_err("policy should reject all adapters");
+    assert!(matches!(err, AosError::PolicyViolation(_)));
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("denied all adapters"),
+        "Error should clearly state denial cause: {msg}"
+    );
 }
 
 #[test]

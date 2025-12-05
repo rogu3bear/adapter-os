@@ -439,8 +439,9 @@ impl ModelHandleCache {
             );
         }
 
-        // Track skipped pinned entries if we couldn't free enough
-        if freed < target && pinned_in_cache > 0 {
+        // Track pinned entries encountered during eviction (even if we freed enough)
+        // to surface that pinned bases constrained eviction options.
+        if target > 0 && pinned_in_cache > 0 {
             let mut stats = self.stats.write();
             stats.eviction_skip_pinned_count += pinned_in_cache as u64;
 

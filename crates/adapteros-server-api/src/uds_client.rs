@@ -232,9 +232,9 @@ impl UdsClient {
         let request_json = serde_json::to_string(&request)
             .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
 
-        // Create HTTP request
+        // Create HTTP request - send to /patch_proposal, not /inference
         let http_request = format!(
-            "POST /inference HTTP/1.1\r\n\
+            "POST /patch_proposal HTTP/1.1\r\n\
              Host: worker\r\n\
              Content-Type: application/json\r\n\
              Content-Length: {}\r\n\

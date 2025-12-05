@@ -221,6 +221,10 @@ pub struct AosManifest {
     /// BLAKE3 hash of weights data (64 hex chars)
     #[serde(default)]
     pub weights_hash: Option<String>,
+    /// Optional per-layer BLAKE3 hashes keyed by canonical logical layer path
+    /// (e.g., "transformer.layer_12.attn.q_proj.lora_A").
+    #[serde(default)]
+    pub per_layer_hashes: Option<HashMap<String, String>>,
     /// Training hyperparameters
     #[serde(default)]
     pub training_config: Option<TrainingConfigManifest>,

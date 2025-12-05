@@ -208,6 +208,16 @@ pub enum AosError {
         actual: B3Hash,
     },
 
+    #[error(
+        "Per-layer hash mismatch for {adapter_id} at {layer_id}: expected {expected}, got {actual}"
+    )]
+    AdapterLayerHashMismatch {
+        adapter_id: String,
+        layer_id: String,
+        expected: B3Hash,
+        actual: B3Hash,
+    },
+
     #[error("Git error: {0}")]
     Git(String),
 

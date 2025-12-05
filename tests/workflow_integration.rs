@@ -46,7 +46,7 @@ async fn test_workflow_execution_sequential() {
     assert!(result.stats.total_time_ms > 0);
 
     // Check phase names
-    for (i, phase) in result.stats.phases.iter().enumerate() {
+    for phase in result.stats.phases.iter() {
         assert!(phase.name.starts_with("sequential_"));
         assert_eq!(phase.adapter_ids.len(), 1);
     }

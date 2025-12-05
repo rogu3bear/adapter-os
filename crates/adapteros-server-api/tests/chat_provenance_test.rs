@@ -496,7 +496,10 @@ async fn test_provenance_handler_happy_path() {
 
             assert_eq!(provenance.adapters.len(), 1);
             assert_eq!(provenance.adapters[0].id, adapter_id);
-            assert!(provenance.adapters[0].externally_created, "Adapter without training_job should be externally_created");
+            assert!(
+                provenance.adapters[0].externally_created,
+                "Adapter without training_job should be externally_created"
+            );
 
             // Verify provenance hash is computed
             assert!(!provenance.provenance_hash.is_empty());
@@ -626,12 +629,21 @@ async fn test_provenance_handler_no_stack() {
     match result {
         Ok(Json(provenance)) => {
             assert_eq!(provenance.session.id, session_id);
-            assert!(provenance.stack.is_none(), "Stack should be None when session has no stack");
-            assert!(provenance.adapters.is_empty(), "Adapters should be empty when no stack");
+            assert!(
+                provenance.stack.is_none(),
+                "Stack should be None when session has no stack"
+            );
+            assert!(
+                provenance.adapters.is_empty(),
+                "Adapters should be empty when no stack"
+            );
             eprintln!("No stack provenance test passed");
         }
         Err((status, err)) => {
-            panic!("Handler should return OK even without stack, got status: {:?}, error: {:?}", status, err);
+            panic!(
+                "Handler should return OK even without stack, got status: {:?}, error: {:?}",
+                status, err
+            );
         }
     }
 }

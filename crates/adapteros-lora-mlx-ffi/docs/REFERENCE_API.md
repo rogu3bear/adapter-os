@@ -262,7 +262,7 @@ Planned optimization for concurrent requests:
 
 ### Feature Flags
 
-- `--features real-mlx`: Enable real MLX compilation
+- `--features mlx`: Enable real MLX compilation
 - `--features enhanced-monitoring`: Enable detailed metrics
 
 ## Troubleshooting
@@ -298,7 +298,7 @@ curl http://localhost:8080/api/alerts/mlx
 
 ### From Stub-Only Implementation
 
-1. Enable `real-mlx` feature flag
+1. Enable `mlx` feature flag
 2. Install MLX C++ dependencies
 3. Update resilience configuration
 4. Monitor performance metrics

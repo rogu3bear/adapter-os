@@ -365,6 +365,9 @@ mod tests {
             require_gpu: false,
             max_gpu_memory_mb: 0,
             checkpoint_interval: Some(5),
+            warmup_steps: None,
+            max_seq_length: None,
+            gradient_accumulation_steps: None,
         };
 
         let weights = LoRAWeights {

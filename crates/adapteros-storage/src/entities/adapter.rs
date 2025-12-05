@@ -176,6 +176,10 @@ mod tests {
             expires_at: None,
             aos_file_path: Some("/var/adapters/test.aos".to_string()),
             aos_file_hash: None,
+            archived_at: None,
+            archived_by: None,
+            archive_reason: None,
+            purged_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -226,6 +230,10 @@ mod tests {
             expires_at: None,
             aos_file_path: None,
             aos_file_hash: None,
+            archived_at: None,
+            archived_by: None,
+            archive_reason: None,
+            purged_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

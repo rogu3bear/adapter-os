@@ -24,7 +24,7 @@ dev: ## Run control plane in dev mode (auth bypass available, no prod hardening)
 	@echo "🧹 Cleaning ports for dev server..."
 	-@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 	@echo "🚀 Starting dev server..."
-	AOS_DEV_NO_AUTH=$(NO_AUTH) cargo run -p adapteros-server -- --config configs/cp.toml --skip-pf-check --skip-drift-check
+	AOS_DEV_NO_AUTH=$(NO_AUTH) cargo run -p adapteros-server -- --config configs/cp.toml
 
 dev-no-auth: ## Run control plane in dev mode with authentication disabled (debug-only)
 	NO_AUTH=1 $(MAKE) dev
@@ -184,7 +184,7 @@ dup: ## Check for code duplication (fails on violations)
 	bash scripts/run_jscpd.sh
 
 MLX_PACKAGE ?= adapteros-lora-mlx-ffi
-MLX_FEATURES ?= multi-backend,real-mlx
+MLX_FEATURES ?= multi-backend,mlx
 MLX_PROFILE ?= release
 
 verify-mlx-env: ## Verify MLX headers and libraries are available

@@ -23,7 +23,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
+use tracing::{error, info, info_span, warn};
 
 // Schema and API versions for worker registration
 const SCHEMA_VERSION: &str = "1.0";
@@ -480,6 +480,18 @@ async fn main() -> Result<()> {
     // Start UDS server
     info!(uds_path = %uds_path.display(), "Starting UDS server");
     let server = UdsServer::new(uds_path, worker);
+
+    let serve_span = info_span!(
+        "worker_serve",
+        worker_id = %worker_id,
+        tenant_id = %args.tenant_id,
+        plan_id = %args.plan_id,
+        backend = %args.backend,
+        manifest_hash = %manifest_hash_hex,
+        uds_path = %uds_path_str,
+        coordinator_enabled = args.coordinator_enabled,
+    );
+    let _serve_span_guard = serve_span.enter();
 
     // Run server (blocking)
     server.serve().await?;

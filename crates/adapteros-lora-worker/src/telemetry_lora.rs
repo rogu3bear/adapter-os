@@ -48,7 +48,7 @@ impl TelemetryLoraWeights {
         })
     }
 
-    pub fn merge_into(&self, base: &mut [f32], alpha: f32) -> Result<()> {
+    pub fn composed_weights(&self, base: &[f32], alpha: f32) -> Result<Vec<f32>> {
         if base.len() != Arc::as_ref(&self.weights).len() {
             return Err(AosError::Validation(format!(
                 "base buffer length {} does not match telemetry LoRA {}",
@@ -57,14 +57,17 @@ impl TelemetryLoraWeights {
             )));
         }
 
-        for (target, delta) in base.iter_mut().zip(Arc::as_ref(&self.weights).iter()) {
+        // Invariant: the caller's base slice is treated as immutable; work on a scratch
+        // copy so shared base buffers are never mutated in place.
+        let mut scratch = base.to_vec();
+        for (target, delta) in scratch.iter_mut().zip(Arc::as_ref(&self.weights).iter()) {
             *target += delta * alpha;
         }
 
-        Ok(())
+        Ok(scratch)
     }
 
-    pub fn apply_bias(&self, base: &mut [f32], alpha: f32) -> Result<()> {
+    pub fn composed_bias(&self, base: &[f32], alpha: f32) -> Result<Vec<f32>> {
         if base.len() != Arc::as_ref(&self.bias).len() {
             return Err(AosError::Validation(format!(
                 "bias buffer length {} does not match telemetry LoRA {}",
@@ -73,11 +76,12 @@ impl TelemetryLoraWeights {
             )));
         }
 
-        for (target, delta) in base.iter_mut().zip(Arc::as_ref(&self.bias).iter()) {
+        let mut scratch = base.to_vec();
+        for (target, delta) in scratch.iter_mut().zip(Arc::as_ref(&self.bias).iter()) {
             *target += delta * alpha;
         }
 
-        Ok(())
+        Ok(scratch)
     }
 
     pub fn task(&self) -> TelemetryTask {
@@ -139,14 +143,15 @@ impl TelemetryMergePlan {
     pub fn apply(
         &self,
         registry: &TelemetryLoraRegistry,
-        weights: &mut [f32],
-        bias: &mut [f32],
-    ) -> Result<()> {
+        weights: &[f32],
+        bias: &[f32],
+    ) -> Result<(Vec<f32>, Vec<f32>)> {
         let adapter = registry.get(self.task).ok_or_else(|| {
             AosError::Validation(format!("no telemetry LoRA for {}", self.task.as_str()))
         })?;
-        adapter.merge_into(weights, self.alpha)?;
-        adapter.apply_bias(bias, self.alpha)
+        let composed_weights = adapter.composed_weights(weights, self.alpha)?;
+        let composed_bias = adapter.composed_bias(bias, self.alpha)?;
+        Ok((composed_weights, composed_bias))
     }
 }
 
@@ -166,16 +171,18 @@ mod tests {
         let mut registry = TelemetryLoraRegistry::default();
         registry.insert(weights);
 
-        let mut base = vec![0.0f32; 3];
-        let mut bias = vec![0.0f32; 3];
+        let base = vec![0.0f32; 3];
+        let bias = vec![0.0f32; 3];
         let plan = TelemetryMergePlan {
             task: TelemetryTask::Monitoring,
             alpha: 0.5,
         };
-        plan.apply(&registry, &mut base, &mut bias).unwrap();
+        let (composed_weights, composed_bias) = plan.apply(&registry, &base, &bias).unwrap();
 
-        assert_eq!(base, vec![0.5, 1.0, 1.5]);
-        assert_eq!(bias, vec![0.05, 0.1, 0.15]);
+        assert_eq!(base, vec![0.0, 0.0, 0.0]);
+        assert_eq!(bias, vec![0.0, 0.0, 0.0]);
+        assert_eq!(composed_weights, vec![0.5, 1.0, 1.5]);
+        assert_eq!(composed_bias, vec![0.05, 0.1, 0.15]);
     }
 
     #[test]
@@ -203,5 +210,37 @@ mod tests {
         let weights = load_telemetry_lora(&serialized, TelemetryTask::Control).unwrap();
         assert_eq!(Arc::as_ref(&weights.weights)[2], 3.0);
         assert_eq!(weights.task(), TelemetryTask::Control);
+    }
+
+    #[test]
+    fn test_composed_paths_do_not_mutate_base() {
+        let weights = TelemetryLoraWeights::new(
+            TelemetryTask::Forecasting,
+            vec![0.25, -0.5, 1.0],
+            vec![0.1, 0.2, -0.3],
+        )
+        .unwrap();
+        let base_weights = vec![1.0f32, 2.0, 3.0];
+        let base_bias = vec![0.0f32, 0.0, 0.0];
+
+        let composed_w = weights.composed_weights(&base_weights, 0.2).unwrap();
+        let composed_b = weights.composed_bias(&base_bias, 0.2).unwrap();
+
+        assert_eq!(base_weights, vec![1.0, 2.0, 3.0], "base weights mutated");
+        assert_eq!(base_bias, vec![0.0, 0.0, 0.0], "base bias mutated");
+        let expected_w = vec![1.05, 1.9, 3.2];
+        for (got, exp) in composed_w.iter().zip(expected_w.iter()) {
+            assert!(
+                (got - exp).abs() < 1e-6,
+                "composed weight mismatch: got {got}, expected {exp}"
+            );
+        }
+        let expected_b = vec![0.02, 0.04, -0.06];
+        for (got, exp) in composed_b.iter().zip(expected_b.iter()) {
+            assert!(
+                (got - exp).abs() < 1e-6,
+                "composed bias mismatch: got {got}, expected {exp}"
+            );
+        }
     }
 }

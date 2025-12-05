@@ -189,20 +189,18 @@ impl AdapterTable {
         {
             let mut staged = self.staged.write();
 
-            if staged.contains_key(&id) {
-                return Err(AosError::Worker(format!("Adapter {} already staged", id)));
+            if !staged.contains_key(&id) {
+                staged.insert(
+                    id.clone(),
+                    AdapterState {
+                        id: id.clone(),
+                        hash,
+                        vram_mb,
+                        loaded_at: Instant::now(),
+                        active: false,
+                    },
+                );
             }
-
-            staged.insert(
-                id.clone(),
-                AdapterState {
-                    id: id.clone(),
-                    hash,
-                    vram_mb,
-                    loaded_at: Instant::now(),
-                    active: false,
-                },
-            );
         } // Drop staged lock before await
 
         // Ensure refcount entry exists for this adapter
@@ -258,16 +256,16 @@ impl AdapterTable {
         // Add staged adapters (all guaranteed to exist after validation above)
         let mut added_count = 0;
         {
-            let mut staged_write = self.staged.write();
+            // Use a read lock to allow reusing staged adapters across swaps; avoid consuming entries
+            let staged_read = self.staged.read();
             for id in add_ids {
-                if let Some(mut adapter) = staged_write.remove(id) {
+                if let Some(mut adapter) = staged_read.get(id).cloned() {
                     adapter.active = true;
                     vram_delta += adapter.vram_mb as i64;
                     new_active.insert(id.clone(), adapter);
                     added_count += 1;
                 } else {
-                    // FIX 3: This should never happen due to validation above, but handle defensively
-                    // Rollback on partial failure
+                    // FIX 3 defensive path (should not hit due to earlier validation)
                     let rollback_state = self.rollback_state.read();
                     if let Some(rollback_stack) = rollback_state.as_ref() {
                         let _old = self
@@ -277,14 +275,12 @@ impl AdapterTable {
                             adapter_id = %id,
                             "UNEXPECTED: Adapter not in staged after validation - rolling back"
                         );
-                        drop(staged_write); // Release lock before clear
                         self.staged.write().clear();
                         return Err(AosError::Worker(format!(
                             "Adapter {} disappeared from staged set after validation (possible concurrent modification)",
                             id
                         )));
                     } else {
-                        drop(staged_write); // Release lock before clear
                         self.staged.write().clear();
                         return Err(AosError::Worker(format!(
                             "Adapter {} disappeared from staged set and no rollback state available",
@@ -293,7 +289,7 @@ impl AdapterTable {
                     }
                 }
             }
-        } // Drop staged_write lock before await
+        } // Drop staged_read lock before await
 
         // Ensure refcounts for new active adapters
         let mut refcounts = self.refcounts.lock().await;

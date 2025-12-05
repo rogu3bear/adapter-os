@@ -40,7 +40,8 @@ fn test_router_respects_k_sparse_policy() {
 
 #[test]
 fn test_policy_validates_stack_configuration() {
-    let policy_config = RouterConfig::default();
+    let mut policy_config = RouterConfig::default();
+    policy_config.k_sparse = 3; // Align validation to 3-way stacks used below
     let policy = RouterPolicy::new(policy_config);
 
     // Valid stack
@@ -102,7 +103,8 @@ fn test_policy_validates_stack_configuration() {
 
 #[test]
 fn test_policy_detects_conflicting_tags() {
-    let policy_config = RouterConfig::default();
+    let mut policy_config = RouterConfig::default();
+    policy_config.k_sparse = 3; // Ensure tag checks run (no K < len short-circuit)
     let policy = RouterPolicy::new(policy_config);
 
     // Stack with conflicting tags (security vs. performance)
@@ -138,7 +140,9 @@ fn test_policy_detects_conflicting_tags() {
 
 #[test]
 fn test_policy_validates_decision_entropy() {
-    let policy_config = RouterConfig::default();
+    let mut policy_config = RouterConfig::default();
+    policy_config.k_sparse = 3; // Match selected_indices length expectations
+    policy_config.entropy_floor = 0.5; // Enforce meaningful entropy check
     let policy = RouterPolicy::new(policy_config);
 
     // Decision with low entropy (should fail)
@@ -158,7 +162,8 @@ fn test_policy_validates_decision_entropy() {
 
 #[test]
 fn test_policy_validates_decision_k_limit() {
-    let policy_config = RouterConfig::default();
+    let mut policy_config = RouterConfig::default();
+    policy_config.k_sparse = 3; // Validate against 3-adapter selection expectation
     let policy = RouterPolicy::new(policy_config);
 
     // Decision exceeding K limit (should fail)
@@ -220,7 +225,8 @@ fn test_policy_validates_decision_forbidden_peers() {
 #[test]
 fn test_entropy_floor_enforcement() {
     let mut policy_config = RouterConfig::default();
-    policy_config.entropy_floor = 0.1; // Higher entropy floor
+    policy_config.k_sparse = 3;
+    policy_config.entropy_floor = 0.5; // Higher entropy floor to reject low-entropy gates
 
     let mut router =
         Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);

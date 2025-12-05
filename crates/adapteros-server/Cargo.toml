@@ -37,6 +37,7 @@ adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-verify = { path = "../adapteros-verify" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-manifest = { path = "../adapteros-manifest" }
+adapteros-registry = { path = "../adapteros-registry" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-federation = { path = "../adapteros-federation" }

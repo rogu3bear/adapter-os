@@ -7,6 +7,7 @@ name = "adapter-os"
 version = "0.1.0"
 dependencies = [
  "adapteros-api",
+ "adapteros-api-types",
  "adapteros-artifacts",
  "adapteros-chat",
  "adapteros-client",
@@ -37,13 +38,16 @@ dependencies = [
  "adapteros-server-api",
  "adapteros-telemetry",
  "adapteros-trace",
+ "adapteros-verify",
  "anyhow",
  "axum 0.8.7",
  "axum-test",
  "blake3",
  "chrono",
+ "futures-util",
  "hex",
  "metal 0.28.0",
+ "reqwest 0.12.24",
  "rusqlite",
  "safetensors",
  "serde",
@@ -53,6 +57,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tower 0.5.2",
+ "tracing",
  "tracing-subscriber",
  "uuid",
 ]
@@ -710,6 +715,7 @@ dependencies = [
  "adapteros-manifest",
  "adapteros-memory",
  "adapteros-profiler",
+ "adapteros-single-file-adapter",
  "adapteros-telemetry",
  "chrono",
  "criterion",
@@ -726,6 +732,7 @@ dependencies = [
  "utoipa",
  "uuid",
  "zeroize",
+ "zip 0.6.6",
 ]
 
 [[package]]
@@ -836,6 +843,7 @@ name = "adapteros-lora-worker"
 version = "0.1.0"
 dependencies = [
  "adapteros-aos",
+ "adapteros-api-types",
  "adapteros-codegraph",
  "adapteros-config",
  "adapteros-core",
@@ -1253,6 +1261,7 @@ dependencies = [
  "adapteros-model-hub",
  "adapteros-orchestrator",
  "adapteros-policy",
+ "adapteros-registry",
  "adapteros-server-api",
  "adapteros-telemetry",
  "adapteros-verify",

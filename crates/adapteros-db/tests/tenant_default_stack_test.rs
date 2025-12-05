@@ -196,3 +196,47 @@ async fn test_changing_default_stack() {
         "Default stack should be updated to stack 2"
     );
 }
+
+#[tokio::test]
+async fn test_activate_stack_sets_lifecycle_active() {
+    let db = match Db::new_in_memory().await {
+        Ok(db) => db,
+        Err(e) => {
+            eprintln!("Skipping test - DB setup failed: {}", e);
+            return;
+        }
+    };
+
+    let tenant_id = db
+        .create_tenant("test-tenant-activate", false)
+        .await
+        .unwrap();
+
+    let stack_req = CreateStackRequest {
+        tenant_id: tenant_id.to_string(),
+        name: "stack.test.activate".to_string(),
+        description: Some("Activation test stack".to_string()),
+        adapter_ids: vec!["adapter-activate".to_string()],
+        workflow_type: Some("Sequential".to_string()),
+        determinism_mode: None,
+    };
+    let stack_id = db.insert_stack(&stack_req).await.unwrap();
+
+    // Force lifecycle_state to draft to verify activation flips it back
+    sqlx::query("UPDATE adapter_stacks SET lifecycle_state = 'draft' WHERE id = ?")
+        .bind(&stack_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    db.activate_stack(&tenant_id, &stack_id)
+        .await
+        .expect("Stack activation should succeed");
+
+    let stack = db
+        .get_stack(&tenant_id, &stack_id)
+        .await
+        .unwrap()
+        .expect("Stack should exist");
+    assert_eq!(stack.lifecycle_state, "active");
+}

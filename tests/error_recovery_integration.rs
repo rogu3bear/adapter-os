@@ -1057,7 +1057,10 @@ mod metal_gpu_recovery {
 
         // Verify new command queue is functional
         let recovery_data = recovery_result.unwrap();
-        assert!(recovery_data.test_dispatch_us >= 0);
+        assert!(
+            recovery_data.test_dispatch_us > 0,
+            "dispatch time should be positive"
+        );
 
         // Verify subsequent dispatch succeeds
         let result = recovery.safe_dispatch(|| Ok(42));

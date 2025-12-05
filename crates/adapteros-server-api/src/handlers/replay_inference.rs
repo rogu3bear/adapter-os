@@ -17,10 +17,12 @@
 
 use crate::auth::Claims;
 use crate::inference_core::InferenceCore;
+use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
 use crate::security::check_tenant_access;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::{CreateReplayExecutionParams, UpdateReplayExecutionParams};
+use adapteros_policy::hooks::PolicyHook;
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
@@ -196,7 +198,11 @@ pub async fn check_availability(
     if let Some(ref doc_ids) = rag_doc_ids {
         if !doc_ids.is_empty() {
             // Batch check which documents still exist
-            match state.db.get_documents_by_ids_ordered(doc_ids).await {
+            match state
+                .db
+                .get_documents_by_ids_ordered(&metadata.tenant_id, doc_ids)
+                .await
+            {
                 Ok(docs) => {
                     for (idx, doc) in docs.iter().enumerate() {
                         if doc.is_none() {
@@ -390,6 +396,32 @@ pub async fn execute_replay(
         ));
     }
 
+    // PRD-06: Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
+    // Security: Replay MUST go through same policy gates as normal inference
+    let request_id_str = uuid::Uuid::new_v4().to_string();
+    let routing_hook_ctx = create_hook_context(
+        &claims,
+        &request_id_str,
+        PolicyHook::OnRequestBeforeRouting,
+        "replay_inference",
+        None, // No adapter selected yet
+    );
+    if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
+        warn!(
+            inference_id = %inference_id,
+            policy_violation = %violation.message,
+            "Replay blocked by policy at OnRequestBeforeRouting"
+        );
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("Policy violation (pre-routing)")
+                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_string_details(&violation.message),
+            ),
+        ));
+    }
+
     // Parse stored params
     let sampling_params: SamplingParams =
         serde_json::from_str(&metadata.sampling_params_json).unwrap_or_default();
@@ -404,11 +436,61 @@ pub async fn execute_replay(
         .as_ref()
         .and_then(|j| serde_json::from_str(j).ok());
 
+    // Check adapter loadability before attempting replay
+    // This is defense-in-depth: verify adapters are not archived/purged
+    if let Some(ref adapter_list) = adapter_ids {
+        for adapter_id in adapter_list {
+            match state.db.is_adapter_loadable(adapter_id).await {
+                Ok(true) => continue, // Adapter is loadable
+                Ok(false) => {
+                    warn!(
+                        adapter_id = %adapter_id,
+                        inference_id = %inference_id,
+                        "Replay blocked: adapter is archived or purged"
+                    );
+                    return Err((
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(
+                            ErrorResponse::new(&format!(
+                                "Adapter '{}' is archived or purged and cannot be used for replay",
+                                adapter_id
+                            ))
+                            .with_code("ADAPTER_NOT_LOADABLE"),
+                        ),
+                    ));
+                }
+                Err(e) => {
+                    warn!(
+                        adapter_id = %adapter_id,
+                        error = %e,
+                        "Replay blocked: adapter not found or not loadable"
+                    );
+                    return Err((
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(
+                            ErrorResponse::new(&format!(
+                                "Adapter '{}' is not loadable: {}",
+                                adapter_id, e
+                            ))
+                            .with_code("ADAPTER_NOT_FOUND"),
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
     // Check RAG availability and compute degraded status
     let mut missing_doc_ids = Vec::new();
     if let Some(ref doc_ids) = rag_doc_ids {
         for doc_id in doc_ids {
-            let doc_exists = state.db.get_document(doc_id).await.ok().flatten().is_some();
+            let doc_exists = state
+                .db
+                .get_document(&metadata.tenant_id, doc_id)
+                .await
+                .ok()
+                .flatten()
+                .is_some();
             if !doc_exists {
                 missing_doc_ids.push(doc_id.clone());
             }
@@ -513,7 +595,34 @@ pub async fn execute_replay(
         required_manifest_hash: metadata.manifest_hash.clone(),
         required_backend: metadata.backend.clone(),
         skip_metadata_capture: true, // Don't create new replay metadata for replay
+        original_policy_id: metadata.execution_policy_id.clone(),
+        original_policy_version: metadata.execution_policy_version.map(|v| v as i64),
     };
+
+    // PRD-06: Enforce policies at OnBeforeInference hook (after routing, before inference)
+    let adapters_for_hook = adapter_ids.as_ref().map(|a| a.join(","));
+    let before_hook_ctx = create_hook_context(
+        &claims,
+        &request_id_str,
+        PolicyHook::OnBeforeInference,
+        "replay_inference",
+        adapters_for_hook.as_deref(),
+    );
+    if let Err(violation) = enforce_at_hook(&state, &before_hook_ctx).await {
+        warn!(
+            inference_id = %inference_id,
+            policy_violation = %violation.message,
+            "Replay blocked by policy at OnBeforeInference"
+        );
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("Policy violation (pre-inference)")
+                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_string_details(&violation.message),
+            ),
+        ));
+    }
 
     // Execute inference through InferenceCore (PRD-02: unified inference path)
     let core = InferenceCore::new(&state);
@@ -548,6 +657,30 @@ pub async fn execute_replay(
             )
         }
     };
+
+    // PRD-06: Enforce policies at OnAfterInference hook (post-inference validation/audit)
+    let after_hook_ctx = create_hook_context(
+        &claims,
+        &request_id_str,
+        PolicyHook::OnAfterInference,
+        "replay_inference",
+        adapters_for_hook.as_deref(),
+    );
+    if let Err(violation) = enforce_at_hook(&state, &after_hook_ctx).await {
+        warn!(
+            inference_id = %inference_id,
+            policy_violation = %violation.message,
+            "Replay blocked by policy at OnAfterInference"
+        );
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("Policy violation (post-inference)")
+                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_string_details(&violation.message),
+            ),
+        ));
+    }
 
     // Compute divergence details
     let original_response = metadata.response_text.clone().unwrap_or_default();

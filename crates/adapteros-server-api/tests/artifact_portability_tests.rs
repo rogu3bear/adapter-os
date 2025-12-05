@@ -69,10 +69,12 @@ fn extract_manifest_from_aos(data: &[u8]) -> Option<serde_json::Value> {
         return None;
     }
 
-    let manifest_offset =
-        u64::from_le_bytes([data[24], data[25], data[26], data[27], data[28], data[29], data[30], data[31]]) as usize;
-    let manifest_size =
-        u64::from_le_bytes([data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39]]) as usize;
+    let manifest_offset = u64::from_le_bytes([
+        data[24], data[25], data[26], data[27], data[28], data[29], data[30], data[31],
+    ]) as usize;
+    let manifest_size = u64::from_le_bytes([
+        data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39],
+    ]) as usize;
 
     if manifest_offset + manifest_size > data.len() {
         return None;
@@ -147,7 +149,11 @@ async fn test_schema_version_major_extraction() {
             .and_then(|s| s.parse().ok())
             .unwrap_or(1);
 
-        assert_eq!(major, expected_major, "Version {} should have major {}", version, expected_major);
+        assert_eq!(
+            major, expected_major,
+            "Version {} should have major {}",
+            version, expected_major
+        );
     }
 }
 
@@ -157,7 +163,11 @@ async fn test_future_schema_version_detection() {
     const CURRENT_MAJOR: u32 = 1; // MANIFEST_SCHEMA_VERSION = "1.0.0"
 
     let future_version = "99.0.0";
-    let future_major: u32 = future_version.split('.').next().and_then(|s| s.parse().ok()).unwrap();
+    let future_major: u32 = future_version
+        .split('.')
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap();
 
     assert!(
         future_major > CURRENT_MAJOR,
@@ -220,18 +230,33 @@ async fn test_weights_hash_computation() {
 
     // Recompute from extracted weights
     let weights_offset = u64::from_le_bytes([
-        aos_file[8], aos_file[9], aos_file[10], aos_file[11],
-        aos_file[12], aos_file[13], aos_file[14], aos_file[15],
+        aos_file[8],
+        aos_file[9],
+        aos_file[10],
+        aos_file[11],
+        aos_file[12],
+        aos_file[13],
+        aos_file[14],
+        aos_file[15],
     ]) as usize;
     let weights_size = u64::from_le_bytes([
-        aos_file[16], aos_file[17], aos_file[18], aos_file[19],
-        aos_file[20], aos_file[21], aos_file[22], aos_file[23],
+        aos_file[16],
+        aos_file[17],
+        aos_file[18],
+        aos_file[19],
+        aos_file[20],
+        aos_file[21],
+        aos_file[22],
+        aos_file[23],
     ]) as usize;
 
     let extracted_weights = &aos_file[weights_offset..weights_offset + weights_size];
     let recomputed_hash = B3Hash::hash(extracted_weights).to_hex().to_string();
 
-    assert_eq!(stored_hash, recomputed_hash, "Hash should match recomputed value");
+    assert_eq!(
+        stored_hash, recomputed_hash,
+        "Hash should match recomputed value"
+    );
 }
 
 // ============================================================================
@@ -291,8 +316,14 @@ async fn test_signature_policy_persistence() {
         .await
         .expect("get policy");
 
-    assert!(policy.require_signed_adapters, "Policy should require signatures");
-    assert!(!policy.is_implicit, "Policy should be explicit, not default");
+    assert!(
+        policy.require_signed_adapters,
+        "Policy should require signatures"
+    );
+    assert!(
+        !policy.is_implicit,
+        "Policy should be explicit, not default"
+    );
 }
 
 /// Test default policy does not require signatures
@@ -307,7 +338,10 @@ async fn test_default_policy_no_signature_requirement() {
         .await
         .expect("get policy");
 
-    assert!(!policy.require_signed_adapters, "Default policy should not require signatures");
+    assert!(
+        !policy.require_signed_adapters,
+        "Default policy should not require signatures"
+    );
     assert!(policy.is_implicit, "Should be implicit default policy");
 }
 
@@ -327,8 +361,14 @@ async fn test_signature_field_detection() {
         "signature": "base64-signature-data"
     });
 
-    assert!(unsigned.get("signature").is_none(), "Unsigned should have no signature");
-    assert!(signed.get("signature").is_some(), "Signed should have signature");
+    assert!(
+        unsigned.get("signature").is_none(),
+        "Unsigned should have no signature"
+    );
+    assert!(
+        signed.get("signature").is_some(),
+        "Signed should have signature"
+    );
 }
 
 // ============================================================================
@@ -363,12 +403,23 @@ async fn test_adapter_registration_with_artifact_fields() {
     let _id = state.db.register_adapter(params).await.expect("register");
 
     // Retrieve by external adapter_id (not internal UUID)
-    let adapter = state.db.get_adapter(adapter_id).await.expect("get").expect("exists");
+    let adapter = state
+        .db
+        .get_adapter(adapter_id)
+        .await
+        .expect("get")
+        .expect("exists");
 
     assert_eq!(adapter.manifest_schema_version, Some("1.0.0".to_string()));
-    assert_eq!(adapter.content_hash_b3, Some("content-hash-abc".to_string()));
+    assert_eq!(
+        adapter.content_hash_b3,
+        Some("content-hash-abc".to_string())
+    );
     assert!(adapter.base_model_id.is_none()); // Not set (requires FK)
-    assert_eq!(adapter.provenance_json, Some(r#"{"training_job_id":"job-1"}"#.to_string()));
+    assert_eq!(
+        adapter.provenance_json,
+        Some(r#"{"training_job_id":"job-1"}"#.to_string())
+    );
 }
 
 /// Test adapter registration without optional artifact fields
@@ -393,7 +444,12 @@ async fn test_adapter_registration_without_artifact_fields() {
     let _id = state.db.register_adapter(params).await.expect("register");
 
     // Retrieve by external adapter_id (not internal UUID)
-    let adapter = state.db.get_adapter(adapter_id).await.expect("get").expect("exists");
+    let adapter = state
+        .db
+        .get_adapter(adapter_id)
+        .await
+        .expect("get")
+        .expect("exists");
 
     // Artifact fields should be None
     assert!(adapter.manifest_schema_version.is_none());
@@ -411,7 +467,11 @@ async fn test_adapter_registration_without_artifact_fields() {
 async fn test_base_model_lookup_not_found() {
     let state = setup_state(None).await.expect("setup state");
 
-    let result = state.db.get_model_by_name("nonexistent-model").await.expect("query ok");
+    let result = state
+        .db
+        .get_model_by_name("nonexistent-model")
+        .await
+        .expect("query ok");
 
     assert!(result.is_none(), "Non-existent model should return None");
 }

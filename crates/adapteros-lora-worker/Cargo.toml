@@ -21,10 +21,12 @@ default = []
 #   - For research/training workloads
 #
 coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
-multi-backend = ["dep:adapteros-lora-mlx-ffi"]
+multi-backend = ["dep:adapteros-lora-mlx-ffi", "mlx"]
 
 # Alias for clarity
 mlx-backend = ["multi-backend"]
+mlx = []               # Enable real MLX backend (requires MLX runtime)
+real-mlx = ["mlx"]     # Legacy alias (deprecated)
 loom = []
 
 # Residency testing features
@@ -43,7 +45,7 @@ adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
-adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["real-mlx"] }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
@@ -53,6 +55,7 @@ adapteros-memory = { path = "../adapteros-memory" }
 adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-platform = { path = "../adapteros-platform" }
+adapteros-api-types = { path = "../adapteros-api-types" }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
 tokio = { workspace = true }
 serde = { workspace = true }

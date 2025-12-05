@@ -13,6 +13,7 @@ coreml-backend = []
 adapteros-aos = { path = "../adapteros-aos" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-db = { path = "../adapteros-db" }
+adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
@@ -32,6 +33,8 @@ chrono = { workspace = true }
 futures = "0.3"
 zeroize = "1.8"
 utoipa = "5.4"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -172,6 +172,7 @@ async fn test_evict_adapter_updates_state_and_memory() {
     // Promote adapter first
     manager
         .promote_adapter(0)
+        .await
         .expect("Failed to promote adapter");
 
     // Evict adapter

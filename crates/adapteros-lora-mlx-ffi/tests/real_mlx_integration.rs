@@ -16,16 +16,16 @@
 //! ## Running Tests
 //! ```sh
 //! # Run all tests
-//! cargo test -p adapteros-lora-mlx-ffi --features real-mlx real_mlx_integration
+//! cargo test -p adapteros-lora-mlx-ffi --features mlx real_mlx_integration
 //!
 //! # Run specific test with output
-//! cargo test -p adapteros-lora-mlx-ffi --features real-mlx real_mlx_integration::model_loading::test_model_load_basic -- --nocapture
+//! cargo test -p adapteros-lora-mlx-ffi --features mlx real_mlx_integration::model_loading::test_model_load_basic -- --nocapture
 //!
 //! # Run memory tests
-//! cargo test -p adapteros-lora-mlx-ffi --features real-mlx real_mlx_integration::memory_tracking -- --nocapture
+//! cargo test -p adapteros-lora-mlx-ffi --features mlx real_mlx_integration::memory_tracking -- --nocapture
 //! ```
 
-#[cfg(all(test, feature = "real-mlx"))]
+#[cfg(all(test, feature = "mlx"))]
 mod model_loading {
     use adapteros_lora_mlx_ffi::{MLXFFIModel, ModelConfig};
     use std::path::PathBuf;
@@ -191,7 +191,7 @@ mod model_loading {
     }
 }
 
-#[cfg(all(test, feature = "real-mlx"))]
+#[cfg(all(test, feature = "mlx"))]
 mod memory_tracking {
     use adapteros_lora_mlx_ffi::memory;
 
@@ -294,7 +294,7 @@ mod memory_tracking {
     }
 }
 
-#[cfg(all(test, feature = "real-mlx"))]
+#[cfg(all(test, feature = "mlx"))]
 mod forward_pass {
     use adapteros_lora_mlx_ffi::mock::MockMLXFFIModel;
     use adapteros_lora_mlx_ffi::ModelConfig;
@@ -396,7 +396,7 @@ mod forward_pass {
     }
 }
 
-#[cfg(all(test, feature = "real-mlx"))]
+#[cfg(all(test, feature = "mlx"))]
 mod deterministic_seeding {
     use adapteros_core::B3Hash;
     use adapteros_lora_mlx_ffi::mlx_set_seed_from_bytes;
@@ -463,7 +463,7 @@ mod deterministic_seeding {
     }
 }
 
-#[cfg(all(test, feature = "real-mlx"))]
+#[cfg(all(test, feature = "mlx"))]
 mod health_and_resilience {
     use adapteros_lora_mlx_ffi::{CircuitBreakerState, MLXFFIModel, ModelConfig};
 
@@ -541,7 +541,7 @@ mod health_and_resilience {
     }
 }
 
-#[cfg(all(test, feature = "real-mlx"))]
+#[cfg(all(test, feature = "mlx"))]
 mod sampling {
     use adapteros_lora_mlx_ffi::mlx_sample_token_safe;
 
@@ -627,7 +627,7 @@ mod sampling {
     }
 }
 
-#[cfg(all(test, feature = "real-mlx"))]
+#[cfg(all(test, feature = "mlx"))]
 mod hidden_states {
     use adapteros_lora_mlx_ffi::mock::MockMLXFFIModel;
     use adapteros_lora_mlx_ffi::ModelConfig;
@@ -706,7 +706,7 @@ mod hidden_states {
     }
 }
 
-#[cfg(all(test, feature = "real-mlx"))]
+#[cfg(all(test, feature = "mlx"))]
 mod integration_scenarios {
     use adapteros_lora_mlx_ffi::{mock::MockMLXFFIModel, ModelConfig};
 
@@ -790,7 +790,7 @@ mod integration_scenarios {
     }
 }
 
-#[cfg(all(test, feature = "real-mlx"))]
+#[cfg(all(test, feature = "mlx"))]
 mod error_handling {
     use adapteros_lora_mlx_ffi::{mlx_set_seed_from_bytes, ModelConfig};
 

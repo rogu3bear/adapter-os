@@ -252,6 +252,9 @@ impl EffectiveConfig {
         // Validate production paths
         effective_config.validate_production_paths()?;
 
+        // Validate critical configuration values
+        effective_config.validate_critical_config()?;
+
         Ok(effective_config)
     }
 
@@ -347,6 +350,50 @@ impl EffectiveConfig {
                     "Production mode requires absolute path for logging.log_dir: got '{}'\nHint: Use absolute paths starting with / (e.g., /var/log/adapteros)",
                     log_dir.display()
                 ));
+            }
+        }
+
+        if !errors.is_empty() {
+            return Err(AosError::Config(errors.join("\n")));
+        }
+
+        Ok(())
+    }
+
+    /// Validate critical configuration values
+    ///
+    /// Ensures that security-critical configuration values are set correctly.
+    /// Some checks only apply in production mode.
+    pub fn validate_critical_config(&self) -> Result<()> {
+        let mut errors = Vec::new();
+
+        // Rate limits must be positive
+        if self.rate_limits.requests_per_minute == 0 {
+            errors.push("rate_limits.requests_per_minute must be > 0".to_string());
+        }
+        if self.rate_limits.burst_size == 0 {
+            errors.push("rate_limits.burst_size must be > 0".to_string());
+        }
+        if self.rate_limits.inference_per_minute == 0 {
+            errors.push("rate_limits.inference_per_minute must be > 0".to_string());
+        }
+
+        // Production-only checks
+        if self.is_production {
+            // JWT secret must be set in production (not empty or default)
+            if self.security.jwt_secret.is_empty()
+                || self.security.jwt_secret == "change-me-in-production"
+            {
+                errors.push(
+                    "Production mode requires security.jwt_secret to be set to a secure value\n\
+                     Hint: Generate with: openssl rand -base64 32"
+                        .to_string(),
+                );
+            }
+
+            // Database URL must be set
+            if self.database.url.is_empty() {
+                errors.push("Production mode requires database.url to be set".to_string());
             }
         }
 

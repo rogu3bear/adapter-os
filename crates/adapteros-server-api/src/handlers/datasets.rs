@@ -47,11 +47,23 @@ const STREAM_BUFFER_SIZE: usize = 64 * 1024;
 const VALIDATION_BATCH_SIZE: usize = 10;
 
 /// Map validation status: 'pending' → 'draft' for API responses
-fn map_validation_status(status: &str) -> String {
+fn map_validation_status(status: &str) -> DatasetValidationStatus {
     match status {
-        "pending" => "draft".to_string(),
-        other => other.to_string(),
+        "validating" => DatasetValidationStatus::Validating,
+        "valid" => DatasetValidationStatus::Valid,
+        "invalid" => DatasetValidationStatus::Invalid,
+        "failed" => DatasetValidationStatus::Failed,
+        "pending" => DatasetValidationStatus::Draft,
+        _ => DatasetValidationStatus::Draft,
     }
+}
+
+fn map_validation_errors(errors: Option<String>) -> Option<Vec<String>> {
+    errors.and_then(|raw| {
+        serde_json::from_str::<Vec<String>>(&raw)
+            .ok()
+            .or_else(|| Some(vec![raw]))
+    })
 }
 
 /// Helper function to send progress events
@@ -621,7 +633,7 @@ pub async fn list_datasets(
             hash: d.hash_b3,
             storage_path: d.storage_path,
             validation_status: map_validation_status(&d.validation_status),
-            validation_errors: d.validation_errors,
+            validation_errors: map_validation_errors(d.validation_errors),
             created_by: d.created_by.unwrap_or_else(|| "system".to_string()),
             created_at: d.created_at,
             updated_at: d.updated_at,
@@ -682,7 +694,7 @@ pub async fn get_dataset(
         hash: dataset.hash_b3,
         storage_path: dataset.storage_path,
         validation_status: map_validation_status(&dataset.validation_status),
-        validation_errors: dataset.validation_errors,
+        validation_errors: map_validation_errors(dataset.validation_errors),
         created_by: dataset.created_by.unwrap_or_else(|| "system".to_string()),
         created_at: dataset.created_at,
         updated_at: dataset.updated_at,
@@ -1017,12 +1029,8 @@ pub async fn validate_dataset(
         schema_version: "1.0".to_string(),
         dataset_id,
         is_valid,
-        validation_status: validation_status.to_string(),
-        errors: if validation_errors.is_empty() {
-            None
-        } else {
-            Some(validation_errors)
-        },
+        validation_status: map_validation_status(validation_status),
+        errors: if validation_errors.is_empty() { None } else { Some(validation_errors) },
         validated_at: chrono::Utc::now().to_rfc3339(),
     }))
 }
@@ -2066,7 +2074,7 @@ pub async fn create_dataset_from_documents(
             // Single document mode
             let doc = state
                 .db
-                .get_document(doc_id)
+                .get_document(&claims.tenant_id, doc_id)
                 .await
                 .map_err(|e| db_error(format!("Failed to get document: {}", e)))?
                 .ok_or_else(|| not_found("Document"))?;
@@ -2091,7 +2099,7 @@ pub async fn create_dataset_from_documents(
             // Collection mode
             let collection = state
                 .db
-                .get_collection(col_id)
+                .get_collection(&claims.tenant_id, col_id)
                 .await
                 .map_err(|e| db_error(format!("Failed to get collection: {}", e)))?
                 .ok_or_else(|| not_found("Collection"))?;
@@ -2102,7 +2110,7 @@ pub async fn create_dataset_from_documents(
             // Get documents in collection
             let docs = state
                 .db
-                .get_collection_documents(col_id)
+                .get_collection_documents(&claims.tenant_id, col_id)
                 .await
                 .map_err(|e| db_error(format!("Failed to get collection documents: {}", e)))?;
 
@@ -2320,6 +2328,9 @@ pub async fn create_dataset_from_documents(
         .await
         .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
 
+    let response_validation_status = map_validation_status(&validation_status);
+    let response_validation_errors = map_validation_errors(validation_errors);
+
     let now = chrono::Utc::now().to_rfc3339();
 
     // Audit log
@@ -2351,8 +2362,8 @@ pub async fn create_dataset_from_documents(
         format: "jsonl".to_string(),
         hash: content_hash,
         storage_path: dataset_path.to_string_lossy().to_string(),
-        validation_status,
-        validation_errors,
+        validation_status: response_validation_status,
+        validation_errors: response_validation_errors,
         created_by: claims.sub.clone(),
         created_at: now.clone(),
         updated_at: now,

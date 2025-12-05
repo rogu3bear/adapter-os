@@ -149,6 +149,7 @@ fn test_features_affect_ranking_with_varied_priors() {
 
 /// Test that old route() method is broken (global feature score)
 #[test]
+#[allow(deprecated)]
 fn test_old_route_method_is_broken() {
     let weights = RouterWeights::default();
     let mut router = Router::new_with_weights(weights, 3, 1.0, 0.02);

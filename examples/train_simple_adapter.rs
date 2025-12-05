@@ -46,18 +46,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 2: Configure trainer
     println!("\nStep 2: Configuring trainer...");
-    let config = TrainingConfig {
-        rank: 4,    // Small rank for quick training
-        alpha: 8.0, // LoRA alpha scaling
-        learning_rate: 1e-3,
-        batch_size: 2,
-        epochs: 3,
-        hidden_dim: 64, // Small dimension for testing
-        vocab_size: 50272,
-        preferred_backend: None,
-        require_gpu: false,
-        max_gpu_memory_mb: 0,
-    };
+    let mut config = TrainingConfig::default();
+    config.rank = 4; // Small rank for quick training
+    config.alpha = 8.0; // LoRA alpha scaling
+    config.learning_rate = 1e-3;
+    config.batch_size = 2;
+    config.epochs = 3;
+    config.hidden_dim = 64; // Small dimension for testing
+    config.vocab_size = 50272;
     println!(
         "   Config: rank={}, alpha={}, lr={}, epochs={}",
         config.rank, config.alpha, config.learning_rate, config.epochs

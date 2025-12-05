@@ -10,6 +10,68 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// Returns true when production safeguards must be enforced.
+///
+/// Controlled by `AOS_SERVER_PRODUCTION_MODE` to align with control-plane
+/// production posture. Debug builds may still run with this flag disabled.
+pub(crate) fn production_mode_enabled() -> bool {
+    std::env::var("AOS_SERVER_PRODUCTION_MODE")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
+/// Guard dev-only bypass flags so they cannot be activated in production mode
+/// or release builds. These escapes exist solely for development/debug builds.
+pub(crate) fn allow_dev_bypass(var_names: &[&str], context: &str) -> Result<bool> {
+    let env_name = var_names
+        .iter()
+        .copied()
+        .find(|name| std::env::var(name).is_ok())
+        .map(|s| s.to_string());
+
+    if let Some(env_name) = env_name {
+        let prod = production_mode_enabled();
+
+        if prod {
+            tracing::error!(
+                env = env_name,
+                context,
+                production_mode = prod,
+                "Unsafe bypass blocked: production_mode=true"
+            );
+            return Err(AosError::PolicyViolation(format!(
+                "{} is disabled when production_mode is enabled",
+                env_name
+            )));
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            tracing::warn!(
+                env = env_name,
+                context,
+                "Ignoring {} in release builds for security (dev-only bypass rejected)",
+                env_name
+            );
+            return Ok(false);
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            tracing::warn!(
+                env = env_name,
+                context,
+                production_mode = prod,
+                build = "debug",
+                "DEV-ONLY bypass enabled; verification will be skipped"
+            );
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 /// Kernel manifest containing build metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KernelManifest {
@@ -192,15 +254,19 @@ pub fn verify_embedded_manifest(
     // Compute actual kernel hash
     let actual_hash = B3Hash::hash(metallib_bytes);
 
-    // Allow development override to skip kernel signature verification
-    let skip_sig = std::env::var("AOS_SKIP_KERNEL_SIGNATURE_VERIFY")
-        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false);
+    // Allow development override to skip kernel signature verification (DEV BUILDS ONLY)
+    let skip_sig = allow_dev_bypass(
+        &[
+            "AOS_SKIP_KERNEL_SIGNATURE_VERIFY",
+            "AOS_DEBUG_SKIP_KERNEL_SIG",
+        ],
+        "kernel manifest signature verification",
+    )?;
 
     let manifest = if skip_sig {
         // Parse manifest without signature validation (DEV ONLY)
         tracing::warn!(
-            "Skipping kernel signature verification due to AOS_SKIP_KERNEL_SIGNATURE_VERIFY"
+            "Skipping kernel signature verification due to AOS_SKIP_KERNEL_SIGNATURE_VERIFY/AOS_DEBUG_SKIP_KERNEL_SIG"
         );
         let m: KernelManifest =
             serde_json::from_str(manifest_json).map_err(AosError::Serialization)?;
@@ -233,6 +299,22 @@ pub fn verify_embedded_manifest(
 mod tests {
     use super::*;
 
+    fn set_env(var: &str, val: Option<&str>) -> Option<String> {
+        let prev = std::env::var(var).ok();
+        match val {
+            Some(v) => std::env::set_var(var, v),
+            None => std::env::remove_var(var),
+        }
+        prev
+    }
+
+    fn restore_env(var: &str, prev: Option<String>) {
+        match prev {
+            Some(v) => std::env::set_var(var, v),
+            None => std::env::remove_var(var),
+        }
+    }
+
     #[test]
     fn test_manifest_verification() {
         // Create test manifest
@@ -259,5 +341,70 @@ mod tests {
         // For now, just test the structure
         assert!(manifest_json.contains("kernel_hash"));
         assert!(canonical_json.contains("kernel_hash"));
+    }
+
+    #[test]
+    fn test_skip_sig_rejected_in_production_mode() {
+        let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("true"));
+        let skip_prev = set_env("AOS_SKIP_KERNEL_SIGNATURE_VERIFY", Some("1"));
+
+        let result = verify_embedded_manifest(b"not-a-real-metallib", None);
+        assert!(
+            matches!(result, Err(AosError::PolicyViolation(_))),
+            "Skip env should be rejected when production_mode is enabled"
+        );
+
+        restore_env("AOS_SKIP_KERNEL_SIGNATURE_VERIFY", skip_prev);
+        restore_env("AOS_SERVER_PRODUCTION_MODE", prod_prev);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn test_skip_sig_allowed_in_dev_debug() {
+        let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("false"));
+        let skip_prev = set_env("AOS_SKIP_KERNEL_SIGNATURE_VERIFY", Some("1"));
+
+        let result = verify_embedded_manifest(b"not-a-real-metallib", None);
+        assert!(
+            result.is_ok(),
+            "Dev skip should allow bypassing verification in debug builds"
+        );
+
+        restore_env("AOS_SKIP_KERNEL_SIGNATURE_VERIFY", skip_prev);
+        restore_env("AOS_SERVER_PRODUCTION_MODE", prod_prev);
+    }
+
+    #[test]
+    fn test_metallib_skip_blocked_in_production_mode() {
+        let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("true"));
+        let skip_prev = set_env("AOS_DEV_SKIP_METALLIB_CHECK", Some("1"));
+
+        let result = allow_dev_bypass(
+            &["AOS_DEV_SKIP_METALLIB_CHECK"],
+            "metallib hash verification",
+        );
+        assert!(
+            matches!(result, Err(AosError::PolicyViolation(_))),
+            "Hash skip should be rejected when production_mode is enabled"
+        );
+
+        restore_env("AOS_DEV_SKIP_METALLIB_CHECK", skip_prev);
+        restore_env("AOS_SERVER_PRODUCTION_MODE", prod_prev);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn test_metallib_skip_allowed_in_dev_debug() {
+        let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("false"));
+        let skip_prev = set_env("AOS_DEV_SKIP_METALLIB_CHECK", Some("1"));
+
+        let result = allow_dev_bypass(
+            &["AOS_DEV_SKIP_METALLIB_CHECK"],
+            "metallib hash verification",
+        );
+        assert_eq!(result.unwrap_or(false), true);
+
+        restore_env("AOS_DEV_SKIP_METALLIB_CHECK", skip_prev);
+        restore_env("AOS_SERVER_PRODUCTION_MODE", prod_prev);
     }
 }

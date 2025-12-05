@@ -7,11 +7,14 @@ use super::trainer::TrainingConfig;
 use adapteros_aos::AosWriter;
 use adapteros_core::{paths::AdapterPaths, AosError, Result};
 use safetensors::tensor::TensorView;
+use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::info;
 
-/// Adapter packager
+/// Adapter packager.
+/// Adapter-only invariant: only LoRA deltas are ever exported; base model
+/// weights remain outside the package boundary.
 #[derive(Debug)]
 pub struct AdapterPackager {
     output_dir: PathBuf,
@@ -35,7 +38,17 @@ pub struct AdapterManifest {
     pub training_config: TrainingConfig,
     pub created_at: String,
     pub weights_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub per_layer_hashes: Option<std::collections::HashMap<String, LayerHash>>,
     pub metadata: std::collections::HashMap<String, String>,
+}
+
+/// Per-layer hash entry keyed by canonical logical layer path
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayerHash {
+    pub hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tensor_name: Option<String>,
 }
 
 impl AdapterPackager {
@@ -101,13 +114,15 @@ impl AdapterPackager {
             AosError::Training(format!("Failed to create adapter directory: {}", e))
         })?;
 
-        // Serialize weights to safetensors format
+        // Serialize weights to safetensors format (adapter-only deltas)
         let weights_path = adapter_dir.join("weights.safetensors");
-        self.save_weights_safetensors(&weights_path, weights)
+        let weights_bytes = self
+            .save_weights_safetensors(&weights_path, weights)
             .await?;
 
-        // Compute BLAKE3 hash of weights
-        let hash_b3 = self.compute_hash(&weights_path).await?;
+        // Compute whole-adapter hash + per-layer hashes from the in-memory bytes
+        let hash_b3 = blake3::hash(&weights_bytes).to_hex().to_string();
+        let per_layer_hashes = Self::compute_per_layer_hashes_from_bytes(&weights_bytes)?;
 
         // Create manifest
         let manifest = AdapterManifest {
@@ -117,6 +132,7 @@ impl AdapterPackager {
             training_config: config.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: hash_b3.clone(),
+            per_layer_hashes: Some(per_layer_hashes),
             metadata,
         };
 
@@ -150,11 +166,12 @@ impl AdapterPackager {
     ) -> Result<PackagedAdapter> {
         info!("Packaging adapter as .aos archive: {}", adapter_id);
 
-        // Serialize weights to in-memory buffer (simulating safetensors)
-        let weights_data = serde_json::to_vec_pretty(&weights)?;
+        // Serialize weights to in-memory safetensors buffer (matches loader expectations)
+        let weights_data = Self::build_safetensors_bytes(weights)?;
 
-        // Compute BLAKE3 hash of weights
+        // Compute BLAKE3 hash of weights and per-layer hashes
         let hash_b3 = blake3::hash(&weights_data).to_hex().to_string();
+        let per_layer_hashes = Self::compute_per_layer_hashes_from_bytes(&weights_data)?;
 
         // Create manifest
         let manifest = AdapterManifest {
@@ -164,6 +181,7 @@ impl AdapterPackager {
             training_config: config.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: hash_b3.clone(),
+            per_layer_hashes: Some(per_layer_hashes),
             metadata: std::collections::HashMap::new(),
         };
 
@@ -191,7 +209,94 @@ impl AdapterPackager {
         &self,
         path: &Path,
         weights: &QuantizedLoRAWeights,
-    ) -> Result<()> {
+    ) -> Result<Vec<u8>> {
+        let data = Self::build_safetensors_bytes(weights)?;
+
+        tokio::fs::write(path, &data)
+            .await
+            .map_err(|e| AosError::Training(format!("Failed to write weights: {}", e)))?;
+
+        Ok(data)
+    }
+
+    /// Save manifest as JSON
+    async fn save_manifest(&self, path: &Path, manifest: &AdapterManifest) -> Result<()> {
+        let serialized = serde_json::to_vec_pretty(&manifest)
+            .map_err(|e| AosError::Training(format!("Failed to serialize manifest: {}", e)))?;
+
+        tokio::fs::write(path, serialized)
+            .await
+            .map_err(|e| AosError::Training(format!("Failed to write manifest: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Compute BLAKE3 hash of file
+    async fn compute_hash(&self, path: &Path) -> Result<String> {
+        let data = tokio::fs::read(path)
+            .await
+            .map_err(|e| AosError::Training(format!("Failed to read file for hashing: {}", e)))?;
+
+        let hash = blake3::hash(&data);
+        Ok(hash.to_hex().to_string())
+    }
+
+    /// Canonical logical layer path for manifest keys (e.g., transformer.layer_12.attn.q_proj.lora_A)
+    fn canonical_layer_id(tensor_name: &str) -> String {
+        let mut segments = Vec::new();
+        let mut iter = tensor_name.split(|c| c == '.' || c == '/').peekable();
+
+        while let Some(seg) = iter.next() {
+            if seg.is_empty() {
+                continue;
+            }
+
+            let lower = seg.to_lowercase();
+            if lower == "weight" {
+                continue;
+            }
+
+            if lower == "model" || lower == "transformer" {
+                if segments.is_empty() {
+                    segments.push("transformer".to_string());
+                }
+                continue;
+            }
+
+            if lower == "layers" || lower == "layer" {
+                if let Some(next) = iter.peek() {
+                    if let Ok(idx) = next.parse::<usize>() {
+                        segments.push(format!("layer_{}", idx));
+                        iter.next();
+                        continue;
+                    }
+                }
+            }
+
+            let normalized = match lower.as_str() {
+                "lora_a" => "lora_A".to_string(),
+                "lora_b" => "lora_B".to_string(),
+                other => other.to_string(),
+            };
+
+            segments.push(normalized);
+        }
+
+        if segments.is_empty() {
+            return tensor_name.to_string();
+        }
+
+        if segments.first().map(|s| s.as_str()) != Some("transformer") {
+            let mut prefixed = vec!["transformer".to_string()];
+            prefixed.extend(segments);
+            segments = prefixed;
+        }
+
+        segments.join(".")
+    }
+
+    /// Serialize quantized weights into safetensors bytes (adapter-only, no base weights)
+    fn build_safetensors_bytes(weights: &QuantizedLoRAWeights) -> Result<Vec<u8>> {
         // Dequantize to f32 for runtime backends
         let deq = LoRAQuantizer::dequantize_from_q15(weights);
 
@@ -237,38 +342,48 @@ impl AdapterPackager {
             tensors.push((format!("lora_b.{}", name), b_view));
         }
 
-        // Note: scalar config (alpha, dropout) can be embedded later if needed.
+        debug_assert!(
+            tensors
+                .iter()
+                .all(|(name, _)| name.starts_with("lora_a.") || name.starts_with("lora_b.")),
+            "packager must only serialize LoRA tensors; base weights are excluded"
+        );
 
-        let data = safetensors::serialize(tensors, &Default::default())
-            .map_err(|e| AosError::Training(format!("safetensors serialize error: {}", e)))?;
-
-        tokio::fs::write(path, data)
-            .await
-            .map_err(|e| AosError::Training(format!("Failed to write weights: {}", e)))?;
-
-        Ok(())
+        safetensors::serialize(tensors, &Default::default())
+            .map_err(|e| AosError::Training(format!("safetensors serialize error: {}", e)))
     }
 
-    /// Save manifest as JSON
-    async fn save_manifest(&self, path: &Path, manifest: &AdapterManifest) -> Result<()> {
-        let serialized = serde_json::to_vec_pretty(&manifest)
-            .map_err(|e| AosError::Training(format!("Failed to serialize manifest: {}", e)))?;
+    fn compute_per_layer_hashes_from_bytes(
+        weights_bytes: &[u8],
+    ) -> Result<std::collections::HashMap<String, LayerHash>> {
+        let tensors = SafeTensors::deserialize(weights_bytes).map_err(|e| {
+            AosError::Training(format!(
+                "Failed to parse safetensors for per-layer hashing: {e}"
+            ))
+        })?;
 
-        tokio::fs::write(path, serialized)
-            .await
-            .map_err(|e| AosError::Training(format!("Failed to write manifest: {}", e)))?;
+        let mut hashes = std::collections::HashMap::new();
+        for (name, tensor) in tensors.tensors() {
+            let canonical = Self::canonical_layer_id(&name);
+            let hash = blake3::hash(tensor.data()).to_hex().to_string();
+            if hashes
+                .insert(
+                    canonical.clone(),
+                    LayerHash {
+                        hash,
+                        tensor_name: Some(name.to_string()),
+                    },
+                )
+                .is_some()
+            {
+                return Err(AosError::Training(format!(
+                    "Duplicate canonical layer id detected while hashing: {}",
+                    canonical
+                )));
+            }
+        }
 
-        Ok(())
-    }
-
-    /// Compute BLAKE3 hash of file
-    async fn compute_hash(&self, path: &Path) -> Result<String> {
-        let data = tokio::fs::read(path)
-            .await
-            .map_err(|e| AosError::Training(format!("Failed to read file for hashing: {}", e)))?;
-
-        let hash = blake3::hash(&data);
-        Ok(hash.to_hex().to_string())
+        Ok(hashes)
     }
 
     /// Sign adapter directory with Ed25519
@@ -416,6 +531,7 @@ mod tests {
             training_config: TrainingConfig::default(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: "test_hash".to_string(),
+            per_layer_hashes: None,
             metadata: std::collections::HashMap::new(),
         };
 
@@ -431,5 +547,33 @@ mod tests {
 
         assert_eq!(loaded_manifest.rank, 4);
         assert_eq!(loaded_manifest.base_model, "test-model");
+    }
+
+    #[test]
+    fn test_per_layer_hashes_use_canonical_ids() {
+        use safetensors::tensor::TensorView;
+
+        let lora_bytes: Vec<u8> = vec![0.1f32, 0.2, 0.3, 0.4]
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        let tensors = [(
+            "model.layers.0.attn.q_proj.lora_A.weight".to_string(),
+            TensorView::new(safetensors::Dtype::F32, vec![2, 2], &lora_bytes).unwrap(),
+        )];
+
+        let serialized = safetensors::tensor::serialize(tensors, &None).unwrap();
+        let hashes =
+            AdapterPackager::compute_per_layer_hashes_from_bytes(&serialized).expect("hashing ok");
+
+        let canonical = "transformer.layer_0.attn.q_proj.lora_A";
+        let entry = hashes
+            .get(canonical)
+            .expect("canonical layer entry should exist");
+        assert_eq!(
+            entry.tensor_name.as_deref(),
+            Some("model.layers.0.attn.q_proj.lora_A.weight")
+        );
+        assert!(!entry.hash.is_empty());
     }
 }

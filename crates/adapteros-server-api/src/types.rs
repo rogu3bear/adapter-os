@@ -153,6 +153,87 @@ pub struct BatchInferResponse {
     pub responses: Vec<BatchInferItemResponse>,
 }
 
+/// Create batch job request (async batch processing)
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateBatchJobRequest {
+    /// Collection of inference requests to process asynchronously
+    pub requests: Vec<BatchInferItemRequest>,
+    /// Optional timeout in seconds for the entire batch job
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<i32>,
+    /// Optional maximum number of concurrent requests to process
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_concurrent: Option<i32>,
+}
+
+/// Batch job creation response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchJobResponse {
+    /// Unique batch job identifier
+    pub batch_id: String,
+    /// Current job status
+    pub status: String,
+}
+
+/// Batch job status response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchStatusResponse {
+    /// Unique batch job identifier
+    pub batch_id: String,
+    /// Current job status
+    pub status: String,
+    /// Total number of items in the batch
+    pub total_items: i64,
+    /// Number of items completed successfully
+    pub completed_items: i64,
+    /// Number of items that failed
+    pub failed_items: i64,
+    /// Job creation timestamp (RFC3339)
+    pub created_at: String,
+    /// Job start timestamp (RFC3339)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    /// Job completion timestamp (RFC3339)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+}
+
+/// Query parameters for batch items retrieval
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct BatchItemsQuery {
+    /// Filter by item status
+    pub status: Option<String>,
+    /// Maximum number of items to return
+    pub limit: Option<i32>,
+    /// Number of items to skip
+    pub offset: Option<i32>,
+}
+
+/// Batch items response containing results
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchItemsResponse {
+    /// Collection of batch item results
+    pub items: Vec<BatchItemResultResponse>,
+}
+
+/// Individual batch item result
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchItemResultResponse {
+    /// Item identifier
+    pub id: String,
+    /// Item processing status
+    pub status: String,
+    /// Successful inference response
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<InferResponse>,
+    /// Error message if the item failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Processing latency in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<i64>,
+}
+
 // ErrorResponse methods and IntoResponse impl are in adapteros-api-types
 
 /// Upsert directory adapter request (synthetic, optional activation)
@@ -955,6 +1036,10 @@ pub struct WorkerInferRequest {
     /// if adapters outside the set are requested.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effective_adapter_ids: Option<Vec<String>>,
+
+    /// Routing policy resolved for this tenant/request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
 }
 
 /// Worker inference response (from worker via UDS)
@@ -988,6 +1073,9 @@ pub struct WorkerInferResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct WorkerTrace {
     pub router_summary: RouterSummary,
+    /// Detailed router decisions per step (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub router_decisions: Option<Vec<adapteros_api_types::inference::RouterDecision>>,
 }
 
 /// Router summary
@@ -3179,6 +3267,10 @@ pub struct ReplayContext {
     /// If true, don't capture new replay metadata for this execution
     /// (prevents recursive replay metadata creation)
     pub skip_metadata_capture: bool,
+    /// Original policy ID that was in effect during the original inference
+    pub original_policy_id: Option<String>,
+    /// Original policy version that was in effect
+    pub original_policy_version: Option<i64>,
 }
 
 // ===== Tenant Token Revocation =====

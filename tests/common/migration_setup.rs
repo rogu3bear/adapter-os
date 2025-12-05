@@ -5,6 +5,8 @@
 //! - test_safe_migration.rs
 //! - test_registry_migration_complete.rs
 
+#![allow(dead_code)]
+
 use rusqlite::Connection;
 use std::path::Path;
 

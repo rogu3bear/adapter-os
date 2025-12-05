@@ -147,4 +147,11 @@ mod mlx_seed_tests {
     }
 }
 
-// Note: The tests above run with stub implementations when real-mlx feature is disabled
+// Note: The tests above run with stub implementations when the mlx feature is disabled
+
+#[cfg(feature = "mlx")]
+#[test]
+fn mlx_runtime_initializes_when_feature_enabled() {
+    adapteros_lora_mlx_ffi::mlx_runtime_init()
+        .expect("MLX runtime must be installed when building with `--features mlx`");
+}

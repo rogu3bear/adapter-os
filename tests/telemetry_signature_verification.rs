@@ -6,16 +6,15 @@
 //! - Key material must persist across restarts
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_crypto::{Keypair, PublicKey, Signature};
+use adapteros_crypto::Keypair;
 use adapteros_telemetry::verify_bundle_signature;
 use std::fs;
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 /// Test that bundle signatures can be verified with the stored public key
 #[test]
 fn test_bundle_signature_roundtrip() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let _temp_dir = TempDir::new()?;
 
     // Generate keypair
     let keypair = Keypair::generate();

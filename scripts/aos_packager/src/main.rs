@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use safetensors::SafeTensors;
 
 /// AOS 2.0 manifest structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,10 +26,19 @@ struct AdapterManifest {
     tier: String,
     created_at: String,
     weights_hash: String,
+    #[serde(default)]
+    per_layer_hashes: Option<HashMap<String, LayerHashEntry>>,
     signature: Option<String>,
     public_key: Option<String>,
     training_config: Option<TrainingConfig>,
     metadata: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LayerHashEntry {
+    hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tensor_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +85,88 @@ fn blake3_hash(data: &[u8]) -> String {
     let mut hasher = Hasher::new();
     hasher.update(data);
     hex::encode(hasher.finalize().as_bytes())
+}
+
+/// Canonical logical layer path for manifest keys (format: transformer.layer_12.attn.q_proj.lora_A)
+fn canonical_layer_id(tensor_name: &str) -> String {
+    let mut segments = Vec::new();
+    let mut iter = tensor_name.split(|c| c == '.' || c == '/').peekable();
+
+    while let Some(seg) = iter.next() {
+        if seg.is_empty() {
+            continue;
+        }
+        let lower = seg.to_lowercase();
+
+        if lower == "weight" {
+            continue;
+        }
+
+        if lower == "model" || lower == "transformer" {
+            if segments.is_empty() {
+                segments.push("transformer".to_string());
+            }
+            continue;
+        }
+
+        if (lower == "layers" || lower == "layer") {
+            if let Some(next) = iter.peek() {
+                if let Ok(idx) = next.parse::<usize>() {
+                    segments.push(format!("layer_{}", idx));
+                    iter.next();
+                    continue;
+                }
+            }
+        }
+
+        let normalized = match lower.as_str() {
+            "lora_a" => "lora_A".to_string(),
+            "lora_b" => "lora_B".to_string(),
+            other => other.to_string(),
+        };
+
+        segments.push(normalized);
+    }
+
+    if segments.is_empty() {
+        return tensor_name.to_string();
+    }
+
+    // Ensure transformer prefix for clarity
+    if segments[0] != "transformer" {
+        let mut prefixed = vec!["transformer".to_string()];
+        prefixed.extend(segments);
+        segments = prefixed;
+    }
+
+    segments.join(".")
+}
+
+/// Compute per-layer BLAKE3 hashes keyed by canonical logical layer path
+fn compute_per_layer_hashes(weights_data: &[u8]) -> Result<HashMap<String, LayerHashEntry>> {
+    let tensors = SafeTensors::deserialize(weights_data)
+        .context("Failed to parse SafeTensors for per-layer hashing")?;
+
+    let mut hashes = HashMap::new();
+    for (name, tensor) in tensors.tensors() {
+        let canonical = canonical_layer_id(name);
+        let hash = blake3_hash(tensor.data());
+
+        if hashes
+            .insert(
+                canonical.clone(),
+                LayerHashEntry {
+                    hash,
+                    tensor_name: Some(name.to_string()),
+                },
+            )
+            .is_some()
+        {
+            anyhow::bail!("Duplicate canonical layer id detected: {}", canonical);
+        }
+    }
+
+    Ok(hashes)
 }
 
 /// Generate Ed25519 keypair
@@ -175,6 +267,10 @@ fn package_adapter(
     let weights_hash = blake3_hash(&weights_data);
     println!("  ✓ BLAKE3 hash: {}...", &weights_hash[..16]);
 
+    // Compute per-layer hashes
+    let per_layer_hashes = compute_per_layer_hashes(&weights_data)?;
+    println!("  ✓ Per-layer hashes: {} tensors", per_layer_hashes.len());
+
     // Generate keypair for signing
     let (signing_key, verifying_key) = generate_keypair();
     let public_key = hex::encode(verifying_key.to_bytes());
@@ -198,6 +294,7 @@ fn package_adapter(
         tier: "persistent".to_string(),
         created_at: Utc::now().to_rfc3339(),
         weights_hash: weights_hash.clone(),
+        per_layer_hashes: Some(per_layer_hashes.clone()),
         signature: None,
         public_key: Some(public_key.clone()),
         training_config: Some(TrainingConfig {

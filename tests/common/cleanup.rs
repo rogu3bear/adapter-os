@@ -9,6 +9,8 @@
 //!
 //! All cleanup functions are designed to work for both passing and failing tests.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::env;
 use std::fs;

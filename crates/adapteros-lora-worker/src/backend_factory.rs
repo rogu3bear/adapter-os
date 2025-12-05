@@ -189,13 +189,13 @@ pub fn detect_capabilities() -> BackendCapabilities {
     // Detect MLX availability - only report true if real MLX is available
     #[cfg(feature = "multi-backend")]
     {
-        #[cfg(feature = "real-mlx")]
+        #[cfg(feature = "mlx")]
         {
             // Real MLX available - check if runtime can be initialized
             use adapteros_lora_mlx_ffi::{mlx_runtime_init, mlx_runtime_is_initialized};
             caps.has_mlx = mlx_runtime_is_initialized() || mlx_runtime_init().is_ok();
         }
-        #[cfg(not(feature = "real-mlx"))]
+        #[cfg(not(feature = "mlx"))]
         {
             // Only stub available - be honest about it
             caps.has_mlx = false;
@@ -581,8 +581,33 @@ fn create_metal_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Re
         kernels.set_gqa_config(gqa_config);
     }
 
-    // Initialize with model weights
-    kernels.load(&model_bytes_arc)?;
+    // Initialize with model weights (immutable after load). In debug and when
+    // explicitly requested, re-hash after load to ensure the kernel never
+    // mutates the shared base buffer (Arc-backed, unified memory).
+    let plan_bytes: &[u8] = model_bytes_arc.as_slice();
+    // Invariant: base model bytes must remain immutable after load. When we have a
+    // manifest hash (deterministic path) or explicit verification is requested,
+    // re-hash before/after load to catch any accidental mutation in the kernel.
+    let verify_immutable = manifest_hash.is_some()
+        || cfg!(debug_assertions)
+        || std::env::var("AOS_VERIFY_MODEL_BYTES").is_ok();
+
+    if verify_immutable {
+        let before = B3Hash::hash(plan_bytes);
+        kernels.load(plan_bytes)?;
+        let after = B3Hash::hash(plan_bytes);
+        if before != after {
+            return Err(AosError::Internal(
+                "Metal backend mutated base model bytes during load".to_string(),
+            ));
+        }
+        debug_assert_eq!(
+            before, after,
+            "Metal backend must leave base bytes untouched"
+        );
+    } else {
+        kernels.load(plan_bytes)?;
+    }
     info!("Metal kernel backend initialized successfully");
 
     Ok(Box::new(kernels))

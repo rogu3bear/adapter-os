@@ -41,7 +41,7 @@ mlx_active_adapters{backend="mlx"} 3
 
 **Causes:**
 - MLX C++ API not available
-- `real-mlx` feature not enabled
+- `mlx` feature not enabled
 - Missing MLX library dependencies
 
 **Solutions:**
@@ -49,10 +49,10 @@ mlx_active_adapters{backend="mlx"} 3
 #### Enable Real MLX Mode
 ```bash
 # Enable feature flag
-cargo build --features real-mlx
+cargo build --features mlx
 
 # Verify compilation
-cargo check -p adapteros-lora-mlx-ffi --features real-mlx
+cargo check -p adapteros-lora-mlx-ffi --features mlx
 ```
 
 #### Install MLX Dependencies
@@ -233,8 +233,8 @@ let config = LoRAConfig {
 
 #### Verify Feature Flags
 ```bash
-# Check if real-mlx is enabled
-cargo tree -p adapteros-lora-mlx-ffi | grep real-mlx
+# Check if mlx is enabled
+cargo tree -p adapteros-lora-mlx-ffi | grep mlx
 ```
 
 #### Check Determinism Attestation

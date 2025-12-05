@@ -56,6 +56,7 @@ mod test_utils {
     }
 
     /// Helper to validate field type consistency
+    #[allow(dead_code)]
     pub fn validate_field_type(json_val: &Value, expected_type: &str) -> Result<(), String> {
         let actual_type = match json_val {
             Value::Null => "null",
@@ -77,6 +78,7 @@ mod test_utils {
     }
 
     /// Recursively validate required fields are present
+    #[allow(dead_code)]
     pub fn validate_required_fields(json_obj: &Value, required_fields: &[&str]) -> Vec<String> {
         let mut missing = Vec::new();
 
@@ -136,6 +138,4 @@ mod test_utils {
     }
 }
 
-pub use test_utils::{
-    is_valid_snake_case, validate_field_type, validate_required_fields, validate_snake_case_fields,
-};
+pub use test_utils::{is_valid_snake_case, validate_snake_case_fields};

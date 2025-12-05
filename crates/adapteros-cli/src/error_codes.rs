@@ -704,7 +704,9 @@ impl From<&adapteros_core::AosError> for ExitCode {
             // Validation errors (60-69)
             AosError::Validation(_) => ExitCode::Validation,
             AosError::InvalidCPID(_) => ExitCode::InvalidCPID,
-            AosError::AdapterHashMismatch { .. } => ExitCode::AdapterHashMismatch,
+            AosError::AdapterHashMismatch { .. } | AosError::AdapterLayerHashMismatch { .. } => {
+                ExitCode::AdapterHashMismatch
+            }
             AosError::KernelLayoutMismatch { .. } => ExitCode::KernelLayoutMismatch,
             AosError::RngError { .. } => ExitCode::RngError,
 

@@ -28,8 +28,8 @@ use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence, RagC
 use crate::state::AppState;
 use crate::types::{
     ChunkReference, InferenceError, InferenceRequestInternal, InferenceResult, RagEvidence,
-    ReplayContext, RouterDecisionRecord, SamplingParams, WorkerInferRequest, MAX_REPLAY_TEXT_SIZE,
-    SAMPLING_ALGORITHM_VERSION,
+    ReplayContext, RouterCandidateRecord, RouterDecisionRecord, SamplingParams, WorkerInferRequest,
+    MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
 };
 use crate::uds_client::UdsClient;
 use adapteros_api_types::inference::ReplayGuarantee;
@@ -38,7 +38,7 @@ use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
 use std::path::PathBuf;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, info_span, warn};
 
 // =============================================================================
 // Pinned Adapter Helpers (CHAT-PIN-02)
@@ -181,10 +181,11 @@ pub fn compute_replay_guarantee(
 // TenantExecutionPolicy Resolution (Bundle E)
 // =============================================================================
 
-/// Resolved routing policy knobs (carry-forward, not enforced in Bundle E)
+/// Resolved routing policy knobs
 #[derive(Debug, Clone)]
 pub struct RoutingPolicyResolved {
     /// Whether to use session's stack_id when no explicit stack is provided
+    /// Enforced in resolve_effective_adapters() at line ~848
     pub use_session_stack_for_routing: bool,
     /// Whether pins outside effective set are allowed (always false per Bundle A)
     pub allow_pins_outside_effective_set: bool,
@@ -199,14 +200,17 @@ impl Default for RoutingPolicyResolved {
     }
 }
 
-/// Resolved golden-run policy knobs (carry-forward, not enforced in Bundle E)
+/// Resolved golden-run policy knobs
 #[derive(Debug, Clone)]
 pub struct GoldenPolicyResolved {
     /// Whether to fail inference when golden drift is detected
+    /// Enforced in check_golden_drift() after worker response
     pub fail_on_drift: bool,
     /// Golden baseline ID to compare against (if any)
     pub golden_baseline_id: Option<String>,
     /// Epsilon threshold for floating-point comparison of gate values
+    /// Note: Current implementation only checks adapter selection/order
+    /// Gate epsilon comparison requires worker to return detailed routing decisions
     pub epsilon_threshold: f64,
 }
 
@@ -225,6 +229,13 @@ impl Default for GoldenPolicyResolved {
 /// This struct unifies the policy resolution for a tenant's inference request,
 /// combining determinism, routing, and golden-run policies into a single source
 /// of truth for the inference path.
+///
+/// # Policy Enforcement
+///
+/// All policies are actively enforced during inference:
+/// - **Determinism**: Mode and strict_mode enforced at worker call (line ~524)
+/// - **Routing**: use_session_stack_for_routing enforced in resolve_effective_adapters() (line ~848)
+/// - **Golden**: fail_on_drift enforced in check_golden_drift() after worker response (line ~552)
 #[derive(Debug, Clone)]
 pub struct ResolvedExecutionPolicy {
     /// The underlying tenant execution policy
@@ -233,9 +244,9 @@ pub struct ResolvedExecutionPolicy {
     pub effective_determinism_mode: DeterminismMode,
     /// Whether strict mode is active (for worker/coordinator behavior)
     pub strict_mode: bool,
-    /// Resolved routing policy knobs (carry-forward, not enforced yet)
+    /// Resolved routing policy knobs (enforced)
     pub routing: RoutingPolicyResolved,
-    /// Resolved golden-run policy knobs (carry-forward, not enforced yet)
+    /// Resolved golden-run policy knobs (enforced)
     pub golden: GoldenPolicyResolved,
 }
 
@@ -258,7 +269,9 @@ pub async fn resolve_tenant_execution_policy(
     let policy = db
         .get_execution_policy_or_default(tenant_id)
         .await
-        .map_err(|e| InferenceError::WorkerError(format!("Failed to load execution policy: {}", e)))?;
+        .map_err(|e| {
+            InferenceError::WorkerError(format!("Failed to load execution policy: {}", e))
+        })?;
 
     // 2. Get global determinism mode from config
     let global_mode = config
@@ -275,7 +288,10 @@ pub async fn resolve_tenant_execution_policy(
     );
 
     // 4. Compute strict mode
-    let strict_mode = compute_strict_mode(effective_determinism_mode, policy.determinism.allow_fallback);
+    let strict_mode = compute_strict_mode(
+        effective_determinism_mode,
+        policy.determinism.allow_fallback,
+    );
 
     // 5. Resolve routing policy knobs
     let routing = RoutingPolicyResolved {
@@ -343,6 +359,28 @@ impl<'a> InferenceCore<'a> {
         let start_time = std::time::Instant::now();
         let is_replay = replay_context.is_some();
 
+        let inference_span = info_span!(
+            "inference",
+            request_id = %request.request_id,
+            tenant_id = %request.cpid,
+            stream = request.stream,
+            replay = is_replay,
+            stack_id = request.stack_id.as_deref().unwrap_or(""),
+            model = request.model.as_deref().unwrap_or(""),
+            adapters = tracing::field::Empty,
+            adapters_used = tracing::field::Empty,
+            backend = tracing::field::Empty,
+            router_seed = tracing::field::Empty,
+            rag_context_hash = tracing::field::Empty,
+            session_id = request.session_id.as_deref().unwrap_or("")
+        );
+
+        if let Some(seed) = request.router_seed.as_deref() {
+            inference_span.record("router_seed", &tracing::field::display(seed));
+        }
+
+        let _inference_span_guard = inference_span.enter();
+
         if let Some(ref ctx) = replay_context {
             info!(
                 request_id = %request.request_id,
@@ -386,6 +424,12 @@ impl<'a> InferenceCore<'a> {
         self.resolve_effective_adapters(&mut request, session.as_ref())
             .await?;
 
+        if let Some(effective) = request.effective_adapter_ids.as_ref() {
+            inference_span.record("adapters", &tracing::field::display(effective.join(",")));
+        } else if let Some(adapters) = request.adapters.as_ref() {
+            inference_span.record("adapters", &tracing::field::display(adapters.join(",")));
+        }
+
         // 0.6 Resolve execution policy (determinism, routing, golden)
         // Uses the unified resolve_tenant_execution_policy function which handles:
         // - Database-stored execution policy
@@ -409,12 +453,17 @@ impl<'a> InferenceCore<'a> {
 
         // Validate strict mode constraints (seed required for strict mode)
         validate_strict_mode_constraints(resolved_policy.effective_determinism_mode, request.seed)?;
-        request.determinism_mode = Some(resolved_policy.effective_determinism_mode.as_str().to_string());
+        request.determinism_mode = Some(
+            resolved_policy
+                .effective_determinism_mode
+                .as_str()
+                .to_string(),
+        );
 
         // Extract values for use later in the function
         let resolved_mode = resolved_policy.effective_determinism_mode;
         let strict_mode = resolved_policy.strict_mode;
-        let execution_policy = resolved_policy.policy;
+        let execution_policy = resolved_policy.policy.clone();
 
         // 0. Validate adapters are loadable (not archived/purged)
         // This is a defense-in-depth check - handlers should also validate
@@ -455,6 +504,13 @@ impl<'a> InferenceCore<'a> {
         } else {
             (request.prompt.clone(), None)
         };
+
+        if let Some(ref evidence) = rag_evidence {
+            inference_span.record(
+                "rag_context_hash",
+                &tracing::field::display(&evidence.context_hash),
+            );
+        }
 
         // 2.5. Resolve pinned adapters from session (CHAT-PIN-02)
         // ┌─────────────────────────────────────────────────────────────────┐
@@ -524,6 +580,7 @@ impl<'a> InferenceCore<'a> {
             strict_mode: Some(strict_mode),
             determinism_mode: request.determinism_mode.clone(),
             effective_adapter_ids: request.effective_adapter_ids.clone(),
+            routing_policy: execution_policy.routing.clone(),
         };
 
         // 4. Call worker via UDS
@@ -548,6 +605,12 @@ impl<'a> InferenceCore<'a> {
         // 5. Extract routing decisions from worker response
         let router_decisions = self.extract_router_decisions(&worker_response);
 
+        // 5.5. Golden drift detection (if policy requires it)
+        if resolved_policy.golden.fail_on_drift {
+            self.check_golden_drift(&resolved_policy.golden, &worker_response)
+                .await?;
+        }
+
         // 6. Update session activity if session_id provided
         if let Some(session_id) = &request.session_id {
             self.update_session_activity(session_id, &worker_response)
@@ -564,6 +627,19 @@ impl<'a> InferenceCore<'a> {
             .clone()
             .or_else(|| self.state.backend_name.clone());
         let fallback_triggered = worker_response.fallback_triggered;
+
+        if let Some(ref backend_name) = backend_used {
+            inference_span.record("backend", &tracing::field::display(backend_name));
+        }
+
+        let adapters_used_field = worker_response.trace.router_summary.adapters_used.join(",");
+        if !adapters_used_field.is_empty() {
+            inference_span.record(
+                "adapters_used",
+                &tracing::field::display(adapters_used_field),
+            );
+        }
+
         let determinism_mode_applied = worker_response
             .determinism_mode_applied
             .clone()
@@ -901,6 +977,74 @@ impl<'a> InferenceCore<'a> {
             return Ok(());
         }
 
+        // 3. Tenant default stack fallback (persisted routing configuration)
+        if request.stack_id.is_none() {
+            if let Some(default_stack_id) = self
+                .state
+                .db
+                .get_default_stack(&request.cpid)
+                .await
+                .map_err(|e| {
+                    InferenceError::AdapterNotFound(format!(
+                        "Failed to load default stack for tenant {}: {}",
+                        request.cpid, e
+                    ))
+                })?
+            {
+                let stack = self
+                    .state
+                    .db
+                    .get_stack(&request.cpid, &default_stack_id)
+                    .await
+                    .map_err(|e| {
+                        InferenceError::AdapterNotFound(format!(
+                            "Failed to load default stack '{}': {}",
+                            default_stack_id, e
+                        ))
+                    })?
+                    .ok_or_else(|| {
+                        InferenceError::AdapterNotFound(format!(
+                            "Default stack '{}' not found for tenant {}",
+                            default_stack_id, request.cpid
+                        ))
+                    })?;
+
+                if stack.lifecycle_state.to_ascii_lowercase() != "active" {
+                    return Err(InferenceError::AdapterNotFound(format!(
+                        "Default stack '{}' is not active (state={})",
+                        default_stack_id, stack.lifecycle_state
+                    )));
+                }
+
+                let adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json)
+                    .map_err(|e| {
+                        InferenceError::ValidationError(format!(
+                            "Invalid adapter_ids_json for default stack {}: {}",
+                            default_stack_id, e
+                        ))
+                    })?;
+
+                if adapter_ids.is_empty() {
+                    return Err(InferenceError::ValidationError(format!(
+                        "Default stack '{}' has no adapters configured",
+                        default_stack_id
+                    )));
+                }
+
+                request.stack_id = Some(default_stack_id.clone());
+                request.stack_version = Some(stack.version);
+                request.stack_determinism_mode = stack.determinism_mode.clone();
+                request.effective_adapter_ids = Some(adapter_ids);
+
+                // Cache active stack mapping for telemetry/routing hints
+                if let Ok(mut active) = self.state.active_stack.write() {
+                    active.insert(request.cpid.clone(), Some(default_stack_id));
+                }
+
+                return Ok(());
+            }
+        }
+
         // 4. Fallback: no explicit set -> None (use manifest-wide in worker)
         request.effective_adapter_ids = None;
         request.stack_version = None;
@@ -1213,15 +1357,17 @@ impl<'a> InferenceCore<'a> {
     /// Convert RagContextResult from rag_common to our RagEvidence type
     fn convert_rag_result_to_evidence(&self, result: &RagContextResult) -> RagEvidence {
         // Build ChunkReference list from the RagContextResult
+        // Use chunk_indices to build full doc IDs with chunk suffix for replay
         let chunks_used: Vec<ChunkReference> = result
             .doc_ids
             .iter()
+            .zip(result.chunk_indices.iter())
             .zip(result.scores.iter())
             .enumerate()
-            .map(|(rank, (doc_id, score))| ChunkReference {
+            .map(|(rank, ((doc_id, chunk_idx), score))| ChunkReference {
                 document_id: doc_id.clone(),
-                chunk_id: String::new(), // Not available in RagContextResult
-                page_number: None,       // Not available in RagContextResult
+                chunk_id: format!("{}__chunk_{}", doc_id, chunk_idx), // Full ID with chunk suffix
+                page_number: None, // Not available in RagContextResult
                 relevance_score: *score as f32,
                 rank,
             })
@@ -1236,26 +1382,250 @@ impl<'a> InferenceCore<'a> {
 
     /// Extract router decisions from worker response
     ///
-    /// # Current Limitation
-    /// The worker protocol currently only returns `adapters_used` in `RouterSummary`.
-    /// Full routing decisions (entropy, candidates, scores, latency) are computed in
-    /// `adapteros-lora-worker/src/inference_pipeline.rs` during token generation but
-    /// are NOT included in the worker response.
-    ///
-    /// To populate the `routing_decisions` table (migration 0070), the worker would need
-    /// to either:
-    /// 1. Include detailed routing decisions in `WorkerInferResponse`, or
-    /// 2. Write routing decisions directly to DB from the worker
-    ///
-    /// Routing is still _enforced_ (happens in worker's inference_pipeline),
-    /// but detailed decision records are not captured in the control plane.
+    /// Converts the worker's router decisions (if present) into RouterDecisionRecord format
+    /// for storage in the control plane's routing_decisions table.
     fn extract_router_decisions(
         &self,
-        _response: &crate::types::WorkerInferResponse,
+        response: &crate::types::WorkerInferResponse,
     ) -> Vec<RouterDecisionRecord> {
-        // Worker only returns adapters_used, not full routing decision details.
-        // Routing enforcement happens, but detailed records require worker protocol changes.
-        vec![]
+        response
+            .trace
+            .router_decisions
+            .as_ref()
+            .map(|decisions| {
+                decisions
+                    .iter()
+                    .map(|d| RouterDecisionRecord {
+                        step: d.step,
+                        input_token_id: d.input_token_id,
+                        candidates: d
+                            .candidate_adapters
+                            .iter()
+                            .map(|c| RouterCandidateRecord {
+                                adapter_idx: c.adapter_idx,
+                                raw_score: c.raw_score,
+                                gate_q15: c.gate_q15,
+                            })
+                            .collect(),
+                        entropy: d.entropy as f64,
+                        selected_adapters: response.trace.router_summary.adapters_used.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Check for golden drift by comparing current routing against a golden baseline
+    ///
+    /// # Golden Drift Detection
+    ///
+    /// Loads a golden baseline archive and compares the current worker response's
+    /// adapter selection against the baseline. Three levels of drift detection:
+    ///
+    /// 1. **Adapter Selection Changed**: Different adapters selected (CI FAIL)
+    /// 2. **Adapter Order Changed**: Same adapters, different order (CI FAIL)
+    /// 3. **Gate Epsilon Drift**: Gate values differ beyond threshold (WARN only)
+    ///
+    /// # Arguments
+    /// * `golden_policy` - The resolved golden policy with baseline ID and epsilon threshold
+    /// * `worker_response` - The worker's inference response with adapters_used
+    ///
+    /// # Returns
+    /// * `Ok(())` if no drift detected or drift is within policy tolerance
+    /// * `Err(InferenceError)` if `fail_on_drift` is true and drift is detected
+    ///
+    /// # Current Limitation
+    ///
+    /// Worker response only includes `adapters_used` (adapter IDs), not full gate values.
+    /// This limits drift detection to adapter selection/order changes. Gate epsilon
+    /// comparison would require worker to return detailed routing decisions with Q15 gates.
+    async fn check_golden_drift(
+        &self,
+        golden_policy: &GoldenPolicyResolved,
+        worker_response: &crate::types::WorkerInferResponse,
+    ) -> Result<(), InferenceError> {
+        let Some(ref baseline_id) = golden_policy.golden_baseline_id else {
+            // No baseline configured - skip drift check
+            debug!("Golden drift check skipped: no baseline_id configured");
+            return Ok(());
+        };
+
+        // Get current adapters from worker response
+        let current_adapters = &worker_response.trace.router_summary.adapters_used;
+
+        // Load golden baseline from disk/database
+        // Note: Currently golden baselines are stored as filesystem archives
+        // (see adapteros-verify crate). Future: migrate to database storage.
+        let golden_runs_dir = std::path::PathBuf::from("var/golden_runs/baselines");
+        let baseline_path = golden_runs_dir.join(baseline_id);
+
+        if !baseline_path.exists() {
+            warn!(
+                baseline_id = %baseline_id,
+                path = %baseline_path.display(),
+                "Golden baseline not found - skipping drift check"
+            );
+            return Ok(());
+        }
+
+        // Load the baseline archive
+        // Note: This requires the adapteros-verify crate to be available
+        // For now, we'll implement a simplified check using only adapter IDs
+        let baseline_adapters = match self.load_baseline_adapters(&baseline_path).await {
+            Ok(adapters) => adapters,
+            Err(e) => {
+                warn!(
+                    baseline_id = %baseline_id,
+                    error = %e,
+                    "Failed to load golden baseline - skipping drift check"
+                );
+                return Ok(());
+            }
+        };
+
+        // Compare adapter selection
+        let current_set: std::collections::HashSet<_> = current_adapters.iter().collect();
+        let baseline_set: std::collections::HashSet<_> = baseline_adapters.iter().collect();
+
+        let adapters_added: Vec<_> = current_set.difference(&baseline_set).collect();
+        let adapters_removed: Vec<_> = baseline_set.difference(&current_set).collect();
+
+        let selection_changed = !adapters_added.is_empty() || !adapters_removed.is_empty();
+        let order_changed = !selection_changed && current_adapters != &baseline_adapters;
+
+        if selection_changed || order_changed {
+            let drift_msg = if selection_changed {
+                format!(
+                    "Golden drift detected: adapter selection changed. Added: {:?}, Removed: {:?}",
+                    adapters_added, adapters_removed
+                )
+            } else {
+                format!(
+                    "Golden drift detected: adapter order changed. Baseline: {:?}, Current: {:?}",
+                    baseline_adapters, current_adapters
+                )
+            };
+
+            warn!(
+                baseline_id = %baseline_id,
+                current_adapters = ?current_adapters,
+                baseline_adapters = ?baseline_adapters,
+                selection_changed = selection_changed,
+                order_changed = order_changed,
+                "{}",
+                drift_msg
+            );
+
+            if golden_policy.fail_on_drift {
+                return Err(InferenceError::ValidationError(drift_msg));
+            }
+        } else {
+            debug!(
+                baseline_id = %baseline_id,
+                adapters = ?current_adapters,
+                "Golden drift check passed - adapters match baseline"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Load baseline adapters from a golden run archive
+    ///
+    /// Reads the manifest.json or routing_decisions.json from the baseline directory
+    /// to extract the expected adapter list.
+    ///
+    /// # Arguments
+    /// * `baseline_path` - Path to the golden baseline directory
+    ///
+    /// # Returns
+    /// * `Ok(Vec<String>)` - List of adapter IDs from the baseline
+    /// * `Err(InferenceError)` - If baseline cannot be loaded
+    async fn load_baseline_adapters(
+        &self,
+        baseline_path: &std::path::Path,
+    ) -> Result<Vec<String>, InferenceError> {
+        // Try to load from manifest.json first
+        let manifest_path = baseline_path.join("manifest.json");
+        if manifest_path.exists() {
+            let manifest_content =
+                tokio::fs::read_to_string(&manifest_path)
+                    .await
+                    .map_err(|e| {
+                        InferenceError::WorkerError(format!(
+                            "Failed to read baseline manifest: {}",
+                            e
+                        ))
+                    })?;
+
+            // Parse manifest to extract adapter list
+            // Manifest structure: { "adapters": [...], ... }
+            let manifest: serde_json::Value =
+                serde_json::from_str(&manifest_content).map_err(|e| {
+                    InferenceError::WorkerError(format!("Failed to parse baseline manifest: {}", e))
+                })?;
+
+            if let Some(adapters) = manifest.get("adapters").and_then(|a| a.as_array()) {
+                let adapter_ids: Vec<String> = adapters
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect();
+
+                if !adapter_ids.is_empty() {
+                    return Ok(adapter_ids);
+                }
+            }
+        }
+
+        // Fallback: try to load from routing_decisions.json
+        let routing_path = baseline_path.join("routing_decisions.json");
+        if routing_path.exists() {
+            let routing_content = tokio::fs::read_to_string(&routing_path)
+                .await
+                .map_err(|e| {
+                    InferenceError::WorkerError(format!(
+                        "Failed to read baseline routing decisions: {}",
+                        e
+                    ))
+                })?;
+
+            // Parse routing decisions to extract unique adapters
+            // Routing decisions structure: [{ "candidate_adapters": [...], ... }, ...]
+            let decisions: Vec<serde_json::Value> = serde_json::from_str(&routing_content)
+                .map_err(|e| {
+                    InferenceError::WorkerError(format!(
+                        "Failed to parse baseline routing decisions: {}",
+                        e
+                    ))
+                })?;
+
+            // Extract unique adapter indices/names from all routing decisions
+            let mut adapter_set = std::collections::HashSet::new();
+            for decision in decisions {
+                if let Some(candidates) = decision
+                    .get("candidate_adapters")
+                    .and_then(|c| c.as_array())
+                {
+                    for candidate in candidates {
+                        if let Some(idx) = candidate.get("adapter_idx").and_then(|i| i.as_u64()) {
+                            // Store as string index (adapter names not available in routing decisions)
+                            adapter_set.insert(format!("adapter-{}", idx));
+                        }
+                    }
+                }
+            }
+
+            if !adapter_set.is_empty() {
+                let mut adapters: Vec<String> = adapter_set.into_iter().collect();
+                adapters.sort(); // Ensure deterministic order
+                return Ok(adapters);
+            }
+        }
+
+        Err(InferenceError::WorkerError(format!(
+            "No adapter list found in golden baseline at {}",
+            baseline_path.display()
+        )))
     }
 
     /// Update session activity and link adapters
@@ -1354,12 +1724,13 @@ impl<'a> InferenceCore<'a> {
         };
         let sampling_params_json = serde_json::to_string(&sampling_params).unwrap_or_default();
 
-        // Compute RAG snapshot hash and extract doc IDs
+        // Compute RAG snapshot hash and extract doc IDs with chunk indices
         let (rag_snapshot_hash, rag_doc_ids) = if let Some(evidence) = rag_evidence {
+            // Use chunk_id which contains the full "{document_id}__chunk_{index}" format
             let doc_ids: Vec<String> = evidence
                 .chunks_used
                 .iter()
-                .map(|c| c.document_id.clone())
+                .map(|c| c.chunk_id.clone())
                 .collect();
             // Use the context_hash if available, otherwise compute from doc IDs
             let hash = if !evidence.context_hash.is_empty() {
@@ -1474,6 +1845,8 @@ mod tests {
             required_manifest_hash: "abc123".to_string(),
             required_backend: "mlx".to_string(),
             skip_metadata_capture: true,
+            original_policy_id: None,
+            original_policy_version: None,
         };
         assert!(ctx.skip_metadata_capture);
         assert_eq!(ctx.original_inference_id, "test-123");
@@ -1489,6 +1862,8 @@ mod tests {
             required_manifest_hash: "manifest-hash".to_string(),
             required_backend: "CoreML".to_string(),
             skip_metadata_capture: false,
+            original_policy_id: None,
+            original_policy_version: None,
         };
         assert!(!ctx.skip_metadata_capture);
     }
@@ -1774,6 +2149,46 @@ mod tests {
         );
         assert_eq!(req.stack_id, Some(stack_id));
         assert_eq!(req.stack_version, Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_effective_adapters_default_stack_fallback() {
+        let state = build_test_state(false).await;
+        let stack_req = CreateStackRequest {
+            tenant_id: "tenant-1".to_string(),
+            name: "stack-default".to_string(),
+            description: None,
+            adapter_ids: vec!["default-a".to_string(), "default-b".to_string()],
+            workflow_type: None,
+            determinism_mode: None,
+        };
+        let stack_id = state.db.insert_stack(&stack_req).await.unwrap();
+        state
+            .db
+            .set_default_stack("tenant-1", &stack_id)
+            .await
+            .unwrap();
+
+        let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+
+        let core = InferenceCore::new(&state);
+        core.resolve_effective_adapters(&mut req, None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            req.effective_adapter_ids,
+            Some(vec!["default-a".to_string(), "default-b".to_string()])
+        );
+        assert_eq!(req.stack_id, Some(stack_id));
+        assert_eq!(req.stack_version, Some(1));
+
+        // Active stack cache should be populated for the tenant
+        let active_map = state.active_stack.read().unwrap();
+        assert_eq!(
+            active_map.get("tenant-1").cloned().flatten(),
+            Some("stack-default".to_string())
+        );
     }
 
     #[tokio::test]

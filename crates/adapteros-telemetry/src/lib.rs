@@ -326,6 +326,38 @@ impl TelemetryWriter {
         self.log("router.k_reduced", event)
     }
 
+    /// Log a K reduction request event (Ruleset #12 - lifecycle phase 1)
+    pub fn log_k_reduction_request(
+        &self,
+        event: crate::events::KReductionRequestEvent,
+    ) -> Result<()> {
+        self.log("router.k_reduction.request", event)
+    }
+
+    /// Log a K reduction evaluation event (Ruleset #12 - lifecycle phase 2)
+    pub fn log_k_reduction_evaluation(
+        &self,
+        event: crate::events::KReductionEvaluationEvent,
+    ) -> Result<()> {
+        self.log("router.k_reduction.evaluation", event)
+    }
+
+    /// Log a K reduction execution event (Ruleset #12 - lifecycle phase 3)
+    pub fn log_k_reduction_execution(
+        &self,
+        event: crate::events::KReductionExecutionEvent,
+    ) -> Result<()> {
+        self.log("router.k_reduction.execution", event)
+    }
+
+    /// Log a K reduction completion event (Ruleset #12 - lifecycle phase 4)
+    pub fn log_k_reduction_completion(
+        &self,
+        event: crate::events::KReductionCompletionEvent,
+    ) -> Result<()> {
+        self.log("router.k_reduction.completion", event)
+    }
+
     /// Log a performance budget violation (Ruleset #11)
     pub fn log_budget_violation(
         &self,

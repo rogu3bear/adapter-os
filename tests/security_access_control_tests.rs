@@ -9,8 +9,6 @@
 
 #[cfg(test)]
 mod access_control_tests {
-    use std::path::PathBuf;
-
     // @security: Verify tenant isolation is enforced
     #[test]
     fn test_tenant_isolation_cannot_access_other_tenant_files() {

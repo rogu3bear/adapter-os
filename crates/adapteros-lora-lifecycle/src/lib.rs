@@ -337,7 +337,16 @@ impl LifecycleManager {
 
         // 4. If load_immediately, promote and load the adapter
         if load_immediately {
-            self.promote_adapter(next_idx)?;
+            // Use synchronous record.promote() for immediate loading (no DB persistence in registration)
+            // Full promote_adapter() with DB persistence happens later during lifecycle management
+            {
+                let mut states = self.states.write();
+                if let Some(record) = states.get_mut(&next_idx) {
+                    if !record.promote() {
+                        warn!("Failed to promote adapter {} immediately", adapter_id);
+                    }
+                }
+            }
             // Try to load via get_or_reload
             if let Err(e) = self.get_or_reload(&adapter_id) {
                 warn!("Failed to load adapter {} immediately: {}", adapter_id, e);
@@ -597,7 +606,7 @@ impl LifecycleManager {
             };
 
             if let Some(adapter_id) = adapter_id_str {
-                match self.promote_adapter(*adapter_idx) {
+                match self.promote_adapter(*adapter_idx).await {
                     Ok(()) => {
                         successfully_reloaded.push(*adapter_idx);
                         info!(
@@ -1059,14 +1068,67 @@ impl LifecycleManager {
     }
 
     /// Manually promote an adapter
-    pub fn promote_adapter(&self, adapter_id: u16) -> Result<()> {
-        let mut states = self.states.write();
+    ///
+    /// ATOMICITY: Persists state to database FIRST, then updates in-memory state.
+    /// This follows the same pattern as pin_adapter() to ensure DB is source of truth.
+    pub async fn promote_adapter(&self, adapter_id: u16) -> Result<()> {
+        // Step 1: Extract data needed for DB update and validation (read lock only)
+        let (adapter_id_str, old_state, new_state) = {
+            let states = self.states.read();
 
-        if let Some(record) = states.get_mut(&adapter_id) {
-            let old_state = record.state;
-            let memory_bytes = record.memory_bytes;
+            if let Some(record) = states.get(&adapter_id) {
+                let old_state = record.state;
 
-            if record.promote() {
+                // Check if promotion is possible (same logic as record.promote())
+                if !old_state.can_promote(&record.category) {
+                    return Err(AosError::Lifecycle(format!(
+                        "Cannot promote adapter {} from {} (category: {})",
+                        record.adapter_id, old_state, record.category
+                    )));
+                }
+
+                let new_state = match old_state.promote() {
+                    Some(s) => s,
+                    None => {
+                        return Err(AosError::Lifecycle(format!(
+                            "Cannot promote adapter {} from {}",
+                            record.adapter_id, old_state
+                        )));
+                    }
+                };
+
+                (record.adapter_id.clone(), old_state, new_state)
+            } else {
+                return Err(AosError::Lifecycle(format!(
+                    "Adapter {} not found",
+                    adapter_id
+                )));
+            }
+        };
+
+        // Step 2: Persist to database FIRST (before changing in-memory state)
+        if let Some(ref db) = self.db {
+            db.update_adapter_state_tx(&adapter_id_str, &new_state.to_string(), "manual_promotion")
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to persist adapter promotion: {}", e))
+                })?;
+
+            info!(
+                "✓ Persisted promotion for adapter {} to database",
+                adapter_id_str
+            );
+        }
+
+        // Step 3: Update in-memory state AFTER successful database write
+        let memory_bytes = {
+            let mut states = self.states.write();
+
+            if let Some(record) = states.get_mut(&adapter_id) {
+                // Directly set the new state (validation already done above)
+                record.state = new_state;
+                let memory_bytes = record.memory_bytes;
+
                 // Structured log for adapter state transition (PRD-INFRA-01)
                 info!(
                     adapter_id = %record.adapter_id,
@@ -1078,42 +1140,106 @@ impl LifecycleManager {
                     "Adapter state transition: promoted"
                 );
 
-                if let Some(ref telemetry) = self.telemetry {
-                    telemetry.log(
-                        "adapter_promoted",
-                        AdapterTransitionEvent {
-                            adapter_id: record.adapter_id.clone(),
-                            from_state: old_state.to_string(),
-                            to_state: record.state.to_string(),
-                            reason: "manual".to_string(),
-                        },
-                    )?;
-                }
-
-                Ok(())
+                memory_bytes
             } else {
-                Err(AosError::Lifecycle(format!(
-                    "Cannot promote adapter {} from {}",
-                    record.adapter_id, old_state
-                )))
+                return Err(AosError::Lifecycle(format!(
+                    "Adapter {} not found",
+                    adapter_id
+                )));
             }
-        } else {
-            Err(AosError::Lifecycle(format!(
-                "Adapter {} not found",
-                adapter_id
-            )))
+        };
+
+        // Step 4: Log telemetry (non-critical, after state change)
+        if let Some(ref telemetry) = self.telemetry {
+            telemetry.log(
+                "adapter_promoted",
+                AdapterTransitionEvent {
+                    adapter_id: adapter_id_str.clone(),
+                    from_state: old_state.to_string(),
+                    to_state: new_state.to_string(),
+                    reason: "manual".to_string(),
+                },
+            )?;
         }
+
+        Ok(())
     }
 
     /// Manually demote an adapter
-    pub fn demote_adapter(&self, adapter_id: u16) -> Result<()> {
-        let mut states = self.states.write();
+    ///
+    /// ATOMICITY: Persists state to database FIRST, then updates in-memory state.
+    /// This follows the same pattern as pin_adapter() to ensure DB is source of truth.
+    pub async fn demote_adapter(&self, adapter_id: u16) -> Result<()> {
+        // Step 1: Extract data needed for DB update and validation (read lock only)
+        let (adapter_id_str, old_state, new_state) = {
+            let states = self.states.read();
 
-        if let Some(record) = states.get_mut(&adapter_id) {
-            let old_state = record.state;
-            let memory_bytes = record.memory_bytes;
+            if let Some(record) = states.get(&adapter_id) {
+                let old_state = record.state;
 
-            if record.demote() {
+                // Check if demotion is possible (same validation as record.demote())
+                if record.pinned {
+                    return Err(AosError::Lifecycle(format!(
+                        "Cannot demote pinned adapter {}",
+                        record.adapter_id
+                    )));
+                }
+
+                // Check if we should demote based on last activation time
+                if let Some(last_activated) = record.last_activated {
+                    let time_since_activation = last_activated
+                        .elapsed()
+                        .unwrap_or(std::time::Duration::from_secs(0));
+                    if !old_state.should_demote(&record.category, time_since_activation) {
+                        return Err(AosError::Lifecycle(format!(
+                            "Cannot demote adapter {} from {} (not enough time since last activation)",
+                            record.adapter_id, old_state
+                        )));
+                    }
+                }
+
+                let new_state = match old_state.demote() {
+                    Some(s) => s,
+                    None => {
+                        return Err(AosError::Lifecycle(format!(
+                            "Cannot demote adapter {} from {}",
+                            record.adapter_id, old_state
+                        )));
+                    }
+                };
+
+                (record.adapter_id.clone(), old_state, new_state)
+            } else {
+                return Err(AosError::Lifecycle(format!(
+                    "Adapter {} not found",
+                    adapter_id
+                )));
+            }
+        };
+
+        // Step 2: Persist to database FIRST (before changing in-memory state)
+        if let Some(ref db) = self.db {
+            db.update_adapter_state_tx(&adapter_id_str, &new_state.to_string(), "manual_demotion")
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to persist adapter demotion: {}", e))
+                })?;
+
+            info!(
+                "✓ Persisted demotion for adapter {} to database",
+                adapter_id_str
+            );
+        }
+
+        // Step 3: Update in-memory state AFTER successful database write
+        let memory_bytes = {
+            let mut states = self.states.write();
+
+            if let Some(record) = states.get_mut(&adapter_id) {
+                // Directly set the new state (validation already done above)
+                record.state = new_state;
+                let memory_bytes = record.memory_bytes;
+
                 // Structured log for adapter state transition (PRD-INFRA-01)
                 info!(
                     adapter_id = %record.adapter_id,
@@ -1125,31 +1251,29 @@ impl LifecycleManager {
                     "Adapter state transition: demoted"
                 );
 
-                if let Some(ref telemetry) = self.telemetry {
-                    telemetry.log(
-                        "adapter_demoted",
-                        AdapterTransitionEvent {
-                            adapter_id: record.adapter_id.clone(),
-                            from_state: old_state.to_string(),
-                            to_state: record.state.to_string(),
-                            reason: "manual".to_string(),
-                        },
-                    )?;
-                }
-
-                Ok(())
+                memory_bytes
             } else {
-                Err(AosError::Lifecycle(format!(
-                    "Cannot demote adapter {} from {}",
-                    record.adapter_id, old_state
-                )))
+                return Err(AosError::Lifecycle(format!(
+                    "Adapter {} not found",
+                    adapter_id
+                )));
             }
-        } else {
-            Err(AosError::Lifecycle(format!(
-                "Adapter {} not found",
-                adapter_id
-            )))
+        };
+
+        // Step 4: Log telemetry (non-critical, after state change)
+        if let Some(ref telemetry) = self.telemetry {
+            telemetry.log(
+                "adapter_demoted",
+                AdapterTransitionEvent {
+                    adapter_id: adapter_id_str.clone(),
+                    from_state: old_state.to_string(),
+                    to_state: new_state.to_string(),
+                    reason: "manual".to_string(),
+                },
+            )?;
         }
+
+        Ok(())
     }
 
     /// Evaluate state transitions based on profiler metrics
@@ -1302,27 +1426,160 @@ impl LifecycleManager {
 
     /// Reduce K value for router
     fn reduce_k(&self) -> Result<()> {
+        use std::time::Instant;
+
+        // Generate correlation ID for this K-reduction operation
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let start_time = Instant::now();
+        let start_timestamp_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64;
+
         let mut k = self.current_k.write();
+        let k_current = *k;
+
+        // Phase 1: Request - emit K reduction request event
+        if let Some(ref telemetry) = self.telemetry {
+            let k_target = if k_current > 1 {
+                k_current - 1
+            } else {
+                k_current
+            };
+            let is_valid = k_target < k_current && k_target >= 1;
+
+            telemetry.log_k_reduction_request(
+                adapteros_telemetry::events::KReductionRequestEvent {
+                    timestamp_us: start_timestamp_us,
+                    request_id: request_id.clone(),
+                    k_current,
+                    k_target,
+                    pressure_level: 1.0, // Memory pressure triggered this
+                    bytes_to_free: 0,    // Unknown at this point
+                    headroom_pct: 0.0,   // Unknown at this point
+                    reason: "memory_pressure".to_string(),
+                    is_valid,
+                },
+            )?;
+        }
 
         if *k > 1 {
             let old_k = *k;
-            *k -= 1;
 
-            warn!("Reduced K from {} to {} due to memory pressure", old_k, *k);
+            // Phase 2: Evaluation - emit evaluation event
+            let eval_start = Instant::now();
+            let approved = true; // We're proceeding with the reduction
+            let eval_duration_us = eval_start.elapsed().as_micros() as u64;
 
             if let Some(ref telemetry) = self.telemetry {
+                telemetry.log_k_reduction_evaluation(
+                    adapteros_telemetry::events::KReductionEvaluationEvent {
+                        timestamp_us: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_micros() as u64,
+                        request_id: request_id.clone(),
+                        evaluation_duration_us: eval_duration_us,
+                        approved,
+                        adapters_to_unload_count: 0, // No adapters unloaded in pure K reduction
+                        estimated_freed: 0,
+                        reason: "k_reduction_approved".to_string(),
+                        lock_acquisition_time_us: 0, // Lock already acquired
+                        timeout_occurred: false,
+                    },
+                )?;
+            }
+
+            // Phase 3: Execution - perform the actual K reduction
+            let exec_start = Instant::now();
+            *k -= 1;
+            let exec_duration_us = exec_start.elapsed().as_micros() as u64;
+            let new_k = *k;
+
+            warn!(
+                "Reduced K from {} to {} due to memory pressure",
+                old_k, new_k
+            );
+
+            if let Some(ref telemetry) = self.telemetry {
+                telemetry.log_k_reduction_execution(
+                    adapteros_telemetry::events::KReductionExecutionEvent {
+                        timestamp_us: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_micros() as u64,
+                        request_id: request_id.clone(),
+                        execution_duration_us: exec_duration_us,
+                        success: true,
+                        adapters_unloaded_count: 0,
+                        actual_memory_freed: 0,
+                        error: None,
+                        k_final: new_k,
+                        timeout_occurred: false,
+                    },
+                )?;
+
+                // DEPRECATED: Legacy event emission for backward compatibility
+                // TODO: Remove in future version once all consumers migrate to lifecycle events
                 telemetry.log(
                     "k_reduced",
                     KReductionEvent {
                         old_k,
-                        new_k: *k,
+                        new_k,
                         reason: "memory_pressure".to_string(),
+                    },
+                )?;
+            }
+
+            // Phase 4: Completion - emit final completion event
+            let total_duration_us = start_time.elapsed().as_micros() as u64;
+
+            if let Some(ref telemetry) = self.telemetry {
+                telemetry.log_k_reduction_completion(
+                    adapteros_telemetry::events::KReductionCompletionEvent {
+                        timestamp_us: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_micros() as u64,
+                        request_id: request_id.clone(),
+                        total_duration_us,
+                        success: true,
+                        k_before: old_k,
+                        k_after: new_k,
+                        headroom_after_pct: 0.0, // Unknown at this point
+                        prevented_hot_eviction: false,
+                        deadlock_detected: false,
+                        timeout_abort: false,
                     },
                 )?;
             }
 
             Ok(())
         } else {
+            // Failure case: K cannot be reduced below 1
+            let total_duration_us = start_time.elapsed().as_micros() as u64;
+
+            if let Some(ref telemetry) = self.telemetry {
+                // Emit failure completion event
+                telemetry.log_k_reduction_completion(
+                    adapteros_telemetry::events::KReductionCompletionEvent {
+                        timestamp_us: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_micros() as u64,
+                        request_id: request_id.clone(),
+                        total_duration_us,
+                        success: false,
+                        k_before: k_current,
+                        k_after: k_current,
+                        headroom_after_pct: 0.0,
+                        prevented_hot_eviction: false,
+                        deadlock_detected: false,
+                        timeout_abort: false,
+                    },
+                )?;
+            }
+
             Err(AosError::MemoryPressure(
                 "Cannot reduce K below 1".to_string(),
             ))
@@ -1403,12 +1660,20 @@ impl LifecycleManager {
     }
 
     fn report_adapter_hash_mismatch(&self, adapter_id: &str, adapter_idx: u16, err: &AosError) {
-        if let AosError::AdapterHashMismatch {
-            adapter_id: mismatch_id,
-            expected,
-            actual,
-        } = err
-        {
+        if let Some((mismatch_id, expected, actual, layer)) = match err {
+            AosError::AdapterHashMismatch {
+                adapter_id: mismatch_id,
+                expected,
+                actual,
+            } => Some((mismatch_id, expected, actual, None)),
+            AosError::AdapterLayerHashMismatch {
+                adapter_id: mismatch_id,
+                expected,
+                actual,
+                layer_id,
+            } => Some((mismatch_id, expected, actual, Some(layer_id))),
+            _ => None,
+        } {
             if let Some(ref telemetry) = self.telemetry {
                 let event = AdapterLoadHashMismatchEvent {
                     adapter_id: mismatch_id.clone(),
@@ -1421,6 +1686,7 @@ impl LifecycleManager {
                     warn!(
                         adapter_id = adapter_id,
                         error = %log_err,
+                        layer = ?layer,
                         "Failed to log adapter hash mismatch telemetry"
                     );
                 }
@@ -1434,44 +1700,55 @@ impl LifecycleManager {
     }
 
     /// Update adapter state with category awareness
+    ///
+    /// ATOMICITY: Persists state to database FIRST, then updates in-memory state.
+    /// This follows the same pattern as pin_adapter() to ensure DB is source of truth.
+    /// REMOVED: spawn_deterministic fire-and-forget pattern that could fail silently.
     pub async fn update_adapter_state(
         &self,
         adapter_id: u16,
         new_state: AdapterState,
         reason: &str,
     ) -> Result<()> {
-        // Extract required data while holding lock, then release before async operations
+        // Step 1: Extract adapter ID and old state (read lock only)
         let (adapter_id_str, old_state) = {
+            let states = self.states.read();
+
+            if let Some(record) = states.get(&adapter_id) {
+                (record.adapter_id.clone(), record.state)
+            } else {
+                // Adapter not found - return early without error
+                return Ok(());
+            }
+        };
+
+        // Step 2: Persist to database FIRST (before changing in-memory state)
+        if let Some(ref db) = self.db {
+            db.update_adapter_state_tx(&adapter_id_str, &new_state.to_string(), reason)
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to persist adapter state update: {}", e))
+                })?;
+
+            info!(
+                "✓ Persisted state update for adapter {} to database",
+                adapter_id_str
+            );
+        }
+
+        // Step 3: Update in-memory state AFTER successful database write
+        {
             let mut states = self.states.write();
 
             if let Some(record) = states.get_mut(&adapter_id) {
-                let old_state = record.state;
                 record.state = new_state;
-                (record.adapter_id.clone(), old_state)
             } else {
+                // Adapter was removed between read and write - this is OK
                 return Ok(());
             }
-        }; // LOCK RELEASED HERE
-
-        // Async operations happen WITHOUT lock
-        if let Some(ref db) = self.db {
-            let state_str = new_state.to_string();
-            let reason_str = reason.to_string();
-            let db_clone = db.clone();
-            let adapter_id_clone = adapter_id_str.clone();
-
-            // Spawn async task to update database without blocking
-            let _ = spawn_deterministic("Adapter state update".to_string(), async move {
-                if let Err(e) = db_clone
-                    .update_adapter_state(&adapter_id_clone, &state_str, &reason_str)
-                    .await
-                {
-                    warn!("Failed to update adapter state in database: {}", e);
-                }
-            });
         }
 
-        // Log transition (non-blocking)
+        // Step 4: Log telemetry and info (non-critical, after state change)
         if let Some(ref telemetry) = self.telemetry {
             telemetry.log(
                 "adapter_state_transition",
@@ -1859,6 +2136,17 @@ impl LifecycleManager {
     }
 
     /// Load and activate an adapter stack
+    ///
+    /// DESIGN NOTE: This method updates in-memory routing state only (which stack is currently
+    /// active for routing decisions). It does NOT persist to database because:
+    /// 1. Active stack selection is ephemeral runtime state, not persistent configuration
+    /// 2. The database tracks stack lifecycle_state (Draft/Active/Archived) separately via
+    ///    Db::activate_stack() in stacks_kv.rs, which is about stack availability, not routing
+    /// 3. The active_stack field tracks "which stack should the router use right now", which
+    ///    is a worker-level decision that resets on restart
+    ///
+    /// If persistence of the currently-active stack for routing is needed in the future,
+    /// it should be added to worker_manifest or a new worker_state table.
     pub async fn activate_stack(&self, stack_name: String, adapter_ids: Vec<String>) -> Result<()> {
         use tracing::{debug, info};
 
@@ -1907,7 +2195,7 @@ impl LifecycleManager {
             }
         }
 
-        // Update the active stack
+        // Update the active stack (in-memory only - see DESIGN NOTE above)
         {
             let mut active_stack = self.active_stack.write();
             *active_stack = Some((stack_name.clone(), adapter_ids.clone()));
@@ -2076,7 +2364,7 @@ impl LifecycleManager {
     /// * `gpu_fingerprint_hash` - BLAKE3 hash of GPU buffer fingerprint
     ///
     /// # Usage
-    /// ```no_run
+    /// ```ignore
     /// // In Worker or orchestrator layer with both lifecycle and GPU access:
     /// let (buffer_size, first, last, mid) = kernels.verify_adapter_buffers(adapter_id)?;
     /// let fingerprint = GpuBufferFingerprint::new(buffer_size, &first, &last, &mid);
@@ -2131,7 +2419,7 @@ impl LifecycleManager {
                 "SELECT id FROM adapters
                  WHERE last_heartbeat IS NOT NULL
                    AND last_heartbeat < ?
-                   AND load_state != 'unloaded'",
+                   AND load_state NOT IN ('unloaded', 'unloading')",
             )
             .bind(cutoff)
             .fetch_all(db.pool())
@@ -2184,7 +2472,7 @@ impl LifecycleManager {
             if let Some(ref db) = self.db {
                 sqlx::query(
                     "UPDATE adapters
-                     SET load_state = 'unloaded', last_heartbeat = NULL
+                     SET load_state = 'unloading', last_heartbeat = NULL
                      WHERE id = ?",
                 )
                 .bind(&adapter_id)
@@ -2577,8 +2865,8 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn test_lifecycle_basic() {
+    #[tokio::test]
+    async fn test_lifecycle_basic() {
         let adapter_names = vec!["adapter_0".to_string(), "adapter_1".to_string()];
         let temp_dir = std::env::temp_dir().join("mplora_test_lifecycle");
         std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
@@ -2599,12 +2887,14 @@ mod tests {
         // Promote adapter
         manager
             .promote_adapter(0)
+            .await
             .expect("Test adapter promotion should succeed");
         assert_eq!(manager.get_state(0), Some(AdapterState::Cold));
 
         // Demote adapter
         manager
             .demote_adapter(0)
+            .await
             .expect("Test adapter demotion should succeed");
         assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
 
@@ -2635,7 +2925,7 @@ mod tests {
         assert_eq!(manager.get_state(0), Some(AdapterState::Resident));
 
         // Cannot demote pinned adapter
-        assert!(manager.demote_adapter(0).is_err());
+        assert!(manager.demote_adapter(0).await.is_err());
         assert_eq!(manager.get_state(0), Some(AdapterState::Resident));
 
         // Unpin and then demote
@@ -2645,6 +2935,7 @@ mod tests {
             .expect("Test adapter unpinning should succeed");
         manager
             .demote_adapter(0)
+            .await
             .expect("Test adapter demotion should succeed");
         assert_eq!(manager.get_state(0), Some(AdapterState::Hot));
 
@@ -2670,9 +2961,11 @@ mod tests {
         manager.set_activation_window(3);
         manager
             .promote_adapter(0)
+            .await
             .expect("promotion should succeed");
         manager
             .promote_adapter(1)
+            .await
             .expect("promotion should succeed");
 
         manager
@@ -2733,6 +3026,7 @@ mod tests {
         for i in 0..3 {
             manager
                 .promote_adapter(i)
+                .await
                 .expect("initial promotion should succeed");
         }
 
@@ -2794,6 +3088,7 @@ mod tests {
         // Test that update_adapter_state releases lock before async operations
         manager
             .promote_adapter(0)
+            .await
             .expect("promotion should succeed");
 
         // This should not deadlock - lock is released before telemetry logging
@@ -2829,9 +3124,11 @@ mod tests {
         // Pre-promote adapters
         manager
             .promote_adapter(0)
+            .await
             .expect("promotion should succeed");
         manager
             .promote_adapter(1)
+            .await
             .expect("promotion should succeed");
 
         // Spawn multiple concurrent activation records
@@ -2879,6 +3176,7 @@ mod tests {
         // Promote so it can be evicted
         manager
             .promote_adapter(0)
+            .await
             .expect("promotion should succeed");
 
         // Evict should complete without deadlock

@@ -93,11 +93,16 @@ pub async fn check_router_health(State(state): State<AppState>) -> impl IntoResp
     let high_load = metrics_snapshot.queue_depth > 100.0;
 
     if !has_decisions {
+        // Treat idle router as healthy so startup scripts don't show spurious degradation
         ComponentHealth::new(
             "router",
-            ComponentStatus::Degraded,
-            "Router has not processed any requests yet",
+            ComponentStatus::Healthy,
+            "Router idle (no requests yet)",
         )
+        .with_details(serde_json::json!({
+            "queue_depth": metrics_snapshot.queue_depth,
+            "total_requests": metrics_snapshot.total_requests
+        }))
     } else if high_load {
         ComponentHealth::new(
             "router",
@@ -377,10 +382,11 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
     let latency_ok = metrics_snapshot.avg_latency_ms < 1000.0; // <1s is healthy
 
     if !has_activity {
+        // Treat idle telemetry as healthy so initial startup doesn't appear degraded
         ComponentHealth::new(
             "telemetry",
-            ComponentStatus::Degraded,
-            "No telemetry activity recorded yet",
+            ComponentStatus::Healthy,
+            "Telemetry idle (no activity yet)",
         )
         .with_details(serde_json::json!({
             "total_requests": metrics_snapshot.total_requests,

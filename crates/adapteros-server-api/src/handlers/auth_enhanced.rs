@@ -156,10 +156,12 @@ pub async fn bootstrap_admin_handler(
     }
 
     // Ensure system tenant exists before creating admin user
-    let system_tenant_exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tenants WHERE id = 'system'")
-        .fetch_one(state.db.pool())
-        .await
-        .unwrap_or(0) > 0;
+    let system_tenant_exists =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tenants WHERE id = 'system'")
+            .fetch_one(state.db.pool())
+            .await
+            .unwrap_or(0)
+            > 0;
 
     if !system_tenant_exists {
         info!("Creating system tenant during bootstrap");
@@ -177,7 +179,11 @@ pub async fn bootstrap_admin_handler(
         })?;
 
         // Initialize policy bindings for system tenant
-        if let Err(e) = state.db.initialize_tenant_policy_bindings("system", "system").await {
+        if let Err(e) = state
+            .db
+            .initialize_tenant_policy_bindings("system", "system")
+            .await
+        {
             warn!(error = %e, "Failed to initialize system tenant policy bindings (non-fatal)");
         }
     }
@@ -218,7 +224,9 @@ pub async fn bootstrap_admin_handler(
         &user_id, // Self-granted during bootstrap
         Some("Bootstrap admin auto-grant"),
         None, // No expiration
-    ).await {
+    )
+    .await
+    {
         warn!(error = %e, user_id = %user_id, "Failed to grant system tenant access during bootstrap (non-fatal)");
         // Non-fatal - user can still access their own tenant
     }
@@ -1263,9 +1271,11 @@ pub async fn dev_bootstrap_handler(
     info!(email = %req.email, ip = %client_ip.0, "Dev bootstrap requested");
 
     // 1. Create or get "system" tenant
-    let system_tenant_id = match sqlx::query_scalar::<_, String>("SELECT id FROM tenants WHERE id = 'system'")
-        .fetch_optional(state.db.pool())
-        .await
+    let system_tenant_id = match sqlx::query_scalar::<_, String>(
+        "SELECT id FROM tenants WHERE id = 'system'",
+    )
+    .fetch_optional(state.db.pool())
+    .await
     {
         Ok(Some(id)) => {
             info!("System tenant already exists");
@@ -1288,7 +1298,11 @@ pub async fn dev_bootstrap_handler(
             })?;
 
             // Initialize policy bindings for system tenant
-            if let Err(e) = state.db.initialize_tenant_policy_bindings("system", "system").await {
+            if let Err(e) = state
+                .db
+                .initialize_tenant_policy_bindings("system", "system")
+                .await
+            {
                 warn!(error = %e, "Failed to initialize system tenant policy bindings (non-fatal)");
             }
 
@@ -1319,19 +1333,25 @@ pub async fn dev_bootstrap_handler(
                 )
             })?;
 
-            let user_id = state.db.create_user(
-                &req.email,
-                "Dev Admin",
-                &pw_hash,
-                Role::Admin,
-                &system_tenant_id,
-            ).await.map_err(|e| {
-                warn!(error = %e, "Failed to create admin user");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new("user creation failed").with_code("DATABASE_ERROR")),
+            let user_id = state
+                .db
+                .create_user(
+                    &req.email,
+                    "Dev Admin",
+                    &pw_hash,
+                    Role::Admin,
+                    &system_tenant_id,
                 )
-            })?;
+                .await
+                .map_err(|e| {
+                    warn!(error = %e, "Failed to create admin user");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("user creation failed").with_code("DATABASE_ERROR"),
+                        ),
+                    )
+                })?;
 
             info!(user_id = %user_id, email = %req.email, "Created dev admin user");
             user_id
@@ -1353,7 +1373,9 @@ pub async fn dev_bootstrap_handler(
         "dev-bootstrap",
         Some("Dev bootstrap auto-grant"),
         None, // No expiration
-    ).await {
+    )
+    .await
+    {
         warn!(error = %e, "Failed to grant tenant access (may already exist)");
         // Non-fatal - may already have access
     }
@@ -1381,7 +1403,8 @@ pub async fn dev_bootstrap_handler(
             &state.jwt_secret,
             auth_cfg.effective_ttl(),
         )
-    }.map_err(|e| {
+    }
+    .map_err(|e| {
         warn!(error = %e, "Failed to generate token");
         (
             StatusCode::INTERNAL_SERVER_ERROR,

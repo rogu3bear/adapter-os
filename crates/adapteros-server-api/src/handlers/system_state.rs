@@ -425,6 +425,22 @@ pub async fn get_system_state(
         top_adapters,
     };
 
+    // Convert RagStatus from server-api to api-types
+    let rag_status = state.rag_status.as_ref().map(|status| match status {
+        crate::state::RagStatus::Enabled {
+            model_hash,
+            dimension,
+        } => adapteros_api_types::system_state::RagStatus::Enabled {
+            model_hash: model_hash.clone(),
+            dimension: *dimension,
+        },
+        crate::state::RagStatus::Disabled { reason } => {
+            adapteros_api_types::system_state::RagStatus::Disabled {
+                reason: reason.clone(),
+            }
+        }
+    });
+
     Ok(Json(SystemStateResponse {
         schema_version: API_SCHEMA_VERSION.to_string(),
         timestamp,
@@ -436,5 +452,6 @@ pub async fn get_system_state(
         node: node_state,
         tenants: tenant_states,
         memory: memory_state,
+        rag_status,
     }))
 }

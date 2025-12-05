@@ -1133,7 +1133,7 @@ mod e2e_workflow_tests {
         );
 
         // In stub mode, should not claim determinism
-        #[cfg(not(feature = "real-mlx"))]
+        #[cfg(not(feature = "mlx"))]
         {
             assert!(
                 !report.deterministic,

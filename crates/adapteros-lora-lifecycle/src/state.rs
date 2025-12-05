@@ -493,15 +493,9 @@ impl AdapterStateRecord {
 
     /// Unpin adapter
     ///
-    /// When unpinning, the adapter is demoted from Resident to Hot state.
-    /// This ensures the adapter can be evicted under memory pressure.
     pub fn unpin(&mut self) {
         self.pinned = false;
-        // Demote from Resident to Hot when unpinning
-        // An unpinned adapter should not remain in Resident state
-        if self.state == AdapterState::Resident {
-            self.state = AdapterState::Hot;
-        }
+        // Keep resident state after unpin; demotion is handled explicitly via `demote`.
     }
 
     /// Record activation

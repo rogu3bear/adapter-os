@@ -375,6 +375,28 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_multi_lora_preserves_base_output() {
+        let adapter = create_test_adapter("adapter-preserve", 1);
+        let adapters = vec![&adapter];
+        let gates = vec![32767u16]; // full weight
+
+        let input = vec![1.0, 1.0]; // non-cancelling input to ensure delta is produced
+        let base_output = vec![1.0, -2.0];
+        let base_clone = base_output.clone();
+
+        let result = apply_multi_lora(&adapters, &gates, "q_proj", &input, &base_output).unwrap();
+
+        assert_eq!(
+            base_output, base_clone,
+            "base output must remain immutable during routing"
+        );
+        assert_ne!(
+            result, base_output,
+            "LoRA routing should produce an adapted output without mutating the base buffer"
+        );
+    }
+
+    #[test]
     fn test_apply_lora_transform() {
         let lora_a = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
         let lora_b = vec![vec![5.0, 6.0], vec![7.0, 8.0]];

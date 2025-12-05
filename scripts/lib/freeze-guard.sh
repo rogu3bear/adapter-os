@@ -56,9 +56,8 @@ freeze_check_port() {
             fg_warn "Port $port is in TIME_WAIT state"
             echo ""
             echo "  This means a previous connection is still closing."
-            echo "  Options:"
-            echo "    1. Wait ~60 seconds for it to clear"
-            echo "    2. Use a different port: AOS_SERVER_PORT=8081 ./start"
+            echo "  AdapterOS ports are pinned; wait ~60 seconds or stop the"
+            echo "  process that just exited, then retry on the same port."
             echo ""
             return 1
         fi
@@ -122,9 +121,8 @@ freeze_check_port() {
             echo "  Command: $cmd_info"
             echo ""
             echo "  AdapterOS will NOT kill external processes."
-            echo "  Options:"
-            echo "    1. Stop the external process manually: kill $pid"
-            echo "    2. Use a different port: AOS_SERVER_PORT=8081 ./start"
+            echo "  Required action:"
+            echo "    Stop the external process and retry on the same port."
             echo ""
             return 1
         fi

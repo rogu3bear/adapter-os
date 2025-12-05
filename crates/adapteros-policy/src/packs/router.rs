@@ -24,6 +24,10 @@ pub struct RouterConfig {
     pub feature_config: FeatureConfig,
     /// Tie-breaking rules
     pub tie_break_rules: Vec<TieBreakRule>,
+    /// Abstain on high entropy (router uncertainty)
+    pub abstain_entropy_threshold: Option<f32>,
+    /// Abstain on low confidence (max gate below threshold)
+    pub abstain_confidence_threshold: Option<f32>,
 }
 
 /// Gate quantization method
@@ -119,6 +123,8 @@ impl Default for RouterConfig {
                 TieBreakRule::ActivationScoreDesc,
                 TieBreakRule::AdapterIdAsc,
             ],
+            abstain_entropy_threshold: None,    // Disabled by default
+            abstain_confidence_threshold: None, // Disabled by default
         }
     }
 }

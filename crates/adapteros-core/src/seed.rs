@@ -57,6 +57,10 @@ pub fn derive_seed(global: &B3Hash, label: &str) -> [u8; 32] {
 }
 
 /// Derive seed with typed label
+///
+/// Seeds are scoped by `manifest_hash`, `adapter_dir_hash`, `worker_id`,
+/// label, and nonce so that two requests with the same inputs get the
+/// same 32-byte seed, while any differing input forces a new seed.
 pub fn derive_seed_typed(
     global: &B3Hash,
     label: SeedLabel,
@@ -89,14 +93,17 @@ pub fn derive_seeds(global: &B3Hash, labels: &[&str]) -> Vec<[u8; 32]> {
 
 /// Derive a deterministic seed with full entropy isolation
 ///
-/// Incorporates: manifest_hash || adapter_dir || worker_id || nonce
+/// Incorporates: manifest_hash || adapter_dir || worker_id || label || nonce.
 /// This ensures complete isolation between different:
 /// - Manifests (different model configurations)
 /// - Adapter directories (different adapter sets)
 /// - Workers (different execution contexts)
+/// - Labels (router vs sampling vs adapter-scoped)
 /// - Nonces (different RNG instances)
 ///
-/// Per Determinism Ruleset #2: All seeds MUST incorporate full context
+/// Per Determinism Ruleset #2: All seeds MUST incorporate full context so that
+/// the same request context produces identical seeds while any changed
+/// parameter yields a distinct seed.
 pub fn derive_seed_full(
     global: &B3Hash,
     manifest_hash: &B3Hash,
@@ -230,6 +237,37 @@ mod tests {
         assert_ne!(
             seed1, seed2,
             "Different nonces should produce different seeds"
+        );
+    }
+
+    #[test]
+    fn test_derive_seed_full_worker_isolation() {
+        let global = B3Hash::hash(b"global");
+        let manifest = B3Hash::hash(b"manifest");
+        let adapter_dir = B3Hash::hash(b"/adapters/test");
+
+        let seed_worker1 = derive_seed_full(&global, &manifest, &adapter_dir, 1, "router", 0);
+        let seed_worker2 = derive_seed_full(&global, &manifest, &adapter_dir, 2, "router", 0);
+
+        assert_ne!(
+            seed_worker1, seed_worker2,
+            "Different worker IDs should produce different seeds"
+        );
+    }
+
+    #[test]
+    fn test_derive_seed_full_adapter_dir_isolation() {
+        let global = B3Hash::hash(b"global");
+        let manifest = B3Hash::hash(b"manifest");
+        let adapter_dir_a = B3Hash::hash(b"/adapters/a");
+        let adapter_dir_b = B3Hash::hash(b"/adapters/b");
+
+        let seed_a = derive_seed_full(&global, &manifest, &adapter_dir_a, 1, "router", 0);
+        let seed_b = derive_seed_full(&global, &manifest, &adapter_dir_b, 1, "router", 0);
+
+        assert_ne!(
+            seed_a, seed_b,
+            "Different adapter directories should produce different seeds"
         );
     }
 

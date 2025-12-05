@@ -66,6 +66,7 @@ async fn test_fallback_allowed_false_persists_in_db() {
         determinism,
         routing: None,
         golden: None,
+        require_signed_adapters: false,
     };
 
     let policy_id = match db.create_execution_policy(tenant_id, request, None).await {
@@ -179,6 +180,8 @@ async fn test_pin_enforcement_error_persists() {
     let routing = RoutingPolicy {
         allowed_stack_ids: Some(vec!["stack-1".to_string(), "stack-2".to_string()]),
         allowed_adapter_ids: None,
+        denied_adapter_ids: None,
+        max_adapters_per_token: None,
         pin_enforcement: "error".to_string(), // Critical: reject pins outside effective
         require_stack: true,
         require_pins: false,
@@ -188,6 +191,7 @@ async fn test_pin_enforcement_error_persists() {
         determinism,
         routing: Some(routing),
         golden: None,
+        require_signed_adapters: false,
     };
 
     let _policy_id = match db.create_execution_policy(tenant_id, request, None).await {
@@ -253,6 +257,7 @@ async fn test_policy_update_creates_new_version() {
         determinism: initial_determinism,
         routing: None,
         golden: None,
+        require_signed_adapters: false,
     };
 
     let policy_id = db
@@ -281,6 +286,7 @@ async fn test_policy_update_creates_new_version() {
         determinism: updated_determinism,
         routing: None,
         golden: None,
+        require_signed_adapters: false,
     };
 
     let new_policy_id = db
@@ -386,6 +392,8 @@ async fn test_api_response_matches_db_policy() {
     let routing = RoutingPolicy {
         allowed_stack_ids: None,
         allowed_adapter_ids: None,
+        denied_adapter_ids: None,
+        max_adapters_per_token: None,
         pin_enforcement: "error".to_string(),
         require_stack: false,
         require_pins: false,
@@ -395,6 +403,7 @@ async fn test_api_response_matches_db_policy() {
         determinism,
         routing: Some(routing),
         golden: None,
+        require_signed_adapters: false,
     };
 
     db.create_execution_policy(tenant_id, request, None)
@@ -552,6 +561,7 @@ async fn test_resolve_policy_tenant_override() {
         determinism,
         routing: None,
         golden: None,
+        require_signed_adapters: false,
     };
 
     db.create_execution_policy(tenant_id, request, None)
@@ -619,6 +629,7 @@ async fn test_resolve_policy_stack_override() {
         determinism,
         routing: None,
         golden: None,
+        require_signed_adapters: false,
     };
 
     db.create_execution_policy(tenant_id, request, None)
@@ -728,6 +739,8 @@ async fn test_resolved_policy_struct_fields() {
     let routing = RoutingPolicy {
         allowed_stack_ids: Some(vec!["stack-1".to_string()]),
         allowed_adapter_ids: Some(vec!["adapter-1".to_string()]),
+        denied_adapter_ids: None,
+        max_adapters_per_token: None,
         pin_enforcement: "error".to_string(),
         require_stack: true,
         require_pins: false,
@@ -743,6 +756,7 @@ async fn test_resolved_policy_struct_fields() {
         determinism,
         routing: Some(routing),
         golden: Some(golden),
+        require_signed_adapters: false,
     };
 
     db.create_execution_policy(tenant_id, request, None)

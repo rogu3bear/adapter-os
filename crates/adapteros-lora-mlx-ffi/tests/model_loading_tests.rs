@@ -458,7 +458,7 @@ mod embedding_config_tests {
 #[cfg(test)]
 mod embedding_model_tests {
     #[test]
-    #[ignore = "Requires embedding model files - run with: cargo test --release --features real-mlx -- --ignored"]
+    #[ignore = "Requires embedding model files - run with: cargo test --release --features mlx -- --ignored"]
     fn test_embedding_model_load() {
         // This test requires:
         // - model.safetensors
@@ -468,7 +468,7 @@ mod embedding_model_tests {
     }
 
     #[test]
-    #[ignore = "Requires embedding model files - run with: cargo test --release --features real-mlx -- --ignored"]
+    #[ignore = "Requires embedding model files - run with: cargo test --release --features mlx -- --ignored"]
     fn test_embedding_encode_text() {
         // This test would verify text encoding
         // Skipped as it requires real model files

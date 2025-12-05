@@ -3,7 +3,7 @@
 use crate::format::{verify_format_version, AdapterManifest, AosSignature, SingleFileAdapter};
 use crate::format::{AdapterWeights, LineageInfo, WeightGroup, WeightGroupType, WeightMetadata};
 use crate::format::{CombinationStrategy, WeightGroupConfig};
-use crate::loader::LoadOptions;
+use crate::loader::{production_mode_enabled, LoadOptions};
 use crate::training::{TrainingConfig, TrainingExample};
 use crate::weights::{WeightGroupDiskInfo, WeightGroupsManifest};
 use adapteros_core::{AosError, B3Hash, Result};
@@ -536,6 +536,22 @@ impl MmapAdapterLoader {
     }
 
     pub fn load(&self, path: &Path, options: &LoadOptions) -> Result<Arc<MmapAdapter>> {
+        let production_mode = production_mode_enabled();
+        if production_mode && (options.skip_verification || options.skip_signature_check) {
+            return Err(AosError::PolicyViolation(
+                "Adapter load skips are disabled when production_mode is enabled".to_string(),
+            ));
+        }
+        if options.skip_verification || options.skip_signature_check {
+            tracing::warn!(
+                production_mode,
+                path = %path.display(),
+                skip_verification = options.skip_verification,
+                skip_signature_check = options.skip_signature_check,
+                "DEV-ONLY mmap adapter load bypass requested"
+            );
+        }
+
         // Check file size before loading to prevent OOM attacks
         if let Ok(metadata) = std::fs::metadata(path) {
             let max_size_bytes = 500 * 1024 * 1024; // 500MB limit
@@ -777,6 +793,37 @@ mod tests {
 
         // With tiny capacity, at most 1 entry should remain
         assert!(loader.cache_len() <= 1);
+    }
+
+    #[tokio::test]
+    async fn test_mmap_skip_rejected_in_production_mode() {
+        let temp_dir = TempDir::new().unwrap();
+        let aos_path = temp_dir.path().join("prod_guard_mmap.aos");
+
+        let adapter = create_test_adapter();
+        SingleFileAdapterPackager::save(&adapter, &aos_path)
+            .await
+            .unwrap();
+
+        let prev = std::env::var("AOS_SERVER_PRODUCTION_MODE").ok();
+        std::env::set_var("AOS_SERVER_PRODUCTION_MODE", "true");
+
+        let loader = MmapAdapterLoader::with_capacity_bytes(16 * 1024 * 1024);
+        let result = loader.load(
+            &aos_path,
+            &LoadOptions {
+                skip_verification: true,
+                skip_signature_check: true,
+                use_mmap: true,
+            },
+        );
+        assert!(matches!(result, Err(AosError::PolicyViolation(_))));
+
+        if let Some(v) = prev {
+            std::env::set_var("AOS_SERVER_PRODUCTION_MODE", v);
+        } else {
+            std::env::remove_var("AOS_SERVER_PRODUCTION_MODE");
+        }
     }
 
     #[tokio::test]

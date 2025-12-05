@@ -437,6 +437,7 @@ pub struct AdapterDetailResponse {
     pub adapter_id: String,
     pub name: String,
     pub adapter_name: Option<String>,
+    pub tenant_id: String,
 
     // Semantic naming
     pub tenant_namespace: Option<String>,
@@ -451,6 +452,10 @@ pub struct AdapterDetailResponse {
 
     // State
     pub current_state: String,
+    /// Alias for runtime state (unloaded/cold/warm/hot/resident)
+    pub runtime_state: String,
+    /// Release lifecycle state (draft/active/deprecated/retired)
+    pub lifecycle_state: String,
     pub tier: String,
     pub pinned: bool,
 
@@ -466,6 +471,11 @@ pub struct AdapterDetailResponse {
     pub category: String,
     pub scope: String,
     pub framework: Option<String>,
+    pub base_model_id: Option<String>,
+    pub manifest_schema_version: Option<String>,
+    pub content_hash_b3: Option<String>,
+    /// Basic signature/compliance flag (true when adapter has a recorded content hash)
+    pub signature_valid: bool,
 
     // Timestamps
     pub created_at: String,
@@ -475,11 +485,14 @@ pub struct AdapterDetailResponse {
 
 impl From<Adapter> for AdapterDetailResponse {
     fn from(adapter: Adapter) -> Self {
+        let runtime_state = adapter.current_state.clone();
+
         Self {
             id: adapter.id.clone(),
             adapter_id: adapter.adapter_id.unwrap_or(adapter.id),
             name: adapter.name,
             adapter_name: adapter.adapter_name,
+            tenant_id: adapter.tenant_id,
             tenant_namespace: adapter.tenant_namespace,
             domain: adapter.domain,
             purpose: adapter.purpose,
@@ -488,6 +501,8 @@ impl From<Adapter> for AdapterDetailResponse {
             fork_type: adapter.fork_type,
             fork_reason: adapter.fork_reason,
             current_state: adapter.current_state,
+            runtime_state,
+            lifecycle_state: adapter.lifecycle_state,
             tier: adapter.tier,
             pinned: adapter.pinned != 0,
             memory_bytes: adapter.memory_bytes,
@@ -499,6 +514,10 @@ impl From<Adapter> for AdapterDetailResponse {
             category: adapter.category,
             scope: adapter.scope,
             framework: adapter.framework,
+            base_model_id: adapter.base_model_id,
+            manifest_schema_version: adapter.manifest_schema_version,
+            content_hash_b3: adapter.content_hash_b3.clone(),
+            signature_valid: adapter.content_hash_b3.is_some(),
             created_at: adapter.created_at,
             updated_at: adapter.updated_at,
             expires_at: adapter.expires_at,
@@ -2596,7 +2615,7 @@ pub async fn export_training_provenance(
             for doc_ref in doc_refs {
                 if let Some(doc_id) = doc_ref.get("doc_id").and_then(|v| v.as_str()) {
                     // Fetch full document info
-                    if let Ok(Some(doc)) = state.db.get_document(doc_id).await {
+                    if let Ok(Some(doc)) = state.db.get_document(&claims.tenant_id, doc_id).await {
                         documents.push(TrainingExportDocument {
                             id: doc.id,
                             name: doc.name,

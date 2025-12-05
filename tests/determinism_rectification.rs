@@ -19,7 +19,7 @@ fn test_generator_determinism_three_runs() {
 
     let mut all_sequences: Vec<Vec<u32>> = Vec::new();
 
-    for run in 0..num_runs {
+    for _run in 0..num_runs {
         let mut gen = Generator::new_deterministic(seed, "inference");
         let mut tokens = Vec::new();
 

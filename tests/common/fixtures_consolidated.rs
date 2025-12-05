@@ -3,6 +3,8 @@
 //! Provides reusable test fixtures to eliminate duplication across test files.
 //! All fixtures follow consistent naming and behavior patterns.
 
+#![allow(dead_code)]
+
 use adapteros_core::{AosError, Result};
 use adapteros_db::{users::Role, Db};
 use std::sync::Arc;

@@ -76,6 +76,7 @@ async fn test_set_and_get_default_stack() {
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
+        determinism_mode: None,
     };
     let stack_id = db.insert_stack(&stack_req).await.unwrap();
 
@@ -110,6 +111,7 @@ async fn test_clear_default_stack() {
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
+        determinism_mode: None,
     };
     let stack_id = db.insert_stack(&stack_req).await.unwrap();
     db.set_default_stack(tenant_id, &stack_id).await.unwrap();
@@ -172,6 +174,7 @@ async fn test_change_default_stack() {
         description: Some("Stack 1".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
+        determinism_mode: None,
     };
     let stack1_id = db.insert_stack(&stack1_req).await.unwrap();
 
@@ -181,6 +184,7 @@ async fn test_change_default_stack() {
         description: Some("Stack 2".to_string()),
         adapter_ids: vec!["adapter2".to_string()],
         workflow_type: Some("Sequential".to_string()),
+        determinism_mode: None,
     };
     let stack2_id = db.insert_stack(&stack2_req).await.unwrap();
 
@@ -228,6 +232,7 @@ async fn test_tenant_isolation_for_default_stack() {
         description: Some("Tenant 1's stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
+        determinism_mode: None,
     };
     let stack_id = db.insert_stack(&stack_req).await.unwrap();
 

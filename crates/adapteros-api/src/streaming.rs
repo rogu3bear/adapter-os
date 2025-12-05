@@ -141,7 +141,9 @@ pub enum StreamEvent {
 }
 
 /// SSE streaming inference handler
-pub async fn streaming_inference_handler<K: FusedKernels + StrictnessControl + Send + Sync + 'static>(
+pub async fn streaming_inference_handler<
+    K: FusedKernels + StrictnessControl + Send + Sync + 'static,
+>(
     State(state): State<Arc<ApiState<K>>>,
     Json(request): Json<StreamingInferenceRequest>,
 ) -> Sse<impl Stream<Item = std::result::Result<Event, Infallible>>> {
@@ -273,7 +275,9 @@ pub async fn streaming_inference_handler<K: FusedKernels + StrictnessControl + S
 /// - Resource waste if client disconnects during generation
 ///
 /// **Future improvement:** Implement true token-by-token streaming at the kernel level.
-async fn generate_streaming_response<K: FusedKernels + StrictnessControl + Send + Sync + 'static>(
+async fn generate_streaming_response<
+    K: FusedKernels + StrictnessControl + Send + Sync + 'static,
+>(
     state: Arc<ApiState<K>>,
     request: StreamingInferenceRequest,
     tx: mpsc::Sender<StreamEvent>,
@@ -299,6 +303,7 @@ async fn generate_streaming_response<K: FusedKernels + StrictnessControl + Send 
         determinism_mode: String::new(),
         strict_mode: false,
         effective_adapter_ids: None,
+        routing_policy: None,
     };
 
     debug!(
@@ -424,6 +429,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         determinism_mode: String::new(),
         strict_mode: false,
         effective_adapter_ids: None,
+        routing_policy: None,
     };
 
     // Run inference

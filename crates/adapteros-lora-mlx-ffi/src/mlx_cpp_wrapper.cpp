@@ -16,21 +16,26 @@ static thread_local std::string g_last_error;
 struct StubArray {
     std::vector<float> data;
     std::vector<int> shape;
+    int dtype;
     
-    StubArray(const std::vector<float>& d) : data(d), shape({static_cast<int>(d.size())}) {}
-    StubArray(const std::vector<int>& d) : shape({static_cast<int>(d.size())}) {
+    StubArray(const std::vector<float>& d)
+        : data(d), shape({static_cast<int>(d.size())}), dtype(0) {}
+    StubArray(const std::vector<int>& d)
+        : shape({static_cast<int>(d.size())}), dtype(2) {
         data.resize(d.size());
         for (size_t i = 0; i < d.size(); ++i) {
             data[i] = static_cast<float>(d[i]);
         }
     }
-    StubArray(const std::vector<uint32_t>& d) : shape({static_cast<int>(d.size())}) {
+    StubArray(const std::vector<uint32_t>& d)
+        : shape({static_cast<int>(d.size())}), dtype(3) {
         data.resize(d.size());
         for (size_t i = 0; i < d.size(); ++i) {
             data[i] = static_cast<float>(d[i]);
         }
     }
-    StubArray(int size, float value) : data(size, value), shape({size}) {}
+    StubArray(int size, float value)
+        : data(size, value), shape({size}), dtype(0) {}
 };
 
 // Simple model structure for stub implementation
@@ -182,8 +187,9 @@ int mlx_array_ndim(mlx_array_t* array) {
 int mlx_array_dtype(mlx_array_t* array) {
     if (!array) return 0;
     try {
-        // Stub implementation - always return float32
-        return 1; // Float32 dtype
+        auto arr = reinterpret_cast<StubArray*>(array);
+        // Return the tracked dtype so tests see int tensors as Int32 and floats as Float32
+        return arr->dtype;
     } catch (const std::exception& e) {
         g_last_error = e.what();
         return 0;

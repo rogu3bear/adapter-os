@@ -674,8 +674,8 @@ mod determinism_tests {
             .expect("Attestation should succeed");
 
         // In stub mode, should not be deterministic
-        // In real-mlx mode, should be deterministic with HKDF seeding
-        #[cfg(not(feature = "real-mlx"))]
+        // In mlx mode, should be deterministic with HKDF seeding
+        #[cfg(not(feature = "mlx"))]
         {
             assert!(
                 !report.deterministic,
@@ -684,7 +684,7 @@ mod determinism_tests {
             println!("Backend attestation correctly reports non-deterministic in stub mode");
         }
 
-        #[cfg(feature = "real-mlx")]
+        #[cfg(feature = "mlx")]
         {
             // With real MLX, determinism depends on proper HKDF seeding
             println!(

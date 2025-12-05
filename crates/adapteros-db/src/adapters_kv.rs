@@ -810,6 +810,10 @@ mod tests {
             archived_by: None,
             archive_reason: None,
             purged_at: None,
+            base_model_id: None,
+            manifest_schema_version: None,
+            content_hash_b3: None,
+            provenance_json: None,
         };
 
         // Convert to KV (models::AdapterKv uses same types as SQL Adapter)

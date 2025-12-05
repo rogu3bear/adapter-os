@@ -224,8 +224,8 @@ test_build() {
         exit 1
     fi
 
-    print_info "Building with real-mlx feature..."
-    if cargo build -p $CRATE_PATH --tests --features real-mlx; then
+    print_info "Building with mlx feature..."
+    if cargo build -p $CRATE_PATH --tests --features mlx; then
         print_success "Real MLX compilation successful"
     else
         print_warning "Real MLX compilation failed (MLX may not be installed)"
@@ -244,7 +244,7 @@ ${GREEN}Usage:${NC}
 
 ${GREEN}Commands:${NC}
   verify      - Verify MLX installation
-  build       - Build test suite (stub + real-mlx)
+  build       - Build test suite (stub + mlx)
   memory      - Run memory tracking tests
   forward     - Run forward pass tests
   seeding     - Run deterministic seeding tests
@@ -275,7 +275,7 @@ ${GREEN}Environment Variables:${NC}
 ${GREEN}Requirements:${NC}
   - Rust (stable or nightly)
   - Cargo
-  - MLX library (optional, for real-mlx feature)
+  - MLX library (optional, for mlx feature)
     Install: brew install mlx
 
 ${GREEN}Output:${NC}

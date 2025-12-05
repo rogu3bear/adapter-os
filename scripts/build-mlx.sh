@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROFILE="${PROFILE:-release}"
-FEATURES="${FEATURES:-multi-backend,real-mlx}"
+FEATURES="${FEATURES:-multi-backend,mlx}"
 PACKAGE="${PACKAGE:-adapteros-lora-mlx-ffi}"
 RUN_TESTS=0
 RUN_BENCH=0
@@ -17,7 +17,7 @@ Usage: scripts/build-mlx.sh [options]
 
 Options:
   --profile <name>   Cargo profile to use (default: release)
-  --features <list>  Feature list (default: multi-backend,real-mlx)
+  --features <list>  Feature list (default: multi-backend,mlx)
   --package <name>   Crate/package to build (default: adapteros-lora-mlx-ffi)
   --tests            Run tests after building
   --bench            Run benchmarks after building

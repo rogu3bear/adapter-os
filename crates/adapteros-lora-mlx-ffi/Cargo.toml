@@ -52,21 +52,23 @@ default = []
 # =============================================================================
 # This crate provides MLX (Apple's ML framework) integration via C++ FFI.
 #
-# real-mlx: Enable real MLX library integration
-#   - Requires mlx C++ library to be installed
+# mlx: Enable real MLX library integration
+#   - Requires the MLX C++ library to be installed
 #   - Enables actual GPU-accelerated inference
 #   - Without this flag, stub implementations are used
+# real-mlx: Backward-compatible alias for `mlx` (deprecated)
 #
 # test-utils: Enable test utilities
 #   - Mock implementations for testing
 #   - Deterministic test fixtures
 #
 # Usage:
-#   cargo build -p adapteros-lora-mlx-ffi                    # Stub implementation
-#   cargo build -p adapteros-lora-mlx-ffi --features real-mlx # Real MLX
+#   cargo build -p adapteros-lora-mlx-ffi                 # Stub implementation
+#   cargo build -p adapteros-lora-mlx-ffi --features mlx  # Real MLX
 # =============================================================================
 
-real-mlx = []     # Enable real MLX library (requires mlx C++ installed)
+mlx = []          # Enable real MLX library (requires MLX C++ installed)
+real-mlx = ["mlx"]# Alias for backward compatibility (deprecated)
 test-utils = []   # Enable test utilities and mocks
 
 [lints.rust]

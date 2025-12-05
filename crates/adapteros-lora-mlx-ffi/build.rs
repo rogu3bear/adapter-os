@@ -21,8 +21,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MLX_FORCE_STUB");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
 
-    // Check if real MLX feature is enabled
-    let real_mlx_enabled = env::var("CARGO_FEATURE_REAL_MLX").is_ok();
+    // Check if real MLX feature is enabled (new name `mlx`, keep legacy alias)
+    let real_mlx_enabled =
+        env::var("CARGO_FEATURE_MLX").is_ok() || env::var("CARGO_FEATURE_REAL_MLX").is_ok();
 
     // Use consistent wrapper for both lib and test builds
     if real_mlx_enabled {
@@ -42,9 +43,7 @@ fn main() {
                 println!(
                     "cargo:warning============================================================="
                 );
-                println!(
-                    "cargo:warning=MLX NOT FOUND - real-mlx feature enabled but MLX not detected"
-                );
+                println!("cargo:warning=MLX NOT FOUND - mlx feature enabled but MLX not detected");
                 println!("cargo:warning=");
                 println!("cargo:warning=To install MLX:");
                 println!("cargo:warning=  brew install mlx");
@@ -62,7 +61,7 @@ fn main() {
             }
         }
     } else {
-        println!("cargo:warning=Using stub MLX implementation (real-mlx feature not enabled)");
+        println!("cargo:warning=Using stub MLX implementation (mlx feature not enabled)");
         compile_stub_wrapper();
         println!("cargo:rustc-link-lib=static=mlx_wrapper_stub");
         println!("cargo:rustc-cfg=mlx_stub");

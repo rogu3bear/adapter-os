@@ -39,7 +39,11 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::propose_patch,
         handlers::infer,
         handlers::streaming_infer::streaming_infer,
+        handlers::streaming_infer::streaming_infer_with_progress,
         handlers::batch::batch_infer,
+        handlers::batch::create_batch_job,
+        handlers::batch::get_batch_status,
+        handlers::batch::get_batch_items,
         // Chat session handlers
         handlers::chat_sessions::create_chat_session,
         handlers::chat_sessions::list_chat_sessions,
@@ -135,6 +139,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::settings::get_settings,
         handlers::settings::update_settings,
         handlers::get_uma_memory,
+        handlers::registry::get_registry_status,
         handlers::hydrate_tenant_from_bundle,
         // Service handlers
         handlers::services::start_service,
@@ -696,6 +701,10 @@ pub fn build(state: AppState) -> Router {
                 .delete(handlers::clear_default_stack),
         )
         .route(
+            "/v1/tenants/{tenant_id}/router/config",
+            get(handlers::router_config::get_router_config),
+        )
+        .route(
             "/v1/tenants/{tenant_id}/policy-bindings",
             get(handlers::list_tenant_policy_bindings),
         )
@@ -980,7 +989,21 @@ pub fn build(state: AppState) -> Router {
             "/v1/infer/stream",
             post(handlers::streaming_infer::streaming_infer),
         )
+        .route(
+            "/v1/infer/stream/progress",
+            post(handlers::streaming_infer::streaming_infer_with_progress),
+        )
         .route("/v1/infer/batch", post(handlers::batch::batch_infer))
+        // Async batch job routes
+        .route("/v1/batches", post(handlers::batch::create_batch_job))
+        .route(
+            "/v1/batches/{batch_id}",
+            get(handlers::batch::get_batch_status),
+        )
+        .route(
+            "/v1/batches/{batch_id}/items",
+            get(handlers::batch::get_batch_items),
+        )
         // Chat session routes
         .route(
             "/v1/chat/sessions",
@@ -1487,6 +1510,11 @@ pub fn build(state: AppState) -> Router {
         )
         // Memory routes
         .route("/v1/system/memory", get(handlers::get_uma_memory))
+        // Registry status route
+        .route(
+            "/v1/registry/status",
+            get(handlers::registry::get_registry_status),
+        )
         .route(
             "/v1/memory/usage",
             get(handlers::memory_detail::get_combined_memory_usage),
@@ -1794,6 +1822,18 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/dashboard/config/reset",
             post(handlers::dashboard::reset_dashboard_config),
+        )
+        // Tutorial routes
+        .route("/v1/tutorials", get(handlers::tutorials::list_tutorials))
+        .route(
+            "/v1/tutorials/{tutorial_id}/complete",
+            post(handlers::tutorials::mark_tutorial_completed)
+                .delete(handlers::tutorials::unmark_tutorial_completed),
+        )
+        .route(
+            "/v1/tutorials/{tutorial_id}/dismiss",
+            post(handlers::tutorials::mark_tutorial_dismissed)
+                .delete(handlers::tutorials::unmark_tutorial_dismissed),
         )
         // Storage visibility routes (admin only)
         .route("/v1/storage/mode", get(handlers::storage::get_storage_mode))

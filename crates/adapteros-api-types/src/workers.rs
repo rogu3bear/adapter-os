@@ -101,3 +101,35 @@ pub struct WorkerStatusUpdate {
     pub status: String,
     pub timestamp: String,
 }
+
+/// Worker heartbeat request
+///
+/// Sent periodically by workers to report liveness and health.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkerHeartbeatRequest {
+    /// Worker ID sending the heartbeat
+    pub worker_id: String,
+    /// Current status (e.g., serving, draining)
+    pub status: String,
+    /// Optional memory usage percentage
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_usage_pct: Option<f64>,
+    /// Optional count of currently loaded adapters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapters_loaded: Option<u32>,
+    /// ISO-8601 timestamp provided by worker
+    pub timestamp: String,
+}
+
+/// Worker heartbeat response
+///
+/// Returned by control plane to acknowledge heartbeat and provide next interval.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkerHeartbeatResponse {
+    /// Whether the heartbeat was accepted
+    pub acknowledged: bool,
+    /// Recommended seconds until the next heartbeat
+    pub next_heartbeat_secs: u32,
+}

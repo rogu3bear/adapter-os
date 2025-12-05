@@ -241,7 +241,7 @@ memory_ops/mlx_sync     time:   [786.93 ps 788.89 ps 790.68 ps]
 ┌─────────────────────────────────────────────────────────────────┐
 │                   C++ Implementation Layer                       │
 │                                                                 │
-│  Stub Mode (default):     Real MLX Mode (--features real-mlx): │
+│  Stub Mode (default):     Real MLX Mode (--features mlx): │
 │  - mlx_cpp_wrapper.cpp    - mlx_cpp_wrapper_real.cpp           │
 │  - Returns mock data      - Uses mx:: namespace                │
 │  - Fast for testing       - GPU-accelerated                    │
@@ -355,7 +355,7 @@ cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark
 
 ```bash
 # Requires MLX C++ library installed
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx --release
+cargo build -p adapteros-lora-mlx-ffi --features mlx --release
 ```
 
 ### Check Exported Symbols
@@ -376,7 +376,7 @@ The MLX FFI integration is **verified working** with:
 4. **Complete workflow** from runtime init through inference pipeline
 5. **Comprehensive benchmarks** with Criterion.rs
 
-The integration is production-ready for the stub implementation. Enable `--features real-mlx` with the MLX C++ library installed for GPU-accelerated inference.
+The integration is production-ready for the stub implementation. Enable `--features mlx` with the MLX C++ library installed for GPU-accelerated inference.
 
 ---
 

@@ -357,6 +357,7 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         determinism_mode: None,
         pinned_adapter_ids: None,
         effective_adapter_ids: None,
+        routing_policy: None,
     };
 
     // Send inference request via UDS

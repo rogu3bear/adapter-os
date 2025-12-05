@@ -59,8 +59,10 @@ pub mod owner_cli;
 pub mod plugins;
 pub mod promotion;
 pub mod rag_common;
+pub mod registry;
 pub mod replay;
 pub mod replay_inference;
+pub mod router_config;
 pub mod routing_decisions;
 pub mod runtime;
 pub mod services;
@@ -4177,19 +4179,139 @@ pub async fn export_telemetry_bundle(
 
 /// Verify telemetry bundle Ed25519 signature
 pub async fn verify_bundle_signature(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Path(bundle_id): Path<String>,
 ) -> Result<Json<VerifyBundleSignatureResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would verify signature using mplora-crypto
-    Ok(Json(VerifyBundleSignatureResponse {
-        bundle_id,
-        valid: true,
-        signature: "ed25519:abc123...".to_string(),
-        signed_by: "control-plane-key".to_string(),
-        signed_at: chrono::Utc::now().to_rfc3339(),
-        verification_error: None,
-    }))
+    use adapteros_core::B3Hash;
+
+    // Parse bundle ID as B3Hash
+    let bundle_hash = B3Hash::from_hex(&bundle_id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new(
+                "Invalid bundle ID format - must be hex-encoded BLAKE3 hash",
+            )),
+        )
+    })?;
+
+    // Get bundle metadata from store - scope the lock tightly to avoid Send issues
+    let metadata = {
+        let bundle_store = state.telemetry_bundle_store.read().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Failed to access bundle store")),
+            )
+        })?;
+
+        bundle_store.get_metadata(&bundle_hash).cloned()
+        // Lock dropped here at end of block
+    };
+
+    let metadata = match metadata {
+        Some(meta) => meta,
+        None => {
+            return Ok(Json(VerifyBundleSignatureResponse {
+                bundle_id,
+                valid: false,
+                signature: String::new(),
+                signed_by: String::new(),
+                signed_at: String::new(),
+                verification_error: Some("Bundle not found".to_string()),
+            }));
+        }
+    };
+
+    // Verify the signature using the telemetry library
+    let verification_result = adapteros_telemetry::verify_bundle_signature(
+        &metadata.merkle_root,
+        &metadata.signature,
+        &metadata.public_key,
+    );
+
+    match verification_result {
+        Ok(true) => {
+            // Log successful verification
+            state
+                .log_crypto_success(
+                    adapteros_crypto::audit::CryptoOperation::Verify,
+                    Some(metadata.key_id.clone()),
+                    None,
+                    serde_json::json!({
+                        "bundle_id": bundle_id,
+                        "merkle_root": metadata.merkle_root.to_string(),
+                    }),
+                )
+                .await;
+
+            // Convert signed_at_us to RFC3339
+            let signed_at = chrono::DateTime::from_timestamp_micros(metadata.signed_at_us as i64)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            Ok(Json(VerifyBundleSignatureResponse {
+                bundle_id,
+                valid: true,
+                signature: format!(
+                    "ed25519:{}",
+                    &metadata.signature[..16.min(metadata.signature.len())]
+                ),
+                signed_by: metadata.key_id.clone(),
+                signed_at,
+                verification_error: None,
+            }))
+        }
+        Ok(false) => {
+            // Log verification failure
+            state
+                .log_crypto_failure(
+                    adapteros_crypto::audit::CryptoOperation::Verify,
+                    Some(metadata.key_id.clone()),
+                    None,
+                    "Signature verification failed",
+                    serde_json::json!({
+                        "bundle_id": bundle_id,
+                        "merkle_root": metadata.merkle_root.to_string(),
+                    }),
+                )
+                .await;
+
+            Ok(Json(VerifyBundleSignatureResponse {
+                bundle_id,
+                valid: false,
+                signature: format!(
+                    "ed25519:{}",
+                    &metadata.signature[..16.min(metadata.signature.len())]
+                ),
+                signed_by: metadata.key_id.clone(),
+                signed_at: String::new(),
+                verification_error: Some("Signature verification failed".to_string()),
+            }))
+        }
+        Err(e) => {
+            // Log verification error
+            state
+                .log_crypto_failure(
+                    adapteros_crypto::audit::CryptoOperation::Verify,
+                    Some(metadata.key_id.clone()),
+                    None,
+                    &format!("Verification error: {}", e),
+                    serde_json::json!({
+                        "bundle_id": bundle_id,
+                    }),
+                )
+                .await;
+
+            Ok(Json(VerifyBundleSignatureResponse {
+                bundle_id,
+                valid: false,
+                signature: metadata.signature.clone(),
+                signed_by: metadata.key_id.clone(),
+                signed_at: String::new(),
+                verification_error: Some(format!("Verification error: {}", e)),
+            }))
+        }
+    }
 }
 
 /// Purge old telemetry bundles based on retention policy

@@ -5,10 +5,10 @@ Performance benchmarks for the MLX FFI integration layer, measuring critical pat
 ## Benchmark Environment
 
 - **Platform**: macOS (Darwin)
-- **Feature Set**: Stub implementation (`real-mlx` feature not enabled)
+- **Feature Set**: Stub implementation (`mlx` feature not enabled)
 - **Framework**: Criterion.rs with plotters backend
 
-> **Note**: These benchmarks use the stub implementation. Real MLX benchmarks require `--features real-mlx` with MLX C++ library installed.
+> **Note**: These benchmarks use the stub implementation. Real MLX benchmarks require `--features mlx` with MLX C++ library installed.
 
 ## Benchmark Results Summary
 
@@ -92,7 +92,7 @@ Cache stats retrieval at 4ns enables:
 cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark
 
 # Run with real MLX (requires mlx C++ library)
-cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark --features real-mlx
+cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark --features mlx
 
 # Run specific benchmark group
 cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark -- adapter_cache
@@ -117,7 +117,7 @@ cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark -- --sav
 ## Future Improvements
 
 1. **SafeTensors Benchmarks**: Requires test fixtures at `tests/fixtures/test_weights.safetensors`
-2. **Real MLX Benchmarks**: Enable with `--features real-mlx` for production characteristics
+2. **Real MLX Benchmarks**: Enable with `--features mlx` for production characteristics
 3. **Multi-threaded Benchmarks**: Add contention tests for concurrent adapter access
 4. **Memory Pool Benchmarks**: Measure unified memory allocation patterns
 

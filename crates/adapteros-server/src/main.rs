@@ -16,7 +16,7 @@ use adapteros_server::status_writer;
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
 use adapteros_server_api::runtime_mode::RuntimeModeResolver;
-use adapteros_server_api::worker_health::{HealthConfig, WorkerHealthMonitor};
+use adapteros_server_api::worker_health::WorkerHealthMonitor;
 use adapteros_server_api::{routes, AppState};
 use anyhow::Result;
 use clap::Parser;
@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::signal;
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
@@ -414,7 +414,9 @@ async fn main() -> Result<()> {
         let cfg = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
-        if cfg.security.require_pf_deny && !cli.skip_pf_check {
+        let require_pf_deny = cfg.security.require_pf_deny;
+
+        if require_pf_deny {
             // Convert server SecurityConfig to API SecurityConfig
             let api_security_config = adapteros_server_api::config::SecurityConfig {
                 require_pf_deny: cfg.security.require_pf_deny,
@@ -430,9 +432,14 @@ async fn main() -> Result<()> {
                 token_ttl_seconds: cfg.security.token_ttl_seconds,
                 jwt_mode: cfg.security.jwt_mode.clone(),
             };
-            PfGuard::preflight(&api_security_config)?;
+
+            if cli.skip_pf_check {
+                warn!("PF security check skipped via --skip-pf-check flag (DEVELOPMENT ONLY)");
+            } else {
+                PfGuard::preflight(&api_security_config)?;
+            }
         } else if cli.skip_pf_check {
-            warn!("PF security check skipped via --skip-pf-check flag (DEVELOPMENT ONLY)");
+            trace!("PF security check bypassed: require_pf_deny=false (development mode)");
         }
     }
 
@@ -441,6 +448,16 @@ async fn main() -> Result<()> {
     if !cli.skip_drift_check {
         use adapteros_verify::{
             get_or_create_fingerprint_keypair, DeviceFingerprint, DriftEvaluator,
+        };
+
+        let (production_mode, drift_policy) = {
+            let cfg = server_config
+                .read()
+                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            (
+                cfg.server.production_mode || cfg.security.require_pf_deny,
+                cfg.policies.drift.clone(),
+            )
         };
 
         let current_fp = DeviceFingerprint::capture_current()
@@ -458,32 +475,41 @@ async fn main() -> Result<()> {
                     AosError::Validation(format!("Failed to load baseline fingerprint: {}", e))
                 })?;
 
-            let cfg = server_config
-                .read()
-                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
-
-            let evaluator = DriftEvaluator::from_policy(&cfg.policies.drift);
+            let evaluator = DriftEvaluator::from_policy(&drift_policy);
             let drift_report = evaluator.compare(&baseline, &current_fp).map_err(|e| {
                 AosError::Validation(format!("Failed to compare fingerprints: {}", e))
             })?;
 
             if drift_report.should_block() {
-                error!("Critical environment drift detected!");
-                error!("{}", drift_report.summary());
-                for field_drift in &drift_report.field_drifts {
-                    error!(
-                        "  {}: {} -> {}",
-                        field_drift.field_name,
-                        field_drift.baseline_value,
-                        field_drift.current_value
+                if production_mode {
+                    error!("Critical environment drift detected!");
+                    error!("{}", drift_report.summary());
+                    for field_drift in &drift_report.field_drifts {
+                        error!(
+                            "  {}: {} -> {}",
+                            field_drift.field_name,
+                            field_drift.baseline_value,
+                            field_drift.current_value
+                        );
+                    }
+                    return Err(AosError::PolicyViolation(
+                        "Refusing to start due to critical environment drift. Run `aosctl drift-check` for details.".to_string()
+                    ).into());
+                } else {
+                    warn!(
+                        "Environment drift detected (development mode, not blocking): {}",
+                        drift_report.summary()
                     );
+                    for field_drift in &drift_report.field_drifts {
+                        warn!(
+                            "  {}: {} -> {}",
+                            field_drift.field_name,
+                            field_drift.baseline_value,
+                            field_drift.current_value
+                        );
+                    }
                 }
-                return Err(AosError::PolicyViolation(
-                    "Refusing to start due to critical environment drift. Run `aosctl drift-check` for details.".to_string()
-                ).into());
-            }
-
-            if drift_report.drift_detected {
+            } else if drift_report.drift_detected {
                 warn!("Environment drift detected: {}", drift_report.summary());
                 for field_drift in &drift_report.field_drifts {
                     warn!(
@@ -539,9 +565,23 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "unknown-host".to_string());
 
     // Initialize effective config and detect configuration drift
-    let session_id = {
+    {
         // Initialize EffectiveConfig with cp.toml path
+        // In production mode, config errors are fatal; in dev mode, we warn and continue
+        let is_production = server_config
+            .read()
+            .map(|c| c.server.production_mode)
+            .unwrap_or(false);
+
         if let Err(e) = init_effective_config(Some(&cli.config), vec![]) {
+            if is_production {
+                error!(error = %e, "FATAL: Failed to initialize effective config in production mode");
+                return Err(adapteros_core::AosError::Config(format!(
+                    "Failed to initialize config: {}. Production mode requires valid configuration.",
+                    e
+                ))
+                .into());
+            }
             warn!(error = %e, "Failed to initialize effective config, continuing with legacy config");
         }
 
@@ -629,10 +669,6 @@ async fn main() -> Result<()> {
                     "Runtime session started"
                 );
             }
-
-            Some(session_id)
-        } else {
-            None
         }
     };
 
@@ -843,6 +879,10 @@ async fn main() -> Result<()> {
         warn!("Failed to seed development data: {}", e);
     }
 
+    if let Err(e) = seed_models_from_cache_if_empty(&db).await {
+        warn!("Failed to seed cached base models: {}", e);
+    }
+
     if cli.migrate_only {
         info!("Migrations complete, exiting");
         return Ok(());
@@ -995,7 +1035,8 @@ async fn main() -> Result<()> {
     }
 
     // Initialize policy hash watcher (continuous monitoring)
-    {
+    // Create telemetry writer and policy watcher first (needed by federation daemon)
+    let (policy_watcher, telemetry) = {
         info!("Initializing policy hash watcher");
 
         // Create telemetry writer
@@ -1036,39 +1077,40 @@ async fn main() -> Result<()> {
 
         info!("Policy hash watcher started (60s interval)");
 
-        // Initialize Federation Daemon
-        {
-            info!("Initializing federation daemon");
+        (policy_watcher, telemetry)
+    };
 
-            let federation_keypair = adapteros_crypto::Keypair::generate();
-            let federation_manager = Arc::new(adapteros_federation::FederationManager::new(
-                db.clone(),
-                federation_keypair,
-                "default".to_string(),
-            )?);
+    // Initialize Federation Daemon (needs policy_watcher and telemetry from above)
+    info!("Initializing federation daemon");
 
-            // Create federation daemon config (5 minute interval per spec)
-            let federation_config = adapteros_orchestrator::FederationDaemonConfig {
-                interval_secs: 300, // 5 minutes
-                max_hosts_per_sweep: 10,
-                enable_quarantine: true,
-            };
+    let federation_keypair = adapteros_crypto::Keypair::generate();
+    let federation_manager = Arc::new(adapteros_federation::FederationManager::new(
+        db.clone(),
+        federation_keypair,
+        "default".to_string(),
+    )?);
 
-            // Create and start daemon
-            let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
-                federation_manager,
-                policy_watcher.clone(),
-                telemetry.clone(),
-                Arc::new(db.clone()),
-                federation_config,
-            ));
+    // Create federation daemon config (5 minute interval per spec)
+    let federation_config = adapteros_orchestrator::FederationDaemonConfig {
+        interval_secs: 300, // 5 minutes
+        max_hosts_per_sweep: 10,
+        enable_quarantine: true,
+    };
 
-            let federation_shutdown_rx = shutdown_coordinator.subscribe_shutdown();
-            let federation_handle = federation_daemon.start(federation_shutdown_rx);
-            shutdown_coordinator.set_federation_handle(federation_handle);
-            info!("Federation daemon started (300s interval)");
-        }
-    }
+    // Create and start daemon
+    let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
+        federation_manager,
+        policy_watcher.clone(),
+        telemetry.clone(),
+        Arc::new(db.clone()),
+        federation_config,
+    ));
+
+    let federation_shutdown_rx = shutdown_coordinator.subscribe_shutdown();
+    let federation_daemon_for_state = federation_daemon.clone();
+    let federation_handle = federation_daemon.start(federation_shutdown_rx);
+    shutdown_coordinator.set_federation_handle(federation_handle);
+    info!("Federation daemon started (300s interval)");
 
     // Initialize UDS metrics exporter (zero-network metrics per Egress Ruleset #1)
     {
@@ -1245,16 +1287,58 @@ async fn main() -> Result<()> {
     .with_boot_state(boot_state.clone())
     .with_runtime_mode(runtime_mode)
     .with_tick_ledger(tick_ledger.clone())
-    .with_health_monitor(health_monitor.clone());
+    .with_health_monitor(health_monitor.clone())
+    .with_federation(federation_daemon_for_state);
 
     state = state.with_plugin_registry(Arc::new(adapteros_server_api::PluginRegistry::new(
         db.clone(),
     )));
 
+    // Initialize Registry for adapter management
+    {
+        let adapters_root = {
+            let cfg = api_config
+                .read()
+                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            cfg.paths.adapters_root.clone()
+        };
+
+        let registry_path = PathBuf::from(&adapters_root).join("registry.db");
+
+        // Create adapters directory if it doesn't exist
+        if let Some(parent) = registry_path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                warn!(
+                    error = %e,
+                    path = %parent.display(),
+                    "Failed to create adapters directory, registry disabled"
+                );
+            }
+        }
+
+        match adapteros_registry::Registry::open(&registry_path) {
+            Ok(registry) => {
+                info!(
+                    path = %registry_path.display(),
+                    "Registry initialized successfully"
+                );
+                state = state.with_registry(Arc::new(registry));
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    path = %registry_path.display(),
+                    "Failed to initialize registry, adapter registration disabled"
+                );
+            }
+        }
+    }
+
     // Load embedding model for RAG if embeddings feature enabled
     #[cfg(feature = "embeddings")]
     {
         use adapteros_ingest_docs::EmbeddingModel;
+        use adapteros_server_api::state::RagStatus;
         use std::path::Path;
 
         let embedding_model_path = std::env::var("AOS_EMBEDDING_MODEL_PATH")
@@ -1271,29 +1355,63 @@ async fn main() -> Result<()> {
                             tokenizer,
                         ));
 
+                    let model_hash = embedding_model.model_hash().to_hex()[..16].to_string();
+                    let dimension = embedding_model.dimension();
+
                     info!(
                         path = %embedding_model_path,
-                        dimension = embedding_model.dimension(),
-                        hash = %embedding_model.model_hash().to_hex()[..16],
+                        dimension = dimension,
+                        hash = %model_hash,
                         "Loaded embedding model for RAG"
                     );
 
-                    state = state.with_embedding_model(embedding_model);
+                    state = state.with_embedding_model(embedding_model).with_rag_status(
+                        RagStatus::Enabled {
+                            model_hash,
+                            dimension,
+                        },
+                    );
                 }
                 Err(e) => {
-                    warn!(
-                        error = %e,
-                        path = %tokenizer_path,
-                        "Failed to load tokenizer for embedding model, RAG disabled"
-                    );
+                    let reason = format!("Failed to load tokenizer: {}", e);
+
+                    // Use ERROR level in production, WARN in dev
+                    if production_mode {
+                        error!(
+                            error = %e,
+                            path = %tokenizer_path,
+                            "Failed to load tokenizer for embedding model, RAG disabled"
+                        );
+                    } else {
+                        warn!(
+                            error = %e,
+                            path = %tokenizer_path,
+                            "Failed to load tokenizer for embedding model, RAG disabled"
+                        );
+                    }
+
+                    state = state.with_rag_status(RagStatus::Disabled { reason });
                 }
             }
         } else {
-            warn!(
-                path = %tokenizer_path,
-                "Embedding model tokenizer not found, RAG disabled. \
-                 Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model."
-            );
+            let reason = format!("Tokenizer not found at: {}", tokenizer_path);
+
+            // Use ERROR level in production, WARN in dev
+            if production_mode {
+                error!(
+                    path = %tokenizer_path,
+                    "Embedding model tokenizer not found, RAG disabled. \
+                     Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model."
+                );
+            } else {
+                warn!(
+                    path = %tokenizer_path,
+                    "Embedding model tokenizer not found, RAG disabled. \
+                     Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model."
+                );
+            }
+
+            state = state.with_rag_status(RagStatus::Disabled { reason });
         }
     }
 
@@ -1869,6 +1987,125 @@ async fn download_priority_models() {
     }
 
     info!("Priority model downloads complete");
+}
+
+/// Dev helper: register cached base models from var/model-cache into DB when empty.
+///
+/// This runs only when explicitly enabled or in debug builds, and only if the
+/// `models` table is currently empty. It scans `AOS_MODEL_CACHE_DIR/models`
+/// (defaults to `var/model-cache/models`) and registers each directory as a
+/// base model so the UI can surface them without manual import.
+async fn seed_models_from_cache_if_empty(db: &Db) -> Result<()> {
+    let seed_enabled = std::env::var("AOS_SEED_MODEL_CACHE")
+        .ok()
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(cfg!(debug_assertions));
+
+    if !seed_enabled {
+        return Ok(());
+    }
+
+    let existing: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models")
+        .fetch_one(db.pool())
+        .await?;
+    if existing > 0 {
+        return Ok(());
+    }
+
+    let cache_root = std::env::var("AOS_MODEL_CACHE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("var/model-cache"))
+        .join("models");
+    if !cache_root.exists() {
+        info!(
+            path = %cache_root.display(),
+            "Model cache directory not found, skipping seed"
+        );
+        return Ok(());
+    }
+
+    let mut seeded = 0usize;
+    let mut errors = 0usize;
+
+    for entry in std::fs::read_dir(&cache_root)? {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                warn!(error = %e, "Failed to read cached model entry");
+                errors += 1;
+                continue;
+            }
+        };
+
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let Some(path_str) = path.to_str() else {
+            errors += 1;
+            warn!(path = ?path, "Skipping model dir with non-UTF8 path");
+            continue;
+        };
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        let (format, backend) = detect_model_format_backend(&path);
+
+        match db
+            .import_model_from_path(&name, path_str, &format, &backend, "system", "system")
+            .await
+        {
+            Ok(model_id) => {
+                if let Err(e) = db
+                    .update_model_import_status(&model_id, "available", None)
+                    .await
+                {
+                    warn!(model_id = %model_id, error = %e, "Failed to mark model available");
+                    errors += 1;
+                } else {
+                    seeded += 1;
+                }
+            }
+            Err(e) => {
+                warn!(model = %name, error = %e, "Failed to seed cached model");
+                errors += 1;
+            }
+        }
+    }
+
+    info!(
+        seeded,
+        errors,
+        path = %cache_root.display(),
+        "Seeded cached base models into database"
+    );
+
+    Ok(())
+}
+
+fn detect_model_format_backend(path: &std::path::Path) -> (String, String) {
+    // Default to safetensors + mlx backend, override if we detect a CoreML package.
+    let mut format = "safetensors".to_string();
+    let mut backend = "mlx-ffi".to_string();
+
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
+                if ext.eq_ignore_ascii_case("mlpackage") {
+                    format = "mlpackage".to_string();
+                    backend = "coreml".to_string();
+                    break;
+                }
+                if ext.eq_ignore_ascii_case("gguf") {
+                    format = "gguf".to_string();
+                    backend = "metal".to_string();
+                }
+            }
+        }
+    }
+
+    (format, backend)
 }
 
 async fn shutdown_signal_with_drain(

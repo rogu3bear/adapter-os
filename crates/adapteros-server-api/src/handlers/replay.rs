@@ -443,6 +443,7 @@ pub async fn execute_replay_session(
                 // Reconstruct context from original documents
                 let (context, missing) = reconstruct_rag_context(
                     &state,
+                    &claims.tenant_id,
                     &rag_state.doc_ids,
                     4000, // MAX_CONTEXT_CHARS
                 )
@@ -576,6 +577,8 @@ pub async fn execute_replay_session(
                 required_manifest_hash: session.manifest_hash_b3.clone(),
                 required_backend: "unknown".to_string(), // Session doesn't store backend
                 skip_metadata_capture: true,             // Don't create new replay metadata
+                original_policy_id: None,                // Session doesn't store policy
+                original_policy_version: None,           // Session doesn't store policy version
             };
             core.route_and_infer_replay(inference_request, replay_context)
                 .await

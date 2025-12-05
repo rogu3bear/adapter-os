@@ -25,6 +25,16 @@
 //!     request_type: RequestType::Normal,
 //!     stack_id: None,
 //!     stack_version: None,
+//!     temperature: None,
+//!     top_k: None,
+//!     top_p: None,
+//!     seed: None,
+//!     router_seed: None,
+//!     pinned_adapter_ids: None,
+//!     determinism_mode: "strict".to_string(),
+//!     strict_mode: false,
+//!     effective_adapter_ids: None,
+//!     routing_policy: None,
 //! };
 //!
 //! assert_eq!(request.max_tokens, 100);
@@ -33,6 +43,7 @@
 //! For full Worker usage with inference, see the integration tests.
 
 use crate::router_bridge::decision_to_router_ring;
+use crate::routing_policy_filter::filter_decision_by_policy;
 use adapteros_core::{paths::AdapterPaths, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
@@ -84,6 +95,7 @@ pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
 pub mod router_bridge;
+pub mod routing_policy_filter;
 pub mod services;
 pub mod signal;
 pub mod telemetry_adapter;
@@ -414,6 +426,11 @@ pub struct InferenceRequest {
     /// Effective adapter IDs (control-plane gate)
     #[serde(default)]
     pub effective_adapter_ids: Option<Vec<String>>,
+
+    /// Optional routing policy resolved by control plane.
+    /// Used to enforce allow/deny lists and max-adapter limits per token.
+    #[serde(default)]
+    pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
 }
 
 fn default_determinism_mode() -> String {
@@ -525,6 +542,9 @@ pub struct ResponseTrace {
     pub evidence: Vec<EvidenceRef>,
     pub router_summary: RouterSummary,
     pub token_count: usize,
+    /// Detailed router decisions per step (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub router_decisions: Option<Vec<adapteros_api_types::inference::RouterDecision>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1083,6 +1103,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                                 avg_activations: vec![],
                             },
                             token_count: 0,
+                            router_decisions: None,
                         },
                         refusal: Some(RefusalResponse::insufficient_evidence(
                             self.manifest.policies.evidence.min_spans,
@@ -1162,6 +1183,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
 
         let mut generated_tokens = Vec::new();
+        let mut router_decisions_collected = Vec::new();
 
         // Autoregressive generation loop
         for step in 0..request.max_tokens {
@@ -1228,6 +1250,33 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let decision = self
                 .router
                 .route_with_adapter_info(&features, &priors, &adapter_info);
+
+            let decision =
+                self.apply_routing_policy_to_decision(decision, request.routing_policy.as_ref())?;
+
+            // Collect router decision for control plane transmission
+            let input_token_id = if step == 0 {
+                prompt_tokens.first().copied()
+            } else {
+                generated_tokens.last().copied()
+            };
+            router_decisions_collected.push(adapteros_api_types::inference::RouterDecision {
+                step,
+                input_token_id,
+                candidate_adapters: decision
+                    .candidates
+                    .iter()
+                    .map(|c| adapteros_api_types::inference::RouterCandidate {
+                        adapter_idx: c.adapter_idx,
+                        raw_score: c.raw_score,
+                        gate_q15: c.gate_q15,
+                    })
+                    .collect(),
+                entropy: decision.entropy,
+                tau: self.router.tau(),
+                entropy_floor: self.router.eps(),
+                stack_hash: self.router.stack_hash(),
+            });
 
             // Record routing decision in profiler
             self.profiler.record_routing_decision(&decision.indices);
@@ -1346,7 +1395,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         Ok(InferenceResponse {
             text: Some(generated_text),
             status: "ok".to_string(),
-            trace: self.build_trace(&request.cpid, &evidence, generated_tokens.len()),
+            trace: self.build_trace(
+                &request.cpid,
+                &evidence,
+                generated_tokens.len(),
+                Some(router_decisions_collected),
+            ),
             refusal: None,
             patch_proposal: None,
             stack_id: request.stack_id.clone(),
@@ -1419,6 +1473,26 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
 
         Ok(Some(allowed_indices))
+    }
+
+    /// Apply routing policy filters to a router Decision deterministically.
+    ///
+    /// - Preserves original decision order; only drops entries.
+    /// - Does not renormalize gates to keep kernel inputs deterministic.
+    /// - If all candidates are removed, returns a policy violation error.
+    fn apply_routing_policy_to_decision(
+        &self,
+        decision: adapteros_lora_router::Decision,
+        policy: Option<&adapteros_api_types::RoutingPolicy>,
+    ) -> Result<adapteros_lora_router::Decision> {
+        let adapter_ids: Vec<String> = self
+            .manifest
+            .adapters
+            .iter()
+            .map(|a| a.id.clone())
+            .collect();
+
+        filter_decision_by_policy(decision, &adapter_ids, policy)
     }
 
     /// Generate patch proposal with evidence retrieval
@@ -1650,7 +1724,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         Ok(InferenceResponse {
             text,
             status,
-            trace: self.build_trace(&request.cpid, &evidence_refs, 0),
+            trace: self.build_trace(&request.cpid, &evidence_refs, 0, None),
             refusal: if !validation_result.is_valid {
                 Some(RefusalResponse {
                     status: "failed".to_string(),
@@ -1777,6 +1851,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         cpid: &str,
         evidence: &[EvidenceRef],
         token_count: usize,
+        router_decisions: Option<Vec<adapteros_api_types::inference::RouterDecision>>,
     ) -> ResponseTrace {
         ResponseTrace {
             cpid: cpid.to_string(),
@@ -1793,6 +1868,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 avg_activations: vec![0.33; self.manifest.router.k_sparse],
             },
             token_count,
+            router_decisions,
         }
     }
 

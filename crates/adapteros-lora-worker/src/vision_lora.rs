@@ -72,8 +72,11 @@ impl VisionLoraWeights {
         })
     }
 
-    /// Merge this LoRA update into the base convolution weights.
-    pub fn merge_into(&self, base: &mut [f32], alpha: f32) -> Result<()> {
+    /// Produce a composed weight buffer without mutating the provided base slice.
+    ///
+    /// The base model weights are treated as immutable; callers receive a new
+    /// buffer that includes the LoRA deltas scaled by `alpha`.
+    pub fn composed_weights(&self, base: &[f32], alpha: f32) -> Result<Vec<f32>> {
         if base.len() != self.weights.len() {
             return Err(AosError::Validation(format!(
                 "base weight buffer has {} elements but {} expected",
@@ -82,15 +85,18 @@ impl VisionLoraWeights {
             )));
         }
 
-        for (target, delta) in base.iter_mut().zip(Arc::as_ref(&self.weights).iter()) {
+        // Invariant: base model weights are immutable after load. Work on a scratch
+        // copy so shared base buffers (Arc in the cache) are never mutated.
+        let mut scratch = base.to_vec();
+        for (target, delta) in scratch.iter_mut().zip(Arc::as_ref(&self.weights).iter()) {
             *target += delta * alpha;
         }
 
-        Ok(())
+        Ok(scratch)
     }
 
-    /// Apply LoRA bias updates to the provided buffer.
-    pub fn apply_bias(&self, base: &mut [f32], alpha: f32) -> Result<()> {
+    /// Produce a composed bias buffer without mutating the provided base slice.
+    pub fn composed_bias(&self, base: &[f32], alpha: f32) -> Result<Vec<f32>> {
         if base.len() != self.channels {
             return Err(AosError::Validation(format!(
                 "expected {} bias entries, found {}",
@@ -99,11 +105,12 @@ impl VisionLoraWeights {
             )));
         }
 
-        for (target, delta) in base.iter_mut().zip(Arc::as_ref(&self.biases).iter()) {
+        let mut scratch = base.to_vec();
+        for (target, delta) in scratch.iter_mut().zip(Arc::as_ref(&self.biases).iter()) {
             *target += delta * alpha;
         }
 
-        Ok(())
+        Ok(scratch)
     }
 
     /// Access underlying weights.
@@ -187,17 +194,18 @@ impl VisionMergePlan {
     pub fn apply(
         &self,
         registry: &VisionLoraRegistry,
-        base_weights: &mut [f32],
-        base_bias: &mut [f32],
-    ) -> Result<()> {
+        base_weights: &[f32],
+        base_bias: &[f32],
+    ) -> Result<(Vec<f32>, Vec<f32>)> {
         let weights = registry.get(self.task).ok_or_else(|| {
             AosError::Validation(format!(
                 "no vision LoRA registered for {}",
                 self.task.as_str()
             ))
         })?;
-        weights.merge_into(base_weights, self.alpha)?;
-        weights.apply_bias(base_bias, self.alpha)
+        let composed_weights = weights.composed_weights(base_weights, self.alpha)?;
+        let composed_bias = weights.composed_bias(base_bias, self.alpha)?;
+        Ok((composed_weights, composed_bias))
     }
 }
 
@@ -220,8 +228,8 @@ mod tests {
         )
         .unwrap();
 
-        let mut base = vec![0.0f32; 4];
-        let mut base_bias = vec![0.0f32; 2];
+        let base = vec![0.0f32; 4];
+        let base_bias = vec![0.0f32; 2];
 
         let mut registry = VisionLoraRegistry::default();
         registry.insert(weights);
@@ -231,9 +239,12 @@ mod tests {
             alpha: 0.5,
         };
 
-        plan.apply(&registry, &mut base, &mut base_bias).unwrap();
-        assert_eq!(base, vec![0.5, 1.0, 1.5, 2.0]);
-        assert_eq!(base_bias, vec![0.25, -0.125]);
+        let (composed_weights, composed_bias) = plan.apply(&registry, &base, &base_bias).unwrap();
+
+        assert_eq!(base, vec![0.0, 0.0, 0.0, 0.0]); // unchanged
+        assert_eq!(base_bias, vec![0.0, 0.0]); // unchanged
+        assert_eq!(composed_weights, vec![0.5, 1.0, 1.5, 2.0]);
+        assert_eq!(composed_bias, vec![0.25, -0.125]);
     }
 
     #[test]
@@ -261,5 +272,57 @@ mod tests {
         let weights = load_vision_lora(&serialized, VisionTask::Detection, 4).unwrap();
         assert_eq!(Arc::as_ref(&weights.weights)[0], 1.0);
         assert_eq!(weights.task(), VisionTask::Detection);
+    }
+
+    #[test]
+    fn test_composed_weights_do_not_mutate_base_model_bytes() {
+        use adapteros_core::B3Hash;
+        use safetensors::tensor::TensorView;
+
+        // Build a tiny in-memory safetensors blob to avoid external fixtures. The
+        // blob represents immutable base weights that must remain unchanged after
+        // any LoRA composition.
+        let base_floats = vec![0.1f32, -0.2, 0.3, 0.4];
+        let tensor = TensorView::new(safetensors::Dtype::F32, vec![base_floats.len()], unsafe {
+            std::slice::from_raw_parts(
+                base_floats.as_ptr() as *const u8,
+                base_floats.len() * std::mem::size_of::<f32>(),
+            )
+        })
+        .unwrap();
+        let base_bytes = safetensors::serialize(
+            vec![("dummy.weight".to_string(), tensor)],
+            &Default::default(),
+        )
+        .unwrap();
+        let hash_before = B3Hash::hash(&base_bytes);
+
+        let tensors = SafeTensors::deserialize(&base_bytes).expect("valid in-memory safetensors");
+        let (_, first_tensor) = tensors
+            .tensors()
+            .into_iter()
+            .next()
+            .expect("model should expose at least one tensor");
+        let base_floats: Vec<f32> = first_tensor
+            .data()
+            .chunks_exact(std::mem::size_of::<f32>())
+            .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+            .collect();
+
+        let base_clone = base_floats.clone();
+        let lora = VisionLoraWeights::new(
+            VisionTask::Classification,
+            1,
+            base_floats.len(),
+            vec![0.01f32; base_floats.len()],
+            vec![0.0; base_floats.len()],
+        )
+        .unwrap();
+
+        let _ = lora.composed_weights(&base_floats, 0.25).unwrap();
+        assert_eq!(base_floats, base_clone, "base slice mutated unexpectedly");
+
+        let hash_after = B3Hash::hash(&base_bytes);
+        assert_eq!(hash_before, hash_after, "base model bytes changed");
     }
 }

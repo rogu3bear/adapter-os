@@ -171,7 +171,7 @@ impl TrainingService for DefaultTrainingService {
 
         // Validate collection if provided
         if let Some(col_id) = collection_id {
-            let collection = self.state.db.get_collection(col_id).await.map_err(|e| {
+            let collection = self.state.db.get_collection(tenant_id, col_id).await.map_err(|e| {
                 error!(collection_id = %col_id, error = %e, "Failed to get collection for validation");
                 AosError::Database(format!("Failed to verify collection: {}", e))
             })?;
@@ -228,8 +228,10 @@ impl TrainingService for DefaultTrainingService {
         };
 
         // Count running jobs
+        // Use the canonical training jobs table; prior query pointed to a non-existent table.
+        // Counting running jobs here feeds capacity and memory guardrails.
         let running_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM training_jobs WHERE status = 'running'",
+            "SELECT COUNT(*) FROM repository_training_jobs WHERE status = 'running'",
         )
         .fetch_one(self.state.db.pool())
         .await

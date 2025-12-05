@@ -172,28 +172,27 @@ pub async fn auth_middleware(
                     "JWT validated successfully"
                 );
 
-                // Check if token has been revoked
-                if let Err(e) = is_token_revoked(&state.db, &claims.jti).await {
-                    tracing::warn!(error = %e, "Failed to check token revocation");
-                    return Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-                    ));
-                }
-
-                if is_token_revoked(&state.db, &claims.jti)
-                    .await
-                    .unwrap_or(false)
-                {
-                    tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used");
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(
-                            ErrorResponse::new("token revoked")
-                                .with_code("TOKEN_REVOKED")
-                                .with_string_details("this token has been revoked"),
-                        ),
-                    ));
+                // Check if token has been revoked (single check, fail-closed on DB errors)
+                match is_token_revoked(&state.db, &claims.jti).await {
+                    Ok(true) => {
+                        tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used");
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(
+                                ErrorResponse::new("token revoked")
+                                    .with_code("TOKEN_REVOKED")
+                                    .with_string_details("this token has been revoked"),
+                            ),
+                        ));
+                    }
+                    Ok(false) => { /* Token not revoked, continue */ }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to check token revocation - denying access");
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+                        ));
+                    }
                 }
 
                 // Extract tenant_id and expiration before moving claims
@@ -318,6 +317,29 @@ pub async fn dual_auth_middleware(
                     "JWT validated successfully (dual auth)"
                 );
 
+                // Check if token has been revoked (single check, fail-closed on DB errors)
+                match is_token_revoked(&state.db, &claims.jti).await {
+                    Ok(true) => {
+                        tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used (dual auth)");
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(
+                                ErrorResponse::new("token revoked")
+                                    .with_code("TOKEN_REVOKED")
+                                    .with_string_details("this token has been revoked"),
+                            ),
+                        ));
+                    }
+                    Ok(false) => { /* Token not revoked, continue */ }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to check token revocation (dual auth) - denying access");
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+                        ));
+                    }
+                }
+
                 let tenant_id = claims.tenant_id.clone();
                 req.extensions_mut().insert(claims);
                 let identity = IdentityEnvelope::new(
@@ -417,14 +439,21 @@ pub async fn optional_auth_middleware(
 
         match claims_result {
             Ok(claims) => {
-                // Check if token has been revoked
-                let is_revoked = is_token_revoked(&state.db, &claims.jti)
-                    .await
-                    .unwrap_or(false);
+                // Check if token has been revoked (for optional auth, DB errors proceed without auth)
+                let should_skip_auth = match is_token_revoked(&state.db, &claims.jti).await {
+                    Ok(true) => {
+                        tracing::debug!(jti = %claims.jti, "Token is revoked, proceeding without authentication");
+                        true
+                    }
+                    Ok(false) => false,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to check token revocation (optional auth) - proceeding without auth");
+                        true // For optional auth, DB error = proceed unauthenticated
+                    }
+                };
 
-                if is_revoked {
-                    tracing::debug!(jti = %claims.jti, "Token is revoked, proceeding without authentication");
-                    // Don't inject claims for revoked tokens
+                if should_skip_auth {
+                    // Don't inject claims for revoked tokens or DB errors
                 } else {
                     // Debug logging for JWT validation - helps diagnose auth issues in development
                     #[cfg(debug_assertions)]

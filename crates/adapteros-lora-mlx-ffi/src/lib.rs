@@ -1165,8 +1165,8 @@ unsafe impl Sync for MLXFFIModel {}
 
 // FFI declarations for MLX operations
 #[cfg_attr(test, allow(dead_code))]
-#[cfg_attr(feature = "real-mlx", link(name = "mlx_wrapper"))]
-#[cfg_attr(not(feature = "real-mlx"), link(name = "mlx_wrapper_stub"))]
+#[cfg_attr(feature = "mlx", link(name = "mlx_wrapper"))]
+#[cfg_attr(not(feature = "mlx"), link(name = "mlx_wrapper_stub"))]
 extern "C" {
     // Model lifecycle
     fn mlx_model_load(path: *const std::os::raw::c_char) -> *mut mlx_model_t;

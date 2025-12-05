@@ -47,14 +47,23 @@ impl Db {
         Ok(id)
     }
 
-    /// Get collection by ID
-    pub async fn get_collection(&self, id: &str) -> Result<Option<DocumentCollection>> {
+    /// Get collection by ID with tenant isolation
+    ///
+    /// # Security
+    /// This function enforces tenant isolation at the database layer.
+    /// Collections are only returned if they belong to the specified tenant.
+    pub async fn get_collection(
+        &self,
+        tenant_id: &str,
+        id: &str,
+    ) -> Result<Option<DocumentCollection>> {
         let collection = sqlx::query_as::<_, DocumentCollection>(
             "SELECT id, tenant_id, name, description, created_at, updated_at, metadata_json
              FROM document_collections
-             WHERE id = ?",
+             WHERE id = ? AND tenant_id = ?",
         )
         .bind(id)
+        .bind(tenant_id)
         .fetch_optional(&*self.pool())
         .await
         .map_err(db_err("get collection"))?;
@@ -140,19 +149,23 @@ impl Db {
         Ok(())
     }
 
-    /// Add document to collection
+    /// Add document to collection with tenant isolation
+    ///
+    /// # Security
+    /// Both the collection and document must belong to the specified tenant.
+    /// The composite FK constraints in the schema enforce this at the database level.
     pub async fn add_document_to_collection(
         &self,
+        tenant_id: &str,
         collection_id: &str,
         document_id: &str,
     ) -> Result<()> {
-        let id = Uuid::now_v7().to_string();
         sqlx::query(
-            "INSERT INTO collection_documents (id, collection_id, document_id)
+            "INSERT INTO collection_documents (tenant_id, collection_id, document_id)
              VALUES (?, ?, ?)
              ON CONFLICT(collection_id, document_id) DO NOTHING",
         )
-        .bind(&id)
+        .bind(tenant_id)
         .bind(collection_id)
         .bind(document_id)
         .execute(&*self.pool())
@@ -181,17 +194,26 @@ impl Db {
         Ok(())
     }
 
-    /// Get documents in a collection
-    pub async fn get_collection_documents(&self, collection_id: &str) -> Result<Vec<Document>> {
+    /// Get documents in a collection with tenant isolation
+    ///
+    /// # Security
+    /// This function enforces tenant isolation by filtering on document tenant_id.
+    /// Only documents belonging to the specified tenant are returned.
+    pub async fn get_collection_documents(
+        &self,
+        tenant_id: &str,
+        collection_id: &str,
+    ) -> Result<Vec<Document>> {
         let documents = sqlx::query_as::<_, Document>(
             "SELECT d.id, d.tenant_id, d.name, d.content_hash, d.file_path, d.file_size,
                     d.mime_type, d.page_count, d.status, d.created_at, d.updated_at, d.metadata_json
              FROM documents d
              INNER JOIN collection_documents cd ON d.id = cd.document_id
-             WHERE cd.collection_id = ?
-             ORDER BY cd.created_at DESC",
+             WHERE cd.collection_id = ? AND d.tenant_id = ?
+             ORDER BY cd.added_at DESC",
         )
         .bind(collection_id)
+        .bind(tenant_id)
         .fetch_all(&*self.pool())
         .await
         .map_err(db_err("get collection documents"))?;
@@ -227,19 +249,25 @@ impl Db {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
-    /// Get collections containing a document
+    /// Get collections containing a document with tenant isolation
+    ///
+    /// # Security
+    /// This function enforces tenant isolation by filtering on collection tenant_id.
+    /// Only collections belonging to the specified tenant are returned.
     pub async fn get_document_collections(
         &self,
+        tenant_id: &str,
         document_id: &str,
     ) -> Result<Vec<DocumentCollection>> {
         let collections = sqlx::query_as::<_, DocumentCollection>(
             "SELECT dc.id, dc.tenant_id, dc.name, dc.description, dc.created_at, dc.updated_at, dc.metadata_json
              FROM document_collections dc
              INNER JOIN collection_documents cd ON dc.id = cd.collection_id
-             WHERE cd.document_id = ?
+             WHERE cd.document_id = ? AND dc.tenant_id = ?
              ORDER BY dc.created_at DESC",
         )
         .bind(document_id)
+        .bind(tenant_id)
         .fetch_all(&*self.pool())
         .await
         .map_err(|e| {

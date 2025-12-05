@@ -85,8 +85,10 @@ impl Default for DeterminismPolicy {
 
 /// Routing policy configuration
 ///
-/// Controls which stacks and adapters can be used for inference
-/// and how pinned adapter constraints are enforced.
+/// Minimal, deterministic constraints applied after router scoring but
+/// before kernels run. Designed to express per-tenant/workspace adapter
+/// allowlists/denylists and an optional per-token adapter cap without
+/// changing router math.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct RoutingPolicy {
@@ -101,6 +103,16 @@ pub struct RoutingPolicy {
     /// When None/null, all adapters are allowed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_adapter_ids: Option<Vec<String>>,
+
+    /// Explicitly deny routing to specific adapter IDs.
+    /// Takes precedence over allowlist when both are provided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub denied_adapter_ids: Option<Vec<String>>,
+
+    /// Maximum number of adapters allowed per token after routing policy is applied.
+    /// When None/null, defaults to the router's K value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_adapters_per_token: Option<usize>,
 
     /// How to handle pins outside the effective routing set.
     /// "warn": Log warning but allow inference (default)
@@ -128,6 +140,8 @@ impl Default for RoutingPolicy {
         Self {
             allowed_stack_ids: None,
             allowed_adapter_ids: None,
+            denied_adapter_ids: None,
+            max_adapters_per_token: None,
             pin_enforcement: default_pin_enforcement(),
             require_stack: false,
             require_pins: false,

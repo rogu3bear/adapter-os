@@ -150,26 +150,30 @@ impl InferenceMetricsCollector {
 
     /// Update aggregated metrics
     async fn update_metrics(&self, measurement: InferenceMeasurement, adapters: Vec<String>) {
-        let mut metrics = self.metrics.write().await;
+        {
+            let mut metrics = self.metrics.write().await;
 
-        // Update counters
-        metrics.total_requests += 1;
-        if measurement.success {
-            metrics.successful_requests += 1;
-        } else {
-            metrics.failed_requests += 1;
+            // Update counters
+            metrics.total_requests += 1;
+            if measurement.success {
+                metrics.successful_requests += 1;
+            } else {
+                metrics.failed_requests += 1;
+            }
+
+            metrics.total_tokens += measurement.tokens;
+
+            // Update adapter selections
+            for adapter in adapters {
+                *metrics.adapter_selections.entry(adapter).or_insert(0) += 1;
+            }
         }
 
-        metrics.total_tokens += measurement.tokens;
-
-        // Update adapter selections
-        for adapter in adapters {
-            *metrics.adapter_selections.entry(adapter).or_insert(0) += 1;
-        }
-
-        // Recalculate percentiles and throughput
+        // Recalculate percentiles and throughput (uses separate locks)
         self.recalculate_metrics().await;
 
+        // Update last_updated timestamp after recompute
+        let mut metrics = self.metrics.write().await;
         metrics.last_updated = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -277,221 +281,254 @@ pub struct AdapterStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::time::{timeout, Duration};
+
+    const TEST_TIMEOUT_SECS: u64 = 10;
+
+    async fn run_with_timeout<T, F>(fut: F) -> T
+    where
+        F: std::future::Future<Output = T>,
+    {
+        timeout(Duration::from_secs(TEST_TIMEOUT_SECS), fut)
+            .await
+            .expect("inference_metrics test exceeded timeout")
+    }
 
     #[tokio::test]
     #[serial_test::serial]
     async fn test_metrics_collector_basic() {
-        let collector = InferenceMetricsCollector::new(100);
+        run_with_timeout(async {
+            let collector = InferenceMetricsCollector::new(100);
 
-        // Record some inferences
-        collector
-            .record_inference(
-                "req1".to_string(),
-                Duration::from_millis(50),
-                100,
-                true,
-                vec!["adapter1".to_string()],
-            )
-            .await;
+            // Record some inferences
+            collector
+                .record_inference(
+                    "req1".to_string(),
+                    Duration::from_millis(50),
+                    100,
+                    true,
+                    vec!["adapter1".to_string()],
+                )
+                .await;
 
-        collector
-            .record_inference(
-                "req2".to_string(),
-                Duration::from_millis(75),
-                150,
-                true,
-                vec!["adapter2".to_string()],
-            )
-            .await;
+            collector
+                .record_inference(
+                    "req2".to_string(),
+                    Duration::from_millis(75),
+                    150,
+                    true,
+                    vec!["adapter2".to_string()],
+                )
+                .await;
 
-        // Get metrics
-        let metrics = collector.get_metrics().await;
+            // Get metrics
+            let metrics = collector.get_metrics().await;
 
-        assert_eq!(metrics.total_requests, 2);
-        assert_eq!(metrics.successful_requests, 2);
-        assert_eq!(metrics.failed_requests, 0);
-        assert_eq!(metrics.total_tokens, 250);
+            assert_eq!(metrics.total_requests, 2);
+            assert_eq!(metrics.successful_requests, 2);
+            assert_eq!(metrics.failed_requests, 0);
+            assert_eq!(metrics.total_tokens, 250);
+        })
+        .await;
     }
 
     #[tokio::test]
     #[serial_test::serial]
     async fn test_metrics_percentiles() {
-        let collector = InferenceMetricsCollector::new(100);
+        run_with_timeout(async {
+            let collector = InferenceMetricsCollector::new(100);
 
-        // Record inferences with known latencies
-        let latencies = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+            // Record inferences with known latencies
+            let latencies = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
-        for (i, latency) in latencies.iter().enumerate() {
-            collector
-                .record_inference(
-                    format!("req{}", i),
-                    Duration::from_millis(*latency),
-                    50,
-                    true,
-                    vec!["adapter1".to_string()],
-                )
-                .await;
-        }
+            for (i, latency) in latencies.iter().enumerate() {
+                collector
+                    .record_inference(
+                        format!("req{}", i),
+                        Duration::from_millis(*latency),
+                        50,
+                        true,
+                        vec!["adapter1".to_string()],
+                    )
+                    .await;
+            }
 
-        let metrics = collector.get_metrics().await;
+            let metrics = collector.get_metrics().await;
 
-        // p50 should be around 50ms
-        assert!(
-            metrics.latency_p50_ms >= 40 && metrics.latency_p50_ms <= 60,
-            "p50: {}",
-            metrics.latency_p50_ms
-        );
+            // p50 should be around 50ms
+            assert!(
+                metrics.latency_p50_ms >= 40 && metrics.latency_p50_ms <= 60,
+                "p50: {}",
+                metrics.latency_p50_ms
+            );
 
-        // p95 should be around 95ms
-        assert!(
-            metrics.latency_p95_ms >= 85 && metrics.latency_p95_ms <= 100,
-            "p95: {}",
-            metrics.latency_p95_ms
-        );
+            // p95 should be around 95ms
+            assert!(
+                metrics.latency_p95_ms >= 85 && metrics.latency_p95_ms <= 100,
+                "p95: {}",
+                metrics.latency_p95_ms
+            );
 
-        // p99 should be around 99-100ms
-        assert!(
-            metrics.latency_p99_ms >= 90 && metrics.latency_p99_ms <= 100,
-            "p99: {}",
-            metrics.latency_p99_ms
-        );
+            // p99 should be around 99-100ms
+            assert!(
+                metrics.latency_p99_ms >= 90 && metrics.latency_p99_ms <= 100,
+                "p99: {}",
+                metrics.latency_p99_ms
+            );
+        })
+        .await;
     }
 
     #[tokio::test]
     #[serial_test::serial]
     async fn test_adapter_selection_tracking() {
-        let collector = InferenceMetricsCollector::new(100);
+        run_with_timeout(async {
+            let collector = InferenceMetricsCollector::new(100);
 
-        // Record inferences with different adapters
-        for i in 0..10 {
-            let adapter = if i % 2 == 0 { "adapter1" } else { "adapter2" };
-            collector
-                .record_inference(
-                    format!("req{}", i),
-                    Duration::from_millis(50),
-                    100,
-                    true,
-                    vec![adapter.to_string()],
-                )
-                .await;
-        }
+            // Record inferences with different adapters
+            for i in 0..10 {
+                let adapter = if i % 2 == 0 { "adapter1" } else { "adapter2" };
+                collector
+                    .record_inference(
+                        format!("req{}", i),
+                        Duration::from_millis(50),
+                        100,
+                        true,
+                        vec![adapter.to_string()],
+                    )
+                    .await;
+            }
 
-        let stats = collector.get_adapter_stats().await;
+            let stats = collector.get_adapter_stats().await;
 
-        assert_eq!(stats.len(), 2);
-        assert_eq!(stats.get("adapter1").unwrap().selection_count, 5);
-        assert_eq!(stats.get("adapter2").unwrap().selection_count, 5);
-        assert!(
-            (stats.get("adapter1").unwrap().selection_percentage - 50.0).abs() < 0.1,
-            "Percentage: {}",
-            stats.get("adapter1").unwrap().selection_percentage
-        );
+            assert_eq!(stats.len(), 2);
+            assert_eq!(stats.get("adapter1").unwrap().selection_count, 5);
+            assert_eq!(stats.get("adapter2").unwrap().selection_count, 5);
+            assert!(
+                (stats.get("adapter1").unwrap().selection_percentage - 50.0).abs() < 0.1,
+                "Percentage: {}",
+                stats.get("adapter1").unwrap().selection_percentage
+            );
+        })
+        .await;
     }
 
     #[tokio::test]
     #[serial_test::serial]
     async fn test_rolling_window() {
-        let collector = InferenceMetricsCollector::new(5); // Small window
+        run_with_timeout(async {
+            let collector = InferenceMetricsCollector::new(5); // Small window
 
-        // Record 10 inferences (should only keep last 5)
-        for i in 0..10 {
-            collector
-                .record_inference(
-                    format!("req{}", i),
-                    Duration::from_millis(50),
-                    100,
-                    true,
-                    vec!["adapter1".to_string()],
-                )
-                .await;
-        }
+            // Record 10 inferences (should only keep last 5)
+            for i in 0..10 {
+                collector
+                    .record_inference(
+                        format!("req{}", i),
+                        Duration::from_millis(50),
+                        100,
+                        true,
+                        vec!["adapter1".to_string()],
+                    )
+                    .await;
+            }
 
-        let measurements = collector.get_measurements(100).await;
-        assert_eq!(measurements.len(), 5, "Should only keep 5 measurements");
+            let measurements = collector.get_measurements(100).await;
+            assert_eq!(measurements.len(), 5, "Should only keep 5 measurements");
+        })
+        .await;
     }
 
     #[tokio::test]
     #[serial_test::serial]
     async fn test_success_failure_tracking() {
-        let collector = InferenceMetricsCollector::new(100);
+        run_with_timeout(async {
+            let collector = InferenceMetricsCollector::new(100);
 
-        // Record mix of success and failures
-        for i in 0..10 {
-            let success = i % 3 != 0; // Fail every 3rd request
-            collector
-                .record_inference(
-                    format!("req{}", i),
-                    Duration::from_millis(50),
-                    if success { 100 } else { 0 },
-                    success,
-                    vec!["adapter1".to_string()],
-                )
-                .await;
-        }
+            // Record mix of success and failures
+            for i in 0..10 {
+                let success = i % 3 != 0; // Fail every 3rd request
+                collector
+                    .record_inference(
+                        format!("req{}", i),
+                        Duration::from_millis(50),
+                        if success { 100 } else { 0 },
+                        success,
+                        vec!["adapter1".to_string()],
+                    )
+                    .await;
+            }
 
-        let metrics = collector.get_metrics().await;
+            let metrics = collector.get_metrics().await;
 
-        assert_eq!(metrics.total_requests, 10);
-        assert_eq!(metrics.successful_requests, 7);
-        assert_eq!(metrics.failed_requests, 3);
+            assert_eq!(metrics.total_requests, 10);
+            assert_eq!(metrics.successful_requests, 6);
+            assert_eq!(metrics.failed_requests, 4);
+        })
+        .await;
     }
 
     #[tokio::test]
     #[serial_test::serial]
     async fn test_tokens_per_second() {
-        let collector = InferenceMetricsCollector::new(100);
+        run_with_timeout(async {
+            let collector = InferenceMetricsCollector::new(100);
 
-        // Record inferences with known token counts
-        for i in 0..10 {
-            collector
-                .record_inference(
-                    format!("req{}", i),
-                    Duration::from_millis(50),
-                    100, // 100 tokens each
-                    true,
-                    vec!["adapter1".to_string()],
-                )
-                .await;
-        }
+            // Record inferences with known token counts
+            for i in 0..10 {
+                collector
+                    .record_inference(
+                        format!("req{}", i),
+                        Duration::from_millis(1),
+                        100, // 100 tokens each
+                        true,
+                        vec!["adapter1".to_string()],
+                    )
+                    .await;
+            }
 
-        let metrics = collector.get_metrics().await;
+            let metrics = collector.get_metrics().await;
 
-        // Should have processed 1000 tokens total
-        assert_eq!(metrics.total_tokens, 1000);
+            // Should have processed 1000 tokens total
+            assert_eq!(metrics.total_tokens, 1000);
 
-        // Tokens/sec should be positive
-        assert!(
-            metrics.tokens_per_second > 0.0,
-            "Tokens/sec: {}",
-            metrics.tokens_per_second
-        );
+            // Tokens/sec should be positive
+            assert!(
+                metrics.tokens_per_second > 0.0,
+                "Tokens/sec: {}",
+                metrics.tokens_per_second
+            );
+        })
+        .await;
     }
 
     #[tokio::test]
     #[serial_test::serial]
     async fn test_reset() {
-        let collector = InferenceMetricsCollector::new(100);
+        run_with_timeout(async {
+            let collector = InferenceMetricsCollector::new(100);
 
-        // Record some data
-        collector
-            .record_inference(
-                "req1".to_string(),
-                Duration::from_millis(50),
-                100,
-                true,
-                vec!["adapter1".to_string()],
-            )
-            .await;
+            // Record some data
+            collector
+                .record_inference(
+                    "req1".to_string(),
+                    Duration::from_millis(10),
+                    100,
+                    true,
+                    vec!["adapter1".to_string()],
+                )
+                .await;
 
-        // Reset
-        collector.reset().await;
+            // Reset
+            collector.reset().await;
 
-        // Verify everything is cleared
-        let metrics = collector.get_metrics().await;
-        assert_eq!(metrics.total_requests, 0);
-        assert_eq!(metrics.total_tokens, 0);
+            // Verify everything is cleared
+            let metrics = collector.get_metrics().await;
+            assert_eq!(metrics.total_requests, 0);
+            assert_eq!(metrics.total_tokens, 0);
 
-        let measurements = collector.get_measurements(100).await;
-        assert!(measurements.is_empty());
+            let measurements = collector.get_measurements(100).await;
+            assert!(measurements.is_empty());
+        })
+        .await;
     }
 }

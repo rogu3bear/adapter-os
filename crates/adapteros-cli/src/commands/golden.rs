@@ -12,6 +12,12 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
+fn production_mode_enabled() -> bool {
+    std::env::var("AOS_SERVER_PRODUCTION_MODE")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
 /// Golden run commands
 #[derive(Debug, Subcommand, Clone)]
 pub enum GoldenCmd {
@@ -213,6 +219,21 @@ pub async fn verify(
 ) -> Result<()> {
     output.info(format!("Verifying bundle: {}", bundle_path.display()));
     output.info(format!("Against golden run: {}", golden_name));
+
+    let production_mode = production_mode_enabled();
+    if production_mode && (skip_toolchain || skip_signature) {
+        anyhow::bail!(
+            "Skipping signature/toolchain verification is disabled in production_mode (AOS_SERVER_PRODUCTION_MODE=true)"
+        );
+    }
+    if skip_toolchain || skip_signature {
+        tracing::warn!(
+            production_mode,
+            skip_toolchain,
+            skip_signature,
+            "DEV-ONLY golden verification bypass requested"
+        );
+    }
 
     // Locate golden run
     let golden_dir = Path::new("golden_runs/baselines").join(golden_name);

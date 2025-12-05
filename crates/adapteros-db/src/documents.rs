@@ -33,6 +33,7 @@ pub struct DocumentChunk {
     pub end_offset: Option<i32>,
     pub chunk_hash: String,
     pub text_preview: Option<String>,
+    pub embedding_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,52 +82,64 @@ impl Db {
         Ok(params.id)
     }
 
-    /// Get document by ID
-    pub async fn get_document(&self, id: &str) -> Result<Option<Document>> {
+    /// Get document by ID with tenant isolation
+    ///
+    /// # Security
+    /// This function enforces tenant isolation at the database layer.
+    /// Documents are only returned if they belong to the specified tenant.
+    pub async fn get_document(&self, tenant_id: &str, id: &str) -> Result<Option<Document>> {
         let document = sqlx::query_as::<_, Document>(
             "SELECT id, tenant_id, name, content_hash, file_path, file_size,
                     mime_type, page_count, status, created_at, updated_at, metadata_json
              FROM documents
-             WHERE id = ?",
+             WHERE id = ? AND tenant_id = ?",
         )
         .bind(id)
+        .bind(tenant_id)
         .fetch_optional(&*self.pool())
         .await
         .map_err(db_err("get document"))?;
         Ok(document)
     }
 
-    /// Get multiple documents by their IDs, preserving input order
+    /// Get multiple documents by their IDs, preserving input order with tenant isolation
     ///
     /// Returns documents in the same order as input IDs. Missing documents
     /// are returned as None in the result vector. This is used for replay
     /// with original RAG documents where some may have been deleted.
     ///
+    /// # Security
+    /// This function enforces tenant isolation at the database layer.
+    /// Only documents belonging to the specified tenant are returned.
+    ///
     /// # Arguments
+    /// * `tenant_id` - Tenant ID for isolation
     /// * `doc_ids` - Slice of document IDs to retrieve, in desired order
     ///
     /// # Returns
     /// Vector of Option<Document> in same order as input IDs
     pub async fn get_documents_by_ids_ordered(
         &self,
+        tenant_id: &str,
         doc_ids: &[String],
     ) -> Result<Vec<Option<Document>>> {
         if doc_ids.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Fetch all documents that match any of the IDs
+        // Fetch all documents that match any of the IDs AND belong to the tenant
         // Using a hashmap for O(1) lookup during reordering
         let placeholders = doc_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let query = format!(
             "SELECT id, tenant_id, name, content_hash, file_path, file_size,
                     mime_type, page_count, status, created_at, updated_at, metadata_json
              FROM documents
-             WHERE id IN ({})",
+             WHERE tenant_id = ? AND id IN ({})",
             placeholders
         );
 
         let mut query_builder = sqlx::query_as::<_, Document>(&query);
+        query_builder = query_builder.bind(tenant_id);
         for id in doc_ids {
             query_builder = query_builder.bind(id);
         }
@@ -290,16 +303,26 @@ impl Db {
         Ok(id)
     }
 
-    /// Get chunks for a document
-    pub async fn get_document_chunks(&self, document_id: &str) -> Result<Vec<DocumentChunk>> {
+    /// Get chunks for a document with tenant isolation
+    ///
+    /// # Security
+    /// This function enforces tenant isolation by joining with the documents table
+    /// to verify the document belongs to the specified tenant.
+    pub async fn get_document_chunks(
+        &self,
+        tenant_id: &str,
+        document_id: &str,
+    ) -> Result<Vec<DocumentChunk>> {
         let chunks = sqlx::query_as::<_, DocumentChunk>(
-            "SELECT id, document_id, chunk_index, page_number, start_offset,
-                    end_offset, chunk_hash, text_preview
-             FROM document_chunks
-             WHERE document_id = ?
-             ORDER BY chunk_index ASC",
+            "SELECT dc.id, dc.document_id, dc.chunk_index, dc.page_number, dc.start_offset,
+                    dc.end_offset, dc.chunk_hash, dc.text_preview, dc.embedding_json
+             FROM document_chunks dc
+             JOIN documents d ON dc.document_id = d.id
+             WHERE dc.document_id = ? AND d.tenant_id = ?
+             ORDER BY dc.chunk_index ASC",
         )
         .bind(document_id)
+        .bind(tenant_id)
         .fetch_all(&*self.pool())
         .await
         .map_err(db_err("get document chunks"))?;
@@ -339,7 +362,7 @@ impl Db {
             .join(",");
         let query = format!(
             "SELECT id, document_id, chunk_index, page_number, start_offset,
-                    end_offset, chunk_hash, text_preview
+                    end_offset, chunk_hash, text_preview, embedding_json
              FROM document_chunks
              WHERE tenant_id = ? AND document_id IN ({})
              ORDER BY document_id ASC, chunk_index ASC",
@@ -364,7 +387,7 @@ impl Db {
     pub async fn get_chunk_by_id(&self, chunk_id: &str) -> Result<Option<DocumentChunk>> {
         let chunk = sqlx::query_as::<_, DocumentChunk>(
             "SELECT id, document_id, chunk_index, page_number, start_offset,
-                    end_offset, chunk_hash, text_preview
+                    end_offset, chunk_hash, text_preview, embedding_json
              FROM document_chunks
              WHERE id = ?",
         )
@@ -386,7 +409,7 @@ impl Db {
     ) -> Result<Option<DocumentChunk>> {
         let chunk = sqlx::query_as::<_, DocumentChunk>(
             "SELECT id, document_id, chunk_index, page_number, start_offset,
-                    end_offset, chunk_hash, text_preview
+                    end_offset, chunk_hash, text_preview, embedding_json
              FROM document_chunks
              WHERE document_id = ? AND chunk_index = ?",
         )

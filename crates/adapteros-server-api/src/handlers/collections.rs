@@ -7,7 +7,6 @@ use crate::audit_helper::{actions, log_success, resources};
 use crate::auth::Claims;
 use crate::error_helpers::{conflict, db_error, not_found};
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, PaginatedResponse};
 use adapteros_db::collections::CreateCollectionParams;
@@ -215,17 +214,18 @@ pub async fn get_collection(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
-    let collection = state.db.get_collection(&id).await.map_err(db_error)?;
+    let collection = state
+        .db
+        .get_collection(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
 
     let collection = collection.ok_or_else(|| not_found("Collection"))?;
-
-    // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &collection.tenant_id)?;
 
     // Get documents in collection
     let documents = state
         .db
-        .get_collection_documents(&id)
+        .get_collection_documents(&claims.tenant_id, &id)
         .await
         .map_err(db_error)?;
 
@@ -279,12 +279,13 @@ pub async fn delete_collection(
     require_permission(&claims, Permission::DatasetDelete)?;
 
     // Get collection to validate tenant
-    let collection = state.db.get_collection(&id).await.map_err(db_error)?;
+    let collection = state
+        .db
+        .get_collection(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
 
     let collection = collection.ok_or_else(|| not_found("Collection"))?;
-
-    // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &collection.tenant_id)?;
 
     // Delete from database (cascades to collection_documents)
     state.db.delete_collection(&id).await.map_err(db_error)?;
@@ -331,29 +332,27 @@ pub async fn add_document_to_collection(
     require_permission(&claims, Permission::DatasetUpload)?;
 
     // Verify collection exists and tenant isolation
-    let collection = state.db.get_collection(&id).await.map_err(db_error)?;
+    let collection = state
+        .db
+        .get_collection(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
 
     let collection = collection.ok_or_else(|| not_found("Collection"))?;
-
-    // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &collection.tenant_id)?;
 
     // Verify document exists and belongs to same tenant
     let document = state
         .db
-        .get_document(&req.document_id)
+        .get_document(&claims.tenant_id, &req.document_id)
         .await
         .map_err(db_error)?;
 
     let document = document.ok_or_else(|| not_found("Document"))?;
 
-    // CRITICAL: Ensure document belongs to same tenant
-    validate_tenant_isolation(&claims, &document.tenant_id)?;
-
     // Add document to collection
     state
         .db
-        .add_document_to_collection(&id, &req.document_id)
+        .add_document_to_collection(&claims.tenant_id, &id, &req.document_id)
         .await
         .map_err(|e| {
             let error_str = e.to_string();
@@ -404,12 +403,13 @@ pub async fn remove_document_from_collection(
     require_permission(&claims, Permission::DatasetDelete)?;
 
     // Verify collection exists and tenant isolation
-    let collection = state.db.get_collection(&id).await.map_err(db_error)?;
+    let collection = state
+        .db
+        .get_collection(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
 
     let collection = collection.ok_or_else(|| not_found("Collection"))?;
-
-    // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &collection.tenant_id)?;
 
     // Remove document from collection
     state

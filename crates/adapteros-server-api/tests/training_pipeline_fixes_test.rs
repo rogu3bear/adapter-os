@@ -30,6 +30,10 @@ async fn test_checkpoint_atomic_write_prevents_corruption() {
         preferred_backend: None,
         require_gpu: false,
         max_gpu_memory_mb: 0,
+        checkpoint_interval: None,
+        warmup_steps: None,
+        max_seq_length: None,
+        gradient_accumulation_steps: None,
     };
 
     let weights = LoRAWeights {

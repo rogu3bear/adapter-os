@@ -563,7 +563,7 @@ fn test_stub_fallback_disabled() {
     let mut backend_mut = backend.clone();
 
     // Even with stub fallback disabled, the backend still uses stub mode
-    // because real-mlx feature is not enabled. This is expected behavior.
+    // because the mlx feature is not enabled. This is expected behavior.
     let result = backend_mut.run_step(&ring, &mut io);
     assert!(result.is_ok(), "Should still succeed in stub mode");
 }
@@ -837,7 +837,7 @@ fn test_performance_metrics_tracking() {
         let _ = backend_mut.run_step(&ring, &mut io);
     }
 
-    // In stub mode without real-mlx feature, performance metrics in backend
+    // In stub mode without the mlx feature, performance metrics in backend
     // are not updated by the stub path. This test verifies the health tracking.
     let health = backend_mut.health_status();
     assert_eq!(health.total_requests, 5);

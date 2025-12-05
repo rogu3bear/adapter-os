@@ -36,6 +36,7 @@ async fn test_e2e_minimal_training() {
         preferred_backend: Some(TrainingBackend::Cpu),
         max_gpu_memory_mb: 0,
         checkpoint_interval: None,
+        ..Default::default()
     };
 
     let mut trainer = MicroLoRATrainer::new(config).expect("trainer creation should succeed");
@@ -75,6 +76,7 @@ async fn test_e2e_full_pipeline() {
         preferred_backend: Some(TrainingBackend::Cpu),
         max_gpu_memory_mb: 0,
         checkpoint_interval: None,
+        ..Default::default()
     };
 
     // Step 1: Train

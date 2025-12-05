@@ -160,7 +160,7 @@ fn test_mlx_determinism_attestation() {
         "Backend type should be Mlx"
     );
 
-    // In stub mode (multi-backend without real-mlx), uses system entropy
+    // In stub mode (multi-backend without mlx), uses system entropy
     // In real MLX mode, HKDF seeding is used
     // The attestation behavior depends on how the backend was compiled
     let is_stub_mode = matches!(attestation.rng_seed_method, RngSeedingMethod::SystemEntropy);
@@ -634,11 +634,11 @@ fn test_mlx_performance_metrics() {
             .expect("Run should succeed");
     }
 
-    // Note: Performance metrics are only updated in real-mlx mode
+    // Note: Performance metrics are only updated in mlx (real) mode
     // In stub mode, the metrics may not be updated (they remain at 0)
     // We verify the metrics structure is accessible regardless
     let _metrics = backend.performance_metrics.read();
-    // In real-mlx mode, we'd expect:
+    // In mlx (real) mode, we'd expect:
     // assert_eq!(metrics.total_requests, 5);
     // assert!(metrics.total_inference_time_ms > 0);
 }

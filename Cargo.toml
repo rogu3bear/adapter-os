@@ -106,7 +106,8 @@ replay = []
 #
 # DEVELOPMENT BACKENDS:
 #   mlx-backend    - MLX FFI (research/training, HKDF-seeded determinism)
-#   real-mlx       - Real MLX library integration (vs stub implementation)
+#   mlx            - Real MLX library integration (vs stub implementation)
+#   real-mlx       - Legacy alias for `mlx` (deprecated)
 #
 # ACTIVATION:
 #   cargo build --features coreml-backend   # Enable CoreML backend
@@ -125,7 +126,8 @@ metal-backend = []   # Metal GPU (production fallback)
 
 # MLX backend (development/research)
 mlx-backend = []     # MLX FFI stubs
-real-mlx = []        # Real MLX library (requires mlx-rs or C++ FFI)
+mlx = []             # Real MLX library (requires mlx C++ FFI)
+real-mlx = ["mlx"]   # Legacy alias for `mlx` (deprecated)
 
 # Combined feature sets
 stub-backends = ["mlx-backend"]  # All stub implementations
@@ -133,8 +135,8 @@ multi-backend = ["mlx-backend"]  # Alias for development backends
 full = ["telemetry", "metrics", "replay"]
 no-metal = []  # Explicitly disable Metal (for Linux/CI)
 # Production-oriented profiles (macOS)
-production-macos = ["coreml-backend", "metal-backend", "multi-backend", "real-mlx"]
-dev-macos-real = ["coreml-backend", "metal-backend", "multi-backend", "real-mlx"]
+production-macos = ["coreml-backend", "metal-backend", "multi-backend", "mlx"]
+dev-macos-real = ["coreml-backend", "metal-backend", "multi-backend", "mlx"]
 
 # Testing features - used in 157+ test files and test infrastructure
 extended-tests = []  # Extended test suite with intensive tests
@@ -342,6 +344,11 @@ adapteros-policy = { path = "crates/adapteros-policy" }
 adapteros-lora-router = { path = "crates/adapteros-lora-router" }
 adapteros-lora-rag = { path = "crates/adapteros-lora-rag" }
 adapteros-lora-quant = { path = "crates/adapteros-lora-quant" }
+# Examples and integration tests
+adapteros-verify = { path = "crates/adapteros-verify" }
+adapteros-api-types = { path = "crates/adapteros-api-types" }
+reqwest = { workspace = true }
+futures-util = { workspace = true }
 # adapteros-server = { path = "crates/adapteros-server" }  # Temporarily excluded
 adapteros-server-api = { path = "crates/adapteros-server-api" }
 adapteros-db = { path = "crates/adapteros-db" }
@@ -367,6 +374,7 @@ adapteros-deterministic-exec = { path = "crates/adapteros-deterministic-exec" }
 adapteros-graph = { path = "crates/adapteros-graph" }
 adapteros-replay = { path = "crates/adapteros-replay" }
 adapteros-trace = { path = "crates/adapteros-trace" }
+tracing = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

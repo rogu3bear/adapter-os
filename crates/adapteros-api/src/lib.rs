@@ -72,7 +72,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync> ApiState<K> {
 ///
 /// Creates a Unix Domain Socket HTTP server with streaming responses
 /// and proper error handling for AdapterOS inference requests.
-pub async fn serve_uds_with_worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static, P: AsRef<Path>>(
+pub async fn serve_uds_with_worker<
+    K: FusedKernels + StrictnessControl + Send + Sync + 'static,
+    P: AsRef<Path>,
+>(
     socket_path: P,
     worker: adapteros_lora_worker::Worker<K>,
 ) -> adapteros_core::Result<()> {

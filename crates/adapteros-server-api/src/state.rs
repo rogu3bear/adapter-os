@@ -27,6 +27,19 @@ use crate::handlers::chunked_upload::UploadSessionManager;
 use crate::telemetry::{MetricsRegistry, TelemetryBuffer, TelemetrySender, TraceBuffer};
 use adapteros_registry::Registry;
 
+/// RAG system status indicating whether embedding model is available
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "status", rename_all = "lowercase")]
+pub enum RagStatus {
+    Enabled {
+        model_hash: String,
+        dimension: usize,
+    },
+    Disabled {
+        reason: String,
+    },
+}
+
 /// Capacity limits configuration
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CapacityLimits {
@@ -461,6 +474,10 @@ pub struct AppState {
     pub manifest_hash: Option<String>,
     // PRD-02: Backend name for replay key capture (CoreML, MLX, Metal)
     pub backend_name: Option<String>,
+    // Crypto audit logger for cryptographic operations (optional, initialized at startup)
+    pub crypto_audit_logger: Option<Arc<adapteros_crypto::audit::CryptoAuditLogger>>,
+    // RAG status indicating whether embedding model is available and why if not
+    pub rag_status: Option<RagStatus>,
 }
 
 impl AppState {
@@ -586,6 +603,10 @@ impl AppState {
             // PRD-02: Manifest hash and backend name set via with_manifest_info
             manifest_hash: None,
             backend_name: None,
+            // Crypto audit logger initialized via with_crypto_audit_logger
+            crypto_audit_logger: None,
+            // RAG status initialized via with_rag_status
+            rag_status: None,
         }
     }
 
@@ -730,6 +751,58 @@ impl AppState {
     pub fn with_manifest_info(mut self, manifest_hash: String, backend_name: String) -> Self {
         self.manifest_hash = Some(manifest_hash);
         self.backend_name = Some(backend_name);
+        self
+    }
+
+    /// Set crypto audit logger for cryptographic operation logging
+    pub fn with_crypto_audit_logger(
+        mut self,
+        logger: Arc<adapteros_crypto::audit::CryptoAuditLogger>,
+    ) -> Self {
+        self.crypto_audit_logger = Some(logger);
+        self
+    }
+
+    /// Log a successful crypto operation
+    ///
+    /// This is a convenience method for logging successful cryptographic operations.
+    /// If no crypto_audit_logger is configured, the call is a no-op.
+    pub async fn log_crypto_success(
+        &self,
+        operation: adapteros_crypto::audit::CryptoOperation,
+        key_id: Option<String>,
+        user_id: Option<String>,
+        metadata: serde_json::Value,
+    ) {
+        if let Some(ref logger) = self.crypto_audit_logger {
+            let _ = logger
+                .log_success(operation, key_id, user_id, metadata)
+                .await;
+        }
+    }
+
+    /// Log a failed crypto operation
+    ///
+    /// This is a convenience method for logging failed cryptographic operations.
+    /// If no crypto_audit_logger is configured, the call is a no-op.
+    pub async fn log_crypto_failure(
+        &self,
+        operation: adapteros_crypto::audit::CryptoOperation,
+        key_id: Option<String>,
+        user_id: Option<String>,
+        error: &str,
+        metadata: serde_json::Value,
+    ) {
+        if let Some(ref logger) = self.crypto_audit_logger {
+            let _ = logger
+                .log_failure(operation, key_id, user_id, error, metadata)
+                .await;
+        }
+    }
+
+    /// Set RAG status indicating whether embedding model is available
+    pub fn with_rag_status(mut self, status: RagStatus) -> Self {
+        self.rag_status = Some(status);
         self
     }
 

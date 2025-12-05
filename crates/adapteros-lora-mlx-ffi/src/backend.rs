@@ -40,7 +40,7 @@ impl Default for MLXResilienceConfig {
 
 /// MLX FFI backend for inference with resilience
 pub struct MLXFFIBackend {
-    /// Base model
+    /// Base model (immutable after load; Arc ensures shared, read-only handle)
     model: Arc<MLXFFIModel>,
     /// Loaded LoRA adapters by ID (lock-free for fast inference lookups)
     ///
@@ -930,6 +930,7 @@ impl MLXFFIBackend {
     /// Run inference step using real MLX FFI
     fn run_step_mlx(&self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
         let inference_start = std::time::Instant::now();
+        let config_snapshot = self.model.config.clone();
 
         // Validate input
         if io.input_ids.is_empty() {
@@ -968,6 +969,19 @@ impl MLXFFIBackend {
             }
             base_logits
         };
+
+        debug_assert!(
+            self.model.config.hidden_size == config_snapshot.hidden_size
+                && self.model.config.num_hidden_layers == config_snapshot.num_hidden_layers
+                && self.model.config.num_attention_heads == config_snapshot.num_attention_heads
+                && self.model.config.num_key_value_heads == config_snapshot.num_key_value_heads
+                && self.model.config.intermediate_size == config_snapshot.intermediate_size
+                && self.model.config.vocab_size == config_snapshot.vocab_size
+                && self.model.config.max_position_embeddings
+                    == config_snapshot.max_position_embeddings
+                && (self.model.config.rope_theta - config_snapshot.rope_theta).abs() < f32::EPSILON,
+            "MLX base model config mutated during inference; base parameters must remain immutable"
+        );
 
         // Update output buffer with proper size handling
         let output_len = final_logits.len().min(io.output_logits.len());

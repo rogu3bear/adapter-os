@@ -439,6 +439,14 @@ impl TrainingService {
                 job.status = TrainingJobStatus::CancelPending;
                 warn!(job_id = %job_id, "Training job cancel requested but no confirmation - marking cancel_pending");
             }
+
+            // Persist cancellation status to database
+            if let Some(ref database) = self.db {
+                if let Err(e) = database.update_training_status(job_id, "cancelled").await {
+                    warn!(job_id = %job_id, error = %e, "Failed to persist training cancellation status to DB (non-fatal)");
+                }
+            }
+
             // Don't set completed_at here - let the trainer set it when it actually stops
             Ok(())
         } else {
@@ -467,6 +475,22 @@ impl TrainingService {
                 job.started_at = Some(chrono::Utc::now().to_rfc3339());
             }
 
+            // Persist progress to database
+            if let Some(ref database) = self.db {
+                let progress = adapteros_db::training_jobs::TrainingProgress {
+                    progress_pct: job.progress_pct,
+                    current_epoch: job.current_epoch,
+                    total_epochs: job.total_epochs,
+                    current_loss: job.current_loss,
+                    learning_rate: job.config.learning_rate,
+                    tokens_per_second: job.tokens_per_second,
+                    error_message: job.error_message.clone(),
+                };
+                if let Err(e) = database.update_training_progress(job_id, &progress).await {
+                    warn!(job_id = %job_id, error = %e, "Failed to persist training progress to DB (non-fatal)");
+                }
+            }
+
             Ok(())
         } else {
             Err(AosError::NotFound(format!("Training job not found: {}", job_id)).into())
@@ -481,6 +505,14 @@ impl TrainingService {
             job.progress_pct = 100.0;
             job.completed_at = Some(chrono::Utc::now().to_rfc3339());
             tracing::info!("Training job completed: {}", job_id);
+
+            // Persist completion status to database
+            if let Some(ref database) = self.db {
+                if let Err(e) = database.update_training_status(job_id, "completed").await {
+                    warn!(job_id = %job_id, error = %e, "Failed to persist training completion status to DB (non-fatal)");
+                }
+            }
+
             Ok(())
         } else {
             Err(AosError::NotFound(format!("Training job not found: {}", job_id)).into())
@@ -492,9 +524,17 @@ impl TrainingService {
         let mut jobs = self.jobs.write().await;
         if let Some(job) = jobs.get_mut(job_id) {
             job.status = TrainingJobStatus::Failed;
-            job.error_message = Some(error);
+            job.error_message = Some(error.clone());
             job.completed_at = Some(chrono::Utc::now().to_rfc3339());
             error!("Training job failed: {}", job_id);
+
+            // Persist failure status to database
+            if let Some(ref database) = self.db {
+                if let Err(e) = database.update_training_status(job_id, "failed").await {
+                    warn!(job_id = %job_id, error = %e, "Failed to persist training failure status to DB (non-fatal)");
+                }
+            }
+
             Ok(())
         } else {
             Err(AosError::Internal(format!("Training job not found: {}", job_id)).into())
@@ -585,9 +625,13 @@ struct PostActions {
     #[serde(default = "default_true")]
     register: bool,
     /// Create a new stack with the adapter after registration (default: true).
-    /// Note: The stack will NOT be set as the tenant's default.
     #[serde(default = "default_true")]
     create_stack: bool,
+    /// Activate the stack after creation (default: false).
+    /// If true, sets the created stack as the tenant's default stack.
+    /// WARNING: This changes the tenant's active inference behavior immediately.
+    #[serde(default = "default_false")]
+    activate_stack: bool,
     /// Tier to assign: persistent, warm, ephemeral (default: warm)
     #[serde(default = "default_tier")]
     tier: String,
@@ -597,6 +641,9 @@ struct PostActions {
 
 fn default_true() -> bool {
     true
+}
+fn default_false() -> bool {
+    false
 }
 fn default_tier() -> String {
     "warm".to_string()
@@ -671,6 +718,9 @@ async fn run_training_job(
         require_gpu: false,
         max_gpu_memory_mb: 0,         // unlimited
         checkpoint_interval: Some(5), // Save checkpoint every 5 epochs
+        warmup_steps: orchestrator_cfg.warmup_steps,
+        max_seq_length: orchestrator_cfg.max_seq_length,
+        gradient_accumulation_steps: orchestrator_cfg.gradient_accumulation_steps,
     };
 
     // Clone db for later use in packaging/registration
@@ -859,6 +909,15 @@ async fn run_training_job(
                     }
                     job.completed_at = Some(chrono::Utc::now().to_rfc3339());
                 }
+                drop(jobs); // Release lock before DB call
+
+                // Persist cancellation status to database
+                if let Some(database) = &db {
+                    if let Err(e) = database.update_training_status(&job_id, "cancelled").await {
+                        warn!(job_id = %job_id, error = %e, "Failed to persist training cancellation status to DB (non-fatal)");
+                    }
+                }
+
                 return Ok(());
             }
 
@@ -884,6 +943,15 @@ async fn run_training_job(
                     job.progress_pct = 100.0;
                     job.completed_at = Some(chrono::Utc::now().to_rfc3339());
                 }
+                drop(jobs); // Release lock before DB call
+
+                // Persist completion status to database
+                if let Some(database) = &db {
+                    if let Err(e) = database.update_training_status(&job_id, "completed").await {
+                        warn!(job_id = %job_id, error = %e, "Failed to persist training completion status to DB (non-fatal)");
+                    }
+                }
+
                 return Ok(());
             }
 
@@ -907,6 +975,9 @@ async fn run_training_job(
                 require_gpu: false,
                 max_gpu_memory_mb: 0,
                 checkpoint_interval: worker_cfg.checkpoint_interval,
+                warmup_steps: worker_cfg.warmup_steps,
+                max_seq_length: worker_cfg.max_seq_length,
+                gradient_accumulation_steps: worker_cfg.gradient_accumulation_steps,
             };
 
             // Generate unique adapter ID from job_id
@@ -930,6 +1001,17 @@ async fn run_training_job(
                         job.error_message = Some(format!("Packaging failed: {}", e));
                         job.completed_at = Some(chrono::Utc::now().to_rfc3339());
                     }
+                    drop(jobs); // Release lock before DB call
+
+                    // Persist failure status to database
+                    if let Some(database) = &db {
+                        if let Err(db_err) =
+                            database.update_training_status(&job_id, "failed").await
+                        {
+                            warn!(job_id = %job_id, error = %db_err, "Failed to persist training failure status to DB (non-fatal)");
+                        }
+                    }
+
                     return Err(e.into());
                 }
             };
@@ -961,6 +1043,13 @@ async fn run_training_job(
                         job.adapter_id = Some(packaged.adapter_id.clone());
                         job.weights_hash_b3 = Some(packaged.hash_b3.clone());
                     }
+                    drop(jobs); // Release lock before DB call
+
+                    // Persist completion status to database
+                    if let Err(e) = database.update_training_status(&job_id, "completed").await {
+                        warn!(job_id = %job_id, error = %e, "Failed to persist training completion status to DB (non-fatal)");
+                    }
+
                     return Ok(());
                 }
 
@@ -1071,11 +1160,50 @@ async fn run_training_job(
                                         // Continue - the in-memory values are still set
                                     }
 
-                                    // IMPORTANT: We intentionally do NOT call set_default_stack() here.
-                                    // Training finishes → adapter registered →
-                                    // stack auto-created, but NOT set as default.
-                                    // Users must explicitly set their default stack via the API:
-                                    // PUT /v1/tenants/{tenant_id}/default-stack
+                                    // Step 5: Optionally activate the stack (set as tenant default)
+                                    if post_actions.activate_stack {
+                                        match database.set_default_stack(tenant_id, &stack_id).await
+                                        {
+                                            Ok(_) => {
+                                                info!(
+                                                    job_id = %job_id,
+                                                    tenant_id = %tenant_id,
+                                                    stack_id = %stack_id,
+                                                    "Stack activated as tenant default"
+                                                );
+
+                                                // Ensure stack lifecycle_state is Active for control plane + KV
+                                                if let Err(e) = database
+                                                    .activate_stack(tenant_id, &stack_id)
+                                                    .await
+                                                {
+                                                    warn!(
+                                                        job_id = %job_id,
+                                                        tenant_id = %tenant_id,
+                                                        stack_id = %stack_id,
+                                                        error = %e,
+                                                        "Failed to mark stack active in DB after training (non-fatal)"
+                                                    );
+                                                }
+                                            }
+                                            Err(e) => {
+                                                // Log but don't fail - stack is already created
+                                                warn!(
+                                                    job_id = %job_id,
+                                                    tenant_id = %tenant_id,
+                                                    stack_id = %stack_id,
+                                                    error = %e,
+                                                    "Failed to activate stack (non-fatal)"
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        info!(
+                                            job_id = %job_id,
+                                            stack_id = %stack_id,
+                                            "Stack created but NOT activated (activate_stack=false)"
+                                        );
+                                    }
                                 }
                                 Err(e) => {
                                     // Log but don't fail - adapter is already registered
@@ -1097,6 +1225,15 @@ async fn run_training_job(
                             job.error_message = Some(format!("Registration failed: {}", e));
                             job.completed_at = Some(chrono::Utc::now().to_rfc3339());
                         }
+                        drop(jobs); // Release lock before DB call
+
+                        // Persist failure status to database
+                        if let Err(db_err) =
+                            database.update_training_status(&job_id, "failed").await
+                        {
+                            warn!(job_id = %job_id, error = %db_err, "Failed to persist training failure status to DB (non-fatal)");
+                        }
+
                         return Err(e.into());
                     }
                 }
@@ -1128,6 +1265,13 @@ async fn run_training_job(
                     (None, None, None)
                 }
             };
+
+            // Persist completion status to database
+            if let Some(database) = &db_for_packaging {
+                if let Err(e) = database.update_training_status(&job_id, "completed").await {
+                    warn!(job_id = %job_id, error = %e, "Failed to persist training completion status to DB (non-fatal)");
+                }
+            }
 
             // Audit log: training completion (if we have user context and database)
             if let (Some(database), Some(user_id), Some(user_role)) =
@@ -1203,8 +1347,18 @@ async fn run_training_job(
                 }
             }
 
-            // Persist retryable flag to DB
+            // Persist failure status and retryable flag to DB
             if let Some(database) = &db {
+                // Update status to "failed"
+                if let Err(e) = database.update_training_status(&job_id, "failed").await {
+                    warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to persist training failure status to DB (non-fatal)"
+                    );
+                }
+
+                // Update retryable flag
                 if let Err(db_err) = database
                     .update_training_job_retryable(&job_id, is_retryable)
                     .await
@@ -1218,7 +1372,7 @@ async fn run_training_job(
                     info!(
                         job_id = %job_id,
                         retryable = is_retryable,
-                        "Training job failed, retryable flag set"
+                        "Training job failed, status and retryable flag persisted"
                     );
                 }
             }

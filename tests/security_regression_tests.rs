@@ -13,8 +13,6 @@
 
 #[cfg(test)]
 mod security_regression_tests {
-    use std::path::PathBuf;
-
     // @regression: Ensure Ed25519 signatures cannot be forged
     #[test]
     fn test_signature_forgery_prevention() {
@@ -33,7 +31,7 @@ mod security_regression_tests {
     // @regression: Ensure path traversal attacks are blocked
     #[test]
     fn test_path_traversal_attack_vectors_blocked() {
-        let attack_vectors = vec![
+        let _attack_vectors = vec![
             // Basic traversal attempts
             ("../../../etc/passwd", "Parent directory traversal"),
             (
@@ -78,7 +76,7 @@ mod security_regression_tests {
     // @regression: Symlink attacks must be prevented
     #[test]
     fn test_symlink_attack_prevention() {
-        let attack_scenarios = vec![
+        let _attack_scenarios = vec![
             ("Symlink to /etc/passwd", "/etc/passwd"),
             ("Symlink to /root/.ssh", "/root/.ssh"),
             ("Symlink to sensitive config", "/etc/shadow"),
@@ -237,7 +235,7 @@ mod security_regression_tests {
     // @regression: System-critical paths must be inaccessible
     #[test]
     fn test_system_path_protection() {
-        let protected_paths = vec![
+        let _protected_paths = vec![
             "/etc/passwd",
             "/etc/shadow",
             "/etc/sudoers",
@@ -309,7 +307,7 @@ mod security_regression_tests {
     // @regression: Blocked extensions list must be enforced
     #[test]
     fn test_blocked_extension_enforcement() {
-        let blocked = vec!["exe", "bat", "sh", "ps1", "cmd"];
+        let _blocked = vec!["exe", "bat", "sh", "ps1", "cmd"];
 
         // Each blocked extension should be rejected
         // No bypass through encoding or case variations
@@ -319,8 +317,8 @@ mod security_regression_tests {
     // @regression: Allowed extensions list must restrict properly
     #[test]
     fn test_allowed_extension_enforcement() {
-        let allowed = vec!["txt", "json", "jsonl", "yaml", "aos", "safetensors"];
-        let blocked = vec!["exe", "py", "rb", "go", "c"];
+        let _allowed = vec!["txt", "json", "jsonl", "yaml", "aos", "safetensors"];
+        let _blocked = vec!["exe", "py", "rb", "go", "c"];
 
         // Only allowed extensions should be accepted
         // Blocked extensions must be rejected even if not explicitly listed as blocked

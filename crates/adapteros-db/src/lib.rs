@@ -22,6 +22,7 @@ pub mod kv_metrics;
 pub mod sqlite_backend;
 pub mod tenant_execution_policies;
 pub mod tenant_policies;
+pub mod tenant_settings;
 pub mod traits;
 
 // Re-export commonly used types
@@ -43,6 +44,9 @@ pub use tenant_policies::{
     CreateCustomizationRequest, CustomizationHistoryEntry, CustomizationStatus,
     TenantPolicyCustomization, TenantPolicyCustomizationOps,
 };
+
+// Re-export tenant settings types
+pub use tenant_settings::{TenantSettings, UpdateTenantSettingsParams};
 
 // Re-export tenant policy binding types
 pub mod tenant_policy_bindings;
@@ -1198,6 +1202,45 @@ impl Db {
         Ok(updated)
     }
 
+    /// Activate a stack by setting lifecycle_state to 'active' (SQL + KV)
+    pub async fn activate_stack(&self, tenant_id: &str, id: &str) -> Result<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE adapter_stacks
+            SET lifecycle_state = 'active',
+                updated_at = datetime('now')
+            WHERE tenant_id = ? AND id = ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to activate stack: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AosError::NotFound(format!(
+                "Stack {} not found for tenant {}",
+                id, tenant_id
+            )));
+        }
+
+        // KV activation (dual-write mode)
+        if let Some(kv_backend) = self.get_stack_kv_repo() {
+            use stacks_kv::StackKvOps;
+            if let Err(e) = kv_backend.activate_stack(id).await {
+                warn!(
+                    error = %e,
+                    stack_id = %id,
+                    tenant_id = %tenant_id,
+                    "Failed to activate stack in KV backend (dual-write)"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     /// Get the underlying pool for custom queries
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
@@ -1629,6 +1672,10 @@ pub mod crypto_audit;
 pub use adapter_snapshots::{AdapterTrainingSnapshot, CreateSnapshotParams};
 pub mod inference_evidence;
 pub use inference_evidence::{CreateEvidenceParams, InferenceEvidence};
+pub mod batch_jobs;
+pub use batch_jobs::{
+    BatchItemRecord, BatchJobRecord, CreateBatchItemParams, CreateBatchJobParams,
+};
 pub mod replay_metadata;
 pub use replay_metadata::{CreateReplayMetadataParams, InferenceReplayMetadata};
 pub mod replay_executions;

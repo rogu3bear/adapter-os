@@ -128,6 +128,9 @@ impl TrainArgs {
                 preferred_backend: None,
                 require_gpu: false,
                 checkpoint_interval: None,
+                warmup_steps: None,
+                max_seq_length: None,
+                gradient_accumulation_steps: None,
             };
 
             info!("Using command-line training configuration");
@@ -210,18 +213,14 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.json");
 
-        let config = TrainingConfig {
-            rank: 8,
-            alpha: 32.0,
-            learning_rate: 0.001,
-            batch_size: 16,
-            epochs: 5,
-            hidden_dim: 1024,
-            vocab_size: 50272,
-            max_gpu_memory_mb: 0,
-            preferred_backend: None,
-            require_gpu: false,
-        };
+        let mut config = TrainingConfig::default();
+        config.rank = 8;
+        config.alpha = 32.0;
+        config.learning_rate = 0.001;
+        config.batch_size = 16;
+        config.epochs = 5;
+        config.hidden_dim = 1024;
+        config.vocab_size = 50272;
 
         std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
 

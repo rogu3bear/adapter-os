@@ -150,6 +150,11 @@ pub struct AdapterManifest {
     pub created_at: String,
     pub weights_hash: String,
     pub training_data_hash: String,
+    /// Optional per-layer BLAKE3 hashes keyed by canonical logical layer path
+    /// (e.g., "transformer.layer_12.attn.q_proj.lora_A"). Backward-compatible:
+    /// absent for older manifests.
+    #[serde(default)]
+    pub per_layer_hashes: Option<HashMap<String, String>>,
     /// Compression method used for weights
     #[serde(default)]
     pub compression_method: String,
@@ -353,7 +358,9 @@ impl SingleFileAdapter {
             version: lineage.version.clone(),
             rank: config.rank as u32,
             alpha: config.alpha,
-            base_model: options.base_model.unwrap_or_else(|| "qwen2.5-7b".to_string()),
+            base_model: options
+                .base_model
+                .unwrap_or_else(|| "qwen2.5-7b".to_string()),
             base_model_id: options.base_model_id,
             backend_family: options.backend_family,
             quantization: options.quantization,
@@ -368,6 +375,7 @@ impl SingleFileAdapter {
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: weights_hash.clone(),
             training_data_hash,
+            per_layer_hashes: None,
             compression_method: "deflate-fast".to_string(),
             weight_groups: WeightGroupConfig::default(),
             provenance: options.provenance,

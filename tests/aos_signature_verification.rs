@@ -4,7 +4,7 @@
 //!
 //! Tests cryptographic signature generation, verification, and tamper detection.
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
 use adapteros_lora_worker::training::{TrainingConfig, TrainingExample};
 use adapteros_single_file_adapter::{
@@ -256,6 +256,37 @@ async fn test_skip_signature_verification() -> Result<()> {
     )
     .await;
     assert!(loaded.is_ok());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_skip_bypass_disallowed_in_production_mode() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let path = temp_dir.path().join("prod_guard.aos");
+
+    // Create a signed adapter
+    let mut adapter = create_test_adapter("prod_guard_test");
+    let keypair = Keypair::generate();
+    adapter.sign(&keypair)?;
+    SingleFileAdapterPackager::save(&adapter, &path).await?;
+
+    // Enable production_mode and request skip
+    std::env::set_var("AOS_SERVER_PRODUCTION_MODE", "true");
+    let result = SingleFileAdapterLoader::load_with_options(
+        &path,
+        LoadOptions {
+            skip_verification: false,
+            skip_signature_check: true,
+        },
+    )
+    .await;
+    std::env::remove_var("AOS_SERVER_PRODUCTION_MODE");
+
+    assert!(
+        matches!(result, Err(AosError::PolicyViolation(_))),
+        "Skip flags must be blocked when production_mode is enabled"
+    );
 
     Ok(())
 }

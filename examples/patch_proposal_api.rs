@@ -5,7 +5,6 @@
 
 use reqwest::Client;
 use serde_json::json;
-use std::collections::HashMap;
 use tokio;
 
 #[tokio::main]
@@ -57,7 +56,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send()
         .await?;
 
-    if response.status().is_success() {
+    let status = response.status();
+
+    if status.is_success() {
         let patch_response: serde_json::Value = response.json().await?;
         println!("✅ Patch proposal created successfully!");
         println!("   Proposal ID: {}", patch_response["proposal_id"]);
@@ -66,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         let error_response: serde_json::Value = response.json().await?;
         println!("❌ Patch proposal failed");
-        println!("   Status: {}", response.status());
+        println!("   Status: {}", status);
         println!("   Error: {}", error_response["error"]);
         if let Some(details) = error_response.get("details") {
             println!("   Details: {}", details);

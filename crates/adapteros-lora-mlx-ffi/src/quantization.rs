@@ -375,24 +375,25 @@ impl MLXQuantizer {
 
     fn quantize_value_int8(value: f32, scale: f32) -> i8 {
         let normalized = value / scale;
-        let quantized = (normalized * 127.0).clamp(-128.0, 127.0);
+        // Value range after division by scale is approximately [-127, 127]
+        let quantized = normalized.round().clamp(-127.0, 127.0);
         quantized as i8
     }
 
     fn dequantize_value_int8(value: i8, scale: f32) -> f32 {
-        (value as f32 / 127.0) * scale
+        (value as f32) * scale
     }
 
     fn quantize_value_int4(value: f32, scale: f32) -> i8 {
         let normalized = value / scale;
         // INT4 range is [-8, 7] in signed representation
-        let quantized = (normalized * 7.0).clamp(-8.0, 7.0);
+        let quantized = normalized.round().clamp(-8.0, 7.0);
         quantized as i8
     }
 
     fn dequantize_value_int4(value: i8, scale: f32) -> f32 {
         // value is in range [-8, 7]
-        (value as f32 / 7.0) * scale
+        (value as f32) * scale
     }
 }
 

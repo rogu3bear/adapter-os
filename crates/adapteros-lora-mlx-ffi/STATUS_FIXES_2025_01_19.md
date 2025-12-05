@@ -19,14 +19,14 @@ Three critical fixes have been implemented to begin addressing MLX functionality
 **Code Changes:**
 ```rust
 // backend.rs:144-148
-#[cfg(feature = "real-mlx")]
+#[cfg(feature = "mlx")]
 let (rng_method, deterministic, float_mode) = (
     RngSeedingMethod::HkdfSeeded,  // Real MLX can use HKDF
     true,                          // Can be deterministic
     FloatingPointMode::Unknown,
 );
 
-#[cfg(not(feature = "real-mlx"))]
+#[cfg(not(feature = "mlx"))]
 let (rng_method, deterministic, float_mode) = (
     RngSeedingMethod::SystemEntropy, // Stub mode uses system entropy
     false,                           // Not deterministic
@@ -40,18 +40,18 @@ let (rng_method, deterministic, float_mode) = (
 
 **Problem:** No way to enable real MLX compilation.
 
-**Solution:** Added `real-mlx` feature flag to Cargo.toml and updated build.rs.
+**Solution:** Added `mlx` feature flag to Cargo.toml and updated build.rs.
 
 **Code Changes:**
 ```toml
 # Cargo.toml
 [features]
-real-mlx = []  # Enable real MLX C++ compilation (requires MLX C++ headers/libs)
+mlx = []  # Enable real MLX C++ compilation (requires MLX C++ headers/libs)
 ```
 
 ```rust
 // build.rs:18-29
-let real_mlx_enabled = env::var("CARGO_FEATURE_REAL_MLX").is_ok();
+let real_mlx_enabled = env::var("CARGO_FEATURE_MLX").is_ok();
 
 let use_stub = if real_mlx_enabled {
     should_use_stub(&include_dir)  // Check for headers when feature enabled
@@ -63,7 +63,7 @@ let use_stub = if real_mlx_enabled {
 **Usage:**
 ```bash
 # Enable real MLX compilation
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
 
 # With MLX headers installed, this will use real MLX instead of stubs
 ```
@@ -113,7 +113,7 @@ cargo test  # Should work - uses safe stubs
 pip install mlx
 
 # Build with real MLX
-cargo build --features real-mlx
+cargo build --features mlx
 
 # If MLX headers found, will compile real implementation
 # If not found, falls back to stubs with warnings
@@ -121,24 +121,24 @@ cargo build --features real-mlx
 
 ### Verify Determinism Reporting:
 ```rust
-// Without real-mlx feature: reports SystemEntropy, deterministic=false
-// With real-mlx feature: reports HkdfSeeded, deterministic=true
+// Without mlx feature: reports SystemEntropy, deterministic=false
+// With mlx feature: reports HkdfSeeded, deterministic=true
 let report = backend.attest_determinism()?;
-assert_eq!(report.deterministic, cfg!(feature = "real-mlx"));
+assert_eq!(report.deterministic, cfg!(feature = "mlx"));
 ```
 
 ## 🎯 Next Steps
 
 These fixes establish the foundation for MLX functionality:
 
-1. **Immediate:** Test with `cargo build --features real-mlx` on systems with MLX
+1. **Immediate:** Test with `cargo build --features mlx` on systems with MLX
 2. **Short-term:** Address any compilation issues with MLX C++ headers
 3. **Medium-term:** Add integration tests for real MLX functionality
 4. **Long-term:** Monitor MLX C++ API maturity for production readiness
 
 ## 📋 Prerequisites for Real MLX
 
-To use `--features real-mlx`, you need:
+To use `--features mlx`, you need:
 
 1. **MLX Python package:** `pip install mlx`
 2. **MLX C++ headers:** Usually installed with MLX Python package
@@ -146,7 +146,7 @@ To use `--features real-mlx`, you need:
 
 ## ⚠️ Important Notes
 
-- **Default behavior unchanged:** Without `--features real-mlx`, everything works exactly as before
+- **Default behavior unchanged:** Without `--features mlx`, everything works exactly as before
 - **Safe fallback:** If MLX headers missing, automatically falls back to stubs
 - **Policy compliance:** Real MLX mode will pass determinism checks (when implemented)
 - **Memory safety:** All operations now have bounds checking
@@ -161,8 +161,8 @@ cargo build -p adapteros-lora-mlx-ffi
 cargo test -p adapteros-lora-mlx-ffi
 
 # Test real MLX mode (if MLX available)
-cargo build -p adapteros-lora-mlx-ffi --features real-mlx
-cargo test -p adapteros-lora-mlx-ffi --features real-mlx
+cargo build -p adapteros-lora-mlx-ffi --features mlx
+cargo test -p adapteros-lora-mlx-ffi --features mlx
 ```
 
 **Expected Results:**

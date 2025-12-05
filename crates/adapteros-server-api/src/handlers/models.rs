@@ -10,7 +10,7 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use crate::uds_client::UdsClient;
 use adapteros_db::users::Role;
-use std::path::PathBuf;
+use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;
 
 /// Resource type for model audit logs
@@ -154,7 +154,7 @@ pub async fn load_model(
         )
     })?;
 
-    let tenant_id = &claims.sub;
+    let tenant_id = &claims.tenant_id;
     let now = chrono::Utc::now().to_rfc3339();
 
     // Check if model exists in database
@@ -474,7 +474,7 @@ pub async fn unload_model(
         )
     })?;
 
-    let tenant_id = &claims.sub;
+    let tenant_id = &claims.tenant_id;
     let now = chrono::Utc::now().to_rfc3339();
 
     // Check if model exists in database
@@ -1008,7 +1008,6 @@ pub async fn import_model(
     Extension(claims): Extension<Claims>,
     Json(req): Json<ImportModelRequest>,
 ) -> Result<Json<ImportModelResponse>, (StatusCode, Json<ErrorResponse>)> {
-    use std::path::Path;
     use tracing::{error, info, warn};
 
     require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
@@ -1018,10 +1017,10 @@ pub async fn import_model(
         )
     })?;
 
-    let tenant_id = &claims.sub;
+    let tenant_id = &claims.tenant_id;
 
     // Validate path exists
-    if !Path::new(&req.model_path).exists() {
+    if !StdPath::new(&req.model_path).exists() {
         warn!("Model path does not exist: {}", req.model_path);
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1130,19 +1129,40 @@ pub struct ModelListResponse {
 }
 
 #[derive(Serialize, ToSchema)]
+pub struct ModelArchitectureSummary {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_layers: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden_size: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vocab_size: Option<usize>,
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct ModelWithStatsResponse {
     pub id: String,
     pub name: String,
+    pub hash_b3: String,
+    pub config_hash_b3: String,
+    pub tokenizer_hash_b3: String,
     pub format: Option<String>,
     pub backend: Option<String>,
     pub size_bytes: Option<i64>,
     pub import_status: Option<String>,
     pub model_path: Option<String>,
     pub capabilities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantization: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
     pub adapter_count: i64,
     pub training_job_count: i64,
     pub imported_at: Option<String>,
     pub updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<ModelArchitectureSummary>,
 }
 
 /// List all models with statistics
@@ -1211,30 +1231,151 @@ pub async fn list_models_with_stats(
     let models = models_with_stats
         .into_iter()
         .map(|m| {
-            let capabilities = m
-                .model
+            let model = &m.model;
+            let capabilities = model
                 .capabilities
                 .as_ref()
                 .and_then(|c| serde_json::from_str::<Vec<String>>(c).ok());
 
             ModelWithStatsResponse {
-                id: m.model.id,
-                name: m.model.name,
-                format: m.model.format,
-                backend: m.model.backend,
-                size_bytes: m.model.size_bytes,
-                import_status: m.model.import_status,
-                model_path: m.model.model_path,
+                id: model.id.clone(),
+                name: model.name.clone(),
+                hash_b3: model.hash_b3.clone(),
+                config_hash_b3: model.config_hash_b3.clone(),
+                tokenizer_hash_b3: model.tokenizer_hash_b3.clone(),
+                format: model.format.clone(),
+                backend: model.backend.clone(),
+                size_bytes: model.size_bytes,
+                import_status: model.import_status.clone(),
+                model_path: model.model_path.clone(),
                 capabilities,
+                quantization: model.quantization.clone(),
+                tenant_id: model.tenant_id.clone(),
                 adapter_count: m.adapter_count,
                 training_job_count: m.training_job_count,
-                imported_at: m.model.imported_at,
-                updated_at: m.model.updated_at,
+                imported_at: model.imported_at.clone(),
+                updated_at: model.updated_at.clone(),
+                architecture: parse_architecture_summary(model),
             }
         })
         .collect();
 
     Ok(Json(ModelListResponse { models, total }))
+}
+
+fn parse_architecture_summary(
+    model: &adapteros_db::models::Model,
+) -> Option<ModelArchitectureSummary> {
+    let mut summary = ModelArchitectureSummary {
+        architecture: model.model_type.clone(),
+        num_layers: None,
+        hidden_size: None,
+        vocab_size: None,
+    };
+
+    if let Some(raw) = &model.metadata_json {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
+            summary.num_layers = value
+                .get("num_hidden_layers")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+            summary.hidden_size = value
+                .get("hidden_size")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+            summary.vocab_size = value
+                .get("vocab_size")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+
+            if summary.architecture.is_none() {
+                summary.architecture = value
+                    .get("architecture")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        value
+                            .get("model_type")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .or_else(|| {
+                        value
+                            .get("architectures")
+                            .and_then(|v| v.as_array())
+                            .and_then(|arr| arr.first())
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    });
+            }
+        }
+    }
+
+    // Fallback: parse config.json from model_path when metadata is missing/incomplete
+    if (summary.architecture.is_none()
+        || summary.num_layers.is_none()
+        || summary.hidden_size.is_none()
+        || summary.vocab_size.is_none())
+        && model.model_path.is_some()
+    {
+        if let Some(path_str) = &model.model_path {
+            let path = StdPath::new(path_str);
+            let config_path = if path.is_dir() {
+                path.join("config.json")
+            } else {
+                path.to_path_buf()
+            };
+
+            if config_path.exists() {
+                if let Ok(contents) = std::fs::read_to_string(&config_path) {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&contents) {
+                        if summary.num_layers.is_none() {
+                            summary.num_layers = value
+                                .get("num_hidden_layers")
+                                .and_then(|v| v.as_u64())
+                                .map(|v| v as usize);
+                        }
+                        if summary.hidden_size.is_none() {
+                            summary.hidden_size = value
+                                .get("hidden_size")
+                                .and_then(|v| v.as_u64())
+                                .map(|v| v as usize);
+                        }
+                        if summary.vocab_size.is_none() {
+                            summary.vocab_size = value
+                                .get("vocab_size")
+                                .and_then(|v| v.as_u64())
+                                .map(|v| v as usize);
+                        }
+                        if summary.architecture.is_none() {
+                            summary.architecture = value
+                                .get("model_type")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .or_else(|| {
+                                    value
+                                        .get("architectures")
+                                        .and_then(|v| v.as_array())
+                                        .and_then(|arr| arr.first())
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string())
+                                });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if summary.architecture.is_none()
+        && summary.num_layers.is_none()
+        && summary.hidden_size.is_none()
+        && summary.vocab_size.is_none()
+    {
+        None
+    } else {
+        Some(summary)
+    }
 }
 
 /// Get all models status

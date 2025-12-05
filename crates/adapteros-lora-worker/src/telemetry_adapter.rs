@@ -175,9 +175,9 @@ impl TelemetryAdapter {
         &self,
         registry: &TelemetryLoraRegistry,
         plan: &TelemetryMergePlan,
-        weights: &mut [f32],
-        bias: &mut [f32],
-    ) -> Result<()> {
+        weights: &[f32],
+        bias: &[f32],
+    ) -> Result<(Vec<f32>, Vec<f32>)> {
         plan.apply(registry, weights, bias)
     }
 }

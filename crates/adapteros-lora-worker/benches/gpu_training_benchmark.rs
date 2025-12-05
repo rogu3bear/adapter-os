@@ -27,18 +27,14 @@ fn create_training_examples(count: usize) -> Vec<adapteros_lora_worker::training
 }
 
 fn measure_training_time(backend: &str, examples: usize, rank: usize, hidden_dim: usize) {
-    let config = adapteros_lora_worker::training::TrainingConfig {
-        rank,
-        alpha: 16.0,
-        learning_rate: 1e-4,
-        batch_size: 4,
-        epochs: 2,
-        hidden_dim,
-        vocab_size: 50272,
-        require_gpu: false,
-        preferred_backend: None,
-        max_gpu_memory_mb: 0,
-    };
+    let mut config = adapteros_lora_worker::training::TrainingConfig::default();
+    config.rank = rank;
+    config.alpha = 16.0;
+    config.learning_rate = 1e-4;
+    config.batch_size = 4;
+    config.epochs = 2;
+    config.hidden_dim = hidden_dim;
+    config.vocab_size = 50272;
 
     let mut trainer = match adapteros_lora_worker::training::MicroLoRATrainer::new(config) {
         Ok(t) => t,
@@ -144,18 +140,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_small_training_completes() {
-        let config = adapteros_lora_worker::training::TrainingConfig {
-            rank: 2,
-            alpha: 8.0,
-            learning_rate: 1e-3,
-            batch_size: 2,
-            epochs: 1,
-            hidden_dim: 64,
-            vocab_size: 50272,
-            require_gpu: false,
-            preferred_backend: None,
-            max_gpu_memory_mb: 0,
-        };
+        let mut config = adapteros_lora_worker::training::TrainingConfig::default();
+        config.rank = 2;
+        config.alpha = 8.0;
+        config.learning_rate = 1e-3;
+        config.batch_size = 2;
+        config.epochs = 1;
+        config.hidden_dim = 64;
+        config.vocab_size = 50272;
 
         let mut trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config).unwrap();
         let examples = create_training_examples(4);

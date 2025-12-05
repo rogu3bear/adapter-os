@@ -175,6 +175,7 @@ impl DefaultAdapterService {
     }
 
     /// Map state string to AdapterState enum
+    #[allow(dead_code)]
     fn state_to_enum(state: &str) -> AdapterState {
         match state {
             "unloaded" => AdapterState::Unloaded,
@@ -206,44 +207,21 @@ impl DefaultAdapterService {
 
             if let Some(adapter_idx) = manager.get_adapter_idx(adapter_id) {
                 // Execute state transition via lifecycle manager
+                // NOTE: promote_adapter/demote_adapter already follow DB-first pattern internally
+                // They persist to DB first, then update in-memory state
                 if is_promotion {
-                    manager.promote_adapter(adapter_idx).map_err(|e| {
+                    manager.promote_adapter(adapter_idx).await.map_err(|e| {
                         error!(error = %e, "Failed to promote adapter via lifecycle manager");
                         AosError::Other(format!("Failed to promote adapter: {}", e))
                     })?;
                 } else {
-                    manager.demote_adapter(adapter_idx).map_err(|e| {
+                    manager.demote_adapter(adapter_idx).await.map_err(|e| {
                         error!(error = %e, "Failed to demote adapter via lifecycle manager");
                         AosError::Other(format!("Failed to demote adapter: {}", e))
                     })?;
                 }
 
-                let new_state_enum = Self::state_to_enum(new_state_str);
-
-                // Sync with database via lifecycle manager
-                if let Err(e) = manager
-                    .update_adapter_state(adapter_idx, new_state_enum, reason)
-                    .await
-                {
-                    warn!(adapter_id = %adapter_id, error = %e, "Failed to sync adapter state with database via lifecycle manager");
-                    // Fallback: use CAS update directly
-                    let updated = self
-                        .state
-                        .db
-                        .update_adapter_state_cas(adapter_id, old_state_str, new_state_str, reason)
-                        .await
-                        .map_err(|e| {
-                            error!(error = %e, "Failed to update adapter state (CAS)");
-                            AosError::Database(format!("Failed to update adapter state: {}", e))
-                        })?;
-                    if !updated {
-                        return Err(AosError::Validation(format!(
-                            "State transition conflict: adapter {} is no longer in '{}' state",
-                            adapter_id, old_state_str
-                        )));
-                    }
-                }
-
+                // No need for additional DB sync - lifecycle manager already persisted changes
                 Ok(new_state_str.to_string())
             } else {
                 // Adapter not found in lifecycle manager, use CAS update directly

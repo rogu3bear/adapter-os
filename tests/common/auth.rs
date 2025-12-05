@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::fixtures_consolidated::{TestAppStateBuilder, TestDbBuilder, TestUser};
 use adapteros_db::users::Role;
 use adapteros_server_api::types::{ErrorResponse, LoginResponse};

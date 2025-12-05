@@ -6,6 +6,29 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::schema_version;
 
+/// Dataset validation status
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatasetValidationStatus {
+    Draft,
+    Validating,
+    Valid,
+    Invalid,
+    Failed,
+}
+
+impl DatasetValidationStatus {
+    pub fn from_db_string(value: &str) -> Self {
+        match value.to_ascii_lowercase().as_str() {
+            "validating" => Self::Validating,
+            "valid" => Self::Valid,
+            "invalid" => Self::Invalid,
+            "failed" => Self::Failed,
+            _ => Self::Draft,
+        }
+    }
+}
+
 // ===== Request/Response Types =====
 
 /// Training configuration request
@@ -287,8 +310,9 @@ pub struct DatasetResponse {
     pub format: String,
     pub hash: String,
     pub storage_path: String,
-    pub validation_status: String,
-    pub validation_errors: Option<String>,
+    pub validation_status: DatasetValidationStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_errors: Option<Vec<String>>,
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
@@ -340,7 +364,7 @@ pub struct ValidateDatasetResponse {
     pub schema_version: String,
     pub dataset_id: String,
     pub is_valid: bool,
-    pub validation_status: String,
+    pub validation_status: DatasetValidationStatus,
     pub errors: Option<Vec<String>>,
     pub validated_at: String,
 }

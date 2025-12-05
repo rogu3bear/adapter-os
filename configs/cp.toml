@@ -15,6 +15,7 @@ path = "var/aos-cp.sqlite3"
 require_pf_deny = false
 mtls_required = false
 jwt_secret = "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
+jwt_mode = "hmac"
 dev_login_enabled = true
 
 [paths]

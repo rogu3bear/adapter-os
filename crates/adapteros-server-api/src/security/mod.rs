@@ -85,7 +85,10 @@ fn check_tenant_access_core(claims: &Claims, resource_tenant_id: &str) -> bool {
             return true;
         }
         // Specific tenant grant
-        if claims.admin_tenants.contains(&resource_tenant_id.to_string()) {
+        if claims
+            .admin_tenants
+            .contains(&resource_tenant_id.to_string())
+        {
             return true;
         }
     }

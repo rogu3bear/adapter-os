@@ -2,7 +2,9 @@
 //!
 //! Implements per-tenant rate limiting with token bucket algorithm for M1 production hardening.
 //! Each tenant gets their own isolated token bucket with configurable rate and burst capacity.
+//! Rate limits are read from EffectiveConfig when available.
 
+use adapteros_config::try_effective_config;
 use crate::{auth::Claims, state::AppState, types::ErrorResponse};
 use axum::{
     extract::{Request, State},
@@ -152,9 +154,19 @@ where
     S: Service<Request<Body>, Response = Response> + Send + Clone + 'static,
     S::Future: Send + 'static,
 {
+    // Read rate limits from EffectiveConfig, with safe defaults
+    let (requests_per_second, burst_size) = try_effective_config()
+        .map(|cfg| {
+            // Convert requests_per_minute to requests_per_second
+            let rps = (cfg.rate_limits.requests_per_minute as f64 / 60.0).ceil() as u64;
+            let burst = cfg.rate_limits.burst_size as u64;
+            (rps.max(1), burst.max(1)) // Ensure at least 1
+        })
+        .unwrap_or((2, 20)); // Safe defaults: ~120 rpm, 20 burst
+
     let config = GovernorConfig::default()
-        .per_second(100)
-        .burst_size(100)
+        .per_second(requests_per_second)
+        .burst_size(burst_size)
         .key_prefix("rate_limit");
     let key_extractor = TenantKeyExtractor {
         state: state.clone(),

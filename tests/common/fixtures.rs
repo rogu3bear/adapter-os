@@ -6,6 +6,8 @@
 //! - Policy fixtures for compliance tests
 //! - Request/response payload templates
 
+#![allow(dead_code)]
+
 use serde_json::json;
 
 /// Adapter test fixtures
@@ -384,8 +386,6 @@ pub mod auth {
 
 /// Utility functions for fixture composition
 pub mod utils {
-    use serde_json::json;
-
     /// Create a fixture with custom fields merged in
     pub fn merge_fixture(
         base: serde_json::Value,

@@ -901,8 +901,8 @@ start_worker() {
     # Ensure socket directory exists
     mkdir -p "$(dirname "$uds_path")"
 
-    # Set up environment
-    export AOS_DEV_SKIP_METALLIB_CHECK="${AOS_DEV_SKIP_METALLIB_CHECK:-1}"
+    # Set up environment (do not auto-enable dev-only metallib skip)
+    export AOS_DEV_SKIP_METALLIB_CHECK="${AOS_DEV_SKIP_METALLIB_CHECK:-0}"
     export RUST_LOG="${RUST_LOG:-info,adapteros_lora_worker=info}"
 
     # Build worker command

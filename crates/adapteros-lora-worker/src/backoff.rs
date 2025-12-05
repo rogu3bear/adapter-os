@@ -121,13 +121,11 @@ impl CircuitBreaker {
     /// Record a failure and increment the failure count
     pub fn record_failure(&self) {
         self.failure_count.fetch_add(1, Ordering::SeqCst);
-        self.last_failure.store(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            Ordering::SeqCst,
-        );
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap();
+        self.last_failure
+            .store(now.as_millis() as u64, Ordering::SeqCst);
     }
 
     /// Check if the circuit breaker is open (preventing operations)
@@ -142,9 +140,9 @@ impl CircuitBreaker {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs();
+            .as_millis() as u64;
 
-        now - last < self.reset_timeout.as_secs()
+        now.saturating_sub(last) < self.reset_timeout.as_millis() as u64
     }
 
     /// Record a successful operation and reset the failure count
@@ -168,9 +166,9 @@ impl CircuitBreaker {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs();
+            .as_millis() as u64;
 
-        now - last >= self.reset_timeout.as_secs()
+        now.saturating_sub(last) >= self.reset_timeout.as_millis() as u64
     }
 }
 

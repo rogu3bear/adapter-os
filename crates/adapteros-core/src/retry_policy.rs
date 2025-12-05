@@ -508,6 +508,9 @@ impl RetryManager {
     /// Determine if an error should be retried
     fn should_retry(&self, error: &AosError) -> bool {
         match error {
+            // Explicit network/timeout classes
+            AosError::Network(_) => true,
+            AosError::Timeout { .. } => true,
             // Retry IO errors that look like network/connection issues
             AosError::Io(err) => {
                 let err_lower = err.to_lowercase();

@@ -639,7 +639,11 @@ pub async fn streaming_infer(
     // When collection_id is provided, retrieve relevant context and augment the prompt
     let augmented_prompt = if let Some(collection_id) = &req.collection_id {
         // CRITICAL: Validate collection belongs to user's tenant
-        match state.db.get_collection(collection_id).await {
+        match state
+            .db
+            .get_collection(&claims.tenant_id, collection_id)
+            .await
+        {
             Ok(Some(collection)) => {
                 if collection.tenant_id != claims.tenant_id {
                     warn!(

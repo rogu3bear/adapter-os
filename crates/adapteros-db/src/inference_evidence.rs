@@ -36,6 +36,7 @@ pub struct InferenceEvidence {
 /// Parameters for creating inference evidence
 #[derive(Debug, Clone)]
 pub struct CreateEvidenceParams {
+    pub tenant_id: String,
     pub inference_id: String,
     pub session_id: Option<String>,
     pub message_id: Option<String>,
@@ -79,16 +80,8 @@ impl Db {
             .as_ref()
             .map(|scores| serde_json::to_string(scores).unwrap_or_default());
 
-        // Look up tenant_id from the document
-        let doc = self.get_document(&params.document_id).await.map_err(|e| {
-            AosError::Database(format!(
-                "Failed to resolve tenant for document {}: {}",
-                params.document_id, e
-            ))
-        })?;
-        let tenant_id = doc
-            .map(|d| d.tenant_id)
-            .unwrap_or_else(|| "unknown".to_string());
+        // Use tenant_id from params (required field)
+        let tenant_id = &params.tenant_id;
 
         sqlx::query(
             r#"
@@ -240,17 +233,21 @@ impl Db {
                 .as_ref()
                 .map(|scores| serde_json::to_string(scores).unwrap_or_default());
 
+            // Use tenant_id from params (required field)
+            let tenant_id = &params.tenant_id;
+
             sqlx::query(
                 r#"
                 INSERT INTO inference_evidence (
-                    id, inference_id, session_id, message_id, document_id, chunk_id,
+                    id, tenant_id, inference_id, session_id, message_id, document_id, chunk_id,
                     page_number, document_hash, chunk_hash, relevance_score, rank,
                     context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
                 "#,
             )
             .bind(&id)
+            .bind(&tenant_id)
             .bind(&params.inference_id)
             .bind(&params.session_id)
             .bind(&params.message_id)
@@ -378,6 +375,7 @@ mod tests {
 
         // Create evidence (without session_id to avoid chat_sessions FK)
         let params = CreateEvidenceParams {
+            tenant_id: _tenant_id.clone(),
             inference_id: inference_id.to_string(),
             session_id: None,
             message_id: message_id.clone(),
@@ -416,8 +414,10 @@ mod tests {
         let db = Db::new_in_memory().await.unwrap();
 
         // Create parent records for all 3 document/chunk pairs
+        let mut tenant_id = String::new();
         for rank in 1..=3i32 {
-            setup_test_data(&db, &format!("doc-{}", rank), &format!("chunk-{}", rank)).await;
+            tenant_id =
+                setup_test_data(&db, &format!("doc-{}", rank), &format!("chunk-{}", rank)).await;
         }
 
         let inference_id = "inf-002";
@@ -425,6 +425,7 @@ mod tests {
         // Create multiple evidence records with different ranks
         for (rank, score) in [(1, 0.95), (2, 0.85), (3, 0.75)] {
             let params = CreateEvidenceParams {
+                tenant_id: tenant_id.clone(),
                 inference_id: inference_id.to_string(),
                 session_id: None,
                 message_id: None,
@@ -473,6 +474,7 @@ mod tests {
 
         // Create evidence with RAG fields populated
         let params = CreateEvidenceParams {
+            tenant_id: tenant_id.clone(),
             inference_id: inference_id.to_string(),
             session_id: None,
             message_id: None,

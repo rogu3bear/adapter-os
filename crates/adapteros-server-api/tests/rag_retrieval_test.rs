@@ -30,6 +30,7 @@ fn parse_rag_doc_id(doc_id: &str) -> Option<(String, i32)> {
 #[test]
 fn test_evidence_params_construction() {
     let params = CreateEvidenceParams {
+        tenant_id: "tenant-test".to_string(),
         inference_id: "chatcmpl-test-123".to_string(),
         session_id: Some("session-456".to_string()),
         message_id: None,
@@ -41,6 +42,9 @@ fn test_evidence_params_construction() {
         relevance_score: 0.95,
         rank: 0,
         context_hash: "context-hash-789".to_string(),
+        rag_doc_ids: None,
+        rag_scores: None,
+        rag_collection_id: None,
     };
 
     assert_eq!(params.inference_id, "chatcmpl-test-123");
@@ -162,6 +166,7 @@ fn test_evidence_ranking() {
 
     for (i, (doc_id, score, rank)) in entries.iter().enumerate() {
         let params = CreateEvidenceParams {
+            tenant_id: "tenant-evidence".to_string(),
             inference_id: "test-inference".to_string(),
             session_id: None,
             message_id: None,
@@ -173,6 +178,9 @@ fn test_evidence_ranking() {
             relevance_score: *score,
             rank: *rank,
             context_hash: "ctx".to_string(),
+            rag_doc_ids: None,
+            rag_scores: None,
+            rag_collection_id: None,
         };
 
         assert_eq!(params.rank, i as i32);
@@ -230,6 +238,7 @@ async fn test_batch_evidence_storage() -> Result<()> {
         .iter()
         .enumerate()
         .map(|(i, chunk_id)| CreateEvidenceParams {
+            tenant_id: tenant_id.clone(),
             inference_id: inference_id.to_string(),
             session_id: None,
             message_id: None,
@@ -241,6 +250,9 @@ async fn test_batch_evidence_storage() -> Result<()> {
             relevance_score: 0.95 - (i as f64 * 0.1),
             rank: i as i32,
             context_hash: context_hash.clone(),
+            rag_doc_ids: None,
+            rag_scores: None,
+            rag_collection_id: None,
         })
         .collect();
 
@@ -467,6 +479,7 @@ async fn test_unified_document_id_flow() -> Result<()> {
         .map(|(i, doc_id)| {
             let (parsed_doc_id, chunk_index) = parse_rag_doc_id(doc_id).unwrap();
             CreateEvidenceParams {
+                tenant_id: tenant_id.clone(),
                 inference_id: inference_id.to_string(),
                 session_id: None,
                 message_id: None,
@@ -478,6 +491,9 @@ async fn test_unified_document_id_flow() -> Result<()> {
                 relevance_score: 0.95 - (i as f64 * 0.1),
                 rank: i as i32,
                 context_hash: context_hash.clone(),
+                rag_doc_ids: None,
+                rag_scores: None,
+                rag_collection_id: Some(collection_id.to_string()),
             }
         })
         .collect();
@@ -625,6 +641,7 @@ async fn test_rag_evidence_with_trace_fields() -> Result<()> {
     let rag_scores = vec![0.95, 0.85];
 
     let params = CreateEvidenceParams {
+        tenant_id: tenant_id.clone(),
         inference_id: "chatcmpl-trace-test".to_string(),
         session_id: None,
         message_id: None,
@@ -818,7 +835,9 @@ async fn test_get_documents_by_ids_preserves_order() -> Result<()> {
         "doc-z".to_string(),
         "doc-m".to_string(),
     ];
-    let results = db.get_documents_by_ids_ordered(&request_order).await?;
+    let results = db
+        .get_documents_by_ids_ordered(&tenant_id, &request_order)
+        .await?;
 
     // Verify order is preserved
     assert_eq!(results.len(), 3);
@@ -855,7 +874,9 @@ async fn test_get_documents_handles_missing() -> Result<()> {
         "missing-2".to_string(),
     ];
 
-    let results = db.get_documents_by_ids_ordered(&request).await?;
+    let results = db
+        .get_documents_by_ids_ordered(&tenant_id, &request)
+        .await?;
 
     // Verify: None for missing, Some for existing, order preserved
     assert_eq!(results.len(), 3);

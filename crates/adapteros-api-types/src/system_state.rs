@@ -19,6 +19,19 @@ pub fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
+/// RAG system status indicating whether embedding model is available
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "status", rename_all = "lowercase")]
+pub enum RagStatus {
+    Enabled {
+        model_hash: String,
+        dimension: usize,
+    },
+    Disabled {
+        reason: String,
+    },
+}
+
 /// Ground truth system state response
 ///
 /// Provides hierarchical visibility into the entire system state including:
@@ -40,6 +53,9 @@ pub struct SystemStateResponse {
     pub tenants: Vec<TenantState>,
     /// Memory state summary
     pub memory: MemoryState,
+    /// RAG status (whether embedding model is loaded and available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rag_status: Option<RagStatus>,
 }
 
 /// Data origin for traceability

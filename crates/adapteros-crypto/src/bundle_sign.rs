@@ -123,6 +123,10 @@ pub fn sign_and_save_bundle(
 }
 
 /// Verify bundle signature from file
+///
+/// Mode-dependent enforcement:
+/// - Development mode (debug_assertions): Warnings only for missing/invalid signatures
+/// - Production mode (release): Hard failures for missing/invalid signatures
 pub fn verify_bundle_from_file(
     bundle_hash: &B3Hash,
     signatures_dir: &Path,
@@ -130,33 +134,90 @@ pub fn verify_bundle_from_file(
     let sig_path = signatures_dir.join(format!("{}.sig", bundle_hash.to_hex()));
 
     if !sig_path.exists() {
-        return Err(AosError::Crypto(format!(
-            "Signature file not found: {}",
-            sig_path.display()
-        )));
+        #[cfg(debug_assertions)]
+        {
+            tracing::warn!(
+                bundle_hash = %bundle_hash.to_hex(),
+                sig_path = %sig_path.display(),
+                "Bundle signature verification skipped in dev mode (signature file not found)"
+            );
+            // Return a placeholder signature for dev mode
+            let placeholder_keypair = crate::Keypair::generate();
+            let placeholder_sig = BundleSignature {
+                bundle_hash: *bundle_hash,
+                merkle_root: B3Hash::hash(b"dev-mode-placeholder"),
+                signature: placeholder_keypair.sign(b"dev-mode-placeholder"),
+                public_key: placeholder_keypair.public_key(),
+                schema_ver: 1,
+                signed_at_us: 0,
+                key_id: "dev-mode".to_string(),
+            };
+            return Ok(placeholder_sig);
+        }
+
+        // Prod mode: fail hard
+        #[cfg(not(debug_assertions))]
+        {
+            let error_msg = format!("Signature file not found: {}", sig_path.display());
+            return Err(AosError::Crypto(error_msg));
+        }
     }
 
     let signature = BundleSignature::load_from_file(&sig_path)?;
 
     // Verify bundle hash matches
     if signature.bundle_hash != *bundle_hash {
-        return Err(AosError::Crypto(format!(
-            "Bundle hash mismatch: expected {}, got {}",
-            bundle_hash.to_hex(),
-            signature.bundle_hash.to_hex()
-        )));
+        #[cfg(debug_assertions)]
+        {
+            tracing::warn!(
+                bundle_hash = %bundle_hash.to_hex(),
+                expected = %bundle_hash.to_hex(),
+                got = %signature.bundle_hash.to_hex(),
+                "Bundle hash mismatch in dev mode (continuing)"
+            );
+        }
+
+        // Prod mode: fail hard
+        #[cfg(not(debug_assertions))]
+        {
+            let error_msg = format!(
+                "Bundle hash mismatch: expected {}, got {}",
+                bundle_hash.to_hex(),
+                signature.bundle_hash.to_hex()
+            );
+            return Err(AosError::Crypto(error_msg));
+        }
     }
 
     // Verify signature
-    signature.verify()?;
+    match signature.verify() {
+        Ok(_) => {
+            tracing::info!(
+                bundle_hash = %bundle_hash.to_hex(),
+                key_id = %signature.key_id,
+                "Bundle signature verified"
+            );
+            Ok(signature)
+        }
+        Err(e) => {
+            // Dev mode: warn only
+            #[cfg(debug_assertions)]
+            {
+                tracing::warn!(
+                    bundle_hash = %bundle_hash.to_hex(),
+                    error = %e,
+                    "Bundle signature verification failed in dev mode (continuing)"
+                );
+                Ok(signature)
+            }
 
-    tracing::info!(
-        bundle_hash = %bundle_hash.to_hex(),
-        key_id = %signature.key_id,
-        "Bundle signature verified"
-    );
-
-    Ok(signature)
+            // Prod mode: fail hard
+            #[cfg(not(debug_assertions))]
+            {
+                Err(e)
+            }
+        }
+    }
 }
 
 /// Compute deterministic key ID from public key

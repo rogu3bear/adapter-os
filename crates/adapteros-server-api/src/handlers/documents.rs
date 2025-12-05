@@ -7,7 +7,6 @@ use crate::audit_helper::{actions, log_success, resources};
 use crate::auth::Claims;
 use crate::error_helpers::{bad_request, db_error, not_found, payload_too_large};
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, PaginatedResponse};
 use axum::{
@@ -329,12 +328,14 @@ pub async fn get_document(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
-    let document = state.db.get_document(&id).await.map_err(db_error)?;
+    // Tenant isolation enforced at DB layer - only returns document if tenant matches
+    let document = state
+        .db
+        .get_document(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
 
     let document = document.ok_or_else(|| not_found("Document"))?;
-
-    // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     Ok(Json(DocumentResponse {
         schema_version: "1.0".to_string(),
@@ -376,13 +377,14 @@ pub async fn delete_document(
     // Check permission
     require_permission(&claims, Permission::DatasetDelete)?;
 
-    // Get document to find storage path and validate tenant
-    let document = state.db.get_document(&id).await.map_err(db_error)?;
+    // Get document to find storage path (tenant isolation enforced at DB layer)
+    let document = state
+        .db
+        .get_document(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
 
     let document = document.ok_or_else(|| not_found("Document"))?;
-
-    // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Delete from database (cascades to chunks)
     state.db.delete_document(&id).await.map_err(db_error)?;
@@ -442,15 +444,20 @@ pub async fn list_document_chunks(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
-    // Verify document exists and tenant isolation
-    let document = state.db.get_document(&id).await.map_err(db_error)?;
+    // Verify document exists (tenant isolation enforced at DB layer)
+    let document = state
+        .db
+        .get_document(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
 
     let document = document.ok_or_else(|| not_found("Document"))?;
 
-    // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &document.tenant_id)?;
-
-    let chunks = state.db.get_document_chunks(&id).await.map_err(db_error)?;
+    let chunks = state
+        .db
+        .get_document_chunks(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
 
     let responses: Vec<ChunkResponse> = chunks
         .into_iter()
@@ -492,13 +499,14 @@ pub async fn download_document(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
-    // Get document to find storage path and validate tenant
-    let document = state.db.get_document(&id).await.map_err(db_error)?;
+    // Get document to find storage path (tenant isolation enforced at DB layer)
+    let document = state
+        .db
+        .get_document(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
 
     let document = document.ok_or_else(|| not_found("Document"))?;
-
-    // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Read file
     let file_data = fs::read(&document.file_path).await.map_err(db_error)?;
@@ -569,12 +577,13 @@ pub async fn process_document(
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
-    // Get document
-    let document = state.db.get_document(&id).await.map_err(db_error)?;
+    // Get document (tenant isolation enforced at DB layer)
+    let document = state
+        .db
+        .get_document(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
     let document = document.ok_or_else(|| not_found("Document"))?;
-
-    // CRITICAL: Validate tenant isolation
-    validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Check if already processed
     if document.status == "indexed" {

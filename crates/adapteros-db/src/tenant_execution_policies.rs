@@ -230,7 +230,11 @@ impl Db {
         .bind(&determinism_json)
         .bind(&routing_json)
         .bind(&golden_json)
-        .bind(if request.require_signed_adapters { 1i32 } else { 0i32 })
+        .bind(if request.require_signed_adapters {
+            1i32
+        } else {
+            0i32
+        })
         .bind(created_by)
         .execute(&*self.pool())
         .await

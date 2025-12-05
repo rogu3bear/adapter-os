@@ -611,7 +611,7 @@ fn test_mlx_capability_honest_when_stub() {
     // MLX availability when only the stub implementation is present.
     //
     // Note: If real MLX is linked via the adapteros-lora-mlx-ffi crate's
-    // "real-mlx" feature, this assertion would need to be conditional.
+    // With the real MLX feature (`mlx`), this assertion would need to be conditional.
     // For normal test runs (without real MLX), this should pass.
     #[cfg(feature = "multi-backend")]
     {
