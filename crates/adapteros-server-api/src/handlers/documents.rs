@@ -655,12 +655,13 @@ pub async fn process_document(
         sqlx::query(
             r#"
             INSERT INTO document_chunks (
-                id, document_id, chunk_index, page_number,
+                id, tenant_id, document_id, chunk_index, page_number,
                 start_offset, end_offset, chunk_hash, text_preview, embedding_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&chunk_db_id)
+        .bind(&claims.tenant_id)
         .bind(&id) // document UUID
         .bind(chunk.chunk_index as i64)
         .bind(chunk.page_number.map(|p| p as i64))

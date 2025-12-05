@@ -27,6 +27,7 @@ pub mod sqlite_backend;
 mod telemetry_kv;
 pub mod tenant_execution_policies;
 pub mod tenant_policies;
+pub mod tenant_policy_bindings_kv;
 pub mod tenant_settings;
 pub mod traits;
 
@@ -302,6 +303,7 @@ pub fn kv_coverage_summary() -> KvCoverageSummary {
         "users",
         "auth_sessions",
         "plans",
+        "tenant_policy_bindings",
     ];
     // SQL-only domains that block KV-only posture today
     const UNSUPPORTED: &[&str] = &[

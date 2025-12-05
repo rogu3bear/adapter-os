@@ -50,6 +50,7 @@ pub struct CreateDocumentParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateChunkParams {
+    pub tenant_id: String,
     pub document_id: String,
     pub chunk_index: i32,
     pub page_number: Option<i32>,
@@ -285,11 +286,12 @@ impl Db {
         let id = Uuid::now_v7().to_string();
         sqlx::query(
             "INSERT INTO document_chunks (
-                id, document_id, chunk_index, page_number, start_offset,
+                id, tenant_id, document_id, chunk_index, page_number, start_offset,
                 end_offset, chunk_hash, text_preview
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
+        .bind(&params.tenant_id)
         .bind(&params.document_id)
         .bind(params.chunk_index)
         .bind(params.page_number)

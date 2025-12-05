@@ -58,7 +58,7 @@ pub const ALL_POLICIES: &[&str] = &[
 ];
 
 impl Db {
-    fn get_policy_binding_kv_repo(&self) -> Option<PolicyBindingKvRepository> {
+    pub(crate) fn get_policy_binding_kv_repo(&self) -> Option<PolicyBindingKvRepository> {
         if self.storage_mode().write_to_kv() || self.storage_mode().read_from_kv() {
             self.kv_backend()
                 .map(|kv| PolicyBindingKvRepository::new(kv.backend().clone()))
