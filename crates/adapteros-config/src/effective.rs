@@ -381,8 +381,13 @@ impl EffectiveConfig {
         // Production-only checks
         if self.is_production {
             // JWT secret must be set in production (not empty or default)
-            if self.security.jwt_secret.is_empty()
-                || self.security.jwt_secret == "change-me-in-production"
+            if self.security.jwt_secret.trim().is_empty()
+                || self
+                    .security
+                    .jwt_secret
+                    .eq_ignore_ascii_case("change-me-in-production")
+                || self.security.jwt_secret
+                    == "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
             {
                 errors.push(
                     "Production mode requires security.jwt_secret to be set to a secure value\n\
