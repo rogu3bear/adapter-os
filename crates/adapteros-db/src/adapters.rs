@@ -19,6 +19,18 @@ use crate::constants::ADAPTER_COLUMNS;
 /// Alias for backwards compatibility
 const ADAPTER_SELECT_FIELDS: &str = ADAPTER_COLUMNS;
 
+/// Adapter columns with table alias `a.` for recursive lineage queries
+const ADAPTER_COLUMNS_ALIAS_A: &str =
+    "a.id, a.tenant_id, a.adapter_id, a.name, a.hash_b3, a.rank, a.alpha, a.tier, \
+     a.targets_json, a.acl_json, a.languages_json, a.framework, a.category, a.scope, \
+     a.framework_id, a.framework_version, a.repo_id, a.commit_sha, a.intent, \
+     a.current_state, a.pinned, a.memory_bytes, a.last_activated, a.activation_count, \
+     a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash, \
+     a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, \
+     a.fork_type, a.fork_reason, a.version, a.lifecycle_state, a.archived_at, a.archived_by, \
+     a.archive_reason, a.purged_at, a.base_model_id, a.manifest_schema_version, \
+     a.content_hash_b3, a.provenance_json, a.created_at, a.updated_at, a.active";
+
 /// Configuration for atomic dual-write behavior (SQL + KV)
 #[derive(Debug, Clone)]
 pub struct AtomicDualWriteConfig {
@@ -632,6 +644,7 @@ impl Db {
         params: AdapterRegistrationParams,
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
+        let mut sql_inserted = false;
 
         // Write to SQL when allowed by storage mode
         if self.storage_mode().write_to_sql() {
@@ -677,6 +690,7 @@ impl Db {
                 .execute(pool)
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
+                sql_inserted = true;
             } else if !self.storage_mode().write_to_kv() {
                 // No SQL pool and not writing to KV means we cannot satisfy the write
                 return Err(AosError::Database(
@@ -688,7 +702,7 @@ impl Db {
         // KV write (dual-write mode) - use same ID as SQL for consistency
         if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
             if let Err(e) = repo.register_adapter_kv_with_id(&id, params.clone()).await {
-                if self.atomic_dual_write_config().is_strict() {
+                if self.dual_write_requires_strict() {
                     error!(
                         error = %e,
                         adapter_id = %id,
@@ -697,21 +711,39 @@ impl Db {
                         "KV write failed in strict atomic mode - rolling back SQL insert"
                     );
 
-                    if let Err(rollback_err) = sqlx::query("DELETE FROM adapters WHERE id = ?")
-                        .bind(&id)
-                        .execute(&*self.pool())
-                        .await
-                    {
-                        error!(
-                            original_error = %e,
-                            rollback_error = %rollback_err,
-                            adapter_id = %id,
-                            tenant_id = %params.tenant_id,
-                            "CRITICAL: Failed to rollback SQL insert after KV failure"
-                        );
-                        return Err(AosError::Database(format!(
-                            "KV write failed and rollback failed (adapter_id: {id}). Manual repair required."
-                        )));
+                    if sql_inserted {
+                        match self.pool_opt() {
+                            Some(pool) => {
+                                if let Err(rollback_err) =
+                                    sqlx::query("DELETE FROM adapters WHERE id = ?")
+                                        .bind(&id)
+                                        .execute(pool)
+                                        .await
+                                {
+                                    error!(
+                                        original_error = %e,
+                                        rollback_error = %rollback_err,
+                                        adapter_id = %id,
+                                        tenant_id = %params.tenant_id,
+                                        "CRITICAL: Failed to rollback SQL insert after KV failure"
+                                    );
+                                    return Err(AosError::Database(format!(
+                                        "KV write failed and rollback failed (adapter_id: {id}). Manual repair required."
+                                    )));
+                                }
+                            }
+                            None => {
+                                error!(
+                                    original_error = %e,
+                                    adapter_id = %id,
+                                    tenant_id = %params.tenant_id,
+                                    "KV write failed but SQL pool unavailable; cannot rollback SQL insert"
+                                );
+                                return Err(AosError::Database(format!(
+                                    "KV write failed in strict mode for adapter_id={id} and SQL rollback unavailable (no SQL pool): {e}"
+                                )));
+                            }
+                        }
                     }
 
                     return Err(AosError::Database(format!(
@@ -917,7 +949,7 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
             if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
-                if self.atomic_dual_write_config().is_strict() {
+                if self.dual_write_requires_strict() {
                     error!(
                         error = %e,
                         adapter_id = %adapter_id,
@@ -1019,7 +1051,7 @@ impl Db {
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
             if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
-                if self.atomic_dual_write_config().is_strict() {
+                if self.dual_write_requires_strict() {
                     error!(
                         error = %e,
                         adapter_id = %adapter_id,
@@ -1210,7 +1242,7 @@ impl Db {
                     .update_adapter_state_kv(adapter_id, state, reason)
                     .await
                 {
-                    if self.atomic_dual_write_config().is_strict() {
+                    if self.dual_write_requires_strict() {
                         error!(
                             error = %e,
                             adapter_id = %adapter_id,
@@ -1253,7 +1285,7 @@ impl Db {
                     .update_adapter_memory_kv(adapter_id, memory_bytes)
                     .await
                 {
-                    if self.atomic_dual_write_config().is_strict() {
+                    if self.dual_write_requires_strict() {
                         error!(
                             error = %e,
                             adapter_id = %adapter_id,
@@ -1339,7 +1371,7 @@ impl Db {
                 .update_adapter_state_kv(adapter_id, state, reason)
                 .await
             {
-                if self.atomic_dual_write_config().is_strict() {
+                if self.dual_write_requires_strict() {
                     error!(
                         error = %e,
                         adapter_id = %adapter_id,
@@ -1462,7 +1494,7 @@ impl Db {
                 .update_adapter_state_kv(adapter_id, new_state, reason)
                 .await
             {
-                if self.atomic_dual_write_config().is_strict() {
+                if self.dual_write_requires_strict() {
                     error!(
                         error = %e,
                         adapter_id = %adapter_id,
@@ -1551,7 +1583,7 @@ impl Db {
                 .update_adapter_memory_kv(adapter_id, memory_bytes)
                 .await
             {
-                if self.atomic_dual_write_config().is_strict() {
+                if self.dual_write_requires_strict() {
                     error!(
                         error = %e,
                         adapter_id = %adapter_id,
@@ -1641,7 +1673,7 @@ impl Db {
                 .update_adapter_state_and_memory_kv(adapter_id, state, memory_bytes, reason)
                 .await
             {
-                if self.atomic_dual_write_config().is_strict() {
+                if self.dual_write_requires_strict() {
                     error!(
                         error = %e,
                         adapter_id = %adapter_id,
@@ -1836,12 +1868,7 @@ impl Db {
                  FROM adapters
                  WHERE adapter_id = ?
                  UNION ALL
-                 SELECT a.id, a.tenant_id, a.adapter_id, a.name, a.hash_b3, a.rank, a.alpha, a.tier, a.targets_json, a.acl_json,
-                        a.languages_json, a.framework, a.category, a.scope, a.framework_id, a.framework_version,
-                        a.repo_id, a.commit_sha, a.intent, a.current_state, a.pinned, a.memory_bytes, a.last_activated,
-                        a.activation_count, a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash,
-                        a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, a.fork_type, a.fork_reason,
-                        a.created_at, a.updated_at, a.active, a.version, a.lifecycle_state, anc.depth + 1
+                 SELECT {}, anc.depth + 1
                  FROM adapters a
                  JOIN ancestors anc ON a.id = anc.parent_id
                  WHERE anc.depth < 10  -- Prevent infinite loops
@@ -1852,12 +1879,7 @@ impl Db {
                  FROM adapters
                  WHERE adapter_id = ?
                  UNION ALL
-                 SELECT a.id, a.tenant_id, a.adapter_id, a.name, a.hash_b3, a.rank, a.alpha, a.tier, a.targets_json, a.acl_json,
-                        a.languages_json, a.framework, a.category, a.scope, a.framework_id, a.framework_version,
-                        a.repo_id, a.commit_sha, a.intent, a.current_state, a.pinned, a.memory_bytes, a.last_activated,
-                        a.activation_count, a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash,
-                        a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, a.fork_type, a.fork_reason,
-                        a.created_at, a.updated_at, a.active, a.version, a.lifecycle_state, desc.depth + 1
+                 SELECT {}, desc.depth + 1
                 FROM adapters a
                 JOIN descendants desc ON a.parent_id = desc.id
                  WHERE desc.depth < 10  -- Prevent infinite loops
@@ -1869,7 +1891,11 @@ impl Db {
                  SELECT * FROM descendants
              )
              ORDER BY created_at ASC",
-            ADAPTER_SELECT_FIELDS, ADAPTER_SELECT_FIELDS, ADAPTER_SELECT_FIELDS
+            ADAPTER_SELECT_FIELDS,
+            ADAPTER_COLUMNS_ALIAS_A,
+            ADAPTER_SELECT_FIELDS,
+            ADAPTER_COLUMNS_ALIAS_A,
+            ADAPTER_SELECT_FIELDS
         );
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(adapter_id)
@@ -2065,7 +2091,7 @@ impl Db {
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
             if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
                 if let Err(e) = repo.update_adapter_tier_kv(adapter_id, tier).await {
-                    if self.atomic_dual_write_config().is_strict() {
+                    if self.dual_write_requires_strict() {
                         error!(
                             error = %e,
                             adapter_id = %adapter_id,

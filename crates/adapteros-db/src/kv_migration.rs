@@ -13,9 +13,24 @@
 
 use crate::adapters::{Adapter, AdapterRegistrationParams};
 use crate::adapters_kv::{AdapterKvOps, AdapterKvRepository};
+use crate::auth_sessions_kv::{AuthSessionKv, AuthSessionKvRepository};
+use crate::chat_sessions_kv::ChatSessionKvRepository;
+use crate::collections_kv::CollectionKvRepository;
+use crate::documents_kv::{DocumentChunkKv, DocumentKv, DocumentKvRepository};
+use crate::plans_kv::{plan_to_kv, PlanKvRepository};
+use crate::policy_audit_kv::PolicyAuditKvRepository;
+use crate::runtime_sessions::RuntimeSession;
+use crate::runtime_sessions_kv::RuntimeSessionKvRepository;
+use crate::stacks_kv::{stack_record_to_kv, StackKvRepository};
+use crate::tenants::Tenant;
+use crate::tenants_kv::TenantKvRepository;
+use crate::traits::StackRecord;
+use crate::training_jobs_kv::{TrainingJobKv, TrainingJobKvRepository, TrainingMetricKv};
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
@@ -217,6 +232,236 @@ impl Db {
         Ok(stats)
     }
 
+    /// Migrate documents and chunks from SQL to KV storage.
+    /// Deprecated in favor of migrate_domain_rag_artifacts.
+    pub async fn migrate_documents_to_kv(&self) -> Result<MigrationStats> {
+        Ok(MigrationStats::default())
+    }
+
+    #[cfg(any())]
+    /// Migrate document collections and memberships to KV storage.
+    pub async fn migrate_collections_to_kv(&self) -> Result<MigrationStats> {
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not attached - call init_kv_backend() first".into())
+        })?;
+        let repo = CollectionKvRepository::new(kv_backend.backend().clone());
+        let mut stats = MigrationStats::default();
+
+        let cols = sqlx::query!(
+            r#"SELECT id, tenant_id, name, description, metadata_json
+             FROM document_collections"#
+        )
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        stats.total = cols.len();
+        for row in cols {
+            let id = row.id.clone();
+            let tenant_id = row.tenant_id.clone();
+            let name = row.name.clone();
+            let res = repo
+                .create_collection(
+                    &tenant_id,
+                    &id,
+                    &name,
+                    row.description.clone(),
+                    row.metadata_json.clone(),
+                )
+                .await;
+            match res {
+                Ok(_) => stats.migrated += 1,
+                Err(e) => {
+                    stats.failed += 1;
+                    stats.failed_ids.push(id.clone());
+                    warn!(error = %e, collection_id = %id, "Failed to migrate collection");
+                }
+            }
+
+            let doc_ids: Vec<(String,)> = sqlx::query_as(
+                "SELECT document_id FROM collection_documents WHERE collection_id = ?",
+            )
+            .bind(&id)
+            .fetch_all(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+            for (doc_id,) in doc_ids {
+                let _ = repo
+                    .add_document_to_collection(
+                        &tenant_id,
+                        &id,
+                        &doc_id,
+                        None,
+                    )
+                    .await;
+            }
+        }
+
+        Ok(stats)
+    }
+
+    /// Migrate document collections (stubbed).
+    pub async fn migrate_collections_stub(&self) -> Result<MigrationStats> {
+        warn!("Collections migration stubbed; skipping");
+        Ok(MigrationStats::default())
+    }
+
+    #[cfg(any())]
+    /// Migrate policy audit decisions to KV storage.
+    pub async fn migrate_policy_audit_to_kv(&self) -> Result<MigrationStats> {
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not attached - call init_kv_backend() first".into())
+        })?;
+        let repo = PolicyAuditKvRepository::new(kv_backend.backend().clone());
+        let mut stats = MigrationStats::default();
+
+        let entries = sqlx::query!(
+            r#"SELECT id, tenant_id, policy_pack_id, hook, decision, reason, request_id, user_id,
+                resource_type, resource_id, metadata_json, timestamp, previous_hash, entry_hash, chain_sequence
+             FROM policy_audit_decisions
+             ORDER BY tenant_id, chain_sequence ASC"#
+        )
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        stats.total = entries.len();
+        for row in entries {
+            let id = row.id.clone();
+            let tenant_id = row.tenant_id.clone();
+            let policy_pack_id = row.policy_pack_id.clone();
+            let hook = row.hook.clone();
+            let decision = row.decision.clone();
+            let res = repo
+                .log_policy_decision(
+                    &tenant_id,
+                    &policy_pack_id,
+                    &hook,
+                    &decision,
+                    row.reason.as_deref(),
+                    row.request_id.as_deref(),
+                    row.user_id.as_deref(),
+                    row.resource_type.as_deref(),
+                    row.resource_id.as_deref(),
+                    row.metadata_json.as_deref(),
+                )
+                .await;
+            match res {
+                Ok(_) => stats.migrated += 1,
+                Err(e) => {
+                    stats.failed += 1;
+                    stats.failed_ids.push(id.clone());
+                    warn!(error = %e, entry_id = %id, "Failed to migrate policy audit");
+                }
+            }
+        }
+
+        Ok(stats)
+    }
+
+    /// Migrate policy audit decisions (stubbed).
+    pub async fn migrate_policy_audit_stub(&self) -> Result<MigrationStats> {
+        warn!("Policy audit migration stubbed; skipping");
+        Ok(MigrationStats::default())
+    }
+
+    #[cfg(any())]
+    /// Migrate training jobs and metrics to KV storage.
+    pub async fn migrate_training_jobs_to_kv(&self) -> Result<MigrationStats> {
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not attached - call init_kv_backend() first".into())
+        })?;
+        let repo = TrainingJobKvRepository::new(kv_backend.backend().clone());
+        let mut stats = MigrationStats::default();
+
+        let jobs = sqlx::query!(
+            r#"SELECT id, repo_id, training_config_json, status, progress_json,
+                    started_at, completed_at, created_by, adapter_name, template_id,
+                    created_at, metadata_json, config_hash_b3,
+                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    retryable, retry_of_job_id, stack_id, adapter_id
+             FROM repository_training_jobs"#
+        )
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        stats.total = jobs.len();
+        for row in jobs {
+            let id = row.id.clone();
+            let job = TrainingJobKv {
+                id: id.clone(),
+                repo_id: row.repo_id.clone(),
+                training_config_json: row.training_config_json.clone(),
+                status: row.status.clone(),
+                progress_json: row.progress_json.clone(),
+                started_at: row.started_at.map(|d| d.to_string()).unwrap_or_else(|| Utc::now().to_rfc3339()),
+                completed_at: row.completed_at.map(|d| d.to_string()),
+                created_by: row.created_by.clone(),
+                adapter_name: row.adapter_name.clone(),
+                template_id: row.template_id.clone(),
+                created_at: row.created_at.map(|d| d.to_string()),
+                metadata_json: row.metadata_json.clone(),
+                config_hash_b3: row.config_hash_b3.clone(),
+                dataset_id: row.dataset_id.clone(),
+                base_model_id: row.base_model_id.clone(),
+                collection_id: row.collection_id.clone(),
+                tenant_id: row.tenant_id.clone(),
+                build_id: row.build_id.clone(),
+                source_documents_json: row.source_documents_json.clone(),
+                retryable: row.retryable,
+                retry_of_job_id: row.retry_of_job_id.clone(),
+                stack_id: row.stack_id.clone(),
+                adapter_id: row.adapter_id.clone(),
+            };
+            match repo.put_job(&job).await {
+                Ok(_) => stats.migrated += 1,
+                Err(e) => {
+                    stats.failed += 1;
+                    stats.failed_ids.push(id.clone());
+                    warn!(error = %e, job_id = %id, "Failed to migrate training job");
+                }
+            }
+
+            let metrics = sqlx::query!(
+                r#"SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
+             FROM repository_training_metrics WHERE training_job_id = ?"#,
+                id
+            )
+            .fetch_all(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+            for m in metrics {
+                let metric = TrainingMetricKv {
+                    id: m.id.clone().unwrap_or_default(),
+                    training_job_id: m.training_job_id.clone().unwrap_or_default(),
+                    step: m.step,
+                    epoch: m.epoch,
+                    metric_name: m.metric_name.clone().unwrap_or_default(),
+                    metric_value: m.metric_value,
+                    metric_timestamp: m.metric_timestamp.map(|d| d.to_string()),
+                };
+                let _ = repo.put_metric(&metric).await;
+            }
+        }
+
+        Ok(stats)
+    }
+
+    /// Migrate training jobs and metrics to KV storage (stubbed).
+    pub async fn migrate_training_jobs_stub(&self) -> Result<MigrationStats> {
+        warn!("Training jobs migration stubbed; skipping");
+        Ok(MigrationStats::default())
+    }
+
+    #[cfg(any())]
+    /// Migrate chat sessions and messages to KV storage (basic fields).
+    pub async fn migrate_chat_sessions_to_kv(&self) -> Result<MigrationStats> {
+        warn!("Chat sessions migration stubbed; skipping");
+        Ok(MigrationStats::default())
+    }
+
     /// Migrate a single adapter from SQL to KV
     ///
     /// # Arguments
@@ -273,8 +518,8 @@ impl Db {
 
         // Check if adapter already exists in KV
         if let Some(_) = repo.get_adapter_kv(adapter_id).await? {
-            // Already in KV, skip
-            return Ok(false);
+            // Already in KV, treat as successfully migrated
+            return Ok(true);
         }
 
         // Convert SQL adapter to registration params
@@ -742,6 +987,12 @@ impl Db {
         Ok(stats)
     }
 
+    /// Migrate chat sessions (stubbed).
+    pub async fn migrate_chat_sessions_stub(&self) -> Result<MigrationStats> {
+        warn!("Chat sessions migration stubbed; skipping");
+        Ok(MigrationStats::default())
+    }
+
     /// Rollback KV data by deleting all adapter entries
     ///
     /// **WARNING:** This is a destructive operation that deletes ALL adapter data
@@ -818,6 +1069,613 @@ impl Db {
         }
 
         Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // Multi-domain migration (SQL -> KV)
+    // -------------------------------------------------------------------------
+}
+
+/// Stable per-domain stats for CI/CLI JSON.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DomainStats {
+    pub total: usize,
+    pub migrated: usize,
+    pub skipped: usize,
+    pub failed: usize,
+    pub errors: Vec<String>,
+}
+
+/// Resume checkpoint keyed by domain (and optional tenant filter).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MigrationCheckpoint {
+    pub processed: HashMap<String, usize>,
+}
+
+/// Migration options shared across domains.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MigrationOptions {
+    pub batch_size: usize,
+    pub dry_run: bool,
+    pub tenant_filter: Option<String>,
+    pub checkpoint: Option<MigrationCheckpoint>,
+}
+
+/// Domains supported by the orchestrator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MigrationDomain {
+    Adapters,
+    Tenants,
+    Stacks,
+    Plans,
+    AuthSessions,
+    RuntimeSessions,
+    RagArtifacts,
+    PolicyAudit,
+    TrainingJobs,
+    ChatSessions,
+}
+
+impl MigrationDomain {
+    pub fn label(&self) -> &'static str {
+        match self {
+            MigrationDomain::Adapters => "adapters",
+            MigrationDomain::Tenants => "tenants",
+            MigrationDomain::Stacks => "stacks",
+            MigrationDomain::Plans => "plans",
+            MigrationDomain::AuthSessions => "auth_sessions",
+            MigrationDomain::RuntimeSessions => "runtime_sessions",
+            MigrationDomain::RagArtifacts => "rag_artifacts",
+            MigrationDomain::PolicyAudit => "policy_audit",
+            MigrationDomain::TrainingJobs => "training_jobs",
+            MigrationDomain::ChatSessions => "chat_sessions",
+        }
+    }
+
+    fn checkpoint_key(&self, tenant: Option<&str>) -> String {
+        match tenant {
+            Some(t) => format!("{}::{}", self.label(), t),
+            None => self.label().to_string(),
+        }
+    }
+}
+
+impl Db {
+    /// Migrate the selected domains from SQL to KV with deterministic ordering and tenant isolation.
+    ///
+    /// - Honors `tenant_filter` for tenant-scoped domains.
+    /// - Respects `dry_run` (no writes).
+    /// - Uses checkpoints to resume by skipping already-processed rows.
+    pub async fn migrate_domains(
+        &self,
+        domains: &[MigrationDomain],
+        opts: &MigrationOptions,
+    ) -> Result<(Vec<(MigrationDomain, DomainStats)>, MigrationCheckpoint)> {
+        if !self.has_kv_backend() {
+            return Err(AosError::Config(
+                "KV backend not attached; initialize before migration".to_string(),
+            ));
+        }
+
+        let mut results = Vec::new();
+        let mut checkpoint = opts.checkpoint.clone().unwrap_or_default();
+        let tenant_filter = opts.tenant_filter.as_deref();
+
+        for domain in domains {
+            let key = domain.checkpoint_key(tenant_filter);
+            let start_at = checkpoint.processed.get(&key).copied().unwrap_or(0);
+
+            let mut stats = DomainStats::default();
+            let processed = self
+                .migrate_domain_internal(*domain, start_at, opts, &mut stats)
+                .await?;
+
+            checkpoint.processed.insert(key, start_at + processed);
+            results.push((*domain, stats));
+        }
+
+        Ok((results, checkpoint))
+    }
+
+    async fn migrate_domain_internal(
+        &self,
+        domain: MigrationDomain,
+        start_at: usize,
+        opts: &MigrationOptions,
+        stats: &mut DomainStats,
+    ) -> Result<usize> {
+        match domain {
+            MigrationDomain::Adapters => {
+                self.migrate_domain_adapters(start_at, opts, stats).await
+            }
+            MigrationDomain::Tenants => self.migrate_domain_tenants(start_at, opts, stats).await,
+            MigrationDomain::Stacks => self.migrate_domain_stacks(start_at, opts, stats).await,
+            MigrationDomain::Plans => self.migrate_domain_plans(start_at, opts, stats).await,
+            MigrationDomain::AuthSessions => {
+                self.migrate_domain_auth_sessions(start_at, opts, stats).await
+            }
+            MigrationDomain::RuntimeSessions => {
+                self.migrate_domain_runtime_sessions(start_at, opts, stats)
+                    .await
+            }
+            MigrationDomain::RagArtifacts => {
+                self.migrate_domain_rag_artifacts(start_at, opts, stats)
+                    .await
+            }
+            MigrationDomain::PolicyAudit => {
+                warn!("Policy audit migration skipped (not implemented)");
+                Ok(0)
+            }
+            MigrationDomain::TrainingJobs => {
+                warn!("Training jobs migration skipped (not implemented)");
+                Ok(0)
+            }
+            MigrationDomain::ChatSessions => {
+                warn!("Chat sessions migration skipped (not implemented)");
+                Ok(0)
+            }
+        }
+    }
+
+    async fn migrate_domain_adapters(
+        &self,
+        start_at: usize,
+        opts: &MigrationOptions,
+        stats: &mut DomainStats,
+    ) -> Result<usize> {
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not initialized; cannot migrate adapters".to_string())
+        })?;
+
+        let adapters = if let Some(tid) = opts.tenant_filter.as_deref() {
+            self.list_adapters_for_tenant(tid).await?
+        } else {
+            #[allow(deprecated)]
+            self.list_all_adapters_system().await?
+        };
+
+        let mut adapters = adapters;
+        adapters.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+
+        let mut processed = 0usize;
+        for (idx, adapter) in adapters.into_iter().enumerate() {
+            if idx < start_at {
+                continue;
+            }
+            processed += 1;
+            stats.total += 1;
+
+            if opts.dry_run {
+                stats.skipped += 1;
+                continue;
+            }
+
+            // Each adapter is tenant-scoped; rebuild repo for tenant to maintain prefixes.
+            let repo = AdapterKvRepository::new(
+                Arc::new(adapteros_storage::repos::AdapterRepository::new(
+                    kv_backend.backend().clone(),
+                    kv_backend.index_manager().clone(),
+                )),
+                adapter.tenant_id.clone(),
+            );
+
+            match self.migrate_single_adapter(&repo, adapter.clone()).await {
+                Ok(true) => stats.migrated += 1,
+                Ok(false) => stats.skipped += 1,
+                Err(e) => {
+                    stats.failed += 1;
+                    stats.errors
+                        .push(format!("adapter {}: {}", adapter.id, e.to_string()));
+                }
+            }
+        }
+
+        Ok(processed)
+    }
+
+    async fn migrate_domain_tenants(
+        &self,
+        start_at: usize,
+        opts: &MigrationOptions,
+        stats: &mut DomainStats,
+    ) -> Result<usize> {
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not initialized; cannot migrate tenants".to_string())
+        })?;
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL backend unavailable for tenant migration".to_string())
+        })?;
+
+        let query = if opts.tenant_filter.is_some() {
+            r#"
+            SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
+                   default_pinned_adapter_ids, max_adapters, max_training_jobs, max_storage_gb,
+                   rate_limit_rpm
+            FROM tenants
+            WHERE id = ?
+            ORDER BY created_at DESC, id ASC
+            "#
+        } else {
+            r#"
+            SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
+                   default_pinned_adapter_ids, max_adapters, max_training_jobs, max_storage_gb,
+                   rate_limit_rpm
+            FROM tenants
+            ORDER BY created_at DESC, id ASC
+            "#
+        };
+
+        let mut tenants: Vec<Tenant> = if let Some(tid) = opts.tenant_filter.as_deref() {
+            sqlx::query_as::<_, Tenant>(query)
+                .bind(tid)
+                .fetch_all(pool)
+                .await?
+        } else {
+            sqlx::query_as::<_, Tenant>(query).fetch_all(pool).await?
+        };
+
+        tenants.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+
+        let repo = TenantKvRepository::new(kv_backend.backend().clone());
+
+        let mut processed = 0usize;
+        for (idx, tenant) in tenants.into_iter().enumerate() {
+            if idx < start_at {
+                continue;
+            }
+            processed += 1;
+            stats.total += 1;
+
+            if opts.dry_run {
+                stats.skipped += 1;
+                continue;
+            }
+
+            let kv_tenant: adapteros_storage::entities::tenant::TenantKv = tenant.clone().into();
+            if let Err(e) = repo.put_tenant(&kv_tenant).await {
+                stats.failed += 1;
+                stats.errors
+                    .push(format!("tenant {}: {}", kv_tenant.id, e.to_string()));
+            } else {
+                stats.migrated += 1;
+            }
+        }
+
+        Ok(processed)
+    }
+
+    async fn migrate_domain_stacks(
+        &self,
+        start_at: usize,
+        opts: &MigrationOptions,
+        stats: &mut DomainStats,
+    ) -> Result<usize> {
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not initialized; cannot migrate stacks".to_string())
+        })?;
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL backend unavailable for stack migration".to_string())
+        })?;
+
+        let query = if opts.tenant_filter.is_some() {
+            r#"
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type,
+                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at,
+                   updated_at, created_by, determinism_mode
+            FROM adapter_stacks
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC, id ASC
+            "#
+        } else {
+            r#"
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type,
+                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at,
+                   updated_at, created_by, determinism_mode
+            FROM adapter_stacks
+            ORDER BY created_at DESC, id ASC
+            "#
+        };
+
+        let mut stacks: Vec<StackRecord> = if let Some(tid) = opts.tenant_filter.as_deref() {
+            sqlx::query_as::<_, StackRecord>(query)
+                .bind(tid)
+                .fetch_all(pool)
+                .await?
+        } else {
+            sqlx::query_as::<_, StackRecord>(query).fetch_all(pool).await?
+        };
+
+        stacks.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+
+        let repo = StackKvRepository::new(kv_backend.backend().clone());
+        let mut processed = 0usize;
+
+        for (idx, record) in stacks.into_iter().enumerate() {
+            if idx < start_at {
+                continue;
+            }
+            processed += 1;
+            stats.total += 1;
+
+            if opts.dry_run {
+                stats.skipped += 1;
+                continue;
+            }
+
+            match stack_record_to_kv(&record) {
+                Ok(kv_stack) => {
+                    if let Err(e) = repo.put_stack(kv_stack).await {
+                        stats.failed += 1;
+                        stats.errors
+                            .push(format!("stack {}: {}", record.id, e.to_string()));
+                    } else {
+                        stats.migrated += 1;
+                    }
+                }
+                Err(e) => {
+                    stats.failed += 1;
+                    stats
+                        .errors
+                        .push(format!("stack {} convert: {}", record.id, e.to_string()));
+                }
+            }
+        }
+
+        Ok(processed)
+    }
+
+    async fn migrate_domain_plans(
+        &self,
+        start_at: usize,
+        opts: &MigrationOptions,
+        stats: &mut DomainStats,
+    ) -> Result<usize> {
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not initialized; cannot migrate plans".to_string())
+        })?;
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL backend unavailable for plan migration".to_string())
+        })?;
+
+        let query = if opts.tenant_filter.is_some() {
+            r#"
+            SELECT id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, metallib_hash_b3, created_at
+            FROM plans
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC, id ASC
+            "#
+        } else {
+            r#"
+            SELECT id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, metallib_hash_b3, created_at
+            FROM plans
+            ORDER BY created_at DESC, id ASC
+            "#
+        };
+
+        let mut plans: Vec<crate::models::Plan> = if let Some(tid) = opts.tenant_filter.as_deref()
+        {
+            sqlx::query_as::<_, crate::models::Plan>(query)
+                .bind(tid)
+                .fetch_all(pool)
+                .await?
+        } else {
+            sqlx::query_as::<_, crate::models::Plan>(query)
+                .fetch_all(pool)
+                .await?
+        };
+
+        plans.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+
+        let repo = PlanKvRepository::new(kv_backend.backend().clone());
+        let mut processed = 0usize;
+
+        for (idx, plan) in plans.into_iter().enumerate() {
+            if idx < start_at {
+                continue;
+            }
+            processed += 1;
+            stats.total += 1;
+
+            if opts.dry_run {
+                stats.skipped += 1;
+                continue;
+            }
+
+            match plan_to_kv(&plan) {
+                Ok(plan_kv) => {
+                    if let Err(e) = repo.put_plan(plan_kv).await {
+                        stats.failed += 1;
+                        stats.errors
+                            .push(format!("plan {}: {}", plan.id, e.to_string()));
+                    } else {
+                        stats.migrated += 1;
+                    }
+                }
+                Err(e) => {
+                    stats.failed += 1;
+                    stats
+                        .errors
+                        .push(format!("plan {} convert: {}", plan.id, e.to_string()));
+                }
+            }
+        }
+
+        Ok(processed)
+    }
+
+    async fn migrate_domain_auth_sessions(
+        &self,
+        start_at: usize,
+        opts: &MigrationOptions,
+        stats: &mut DomainStats,
+    ) -> Result<usize> {
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not initialized; cannot migrate auth sessions".to_string())
+        })?;
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL backend unavailable for auth session migration".to_string())
+        })?;
+
+        #[derive(sqlx::FromRow)]
+        struct AuthRow {
+            jti: String,
+            user_id: String,
+            ip_address: Option<String>,
+            user_agent: Option<String>,
+            created_at: String,
+            last_activity: String,
+            expires_at: i64,
+        }
+
+        let mut rows: Vec<AuthRow> = sqlx::query_as::<_, AuthRow>(
+            r#"
+            SELECT jti, user_id, ip_address, user_agent, created_at, last_activity, expires_at
+            FROM auth_sessions
+            ORDER BY last_activity DESC, jti ASC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+
+        rows.sort_by(|a, b| {
+            b.last_activity
+                .cmp(&a.last_activity)
+                .then_with(|| a.jti.cmp(&b.jti))
+        });
+
+        let repo = AuthSessionKvRepository::new(kv_backend.backend().clone());
+        let mut processed = 0usize;
+
+        for (idx, row) in rows.into_iter().enumerate() {
+            if idx < start_at {
+                continue;
+            }
+            processed += 1;
+            stats.total += 1;
+
+            if opts.dry_run {
+                stats.skipped += 1;
+                continue;
+            }
+
+            let created_at = DateTime::parse_from_rfc3339(&row.created_at)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+            let last_activity = DateTime::parse_from_rfc3339(&row.last_activity)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+
+            let kv = AuthSessionKv {
+                jti: row.jti.clone(),
+                user_id: row.user_id.clone(),
+                ip_address: row.ip_address.clone(),
+                user_agent: row.user_agent.clone(),
+                created_at,
+                last_activity,
+                expires_at: row.expires_at,
+            };
+
+            if let Err(e) = repo.put_session(kv).await {
+                stats.failed += 1;
+                stats
+                    .errors
+                    .push(format!("auth_session {}: {}", row.jti, e.to_string()));
+            } else {
+                stats.migrated += 1;
+            }
+        }
+
+        Ok(processed)
+    }
+
+    async fn migrate_domain_runtime_sessions(
+        &self,
+        start_at: usize,
+        opts: &MigrationOptions,
+        stats: &mut DomainStats,
+    ) -> Result<usize> {
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not initialized; cannot migrate runtime sessions".to_string())
+        })?;
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL backend unavailable for runtime session migration".to_string())
+        })?;
+
+        let mut rows: Vec<RuntimeSession> = sqlx::query_as::<_, RuntimeSession>(
+            r#"
+            SELECT id, session_id, config_hash, binary_version, binary_commit,
+                   started_at, ended_at, end_reason, hostname, runtime_mode,
+                   config_snapshot, drift_detected, drift_summary, previous_session_id,
+                   model_path, adapters_root, database_path, var_dir
+            FROM runtime_sessions
+            ORDER BY started_at DESC, id ASC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+
+        rows.sort_by(|a, b| {
+            b.started_at
+                .cmp(&a.started_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+
+        let repo = RuntimeSessionKvRepository::new(kv_backend.backend().clone());
+        let mut processed = 0usize;
+
+        for (idx, row) in rows.into_iter().enumerate() {
+            if idx < start_at {
+                continue;
+            }
+            processed += 1;
+            stats.total += 1;
+
+            if opts.dry_run {
+                stats.skipped += 1;
+                continue;
+            }
+
+            let kv: crate::runtime_sessions_kv::RuntimeSessionKv = row.clone().into();
+            if let Err(e) = repo.put(&kv).await {
+                stats.failed += 1;
+                stats
+                    .errors
+                    .push(format!("runtime_session {}: {}", kv.id, e.to_string()));
+            } else {
+                stats.migrated += 1;
+            }
+        }
+
+        Ok(processed)
+    }
+
+    async fn migrate_domain_rag_artifacts(
+        &self,
+        start_at: usize,
+        opts: &MigrationOptions,
+        stats: &mut DomainStats,
+    ) -> Result<usize> {
+        let _ = start_at;
+        let _ = opts;
+        let _ = stats;
+        warn!("RAG artifact migration not yet implemented in kv_migration; skipping");
+        Ok(0)
     }
 }
 

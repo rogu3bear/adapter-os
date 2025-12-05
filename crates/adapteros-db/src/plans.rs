@@ -127,7 +127,12 @@ impl Db {
     pub async fn list_all_plans(&self) -> Result<Vec<Plan>> {
         if self.storage_mode().read_from_kv() && !self.storage_mode().sql_fallback_enabled() {
             if let Some(repo) = self.get_plan_kv_repo() {
-                return Ok(repo.list_all().await?.into_iter().map(|p| kv_to_plan(&p)).collect());
+                return Ok(repo
+                    .list_all()
+                    .await?
+                    .into_iter()
+                    .map(|p| kv_to_plan(&p))
+                    .collect());
             }
         }
 
@@ -162,12 +167,7 @@ impl Db {
         if self.storage_mode().write_to_kv() {
             if let Some(repo) = self.get_plan_kv_repo() {
                 // We need tenant; scan all
-                if let Some(plan) = repo
-                    .list_all()
-                    .await?
-                    .into_iter()
-                    .find(|p| p.id == id)
-                {
+                if let Some(plan) = repo.list_all().await?.into_iter().find(|p| p.id == id) {
                     deleted |= repo.delete_plan(&plan.tenant_id, id).await?;
                 }
             }

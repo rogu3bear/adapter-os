@@ -52,7 +52,8 @@ impl BenchDb {
         if mode != StorageMode::SqlOnly {
             db.init_kv_backend(&kv_path)
                 .expect("Failed to init KV backend");
-            db.set_storage_mode(mode);
+            db.set_storage_mode(mode)
+                .expect("Failed to set storage mode for benchmark");
         }
 
         // Create default tenant

@@ -89,10 +89,9 @@ impl PlanKvRepository {
                 let _ = self.backend.delete(&key).await;
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-                self.backend
-                    .set(&key, payload)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to update plan index: {}", e)))?;
+                self.backend.set(&key, payload).await.map_err(|e| {
+                    AosError::Database(format!("Failed to update plan index: {}", e))
+                })?;
             }
         }
         Ok(())
@@ -165,7 +164,11 @@ impl PlanKvRepository {
         }
 
         // Deterministic ordering: created_at DESC then id ASC
-        plans.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| a.id.cmp(&b.id)));
+        plans.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
 
         Ok(plans)
     }
@@ -193,7 +196,11 @@ impl PlanKvRepository {
             }
         }
 
-        plans.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| a.id.cmp(&b.id)));
+        plans.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
         Ok(plans)
     }
 }
@@ -233,4 +240,3 @@ pub fn kv_to_plan(kv: &PlanKv) -> Plan {
         created_at: kv.created_at.to_rfc3339(),
     }
 }
-

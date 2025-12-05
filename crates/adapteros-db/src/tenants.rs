@@ -196,10 +196,10 @@ impl Db {
 
         // SQL path when available (dual-write)
         if self.storage_mode().write_to_sql() {
-            if let Some(mut tx) = self.pool_opt().map(|p| p.begin()) {
-                let mut tx = tx
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+            if let Some(tx) = self.pool_opt().map(|p| p.begin()) {
+                let mut tx = tx.await.map_err(|e| {
+                    AosError::Database(format!("Failed to begin transaction: {}", e))
+                })?;
 
                 for policy_id in all_policies {
                     let id = Uuid::new_v4().to_string();
@@ -229,9 +229,9 @@ impl Db {
                     })?;
                 }
 
-                tx.commit()
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+                tx.commit().await.map_err(|e| {
+                    AosError::Database(format!("Failed to commit transaction: {}", e))
+                })?;
             } else if !self.storage_mode().write_to_kv() {
                 return Err(AosError::Database(
                     "Policy binding init failed: SQL unavailable and KV disabled".to_string(),

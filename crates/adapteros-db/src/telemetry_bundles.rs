@@ -234,6 +234,7 @@ impl Db {
                     }
                 }
                 Err(e) => {
+                    self.record_kv_write_fallback("telemetry.events.dual_write");
                     warn!(
                         error = %e,
                         tenant_id = %params.tenant_id,
@@ -252,16 +253,46 @@ impl Db {
         tenant_id: &str,
         limit: i32,
     ) -> Result<Vec<TelemetryRecord>> {
+        let limit = limit.max(0);
         // KV-primary read path
         if let Some(repo) = self.telemetry_repo_if_read() {
-            match repo
-                .list_events_by_tenant(tenant_id, limit.max(0) as usize)
-                .await
-            {
+            match repo.list_events_by_tenant(tenant_id, limit as usize).await {
                 Ok(events) => {
                     let mut converted = Vec::new();
                     for ev in events {
                         converted.push(Db::kv_event_to_record(ev)?);
+                    }
+                    if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
+                        if let Some(pool) = self.pool_opt() {
+                            let sql_records = sqlx::query_as::<_, TelemetryRecord>(
+                                r#"
+                                SELECT id, tenant_id, event_type, event_data, timestamp, source,
+                                       user_id, session_id, metadata, tags, priority, created_at
+                                FROM telemetry_events
+                                WHERE tenant_id = ?
+                                ORDER BY timestamp DESC, id DESC
+                                LIMIT ?
+                                "#,
+                            )
+                            .bind(tenant_id)
+                            .bind(limit)
+                            .fetch_all(pool)
+                            .await
+                            .map_err(|e| {
+                                AosError::Database(format!(
+                                    "Failed to get telemetry by tenant: {}",
+                                    e
+                                ))
+                            })?;
+
+                            if sql_records.len() != converted.len()
+                                || sql_records.iter().zip(converted.iter()).any(|(sql, kv)| {
+                                    sql.id != kv.id || sql.event_data != kv.event_data
+                                })
+                            {
+                                record_telemetry_drift("telemetry_events_drift_dual_write");
+                            }
+                        }
                     }
                     return Ok(converted);
                 }
@@ -272,6 +303,7 @@ impl Db {
                             e
                         )));
                     }
+                    self.record_kv_read_fallback("telemetry.events.list.fallback");
                     warn!(
                         tenant_id = %tenant_id,
                         error = %e,
@@ -287,7 +319,7 @@ impl Db {
                    user_id, session_id, metadata, tags, priority, created_at
             FROM telemetry_events
             WHERE tenant_id = ?
-            ORDER BY timestamp DESC
+            ORDER BY timestamp DESC, id DESC
             LIMIT ?
             "#,
         )
@@ -307,15 +339,49 @@ impl Db {
         event_type: &str,
         limit: i32,
     ) -> Result<Vec<TelemetryRecord>> {
+        let limit = limit.max(0);
         if let Some(repo) = self.telemetry_repo_if_read() {
             match repo
-                .list_events_by_type(tenant_id, event_type, limit.max(0) as usize)
+                .list_events_by_type(tenant_id, event_type, limit as usize)
                 .await
             {
                 Ok(events) => {
                     let mut converted = Vec::new();
                     for ev in events {
                         converted.push(Db::kv_event_to_record(ev)?);
+                    }
+                    if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
+                        if let Some(pool) = self.pool_opt() {
+                            let sql_records = sqlx::query_as::<_, TelemetryRecord>(
+                                r#"
+                                SELECT id, tenant_id, event_type, event_data, timestamp, source,
+                                       user_id, session_id, metadata, tags, priority, created_at
+                                FROM telemetry_events
+                                WHERE tenant_id = ? AND event_type = ?
+                                ORDER BY timestamp DESC, id DESC
+                                LIMIT ?
+                                "#,
+                            )
+                            .bind(tenant_id)
+                            .bind(event_type)
+                            .bind(limit)
+                            .fetch_all(pool)
+                            .await
+                            .map_err(|e| {
+                                AosError::Database(format!(
+                                    "Failed to get telemetry by event type: {}",
+                                    e
+                                ))
+                            })?;
+
+                            if sql_records.len() != converted.len()
+                                || sql_records.iter().zip(converted.iter()).any(|(sql, kv)| {
+                                    sql.id != kv.id || sql.event_data != kv.event_data
+                                })
+                            {
+                                record_telemetry_drift("telemetry_events_drift_dual_write");
+                            }
+                        }
                     }
                     return Ok(converted);
                 }
@@ -326,6 +392,7 @@ impl Db {
                             e
                         )));
                     }
+                    self.record_kv_read_fallback("telemetry.events.list_by_type.fallback");
                     warn!(
                         tenant_id = %tenant_id,
                         event_type = %event_type,
@@ -342,7 +409,7 @@ impl Db {
                    user_id, session_id, metadata, tags, priority, created_at
             FROM telemetry_events
             WHERE tenant_id = ? AND event_type = ?
-            ORDER BY timestamp DESC
+            ORDER BY timestamp DESC, id DESC
             LIMIT ?
             "#,
         )
@@ -363,16 +430,46 @@ impl Db {
         limit: i32,
         offset: i32,
     ) -> Result<Vec<TelemetryBundle>> {
+        let limit = limit.max(0);
+        let offset = offset.max(0);
         if let Some(repo) = self.telemetry_repo_if_read() {
             match repo
-                .list_bundles_by_tenant(tenant_id, limit.max(0) as usize, offset.max(0) as usize)
+                .list_bundles_by_tenant(tenant_id, limit as usize, offset as usize)
                 .await
             {
                 Ok(bundles) => {
-                    return Ok(bundles
-                        .into_iter()
-                        .map(Db::kv_bundle_to_record)
-                        .collect());
+                    let converted: Vec<TelemetryBundle> =
+                        bundles.into_iter().map(Db::kv_bundle_to_record).collect();
+
+                    if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
+                        if let Some(pool) = self.pool_opt() {
+                            let sql_bundles = sqlx::query_as::<_, TelemetryBundle>(
+                                r#"
+                                SELECT id, tenant_id, cpid, path, merkle_root_b3, start_seq, end_seq, event_count, created_at
+                                FROM telemetry_bundles
+                                WHERE tenant_id = ?
+                                ORDER BY created_at DESC, id DESC
+                                LIMIT ? OFFSET ?
+                                "#,
+                            )
+                            .bind(tenant_id)
+                            .bind(limit)
+                            .bind(offset)
+                            .fetch_all(pool)
+                            .await
+                            .map_err(|e| AosError::Database(format!("Failed to get telemetry bundles: {}", e)))?;
+
+                            if sql_bundles.len() != converted.len()
+                                || sql_bundles.iter().zip(converted.iter()).any(|(sql, kv)| {
+                                    sql.id != kv.id || sql.merkle_root_b3 != kv.merkle_root_b3
+                                })
+                            {
+                                record_telemetry_drift("telemetry_bundles_drift_dual_write");
+                            }
+                        }
+                    }
+
+                    return Ok(converted);
                 }
                 Err(e) => {
                     if !self.storage_mode().sql_fallback_enabled() {
@@ -381,6 +478,7 @@ impl Db {
                             e
                         )));
                     }
+                    self.record_kv_read_fallback("telemetry.bundles.list.fallback");
                     warn!(
                         tenant_id = %tenant_id,
                         error = %e,
@@ -395,7 +493,7 @@ impl Db {
             SELECT id, tenant_id, cpid, path, merkle_root_b3, start_seq, end_seq, event_count, created_at
             FROM telemetry_bundles
             WHERE tenant_id = ?
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, id DESC
             LIMIT ? OFFSET ?
             "#,
         )
@@ -407,5 +505,80 @@ impl Db {
         .map_err(|e| AosError::Database(format!("Failed to get telemetry bundles: {}", e)))?;
 
         Ok(bundles)
+    }
+
+    /// Get a single telemetry bundle by ID
+    pub async fn get_telemetry_bundle(
+        &self,
+        tenant_id: &str,
+        bundle_id: &str,
+    ) -> Result<Option<TelemetryBundle>> {
+        if let Some(repo) = self.telemetry_repo_if_read() {
+            match repo.get_bundle_metadata(tenant_id, bundle_id).await {
+                Ok(Some(bundle)) => {
+                    let record = Db::kv_bundle_to_record(bundle);
+
+                    if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
+                        if let Some(pool) = self.pool_opt() {
+                            if let Ok(Some(sql_bundle)) = sqlx::query_as::<_, TelemetryBundle>(
+                                r#"
+                                SELECT id, tenant_id, cpid, path, merkle_root_b3, start_seq, end_seq, event_count, created_at
+                                FROM telemetry_bundles
+                                WHERE tenant_id = ? AND id = ?
+                                "#,
+                            )
+                            .bind(tenant_id)
+                            .bind(bundle_id)
+                            .fetch_optional(pool)
+                            .await
+                            {
+                                if sql_bundle.id != record.id
+                                    || sql_bundle.merkle_root_b3 != record.merkle_root_b3
+                                {
+                                    record_telemetry_drift("telemetry_bundle_drift_dual_write");
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok(Some(record));
+                }
+                Ok(None) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Ok(None);
+                    }
+                }
+                Err(e) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Err(AosError::Database(format!(
+                            "KV read failed for telemetry bundle: {}",
+                            e
+                        )));
+                    }
+                    self.record_kv_read_fallback("telemetry.bundles.get.fallback");
+                    warn!(
+                        tenant_id = %tenant_id,
+                        bundle_id = %bundle_id,
+                        error = %e,
+                        "KV telemetry bundle read failed, falling back to SQL"
+                    );
+                }
+            }
+        }
+
+        let bundle = sqlx::query_as::<_, TelemetryBundle>(
+            r#"
+            SELECT id, tenant_id, cpid, path, merkle_root_b3, start_seq, end_seq, event_count, created_at
+            FROM telemetry_bundles
+            WHERE tenant_id = ? AND id = ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(bundle_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get telemetry bundle: {}", e)))?;
+
+        Ok(bundle)
     }
 }

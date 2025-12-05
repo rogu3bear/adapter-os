@@ -139,6 +139,12 @@ impl Db {
             } else {
                 debug!(user_id = %id, "User written to both SQL and KV backends");
             }
+
+            // KV-only safety: ensure user exists even if initial write was skipped
+            if self.storage_mode().is_kv_only() {
+                repo.ensure_user_kv(&id, email, display_name, pw_hash, kv_role, tenant_id)
+                    .await?;
+            }
         }
 
         Ok(id)
@@ -405,10 +411,7 @@ impl Db {
         }
         select_builder = select_builder.bind(page_size).bind(offset);
 
-        let users = select_builder
-            .fetch_all(pool)
-            .await
-            .db_err("list users")?;
+        let users = select_builder.fetch_all(pool).await.db_err("list users")?;
 
         Ok((users, total))
     }
@@ -421,17 +424,16 @@ impl Db {
 
         // SQL write if enabled
         if self.storage_mode().write_to_sql() {
-            let pool = self
-                .pool_opt()
-                .ok_or_else(|| AosError::Database("SQL backend unavailable for update_user_role".into()))?;
-            let result = sqlx::query(
-                "UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?",
-            )
-            .bind(&role_str)
-            .bind(id)
-            .execute(pool)
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            let pool = self.pool_opt().ok_or_else(|| {
+                AosError::Database("SQL backend unavailable for update_user_role".into())
+            })?;
+            let result =
+                sqlx::query("UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?")
+                    .bind(&role_str)
+                    .bind(id)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| AosError::Database(e.to_string()))?;
 
             if result.rows_affected() == 0 {
                 return Err(AosError::NotFound(format!("User not found: {}", id)));
@@ -462,16 +464,17 @@ impl Db {
     pub async fn update_user_disabled(&self, id: &str, disabled: bool) -> Result<()> {
         // SQL write if enabled
         if self.storage_mode().write_to_sql() {
-            let pool = self
-                .pool_opt()
-                .ok_or_else(|| AosError::Database("SQL backend unavailable for update_user_disabled".into()))?;
-            let result =
-                sqlx::query("UPDATE users SET disabled = ?, updated_at = datetime('now') WHERE id = ?")
-                    .bind(disabled)
-                    .bind(id)
-                    .execute(pool)
-                    .await
-                    .map_err(|e| AosError::Database(e.to_string()))?;
+            let pool = self.pool_opt().ok_or_else(|| {
+                AosError::Database("SQL backend unavailable for update_user_disabled".into())
+            })?;
+            let result = sqlx::query(
+                "UPDATE users SET disabled = ?, updated_at = datetime('now') WHERE id = ?",
+            )
+            .bind(disabled)
+            .bind(id)
+            .execute(pool)
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
             if result.rows_affected() == 0 {
                 return Err(AosError::NotFound(format!("User not found: {}", id)));

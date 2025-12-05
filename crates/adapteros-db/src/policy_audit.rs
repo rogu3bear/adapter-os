@@ -3,12 +3,15 @@
 //! All policy decisions (allow/deny) are logged with cryptographic chaining
 //! for tamper-evident audit trails. Each decision links to the previous via BLAKE3 hash.
 
+use crate::policy_audit_kv::PolicyAuditKvRepository;
 use crate::query_helpers::{db_err, FilterBuilder};
-use crate::Db;
+use crate::{Db, KvBackend};
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use tracing::warn;
 
 /// Policy audit decision record
 ///
@@ -67,6 +70,17 @@ pub struct PolicyDecisionFilters {
 }
 
 impl Db {
+    fn get_policy_audit_kv_repo(&self) -> Option<PolicyAuditKvRepository> {
+        if self.storage_mode().write_to_kv() || self.storage_mode().read_from_kv() {
+            self.kv_backend().map(|kv| {
+                let backend: Arc<dyn KvBackend> = kv.clone();
+                PolicyAuditKvRepository::new(backend)
+            })
+        } else {
+            None
+        }
+    }
+
     /// Log a policy decision to the audit trail
     ///
     /// Creates a new policy audit entry with cryptographic chaining to the previous entry.
@@ -121,77 +135,99 @@ impl Db {
         resource_id: Option<&str>,
         metadata_json: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
-        let timestamp = chrono::Utc::now().to_rfc3339();
+        // KV write
+        if let Some(repo) = self.get_policy_audit_kv_repo() {
+            if let Err(e) = repo
+                .log_policy_decision(
+                    tenant_id,
+                    policy_pack_id,
+                    hook,
+                    decision,
+                    reason,
+                    request_id,
+                    user_id,
+                    resource_type,
+                    resource_id,
+                    metadata_json,
+                )
+                .await
+            {
+                self.record_kv_write_fallback("policy_audit.log");
+                warn!(error = %e, tenant_id = %tenant_id, "KV policy audit log failed");
+            }
+        }
 
-        // Get the latest policy audit entry to link to it (chain-of-custody)
-        let latest_entry = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
-            "SELECT entry_hash, chain_sequence FROM policy_audit_decisions
+        // SQL write
+        if self.storage_mode().write_to_sql() {
+            let id = Uuid::now_v7().to_string();
+            let timestamp = chrono::Utc::now().to_rfc3339();
+
+            let latest_entry = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
+                "SELECT entry_hash, chain_sequence FROM policy_audit_decisions
              WHERE tenant_id = ?
              ORDER BY chain_sequence DESC LIMIT 1",
-        )
-        .bind(tenant_id)
-        .fetch_optional(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+            )
+            .bind(tenant_id)
+            .fetch_optional(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
-        let (previous_hash, chain_sequence) = match latest_entry {
-            Some((hash_opt, seq_opt)) => {
-                let prev_hash = hash_opt.unwrap_or_default();
-                let next_seq = seq_opt.unwrap_or(0) + 1;
-                (Some(prev_hash), next_seq)
-            }
-            None => {
-                // First entry in the chain for this tenant
-                (None, 1)
-            }
-        };
+            let (previous_hash, chain_sequence) = match latest_entry {
+                Some((hash_opt, seq_opt)) => {
+                    let prev_hash = hash_opt.unwrap_or_default();
+                    let next_seq = seq_opt.unwrap_or(0) + 1;
+                    (Some(prev_hash), next_seq)
+                }
+                None => (None, 1),
+            };
 
-        // Compute hash of this entry (deterministic)
-        let entry_data = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-            id,
-            timestamp,
-            tenant_id,
-            policy_pack_id,
-            hook,
-            decision,
-            reason.unwrap_or(""),
-            request_id.unwrap_or(""),
-            user_id.unwrap_or(""),
-            resource_type.unwrap_or(""),
-            resource_id.unwrap_or(""),
-            metadata_json.unwrap_or(""),
-            previous_hash.as_deref().unwrap_or(""),
-        );
-        let entry_hash = adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
+            let entry_data = format!(
+                "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+                id,
+                timestamp,
+                tenant_id,
+                policy_pack_id,
+                hook,
+                decision,
+                reason.unwrap_or(""),
+                request_id.unwrap_or(""),
+                user_id.unwrap_or(""),
+                resource_type.unwrap_or(""),
+                resource_id.unwrap_or(""),
+                metadata_json.unwrap_or(""),
+                previous_hash.as_deref().unwrap_or(""),
+            );
+            let entry_hash = adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
 
-        sqlx::query(
-            "INSERT INTO policy_audit_decisions
+            sqlx::query(
+                "INSERT INTO policy_audit_decisions
              (id, tenant_id, policy_pack_id, hook, decision, reason, request_id, user_id,
               resource_type, resource_id, metadata_json, timestamp, previous_hash, entry_hash, chain_sequence)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(tenant_id)
-        .bind(policy_pack_id)
-        .bind(hook)
-        .bind(decision)
-        .bind(reason)
-        .bind(request_id)
-        .bind(user_id)
-        .bind(resource_type)
-        .bind(resource_id)
-        .bind(metadata_json)
-        .bind(&timestamp)
-        .bind(previous_hash.as_deref())
-        .bind(&entry_hash)
-        .bind(chain_sequence)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+            )
+            .bind(&id)
+            .bind(tenant_id)
+            .bind(policy_pack_id)
+            .bind(hook)
+            .bind(decision)
+            .bind(reason)
+            .bind(request_id)
+            .bind(user_id)
+            .bind(resource_type)
+            .bind(resource_id)
+            .bind(metadata_json)
+            .bind(&timestamp)
+            .bind(previous_hash.as_deref())
+            .bind(&entry_hash)
+            .bind(chain_sequence)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
-        Ok(id)
+            Ok(id)
+        } else {
+            Ok("kv-only".to_string())
+        }
     }
 
     /// Verify policy audit chain integrity
@@ -227,6 +263,24 @@ impl Db {
         &self,
         tenant_id: Option<&str>,
     ) -> Result<ChainVerificationResult> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_policy_audit_kv_repo() {
+                let res = repo.verify_policy_audit_chain(tenant_id).await?;
+                if !self.storage_mode().sql_fallback_enabled() || !res.is_valid {
+                    return Ok(res);
+                }
+            }
+        }
+
+        if !self.storage_mode().read_from_sql() {
+            return Ok(ChainVerificationResult {
+                is_valid: true,
+                entries_checked: 0,
+                first_invalid_sequence: None,
+                error_message: None,
+            });
+        }
+
         // Build query with optional tenant filter
         let query = if tenant_id.is_some() {
             "SELECT id, tenant_id, policy_pack_id, hook, decision, reason, request_id, user_id,
@@ -424,6 +478,19 @@ impl Db {
         &self,
         filters: PolicyDecisionFilters,
     ) -> Result<Vec<PolicyAuditDecision>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_policy_audit_kv_repo() {
+                let res = repo.query_policy_decisions(filters.clone()).await?;
+                if !self.storage_mode().sql_fallback_enabled() || !res.is_empty() {
+                    return Ok(res);
+                }
+            }
+        }
+
+        if !self.storage_mode().read_from_sql() {
+            return Ok(Vec::new());
+        }
+
         // Enforce maximum limit
         let limit = filters.limit.unwrap_or(100).min(1000);
 

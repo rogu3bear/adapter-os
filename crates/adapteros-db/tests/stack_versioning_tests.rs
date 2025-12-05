@@ -2,15 +2,25 @@
 
 use adapteros_db::sqlite_backend::SqliteBackend;
 use adapteros_db::traits::{CreateStackRequest, DatabaseBackend};
+use uuid::Uuid;
+
+fn stack_name() -> String {
+    format!("stack.test.{}", Uuid::new_v4().simple())
+}
 
 #[tokio::test]
 async fn test_stack_version_starts_at_one() {
     let backend = SqliteBackend::new(":memory:").await.unwrap();
     backend.run_migrations().await.unwrap();
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('test-tenant', 'Test Tenant')")
+        .execute(backend.pool())
+        .await
+        .unwrap();
 
+    let name = stack_name();
     let req = CreateStackRequest {
         tenant_id: "test-tenant".to_string(),
-        name: "stack.test".to_string(),
+        name: name.clone(),
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string(), "adapter2".to_string()],
         workflow_type: Some("Parallel".to_string()),
@@ -31,11 +41,16 @@ async fn test_stack_version_starts_at_one() {
 async fn test_stack_version_increments_on_adapter_change() {
     let backend = SqliteBackend::new(":memory:").await.unwrap();
     backend.run_migrations().await.unwrap();
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('test-tenant', 'Test Tenant')")
+        .execute(backend.pool())
+        .await
+        .unwrap();
 
+    let name = stack_name();
     // Create initial stack
     let req = CreateStackRequest {
         tenant_id: "test-tenant".to_string(),
-        name: "stack.test".to_string(),
+        name: name.clone(),
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string(), "adapter2".to_string()],
         workflow_type: Some("Parallel".to_string()),
@@ -55,7 +70,7 @@ async fn test_stack_version_increments_on_adapter_change() {
     // Update with different adapter_ids
     let update_req = CreateStackRequest {
         tenant_id: "test-tenant".to_string(),
-        name: "stack.test".to_string(),
+        name,
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string(), "adapter3".to_string()], // Changed!
         workflow_type: Some("Parallel".to_string()),
@@ -83,10 +98,15 @@ async fn test_stack_version_increments_on_adapter_change() {
 async fn test_stack_version_increments_on_workflow_change() {
     let backend = SqliteBackend::new(":memory:").await.unwrap();
     backend.run_migrations().await.unwrap();
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('test-tenant', 'Test Tenant')")
+        .execute(backend.pool())
+        .await
+        .unwrap();
 
+    let name = stack_name();
     let req = CreateStackRequest {
         tenant_id: "test-tenant".to_string(),
-        name: "stack.test".to_string(),
+        name: name.clone(),
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Parallel".to_string()),
@@ -98,7 +118,7 @@ async fn test_stack_version_increments_on_workflow_change() {
     // Update with different workflow_type
     let update_req = CreateStackRequest {
         tenant_id: "test-tenant".to_string(),
-        name: "stack.test".to_string(),
+        name,
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()], // Same
         workflow_type: Some("Sequential".to_string()), // Changed!
@@ -125,10 +145,15 @@ async fn test_stack_version_increments_on_workflow_change() {
 async fn test_stack_version_no_increment_on_metadata_change() {
     let backend = SqliteBackend::new(":memory:").await.unwrap();
     backend.run_migrations().await.unwrap();
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('test-tenant', 'Test Tenant')")
+        .execute(backend.pool())
+        .await
+        .unwrap();
 
+    let original_name = stack_name();
     let req = CreateStackRequest {
         tenant_id: "test-tenant".to_string(),
-        name: "stack.test".to_string(),
+        name: original_name.clone(),
         description: Some("Original description".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Parallel".to_string()),
@@ -138,9 +163,10 @@ async fn test_stack_version_no_increment_on_metadata_change() {
     let stack_id = backend.insert_stack(&req).await.unwrap();
 
     // Update only description (metadata change, not config change)
+    let renamed = stack_name();
     let update_req = CreateStackRequest {
         tenant_id: "test-tenant".to_string(),
-        name: "stack.test-renamed".to_string(), // Changed
+        name: renamed.clone(), // Changed
         description: Some("New description".to_string()), // Changed
         adapter_ids: vec!["adapter1".to_string()], // Same
         workflow_type: Some("Parallel".to_string()), // Same
@@ -161,7 +187,7 @@ async fn test_stack_version_no_increment_on_metadata_change() {
         stack.version, 1,
         "Version should NOT increment for metadata-only changes"
     );
-    assert_eq!(stack.name, "stack.test-renamed", "Name should be updated");
+    assert_eq!(stack.name, renamed, "Name should be updated");
     assert_eq!(
         stack.description.as_deref(),
         Some("New description"),
@@ -173,10 +199,15 @@ async fn test_stack_version_no_increment_on_metadata_change() {
 async fn test_stack_version_multiple_increments() {
     let backend = SqliteBackend::new(":memory:").await.unwrap();
     backend.run_migrations().await.unwrap();
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('test-tenant', 'Test Tenant')")
+        .execute(backend.pool())
+        .await
+        .unwrap();
 
+    let base_name = stack_name();
     let req = CreateStackRequest {
         tenant_id: "test-tenant".to_string(),
-        name: "stack.test".to_string(),
+        name: base_name.clone(),
         description: None,
         adapter_ids: vec!["a1".to_string()],
         workflow_type: Some("Parallel".to_string()),
@@ -189,7 +220,7 @@ async fn test_stack_version_multiple_increments() {
     for i in 2..=6 {
         let update_req = CreateStackRequest {
             tenant_id: "test-tenant".to_string(),
-            name: "stack.test".to_string(),
+            name: base_name.clone(),
             description: None,
             adapter_ids: vec![format!("a{}", i)],
             workflow_type: Some("Parallel".to_string()),
@@ -227,12 +258,16 @@ async fn test_stack_version_multiple_increments() {
 async fn test_list_stacks_includes_version() {
     let backend = SqliteBackend::new(":memory:").await.unwrap();
     backend.run_migrations().await.unwrap();
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('test-tenant', 'Test Tenant')")
+        .execute(backend.pool())
+        .await
+        .unwrap();
 
     // Create multiple stacks
     for i in 1..=3 {
         let req = CreateStackRequest {
             tenant_id: "test-tenant".to_string(),
-            name: format!("stack.test-{}", i),
+            name: format!("stack.test.{}", i),
             description: None,
             adapter_ids: vec![format!("adapter{}", i)],
             workflow_type: Some("Parallel".to_string()),

@@ -176,6 +176,10 @@ ifeq ($(PROFILE),release)
 	cargo test --release -p adapteros-lora-router --test determinism
 endif
 
+# KV drift verification (CI-friendly)
+kv-verify: ## Run SQL↔KV drift verification (fails on drift, no repair)
+	cargo run -p adapteros-cli -- storage verify --json --domains adapters,tenants,stacks,plans,auth_sessions,runtime_sessions,rag_artifacts --fail-on-drift
+
 # CI Integration: Add to test job after cargo test:
 # make determinism-check || exit 1
 # Use matrix: macos-13, macos-14 for cross-version verification

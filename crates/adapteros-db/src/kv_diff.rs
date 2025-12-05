@@ -1,15 +1,23 @@
 //! Dual-write diff utilities for KV vs SQL
 
-use crate::{
-    kv_backend::KvBackend, plans_kv::PlanKvRepository, stacks_kv::StackKvOps,
-    stacks_kv::StackKvRepository, tenant_policy_bindings_kv::PolicyBindingKvRepository,
-    tenants_kv::TenantKvOps, tenants_kv::TenantKvRepository, users_kv::UserKvOps,
-    users_kv::UserKvRepository, Db,
-};
 use crate::adapters_kv::AdapterKvOps;
+use crate::auth_sessions_kv::AuthSessionKvRepository;
+use crate::chat_sessions_kv::ChatSessionKvRepository;
+use crate::collections_kv::CollectionKvRepository;
+use crate::documents_kv::DocumentKvRepository;
+use crate::kv_backend::KvBackend;
+use crate::plans_kv::PlanKvRepository;
+use crate::policy_audit_kv::PolicyAuditKvRepository;
+use crate::runtime_sessions_kv::RuntimeSessionKvRepository;
+use crate::stacks_kv::{StackKvOps, StackKvRepository};
+use crate::tenant_policy_bindings_kv::PolicyBindingKvRepository;
+use crate::tenants_kv::{TenantKvOps, TenantKvRepository};
+use crate::training_jobs_kv::TrainingJobKvRepository;
+use crate::users_kv::{UserKvOps, UserKvRepository};
+use crate::Db;
 use adapteros_core::AosError;
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiffIssue {
@@ -21,6 +29,334 @@ pub struct DiffIssue {
 }
 
 impl Db {
+    pub async fn diff_documents(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+        let sql_docs = sqlx::query!(
+            r#"SELECT id, tenant_id, name, content_hash, status, file_path, file_size, mime_type FROM documents"#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let Some(kv) = self.kv_backend() else {
+            return Ok(issues);
+        };
+        let repo = DocumentKvRepository::new(kv.backend().clone());
+
+        for row in sql_docs {
+            let row_id = row.id.clone().unwrap_or_default();
+            if let Some(doc) = repo.get_document(&row.tenant_id, &row_id).await? {
+                if doc.name != row.name {
+                    issues.push(DiffIssue {
+                        domain: "documents".into(),
+                        id: row_id.clone(),
+                        field: "name".into(),
+                        sql_value: row.name.clone(),
+                        kv_value: doc.name,
+                    });
+                }
+                if doc.status != row.status {
+                    issues.push(DiffIssue {
+                        domain: "documents".into(),
+                        id: row_id.clone(),
+                        field: "status".into(),
+                        sql_value: row.status.clone(),
+                        kv_value: doc.status,
+                    });
+                }
+                if doc.content_hash != row.content_hash {
+                    issues.push(DiffIssue {
+                        domain: "documents".into(),
+                        id: row_id.clone(),
+                        field: "content_hash".into(),
+                        sql_value: row.content_hash.clone(),
+                        kv_value: doc.content_hash.clone(),
+                    });
+                }
+                if doc.file_path != row.file_path {
+                    issues.push(DiffIssue {
+                        domain: "documents".into(),
+                        id: row_id.clone(),
+                        field: "file_path".into(),
+                        sql_value: row.file_path.clone(),
+                        kv_value: doc.file_path.clone(),
+                    });
+                }
+            } else {
+                issues.push(DiffIssue {
+                    domain: "documents".into(),
+                    id: row_id.clone(),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                });
+            }
+        }
+
+        Ok(issues)
+    }
+
+    pub async fn diff_collections(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+        let sql_cols = sqlx::query!(
+            r#"SELECT id, tenant_id, name, description, created_at, updated_at FROM document_collections"#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let Some(kv) = self.kv_backend() else {
+            return Ok(issues);
+        };
+        let repo = CollectionKvRepository::new(kv.backend().clone());
+
+        for row in sql_cols {
+            let row_id = row.id.clone().unwrap_or_default();
+            if let Some(col) = repo.get_collection(&row.tenant_id, &row_id).await? {
+                if col.name != row.name {
+                    issues.push(DiffIssue {
+                        domain: "collections".into(),
+                        id: row_id.clone(),
+                        field: "name".into(),
+                        sql_value: row.name.clone(),
+                        kv_value: col.name,
+                    });
+                }
+                if col.description != row.description {
+                    issues.push(DiffIssue {
+                        domain: "collections".into(),
+                        id: row_id.clone(),
+                        field: "description".into(),
+                        sql_value: row
+                            .description
+                            .clone()
+                            .unwrap_or_else(|| "None".into()),
+                        kv_value: col.description.unwrap_or_else(|| "None".into()),
+                    });
+                }
+            } else {
+                issues.push(DiffIssue {
+                    domain: "collections".into(),
+                    id: row_id.clone(),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                });
+            }
+        }
+
+        Ok(issues)
+    }
+
+    pub async fn diff_collection_links(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+
+        #[derive(sqlx::FromRow)]
+        struct LinkRow {
+            tenant_id: String,
+            collection_id: String,
+            document_id: String,
+        }
+
+        let mut rows = sqlx::query_as::<_, LinkRow>(
+            r#"SELECT tenant_id, collection_id, document_id FROM collection_documents"#,
+        )
+        .fetch_all(pool)
+        .await?;
+
+        rows.sort_by(|a, b| {
+            a.collection_id
+                .cmp(&b.collection_id)
+                .then_with(|| a.document_id.cmp(&b.document_id))
+        });
+
+        let Some(kv) = self.kv_backend() else {
+            return Ok(issues);
+        };
+        let repo = CollectionKvRepository::new(kv.backend().clone());
+
+        for row in rows {
+            let links = repo
+                .list_collection_links(&row.tenant_id, &row.collection_id)
+                .await
+                .unwrap_or_default();
+            let exists = links
+                .iter()
+                .any(|l| l.document_id == row.document_id && l.tenant_id == row.tenant_id);
+            if !exists {
+                issues.push(DiffIssue {
+                    domain: "collection_documents".into(),
+                    id: format!("{}:{}", row.collection_id, row.document_id),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                });
+            }
+        }
+
+        Ok(issues)
+    }
+
+    pub async fn diff_policy_audit(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+        let sql_entries = sqlx::query!(
+            r#"SELECT id, tenant_id, decision, hook, chain_sequence FROM policy_audit_decisions"#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let Some(kv) = self.kv_backend() else {
+            return Ok(issues);
+        };
+        let repo = PolicyAuditKvRepository::new(kv.backend().clone());
+
+        for row in sql_entries {
+            let row_id = row.id.clone().unwrap_or_default();
+            if let Some(entry) = repo.get_entry(&row.tenant_id, &row_id).await? {
+                if entry.decision != row.decision {
+                    issues.push(DiffIssue {
+                        domain: "policy_audit".into(),
+                        id: row_id.clone(),
+                        field: "decision".into(),
+                        sql_value: row.decision.clone(),
+                        kv_value: entry.decision,
+                    });
+                }
+                let chain_seq = row.chain_sequence;
+                if entry.chain_sequence != chain_seq {
+                    issues.push(DiffIssue {
+                        domain: "policy_audit".into(),
+                        id: row_id.clone(),
+                        field: "chain_sequence".into(),
+                        sql_value: chain_seq.to_string(),
+                        kv_value: entry.chain_sequence.to_string(),
+                    });
+                }
+            } else {
+                issues.push(DiffIssue {
+                    domain: "policy_audit".into(),
+                    id: row_id.clone(),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                });
+            }
+        }
+
+        Ok(issues)
+    }
+
+    pub async fn diff_training_jobs(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+        let sql_jobs =
+            sqlx::query!(r#"SELECT id, tenant_id, repo_id, status FROM repository_training_jobs"#)
+                .fetch_all(pool)
+                .await?;
+
+        let Some(kv) = self.kv_backend() else {
+            return Ok(issues);
+        };
+        let repo = TrainingJobKvRepository::new(kv.backend().clone());
+
+        for row in sql_jobs {
+            let row_id = row.id.clone().unwrap_or_default();
+            if let Some(job) = repo.get_job(&row_id).await? {
+                let repo_id = row.repo_id.clone();
+                if job.repo_id != repo_id {
+                    issues.push(DiffIssue {
+                        domain: "training_jobs".into(),
+                        id: row_id.clone(),
+                        field: "repo_id".into(),
+                        sql_value: repo_id,
+                        kv_value: job.repo_id,
+                    });
+                }
+                if job.status != row.status {
+                    issues.push(DiffIssue {
+                        domain: "training_jobs".into(),
+                        id: row_id.clone(),
+                        field: "status".into(),
+                        sql_value: row.status.clone(),
+                        kv_value: job.status,
+                    });
+                }
+            } else {
+                issues.push(DiffIssue {
+                    domain: "training_jobs".into(),
+                    id: row_id.clone(),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                });
+            }
+        }
+
+        Ok(issues)
+    }
+
+    pub async fn diff_chat_sessions(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+        let sql_sessions =
+            sqlx::query!(r#"SELECT id, tenant_id, name, last_activity_at FROM chat_sessions"#)
+                .fetch_all(pool)
+                .await?;
+
+        let Some(kv) = self.kv_backend() else {
+            return Ok(issues);
+        };
+        let repo = ChatSessionKvRepository::new(kv.backend().clone());
+
+        for row in sql_sessions {
+            let row_id = row.id.clone().unwrap_or_default();
+            if let Some(sess) = repo.get_chat_session(&row_id).await? {
+                if sess.name != row.name {
+                    issues.push(DiffIssue {
+                        domain: "chat_sessions".into(),
+                        id: row_id.clone(),
+                        field: "name".into(),
+                        sql_value: row.name.clone(),
+                        kv_value: sess.name,
+                    });
+                }
+                if sess.last_activity_at != row.last_activity_at {
+                    issues.push(DiffIssue {
+                        domain: "chat_sessions".into(),
+                        id: row_id.clone(),
+                        field: "last_activity_at".into(),
+                        sql_value: row.last_activity_at.clone(),
+                        kv_value: sess.last_activity_at,
+                    });
+                }
+            } else {
+                issues.push(DiffIssue {
+                    domain: "chat_sessions".into(),
+                    id: row_id.clone(),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                });
+            }
+        }
+
+        Ok(issues)
+    }
+
     pub async fn diff_users(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
         let mut issues = Vec::new();
         let Some(pool) = self.pool_opt() else {
@@ -78,11 +414,10 @@ impl Db {
         let Some(pool) = self.pool_opt() else {
             return Ok(issues);
         };
-        let sql_tenants = sqlx::query!(
-            r#"SELECT id, name, itar_flag, status, default_stack_id FROM tenants"#
-        )
-        .fetch_all(pool)
-        .await?;
+        let sql_tenants =
+            sqlx::query!(r#"SELECT id, name, itar_flag, status, default_stack_id FROM tenants"#)
+                .fetch_all(pool)
+                .await?;
 
         let Some(kv) = self.kv_backend() else {
             return Ok(issues);
@@ -102,11 +437,7 @@ impl Db {
                         kv_value: kv_tenant.name.clone(),
                     });
                 }
-                if kv_tenant
-                    .default_stack_id
-                    .as_deref()
-                    != row.default_stack_id.as_deref()
-                {
+                if kv_tenant.default_stack_id.as_deref() != row.default_stack_id.as_deref() {
                     issues.push(DiffIssue {
                         domain: "tenants".into(),
                         id: row_id.clone(),
@@ -365,6 +696,235 @@ impl Db {
         Ok(issues)
     }
 
+    pub async fn diff_auth_sessions(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+
+        #[derive(sqlx::FromRow)]
+        struct AuthRow {
+            jti: String,
+            user_id: String,
+            ip_address: Option<String>,
+            user_agent: Option<String>,
+            last_activity: String,
+            expires_at: i64,
+        }
+
+        let mut sql_sessions = sqlx::query_as::<_, AuthRow>(
+            r#"SELECT jti, user_id, ip_address, user_agent, last_activity, expires_at FROM auth_sessions"#,
+        )
+        .fetch_all(pool)
+        .await?;
+
+        sql_sessions.sort_by(|a, b| {
+            b.last_activity
+                .cmp(&a.last_activity)
+                .then_with(|| a.jti.cmp(&b.jti))
+        });
+
+        let Some(kv) = self.kv_backend() else {
+            return Ok(issues);
+        };
+        let repo = AuthSessionKvRepository::new(kv.backend().clone());
+
+        for row in sql_sessions {
+            let kv_session = repo.get_session(&row.jti).await?;
+            match kv_session {
+                Some(sess) => {
+                    if sess.user_id != row.user_id {
+                        issues.push(DiffIssue {
+                            domain: "auth_sessions".into(),
+                            id: row.jti.clone(),
+                            field: "user_id".into(),
+                            sql_value: row.user_id.clone(),
+                            kv_value: sess.user_id.clone(),
+                        });
+                    }
+                    if sess.ip_address != row.ip_address {
+                        issues.push(DiffIssue {
+                            domain: "auth_sessions".into(),
+                            id: row.jti.clone(),
+                            field: "ip_address".into(),
+                            sql_value: row
+                                .ip_address
+                                .clone()
+                                .unwrap_or_else(|| "None".into()),
+                            kv_value: sess
+                                .ip_address
+                                .clone()
+                                .unwrap_or_else(|| "None".into()),
+                        });
+                    }
+                    if sess.user_agent != row.user_agent {
+                        issues.push(DiffIssue {
+                            domain: "auth_sessions".into(),
+                            id: row.jti.clone(),
+                            field: "user_agent".into(),
+                            sql_value: row
+                                .user_agent
+                                .clone()
+                                .unwrap_or_else(|| "None".into()),
+                            kv_value: sess
+                                .user_agent
+                                .clone()
+                                .unwrap_or_else(|| "None".into()),
+                        });
+                    }
+                    if sess.expires_at != row.expires_at {
+                        issues.push(DiffIssue {
+                            domain: "auth_sessions".into(),
+                            id: row.jti.clone(),
+                            field: "expires_at".into(),
+                            sql_value: row.expires_at.to_string(),
+                            kv_value: sess.expires_at.to_string(),
+                        });
+                    }
+                }
+                None => issues.push(DiffIssue {
+                    domain: "auth_sessions".into(),
+                    id: row.jti.clone(),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                }),
+            }
+        }
+
+        Ok(issues)
+    }
+
+    pub async fn diff_runtime_sessions(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
+        let mut issues = Vec::new();
+        let Some(pool) = self.pool_opt() else {
+            return Ok(issues);
+        };
+
+        #[derive(sqlx::FromRow)]
+        struct RuntimeRow {
+            id: String,
+            session_id: String,
+            config_hash: String,
+            binary_version: String,
+            binary_commit: Option<String>,
+            started_at: String,
+            ended_at: Option<String>,
+            end_reason: Option<String>,
+            hostname: String,
+            runtime_mode: String,
+            drift_detected: i64,
+        }
+
+        let mut rows = sqlx::query_as::<_, RuntimeRow>(
+            r#"
+            SELECT id, session_id, config_hash, binary_version, binary_commit, started_at, ended_at,
+                   end_reason, hostname, runtime_mode, drift_detected
+            FROM runtime_sessions
+            ORDER BY started_at DESC, id ASC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+
+        rows.sort_by(|a, b| {
+            b.started_at
+                .cmp(&a.started_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+
+        let Some(kv) = self.kv_backend() else {
+            return Ok(issues);
+        };
+        let repo = RuntimeSessionKvRepository::new(kv.backend().clone());
+
+        for row in rows {
+            let kv_session = repo.get(&row.id).await?;
+            match kv_session {
+                Some(sess) => {
+                    if sess.session_id != row.session_id {
+                        issues.push(DiffIssue {
+                            domain: "runtime_sessions".into(),
+                            id: row.id.clone(),
+                            field: "session_id".into(),
+                            sql_value: row.session_id.clone(),
+                            kv_value: sess.session_id.clone(),
+                        });
+                    }
+                    if sess.config_hash != row.config_hash {
+                        issues.push(DiffIssue {
+                            domain: "runtime_sessions".into(),
+                            id: row.id.clone(),
+                            field: "config_hash".into(),
+                            sql_value: row.config_hash.clone(),
+                            kv_value: sess.config_hash.clone(),
+                        });
+                    }
+                    if sess.binary_version != row.binary_version {
+                        issues.push(DiffIssue {
+                            domain: "runtime_sessions".into(),
+                            id: row.id.clone(),
+                            field: "binary_version".into(),
+                            sql_value: row.binary_version.clone(),
+                            kv_value: sess.binary_version.clone(),
+                        });
+                    }
+                    if sess.binary_commit != row.binary_commit {
+                        issues.push(DiffIssue {
+                            domain: "runtime_sessions".into(),
+                            id: row.id.clone(),
+                            field: "binary_commit".into(),
+                            sql_value: row
+                                .binary_commit
+                                .clone()
+                                .unwrap_or_else(|| "None".into()),
+                            kv_value: sess
+                                .binary_commit
+                                .clone()
+                                .unwrap_or_else(|| "None".into()),
+                        });
+                    }
+                    if sess.hostname != row.hostname {
+                        issues.push(DiffIssue {
+                            domain: "runtime_sessions".into(),
+                            id: row.id.clone(),
+                            field: "hostname".into(),
+                            sql_value: row.hostname.clone(),
+                            kv_value: sess.hostname.clone(),
+                        });
+                    }
+                    if sess.runtime_mode != row.runtime_mode {
+                        issues.push(DiffIssue {
+                            domain: "runtime_sessions".into(),
+                            id: row.id.clone(),
+                            field: "runtime_mode".into(),
+                            sql_value: row.runtime_mode.clone(),
+                            kv_value: sess.runtime_mode.clone(),
+                        });
+                    }
+                    if sess.drift_detected != (row.drift_detected != 0) {
+                        issues.push(DiffIssue {
+                            domain: "runtime_sessions".into(),
+                            id: row.id.clone(),
+                            field: "drift_detected".into(),
+                            sql_value: format!("{}", row.drift_detected != 0),
+                            kv_value: format!("{}", sess.drift_detected),
+                        });
+                    }
+                }
+                None => issues.push(DiffIssue {
+                    domain: "runtime_sessions".into(),
+                    id: row.id.clone(),
+                    field: "_existence".into(),
+                    sql_value: "present".into(),
+                    kv_value: "missing".into(),
+                }),
+            }
+        }
+
+        Ok(issues)
+    }
+
     pub async fn diff_all_supported(&self) -> adapteros_core::Result<Vec<DiffIssue>> {
         if !self.has_kv_backend() {
             return Err(AosError::Config(
@@ -379,7 +939,14 @@ impl Db {
         issues.extend(self.diff_adapters().await?);
         issues.extend(self.diff_stacks().await?);
         issues.extend(self.diff_policy_bindings().await?);
+        issues.extend(self.diff_auth_sessions().await?);
+        issues.extend(self.diff_runtime_sessions().await?);
+        issues.extend(self.diff_documents().await?);
+        issues.extend(self.diff_collections().await?);
+        issues.extend(self.diff_collection_links().await?);
+        issues.extend(self.diff_policy_audit().await?);
+        issues.extend(self.diff_training_jobs().await?);
+        issues.extend(self.diff_chat_sessions().await?);
         Ok(issues)
     }
 }
-

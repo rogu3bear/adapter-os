@@ -134,6 +134,7 @@ impl Db {
         if let Some(repo) = self.replay_repo_if_write() {
             let kv_exec = self.kv_replay_execution_from_create(&id, &params);
             if let Err(e) = repo.store_execution(kv_exec).await {
+                self.record_kv_write_fallback("replay.execution.create");
                 warn!(
                     tenant_id = %params.tenant_id,
                     inference_id = %params.original_inference_id,
@@ -217,6 +218,7 @@ impl Db {
                     Ok(Some(mut kv_exec)) => {
                         self.kv_replay_execution_apply_update(&mut kv_exec, &params)?;
                         if let Err(e) = repo.update_execution(kv_exec).await {
+                            self.record_kv_write_fallback("replay.execution.update");
                             warn!(
                                 tenant_id = %tid,
                                 execution_id = %id,
@@ -255,7 +257,40 @@ impl Db {
     pub async fn get_replay_execution(&self, id: &str) -> Result<Option<ReplayExecution>> {
         if let Some(repo) = self.replay_repo_if_read() {
             match repo.get_execution_by_id(id).await {
-                Ok(Some(exec)) => return self.kv_replay_execution_to_record(exec).map(Some),
+                Ok(Some(exec)) => {
+                    let record = self.kv_replay_execution_to_record(exec)?;
+
+                    if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
+                        if let Some(pool) = self.pool_opt() {
+                            if let Ok(Some(sql_exec)) = sqlx::query_as::<_, ReplayExecutionRow>(
+                                r#"
+                                SELECT id, original_inference_id, tenant_id, replay_mode,
+                                       prompt_text, sampling_params_json, backend, manifest_hash,
+                                       router_seed, adapter_ids_json, response_text, response_truncated,
+                                       tokens_generated, latency_ms, match_status, divergence_details_json,
+                                       rag_reproducibility_score, missing_doc_ids_json, executed_at,
+                                       executed_by, error_message
+                                FROM replay_executions
+                                WHERE id = ?
+                                "#,
+                            )
+                            .bind(id)
+                            .fetch_optional(pool)
+                            .await
+                            {
+                                let sql_rec: ReplayExecution = sql_exec.into();
+                                if sql_rec.match_status != record.match_status
+                                    || sql_rec.response_text != record.response_text
+                                    || sql_rec.latency_ms != record.latency_ms
+                                {
+                                    record_replay_drift("replay_execution_drift_dual_write");
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok(Some(record));
+                }
                 Ok(None) => {
                     if !self.storage_mode().sql_fallback_enabled() {
                         return Ok(None);
@@ -268,6 +303,7 @@ impl Db {
                             e
                         )));
                     }
+                    self.record_kv_read_fallback("replay.execution.get.fallback");
                     warn!(execution_id = %id, error = %e, "KV replay execution read failed, falling back to SQL");
                 }
             }
@@ -314,6 +350,37 @@ impl Db {
                     for exec in execs {
                         mapped.push(self.kv_replay_execution_to_record(exec)?);
                     }
+
+                    if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
+                        if let Some(pool) = self.pool_opt() {
+                            let sql_records = sqlx::query_as::<_, ReplayExecutionRow>(
+                                r#"
+                                SELECT id, original_inference_id, tenant_id, replay_mode,
+                                       prompt_text, sampling_params_json, backend, manifest_hash,
+                                       router_seed, adapter_ids_json, response_text, response_truncated,
+                                       tokens_generated, latency_ms, match_status, divergence_details_json,
+                                       rag_reproducibility_score, missing_doc_ids_json, executed_at,
+                                       executed_by, error_message
+                                FROM replay_executions
+                                WHERE original_inference_id = ?
+                                ORDER BY executed_at DESC, id DESC
+                                "#,
+                            )
+                            .bind(inference_id)
+                            .fetch_all(pool)
+                            .await
+                            .map_err(|e| AosError::Database(format!("Failed to list replay executions: {}", e)))?;
+
+                            if sql_records.len() != mapped.len()
+                                || sql_records.iter().zip(mapped.iter()).any(|(sql, kv)| {
+                                    sql.id != kv.id || sql.match_status != kv.match_status
+                                })
+                            {
+                                record_replay_drift("replay_execution_list_drift_dual_write");
+                            }
+                        }
+                    }
+
                     return Ok(mapped);
                 }
                 Err(e) => {
@@ -323,6 +390,7 @@ impl Db {
                             e
                         )));
                     }
+                    self.record_kv_read_fallback("replay.execution.list.fallback");
                     warn!(
                         inference_id = %inference_id,
                         error = %e,
@@ -342,7 +410,8 @@ impl Db {
                    executed_by, error_message
             FROM replay_executions
             WHERE original_inference_id = ?
-            ORDER BY executed_at DESC
+            -- Deterministic ordering: newest executions first, tie-breaker by rowid
+            ORDER BY executed_at DESC, rowid DESC
             "#,
         )
         .bind(inference_id)
@@ -411,6 +480,7 @@ impl From<ReplayExecutionRow> for ReplayExecution {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::replay_metadata::CreateReplayMetadataParams;
 
     // Helper to create parent records for FK constraints
     async fn setup_test_data(db: &Db, tenant_id: &str, inference_id: &str) {
@@ -424,21 +494,32 @@ mod tests {
         .await
         .expect("Failed to create tenant");
 
-        // Create inference_replay_metadata (parent table for FK constraint)
-        sqlx::query(
-            r#"
-            INSERT OR IGNORE INTO inference_replay_metadata (
-                inference_id, tenant_id, prompt_hash, sampling_params_hash,
-                backend, manifest_hash, router_seed, adapter_ids_json,
-                response_hash, response_length, indexed_at
-            )
-            VALUES (?, ?, 'prompt_hash', 'params_hash', 'CoreML', 'manifest_hash',
-                    'seed123', '["adapter1"]', 'response_hash', 100, datetime('now'))
-            "#,
-        )
-        .bind(inference_id)
-        .bind(tenant_id)
-        .execute(db.pool())
+        // Create inference replay metadata using the canonical API to match schema
+        db.create_replay_metadata(CreateReplayMetadataParams {
+            inference_id: inference_id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            manifest_hash: "manifest_hash".to_string(),
+            router_seed: Some("seed123".to_string()),
+            sampling_params_json: r#"{"temperature":0.0}"#.to_string(),
+            backend: "CoreML".to_string(),
+            sampling_algorithm_version: Some("v1.0.0".to_string()),
+            rag_snapshot_hash: None,
+            adapter_ids: Some(vec!["adapter1".to_string()]),
+            prompt_text: "prompt".to_string(),
+            prompt_truncated: false,
+            response_text: Some("response".to_string()),
+            response_truncated: false,
+            rag_doc_ids: None,
+            chat_context_hash: None,
+            replay_status: Some("available".to_string()),
+            latency_ms: Some(100),
+            tokens_generated: Some(100),
+            determinism_mode: Some("strict".to_string()),
+            fallback_triggered: false,
+            replay_guarantee: Some("exact".to_string()),
+            execution_policy_id: None,
+            execution_policy_version: None,
+        })
         .await
         .expect("Failed to create inference metadata");
     }

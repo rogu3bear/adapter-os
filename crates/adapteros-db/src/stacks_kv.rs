@@ -77,6 +77,18 @@ impl StackKvRepository {
         format!("tenant/{}/stack/{}", tenant_id, stack_id)
     }
 
+    /// Idempotent upsert used by migration/repair paths.
+    pub async fn put_stack(&self, stack: AdapterStackKv) -> Result<()> {
+        let existing = self.get_stack(&stack.tenant_id, &stack.id).await?;
+        let key = Self::primary_key(&stack.tenant_id, &stack.id);
+        let payload = Self::serialize(&stack)?;
+        self.backend
+            .set(&key, payload)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to store stack: {}", e)))?;
+        self.update_indexes(&stack, existing.as_ref()).await
+    }
+
     /// Generate secondary index key for stack by name
     fn name_index_key(tenant_id: &str, name: &str) -> String {
         format!("tenant/{}/stack-by-name/{}", tenant_id, name)
@@ -859,5 +871,46 @@ mod tests {
     fn test_state_index_key_format() {
         let key = StackKvRepository::state_index_key("tenant-1", "active");
         assert_eq!(key, "tenant/tenant-1/stacks-by-state/active");
+    }
+
+    #[test]
+    fn test_deterministic_sorting() {
+        let mut stacks = vec![
+            AdapterStackKv {
+                id: "b".to_string(),
+                tenant_id: "t".to_string(),
+                name: "two".to_string(),
+                description: None,
+                version: "1".to_string(),
+                lifecycle_state: LifecycleState::Active,
+                adapter_ids: vec![],
+                workflow_type: None,
+                created_by: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            },
+            AdapterStackKv {
+                id: "a".to_string(),
+                tenant_id: "t".to_string(),
+                name: "one".to_string(),
+                description: None,
+                version: "1".to_string(),
+                lifecycle_state: LifecycleState::Active,
+                adapter_ids: vec![],
+                workflow_type: None,
+                created_by: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            },
+        ];
+
+        // Force same timestamp so tie-breaker uses id ASC
+        let ts = stacks[0].created_at;
+        stacks[0].created_at = ts;
+        stacks[1].created_at = ts;
+
+        StackKvRepository::sort_stacks_deterministically(&mut stacks);
+        assert_eq!(stacks[0].id, "a");
+        assert_eq!(stacks[1].id, "b");
     }
 }

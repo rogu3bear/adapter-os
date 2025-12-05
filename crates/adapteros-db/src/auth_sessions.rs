@@ -145,11 +145,13 @@ impl Db {
     pub async fn update_auth_session_activity(&self, jti: &str) -> Result<()> {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
-                sqlx::query("UPDATE auth_sessions SET last_activity = datetime('now') WHERE jti = ?")
-                    .bind(jti)
-                    .execute(pool)
-                    .await
-                    .db_err("update session activity")?;
+                sqlx::query(
+                    "UPDATE auth_sessions SET last_activity = datetime('now') WHERE jti = ?",
+                )
+                .bind(jti)
+                .execute(pool)
+                .await
+                .db_err("update session activity")?;
             }
         }
 
@@ -265,9 +267,7 @@ impl Db {
 
         if self.storage_mode().write_to_kv() {
             if let Some(repo) = self.get_auth_kv_repo() {
-                total_deleted += repo
-                    .cleanup_expired(chrono::Utc::now().timestamp())
-                    .await?;
+                total_deleted += repo.cleanup_expired(chrono::Utc::now().timestamp()).await?;
             }
         }
 

@@ -5,6 +5,11 @@
 
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::Db;
+use uuid::Uuid;
+
+fn stack_name() -> String {
+    format!("stack.test.{}", Uuid::new_v4().simple())
+}
 
 #[tokio::test]
 async fn test_set_and_get_default_stack() {
@@ -20,9 +25,10 @@ async fn test_set_and_get_default_stack() {
     let tenant_id = db.create_tenant("test-tenant", false).await.unwrap();
 
     // Create a stack
+    let name = stack_name();
     let stack_req = CreateStackRequest {
         tenant_id: tenant_id.clone(),
-        name: "stack.test.my-stack".to_string(),
+        name,
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
@@ -63,9 +69,10 @@ async fn test_clear_default_stack() {
     let tenant_id = db.create_tenant("test-tenant", false).await.unwrap();
 
     // Create and set a default stack
+    let name = stack_name();
     let stack_req = CreateStackRequest {
         tenant_id: tenant_id.clone(),
-        name: "stack.test.my-stack".to_string(),
+        name,
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
@@ -126,9 +133,10 @@ async fn test_set_default_to_wrong_tenant_stack_fails() {
     let tenant2_id = db.create_tenant("tenant-2", false).await.unwrap();
 
     // Create a stack for tenant 1
+    let name = stack_name();
     let stack_req = CreateStackRequest {
         tenant_id: tenant1_id.clone(),
-        name: "stack.tenant1.my-stack".to_string(),
+        name,
         description: Some("Tenant 1's stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
@@ -160,9 +168,10 @@ async fn test_changing_default_stack() {
     let tenant_id = db.create_tenant("test-tenant", false).await.unwrap();
 
     // Create two stacks
+    let stack1_name = stack_name();
     let stack1_req = CreateStackRequest {
         tenant_id: tenant_id.clone(),
-        name: "stack.test.stack1".to_string(),
+        name: stack1_name.clone(),
         description: Some("Stack 1".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
@@ -172,7 +181,7 @@ async fn test_changing_default_stack() {
 
     let stack2_req = CreateStackRequest {
         tenant_id: tenant_id.clone(),
-        name: "stack.test.stack2".to_string(),
+        name: stack_name(),
         description: Some("Stack 2".to_string()),
         adapter_ids: vec!["adapter2".to_string()],
         workflow_type: Some("Sequential".to_string()),
@@ -214,7 +223,7 @@ async fn test_activate_stack_sets_lifecycle_active() {
 
     let stack_req = CreateStackRequest {
         tenant_id: tenant_id.to_string(),
-        name: "stack.test.activate".to_string(),
+        name: stack_name(),
         description: Some("Activation test stack".to_string()),
         adapter_ids: vec!["adapter-activate".to_string()],
         workflow_type: Some("Sequential".to_string()),

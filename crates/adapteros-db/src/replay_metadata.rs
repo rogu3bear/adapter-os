@@ -194,6 +194,7 @@ impl Db {
                     }
                 }
                 Err(e) => {
+                    self.record_kv_write_fallback("replay.metadata.create");
                     warn!(
                         tenant_id = %params.tenant_id,
                         inference_id = %params.inference_id,
@@ -217,7 +218,42 @@ impl Db {
     ) -> Result<Option<InferenceReplayMetadata>> {
         if let Some(repo) = self.replay_repo_if_read() {
             match repo.get_metadata_by_inference_any(inference_id).await {
-                Ok(Some(meta)) => return self.kv_replay_metadata_to_record(meta).map(Some),
+                Ok(Some(meta)) => {
+                    let record = self.kv_replay_metadata_to_record(meta)?;
+
+                    if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
+                        if let Some(pool) = self.pool_opt() {
+                            if let Ok(Some(sql_meta)) = sqlx::query_as::<_, InferenceReplayMetadataRow>(
+                                r#"
+                                SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
+                                       sampling_params_json, backend, sampling_algorithm_version,
+                                       rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
+                                       response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
+                                       replay_status, latency_ms, tokens_generated, determinism_mode,
+                                       fallback_triggered, replay_guarantee, execution_policy_id,
+                                       execution_policy_version, created_at
+                                FROM inference_replay_metadata
+                                WHERE inference_id = ?
+                                "#,
+                            )
+                            .bind(inference_id)
+                            .fetch_optional(pool)
+                            .await
+                            {
+                                let sql_rec: InferenceReplayMetadata = sql_meta.into();
+                                if sql_rec.manifest_hash != record.manifest_hash
+                                    || sql_rec.sampling_params_json != record.sampling_params_json
+                                    || sql_rec.backend != record.backend
+                                    || sql_rec.replay_status != record.replay_status
+                                {
+                                    record_replay_drift("replay_metadata_drift_dual_write");
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok(Some(record));
+                }
                 Ok(None) => {
                     if !self.storage_mode().sql_fallback_enabled() {
                         return Ok(None);
@@ -230,6 +266,7 @@ impl Db {
                             e
                         )));
                     }
+                    self.record_kv_read_fallback("replay.metadata.by_inference.fallback");
                     warn!(
                         inference_id = %inference_id,
                         error = %e,
@@ -267,7 +304,42 @@ impl Db {
     pub async fn get_replay_metadata(&self, id: &str) -> Result<Option<InferenceReplayMetadata>> {
         if let Some(repo) = self.replay_repo_if_read() {
             match repo.get_metadata_by_id(id).await {
-                Ok(Some(meta)) => return self.kv_replay_metadata_to_record(meta).map(Some),
+                Ok(Some(meta)) => {
+                    let record = self.kv_replay_metadata_to_record(meta)?;
+
+                    if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
+                        if let Some(pool) = self.pool_opt() {
+                            if let Ok(Some(sql_meta)) = sqlx::query_as::<_, InferenceReplayMetadataRow>(
+                                r#"
+                                SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
+                                       sampling_params_json, backend, sampling_algorithm_version,
+                                       rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
+                                       response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
+                                       replay_status, latency_ms, tokens_generated, determinism_mode,
+                                       fallback_triggered, replay_guarantee, execution_policy_id,
+                                       execution_policy_version, created_at
+                                FROM inference_replay_metadata
+                                WHERE id = ?
+                                "#,
+                            )
+                            .bind(id)
+                            .fetch_optional(pool)
+                            .await
+                            {
+                                let sql_rec: InferenceReplayMetadata = sql_meta.into();
+                                if sql_rec.manifest_hash != record.manifest_hash
+                                    || sql_rec.sampling_params_json != record.sampling_params_json
+                                    || sql_rec.backend != record.backend
+                                    || sql_rec.replay_status != record.replay_status
+                                {
+                                    record_replay_drift("replay_metadata_drift_dual_write");
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok(Some(record));
+                }
                 Ok(None) => {
                     if !self.storage_mode().sql_fallback_enabled() {
                         return Ok(None);
@@ -280,6 +352,7 @@ impl Db {
                             e
                         )));
                     }
+                    self.record_kv_read_fallback("replay.metadata.by_id.fallback");
                     warn!(metadata_id = %id, error = %e, "KV replay metadata read failed, falling back to SQL");
                 }
             }
@@ -347,6 +420,42 @@ impl Db {
                     for meta in records {
                         mapped.push(self.kv_replay_metadata_to_record(meta)?);
                     }
+
+                    if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
+                        if let Some(pool) = self.pool_opt() {
+                            let sql_records = sqlx::query_as::<_, InferenceReplayMetadataRow>(
+                                r#"
+                                SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
+                                       sampling_params_json, backend, sampling_algorithm_version,
+                                       rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
+                                       response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
+                                       replay_status, latency_ms, tokens_generated, determinism_mode,
+                                       fallback_triggered, replay_guarantee, execution_policy_id,
+                                       execution_policy_version, created_at
+                                FROM inference_replay_metadata
+                                WHERE tenant_id = ?
+                                ORDER BY created_at DESC, inference_id DESC
+                                LIMIT ? OFFSET ?
+                                "#,
+                            )
+                            .bind(tenant_id)
+                            .bind(limit)
+                            .bind(offset)
+                            .fetch_all(pool)
+                            .await
+                            .map_err(|e| AosError::Database(format!("Failed to list replay metadata: {}", e)))?;
+
+                            if sql_records.len() != mapped.len()
+                                || sql_records.iter().zip(mapped.iter()).any(|(sql, kv)| {
+                                    sql.inference_id != kv.inference_id
+                                        || sql.manifest_hash != kv.manifest_hash
+                                })
+                            {
+                                record_replay_drift("replay_metadata_list_drift_dual_write");
+                            }
+                        }
+                    }
+
                     return Ok(mapped);
                 }
                 Err(e) => {
@@ -356,6 +465,7 @@ impl Db {
                             e
                         )));
                     }
+                    self.record_kv_read_fallback("replay.metadata.list_by_tenant.fallback");
                     warn!(
                         tenant_id = %tenant_id,
                         error = %e,
@@ -376,7 +486,7 @@ impl Db {
                    execution_policy_version, created_at
             FROM inference_replay_metadata
             WHERE tenant_id = ?
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, inference_id DESC
             LIMIT ? OFFSET ?
             "#,
         )

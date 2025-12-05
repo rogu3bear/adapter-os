@@ -52,7 +52,28 @@ impl AuthSessionKvRepository {
         format!("auth/revoked/{}", token_hash)
     }
 
-    pub async fn revoke_token(&self, token_hash: &str, revoked_by: &str, reason: Option<&str>) -> Result<()> {
+    /// Idempotent upsert of a session (used by migration/repair).
+    pub async fn put_session(&self, session: AuthSessionKv) -> Result<()> {
+        let bytes = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
+        self.backend
+            .set(&Self::session_key(&session.jti), bytes)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to store auth session: {}", e)))?;
+
+        // Keep per-user membership deterministic
+        self.backend
+            .set_add(&Self::user_sessions_set(&session.user_id), &session.jti)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to index auth session: {}", e)))?;
+        Ok(())
+    }
+
+    pub async fn revoke_token(
+        &self,
+        token_hash: &str,
+        revoked_by: &str,
+        reason: Option<&str>,
+    ) -> Result<()> {
         let record = RevokedTokenKv {
             token_hash: token_hash.to_string(),
             revoked_by: revoked_by.to_string(),
@@ -83,11 +104,9 @@ impl AuthSessionKvRepository {
         {
             if let Ok(session) = serde_json::from_slice::<AuthSessionKv>(&bytes) {
                 let user_set = Self::user_sessions_set(&session.user_id);
-                let _ = self
-                    .backend
-                    .set_remove(&user_set, jti)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to update user session set: {}", e)));
+                let _ = self.backend.set_remove(&user_set, jti).await.map_err(|e| {
+                    AosError::Database(format!("Failed to update user session set: {}", e))
+                });
             }
         }
 
@@ -155,13 +174,28 @@ impl AuthSessionKvRepository {
             .map_err(|e| AosError::Database(format!("Failed to update auth session: {}", e)))
     }
 
+    /// Fetch a session by JTI.
+    pub async fn get_session(&self, jti: &str) -> Result<Option<AuthSessionKv>> {
+        let key = Self::session_key(jti);
+        let Some(bytes) = self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get auth session: {}", e)))?
+        else {
+            return Ok(None);
+        };
+        serde_json::from_slice(&bytes)
+            .map_err(AosError::Serialization)
+            .map(Some)
+    }
+
     pub async fn list_user_sessions(&self, user_id: &str) -> Result<Vec<AuthSessionKv>> {
         let set_key = Self::user_sessions_set(user_id);
-        let session_ids = self
-            .backend
-            .set_members(&set_key)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to read user session set: {}", e)))?;
+        let session_ids =
+            self.backend.set_members(&set_key).await.map_err(|e| {
+                AosError::Database(format!("Failed to read user session set: {}", e))
+            })?;
 
         let mut sessions = Vec::new();
         for sid in session_ids {
@@ -173,7 +207,9 @@ impl AuthSessionKvRepository {
             {
                 match serde_json::from_slice::<AuthSessionKv>(&bytes) {
                     Ok(session) => sessions.push(session),
-                    Err(e) => warn!(session_id = %sid, error = %e, "Failed to deserialize auth session"),
+                    Err(e) => {
+                        warn!(session_id = %sid, error = %e, "Failed to deserialize auth session")
+                    }
                 }
             }
         }
@@ -215,4 +251,3 @@ impl AuthSessionKvRepository {
         Ok(deleted)
     }
 }
-

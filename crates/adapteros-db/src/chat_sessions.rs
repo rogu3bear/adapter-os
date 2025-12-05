@@ -14,9 +14,12 @@
 //! 【2025-01-25†prd-ux-01†chat_sessions_db】
 
 use adapteros_core::{AosError, Result};
+use crate::chat_sessions_kv::{ChatMessageKv, ChatSessionKv, ChatSessionKvRepository};
+use crate::KvBackend;
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::query_helpers::db_err;
 use crate::Db;
@@ -233,7 +236,48 @@ pub struct SessionShare {
     pub revoked_at: Option<String>,
 }
 
+impl From<ChatSessionKv> for ChatSession {
+    fn from(kv: ChatSessionKv) -> Self {
+        Self {
+            id: kv.id,
+            tenant_id: kv.tenant_id,
+            user_id: kv.user_id,
+            stack_id: kv.stack_id,
+            collection_id: kv.collection_id,
+            name: kv.name,
+            created_at: kv.created_at,
+            last_activity_at: kv.last_activity_at,
+            metadata_json: kv.metadata_json,
+            pinned_adapter_ids: kv.pinned_adapter_ids,
+        }
+    }
+}
+
+impl From<ChatMessageKv> for ChatMessage {
+    fn from(kv: ChatMessageKv) -> Self {
+        Self {
+            id: kv.id,
+            session_id: kv.session_id,
+            role: kv.role,
+            content: kv.content,
+            timestamp: kv.timestamp,
+            metadata_json: kv.metadata_json,
+        }
+    }
+}
+
 impl Db {
+    fn get_chat_session_kv_repo(&self) -> Option<ChatSessionKvRepository> {
+        if (self.storage_mode().write_to_kv() || self.storage_mode().read_from_kv())
+            && self.has_kv_backend()
+        {
+            self.kv_backend()
+                .map(|kv| ChatSessionKvRepository::new(kv.backend().clone()))
+        } else {
+            None
+        }
+    }
+
     /// Create a new chat session
     ///
     /// # Arguments
@@ -269,23 +313,36 @@ impl Db {
             }
         };
 
-        sqlx::query(
-            r#"
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                r#"
             INSERT INTO chat_sessions (id, tenant_id, user_id, stack_id, collection_id, name, metadata_json, pinned_adapter_ids)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
-        )
-        .bind(&params.id)
-        .bind(&params.tenant_id)
-        .bind(&params.user_id)
-        .bind(&params.stack_id)
-        .bind(&params.collection_id)
-        .bind(&params.name)
-        .bind(&params.metadata_json)
-        .bind(&pinned_adapter_ids)
-        .execute(&*self.pool())
-        .await
-        .map_err(db_err("create chat session"))?;
+            )
+            .bind(&params.id)
+            .bind(&params.tenant_id)
+            .bind(&params.user_id)
+            .bind(&params.stack_id)
+            .bind(&params.collection_id)
+            .bind(&params.name)
+            .bind(&params.metadata_json)
+            .bind(&pinned_adapter_ids)
+            .execute(&*self.pool())
+            .await
+            .map_err(db_err("create chat session"))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for create_chat_session".to_string(),
+            ));
+        }
+
+        if let Some(repo) = self.get_chat_session_kv_repo() {
+            if let Err(e) = repo.create_chat_session(&params).await {
+                self.record_kv_write_fallback("chat_sessions.create");
+                warn!(error = %e, session_id = %params.id, "KV create chat session failed");
+            }
+        }
 
         info!(session_id = %params.id, "Chat session created");
         Ok(params.id)
@@ -307,6 +364,23 @@ impl Db {
         limit: Option<i64>,
     ) -> Result<Vec<ChatSession>> {
         let limit = limit.unwrap_or(50);
+
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_chat_session_kv_repo() {
+                let sessions = repo
+                    .list_chat_sessions(tenant_id, user_id, limit as usize)
+                    .await?
+                    .into_iter()
+                    .map(ChatSession::from)
+                    .collect::<Vec<_>>();
+                if !self.storage_mode().sql_fallback_enabled() {
+                    return Ok(sessions);
+                }
+                if !sessions.is_empty() {
+                    return Ok(sessions);
+                }
+            }
+        }
 
         let sessions = if let Some(user_id) = user_id {
             sqlx::query_as::<_, ChatSession>(
@@ -357,6 +431,15 @@ impl Db {
     /// # Returns
     /// The session if found, None otherwise
     pub async fn get_chat_session(&self, session_id: &str) -> Result<Option<ChatSession>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_chat_session_kv_repo() {
+                let session = repo.get_chat_session(session_id).await?.map(ChatSession::from);
+                if !self.storage_mode().sql_fallback_enabled() || session.is_some() {
+                    return Ok(session);
+                }
+            }
+        }
+
         let session = sqlx::query_as::<_, ChatSession>(
             r#"
             SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at, last_activity_at, metadata_json, pinned_adapter_ids
@@ -379,17 +462,30 @@ impl Db {
     /// # Arguments
     /// * `session_id` - The session ID
     pub async fn update_chat_session_activity(&self, session_id: &str) -> Result<()> {
-        sqlx::query(
-            r#"
+        if let Some(repo) = self.get_chat_session_kv_repo() {
+            if let Err(e) = repo.update_chat_session_activity(session_id).await {
+                self.record_kv_write_fallback("chat_sessions.update_activity");
+                warn!(error = %e, session_id = %session_id, "KV update activity failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                r#"
             UPDATE chat_sessions
             SET last_activity_at = datetime('now')
             WHERE id = ?
             "#,
-        )
-        .bind(session_id)
-        .execute(&*self.pool())
-        .await
-        .map_err(db_err("update session activity"))?;
+            )
+            .bind(session_id)
+            .execute(&*self.pool())
+            .await
+            .map_err(db_err("update session activity"))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_chat_session_activity".to_string(),
+            ));
+        }
 
         Ok(())
     }
@@ -416,18 +512,34 @@ impl Db {
             "Updating session collection"
         );
 
-        sqlx::query(
-            r#"
+        if let Some(repo) = self.get_chat_session_kv_repo() {
+            if let Err(e) = repo
+                .update_session_collection(session_id, collection_id.clone())
+                .await
+            {
+                self.record_kv_write_fallback("chat_sessions.update_collection");
+                warn!(error = %e, session_id = %session_id, "KV update collection failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                r#"
             UPDATE chat_sessions
             SET collection_id = ?
             WHERE id = ?
             "#,
-        )
-        .bind(&collection_id)
-        .bind(session_id)
-        .execute(&*self.pool())
-        .await
-        .map_err(db_err("update session collection"))?;
+            )
+            .bind(&collection_id)
+            .bind(session_id)
+            .execute(&*self.pool())
+            .await
+            .map_err(db_err("update session collection"))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_session_collection".to_string(),
+            ));
+        }
 
         Ok(())
     }
@@ -539,21 +651,33 @@ impl Db {
             "Adding chat message"
         );
 
-        // Insert message
-        sqlx::query(
-            r#"
+        if let Some(repo) = self.get_chat_session_kv_repo() {
+            if let Err(e) = repo.add_chat_message(&params).await {
+                self.record_kv_write_fallback("chat_sessions.add_message");
+                warn!(error = %e, session_id = %params.session_id, "KV add chat message failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                r#"
             INSERT INTO chat_messages (id, session_id, role, content, metadata_json)
             VALUES (?, ?, ?, ?, ?)
             "#,
-        )
-        .bind(&params.id)
-        .bind(&params.session_id)
-        .bind(&params.role)
-        .bind(&params.content)
-        .bind(&params.metadata_json)
-        .execute(&*self.pool())
-        .await
-        .map_err(db_err("add chat message"))?;
+            )
+            .bind(&params.id)
+            .bind(&params.session_id)
+            .bind(&params.role)
+            .bind(&params.content)
+            .bind(&params.metadata_json)
+            .execute(&*self.pool())
+            .await
+            .map_err(db_err("add chat message"))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for add_chat_message".to_string(),
+            ));
+        }
 
         // Update session activity
         self.update_chat_session_activity(&params.session_id)
@@ -576,6 +700,20 @@ impl Db {
         limit: Option<i64>,
     ) -> Result<Vec<ChatMessage>> {
         let limit = limit.unwrap_or(100);
+
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_chat_session_kv_repo() {
+                let msgs = repo
+                    .get_chat_messages(session_id, Some(limit))
+                    .await?
+                    .into_iter()
+                    .map(ChatMessage::from)
+                    .collect();
+                if !self.storage_mode().sql_fallback_enabled() {
+                    return Ok(msgs);
+                }
+            }
+        }
 
         let messages = sqlx::query_as::<_, ChatMessage>(
             r#"
@@ -732,11 +870,24 @@ impl Db {
     pub async fn delete_chat_session(&self, session_id: &str) -> Result<()> {
         info!(session_id = %session_id, "Deleting chat session");
 
-        sqlx::query("DELETE FROM chat_sessions WHERE id = ?")
-            .bind(session_id)
-            .execute(&*self.pool())
-            .await
-            .map_err(db_err("delete chat session"))?;
+        if let Some(repo) = self.get_chat_session_kv_repo() {
+            if let Err(e) = repo.delete_chat_session(session_id).await {
+                self.record_kv_write_fallback("chat_sessions.delete");
+                warn!(error = %e, session_id = %session_id, "KV delete chat session failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query("DELETE FROM chat_sessions WHERE id = ?")
+                .bind(session_id)
+                .execute(&*self.pool())
+                .await
+                .map_err(db_err("delete chat session"))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for delete_chat_session".to_string(),
+            ));
+        }
 
         Ok(())
     }

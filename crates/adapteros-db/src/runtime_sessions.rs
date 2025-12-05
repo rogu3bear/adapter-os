@@ -5,7 +5,8 @@
 //! lifecycle from startup to shutdown, enabling configuration drift detection and
 //! runtime behavior analysis.
 
-use crate::Db;
+use crate::runtime_sessions_kv::{RuntimeSessionKv, RuntimeSessionKvRepository};
+use crate::{Db, StorageMode};
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
@@ -71,7 +72,116 @@ pub struct RuntimeSession {
     pub var_dir: Option<String>,
 }
 
+impl From<RuntimeSessionKv> for RuntimeSession {
+    fn from(kv: RuntimeSessionKv) -> Self {
+        Self {
+            id: kv.id,
+            session_id: kv.session_id,
+            config_hash: kv.config_hash,
+            binary_version: kv.binary_version,
+            binary_commit: kv.binary_commit,
+            started_at: kv.started_at,
+            ended_at: kv.ended_at,
+            end_reason: kv.end_reason,
+            hostname: kv.hostname,
+            runtime_mode: kv.runtime_mode,
+            config_snapshot: kv.config_snapshot,
+            drift_detected: kv.drift_detected,
+            drift_summary: kv.drift_summary,
+            previous_session_id: kv.previous_session_id,
+            model_path: kv.model_path,
+            adapters_root: kv.adapters_root,
+            database_path: kv.database_path,
+            var_dir: kv.var_dir,
+        }
+    }
+}
+
+impl From<RuntimeSession> for RuntimeSessionKv {
+    fn from(sql: RuntimeSession) -> Self {
+        RuntimeSessionKv {
+            id: sql.id,
+            session_id: sql.session_id,
+            config_hash: sql.config_hash,
+            binary_version: sql.binary_version,
+            binary_commit: sql.binary_commit,
+            started_at: sql.started_at,
+            ended_at: sql.ended_at,
+            end_reason: sql.end_reason,
+            hostname: sql.hostname,
+            runtime_mode: sql.runtime_mode,
+            config_snapshot: sql.config_snapshot,
+            drift_detected: sql.drift_detected,
+            drift_summary: sql.drift_summary,
+            previous_session_id: sql.previous_session_id,
+            model_path: sql.model_path,
+            adapters_root: sql.adapters_root,
+            database_path: sql.database_path,
+            var_dir: sql.var_dir,
+        }
+    }
+}
+
 impl Db {
+    fn get_runtime_kv_repo(&self) -> Option<RuntimeSessionKvRepository> {
+        if (self.storage_mode().write_to_kv() || self.storage_mode().read_from_kv())
+            && self.has_kv_backend()
+        {
+            self.kv_backend()
+                .map(|kv| RuntimeSessionKvRepository::new(kv.backend().clone()))
+        } else {
+            None
+        }
+    }
+
+    async fn sql_get_runtime_session(&self, id: &str) -> Result<Option<RuntimeSession>> {
+        let Some(pool) = self.pool_opt() else {
+            return Ok(None);
+        };
+
+        let session = sqlx::query_as::<_, RuntimeSession>(
+            r#"
+            SELECT id, session_id, config_hash, binary_version, binary_commit,
+                   started_at, ended_at, end_reason, hostname, runtime_mode,
+                   config_snapshot, drift_detected, drift_summary, previous_session_id,
+                   model_path, adapters_root, database_path, var_dir
+            FROM runtime_sessions
+            WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .db_err("get runtime session")?;
+
+        Ok(session)
+    }
+
+    async fn sql_get_most_recent_session(&self, hostname: &str) -> Result<Option<RuntimeSession>> {
+        let Some(pool) = self.pool_opt() else {
+            return Ok(None);
+        };
+
+        let session = sqlx::query_as::<_, RuntimeSession>(
+            r#"
+            SELECT id, session_id, config_hash, binary_version, binary_commit,
+                   started_at, ended_at, end_reason, hostname, runtime_mode,
+                   config_snapshot, drift_detected, drift_summary, previous_session_id,
+                   model_path, adapters_root, database_path, var_dir
+            FROM runtime_sessions
+            WHERE hostname = ? AND ended_at IS NOT NULL
+            ORDER BY started_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(hostname)
+        .fetch_optional(pool)
+        .await
+        .db_err("get most recent session")?;
+
+        Ok(session)
+    }
+
     /// Insert a new runtime session
     ///
     /// # Arguments
@@ -106,38 +216,63 @@ impl Db {
     /// # }
     /// ```
     pub async fn insert_runtime_session(&self, session: &RuntimeSession) -> Result<()> {
-        sqlx::query(
-            r#"
-            INSERT INTO runtime_sessions (
-                id, session_id, config_hash, binary_version, binary_commit,
-                started_at, ended_at, end_reason, hostname, runtime_mode,
-                config_snapshot, drift_detected, drift_summary, previous_session_id,
-                model_path, adapters_root, database_path, var_dir
+        let mut canonical: Option<RuntimeSession> = None;
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                r#"
+                INSERT INTO runtime_sessions (
+                    id, session_id, config_hash, binary_version, binary_commit,
+                    started_at, ended_at, end_reason, hostname, runtime_mode,
+                    config_snapshot, drift_detected, drift_summary, previous_session_id,
+                    model_path, adapters_root, database_path, var_dir
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(&session.id)
-        .bind(&session.session_id)
-        .bind(&session.config_hash)
-        .bind(&session.binary_version)
-        .bind(&session.binary_commit)
-        .bind(&session.started_at)
-        .bind(&session.ended_at)
-        .bind(&session.end_reason)
-        .bind(&session.hostname)
-        .bind(&session.runtime_mode)
-        .bind(&session.config_snapshot)
-        .bind(session.drift_detected as i64)
-        .bind(&session.drift_summary)
-        .bind(&session.previous_session_id)
-        .bind(&session.model_path)
-        .bind(&session.adapters_root)
-        .bind(&session.database_path)
-        .bind(&session.var_dir)
-        .execute(self.pool())
-        .await
-        .db_err("insert runtime session")?;
+            .bind(&session.id)
+            .bind(&session.session_id)
+            .bind(&session.config_hash)
+            .bind(&session.binary_version)
+            .bind(&session.binary_commit)
+            .bind(&session.started_at)
+            .bind(&session.ended_at)
+            .bind(&session.end_reason)
+            .bind(&session.hostname)
+            .bind(&session.runtime_mode)
+            .bind(&session.config_snapshot)
+            .bind(session.drift_detected as i64)
+            .bind(&session.drift_summary)
+            .bind(&session.previous_session_id)
+            .bind(&session.model_path)
+            .bind(&session.adapters_root)
+            .bind(&session.database_path)
+            .bind(&session.var_dir)
+            .execute(self.pool())
+            .await
+            .db_err("insert runtime session")?;
+
+            canonical = self.sql_get_runtime_session(&session.id).await?;
+        }
+
+        if self.storage_mode().write_to_kv() {
+            if let Some(repo) = self.get_runtime_kv_repo() {
+                let desired = if let Some(s) = canonical.clone() {
+                    RuntimeSessionKv::from(s)
+                } else {
+                    repo.new_session(RuntimeSessionKv::from(session.clone()))
+                };
+
+                if let Err(e) = repo.put(&desired).await {
+                    self.record_kv_write_fallback("runtime_sessions.insert");
+                    return Err(e);
+                }
+            } else {
+                return Err(AosError::Database(
+                    "KV backend unavailable for runtime session insert".to_string(),
+                ));
+            }
+        }
 
         Ok(())
     }
@@ -153,24 +288,19 @@ impl Db {
     /// # Returns
     /// The most recent ended session for this hostname, or None if no previous session exists
     pub async fn get_most_recent_session(&self, hostname: &str) -> Result<Option<RuntimeSession>> {
-        let session = sqlx::query_as::<_, RuntimeSession>(
-            r#"
-            SELECT id, session_id, config_hash, binary_version, binary_commit,
-                   started_at, ended_at, end_reason, hostname, runtime_mode,
-                   config_snapshot, drift_detected, drift_summary, previous_session_id,
-                   model_path, adapters_root, database_path, var_dir
-            FROM runtime_sessions
-            WHERE hostname = ? AND ended_at IS NOT NULL
-            ORDER BY started_at DESC
-            LIMIT 1
-            "#,
-        )
-        .bind(hostname)
-        .fetch_optional(self.pool())
-        .await
-        .db_err("get most recent session")?;
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_runtime_kv_repo() {
+                if let Some(kv) = repo.most_recent_ended_for_host(hostname).await? {
+                    return Ok(Some(kv.into()));
+                }
+            }
+            if !self.storage_mode().sql_fallback_enabled() {
+                return Ok(None);
+            }
+            self.record_kv_read_fallback("runtime_sessions.most_recent");
+        }
 
-        Ok(session)
+        self.sql_get_most_recent_session(hostname).await
     }
 
     /// Get a runtime session by ID
@@ -181,22 +311,19 @@ impl Db {
     /// # Returns
     /// The runtime session if found, or None
     pub async fn get_runtime_session(&self, id: &str) -> Result<Option<RuntimeSession>> {
-        let session = sqlx::query_as::<_, RuntimeSession>(
-            r#"
-            SELECT id, session_id, config_hash, binary_version, binary_commit,
-                   started_at, ended_at, end_reason, hostname, runtime_mode,
-                   config_snapshot, drift_detected, drift_summary, previous_session_id,
-                   model_path, adapters_root, database_path, var_dir
-            FROM runtime_sessions
-            WHERE id = ?
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(self.pool())
-        .await
-        .db_err("get runtime session")?;
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_runtime_kv_repo() {
+                if let Some(kv) = repo.get(id).await? {
+                    return Ok(Some(kv.into()));
+                }
+            }
+            if !self.storage_mode().sql_fallback_enabled() {
+                return Ok(None);
+            }
+            self.record_kv_read_fallback("runtime_sessions.get");
+        }
 
-        Ok(session)
+        self.sql_get_runtime_session(id).await
     }
 
     /// Mark a session as ended
@@ -216,19 +343,34 @@ impl Db {
     /// # }
     /// ```
     pub async fn end_runtime_session(&self, id: &str, reason: &str) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE runtime_sessions
-            SET ended_at = datetime('now'),
-                end_reason = ?
-            WHERE id = ?
-            "#,
-        )
-        .bind(reason)
-        .bind(id)
-        .execute(self.pool())
-        .await
-        .db_err("end runtime session")?;
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                r#"
+                UPDATE runtime_sessions
+                SET ended_at = datetime('now'),
+                    end_reason = ?
+                WHERE id = ?
+                "#,
+            )
+            .bind(reason)
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .db_err("end runtime session")?;
+        }
+
+        if self.storage_mode().write_to_kv() {
+            if let Some(repo) = self.get_runtime_kv_repo() {
+                if let Err(e) = repo.end_session(id, reason).await {
+                    self.record_kv_write_fallback("runtime_sessions.end");
+                    return Err(e);
+                }
+            } else {
+                return Err(AosError::Database(
+                    "KV backend unavailable for end_runtime_session".to_string(),
+                ));
+            }
+        }
 
         Ok(())
     }
@@ -262,31 +404,54 @@ impl Db {
         retention_days: i64,
         max_per_host: i64,
     ) -> Result<i64> {
-        // Delete sessions older than retention period, excluding the N most recent per host
-        let result = sqlx::query(
-            r#"
-            DELETE FROM runtime_sessions
-            WHERE id IN (
-                SELECT id FROM runtime_sessions rs
-                WHERE
-                    -- Older than retention period
-                    julianday('now') - julianday(started_at) > ?
-                    -- Not in the N most recent for this host
-                    AND id NOT IN (
-                        SELECT id FROM runtime_sessions
-                        WHERE hostname = rs.hostname
-                        ORDER BY started_at DESC
-                        LIMIT ?
-                    )
-            )
-            "#,
-        )
-        .bind(retention_days)
-        .bind(max_per_host)
-        .execute(self.pool())
-        .await
-        .db_err("cleanup old sessions")?;
+        let mut deleted_sql = 0i64;
 
-        Ok(result.rows_affected() as i64)
+        if self.storage_mode().write_to_sql() {
+            // Delete sessions older than retention period, excluding the N most recent per host
+            let result = sqlx::query(
+                r#"
+                DELETE FROM runtime_sessions
+                WHERE id IN (
+                    SELECT id FROM runtime_sessions rs
+                    WHERE
+                        -- Older than retention period
+                        julianday('now') - julianday(started_at) > ?
+                        -- Not in the N most recent for this host
+                        AND id NOT IN (
+                            SELECT id FROM runtime_sessions
+                            WHERE hostname = rs.hostname
+                            ORDER BY started_at DESC
+                            LIMIT ?
+                        )
+                )
+                "#,
+            )
+            .bind(retention_days)
+            .bind(max_per_host)
+            .execute(self.pool())
+            .await
+            .db_err("cleanup old sessions")?;
+
+            deleted_sql = result.rows_affected() as i64;
+        }
+
+        if self.storage_mode().write_to_kv() {
+            if let Some(repo) = self.get_runtime_kv_repo() {
+                let deleted = repo
+                    .cleanup_old(retention_days, max_per_host)
+                    .await
+                    .map_err(|e| {
+                        self.record_kv_write_fallback("runtime_sessions.cleanup");
+                        e
+                    })?;
+                return Ok((deleted_sql as u64 + deleted) as i64);
+            } else {
+                return Err(AosError::Database(
+                    "KV backend unavailable for cleanup_old_sessions".to_string(),
+                ));
+            }
+        }
+
+        Ok(deleted_sql)
     }
 }

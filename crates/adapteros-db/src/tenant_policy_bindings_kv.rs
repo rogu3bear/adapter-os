@@ -48,10 +48,7 @@ impl PolicyBindingKvRepository {
         Ok(false)
     }
 
-    pub async fn list_bindings(
-        &self,
-        _tenant_id: &str,
-    ) -> Result<Vec<TenantPolicyBindingKv>> {
+    pub async fn list_bindings(&self, _tenant_id: &str) -> Result<Vec<TenantPolicyBindingKv>> {
         Ok(vec![])
     }
 
@@ -83,4 +80,3 @@ pub fn kv_to_binding(
         updated_by: kv.updated_by.clone(),
     }
 }
-

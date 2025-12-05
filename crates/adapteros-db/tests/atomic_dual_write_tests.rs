@@ -76,7 +76,7 @@ async fn strict_mode_registration_rolls_back_on_kv_failure() {
     insert_default_tenant(&db).await;
 
     db.attach_kv_backend(failing_kvdb());
-    db.set_storage_mode(StorageMode::DualWrite);
+    db.set_storage_mode(StorageMode::DualWrite).unwrap();
     db.set_atomic_dual_write_config(AtomicDualWriteConfig::strict_atomic());
 
     let params = AdapterRegistrationBuilder::new()
@@ -102,7 +102,7 @@ async fn best_effort_registration_succeeds_on_kv_failure() {
     insert_default_tenant(&db).await;
 
     db.attach_kv_backend(failing_kvdb());
-    db.set_storage_mode(StorageMode::DualWrite);
+    db.set_storage_mode(StorageMode::DualWrite).unwrap();
     db.set_atomic_dual_write_config(AtomicDualWriteConfig::best_effort());
 
     let params = AdapterRegistrationBuilder::new()
@@ -126,6 +126,41 @@ async fn best_effort_registration_succeeds_on_kv_failure() {
 }
 
 #[tokio::test]
+async fn kv_primary_forces_strict_even_when_config_best_effort() {
+    let mut db = Db::new_in_memory().await.unwrap();
+    insert_default_tenant(&db).await;
+
+    db.attach_kv_backend(failing_kvdb());
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
+    // Explicitly set best-effort; KV-primary should still enforce strict rollback.
+    db.set_atomic_dual_write_config(AtomicDualWriteConfig::best_effort());
+
+    let params = AdapterRegistrationBuilder::new()
+        .adapter_id("kv-primary-strict")
+        .name("KV Primary Strict")
+        .hash_b3("b3:kv_primary_strict")
+        .rank(4)
+        .tier("warm")
+        .category("code")
+        .scope("global")
+        .build()
+        .unwrap();
+
+    let result = db.register_adapter(params).await;
+    assert!(
+        result.is_err(),
+        "KV-primary should propagate KV failure in strict mode"
+    );
+    assert!(
+        db.get_adapter("kv-primary-strict")
+            .await
+            .unwrap()
+            .is_none(),
+        "SQL insert should be rolled back when KV fails in KV-primary"
+    );
+}
+
+#[tokio::test]
 async fn strict_mode_update_returns_error_but_sql_committed() {
     let mut db = Db::new_in_memory().await.unwrap();
     insert_default_tenant(&db).await;
@@ -133,7 +168,7 @@ async fn strict_mode_update_returns_error_but_sql_committed() {
     // Attach working KV for registration
     let kv_working = KvDb::init_in_memory().unwrap();
     db.attach_kv_backend(kv_working);
-    db.set_storage_mode(StorageMode::DualWrite);
+    db.set_storage_mode(StorageMode::DualWrite).unwrap();
     db.set_atomic_dual_write_config(AtomicDualWriteConfig::strict_atomic());
 
     let params = AdapterRegistrationBuilder::new()
@@ -150,7 +185,7 @@ async fn strict_mode_update_returns_error_but_sql_committed() {
 
     // Swap in failing KV to force update failure
     db.attach_kv_backend(failing_kvdb());
-    db.set_storage_mode(StorageMode::DualWrite);
+    db.set_storage_mode(StorageMode::DualWrite).unwrap();
 
     let result = db
         .update_adapter_state("strict-update", "hot", "force kv failure")
@@ -172,7 +207,7 @@ async fn ensure_consistency_repairs_missing_kv_entry() {
 
     let kv = KvDb::init_in_memory().unwrap();
     db.attach_kv_backend(kv.clone());
-    db.set_storage_mode(StorageMode::DualWrite);
+    db.set_storage_mode(StorageMode::DualWrite).unwrap();
 
     let params = AdapterRegistrationBuilder::new()
         .adapter_id("consistency-missing")
@@ -217,7 +252,7 @@ async fn kv_indexes_cover_state_and_tier_queries() {
 
     let kv = KvDb::init_in_memory().unwrap();
     db.attach_kv_backend(kv.clone());
-    db.set_storage_mode(StorageMode::DualWrite);
+    db.set_storage_mode(StorageMode::DualWrite).unwrap();
 
     let params = AdapterRegistrationBuilder::new()
         .adapter_id("index-check")

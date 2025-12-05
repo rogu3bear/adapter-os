@@ -4,11 +4,14 @@
 //! Evidence: migrations/0013_git_repository_integration.sql:25-40
 //! Pattern: Database schema for training jobs
 
-use crate::Db;
+use crate::training_jobs_kv::{TrainingJobKv, TrainingJobKvRepository, TrainingMetricKv};
+use crate::{Db, KvBackend};
 use adapteros_core::{AosError, Result};
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::sync::Arc;
+use tracing::warn;
 use uuid::Uuid;
 
 /// Training job record from database
@@ -132,6 +135,73 @@ pub fn compute_config_hash(params: &TrainingConfigParams) -> Result<String> {
 }
 
 impl Db {
+    fn get_training_job_kv_repo(&self) -> Option<TrainingJobKvRepository> {
+        if (self.storage_mode().write_to_kv() || self.storage_mode().read_from_kv())
+            && self.has_kv_backend()
+        {
+            self.kv_backend()
+                .map(|kv| TrainingJobKvRepository::new(kv.backend().clone()))
+        } else {
+            None
+        }
+    }
+
+    fn record_to_kv(record: &TrainingJobRecord) -> TrainingJobKv {
+        TrainingJobKv {
+            id: record.id.clone(),
+            repo_id: record.repo_id.clone(),
+            training_config_json: record.training_config_json.clone(),
+            status: record.status.clone(),
+            progress_json: record.progress_json.clone(),
+            started_at: record.started_at.clone(),
+            completed_at: record.completed_at.clone(),
+            created_by: record.created_by.clone(),
+            adapter_name: record.adapter_name.clone(),
+            template_id: record.template_id.clone(),
+            created_at: record.created_at.clone(),
+            metadata_json: record.metadata_json.clone(),
+            config_hash_b3: record.config_hash_b3.clone(),
+            dataset_id: record.dataset_id.clone(),
+            base_model_id: record.base_model_id.clone(),
+            collection_id: record.collection_id.clone(),
+            tenant_id: record.tenant_id.clone(),
+            build_id: record.build_id.clone(),
+            source_documents_json: record.source_documents_json.clone(),
+            retryable: record.retryable,
+            retry_of_job_id: record.retry_of_job_id.clone(),
+            stack_id: record.stack_id.clone(),
+            adapter_id: record.adapter_id.clone(),
+        }
+    }
+
+    fn kv_to_record(kv: &TrainingJobKv) -> TrainingJobRecord {
+        TrainingJobRecord {
+            id: kv.id.clone(),
+            repo_id: kv.repo_id.clone(),
+            training_config_json: kv.training_config_json.clone(),
+            status: kv.status.clone(),
+            progress_json: kv.progress_json.clone(),
+            started_at: kv.started_at.clone(),
+            completed_at: kv.completed_at.clone(),
+            created_by: kv.created_by.clone(),
+            adapter_name: kv.adapter_name.clone(),
+            template_id: kv.template_id.clone(),
+            created_at: kv.created_at.clone(),
+            metadata_json: kv.metadata_json.clone(),
+            config_hash_b3: kv.config_hash_b3.clone(),
+            dataset_id: kv.dataset_id.clone(),
+            base_model_id: kv.base_model_id.clone(),
+            collection_id: kv.collection_id.clone(),
+            tenant_id: kv.tenant_id.clone(),
+            build_id: kv.build_id.clone(),
+            source_documents_json: kv.source_documents_json.clone(),
+            retryable: kv.retryable,
+            retry_of_job_id: kv.retry_of_job_id.clone(),
+            stack_id: kv.stack_id.clone(),
+            adapter_id: kv.adapter_id.clone(),
+        }
+    }
+
     /// Create a new training job
     ///
     /// Evidence: migrations/0013_git_repository_integration.sql:25-40
@@ -154,20 +224,58 @@ impl Db {
         };
         let progress_json = serde_json::to_string(&progress).map_err(AosError::Serialization)?;
 
-        sqlx::query(
-            "INSERT INTO repository_training_jobs 
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "INSERT INTO repository_training_jobs 
              (id, repo_id, training_config_json, status, progress_json, created_by) 
              VALUES (?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(repo_id)
-        .bind(training_config_json)
-        .bind("pending")
-        .bind(&progress_json)
-        .bind(created_by)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+            )
+            .bind(&id)
+            .bind(repo_id)
+            .bind(training_config_json)
+            .bind("pending")
+            .bind(&progress_json)
+            .bind(created_by)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for create_training_job".to_string(),
+            ));
+        }
+
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            let job = TrainingJobKv {
+                id: id.clone(),
+                repo_id: repo_id.to_string(),
+                training_config_json: training_config_json.to_string(),
+                status: "pending".to_string(),
+                progress_json: progress_json.clone(),
+                started_at: chrono::Utc::now().to_rfc3339(),
+                completed_at: None,
+                created_by: created_by.to_string(),
+                adapter_name: None,
+                template_id: None,
+                created_at: Some(chrono::Utc::now().to_rfc3339()),
+                metadata_json: None,
+                config_hash_b3: None,
+                dataset_id: None,
+                base_model_id: None,
+                collection_id: None,
+                tenant_id: None,
+                build_id: None,
+                source_documents_json: None,
+                retryable: None,
+                retry_of_job_id: None,
+                stack_id: None,
+                adapter_id: None,
+            };
+            if let Err(e) = repo.put_job(&job).await {
+                self.record_kv_write_fallback("training_jobs.create");
+                warn!(error = %e, job_id = %id, "KV write failed for training job");
+            }
+        }
 
         Ok(id)
     }
@@ -177,6 +285,22 @@ impl Db {
     /// Evidence: migrations/0013_git_repository_integration.sql:25-40
     /// Pattern: Database schema for training jobs
     pub async fn get_training_job(&self, job_id: &str) -> Result<Option<TrainingJobRecord>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_training_job_kv_repo() {
+                let job = repo
+                    .get_job(job_id)
+                    .await?
+                    .map(|kv| Self::kv_to_record(&kv));
+                if !self.storage_mode().sql_fallback_enabled() || job.is_some() {
+                    return Ok(job);
+                }
+            }
+        }
+
+        if !self.storage_mode().read_from_sql() {
+            return Ok(None);
+        }
+
         let job = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
@@ -204,16 +328,32 @@ impl Db {
     ) -> Result<()> {
         let progress_json = serde_json::to_string(progress).map_err(AosError::Serialization)?;
 
-        sqlx::query(
-            "UPDATE repository_training_jobs
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo
+                .update_job(job_id, |job| job.progress_json = progress_json.clone())
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.update_progress");
+                warn!(error = %e, job_id = %job_id, "KV update progress failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE repository_training_jobs
              SET progress_json = ?
              WHERE id = ?",
-        )
-        .bind(&progress_json)
-        .bind(job_id)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+            )
+            .bind(&progress_json)
+            .bind(job_id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_training_progress".to_string(),
+            ));
+        }
 
         Ok(())
     }
@@ -229,17 +369,36 @@ impl Db {
             None
         };
 
-        sqlx::query(
-            "UPDATE repository_training_jobs 
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo
+                .update_job(job_id, |job| {
+                    job.status = status.to_string();
+                    job.completed_at = completed_at.clone();
+                })
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.update_status");
+                warn!(error = %e, job_id = %job_id, "KV update status failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE repository_training_jobs 
              SET status = ?, completed_at = ? 
              WHERE id = ?",
-        )
-        .bind(status)
-        .bind(completed_at)
-        .bind(job_id)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+            )
+            .bind(status)
+            .bind(completed_at)
+            .bind(job_id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_training_status".to_string(),
+            ));
+        }
 
         Ok(())
     }
@@ -249,6 +408,29 @@ impl Db {
     /// Evidence: migrations/0013_git_repository_integration.sql:25-40
     /// Pattern: Database schema for training jobs
     pub async fn list_training_jobs(&self, repo_id: &str) -> Result<Vec<TrainingJobRecord>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_training_job_kv_repo() {
+                let mut jobs = repo
+                    .list_jobs_for_repo(repo_id, usize::MAX)
+                    .await?
+                    .into_iter()
+                    .map(|kv| Self::kv_to_record(&kv))
+                    .collect::<Vec<_>>();
+                jobs.sort_by(|a, b| {
+                    b.started_at
+                        .cmp(&a.started_at)
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+                if !self.storage_mode().sql_fallback_enabled() {
+                    return Ok(jobs);
+                }
+            }
+        }
+
+        if !self.storage_mode().read_from_sql() {
+            return Ok(Vec::new());
+        }
+
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
@@ -275,6 +457,29 @@ impl Db {
         &self,
         status: &str,
     ) -> Result<Vec<TrainingJobRecord>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_training_job_kv_repo() {
+                let mut jobs = repo
+                    .list_jobs_by_status(status, usize::MAX)
+                    .await?
+                    .into_iter()
+                    .map(|kv| Self::kv_to_record(&kv))
+                    .collect::<Vec<_>>();
+                jobs.sort_by(|a, b| {
+                    b.started_at
+                        .cmp(&a.started_at)
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+                if !self.storage_mode().sql_fallback_enabled() {
+                    return Ok(jobs);
+                }
+            }
+        }
+
+        if !self.storage_mode().read_from_sql() {
+            return Ok(Vec::new());
+        }
+
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
@@ -319,11 +524,28 @@ impl Db {
         &self,
         tenant_id: &str,
     ) -> Result<Vec<TrainingJobRecord>> {
-        // Note: This is a placeholder implementation. The repository_training_jobs table
-        // doesn't currently have tenant_id. This implementation filters by created_by
-        // which may contain tenant information in the user identifier.
-        // A proper implementation would require a migration to add tenant_id to
-        // repository_training_jobs or git_repositories tables.
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_training_job_kv_repo() {
+                let mut jobs = repo
+                    .list_jobs_for_tenant(tenant_id)
+                    .await?
+                    .into_iter()
+                    .map(|kv| Self::kv_to_record(&kv))
+                    .collect::<Vec<_>>();
+                jobs.sort_by(|a, b| {
+                    b.started_at
+                        .cmp(&a.started_at)
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+                if !self.storage_mode().sql_fallback_enabled() {
+                    return Ok(jobs);
+                }
+            }
+        }
+
+        if !self.storage_mode().read_from_sql() {
+            return Ok(Vec::new());
+        }
 
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT rtj.id, rtj.repo_id, rtj.training_config_json, rtj.status, rtj.progress_json,
@@ -352,11 +574,24 @@ impl Db {
     /// Evidence: migrations/0013_git_repository_integration.sql:25-40
     /// Pattern: Database schema for training jobs
     pub async fn delete_training_job(&self, job_id: &str) -> Result<()> {
-        sqlx::query("DELETE FROM repository_training_jobs WHERE id = ?")
-            .bind(job_id)
-            .execute(&*self.pool())
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo.delete_job(job_id).await {
+                self.record_kv_write_fallback("training_jobs.delete");
+                warn!(error = %e, job_id = %job_id, "KV delete training job failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query("DELETE FROM repository_training_jobs WHERE id = ?")
+                .bind(job_id)
+                .execute(&*self.pool())
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for delete_training_job".to_string(),
+            ));
+        }
 
         Ok(())
     }
@@ -384,16 +619,32 @@ impl Db {
         });
         let metadata_json = serde_json::to_string(&metadata).map_err(AosError::Serialization)?;
 
-        sqlx::query(
-            "UPDATE repository_training_jobs
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo
+                .update_job(job_id, |job| job.metadata_json = Some(metadata_json.clone()))
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.update_artifact");
+                warn!(error = %e, job_id = %job_id, "KV update artifact failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE repository_training_jobs
              SET metadata_json = ?
              WHERE id = ?",
-        )
-        .bind(&metadata_json)
-        .bind(job_id)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+            )
+            .bind(&metadata_json)
+            .bind(job_id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_training_job_artifact".to_string(),
+            ));
+        }
 
         Ok(())
     }
@@ -406,16 +657,32 @@ impl Db {
         job_id: &str,
         adapter_name: &str,
     ) -> Result<()> {
-        sqlx::query(
-            "UPDATE repository_training_jobs
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo
+                .update_job(job_id, |job| job.adapter_name = Some(adapter_name.to_string()))
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.update_adapter_name");
+                warn!(error = %e, job_id = %job_id, "KV update adapter name failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE repository_training_jobs
              SET adapter_name = ?
              WHERE id = ?",
-        )
-        .bind(adapter_name)
-        .bind(job_id)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+            )
+            .bind(adapter_name)
+            .bind(job_id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_training_job_adapter_name".to_string(),
+            ));
+        }
 
         Ok(())
     }
@@ -431,7 +698,33 @@ impl Db {
         &self,
         adapter_id: &str,
     ) -> Result<Option<TrainingJobRecord>> {
-        // Search in metadata_json for adapter_id
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_training_job_kv_repo() {
+                let mut found: Option<TrainingJobRecord> = None;
+                for job in repo.list_all_jobs().await? {
+                    if job
+                        .metadata_json
+                        .as_ref()
+                        .map(|m| m.contains(adapter_id))
+                        .unwrap_or(false)
+                    {
+                        found = Some(Self::kv_to_record(&job));
+                        break;
+                    }
+                }
+                if found.is_some() && !self.storage_mode().sql_fallback_enabled() {
+                    return Ok(found);
+                }
+                if found.is_some() {
+                    return Ok(found);
+                }
+            }
+        }
+
+        if !self.storage_mode().read_from_sql() {
+            return Ok(None);
+        }
+
         let job = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
@@ -458,16 +751,32 @@ impl Db {
         job_id: &str,
         config_hash_b3: &str,
     ) -> Result<()> {
-        sqlx::query(
-            "UPDATE repository_training_jobs
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo
+                .update_job(job_id, |job| job.config_hash_b3 = Some(config_hash_b3.to_string()))
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.update_config_hash");
+                warn!(error = %e, job_id = %job_id, "KV update config hash failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "UPDATE repository_training_jobs
              SET config_hash_b3 = ?
              WHERE id = ?",
-        )
-        .bind(config_hash_b3)
-        .bind(job_id)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+            )
+            .bind(config_hash_b3)
+            .bind(job_id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_training_job_config_hash".to_string(),
+            ));
+        }
 
         Ok(())
     }
@@ -483,6 +792,33 @@ impl Db {
         &self,
         config_hash_b3: &str,
     ) -> Result<Vec<TrainingJobRecord>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_training_job_kv_repo() {
+                let mut jobs: Vec<TrainingJobRecord> = repo
+                    .list_all_jobs()
+                    .await?
+                    .into_iter()
+                    .filter(|j| j.config_hash_b3.as_deref() == Some(config_hash_b3))
+                    .map(|kv| Self::kv_to_record(&kv))
+                    .collect();
+                jobs.sort_by(|a, b| {
+                    b.started_at
+                        .cmp(&a.started_at)
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+                if !self.storage_mode().sql_fallback_enabled() {
+                    return Ok(jobs);
+                }
+                if !jobs.is_empty() {
+                    return Ok(jobs);
+                }
+            }
+        }
+
+        if !self.storage_mode().read_from_sql() {
+            return Ok(Vec::new());
+        }
+
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
@@ -547,29 +883,67 @@ impl Db {
         };
         let progress_json = serde_json::to_string(&progress).map_err(AosError::Serialization)?;
 
-        sqlx::query(
-            "INSERT INTO repository_training_jobs
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                "INSERT INTO repository_training_jobs
              (id, repo_id, training_config_json, status, progress_json, created_by,
               dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
               retry_of_job_id)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(repo_id)
-        .bind(training_config_json)
-        .bind("pending")
-        .bind(&progress_json)
-        .bind(created_by)
-        .bind(dataset_id)
-        .bind(base_model_id)
-        .bind(collection_id)
-        .bind(tenant_id)
-        .bind(build_id)
-        .bind(source_documents_json)
-        .bind(retry_of_job_id)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+            )
+            .bind(&id)
+            .bind(repo_id)
+            .bind(training_config_json)
+            .bind("pending")
+            .bind(&progress_json)
+            .bind(created_by)
+            .bind(dataset_id)
+            .bind(base_model_id)
+            .bind(collection_id)
+            .bind(tenant_id)
+            .bind(build_id)
+            .bind(source_documents_json)
+            .bind(retry_of_job_id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for create_training_job_with_provenance".to_string(),
+            ));
+        }
+
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            let job = TrainingJobKv {
+                id: id.clone(),
+                repo_id: repo_id.to_string(),
+                training_config_json: training_config_json.to_string(),
+                status: "pending".to_string(),
+                progress_json: progress_json.clone(),
+                started_at: chrono::Utc::now().to_rfc3339(),
+                completed_at: None,
+                created_by: created_by.to_string(),
+                adapter_name: None,
+                template_id: None,
+                created_at: Some(chrono::Utc::now().to_rfc3339()),
+                metadata_json: None,
+                config_hash_b3: None,
+                dataset_id: dataset_id.map(|s| s.to_string()),
+                base_model_id: base_model_id.map(|s| s.to_string()),
+                collection_id: collection_id.map(|s| s.to_string()),
+                tenant_id: tenant_id.map(|s| s.to_string()),
+                build_id: build_id.map(|s| s.to_string()),
+                source_documents_json: source_documents_json.map(|s| s.to_string()),
+                retryable: None,
+                retry_of_job_id: retry_of_job_id.map(|s| s.to_string()),
+                stack_id: None,
+                adapter_id: None,
+            };
+            if let Err(e) = repo.put_job(&job).await {
+                self.record_kv_write_fallback("training_jobs.create_provenance");
+                warn!(error = %e, job_id = %id, "KV write failed for training job provenance");
+            }
+        }
 
         Ok(id)
     }

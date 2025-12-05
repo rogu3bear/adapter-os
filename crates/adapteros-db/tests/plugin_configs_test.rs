@@ -50,6 +50,14 @@ async fn test_tenant_plugin_enables() -> Result<(), Box<dyn std::error::Error>> 
     // Create in-memory database
     let db = Db::new_in_memory().await?;
 
+    // Seed tenants required for FK constraints
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-123', 'Tenant 123')")
+        .execute(db.pool())
+        .await?;
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-456', 'Tenant 456')")
+        .execute(db.pool())
+        .await?;
+
     // Set up global plugin config (disabled by default)
     db.upsert_plugin_config("code-intelligence", false, None)
         .await?;
@@ -95,6 +103,14 @@ async fn test_tenant_plugin_enables() -> Result<(), Box<dyn std::error::Error>> 
 async fn test_plugin_global_vs_tenant_precedence() -> Result<(), Box<dyn std::error::Error>> {
     // Create in-memory database
     let db = Db::new_in_memory().await?;
+
+    // Seed tenants required for FK constraints
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-888', 'Tenant 888')")
+        .execute(db.pool())
+        .await?;
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-999', 'Tenant 999')")
+        .execute(db.pool())
+        .await?;
 
     // Set up global plugin config (enabled by default)
     db.upsert_plugin_config("code-intelligence", true, None)

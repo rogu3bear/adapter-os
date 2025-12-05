@@ -77,6 +77,28 @@ impl Db {
                         for sess in sessions {
                             mapped.push(self.kv_replay_session_to_record(sess)?);
                         }
+
+                        if self.storage_mode().is_dual_write()
+                            && self.storage_mode().read_from_sql()
+                        {
+                            if let Some(pool) = self.pool_opt() {
+                                let sql_sessions = sqlx::query_as::<_, ReplaySession>(
+                                    "SELECT * FROM replay_sessions WHERE tenant_id = ? ORDER BY snapshot_at DESC, id DESC",
+                                )
+                                .bind(tid)
+                                .fetch_all(pool)
+                                .await
+                                .map_err(|e| AosError::Database(format!("Failed to list replay sessions: {}", e)))?;
+
+                                if sql_sessions.len() != mapped.len()
+                                    || sql_sessions.iter().zip(mapped.iter()).any(|(sql, kv)| {
+                                        sql.id != kv.id || sql.snapshot_at != kv.snapshot_at
+                                    })
+                                {
+                                    record_replay_drift("replay_sessions_drift_dual_write");
+                                }
+                            }
+                        }
                         return Ok(mapped);
                     }
                     Err(e) => {
@@ -86,6 +108,7 @@ impl Db {
                                 e
                             )));
                         }
+                        self.record_kv_read_fallback("replay.sessions.list.fallback");
                         warn!(
                             tenant_id = %tid,
                             error = %e,
@@ -97,9 +120,9 @@ impl Db {
         }
 
         let query = if tenant_id.is_some() {
-            "SELECT * FROM replay_sessions WHERE tenant_id = ? ORDER BY snapshot_at DESC"
+            "SELECT * FROM replay_sessions WHERE tenant_id = ? ORDER BY snapshot_at DESC, id DESC"
         } else {
-            "SELECT * FROM replay_sessions ORDER BY snapshot_at DESC"
+            "SELECT * FROM replay_sessions ORDER BY snapshot_at DESC, id DESC"
         };
 
         let sessions = if let Some(tid) = tenant_id {
@@ -122,7 +145,30 @@ impl Db {
     pub async fn get_replay_session(&self, session_id: &str) -> Result<Option<ReplaySession>> {
         if let Some(repo) = self.replay_repo_if_read() {
             match repo.get_session_by_id(session_id).await {
-                Ok(Some(session)) => return self.kv_replay_session_to_record(session).map(Some),
+                Ok(Some(session)) => {
+                    let record = self.kv_replay_session_to_record(session)?;
+
+                    if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
+                        if let Some(pool) = self.pool_opt() {
+                            if let Ok(Some(sql_session)) = sqlx::query_as::<_, ReplaySession>(
+                                "SELECT * FROM replay_sessions WHERE id = ?",
+                            )
+                            .bind(session_id)
+                            .fetch_optional(pool)
+                            .await
+                            {
+                                if sql_session.id != record.id
+                                    || sql_session.snapshot_at != record.snapshot_at
+                                    || sql_session.signature != record.signature
+                                {
+                                    record_replay_drift("replay_session_drift_dual_write");
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok(Some(record));
+                }
                 Ok(None) => {
                     if !self.storage_mode().sql_fallback_enabled() {
                         return Ok(None);
@@ -135,6 +181,7 @@ impl Db {
                             e
                         )));
                     }
+                    self.record_kv_read_fallback("replay.session.get.fallback");
                     warn!(session_id = %session_id, error = %e, "KV replay session read failed, falling back to SQL");
                 }
             }
@@ -184,6 +231,7 @@ impl Db {
         if let Some(repo) = self.replay_repo_if_write() {
             let kv_session = Db::kv_replay_session_from_record(session);
             if let Err(e) = repo.store_session(kv_session).await {
+                self.record_kv_write_fallback("replay.session.create");
                 warn!(
                     tenant_id = %session.tenant_id,
                     session_id = %session.id,
@@ -207,6 +255,7 @@ impl Db {
 
         if let Some(repo) = self.replay_repo_if_write() {
             if let Err(e) = repo.delete_session(session_id).await {
+                self.record_kv_write_fallback("replay.session.delete");
                 warn!(
                     session_id = %session_id,
                     error = %e,

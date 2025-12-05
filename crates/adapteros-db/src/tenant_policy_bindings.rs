@@ -74,7 +74,13 @@ impl Db {
         if self.storage_mode().read_from_kv() {
             if let Some(repo) = self.get_policy_binding_kv_repo() {
                 match repo.get_active_policy_ids(tenant_id).await {
-                    Ok(ids) => return Ok(ids),
+                    Ok(ids) => {
+                        // KV-only bootstrap: default to core policies if KV store is empty
+                        if ids.is_empty() && self.storage_mode().is_kv_only() {
+                            return Ok(CORE_POLICIES.iter().map(|p| p.to_string()).collect());
+                        }
+                        return Ok(ids);
+                    }
                     Err(e) if self.storage_mode().sql_fallback_enabled() => {
                         self.record_kv_read_fallback("tenant_policy_bindings.get_active.error");
                         debug!(error = %e, tenant_id = %tenant_id, "KV get_active_policies failed; falling back to SQL");

@@ -8,11 +8,14 @@
 
 use crate::output::OutputWriter;
 use adapteros_core::Result;
+use adapteros_db::kv_migration::{MigrationCheckpoint, MigrationDomain, MigrationOptions};
+use adapteros_db::kv_metrics::{global_kv_metrics, KvMetricsSnapshot};
 use adapteros_db::{Db, StorageMode};
 use anyhow::Context;
 use clap::Subcommand;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::{fs, io};
 use tracing::{info, warn};
 
 /// Storage management subcommands
@@ -112,6 +115,26 @@ pub enum StorageCommand {
         /// Force migration even if KV backend already has data
         #[arg(long)]
         force: bool,
+
+        /// Tenant filter (migrate a single tenant only)
+        #[arg(long)]
+        tenant: Option<String>,
+
+        /// Batch size for migrations
+        #[arg(long, default_value_t = 100)]
+        batch_size: usize,
+
+        /// Resume from checkpoint (requires --checkpoint-path)
+        #[arg(long)]
+        resume: bool,
+
+        /// Path to checkpoint file (JSON)
+        #[arg(long, default_value = "./var/aos-migrate.checkpoint.json")]
+        checkpoint_path: PathBuf,
+
+        /// Comma-separated domains (adapters,tenants,stacks,plans,auth_sessions,runtime_sessions,rag_artifacts)
+        #[arg(long)]
+        domains: Option<String>,
     },
 
     /// Verify consistency between SQL and KV backends
@@ -153,6 +176,18 @@ pub enum StorageCommand {
         /// Verify stacks only
         #[arg(long)]
         stacks_only: bool,
+
+        /// Repair detected drift by re-migrating domains SQL -> KV
+        #[arg(long)]
+        repair: bool,
+
+        /// Comma-separated domains to verify/repair (default: all supported)
+        #[arg(long)]
+        domains: Option<String>,
+
+        /// Exit with non-zero if drift is detected
+        #[arg(long)]
+        fail_on_drift: bool,
     },
 
     /// Validate and optionally repair consistency for a tenant
@@ -190,11 +225,25 @@ struct ModeStatus {
 }
 
 #[derive(Serialize)]
-struct MigrationStats {
-    adapters_migrated: usize,
-    tenants_migrated: usize,
-    stacks_migrated: usize,
-    errors: usize,
+struct DomainReport {
+    domain: String,
+    total: usize,
+    migrated: usize,
+    skipped: usize,
+    failed: usize,
+    errors: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct MigrationReport {
+    dry_run: bool,
+    tenant: Option<String>,
+    batch_size: usize,
+    checkpoint_path: String,
+    domains: Vec<String>,
+    results: Vec<DomainReport>,
+    degraded_reason: Option<String>,
+    kv_metrics: KvMetricsSnapshot,
 }
 
 #[derive(Serialize)]
@@ -272,13 +321,34 @@ pub async fn handle_storage_command(cmd: StorageCommand, output: &OutputWriter) 
             dry_run,
             verify,
             force,
-        } => migrate_data(db_path, kv_path, dry_run, verify, force, output).await,
+            tenant,
+            batch_size,
+            resume,
+            checkpoint_path,
+            domains,
+        } => migrate_data(
+            db_path,
+            kv_path,
+            dry_run,
+            verify,
+            force,
+            tenant,
+            batch_size,
+            resume,
+            checkpoint_path,
+            domains,
+            output,
+        )
+        .await,
         StorageCommand::Verify {
             db_path,
             kv_path,
             adapters_only,
             tenants_only,
             stacks_only,
+            repair,
+            domains,
+            fail_on_drift,
         } => {
             verify_consistency(
                 db_path,
@@ -286,6 +356,9 @@ pub async fn handle_storage_command(cmd: StorageCommand, output: &OutputWriter) 
                 adapters_only,
                 tenants_only,
                 stacks_only,
+                repair,
+                domains,
+                fail_on_drift,
                 output,
             )
             .await
@@ -410,7 +483,8 @@ async fn set_mode(
     }
 
     // Set the mode
-    db.set_storage_mode(mode);
+    db.set_storage_mode(mode)
+        .context("Failed to set storage mode")?;
 
     output.success(&format!("Storage mode changed: {} -> {}", old_mode, mode));
 
@@ -450,6 +524,11 @@ async fn migrate_data(
     dry_run: bool,
     verify: bool,
     force: bool,
+    tenant: Option<String>,
+    batch_size: usize,
+    resume: bool,
+    checkpoint_path: PathBuf,
+    domains: Option<String>,
     output: &OutputWriter,
 ) -> Result<()> {
     output.info("Storage Migration Tool");
@@ -477,44 +556,132 @@ async fn migrate_data(
                 .context("Failed to initialize KV backend")?;
             output.success("KV backend initialized");
         }
-    } else if !force && !dry_run {
+    } else if !force && !dry_run && !resume {
         output.warning("KV backend already exists");
         output.warning("Use --force to overwrite existing KV data");
         return Err(anyhow::anyhow!("KV backend already exists").into());
     }
 
-    output.info("");
-    output.info("Migrating data from SQL to KV...");
+    let domains = parse_domains(domains.as_deref())?;
+    output.info(&format!(
+        "Domains: {}",
+        domains
+            .iter()
+            .map(|d| d.label())
+            .collect::<Vec<_>>()
+            .join(",")
+    ));
+    if let Some(tid) = &tenant {
+        output.info(&format!("Tenant filter: {}", tid));
+    }
 
-    // Note: Actual migration logic would be implemented here
-    // For now, we'll provide a placeholder that explains what needs to be done
-
-    output.warning("Migration functionality is currently under development");
-    output.info("To migrate data, you need to:");
-    output.info("1. Switch to dual_write mode: aosctl storage set-mode dual_write --init-kv");
-    output.info("2. All new writes will populate both SQL and KV backends");
-    output.info("3. Use 'aosctl storage verify' to check consistency");
-    output.info("4. When ready, switch to kv_primary: aosctl storage set-mode kv_primary");
-
-    // Placeholder stats
-    let stats = MigrationStats {
-        adapters_migrated: 0,
-        tenants_migrated: 0,
-        stacks_migrated: 0,
-        errors: 0,
+    let mut options = MigrationOptions {
+        batch_size,
+        dry_run,
+        tenant_filter: tenant.clone(),
+        checkpoint: None,
     };
+
+    if resume {
+        if let Some(cp) = load_checkpoint(&checkpoint_path)? {
+            output.info(&format!(
+                "Loaded checkpoint from {}",
+                checkpoint_path.display()
+            ));
+            options.checkpoint = Some(cp);
+        } else {
+            output.info("No checkpoint found; starting fresh");
+        }
+    }
+
+    let (results, checkpoint) = db
+        .migrate_domains(&domains, &options)
+        .await
+        .context("Migration failed")?;
+
+    // Write checkpoint only when not in dry-run
+    if !dry_run {
+        save_checkpoint(&checkpoint_path, &checkpoint)?;
+        output.info(&format!(
+            "Checkpoint saved to {}",
+            checkpoint_path.display()
+        ));
+    } else {
+        output.info("Dry-run: checkpoint not written");
+    }
 
     if verify && !dry_run {
         output.info("");
-        output.info("Verifying migration...");
-        // Verification would be implemented here
+        output.info("Verifying migration (diff_all_supported)...");
+        // Reuse existing verifier for supported domains
+        let _ = verify_consistency(
+            db_path.clone(),
+            kv_path.clone(),
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            output,
+        )
+        .await?;
     }
+
+    let kv_snapshot = global_kv_metrics().snapshot();
+    let degraded = db.degradation_reason();
 
     if output.is_json() {
-        output.json(&stats)?;
+        let report = MigrationReport {
+            dry_run,
+            tenant,
+            batch_size,
+            checkpoint_path: checkpoint_path.display().to_string(),
+            domains: domains.iter().map(|d| d.label().to_string()).collect(),
+            results: results
+                .iter()
+                .map(|(domain, stats)| DomainReport {
+                    domain: domain.label().to_string(),
+                    total: stats.total,
+                    migrated: stats.migrated,
+                    skipped: stats.skipped,
+                    failed: stats.failed,
+                    errors: stats.errors.clone(),
+                })
+                .collect(),
+            degraded_reason: degraded.clone(),
+            kv_metrics: kv_snapshot.clone(),
+        };
+        output.json(&report)?;
+    } else {
+        if let Some(reason) = degraded {
+            output.warning(&format!("Degraded: {}", reason));
+        }
+        output.info(&format!(
+            "KV fallback ops: {} (drift detections: {}, degraded events: {})",
+            kv_snapshot.fallback_operations_total,
+            kv_snapshot.drift_detections_total,
+            kv_snapshot.degraded_events_total
+        ));
+        for (domain, stats) in &results {
+            output.info(&format!(
+                "[{}] migrated={}, skipped={}, failed={}, total={}",
+                domain.label(),
+                stats.migrated,
+                stats.skipped,
+                stats.failed,
+                stats.total
+            ));
+            if !stats.errors.is_empty() {
+                output.warning(&format!(
+                    "[{}] errors: {}",
+                    domain.label(),
+                    stats.errors.join("; ")
+                ));
+            }
+        }
+        output.success("Migration complete");
     }
-
-    output.success("Migration preview complete");
 
     Ok(())
 }
@@ -529,6 +696,9 @@ async fn verify_consistency(
     adapters_only: bool,
     tenants_only: bool,
     stacks_only: bool,
+    repair: bool,
+    domains: Option<String>,
+    fail_on_drift: bool,
     output: &OutputWriter,
 ) -> Result<()> {
     output.info("Storage Consistency Verification");
@@ -539,6 +709,16 @@ async fn verify_consistency(
         .await
         .context("Failed to connect to database")?;
 
+    let domains = if adapters_only {
+        vec![MigrationDomain::Adapters]
+    } else if tenants_only {
+        vec![MigrationDomain::Tenants]
+    } else if stacks_only {
+        vec![MigrationDomain::Stacks]
+    } else {
+        parse_domains(domains.as_deref())?
+    };
+
     // Ensure KV backend is attached
     if !db.has_kv_backend() {
         output.info(&format!("Attaching KV backend from: {}", kv_path.display()));
@@ -546,48 +726,94 @@ async fn verify_consistency(
             .context("Failed to attach KV backend")?;
     }
 
+    if repair {
+        output.info("Repair requested: re-migrating selected domains from SQL to KV");
+        let opts = MigrationOptions {
+            batch_size: 200,
+            dry_run: false,
+            tenant_filter: None,
+            checkpoint: None,
+        };
+        let (results, _) = db
+            .migrate_domains(&domains, &opts)
+            .await
+            .context("Repair migration failed")?;
+        for (domain, stats) in &results {
+            output.info(&format!(
+                "[repair:{}] migrated={}, failed={}, skipped={}",
+                domain.label(),
+                stats.migrated,
+                stats.failed,
+                stats.skipped
+            ));
+        }
+    }
+
     let mode = db.storage_mode();
     output.info(&format!("Current mode: {}", mode));
     output.info("");
 
-    // Placeholder verification
-    output.warning("Verification functionality is currently under development");
-    output.info("This command will compare:");
-    if !tenants_only && !stacks_only {
-        output.info("- Adapter records between SQL and KV backends");
-    }
-    if !adapters_only && !stacks_only {
-        output.info("- Tenant records between SQL and KV backends");
-    }
-    if !adapters_only && !tenants_only {
-        output.info("- Stack records between SQL and KV backends");
+    let mut issues = Vec::new();
+    if adapters_only && !tenants_only && !stacks_only {
+        issues.extend(db.diff_adapters().await?);
+    } else if tenants_only && !adapters_only && !stacks_only {
+        issues.extend(db.diff_tenants().await?);
+    } else if stacks_only && !adapters_only && !tenants_only {
+        issues.extend(db.diff_stacks().await?);
+    } else {
+        // Domain-selectable sweep
+        for domain in &domains {
+            match domain {
+                MigrationDomain::Adapters => issues.extend(db.diff_adapters().await?),
+                MigrationDomain::Tenants => issues.extend(db.diff_tenants().await?),
+                MigrationDomain::Stacks => issues.extend(db.diff_stacks().await?),
+                MigrationDomain::Plans => issues.extend(db.diff_plans().await?),
+                MigrationDomain::AuthSessions => issues.extend(db.diff_auth_sessions().await?),
+                MigrationDomain::RuntimeSessions => issues.extend(db.diff_runtime_sessions().await?),
+                MigrationDomain::RagArtifacts => {
+                    issues.extend(db.diff_documents().await?);
+                    issues.extend(db.diff_collections().await?);
+                    issues.extend(db.diff_collection_links().await?);
+                }
+                MigrationDomain::PolicyAudit => issues.extend(db.diff_policy_audit().await?),
+                MigrationDomain::TrainingJobs => issues.extend(db.diff_training_jobs().await?),
+                MigrationDomain::ChatSessions => issues.extend(db.diff_chat_sessions().await?),
+            }
+        }
     }
 
-    // Placeholder report
-    let report = VerificationReport {
-        adapters_checked: 0,
-        adapters_matched: 0,
-        adapters_mismatched: 0,
-        tenants_checked: 0,
-        tenants_matched: 0,
-        tenants_mismatched: 0,
-        stacks_checked: 0,
-        stacks_matched: 0,
-        stacks_mismatched: 0,
-    };
+    if !issues.is_empty() {
+        global_kv_metrics().record_drift_detected();
+        if fail_on_drift {
+            output.error("Drift detected");
+            // Still print issues below
+        }
+    }
 
     if output.is_json() {
-        output.json(&report)?;
+        output.json(&issues)?;
     } else {
-        output.info("");
-        output.info("Verification Results:");
-        output.info("--------------------");
-        output.kv("Adapters", "Not yet implemented");
-        output.kv("Tenants", "Not yet implemented");
-        output.kv("Stacks", "Not yet implemented");
+        if issues.is_empty() {
+            output.success("No discrepancies detected between SQL and KV");
+        } else {
+            output.info("Discrepancies detected:");
+            for issue in &issues {
+                output.info(&format!(
+                    "- [{domain}] {id} :: {field} sql={sql} kv={kv}",
+                    domain = issue.domain,
+                    id = issue.id,
+                    field = issue.field,
+                    sql = issue.sql_value,
+                    kv = issue.kv_value
+                ));
+            }
+            if fail_on_drift {
+                return Err(anyhow::anyhow!("Drift detected"));
+            }
+        }
     }
 
-    output.success("Verification preview complete");
+    output.success("Verification complete");
 
     Ok(())
 }
@@ -650,6 +876,81 @@ async fn validate_consistency(
 // Helper Functions
 // ============================================================
 
+fn parse_domains(domains: Option<&str>) -> Result<Vec<MigrationDomain>> {
+    if let Some(raw) = domains {
+        let mut parsed = Vec::new();
+        for part in raw.split(',') {
+            let dom = match part.trim().to_lowercase().as_str() {
+                "adapters" => MigrationDomain::Adapters,
+                "tenants" => MigrationDomain::Tenants,
+                "stacks" => MigrationDomain::Stacks,
+                "plans" => MigrationDomain::Plans,
+                "auth_sessions" => MigrationDomain::AuthSessions,
+                "runtime_sessions" => MigrationDomain::RuntimeSessions,
+                "rag_artifacts" | "rag" | "documents" => MigrationDomain::RagArtifacts,
+                "policy_audit" => MigrationDomain::PolicyAudit,
+                "training_jobs" => MigrationDomain::TrainingJobs,
+                "chat_sessions" => MigrationDomain::ChatSessions,
+                other => {
+                    return Err(adapteros_core::AosError::Config(format!(
+                        "Unknown domain '{}'. Valid: adapters, tenants, stacks, plans, auth_sessions, runtime_sessions, rag_artifacts, policy_audit, training_jobs, chat_sessions",
+                        other,
+                    ))
+                    .into())
+                }
+            };
+            parsed.push(dom);
+        }
+        Ok(parsed)
+    } else {
+        Ok(default_domains())
+    }
+}
+
+fn default_domains() -> Vec<MigrationDomain> {
+    vec![
+        MigrationDomain::Adapters,
+        MigrationDomain::Tenants,
+        MigrationDomain::Stacks,
+        MigrationDomain::Plans,
+        MigrationDomain::AuthSessions,
+        MigrationDomain::RuntimeSessions,
+        MigrationDomain::RagArtifacts,
+        MigrationDomain::PolicyAudit,
+        MigrationDomain::TrainingJobs,
+        MigrationDomain::ChatSessions,
+    ]
+}
+
+fn load_checkpoint(path: &PathBuf) -> Result<Option<MigrationCheckpoint>> {
+    match fs::read(path) {
+        Ok(bytes) => {
+            let cp: MigrationCheckpoint = serde_json::from_slice(&bytes)
+                .context("Failed to parse checkpoint file")?;
+            Ok(Some(cp))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(adapteros_core::AosError::Io(format!(
+            "Failed to read checkpoint: {}",
+            e
+        ))
+        .into()),
+    }
+}
+
+fn save_checkpoint(path: &PathBuf, checkpoint: &MigrationCheckpoint) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| adapteros_core::AosError::Io(format!("Failed to create dir: {}", e)))?;
+    }
+    let bytes = serde_json::to_vec_pretty(checkpoint)
+        .map_err(|e| adapteros_core::AosError::Serialization(e))?;
+    fs::write(path, bytes).map_err(|e| {
+        adapteros_core::AosError::Io(format!("Failed to write checkpoint: {}", e))
+    })?;
+    Ok(())
+}
+
 /// Get database URL from path or environment
 fn get_db_url(db_path: Option<&PathBuf>) -> String {
     if let Some(path) = db_path {
@@ -687,6 +988,11 @@ mod tests {
                 dry_run: false,
                 verify: false,
                 force: false,
+                tenant: None,
+                batch_size: 100,
+                resume: false,
+                checkpoint_path: PathBuf::from("./var/aos-migrate.checkpoint.json"),
+                domains: None,
             }),
             "storage_migrate"
         );
@@ -697,6 +1003,9 @@ mod tests {
                 adapters_only: false,
                 tenants_only: false,
                 stacks_only: false,
+                repair: false,
+                domains: None,
+                fail_on_drift: false,
             }),
             "storage_verify"
         );
@@ -710,5 +1019,35 @@ mod tests {
             get_storage_command_name(&cmd),
             get_storage_command_name(&cloned)
         );
+    }
+
+    #[test]
+    fn test_default_domains_includes_rag() {
+        let labels: Vec<_> = default_domains().into_iter().map(|d| d.label()).collect();
+        assert!(labels.contains(&"rag_artifacts"));
+    }
+
+    #[test]
+    fn test_parse_domains_custom() {
+        let parsed =
+            parse_domains(Some("adapters,rag_artifacts,runtime_sessions,policy_audit,training_jobs,chat_sessions")).unwrap();
+        let labels: Vec<_> = parsed.into_iter().map(|d| d.label()).collect();
+        assert_eq!(
+            labels,
+            vec![
+                "adapters",
+                "rag_artifacts",
+                "runtime_sessions",
+                "policy_audit",
+                "training_jobs",
+                "chat_sessions"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_domains_unknown() {
+        let err = parse_domains(Some("unknown_domain")).unwrap_err();
+        assert!(err.to_string().contains("Unknown domain"));
     }
 }

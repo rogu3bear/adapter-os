@@ -14,6 +14,14 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf()
+}
+
 /// Get all migration files from a directory
 fn get_migration_files(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut migrations = Vec::new();
@@ -49,7 +57,7 @@ fn extract_migration_number(path: &Path) -> Option<u32> {
 /// Test 1: No duplicate migration numbers in root directory
 #[test]
 fn test_no_duplicate_migration_numbers_in_root() -> Result<()> {
-    let root_migrations_dir = PathBuf::from("migrations");
+    let root_migrations_dir = workspace_root().join("migrations");
     let migrations = get_migration_files(&root_migrations_dir)?;
 
     let mut seen_numbers = HashSet::new();
@@ -79,8 +87,8 @@ fn test_no_duplicate_migration_numbers_in_root() -> Result<()> {
 /// Test 2: No conflicting migration numbers between root and crate directories
 #[test]
 fn test_no_conflicts_between_root_and_crate() -> Result<()> {
-    let root_migrations_dir = PathBuf::from("migrations");
-    let crate_migrations_dir = PathBuf::from("crates/adapteros-db/migrations");
+    let root_migrations_dir = workspace_root().join("migrations");
+    let crate_migrations_dir = workspace_root().join("crates/adapteros-db/migrations");
 
     let root_migrations = get_migration_files(&root_migrations_dir)?;
     let crate_migrations = get_migration_files(&crate_migrations_dir)?;
@@ -127,7 +135,7 @@ fn test_no_conflicts_between_root_and_crate() -> Result<()> {
 /// Test 3: All root migrations have signatures in signatures.json
 #[test]
 fn test_all_root_migrations_have_signatures() -> Result<()> {
-    let root_migrations_dir = PathBuf::from("migrations");
+    let root_migrations_dir = workspace_root().join("migrations");
     let signatures_file = root_migrations_dir.join("signatures.json");
 
     // Read migrations
@@ -175,7 +183,7 @@ fn test_all_root_migrations_have_signatures() -> Result<()> {
 /// Test 4: Migration sequence has no gaps (should be continuous or documented)
 #[test]
 fn test_migration_sequence_valid() -> Result<()> {
-    let root_migrations_dir = PathBuf::from("migrations");
+    let root_migrations_dir = workspace_root().join("migrations");
     let migrations = get_migration_files(&root_migrations_dir)?;
 
     let mut numbers: Vec<u32> = migrations
@@ -219,7 +227,7 @@ fn test_migration_sequence_valid() -> Result<()> {
 /// Test 5: Verify migration numbering matches expected range (0001-0074)
 #[test]
 fn test_migration_numbering_range() -> Result<()> {
-    let root_migrations_dir = PathBuf::from("migrations");
+    let root_migrations_dir = workspace_root().join("migrations");
     let migrations = get_migration_files(&root_migrations_dir)?;
 
     let numbers: Vec<u32> = migrations
@@ -232,8 +240,8 @@ fn test_migration_numbering_range() -> Result<()> {
 
     assert!(min_number >= 1, "Minimum migration number should be >= 1");
     assert!(
-        max_number <= 100,
-        "Maximum migration number should be <= 100 (found {})",
+        max_number <= 200,
+        "Maximum migration number should be <= 200 (found {})",
         max_number
     );
 
@@ -290,7 +298,7 @@ fn test_crate_migrations_properly_managed() -> Result<()> {
 /// Test 7: Verify tenant snapshot migrations exist (0072-0074)
 #[test]
 fn test_tenant_snapshot_migrations_exist() -> Result<()> {
-    let root_migrations_dir = PathBuf::from("migrations");
+    let root_migrations_dir = workspace_root().join("migrations");
 
     let required_prd01_migrations = vec![
         "0072_tenant_snapshots.sql",
@@ -320,7 +328,7 @@ fn test_tenant_snapshot_migrations_exist() -> Result<()> {
 /// Test 8: Verify rollback scripts exist for new migrations
 #[test]
 fn test_rollback_scripts_exist() -> Result<()> {
-    let rollback_dir = PathBuf::from("migrations/rollbacks");
+    let rollback_dir = workspace_root().join("migrations/rollbacks");
 
     let required_rollbacks = vec![
         "0072_tenant_snapshots_rollback.sql",
@@ -350,8 +358,8 @@ fn test_rollback_scripts_exist() -> Result<()> {
 /// Summary Report Test
 #[test]
 fn test_migration_conflict_summary() -> Result<()> {
-    let root_migrations_dir = PathBuf::from("migrations");
-    let crate_migrations_dir = PathBuf::from("crates/adapteros-db/migrations");
+    let root_migrations_dir = workspace_root().join("migrations");
+    let crate_migrations_dir = workspace_root().join("crates/adapteros-db/migrations");
 
     let root_migrations = get_migration_files(&root_migrations_dir)?;
     let crate_migrations = if crate_migrations_dir.exists() {

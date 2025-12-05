@@ -4,6 +4,7 @@ use super::traits::{CreateStackRequest, DatabaseBackend, StackRecord};
 use adapteros_core::{AosError, Result};
 use async_trait::async_trait;
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
+use std::path::PathBuf;
 use std::str::FromStr;
 use tracing::info;
 
@@ -67,8 +68,8 @@ impl DatabaseBackend for SqliteBackend {
     }
 
     async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
-        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, String, String, String, String, Option<String>, Option<String>)>(
-            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
+        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, i64, String, String, String, Option<String>, Option<String>)>(
+            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
              FROM adapter_stacks WHERE tenant_id = ? AND id = ?"
         )
         .bind(tenant_id)
@@ -84,7 +85,7 @@ impl DatabaseBackend for SqliteBackend {
             description: r.3,
             adapter_ids_json: r.4,
             workflow_type: r.5,
-            version: r.6.parse().unwrap_or(1),
+            version: r.6,
             lifecycle_state: r.7,
             created_at: r.8,
             updated_at: r.9,
@@ -101,7 +102,7 @@ impl DatabaseBackend for SqliteBackend {
             Option<String>,   // description
             String,           // adapter_ids_json
             Option<String>,   // workflow_type
-            String,           // version
+            i64,              // version
             String,           // lifecycle_state
             String,           // created_at
             String,           // updated_at
@@ -109,7 +110,7 @@ impl DatabaseBackend for SqliteBackend {
             Option<String>,   // determinism_mode
         )>(
             r#"
-            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
+            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
             FROM adapter_stacks
             ORDER BY created_at DESC
             "#
@@ -127,7 +128,7 @@ impl DatabaseBackend for SqliteBackend {
                 description: r.3,
                 adapter_ids_json: r.4,
                 workflow_type: r.5,
-                version: r.6.parse().unwrap_or(1),
+            version: r.6,
                 lifecycle_state: r.7,
                 created_at: r.8,
                 updated_at: r.9,
@@ -203,10 +204,23 @@ impl DatabaseBackend for SqliteBackend {
     }
 
     async fn run_migrations(&self) -> Result<()> {
-        // Use the standard migration runner for SQLite
-        // Note: We skip sqlx::migrate! macro here to avoid compile-time checks
-        // Migrations should be run separately by the application
-        info!("SQLite migrations should be run separately");
+        // Run workspace migrations to mirror Db::migrate behavior for tests
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .ok_or_else(|| AosError::Database("Failed to locate workspace root".to_string()))?;
+        let migrations_path = workspace_root.join("migrations");
+
+        let migrator = sqlx::migrate::Migrator::new(migrations_path.clone())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to load migrations: {}", e)))?;
+
+        migrator
+            .run(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
+
         Ok(())
     }
 
@@ -259,7 +273,7 @@ impl DatabaseBackend for SqliteBackend {
         let rows = sqlx::query(
             r#"
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
-                   version, lifecycle_state, created_at, updated_at, created_by
+                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -279,7 +293,7 @@ impl DatabaseBackend for SqliteBackend {
                 description: r.get::<Option<String>, _>(3),
                 adapter_ids_json: r.get(4),
                 workflow_type: r.get::<Option<String>, _>(5),
-                version: r.get(6),
+                version: r.get::<i64, _>(6),
                 lifecycle_state: r.get(7),
                 created_at: r.get(8),
                 updated_at: r.get(9),

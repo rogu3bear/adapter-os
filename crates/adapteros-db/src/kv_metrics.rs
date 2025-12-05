@@ -99,6 +99,10 @@
 //! }
 //! ```
 
+use adapteros_telemetry::alerting::{
+    AlertComparator, AlertRecord, AlertRule, AlertSeverity, AlertingEngine, EscalationPolicy,
+    NotificationChannel,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -111,6 +115,86 @@ static KV_METRICS: once_cell::sync::Lazy<Arc<KvMetrics>> =
 /// Get the global KV metrics instance
 pub fn global_kv_metrics() -> Arc<KvMetrics> {
     KV_METRICS.clone()
+}
+
+/// Metric keys used for KV alert rules.
+pub const KV_ALERT_METRIC_FALLBACKS: &str = "kv.fallbacks_total";
+pub const KV_ALERT_METRIC_ERRORS: &str = "kv.errors_total";
+pub const KV_ALERT_METRIC_DRIFT: &str = "kv.drift_detections_total";
+pub const KV_ALERT_METRIC_DEGRADATIONS: &str = "kv.degraded_events_total";
+
+/// Default alert rules for KV degradation and drift detection.
+pub fn kv_alert_rules() -> Vec<AlertRule> {
+    let escalation = EscalationPolicy {
+        repeat_interval: Duration::from_secs(300),
+        channels: vec![NotificationChannel {
+            channel_type: "log".to_string(),
+            target: "kv-alerts".to_string(),
+        }],
+    };
+
+    vec![
+        AlertRule {
+            name: "kv_fallbacks_detected".to_string(),
+            metric: KV_ALERT_METRIC_FALLBACKS.to_string(),
+            comparator: AlertComparator::GreaterThan,
+            threshold: 0.0,
+            severity: AlertSeverity::Warning,
+            escalation: escalation.clone(),
+        },
+        AlertRule {
+            name: "kv_backend_errors".to_string(),
+            metric: KV_ALERT_METRIC_ERRORS.to_string(),
+            comparator: AlertComparator::GreaterThan,
+            threshold: 0.0,
+            severity: AlertSeverity::Critical,
+            escalation: escalation.clone(),
+        },
+        AlertRule {
+            name: "kv_drift_detected".to_string(),
+            metric: KV_ALERT_METRIC_DRIFT.to_string(),
+            comparator: AlertComparator::GreaterThan,
+            threshold: 0.0,
+            severity: AlertSeverity::Warning,
+            escalation: escalation.clone(),
+        },
+        AlertRule {
+            name: "kv_degraded_events".to_string(),
+            metric: KV_ALERT_METRIC_DEGRADATIONS.to_string(),
+            comparator: AlertComparator::GreaterThan,
+            threshold: 0.0,
+            severity: AlertSeverity::Critical,
+            escalation,
+        },
+    ]
+}
+
+/// Evaluate KV alert rules against the provided snapshot.
+pub fn evaluate_kv_alerts(
+    snapshot: &KvMetricsSnapshot,
+    alerting: &mut AlertingEngine,
+) -> Vec<AlertRecord> {
+    let mut alerts = Vec::new();
+    alerts.extend(alerting.evaluate_metric(
+        KV_ALERT_METRIC_FALLBACKS,
+        snapshot.fallback_operations_total as f64,
+    ));
+    alerts.extend(alerting.evaluate_metric(KV_ALERT_METRIC_ERRORS, snapshot.errors_total as f64));
+    alerts.extend(alerting.evaluate_metric(
+        KV_ALERT_METRIC_DRIFT,
+        snapshot.drift_detections_total as f64,
+    ));
+    alerts.extend(alerting.evaluate_metric(
+        KV_ALERT_METRIC_DEGRADATIONS,
+        snapshot.degraded_events_total as f64,
+    ));
+    alerts
+}
+
+/// Evaluate KV alerts against the current global metrics snapshot.
+pub fn evaluate_global_kv_alerts(alerting: &mut AlertingEngine) -> Vec<AlertRecord> {
+    let snapshot = global_kv_metrics().snapshot();
+    evaluate_kv_alerts(&snapshot, alerting)
 }
 
 /// KV operation metrics collector
@@ -538,6 +622,39 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    fn empty_snapshot() -> KvMetricsSnapshot {
+        KvMetricsSnapshot {
+            reads_total: 0,
+            writes_total: 0,
+            deletes_total: 0,
+            scans_total: 0,
+            index_queries_total: 0,
+            operations_total: 0,
+            read_avg_ms: 0.0,
+            write_avg_ms: 0.0,
+            delete_avg_ms: 0.0,
+            scan_avg_ms: 0.0,
+            read_p50_ms: 0.0,
+            read_p95_ms: 0.0,
+            read_p99_ms: 0.0,
+            write_p50_ms: 0.0,
+            write_p95_ms: 0.0,
+            write_p99_ms: 0.0,
+            fallback_reads_total: 0,
+            fallback_writes_total: 0,
+            fallback_deletes_total: 0,
+            fallback_operations_total: 0,
+            errors_not_found: 0,
+            errors_serialization: 0,
+            errors_backend: 0,
+            errors_timeout: 0,
+            errors_other: 0,
+            errors_total: 0,
+            drift_detections_total: 0,
+            degraded_events_total: 0,
+        }
+    }
+
     #[test]
     fn test_metrics_basic_operations() {
         let metrics = KvMetrics::new();
@@ -657,5 +774,31 @@ mod tests {
 
         let snapshot = metrics.snapshot();
         assert_eq!(snapshot.reads_total, 1000);
+    }
+
+    #[test]
+    fn kv_alert_rules_fire_on_fallbacks_and_drift() {
+        let mut engine = AlertingEngine::new(10);
+        for rule in kv_alert_rules() {
+            engine.register_rule(rule);
+        }
+
+        let mut snapshot = empty_snapshot();
+        snapshot.operations_total = 4;
+        snapshot.fallback_reads_total = 1;
+        snapshot.fallback_writes_total = 1;
+        snapshot.fallback_operations_total = 2;
+        snapshot.errors_backend = 1;
+        snapshot.errors_total = 1;
+        snapshot.drift_detections_total = 1;
+        snapshot.degraded_events_total = 1;
+
+        let alerts = evaluate_kv_alerts(&snapshot, &mut engine);
+        assert!(alerts.iter().any(|a| a.metric == KV_ALERT_METRIC_FALLBACKS));
+        assert!(alerts.iter().any(|a| a.metric == KV_ALERT_METRIC_ERRORS));
+        assert!(alerts.iter().any(|a| a.metric == KV_ALERT_METRIC_DRIFT));
+        assert!(alerts
+            .iter()
+            .any(|a| a.metric == KV_ALERT_METRIC_DEGRADATIONS));
     }
 }

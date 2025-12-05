@@ -99,6 +99,13 @@ impl TenantKvRepository {
         format!("tenant-by-name:{}", name)
     }
 
+    /// Idempotent upsert used by migration/repair paths.
+    pub async fn put_tenant(&self, tenant: &TenantKv) -> Result<()> {
+        let existing = self.load_tenant(&tenant.id).await?;
+        self.store_tenant(tenant).await?;
+        self.update_indexes(tenant, existing.as_ref()).await
+    }
+
     /// Build secondary index key for tenants by status
     fn status_index_key(status: &str, id: &str) -> String {
         format!("tenant-by-status:{}:{}", status, id)
@@ -254,7 +261,6 @@ impl TenantKvRepository {
 #[async_trait]
 impl TenantKvOps for TenantKvRepository {
     async fn create_tenant_kv(&self, params: &CreateTenantParams) -> Result<String> {
-        let now = Utc::now();
         let id = uuid::Uuid::now_v7().to_string();
 
         self.create_tenant_kv_with_id(&id, params).await?;
@@ -266,8 +272,6 @@ impl TenantKvOps for TenantKvRepository {
         id: &str,
         params: &CreateTenantParams,
     ) -> Result<String> {
-        let now = Utc::now();
-
         let tenant = TenantKv {
             id: id.to_string(),
             name: params.name.clone(),
@@ -279,8 +283,8 @@ impl TenantKvOps for TenantKvRepository {
             max_training_jobs: None,
             max_storage_gb: None,
             rate_limit_rpm: None,
-            created_at: now,
-            updated_at: now,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         };
 
         self.store_tenant(&tenant).await?;
@@ -616,7 +620,10 @@ mod tests {
             .create_tenant_kv(&params)
             .await
             .expect("kv write should succeed");
-        let tenants = repo.list_tenants_kv().await.expect("kv list should succeed");
+        let tenants = repo
+            .list_tenants_kv()
+            .await
+            .expect("kv list should succeed");
 
         assert_eq!(tenants.len(), 1);
         assert_eq!(tenants[0].id, tenant_id);

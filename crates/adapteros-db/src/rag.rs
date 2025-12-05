@@ -166,8 +166,46 @@ impl Db {
                 )
                 .await
             {
-                Ok(res) => return Ok(res),
+                Ok(kv_results) => {
+                    // If KV path returns empty but SQL fallback is allowed, use SQL for parity
+                    if kv_results.is_empty() && mode.sql_fallback_enabled() {
+                        let sql_results = self
+                            .retrieve_from_sql(
+                                tenant_id,
+                                embedding_model_hash,
+                                expected_dimension,
+                                query_embedding,
+                                top_k,
+                            )
+                            .await?;
+                        return Ok(sql_results);
+                    }
+
+                    // Drift detection while KV is primary to avoid silent split-brain.
+                    if mode.is_dual_write() && mode.write_to_sql() {
+                        if let Ok(sql_results) = self
+                            .retrieve_from_sql(
+                                tenant_id,
+                                embedding_model_hash,
+                                expected_dimension,
+                                query_embedding,
+                                top_k,
+                            )
+                            .await
+                        {
+                            if !drift_matches(&sql_results, &kv_results) {
+                                warn!(
+                                    tenant_id = %tenant_id,
+                                    "RAG retrieval drift detected between KV and SQL (kv-primary read)"
+                                );
+                            }
+                        }
+                    }
+
+                    return Ok(kv_results);
+                }
                 Err(e) if mode.sql_fallback_enabled() => {
+                    self.record_kv_read_fallback("rag.retrieve.fallback");
                     warn!(
                         tenant_id = %tenant_id,
                         error = %e,

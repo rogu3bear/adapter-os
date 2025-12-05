@@ -8,11 +8,12 @@ use adapteros_core::{AosError, Result};
 // Use models::AdapterKv which matches what AdapterRepository uses
 use adapteros_storage::repos::adapter::AdapterRepository;
 use adapteros_storage::AdapterKv;
+use chrono::{DateTime, Utc};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
-use chrono::{DateTime, Utc};
 
 /// Trait for adapter operations in KV mode
 ///
@@ -135,9 +136,14 @@ impl AdapterKvRepository {
         }
     }
 
-    /// Deterministic ordering helper: created_at DESC, then id ASC.
+    /// Deterministic ordering helper: tier ASC, created_at DESC, then id ASC.
     fn sort_adapters_deterministically(adapters: &mut Vec<Adapter>) {
         adapters.sort_by(|a, b| {
+            let tier_cmp = a.tier.cmp(&b.tier);
+            if tier_cmp != Ordering::Equal {
+                return tier_cmp;
+            }
+
             let parsed_a = DateTime::parse_from_rfc3339(&a.created_at)
                 .ok()
                 .map(|dt| dt.with_timezone(&Utc));

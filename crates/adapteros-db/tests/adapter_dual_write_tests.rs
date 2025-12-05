@@ -27,7 +27,7 @@ async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
     db.init_kv_backend(&kv_path).unwrap();
 
     // Set to DualWrite mode
-    db.set_storage_mode(StorageMode::DualWrite);
+    db.set_storage_mode(StorageMode::DualWrite).unwrap();
 
     // Create default tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')")
@@ -355,12 +355,12 @@ async fn test_kv_failure_does_not_fail_sql_operation() {
     // (In production, KV failures are logged but don't fail the operation)
     let kv_backend = db.kv_backend().cloned();
     db.detach_kv_backend();
-    db.set_storage_mode(StorageMode::DualWrite);
+    db.set_storage_mode(StorageMode::DualWrite).unwrap();
 
     // Re-attach but we'll verify behavior
     if let Some(kv) = kv_backend {
         db.attach_kv_backend((*kv).clone());
-        db.set_storage_mode(StorageMode::DualWrite);
+        db.set_storage_mode(StorageMode::DualWrite).unwrap();
     }
 
     // Register an adapter - this should succeed even if KV write fails
@@ -457,7 +457,7 @@ async fn test_sql_only_mode_does_not_write_to_kv() {
     let (mut db, _sql_temp, _kv_temp) = create_dual_write_db().await;
 
     // Switch to SqlOnly mode
-    db.set_storage_mode(StorageMode::SqlOnly);
+    db.set_storage_mode(StorageMode::SqlOnly).unwrap();
 
     // Register an adapter
     let params = AdapterRegistrationBuilder::new()
@@ -490,7 +490,7 @@ async fn test_mode_transition_from_sql_to_dual_write() {
     let (mut db, _sql_temp, _kv_temp) = create_dual_write_db().await;
 
     // Start in SqlOnly mode
-    db.set_storage_mode(StorageMode::SqlOnly);
+    db.set_storage_mode(StorageMode::SqlOnly).unwrap();
 
     // Register adapter in SqlOnly mode
     let params1 = AdapterRegistrationBuilder::new()
@@ -511,7 +511,7 @@ async fn test_mode_transition_from_sql_to_dual_write() {
     assert!(!adapter_exists_in_kv(&db, "default-tenant", "transition-test-1").await);
 
     // Switch to DualWrite mode
-    db.set_storage_mode(StorageMode::DualWrite);
+    db.set_storage_mode(StorageMode::DualWrite).unwrap();
 
     // Register new adapter in DualWrite mode
     let params2 = AdapterRegistrationBuilder::new()

@@ -205,8 +205,14 @@ pub enum MetadataValidationError {
 /// Convert database Adapter to canonical AdapterMeta
 impl From<crate::adapters::Adapter> for AdapterMeta {
     fn from(adapter: crate::adapters::Adapter) -> Self {
+        // Prefer external adapter_id for canonical metadata identity when available
+        let meta_id = adapter
+            .adapter_id
+            .clone()
+            .unwrap_or_else(|| adapter.id.clone());
+
         AdapterMeta {
-            id: adapter.id,
+            id: meta_id,
             tenant_id: adapter.tenant_id,
             name: adapter.name,
             adapter_id: adapter.adapter_id,

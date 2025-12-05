@@ -9,7 +9,7 @@ async fn kv_primary_smoke_load() -> Result<()> {
 
     let mut db = Db::new_in_memory().await?;
     db.init_kv_backend(&kv_path)?;
-    db.set_storage_mode(StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary)?;
     db.clear_degraded();
 
     let mut tenant_ids = Vec::new();
@@ -20,8 +20,14 @@ async fn kv_primary_smoke_load() -> Result<()> {
 
     for (idx, tenant_id) in tenant_ids.iter().enumerate() {
         let email = format!("user{idx}@example.com");
-        db.create_user(&email, &format!("User {idx}"), "hash", Role::Admin, tenant_id)
-            .await?;
+        db.create_user(
+            &email,
+            &format!("User {idx}"),
+            "hash",
+            Role::Admin,
+            tenant_id,
+        )
+        .await?;
     }
 
     let tenants = db.list_tenants().await?;
@@ -36,4 +42,3 @@ async fn kv_primary_smoke_load() -> Result<()> {
 
     Ok(())
 }
-

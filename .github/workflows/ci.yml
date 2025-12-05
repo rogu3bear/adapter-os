@@ -53,6 +53,32 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Prepare KV path
         run: mkdir -p /tmp/aos-kv
+      - name: Detect KV-only coverage readiness
+        id: coverage
+        run: |
+          python - <<'PY'
+          import os, re, pathlib
+
+          content = pathlib.Path("crates/adapteros-db/src/lib.rs").read_text()
+          match = re.search(r"const UNSUPPORTED: &[^\[]*\[(.*?)\];", content, re.S)
+          entries = []
+          if match:
+              for line in match.group(1).splitlines():
+                  line = line.strip().strip(",")
+                  if not line or line in ('""', "''"):
+                      continue
+                  entries.append(line.strip().strip('"'))
+
+          ready = len(entries) == 0
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"coverage_ready={'true' if ready else 'false'}\n")
+              fh.write(f"unsupported_domains={','.join(entries)}\n")
+
+          if ready:
+              print("KV-only coverage ready; enabling kv_only smoke")
+          else:
+              print(f"KV-only coverage incomplete; unsupported domains: {entries}")
+          PY
       - name: Run KV-primary smoke suite
         env:
           AOS_STORAGE_BACKEND: kv_primary
@@ -60,6 +86,15 @@ jobs:
         run: |
           cargo test -p adapteros-db -- --nocapture
           cargo test -p adapteros-server-api -- --nocapture
+      - name: Run KV-only smoke (gated)
+        if: steps.coverage.outputs.coverage_ready == 'true'
+        env:
+          AOS_STORAGE_BACKEND: kv_only
+          AOS_KV_PATH: /tmp/aos-kv/aos-kv.redb
+        run: cargo test -p adapteros-db --test kv_only_paths -- --nocapture
+      - name: Skip KV-only smoke (coverage incomplete)
+        if: steps.coverage.outputs.coverage_ready != 'true'
+        run: echo "KV-only smoke skipped; unsupported domains: ${{ steps.coverage.outputs.unsupported_domains }}"
 
   security-audit:
     name: Security Audit

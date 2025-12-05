@@ -186,7 +186,7 @@ impl Db {
     /// Update worker heartbeat and optionally status
     pub async fn update_worker_heartbeat(&self, id: &str, status: Option<&str>) -> Result<()> {
         if let Some(st) = status {
-            sqlx::query(
+            let result = sqlx::query(
                 "UPDATE workers SET status = ?, last_seen_at = datetime('now') WHERE id = ?",
             )
             .bind(st)
@@ -194,12 +194,20 @@ impl Db {
             .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+            if result.rows_affected() == 0 {
+                return Err(AosError::NotFound(format!("Worker not found: {}", id)));
+            }
         } else {
-            sqlx::query("UPDATE workers SET last_seen_at = datetime('now') WHERE id = ?")
+            let result = sqlx::query("UPDATE workers SET last_seen_at = datetime('now') WHERE id = ?")
                 .bind(id)
                 .execute(&*self.pool())
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
+
+            if result.rows_affected() == 0 {
+                return Err(AosError::NotFound(format!("Worker not found: {}", id)));
+            }
         }
         Ok(())
     }

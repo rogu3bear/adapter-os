@@ -108,7 +108,7 @@ impl Db {
 }
 
 #[allow(dead_code)]
-pub(crate) fn telemetry_drift_count() -> u64 {
+pub fn telemetry_drift_count() -> u64 {
     TELEMETRY_DRIFT_COUNTER.load(Ordering::Relaxed)
 }
 

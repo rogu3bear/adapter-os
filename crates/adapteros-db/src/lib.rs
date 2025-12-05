@@ -19,12 +19,16 @@ pub mod constants;
 // Database abstraction layer
 pub mod factory;
 pub mod kv_backend;
-pub mod kv_metrics;
 pub mod kv_diff;
+pub mod kv_metrics;
+pub mod documents_kv;
+pub mod collections_kv;
+pub mod policy_audit_kv;
+pub mod chat_sessions_kv;
 pub mod rag;
-mod replay_kv;
+pub mod replay_kv;
 pub mod sqlite_backend;
-mod telemetry_kv;
+pub mod telemetry_kv;
 pub mod tenant_execution_policies;
 pub mod tenant_policies;
 pub mod tenant_policy_bindings_kv;
@@ -44,7 +48,9 @@ pub use kv_diff::DiffIssue;
 
 // Re-export KV metrics types
 pub use kv_metrics::{
-    global_kv_metrics, KvErrorType, KvMetrics, KvMetricsSnapshot, KvOperationTimer, KvOperationType,
+    evaluate_global_kv_alerts, evaluate_kv_alerts, global_kv_metrics, kv_alert_rules, KvErrorType,
+    KvMetrics, KvMetricsSnapshot, KvOperationTimer, KvOperationType, KV_ALERT_METRIC_DEGRADATIONS,
+    KV_ALERT_METRIC_DRIFT, KV_ALERT_METRIC_ERRORS, KV_ALERT_METRIC_FALLBACKS,
 };
 
 // Re-export tenant policy types
@@ -304,25 +310,27 @@ pub fn kv_coverage_summary() -> KvCoverageSummary {
         "auth_sessions",
         "plans",
         "tenant_policy_bindings",
+        "rag",
+        "telemetry",
+        "replay",
+        "plugin_configs",
+        "messages",
+        "runtime_sessions",
+        "repositories",
     ];
     // SQL-only domains that block KV-only posture today
-    const UNSUPPORTED: &[&str] = &[
-        "repositories",
-        "documents",
-        "collections",
-        "messages",
-        "rag/telemetry",
-        "replay",
-        "policy_audit",
-        "training_jobs",
-        "runtime_sessions",
-        "chat_sessions",
-    ];
+    // Dec 2025: KV coverage implemented for prior blockers; keep list empty to allow KV-only.
+    const UNSUPPORTED: &[&str] = &[];
 
     KvCoverageSummary {
         supported_domains: SUPPORTED,
         unsupported_domains: UNSUPPORTED,
     }
+}
+
+/// Returns true when kv_only posture must remain blocked by coverage gaps.
+pub fn kv_only_blocked_by_coverage() -> bool {
+    !kv_coverage_summary().unsupported_domains.is_empty()
 }
 
 #[cfg(test)]
@@ -660,7 +668,7 @@ impl Db {
             match db.init_kv_backend(std::path::Path::new(&kv_path)) {
                 Ok(()) => {
                     // KV backend initialized successfully, set requested mode
-                    db.set_storage_mode(requested_mode);
+                    db.set_storage_mode(requested_mode)?;
                     info!(
                         mode = %requested_mode,
                         "KV backend initialized successfully"
@@ -675,13 +683,13 @@ impl Db {
                         fallback_mode = "sql_only",
                         "KV backend initialization failed - falling back to SqlOnly mode"
                     );
-                    db.set_storage_mode(StorageMode::SqlOnly);
+                    db.set_storage_mode(StorageMode::SqlOnly)?;
                     db.mark_degraded(format!("KV backend init failed: {}", e));
                 }
             }
         } else {
             // No KV backend needed for SqlOnly mode
-            db.set_storage_mode(requested_mode);
+            db.set_storage_mode(requested_mode)?;
         }
 
         db.enforce_kv_only_guard()?;
@@ -1193,7 +1201,7 @@ impl Db {
         };
         let rows = sqlx::query_as::<_, StackRecord>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -1228,7 +1236,7 @@ impl Db {
         };
         let row = sqlx::query_as::<_, StackRecord>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
             FROM adapter_stacks
             WHERE tenant_id = ? AND id = ?
             "#,
@@ -1325,28 +1333,39 @@ impl Db {
 
     /// Activate a stack by setting lifecycle_state to 'active' (SQL + KV)
     pub async fn activate_stack(&self, tenant_id: &str, id: &str) -> Result<()> {
-        if self.storage_mode().write_to_sql() {
-            if let Some(pool) = self.pool_opt() {
-                let result = sqlx::query(
-                    r#"
-                    UPDATE adapter_stacks
-                    SET lifecycle_state = 'active',
-                        updated_at = datetime('now')
-                    WHERE tenant_id = ? AND id = ?
-                    "#,
-                )
-                .bind(tenant_id)
-                .bind(id)
-                .execute(pool)
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to activate stack: {}", e)))?;
+        let mut activated = false;
+        let kv_repo = if self.storage_mode().write_to_kv() {
+            self.get_stack_kv_repo()
+        } else {
+            None
+        };
 
-                if result.rows_affected() == 0 && !self.storage_mode().write_to_kv() {
-                    return Err(AosError::NotFound(format!(
-                        "Stack {} not found for tenant {}",
-                        id, tenant_id
-                    )));
-                }
+        if self.storage_mode().write_to_sql() {
+            let pool = self.pool_opt().ok_or_else(|| {
+                AosError::Database("SQL backend unavailable for activate_stack".to_string())
+            })?;
+
+            let result = sqlx::query(
+                r#"
+                UPDATE adapter_stacks
+                SET lifecycle_state = 'active',
+                    updated_at = datetime('now')
+                WHERE tenant_id = ? AND id = ?
+                "#,
+            )
+            .bind(tenant_id)
+            .bind(id)
+            .execute(pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to activate stack: {}", e)))?;
+
+            activated |= result.rows_affected() > 0;
+
+            if !activated && kv_repo.is_none() {
+                return Err(AosError::NotFound(format!(
+                    "Stack {} not found for tenant {}",
+                    id, tenant_id
+                )));
             }
         } else if !self.storage_mode().write_to_kv() {
             return Err(AosError::Database(
@@ -1355,16 +1374,35 @@ impl Db {
         }
 
         // KV activation (dual-write mode)
-        if let Some(kv_backend) = self.get_stack_kv_repo() {
+        if let Some(kv_backend) = kv_repo {
             use stacks_kv::StackKvOps;
-            if let Err(e) = kv_backend.activate_stack(id).await {
-                warn!(
-                    error = %e,
-                    stack_id = %id,
-                    tenant_id = %tenant_id,
-                    "Failed to activate stack in KV backend (dual-write)"
-                );
+            match kv_backend.activate_stack(id).await {
+                Ok(()) => {
+                    activated = true;
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        stack_id = %id,
+                        tenant_id = %tenant_id,
+                        "Failed to activate stack in KV backend (dual-write)"
+                    );
+
+                    if !activated {
+                        return Err(AosError::Database(format!(
+                            "Failed to activate stack (KV backend): {}",
+                            e
+                        )));
+                    }
+                }
             }
+        }
+
+        if !activated {
+            return Err(AosError::NotFound(format!(
+                "Stack {} not found for tenant {}",
+                id, tenant_id
+            )));
         }
 
         Ok(())
@@ -1420,10 +1458,10 @@ impl Db {
     /// db.init_kv_backend(std::path::Path::new("var/aos-kv.redb"))?;
     ///
     /// // Enable dual-write mode for migration validation
-    /// db.set_storage_mode(StorageMode::DualWrite);
+    /// db.set_storage_mode(StorageMode::DualWrite)?;
     ///
     /// // After validation, switch to KV-primary mode
-    /// db.set_storage_mode(StorageMode::KvPrimary);
+    /// db.set_storage_mode(StorageMode::KvPrimary)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -1433,7 +1471,7 @@ impl Db {
     /// Does not panic, but operations may fail if:
     /// - KV backend is not attached when using KV-dependent modes
     /// - Data has not been migrated to KV before switching to KV read modes
-    pub fn set_storage_mode(&mut self, mode: StorageMode) {
+    pub fn set_storage_mode(&mut self, mode: StorageMode) -> Result<()> {
         use tracing::info;
 
         if self.storage_mode != mode {
@@ -1456,7 +1494,15 @@ impl Db {
         self.storage_mode = mode;
 
         // Enforce guardrails for KV-only posture
-        let _ = self.enforce_kv_only_guard();
+        if let Err(err) = self.enforce_kv_only_guard() {
+            let reason = format!("KV-only guard failed: {}", err);
+            warn!(error = %err, "KV-only guard failed; reverting to sql_only");
+            self.storage_mode = StorageMode::SqlOnly;
+            self.mark_degraded(reason.clone());
+            return Err(err);
+        }
+
+        Ok(())
     }
 
     /// Get atomic dual-write configuration
@@ -1476,6 +1522,16 @@ impl Db {
     ) -> Self {
         self.set_atomic_dual_write_config(config);
         self
+    }
+
+    /// Returns true when dual-write must operate in strict (rollback-on-failure) mode.
+    ///
+    /// Strict mode is always enforced during KV cutover/steady-state modes
+    /// (`kv_primary` and `kv_only`), and can also be enabled explicitly via
+    /// `AOS_ATOMIC_DUAL_WRITE_STRICT`.
+    pub fn dual_write_requires_strict(&self) -> bool {
+        matches!(self.storage_mode, StorageMode::KvPrimary | StorageMode::KvOnly)
+            || self.atomic_dual_write_config.is_strict()
     }
 
     /// Attach a KV backend to this database instance
@@ -1539,6 +1595,31 @@ impl Db {
 
         let coverage = kv_coverage_summary();
         if coverage.unsupported_domains.is_empty() {
+            // Also downgrade if KV health signals fallbacks/errors while in kv_only.
+            let snapshot = crate::kv_metrics::global_kv_metrics().snapshot();
+            if snapshot.fallback_operations_total == 0 && snapshot.errors_total == 0 {
+                return Ok(());
+            }
+
+            let reason = format!(
+                "KV-only downgraded: fallbacks={} errors={}",
+                snapshot.fallback_operations_total, snapshot.errors_total
+            );
+
+            if self.pool.is_none() {
+                return Err(AosError::Config(reason));
+            }
+
+            warn!(
+                event = crate::constants::DEGRADATION_EVENT_KV_UNSUPPORTED,
+                fallback_mode = "kv_primary",
+                fallbacks = snapshot.fallback_operations_total,
+                errors = snapshot.errors_total,
+                "KV-only mode degraded due to KV fallbacks/errors"
+            );
+
+            self.storage_mode = StorageMode::KvPrimary;
+            self.mark_degraded(reason);
             return Ok(());
         }
 
@@ -1744,7 +1825,13 @@ impl Db {
     pub async fn list_adapters_by_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterRecord>> {
         let rows = sqlx::query_as::<_, AdapterRecord>(
             r#"
-            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state
+            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json,
+                   adapter_id, languages_json, framework, active, category, scope,
+                   framework_id, framework_version, repo_id, commit_sha, intent,
+                   current_state, pinned, memory_bytes, last_activated, activation_count,
+                   expires_at, load_state, last_loaded_at, adapter_name, tenant_namespace,
+                   domain, purpose, revision, parent_id, fork_type, fork_reason,
+                   version, lifecycle_state, archived_at, archived_by, archive_reason, purged_at
             FROM adapters
             WHERE tenant_id = ?
             ORDER BY name ASC
@@ -1963,6 +2050,7 @@ pub mod incidents;
 pub mod jobs;
 pub use jobs::Job;
 pub mod training_jobs;
+pub mod training_jobs_kv;
 pub use training_jobs::{TrainingJobRecord, TrainingMetricRow, TrainingProgress};
 pub mod training_datasets;
 pub use training_datasets::{
@@ -1980,6 +2068,7 @@ pub use patch_proposals::PatchProposal;
 pub mod pinned_adapters;
 pub mod plans;
 pub mod plugin_configs;
+pub mod plugin_configs_kv;
 pub use plugin_configs::{PluginConfig, PluginTenantEnable};
 pub mod plugin_enables;
 pub mod policies;
@@ -1990,10 +2079,10 @@ pub use promotions::{
     CreatePromotionRequestParams, GoldenRunStage, PromotionApproval, PromotionGate,
     PromotionRequest, RecordApprovalParams, RecordGateParams,
 };
+pub mod plans_kv;
 pub mod stacks_kv;
 pub mod tenants;
 pub mod tenants_kv;
-pub mod plans_kv;
 pub use policy_hash::PolicyHashRecord;
 pub use stacks_kv::{StackKvOps, StackKvRepository};
 pub use tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
@@ -2001,6 +2090,7 @@ pub mod process_monitoring;
 pub mod rag_retrieval_audit;
 pub mod replay_sessions;
 pub mod repositories;
+pub mod repositories_kv;
 pub mod routing_decisions;
 pub use routing_decisions::{RouterCandidate, RoutingDecision, RoutingDecisionFilters};
 pub mod routing_telemetry_bridge;
@@ -2031,6 +2121,7 @@ pub use documents::{CreateChunkParams, CreateDocumentParams, Document, DocumentC
 // Workspace, notifications, messages, dashboard, and tutorial modules
 pub mod dashboard_configs;
 pub mod messages;
+pub mod messages_kv;
 pub mod notifications;
 pub mod tutorials;
 pub mod workspaces;
@@ -2047,6 +2138,7 @@ pub mod auth_sessions;
 pub mod auth_sessions_kv;
 pub use auth_sessions::AuthSession;
 pub mod runtime_sessions;
+pub mod runtime_sessions_kv;
 pub use dashboard_configs::DashboardWidgetConfig;
 pub use notifications::{Notification, NotificationType};
 pub use runtime_sessions::RuntimeSession;
@@ -2398,7 +2490,7 @@ impl Db {
 
         match self.init_kv_backend(kv_path) {
             Ok(()) => {
-                self.set_storage_mode(target_mode);
+                self.set_storage_mode(target_mode)?;
                 self.clear_degraded();
                 info!(mode = %target_mode, "Recovery successful");
                 Ok(true)

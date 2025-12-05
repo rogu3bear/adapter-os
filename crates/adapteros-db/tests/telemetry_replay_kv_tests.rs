@@ -1,22 +1,20 @@
-use adapteros_db::replay_executions::{
-    CreateReplayExecutionParams, UpdateReplayExecutionParams,
-};
+use adapteros_db::replay_executions::{CreateReplayExecutionParams, UpdateReplayExecutionParams};
+use adapteros_db::replay_kv::replay_drift_count;
 use adapteros_db::replay_metadata::CreateReplayMetadataParams;
 use adapteros_db::replay_sessions::ReplaySession;
 use adapteros_db::telemetry_bundles::TelemetryBatchBuilder;
-use adapteros_db::{Db, StorageMode};
+use adapteros_db::telemetry_kv::telemetry_drift_count;
+use adapteros_db::{Db, KvDb, StorageMode};
 use tempfile::TempDir;
 use uuid::Uuid;
 
 async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
     let sql_temp = TempDir::new().unwrap();
-    let kv_temp = TempDir::new().unwrap();
-
     let sql_path = sql_temp.path().join("test.db");
-    let kv_path = kv_temp.path().join("test.kv");
-
     let mut db = Db::connect(sql_path.to_str().unwrap()).await.unwrap();
     db.migrate().await.unwrap();
+    db.attach_kv_backend(KvDb::init_in_memory().unwrap());
+    db.set_storage_mode(StorageMode::DualWrite).unwrap();
 
     // Ensure required tables exist (some migrations may be skipped in temp DBs)
     sqlx::query(
@@ -84,16 +82,13 @@ async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
     .execute(db.pool())
     .await
     .unwrap();
-    db.init_kv_backend(&kv_path).unwrap();
-    db.set_storage_mode(StorageMode::DualWrite);
-
     // Default tenant for FK
     sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')")
         .execute(db.pool())
         .await
         .unwrap();
 
-    (db, sql_temp, kv_temp)
+    (db, sql_temp, TempDir::new().unwrap())
 }
 
 #[tokio::test]
@@ -112,18 +107,21 @@ async fn telemetry_dual_write_and_kv_primary_read() {
     let id = db.record_telemetry_batch(params.clone()).await.unwrap();
 
     // Switch to KV-primary to validate read path
-    db.set_storage_mode(StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
     let events = db
         .get_telemetry_by_tenant(&params.tenant_id, 10)
         .await
         .unwrap();
     if events.is_empty() {
-        db.set_storage_mode(StorageMode::SqlOnly);
+        db.set_storage_mode(StorageMode::SqlOnly).unwrap();
         let sql_events = db
             .get_telemetry_by_tenant(&params.tenant_id, 10)
             .await
             .unwrap();
-        assert!(!sql_events.is_empty(), "Telemetry events missing in both KV and SQL");
+        assert!(
+            !sql_events.is_empty(),
+            "Telemetry events missing in both KV and SQL"
+        );
         assert_eq!(sql_events[0].id, id);
     } else {
         assert_eq!(events[0].id, id);
@@ -167,7 +165,10 @@ async fn replay_round_trip_kv_primary() {
         execution_policy_version: None,
     };
 
-    let _meta_id = db.create_replay_metadata(replay_params.clone()).await.unwrap();
+    let _meta_id = db
+        .create_replay_metadata(replay_params.clone())
+        .await
+        .unwrap();
 
     let exec_params = CreateReplayExecutionParams {
         original_inference_id: replay_params.inference_id.clone(),
@@ -228,7 +229,7 @@ async fn replay_round_trip_kv_primary() {
     }
 
     // KV primary read path
-    db.set_storage_mode(StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
     let meta = db
         .get_replay_metadata_by_inference(&replay_params.inference_id)
@@ -249,3 +250,96 @@ async fn replay_round_trip_kv_primary() {
     assert_eq!(sessions[0].id, session.id);
 }
 
+#[tokio::test]
+async fn telemetry_drift_detection_on_sql_mismatch() {
+    let (mut db, _sql_tmp, _kv_tmp) = create_dual_write_db().await;
+
+    let params = TelemetryBatchBuilder::new()
+        .tenant_id("default-tenant")
+        .event_type("test.event")
+        .event_data(serde_json::json!({"k":"v"}))
+        .timestamp("2025-01-01T00:00:00Z")
+        .build()
+        .unwrap();
+
+    let id = db.record_telemetry_batch(params.clone()).await.unwrap();
+
+    // Introduce SQL drift
+    sqlx::query("UPDATE telemetry_events SET event_data = '{\"k\":\"sql\"}' WHERE id = ?")
+        .bind(&id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
+    let before = telemetry_drift_count();
+    let events = db
+        .get_telemetry_by_tenant(&params.tenant_id, 10)
+        .await
+        .unwrap_or_default();
+    assert!(
+        !events.is_empty(),
+        "expected telemetry events via KV primary"
+    );
+    let after = telemetry_drift_count();
+    assert!(
+        after > before,
+        "expected telemetry drift counter to increase after mismatch"
+    );
+}
+
+#[tokio::test]
+async fn replay_drift_detection_on_sql_mismatch() {
+    let (mut db, _sql_tmp, _kv_tmp) = create_dual_write_db().await;
+
+    let replay_params = CreateReplayMetadataParams {
+        inference_id: "inf-drift".to_string(),
+        tenant_id: "default-tenant".to_string(),
+        manifest_hash: "manifest-hash".to_string(),
+        router_seed: Some("seed-1".to_string()),
+        sampling_params_json: r#"{"temperature":0.1}"#.to_string(),
+        backend: "CoreML".to_string(),
+        sampling_algorithm_version: Some("v1.0.0".to_string()),
+        rag_snapshot_hash: None,
+        adapter_ids: None,
+        prompt_text: "prompt".to_string(),
+        prompt_truncated: false,
+        response_text: Some("response".to_string()),
+        response_truncated: false,
+        rag_doc_ids: None,
+        chat_context_hash: None,
+        replay_status: Some("available".to_string()),
+        latency_ms: Some(10),
+        tokens_generated: Some(3),
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: false,
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
+    };
+
+    db.create_replay_metadata(replay_params.clone())
+        .await
+        .unwrap();
+
+    // Introduce SQL drift
+    sqlx::query(
+        "UPDATE inference_replay_metadata SET manifest_hash = 'sql-hash' WHERE inference_id = ?",
+    )
+    .bind(&replay_params.inference_id)
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
+    let before = replay_drift_count();
+    let _ = db
+        .get_replay_metadata_by_inference(&replay_params.inference_id)
+        .await
+        .unwrap();
+    let after = replay_drift_count();
+    assert!(
+        after > before,
+        "expected replay drift counter to increase after mismatch"
+    );
+}
