@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -40,6 +41,7 @@ interface AdaptersData {
 function AdaptersPageContent() {
   const { can, userRole } = useRBAC();
   const { errors, addError, clearError } = usePageErrors();
+  const navigate = useNavigate();
 
   const fetchAdaptersData = async (): Promise<AdaptersData> => {
     const adaptersData = await apiClient.listAdapters();
@@ -135,6 +137,7 @@ function AdaptersPageContent() {
 
   // Permission check helpers with canonical strings
   const canRegister = can('adapter:register');
+   const canStartTraining = can('training:start');
   const canLoad = can('adapter:load');
   const canUnload = can('adapter:unload');
   const canDelete = can('adapter:delete');
@@ -143,6 +146,34 @@ function AdaptersPageContent() {
     <div className="space-y-6">
       {/* Consolidated Error Display */}
       <PageErrors errors={errors} />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Next steps</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {adapters.length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              No adapters yet. Register an adapter or start training to create one.
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              Keep going: train adapters from datasets and configure routing to activate them.
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate('/adapters/new')} disabled={!canRegister}>
+              Register adapter
+            </Button>
+            <Button size="sm" onClick={() => navigate('/training/jobs')} disabled={!canStartTraining}>
+              Start training
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => navigate('/router-config')}>
+              Configure routing
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {visibleHint && (
         <ProgressiveHint
@@ -171,16 +202,16 @@ function AdaptersPageContent() {
             variant="outline"
             disabled={!canRegister}
             title={!canRegister ? 'Requires adapter:register permission' : 'Register a new adapter'}
-            onClick={() => toast.info('Registration flow coming soon')}
+            onClick={() => navigate('/adapters/new')}
           >
             <Upload className="h-4 w-4 mr-2" />
             Register
             <GlossaryTooltip brief="Register a new LoRA adapter from weights file" />
           </Button>
           <Button
-            disabled={!canRegister}
-            title={!canRegister ? 'Requires adapter:register permission' : 'Train a new adapter'}
-            onClick={() => toast.info('Training wizard coming soon')}
+            disabled={!canStartTraining}
+            title={!canStartTraining ? 'Requires training:start permission' : 'Train a new adapter'}
+            onClick={() => navigate('/training/jobs')}
           >
             Train New Adapter
             <GlossaryTooltip brief="Start the training wizard to create a new LoRA adapter from documents" />
@@ -370,6 +401,15 @@ function AdaptersPageContent() {
                             <Trash2 className="mr-2 h-4 w-4" />
                             Delete
                             <GlossaryTooltip brief="Permanently remove adapter and weights from the system" />
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => navigate(`/training/jobs?adapterId=${adapter.id}`)}>
+                            <Upload className="mr-2 h-4 w-4" />
+                            View training jobs
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => navigate(`/router-config?adapterId=${adapter.id}`)}>
+                            <ArrowUp className="mr-2 h-4 w-4" />
+                            Configure routing
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

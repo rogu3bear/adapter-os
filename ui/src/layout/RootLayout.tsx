@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { AppHeader } from '@/components/header';
@@ -17,7 +17,8 @@ import {
 } from '@/components/ui/sidebar';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
-import { useTheme, useAuth } from '@/providers/CoreProviders';
+import { TENANT_SELECTION_REQUIRED_KEY, useTheme, useAuth } from '@/providers/CoreProviders';
+import { useTenant } from '@/providers/FeatureProviders';
 import { CommandPaletteProvider, type CommandItem, useCommandPalette } from '@/contexts/CommandPaletteContext';
 import { CommandPalette } from '@/components/CommandPalette';
 import { HelpCenter } from '@/components/HelpCenter';
@@ -29,6 +30,10 @@ import { cn } from '@/components/ui/utils';
 import { Lock, ChevronDown, ChevronRight } from 'lucide-react';
 import { LiveDataStatusProvider } from '@/hooks/useLiveDataStatus';
 import { ConnectionStatusIndicator } from '@/components/header/ConnectionStatusIndicator';
+import { toast } from 'sonner';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 const COLLAPSED_GROUPS_KEY = 'aos_sidebar_collapsed_groups';
 
@@ -218,8 +223,11 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
 }
 
 export default function RootLayout() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, logout } = useAuth();
+  const { selectedTenant, tenants, setSelectedTenant, isLoading: tenantsLoading, refreshTenants } = useTenant();
   const location = useLocation();
+  const [tenantError, setTenantError] = useState<string | null>(null);
+  const [isSwitchingTenant, setIsSwitchingTenant] = useState(false);
 
   // Generate navigation groups from centralized route config
   const navigationGroups = useMemo(() => generateNavigationGroups(user?.role, user?.permissions), [user?.role, user?.permissions]);
@@ -274,6 +282,37 @@ export default function RootLayout() {
     return items;
   }, [navigationGroups, user?.role]);
 
+  const requiresTenantSelection = useMemo(() => {
+    if (!user) return false;
+    const multipleTenants = tenants.length > 1;
+    const noSelection = !selectedTenant;
+    const noTenantAccess = tenants.length === 0;
+    let forcedSelection = false;
+    try {
+      forcedSelection = sessionStorage.getItem(TENANT_SELECTION_REQUIRED_KEY) === '1';
+    } catch {
+      forcedSelection = false;
+    }
+    return noTenantAccess || (multipleTenants && (forcedSelection || noSelection));
+  }, [selectedTenant, tenants.length, user]);
+
+  const handleTenantChoice = useCallback(async (tenantId: string) => {
+    if (isSwitchingTenant) return;
+    setIsSwitchingTenant(true);
+    setTenantError(null);
+    const ok = await setSelectedTenant(tenantId);
+    if (!ok) {
+      setTenantError('Unable to switch tenant. You may not have access.');
+    } else {
+      try {
+        sessionStorage.removeItem(TENANT_SELECTION_REQUIRED_KEY);
+      } catch {
+        // ignore storage errors
+      }
+    }
+    setIsSwitchingTenant(false);
+  }, [isSwitchingTenant, setSelectedTenant]);
+
   // Show loading state with skeleton layout that includes Outlet
   // This prevents blank pages during auth check while preserving route rendering
   if (isLoading) {
@@ -305,16 +344,79 @@ export default function RootLayout() {
     );
   }
 
-  // Redirect unauthenticated users to login
-  if (!user && location.pathname !== '/login') {
-    return <Navigate to="/login" replace />;
+const POST_LOGIN_REDIRECT_KEY = 'postLoginRedirect';
+
+// Redirect unauthenticated users to login
+if (!user && location.pathname !== '/login') {
+  try {
+    sessionStorage.setItem(
+      POST_LOGIN_REDIRECT_KEY,
+      `${location.pathname}${location.search || ''}`,
+    );
+  } catch {
+    // ignore storage errors
   }
+  toast.error('Session expired — please sign in again.');
+  return <Navigate to="/login" replace />;
+}
 
   // Login page without sidebar/navigation - LoginForm handles its own layout
   if (location.pathname === '/login') {
     return (
       <>
         <Outlet />
+        <Toaster position="top-right" className="z-40" />
+      </>
+    );
+  }
+
+  if (user && !tenantsLoading && requiresTenantSelection) {
+    return (
+      <>
+        <div className="min-h-screen flex items-center justify-center bg-background px-4">
+          <Card className="w-full max-w-xl border-border/70 shadow-lg">
+            <CardHeader>
+              <CardTitle>Select a tenant</CardTitle>
+              <CardDescription>Pick one tenant for this session. You can switch later from the header.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {tenantError && <div className="text-sm text-destructive">{tenantError}</div>}
+              {tenants.map((tenant) => (
+                <Button
+                  key={tenant.id}
+                  variant={tenant.id === selectedTenant ? 'default' : 'outline'}
+                  className="w-full justify-between"
+                  disabled={isSwitchingTenant}
+                  onClick={() => void handleTenantChoice(tenant.id)}
+                >
+                  <span className="truncate text-left">{tenant.name}</span>
+                  <Badge variant="secondary">{tenant.id === selectedTenant ? 'Active' : 'Select'}</Badge>
+                </Button>
+              ))}
+              {tenants.length === 0 && (
+                <div className="rounded-md border border-border/80 p-3 text-sm text-muted-foreground">
+                  You’re signed in but have no tenant access. Ask an admin to grant access or sign out.
+                </div>
+              )}
+              <div className="flex gap-2 justify-between">
+                <Button
+                  variant="outline"
+                  onClick={() => void refreshTenants()}
+                  disabled={isSwitchingTenant}
+                >
+                  Reload tenants
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => void logout()}
+                  disabled={isSwitchingTenant}
+                >
+                  Sign out
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
         <Toaster position="top-right" className="z-40" />
       </>
     );

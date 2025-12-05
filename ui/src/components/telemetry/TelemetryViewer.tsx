@@ -20,6 +20,8 @@ import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { useSessionTelemetry } from '@/hooks/useSessionTelemetry';
 import { CHART_COLORS } from '@/constants/chart-colors';
 import { cn } from '@/components/ui/utils';
+import { Link } from 'react-router-dom';
+import { buildReplayRunsLink } from '@/utils/navLinks';
 
 interface TelemetryViewerProps {
   initialRequestId?: string | null;
@@ -106,6 +108,13 @@ export function TelemetryViewer({
         <CardHeader>
           <CardTitle>Telemetry Session</CardTitle>
           <CardDescription>Select a session and inspect routing + token timeline.</CardDescription>
+          {selectedRequestId && (
+            <div className="text-xs text-muted-foreground">
+              <Link to={buildReplayRunsLink(selectedRequestId)} className="underline underline-offset-4">
+                Open in replay
+              </Link>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">

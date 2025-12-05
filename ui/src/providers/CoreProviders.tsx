@@ -1,15 +1,21 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { apiClient } from '@/api/client';
 import type { User } from '@/api/types';
-import type { LoginRequest } from '@/api/auth-types';
+import type { LoginRequest, LoginResponse } from '@/api/auth-types';
 import { logger, toError } from '@/utils/logger';
+
+const SELECTED_TENANT_KEY = 'selectedTenant';
+const TENANT_BOOTSTRAP_KEY = 'aos-tenant-bootstrap';
+const AUTH_SESSION_KEY = 'aos-auth-active';
+export const SESSION_EXPIRED_FLAG_KEY = 'aos-session-expired';
+export const TENANT_SELECTION_REQUIRED_KEY = 'aos-tenant-selection-required';
 
 // Auth Context
 interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
   authError: Error | null;
-  login: (credentials: LoginRequest) => Promise<void>;
+  login: (credentials: LoginRequest) => Promise<LoginResponse>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   refreshSession: () => Promise<void>;
@@ -115,17 +121,32 @@ function AuthProvider({ children }: { children: ReactNode }) {
         token_last_rotated_at: userInfo.token_last_rotated_at,
       });
       setAuthError(null);
+      try {
+        sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+      } catch {
+        // best-effort session bookkeeping
+      }
     } catch (error) {
       setUser(null);
       const err = toError(error);
       setAuthError(err);
       logger.error('Failed to fetch user', { component: 'AuthProvider' }, err);
+      try {
+        const hadSession = sessionStorage.getItem(AUTH_SESSION_KEY) === 'true';
+        if (hadSession) {
+          sessionStorage.setItem(SESSION_EXPIRED_FLAG_KEY, 'Session expired — sign in again.');
+          sessionStorage.removeItem(AUTH_SESSION_KEY);
+        }
+      } catch {
+        // ignore storage errors
+      }
     } finally {
       isRefreshingRef.current = false;
     }
   }, []);
 
-  const login = useCallback(async (credentials: LoginRequest) => {
+  const login = useCallback(async (credentials: LoginRequest): Promise<LoginResponse> => {
     setAuthError(null);
     try {
       logger.info('Initiating login', {
@@ -141,13 +162,57 @@ function AuthProvider({ children }: { children: ReactNode }) {
         tenant_id: response.tenant_id,
       });
 
+      // Prefer previously selected tenant when still available to avoid landing in wrong tenant
+      let resolvedTenantId = response.tenant_id || '';
+      let resolvedTenants = response.tenants;
+      try {
+        const cachedTenant = localStorage.getItem(SELECTED_TENANT_KEY);
+        if (
+          cachedTenant &&
+          response.tenants?.some((t) => t.id === cachedTenant) &&
+          cachedTenant !== resolvedTenantId
+        ) {
+          const switched = await apiClient.switchTenant(cachedTenant);
+          resolvedTenantId = switched.tenant_id || cachedTenant;
+          resolvedTenants = switched.tenants ?? resolvedTenants;
+        }
+      } catch {
+        // ignore storage errors
+      }
+
+      // Cache tenant context immediately to avoid blank state during initial load
+      try {
+        localStorage.setItem(SELECTED_TENANT_KEY, resolvedTenantId);
+      } catch {
+        // ignore storage errors
+      }
+      if (resolvedTenants) {
+        try {
+          sessionStorage.setItem(TENANT_BOOTSTRAP_KEY, JSON.stringify(resolvedTenants));
+        } catch {
+          // ignore storage errors
+        }
+      }
+
+      try {
+        sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+        if (resolvedTenants && resolvedTenants.length > 1) {
+          sessionStorage.setItem(TENANT_SELECTION_REQUIRED_KEY, '1');
+        } else {
+          sessionStorage.removeItem(TENANT_SELECTION_REQUIRED_KEY);
+        }
+      } catch {
+        // ignore storage errors
+      }
+
       // Optimistically set user from login response to avoid auth/me flakiness
       setUser({
         id: response.user_id,
         email: credentials.email ?? response.user_id,
         display_name: credentials.email ?? response.user_id,
         role: response.role as User['role'],
-        tenant_id: response.tenant_id ?? '',
+        tenant_id: resolvedTenantId,
         permissions: [], // refreshed below
       });
 
@@ -155,6 +220,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       refreshUser().catch(err => {
         logger.warn('Post-login user refresh failed; using optimistic user state', { component: 'AuthProvider' }, toError(err));
       });
+      return { ...response, tenant_id: resolvedTenantId, tenants: resolvedTenants };
     } catch (error) {
       const err = toError(error);
       setAuthError(err);
@@ -172,7 +238,11 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setAuthError(null); // Clear auth error on logout
       try {
-        localStorage.removeItem('selectedTenant');
+        localStorage.removeItem(SELECTED_TENANT_KEY);
+        sessionStorage.removeItem(TENANT_BOOTSTRAP_KEY);
+        sessionStorage.removeItem(AUTH_SESSION_KEY);
+        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+        sessionStorage.removeItem(TENANT_SELECTION_REQUIRED_KEY);
       } catch {
         // Ignore storage errors during logout
       }
@@ -183,11 +253,23 @@ function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await apiClient.refreshSession();
       await refreshUser();
+      try {
+        sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+      } catch {
+        // ignore storage errors
+      }
     } catch (error) {
       const err = toError(error);
       setAuthError(err);
       logger.error('Session refresh error', { component: 'AuthProvider' }, err);
       setUser(null);
+      try {
+        sessionStorage.removeItem(AUTH_SESSION_KEY);
+        sessionStorage.setItem(SESSION_EXPIRED_FLAG_KEY, 'Session expired — sign in again.');
+      } catch {
+        // ignore storage errors
+      }
     }
   }, [refreshUser]);
 
@@ -200,7 +282,11 @@ function AuthProvider({ children }: { children: ReactNode }) {
       logger.error('Logout all sessions error', { component: 'AuthProvider' }, toError(error));
     } finally {
       try {
-        localStorage.removeItem('selectedTenant');
+        localStorage.removeItem(SELECTED_TENANT_KEY);
+        sessionStorage.removeItem(TENANT_BOOTSTRAP_KEY);
+        sessionStorage.removeItem(AUTH_SESSION_KEY);
+        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+        sessionStorage.removeItem(TENANT_SELECTION_REQUIRED_KEY);
       } catch {
         // Ignore storage errors during logout
       }

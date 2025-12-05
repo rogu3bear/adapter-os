@@ -13,7 +13,6 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 
 // ============================================================================
@@ -343,10 +342,7 @@ export function useLiveData<T>(options: UseLiveDataOptions<T>): UseLiveDataRetur
     if (!sseEndpoint || !sseEnabled || !enabled) return;
 
     const baseUrl = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
-    const token = apiClient.getToken();
-    const url = token
-      ? `${baseUrl}${sseEndpoint}?token=${encodeURIComponent(token)}`
-      : `${baseUrl}${sseEndpoint}`;
+    const url = `${baseUrl}${sseEndpoint}`;
 
     try {
       // Close existing connection
@@ -355,7 +351,7 @@ export function useLiveData<T>(options: UseLiveDataOptions<T>): UseLiveDataRetur
         eventSourceRef.current = null;
       }
 
-      const eventSource = new EventSource(url);
+      const eventSource = new EventSource(url, { withCredentials: true });
       eventSourceRef.current = eventSource;
 
       eventSource.onopen = () => {

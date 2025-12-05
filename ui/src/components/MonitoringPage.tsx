@@ -7,7 +7,7 @@ import { AlertsPage } from './AlertsPage';
 import { DensityControls } from './ui/density-controls';
 import { useDensity } from '@/contexts/DensityContext';
 import { useAuth } from '@/providers/CoreProviders';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';

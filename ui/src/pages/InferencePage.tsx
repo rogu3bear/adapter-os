@@ -1,4 +1,5 @@
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
+import { useTenant } from '@/providers/FeatureProviders';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { InferencePlayground } from '@/components/InferencePlayground';
 import { DensityProvider } from '@/contexts/DensityContext';
@@ -6,6 +7,7 @@ import { useRBAC } from '@/hooks/useRBAC';
 import { PERMISSIONS } from '@/utils/rbac';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ShieldAlert } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function InferencePage() {
   const { user } = useAuth();
@@ -27,6 +29,11 @@ export default function InferencePage() {
         ) : (
           <InferencePlayground selectedTenant={selectedTenant} />
         )}
+        <div className="mt-4 text-sm text-muted-foreground">
+          <Link to="/telemetry/viewer" className="underline underline-offset-4">
+            View telemetry for this session in Telemetry Viewer
+          </Link>
+        </div>
       </FeatureLayout>
     </DensityProvider>
   );

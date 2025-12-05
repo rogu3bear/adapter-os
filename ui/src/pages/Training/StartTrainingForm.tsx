@@ -42,6 +42,12 @@ interface StartTrainingFormProps {
   initialTemplate?: TrainingTemplate;
 }
 
+export function resolveDatasetPrefill(datasets: Dataset[], desiredId?: string): string | undefined {
+  if (!desiredId) return undefined;
+  const match = datasets.find((d) => d.id === desiredId);
+  return match ? desiredId : undefined;
+}
+
 const DEFAULT_CONFIG: TrainingConfigRequest = {
   learning_rate: 1e-4,
   epochs: 3,
@@ -62,14 +68,16 @@ export function StartTrainingForm({
   onSuccess,
   onCancel,
   initialTemplate,
-}: StartTrainingFormProps) {
+  preselectedAdapterId,
+  preselectedDatasetId,
+}: StartTrainingFormProps & { preselectedAdapterId?: string; preselectedDatasetId?: string }) {
   const [activeTab, setActiveTab] = useState('basic');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Form state
-  const [adapterName, setAdapterName] = useState('');
-  const [datasetId, setDatasetId] = useState('');
+  const [adapterName, setAdapterName] = useState(preselectedAdapterId ?? '');
+  const [datasetId, setDatasetId] = useState(preselectedDatasetId ?? '');
   const [templateId, setTemplateId] = useState('');
   const [config, setConfig] = useState<TrainingConfigRequest>(DEFAULT_CONFIG);
 
@@ -120,6 +128,11 @@ export function StartTrainingForm({
         setModels(modelsRes || []);
         setBaseModelStatus(modelStatusRes);
 
+        const prefillId = resolveDatasetPrefill(datasetsRes.datasets || [], preselectedDatasetId);
+        if (prefillId) {
+          setDatasetId(prefillId);
+        }
+
         if (initialTemplate) {
           setTemplateId(initialTemplate.id);
           applyTemplate(initialTemplate);
@@ -133,7 +146,7 @@ export function StartTrainingForm({
     }
 
     loadData();
-  }, [initialTemplate]);
+  }, [initialTemplate, preselectedDatasetId]);
 
   // Handle loading a model
   const handleLoadModel = async () => {

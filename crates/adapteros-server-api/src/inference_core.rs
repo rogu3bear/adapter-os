@@ -1837,6 +1837,10 @@ mod tests {
     use std::sync::{Arc, RwLock};
     use uuid::Uuid;
 
+    fn stack_name() -> String {
+        format!("stack.test.{}", Uuid::new_v4().simple())
+    }
+
     #[test]
     fn test_replay_context_structure() {
         // Verify ReplayContext has all required fields
@@ -1869,9 +1873,19 @@ mod tests {
     }
 
     async fn insert_stack(db: &Db, tenant: &str, adapter_ids: &[&str]) -> String {
+        let tenant_clean: String = tenant
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .map(|c| c.to_ascii_lowercase())
+            .collect::<String>();
+        let tenant_ns = if tenant_clean.is_empty() {
+            "tenant".to_string()
+        } else {
+            tenant_clean
+        };
         let req = CreateStackRequest {
             tenant_id: tenant.to_string(),
-            name: format!("stack-{}", Uuid::now_v7()),
+            name: stack_name(),
             description: None,
             adapter_ids: adapter_ids.iter().map(|s| s.to_string()).collect(),
             workflow_type: None,
@@ -1914,7 +1928,7 @@ mod tests {
             req.effective_adapter_ids,
             Some(vec!["adapter-a".to_string(), "adapter-c".to_string()])
         );
-        assert_eq!(req.stack_id, Some(stack_id));
+        assert_eq!(req.stack_id, Some(stack_id.clone()));
         assert!(req.stack_version.is_some());
     }
 
@@ -2127,7 +2141,7 @@ mod tests {
         let state = build_test_state(false).await;
         let stack_req = CreateStackRequest {
             tenant_id: "tenant-1".to_string(),
-            name: "stack-one".to_string(),
+            name: stack_name(),
             description: None,
             adapter_ids: vec!["stack-a".to_string(), "stack-b".to_string()],
             workflow_type: None,
@@ -2156,7 +2170,7 @@ mod tests {
         let state = build_test_state(false).await;
         let stack_req = CreateStackRequest {
             tenant_id: "tenant-1".to_string(),
-            name: "stack-default".to_string(),
+            name: stack_name(),
             description: None,
             adapter_ids: vec!["default-a".to_string(), "default-b".to_string()],
             workflow_type: None,
@@ -2180,14 +2194,14 @@ mod tests {
             req.effective_adapter_ids,
             Some(vec!["default-a".to_string(), "default-b".to_string()])
         );
-        assert_eq!(req.stack_id, Some(stack_id));
+        assert_eq!(req.stack_id, Some(stack_id.clone()));
         assert_eq!(req.stack_version, Some(1));
 
         // Active stack cache should be populated for the tenant
         let active_map = state.active_stack.read().unwrap();
         assert_eq!(
             active_map.get("tenant-1").cloned().flatten(),
-            Some("stack-default".to_string())
+            Some(stack_id.clone())
         );
     }
 
@@ -2196,7 +2210,7 @@ mod tests {
         let state = build_test_state(false).await;
         let stack_req = CreateStackRequest {
             tenant_id: "tenant-1".to_string(),
-            name: "stack-pinned".to_string(),
+            name: stack_name(),
             description: None,
             adapter_ids: vec!["stack-a".to_string(), "stack-b".to_string()],
             workflow_type: None,
@@ -2223,7 +2237,7 @@ mod tests {
         let state = build_test_state(true).await;
         let stack_req = CreateStackRequest {
             tenant_id: "tenant-1".to_string(),
-            name: "stack-session".to_string(),
+            name: stack_name(),
             description: None,
             adapter_ids: vec!["s1".to_string(), "s2".to_string()],
             workflow_type: None,
@@ -2271,7 +2285,7 @@ mod tests {
         let state = build_test_state(false).await;
         let stack_req = CreateStackRequest {
             tenant_id: "tenant-1".to_string(),
-            name: "stack-session".to_string(),
+            name: stack_name(),
             description: None,
             adapter_ids: vec!["s1".to_string()],
             workflow_type: None,

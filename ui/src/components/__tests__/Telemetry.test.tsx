@@ -21,8 +21,8 @@ vi.mock('@/hooks/useSSE', () => ({
   useSSE: (endpoint: string, options?: any) => mockUseSSE(endpoint, options),
 }));
 
-// Mock LayoutProvider hooks
-vi.mock('@/layout/LayoutProvider', () => ({
+// Mock provider hooks
+vi.mock('@/providers/CoreProviders', () => ({
   useAuth: () => ({
     user: {
       user_id: 'test-user',
@@ -30,6 +30,9 @@ vi.mock('@/layout/LayoutProvider', () => ({
       role: 'admin',
     },
   }),
+}));
+
+vi.mock('@/providers/FeatureProviders', () => ({
   useTenant: () => ({
     selectedTenant: 'default',
   }),

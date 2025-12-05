@@ -218,10 +218,11 @@ async fn test_batch_evidence_storage() -> Result<()> {
     let chunk_ids: Vec<String> = (0..3).map(|i| format!("chunk-db-{}", i)).collect();
     for (i, chunk_id) in chunk_ids.iter().enumerate() {
         sqlx::query(
-            "INSERT INTO document_chunks (id, document_id, chunk_index, page_number, chunk_hash)
-             VALUES (?, ?, ?, ?, 'chunkhash')",
+            "INSERT INTO document_chunks (id, tenant_id, document_id, chunk_index, page_number, chunk_hash)
+             VALUES (?, ?, ?, ?, ?, 'chunkhash')",
         )
         .bind(chunk_id)
+        .bind(&tenant_id)
         .bind(doc_id)
         .bind(i as i32)
         .bind((i + 1) as i32) // page_number = chunk_index + 1
@@ -382,10 +383,11 @@ async fn test_unified_document_id_flow() -> Result<()> {
         .collect();
     for (i, chunk_id) in chunk_ids.iter().enumerate() {
         sqlx::query(
-            "INSERT INTO document_chunks (id, document_id, chunk_index, page_number, chunk_hash, text_preview)
-             VALUES (?, ?, ?, ?, 'chunkhash', 'preview text')",
+            "INSERT INTO document_chunks (id, tenant_id, document_id, chunk_index, page_number, chunk_hash, text_preview)
+             VALUES (?, ?, ?, ?, ?, 'chunkhash', 'preview text')",
         )
         .bind(chunk_id)
+        .bind(&tenant_id)
         .bind(document_uuid)
         .bind(i as i32)
         .bind((i + 1) as i32)
@@ -403,9 +405,12 @@ async fn test_unified_document_id_flow() -> Result<()> {
     .execute(db.pool())
     .await?;
 
-    sqlx::query("INSERT INTO collection_documents (collection_id, document_id) VALUES (?, ?)")
+    sqlx::query(
+        "INSERT INTO collection_documents (collection_id, document_id, tenant_id) VALUES (?, ?, ?)",
+    )
         .bind(collection_id)
         .bind(document_uuid)
+        .bind(&tenant_id)
         .execute(db.pool())
         .await?;
 
@@ -546,11 +551,14 @@ async fn test_unified_flow_collection_filtering() -> Result<()> {
     .execute(db.pool())
     .await?;
 
-    sqlx::query("INSERT INTO collection_documents (collection_id, document_id) VALUES (?, ?)")
-        .bind(collection_id)
-        .bind(doc_in_collection)
-        .execute(db.pool())
-        .await?;
+    sqlx::query(
+        "INSERT INTO collection_documents (collection_id, document_id, tenant_id) VALUES (?, ?, ?)",
+    )
+    .bind(collection_id)
+    .bind(doc_in_collection)
+    .bind(&tenant_id)
+    .execute(db.pool())
+    .await?;
 
     // Simulate RAG results from both documents
     let rag_results = vec![
@@ -618,10 +626,11 @@ async fn test_rag_evidence_with_trace_fields() -> Result<()> {
     // Create chunk
     let chunk_id = "chunk-trace-0";
     sqlx::query(
-        "INSERT INTO document_chunks (id, document_id, chunk_index, page_number, chunk_hash)
-         VALUES (?, ?, 0, 1, 'chunkhash')",
+        "INSERT INTO document_chunks (id, tenant_id, document_id, chunk_index, page_number, chunk_hash)
+         VALUES (?, ?, ?, 0, 1, 'chunkhash')",
     )
     .bind(chunk_id)
+    .bind(&tenant_id)
     .bind(doc_id)
     .execute(db.pool())
     .await?;

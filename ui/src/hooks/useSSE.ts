@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 
 //! Strongly typed SSE hook options
@@ -138,17 +137,9 @@ export function useSSE<T = unknown>(
       return;
     }
 
-    // Construct the full URL
+    // Construct the full URL and use cookie-based session for auth
     const baseUrl = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
-
-    const token = apiClient.getToken();
-
-    // EventSource doesn't support custom headers, so we append the token as a query parameter
-    // The server must validate this token in SSE endpoints
-    const url = token ? `${baseUrl}${endpoint}?token=${encodeURIComponent(token)}` : `${baseUrl}${endpoint}`;
-
-    // Note: SSE authentication requires token in query string since EventSource doesn't support Authorization headers
-    // Server-side handlers must extract and validate the token from query parameters
+    const url = `${baseUrl}${endpoint}`;
 
     const connect = () => {
       // Check circuit breaker before connecting
@@ -177,7 +168,7 @@ export function useSSE<T = unknown>(
           eventSourceRef.current = null;
         }
 
-        const eventSource = new EventSource(url);
+        const eventSource = new EventSource(url, { withCredentials: true });
         eventSourceRef.current = eventSource;
 
         eventSource.onopen = () => {

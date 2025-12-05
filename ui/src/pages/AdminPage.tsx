@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { ITAdminDashboard } from '@/components/ITAdminDashboard';
 import { DensityProvider } from '@/contexts/DensityContext';

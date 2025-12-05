@@ -40,7 +40,6 @@ import {
   StreamConfig,
   parseStreamEvent,
 } from '@/api/streaming-types';
-import apiClient from '@/api/client';
 
 // ============================================================================
 // Subscription Types
@@ -165,13 +164,9 @@ class StreamingService {
           subscription.eventSource = null;
         }
 
-        // Get authentication token
-        const token = apiClient.getToken();
-        const url = token
-          ? `${this.baseUrl}${endpoint}?token=${encodeURIComponent(token)}`
-          : `${this.baseUrl}${endpoint}`;
+        const url = `${this.baseUrl}${endpoint}`;
 
-        subscription.eventSource = new EventSource(url);
+        subscription.eventSource = new EventSource(url, { withCredentials: true });
 
         subscription.eventSource.onopen = () => {
           logger.info('Stream connection established', {

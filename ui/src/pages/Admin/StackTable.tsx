@@ -29,7 +29,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
 import apiClient from '@/api/client';
 import { toast } from 'sonner';

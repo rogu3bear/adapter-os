@@ -342,6 +342,14 @@ export type LoginFormData = z.infer<typeof LoginFormSchema>;
  * - role: User role (admin, operator, sre, compliance, auditor, viewer)
  * - expires_in: Token expiration in seconds (u64)
  */
+export const TenantSummarySchema = z.object({
+  schema_version: z.string().default('v1'),
+  id: z.string().min(1, 'Tenant ID is required'),
+  name: z.string().min(1, 'Tenant name is required'),
+  status: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+});
+
 export const LoginResponseSchema = z.object({
   schema_version: z.string()
     .default('v1')
@@ -367,6 +375,8 @@ export const LoginResponseSchema = z.object({
     .int('Expiration must be an integer')
     .positive('Expiration must be positive')
     .describe('Token expiration in seconds'),
+
+  tenants: z.array(TenantSummarySchema).optional(),
 });
 
 export type LoginResponseData = z.infer<typeof LoginResponseSchema>;

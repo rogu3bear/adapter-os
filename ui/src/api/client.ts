@@ -60,6 +60,7 @@ class ApiClient {
   private requestLog: Array<{ id: string; method: string; path: string; timestamp: string }> = [];
   private retryConfig: RetryConfig;
   private token?: string;
+  private refreshPromise: Promise<void> | null = null;
 
   constructor(baseUrl: string = API_BASE_URL, retryConfig?: Partial<RetryConfig>) {
     this.baseUrl = baseUrl;
@@ -86,6 +87,43 @@ class ApiClient {
 
   getToken(): string | undefined {
     return this.token;
+  }
+
+  private async performRefresh(): Promise<void> {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = (async () => {
+      const refreshUrl = `${this.baseUrl}/v1/auth/refresh`;
+      const resp = await fetch(refreshUrl, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!resp.ok) {
+        this.token = undefined;
+        const err = new Error('Session expired') as ApiError;
+        err.code = 'SESSION_EXPIRED';
+        err.status = resp.status;
+        throw err;
+      }
+
+      try {
+        await resp.json();
+      } catch {
+        // If parsing fails, still proceed; cookies were refreshed by the server
+      }
+    })();
+
+    try {
+      await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
+    }
   }
 
   private async computeRequestId(method: string, path: string, body: string): Promise<string> {
@@ -166,7 +204,12 @@ class ApiClient {
     }
   }
 
-  private async executeRequest<T>(path: string, options: RequestInit = {}, cancelToken?: AbortSignal): Promise<T> {
+  private async executeRequest<T>(
+    path: string,
+    options: RequestInit = {},
+    cancelToken?: AbortSignal,
+    attemptedRefresh: boolean = false
+  ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
 
     // Compute deterministic request ID
@@ -243,6 +286,24 @@ class ApiClient {
     }
 
     if (!response.ok) {
+      // Attempt single silent refresh on 401 before surfacing error
+      if (
+        response.status === 401 &&
+        !attemptedRefresh &&
+        !path.startsWith('/v1/auth/login') &&
+        !path.startsWith('/v1/auth/refresh')
+      ) {
+        try {
+          await this.performRefresh();
+          return await this.executeRequest<T>(path, options, cancelToken, true);
+        } catch (refreshError) {
+          const err = toError(refreshError) as ApiError;
+          err.code = err.code || 'SESSION_EXPIRED';
+          err.status = err.status || 401;
+          throw err;
+        }
+      }
+
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
       let errorCode: string | undefined;
       let errorDetails: Record<string, unknown> = {};
@@ -457,9 +518,6 @@ class ApiClient {
         tenant_id: validated.tenant_id,
         email: credentials.email,
       });
-      // Store token for SSE endpoints (EventSource cannot send cookies)
-      // Cookie is also set by server for regular fetch requests
-      this.setToken(validated.token);
       return validated as authTypes.LoginResponse;
     } catch (validationError) {
       const error = toError(validationError);
@@ -468,7 +526,7 @@ class ApiClient {
         operation: 'login',
         userJourney: 'login_flow',
         details: 'Server returned invalid login response structure',
-        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in'],
+        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in', 'tenants?'],
         receivedResponse: typeof response === 'object' ? Object.keys(response as Record<string, unknown>) : String(response),
       }, ['Invalid response structure from authentication server'], error);
 
@@ -477,7 +535,7 @@ class ApiClient {
       validationError_.code = 'RESPONSE_VALIDATION_ERROR';
       validationError_.details = {
         message: error.message,
-        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in'],
+        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in', 'tenants?'],
       };
       throw validationError_;
     }
@@ -501,15 +559,13 @@ class ApiClient {
         user_id: validated.user_id,
         tenant_id: validated.tenant_id,
       });
-      // Store token for SSE endpoints (EventSource cannot send cookies)
-      this.setToken(validated.token);
       return validated as authTypes.LoginResponse;
     } catch (validationError) {
       const error = toError(validationError);
       logger.error('Dev bypass response validation failed', {
         component: 'ApiClient',
         operation: 'devBypass',
-        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in'],
+        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in', 'tenants?'],
         receivedResponse: typeof response === 'object' ? Object.keys(response as Record<string, unknown>) : String(response),
       }, error);
 
@@ -518,7 +574,7 @@ class ApiClient {
       validationError_.code = 'RESPONSE_VALIDATION_ERROR';
       validationError_.details = {
         message: error.message,
-        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in'],
+        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in', 'tenants?'],
       };
       throw validationError_;
     }
@@ -533,7 +589,7 @@ class ApiClient {
       component: 'ApiClient',
       operation: 'refreshSession',
     });
-    await this.request('/v1/auth/refresh', { method: 'POST' });
+    const resp = await this.request<authTypes.RefreshResponse>('/v1/auth/refresh', { method: 'POST' });
     return this.getCurrentUser();
   }
 
@@ -550,6 +606,19 @@ class ApiClient {
 
   async listSessions(): Promise<types.SessionInfo[]> {
     return this.requestList<types.SessionInfo>('/v1/auth/sessions');
+  }
+
+  async listUserTenants(): Promise<authTypes.TenantSummary[]> {
+    const resp = await this.request<authTypes.TenantListResponse>('/v1/auth/tenants');
+    return resp.tenants ?? [];
+  }
+
+  async switchTenant(tenantId: string): Promise<authTypes.SwitchTenantResponse> {
+    const resp = await this.request<authTypes.SwitchTenantResponse>('/v1/auth/tenants/switch', {
+      method: 'POST',
+      body: JSON.stringify({ tenant_id: tenantId }),
+    });
+    return resp;
   }
 
   async revokeSession(sessionId: string): Promise<void> {

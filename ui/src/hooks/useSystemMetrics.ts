@@ -4,6 +4,7 @@ import { useAsyncOperation } from './useAsyncOperation';
 import apiClient from '@/api/client';
 import type {
   SystemMetrics,
+  MetricsSnapshotResponse,
   Node,
   NodeDetailsResponse,
   NodePingResponse,
@@ -21,6 +22,7 @@ import type {
 } from '@/api/api-types';
 
 // System Metrics Hook
+/** Return system metrics with polling and circuit breaker support. */
 export interface UseSystemMetricsReturn {
   metrics: SystemMetrics | null;
   isLoading: boolean;
@@ -40,6 +42,7 @@ export function useSystemMetrics(
       enabled,
       operationName: 'getSystemMetrics',
       enableCircuitBreaker: true,
+      showLoadingIndicator: true,
     }
   );
 
@@ -77,15 +80,33 @@ export function useAdapterMetrics(speed: PollingSpeed = 'normal', enabled = true
 }
 
 // Metrics Snapshot Hook
-export function useMetricsSnapshot(enabled = true) {
-  return usePolling(
+export interface UseMetricsSnapshotReturn {
+  data: MetricsSnapshotResponse | null;
+  isLoading: boolean;
+  error: Error | null;
+  lastUpdated: Date | null;
+  refetch: () => Promise<void>;
+}
+
+/** Return aggregated metrics snapshot with safe loading/error surface. */
+export function useMetricsSnapshot(enabled = true): UseMetricsSnapshotReturn {
+  const { data, isLoading, error, lastUpdated, refetch } = usePolling<MetricsSnapshotResponse>(
     () => apiClient.getMetricsSnapshot(),
     'slow',
     {
       enabled,
       operationName: 'getMetricsSnapshot',
+      showLoadingIndicator: true,
     }
   );
+
+  return {
+    data,
+    isLoading,
+    error,
+    lastUpdated,
+    refetch,
+  };
 }
 
 // Nodes Hook

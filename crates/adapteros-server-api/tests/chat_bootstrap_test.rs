@@ -10,10 +10,15 @@ use adapteros_core::Result;
 use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::Db;
+use uuid::Uuid;
 
 /// Test helper to create an in-memory database with migrations
 async fn setup_test_db() -> Result<Db> {
     Db::new_in_memory().await
+}
+
+fn stack_name() -> String {
+    format!("stack.test.{}", Uuid::new_v4().simple())
 }
 
 /// Test helper to create a tenant
@@ -95,9 +100,10 @@ async fn test_insert_stack_with_proper_name_format() {
     }
 
     // Create stack with proper name format: stack.{namespace}.{identifier}
+    let name = stack_name();
     let stack_req = CreateStackRequest {
         tenant_id: tenant_id.to_string(),
-        name: "stack.test.chat-bootstrap".to_string(),
+        name: name.clone(),
         description: Some("Test stack for chat bootstrap".to_string()),
         adapter_ids: vec!["adapter-001".to_string(), "adapter-002".to_string()],
         workflow_type: Some("Sequential".to_string()),
@@ -117,7 +123,7 @@ async fn test_insert_stack_with_proper_name_format() {
         .expect("Failed to get stack")
         .expect("Stack not found");
 
-    assert_eq!(stack.name, "stack.test.chat-bootstrap");
+    assert_eq!(stack.name, name);
     assert_eq!(stack.tenant_id, tenant_id);
 
     // Verify adapter_ids_json is correct
@@ -151,9 +157,10 @@ async fn test_update_training_job_result_ids() {
     }
 
     // Create stack first
+    let stack_name = stack_name();
     let stack_req = CreateStackRequest {
         tenant_id: tenant_id.to_string(),
-        name: "stack.test.update-test".to_string(),
+        name: stack_name.clone(),
         description: None,
         adapter_ids: vec!["adapter-update-001".to_string()],
         workflow_type: None,
@@ -268,9 +275,10 @@ async fn test_create_chat_session_with_stack() {
     }
 
     // Create stack
+    let stack_name = stack_name();
     let stack_req = CreateStackRequest {
         tenant_id: tenant_id.to_string(),
-        name: "stack.test.chat-session".to_string(),
+        name: stack_name.clone(),
         description: None,
         adapter_ids: vec!["adapter-chat-001".to_string()],
         workflow_type: None,

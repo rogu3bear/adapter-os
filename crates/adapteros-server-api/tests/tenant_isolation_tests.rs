@@ -721,7 +721,8 @@ async fn test_validate_tenant_isolation_cross_tenant_denied() -> Result<()> {
 async fn test_validate_tenant_isolation_admin_can_access_any_tenant() -> Result<()> {
     use adapteros_server_api::security::validate_tenant_isolation;
 
-    let admin_claims = create_test_claims("admin-1", "admin@system.com", "admin", "system");
+    let mut admin_claims = create_test_claims("admin-1", "admin@system.com", "admin", "system");
+    admin_claims.admin_tenants = vec!["*".to_string()];
 
     // Admin should access any tenant
     let result_a = validate_tenant_isolation(&admin_claims, "tenant-a");

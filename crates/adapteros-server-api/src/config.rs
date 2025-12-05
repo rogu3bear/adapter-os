@@ -89,12 +89,27 @@ pub struct SecurityConfig {
     /// MFA requirement (defaults to false)
     #[serde(default)]
     pub require_mfa: Option<bool>,
-    /// Token TTL in seconds (defaults to 8 hours)
+    /// Token TTL in seconds (defaults to 8 hours) — legacy, superseded by access/session specific TTLs
     #[serde(default)]
     pub token_ttl_seconds: Option<u64>,
+    /// Access token TTL in seconds (short-lived; defaults to 15 minutes)
+    #[serde(default = "default_access_token_ttl_seconds")]
+    pub access_token_ttl_seconds: u64,
+    /// Session/cookie TTL in seconds (defaults to 12 hours)
+    #[serde(default = "default_session_ttl_seconds")]
+    pub session_ttl_seconds: u64,
     /// JWT algorithm mode (eddsa or hs256)
     #[serde(default)]
     pub jwt_mode: Option<String>,
+    /// Cookie SameSite policy: "Lax", "Strict", or "None" (default: Lax)
+    #[serde(default = "default_cookie_same_site")]
+    pub cookie_same_site: String,
+    /// Optional cookie domain for split-origin dev setups
+    #[serde(default)]
+    pub cookie_domain: Option<String>,
+    /// Force Secure flag on cookies (defaults to true in production_mode)
+    #[serde(default)]
+    pub cookie_secure: Option<bool>,
 }
 
 fn default_true() -> bool {
@@ -115,6 +130,18 @@ fn default_key_provider_mode() -> String {
 
 fn default_jwt_issuer() -> String {
     "adapteros".to_string()
+}
+
+fn default_access_token_ttl_seconds() -> u64 {
+    15 * 60
+}
+
+fn default_session_ttl_seconds() -> u64 {
+    12 * 3600
+}
+
+fn default_cookie_same_site() -> String {
+    "Lax".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

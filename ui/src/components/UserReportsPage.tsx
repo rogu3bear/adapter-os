@@ -6,7 +6,7 @@ import { Badge } from './ui/badge';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 import { usePolling } from '@/hooks/usePolling';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import { LastUpdated } from './ui/last-updated';
 import {
   Activity,

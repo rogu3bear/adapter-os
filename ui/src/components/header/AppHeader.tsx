@@ -1,9 +1,19 @@
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Building2, Check, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { NotificationBell } from '@/components/NotificationBell';
 import { cn } from '@/components/ui/utils';
+import { useTenant } from '@/providers/FeatureProviders';
+import { useState } from 'react';
 
 import { AdapterOSLogo } from './AdapterOSLogo';
 import { HeaderBreadcrumbs } from './HeaderBreadcrumbs';
@@ -39,6 +49,11 @@ export function AppHeader({
   className,
 }: AppHeaderProps) {
   const isDevBypass = user.user_id === 'dev-admin-user';
+  const devEnv = Boolean(import.meta.env.DEV);
+  const { selectedTenant, tenants, setSelectedTenant } = useTenant();
+  const [isSwitching, setIsSwitching] = useState(false);
+  const activeTenant = tenants.find(t => t.id === selectedTenant);
+  const tenantLabel = activeTenant?.name || selectedTenant || 'No tenant';
 
   return (
     <header className={cn('border-b border-border/50 bg-background sticky top-0 z-10', className)}>
@@ -59,7 +74,7 @@ export function AppHeader({
             <TooltipContent className="max-w-xs">Zero Egress</TooltipContent>
           </Tooltip>
 
-          {isDevBypass && (
+          {(isDevBypass || devEnv) && (
             <Badge variant="outline" className="h-5 text-[10px] px-1.5 text-muted-foreground border-muted hidden sm:inline-flex">
               <AlertTriangle className="h-3 w-3 mr-1" />
               Dev
@@ -69,6 +84,44 @@ export function AppHeader({
           <span className="text-muted-foreground/30 hidden md:inline">/</span>
 
           <HeaderBreadcrumbs className="flex-1 min-w-0" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted transition-colors">
+                <Building2 className="h-4 w-4 text-muted-foreground" />
+                <span className="truncate max-w-[140px]">{tenantLabel}</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuLabel className="flex items-center justify-between">
+                <span>Tenant</span>
+                {isSwitching && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {tenants.map(t => (
+                <DropdownMenuItem
+                  key={t.id}
+                  onSelect={async () => {
+                    if (t.id === selectedTenant || isSwitching) return;
+                    setIsSwitching(true);
+                    try {
+                      await setSelectedTenant(t.id);
+                    } finally {
+                      setIsSwitching(false);
+                    }
+                  }}
+                  className="flex items-center justify-between"
+                >
+                  <span className="truncate">{t.name}</span>
+                  {t.id === selectedTenant && <Check className="h-3 w-3 text-primary" />}
+                </DropdownMenuItem>
+              ))}
+              {tenants.length === 0 && (
+                <DropdownMenuItem disabled>
+                  No tenant access
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* Right: Actions */}

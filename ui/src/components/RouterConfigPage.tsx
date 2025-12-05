@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -12,6 +13,12 @@ import { logger } from '@/utils/logger';
 
 interface RouterConfigPageProps {
   selectedTenant: string;
+  focusAdapterId?: string;
+  onClearFocus?: () => void;
+}
+
+export function isAdapterFocused(adapterId: string, focusAdapterId?: string): boolean {
+  return Boolean(focusAdapterId && adapterId === focusAdapterId);
 }
 
 function InfoRow({ label, value }: { label: string; value: string | number | undefined }) {
@@ -44,7 +51,7 @@ function renderPolicy(policy?: RoutingPolicy) {
   );
 }
 
-function renderAdapters(adapters: RouterAdapterSummary[]) {
+function renderAdapters(adapters: RouterAdapterSummary[], focusAdapterId?: string) {
   if (!adapters.length) {
     return <p className="text-sm text-muted-foreground">No adapters found for the effective routing set.</p>;
   }
@@ -54,11 +61,18 @@ function renderAdapters(adapters: RouterAdapterSummary[]) {
       {adapters.map((adapter) => (
         <div
           key={adapter.adapter_id}
-          className="flex items-center justify-between rounded-md border border-border p-3"
+          className={`flex items-center justify-between rounded-md border p-3 ${
+            isAdapterFocused(adapter.adapter_id, focusAdapterId) ? 'border-primary shadow-sm' : 'border-border'
+          }`}
         >
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="font-medium">{adapter.adapter_id}</span>
+              <Link
+                to={`/adapters/${adapter.adapter_id}#overview`}
+                className="font-medium text-primary hover:underline"
+              >
+                {adapter.adapter_id}
+              </Link>
               {adapter.in_default_stack && <Badge variant="secondary">default stack</Badge>}
             </div>
             <div className="text-xs text-muted-foreground">
@@ -76,10 +90,12 @@ function renderAdapters(adapters: RouterAdapterSummary[]) {
   );
 }
 
-export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
+export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus }: RouterConfigPageProps) {
   const [config, setConfig] = useState<RouterConfigView | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [focusedAdapterId, setFocusedAdapterId] = useState<string | undefined>(focusAdapterId);
+  const adapterRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const loadRouterConfig = useCallback(async () => {
     if (!selectedTenant) return;
@@ -106,6 +122,21 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
   useEffect(() => {
     loadRouterConfig();
   }, [loadRouterConfig]);
+
+  useEffect(() => {
+    if (focusAdapterId) {
+      setFocusedAdapterId(focusAdapterId);
+    }
+  }, [focusAdapterId]);
+
+  useEffect(() => {
+    if (focusedAdapterId) {
+      const el = adapterRefs.current[focusedAdapterId];
+      if (el?.scrollIntoView) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [focusedAdapterId, config?.adapters]);
 
   const isEmpty = !config && !isLoading;
 
@@ -158,6 +189,19 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
 
       {config && (
         <div className="space-y-4">
+          {focusedAdapterId && (
+            <Alert>
+              <AlertTitle>Showing routing for adapter {focusedAdapterId}</AlertTitle>
+              <AlertDescription className="flex items-center gap-2">
+                <Badge variant="secondary">{focusedAdapterId}</Badge>
+                {onClearFocus && (
+                  <Button variant="ghost" size="sm" onClick={() => { setFocusedAdapterId(undefined); onClearFocus(); }}>
+                    Clear
+                  </Button>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
           <Card>
             <CardHeader>
               <CardTitle>Router Parameters</CardTitle>
@@ -215,7 +259,18 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
                   No default stack set; showing manifest/tenant adapter set.
                 </div>
               )}
-              {renderAdapters(config.adapters)}
+              <div className="space-y-2">
+                {config.adapters.map((adapter) => (
+                  <div
+                    key={adapter.adapter_id}
+                    ref={(el) => {
+                      adapterRefs.current[adapter.adapter_id] = el;
+                    }}
+                  >
+                    {renderAdapters([adapter], focusedAdapterId)}
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </div>

@@ -32,7 +32,7 @@ import { toast } from 'sonner';
 
 import { logger, toError } from '@/utils/logger';
 import { usePolling } from '@/hooks/usePolling';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import type { Alert } from '@/api/types';
 import { useLiveData } from '@/hooks/useLiveData';
 

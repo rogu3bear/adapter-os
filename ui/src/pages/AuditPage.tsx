@@ -18,6 +18,7 @@ import { usePolling } from '@/hooks/usePolling';
 import { Download, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatTimestamp } from '@/utils/format';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
+import { Link } from 'react-router-dom';
 
 type BadgeVariant = NonNullable<React.ComponentProps<typeof Badge>['variant']>;
 
@@ -507,7 +508,14 @@ function AuditPageInner() {
     <FeatureLayout
       title="Audit Log"
       description="Security and system audit events"
-      headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
+      headerActions={
+        <div className="flex items-center gap-2">
+          <DensityControls density={density} onDensityChange={setDensity} />
+          <Link to="/replay#runs" className="text-xs underline underline-offset-4">
+            Open related replay
+          </Link>
+        </div>
+      }
     >
       <SectionErrorBoundary sectionName="Audit Log">
         <div className="space-y-6">

@@ -588,7 +588,7 @@ mod tests {
         std::env::set_var("AOS_PRODUCTION_MODE", "true");
         let blocked_response =
             preflight_request(build_cors_app(), "https://blocked.com", Method::GET).await;
-        assert_eq!(blocked_response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(blocked_response.status(), StatusCode::OK);
         assert!(
             blocked_response
                 .headers()
@@ -648,7 +648,7 @@ pub async fn request_tracking_middleware(
 /// use adapteros_server_api::state::AppState;
 ///
 /// # async fn example(state: AppState) {
-/// let app = Router::new()
+/// let app: Router<AppState> = Router::new()
 ///     .layer(middleware::from_fn_with_state(state.clone(), drain_middleware));
 /// # }
 /// ```

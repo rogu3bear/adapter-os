@@ -53,6 +53,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { Repository } from '@/api/types';
+import { buildTelemetryFiltersLink } from '@/utils/navLinks';
 
 type RegisterDialogProps = {
   isOpen: boolean;
@@ -558,6 +559,13 @@ function CodeIntelligencePageInner() {
             canDelete={can('code:unregister')}
             getScanStatusBadge={getScanStatusBadge}
           />
+            <div className="text-sm text-muted-foreground">
+              Telemetry for repository scans is available in{' '}
+              <a className="underline underline-offset-4" href={buildTelemetryFiltersLink()}>
+                Telemetry filters
+              </a>
+              .
+            </div>
         </div>
       </SectionErrorBoundary>
       <DeleteRepositoryDialog

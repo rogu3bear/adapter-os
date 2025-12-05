@@ -1,4 +1,5 @@
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
+import { useTenant } from '@/providers/FeatureProviders';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Tenants } from '@/components/Tenants';
 import { DensityProvider } from '@/contexts/DensityContext';

@@ -18,8 +18,10 @@ import { Calendar } from './ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { CalendarIcon } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { format as formatDate } from 'date-fns';
 import { formatTimestamp as formatTimestampUtil } from '@/utils/format';
+import { buildReplayRunsLink } from '@/utils/navLinks';
 
 interface RoutingInspectorProps {
   className?: string;
@@ -282,6 +284,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
                 <TableRow>
                   <TableHead>Time</TableHead>
                   <TableHead>Step</TableHead>
+                  <TableHead>Replay</TableHead>
                   <TableHead>
                     <span className="flex items-center gap-1">
                       K
@@ -340,6 +343,19 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
                         </TableCell>
                         <TableCell className="font-mono text-sm">
                           {decision.step}
+                        </TableCell>
+                        <TableCell>
+                          {decision.request_id ? (
+                            <Link
+                              to={buildReplayRunsLink(decision.request_id)}
+                              className="text-xs underline underline-offset-4"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Open replay
+                            </Link>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge className={getKValueColor(kValue)}>

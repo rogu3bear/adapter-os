@@ -7,7 +7,8 @@ import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { Checkbox } from './ui/checkbox';
 import { ArrowRight, CheckCircle, Circle, Shield, Zap, Activity } from 'lucide-react';
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
+import { useTenant } from '@/providers/FeatureProviders';
 import { logger, toError } from '@/utils/logger';
 
 type StepStatus = 'not_started' | 'in_progress' | 'done';

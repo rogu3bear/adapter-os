@@ -37,7 +37,6 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 import type { InferRequest } from '@/api/types';
 
@@ -239,8 +238,7 @@ export function useStreamingInference(): UseStreamingInferenceResult {
     });
 
     try {
-      // Get auth token and base URL
-      const token = apiClient.getToken();
+      // Build URL for streaming inference (auth via httpOnly session cookie)
       const baseUrl = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
       const url = `${baseUrl}/v1/infer/stream`;
 
@@ -256,10 +254,10 @@ export function useStreamingInference(): UseStreamingInferenceResult {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(requestBody),
         signal,
+        credentials: 'include',
       });
 
       if (!response.ok) {

@@ -19,12 +19,58 @@ async fn setup_test_db() -> Result<Db> {
 
 /// Test helper to create a test worker in the database
 async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result<()> {
+    // Ensure tenant exists
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
+        .bind(tenant_id)
+        .bind(tenant_id)
+        .execute(db.pool())
+        .await?;
+
+    // Seed a node record to satisfy FK
+    let node_id = "node-health-test";
     sqlx::query(
-        "INSERT INTO workers (id, tenant_id, node_id, status, worker_type, uds_path, created_at)
-         VALUES (?, ?, 'test-node', 'serving', 'inference', '/tmp/test.sock', datetime('now'))",
+        "INSERT OR IGNORE INTO nodes (id, hostname, agent_endpoint, status, created_at)
+         VALUES (?, ?, ?, 'active', datetime('now'))",
+    )
+    .bind(node_id)
+    .bind(format!("{}-host", tenant_id))
+    .bind("http://localhost:0")
+    .execute(db.pool())
+    .await?;
+
+    // Seed a manifest and plan to satisfy worker FK
+    let manifest_id = format!("manifest-{}", tenant_id);
+    let manifest_hash = format!("hash-{}", tenant_id);
+    sqlx::query(
+        "INSERT OR IGNORE INTO manifests (id, tenant_id, hash_b3, body_json)
+         VALUES (?, ?, ?, '{}')",
+    )
+    .bind(&manifest_id)
+    .bind(tenant_id)
+    .bind(&manifest_hash)
+    .execute(db.pool())
+    .await?;
+
+    let plan_id = format!("plan-{}", tenant_id);
+    sqlx::query(
+        "INSERT OR IGNORE INTO plans (id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, layout_hash_b3, metadata_json)
+         VALUES (?, ?, ?, ?, '[]', 'layout-hash', NULL)",
+    )
+    .bind(&plan_id)
+    .bind(tenant_id)
+    .bind(format!("plan-b3-{}", tenant_id))
+    .bind(&manifest_hash)
+    .execute(db.pool())
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO workers (id, tenant_id, node_id, plan_id, uds_path, pid, status, memory_headroom_pct, k_current, adapters_loaded_json, started_at, last_seen_at)
+         VALUES (?, ?, ?, ?, '/tmp/test.sock', NULL, 'serving', NULL, NULL, '[]', datetime('now'), datetime('now'))",
     )
     .bind(worker_id)
     .bind(tenant_id)
+    .bind(node_id)
+    .bind(&plan_id)
     .execute(db.pool())
     .await?;
     Ok(())

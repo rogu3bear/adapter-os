@@ -232,7 +232,7 @@ export default function OwnerHomePage() {
     <div className="min-h-full bg-slate-50">
       <PageWrapper
         pageKey="owner-home"
-        title="Owner Home"
+        title="Owner Home (Legacy)"
         description={`Welcome, ${user?.display_name || user?.email}`}
         maxWidth="xl"
         contentPadding="default"
@@ -241,7 +241,7 @@ export default function OwnerHomePage() {
             <div className="flex items-center gap-3">
               <Crown className="h-7 w-7 text-amber-500" />
               <div>
-                <h1 className="text-xl font-bold text-slate-900">Owner Home</h1>
+                <h1 className="text-xl font-bold text-slate-900">Owner Home (Legacy)</h1>
                 <p className="text-sm text-slate-600">
                   Welcome, {user?.display_name || user?.email}
                 </p>
@@ -250,7 +250,7 @@ export default function OwnerHomePage() {
                 variant="default"
                 className="ml-2 bg-amber-500 hover:bg-amber-600 hidden sm:flex"
               >
-                Owner
+                Legacy
               </Badge>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -261,6 +261,34 @@ export default function OwnerHomePage() {
                 lastUpdated={metricsLastUpdated}
                 onReconnect={reconnectMetrics}
               />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate('/dashboard')}
+              >
+                Dashboard
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate('/testing')}
+              >
+                Testing
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate('/replay')}
+              >
+                Replay
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate('/security/policies')}
+              >
+                Guardrails
+              </Button>
               <Button
                 variant="default"
                 size="sm"
@@ -281,15 +309,6 @@ export default function OwnerHomePage() {
                   className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''} sm:mr-1.5`}
                 />
                 <span className="hidden sm:inline">Refresh</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate('/dashboard')}
-                className="hidden md:flex"
-              >
-                Dashboard
-                <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
               </Button>
             </div>
           </div>

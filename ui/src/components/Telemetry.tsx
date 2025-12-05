@@ -23,7 +23,8 @@ import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { toast } from 'sonner';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
 
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
+import { useTenant } from '@/providers/FeatureProviders';
 import { GoldenCompareModal } from './GoldenCompareModal';
 import { logger, toError } from '@/utils/logger';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
@@ -587,6 +588,8 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                     <span>Events</span>
                   </GlossaryTooltip>
                 </TableHead>
+                <TableHead role="columnheader" scope="col">Time Window</TableHead>
+                <TableHead role="columnheader" scope="col">Tenant</TableHead>
                 <TableHead role="columnheader" scope="col">Size</TableHead>
                 <TableHead role="columnheader" scope="col">
                   <GlossaryTooltip termId="merkle-root">
@@ -636,6 +639,14 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                         <TableCell className="p-4 border-b border-border font-medium">{bundleTyped.id.substring(0, 8)}</TableCell>
                         <TableCell className="p-4 border-b border-border">{bundleTyped.cpid}</TableCell>
                         <TableCell className="p-4 border-b border-border">{bundleTyped.event_count.toLocaleString()}</TableCell>
+                        <TableCell className="p-4 border-b border-border text-xs">
+                          {bundleTyped.start_time && bundleTyped.end_time
+                            ? `${new Date(bundleTyped.start_time).toLocaleTimeString()} - ${new Date(bundleTyped.end_time).toLocaleTimeString()}`
+                            : '—'}
+                        </TableCell>
+                        <TableCell className="p-4 border-b border-border font-mono text-xs">
+                          {bundleTyped.tenant_id || '—'}
+                        </TableCell>
                         <TableCell className="p-4 border-b border-border">{(bundleTyped.size_bytes / 1024 / 1024).toFixed(2)} MB</TableCell>
                         <TableCell className="p-4 border-b border-border font-mono text-xs">
                           {bundleTyped.merkle_root ? bundleTyped.merkle_root.substring(0, 16) : 'N/A'}

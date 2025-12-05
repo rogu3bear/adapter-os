@@ -4,7 +4,8 @@ import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { TelemetryViewer } from '@/components/telemetry/TelemetryViewer';
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
+import { useTenant } from '@/providers/FeatureProviders';
 
 export default function TelemetryViewerPage() {
   const { user } = useAuth();

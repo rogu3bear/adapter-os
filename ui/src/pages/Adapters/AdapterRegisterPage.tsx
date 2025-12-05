@@ -25,7 +25,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useRBAC } from '@/hooks/useRBAC';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import apiClient from '@/api/client';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
@@ -161,7 +161,9 @@ export function AdapterRegisterPage() {
         operation: 'registerAdapter',
         adapterId: adapter.id,
       });
-      navigate(`/adapters/${adapter.id}`);
+      navigate(`/adapters/${adapter.id}#overview`, {
+        state: { fromRegister: true, adapterName },
+      });
     },
     onError: (error: Error) => {
       toast.error(`Failed to register adapter: ${error.message}`);

@@ -23,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingState } from '@/components/ui/loading-state';
 import { useRBAC } from '@/hooks/useRBAC';
-import { useTheme } from '@/layout/LayoutProvider';
+import { useTheme } from '@/providers/CoreProviders';
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';

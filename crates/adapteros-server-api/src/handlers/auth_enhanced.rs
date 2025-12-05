@@ -1,19 +1,25 @@
 use crate::auth::{
     generate_token_ed25519_with_admin_tenants, generate_token_with_admin_tenants, hash_password,
-    refresh_token, verify_password, Claims,
+    verify_password, Claims,
 };
-use crate::auth_common::{attach_auth_cookie, AuthConfig};
+use crate::auth_common::{
+    attach_auth_cookie, attach_refresh_cookie, clear_auth_cookies, AuthConfig,
+};
 use crate::ip_extraction::ClientIp;
 use crate::security::{
     create_session, get_user_sessions, is_account_locked, revoke_token, track_auth_attempt,
 };
 use crate::state::AppState;
 use crate::types::ErrorResponse;
-use adapteros_api_types::auth::{LoginRequest, LoginResponse};
+use adapteros_api_types::auth::{
+    LoginRequest, LoginResponse, SwitchTenantRequest, SwitchTenantResponse, TenantListResponse,
+    TenantSummary,
+};
 use adapteros_db::{
     users::{Role, User},
     Db,
 };
+use std::collections::HashSet;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -49,6 +55,14 @@ pub struct RefreshResponse {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+pub struct AuthHealthResponse {
+    pub status: String,
+    pub db: String,
+    pub signing_keys: String,
+    pub idp_configured: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SessionInfo {
     pub jti: String,
     pub created_at: String,
@@ -60,6 +74,8 @@ pub struct SessionInfo {
 pub struct SessionsResponse {
     pub sessions: Vec<SessionInfo>,
 }
+
+const ADMIN_TENANT_WILDCARD: &str = "*";
 
 fn audit_claims_for_user(user: &User, tenant_id: &str) -> Claims {
     Claims {
@@ -74,6 +90,22 @@ fn audit_claims_for_user(user: &User, tenant_id: &str) -> Claims {
         jti: String::new(),
         nbf: 0,
     }
+}
+
+fn extract_cookie_token(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|cookies| {
+            let prefix = format!("{name}=");
+            for cookie in cookies.split(';') {
+                let trimmed = cookie.trim();
+                if let Some(token) = trimmed.strip_prefix(&prefix) {
+                    return Some(token.to_string());
+                }
+            }
+            None
+        })
 }
 
 async fn log_auth_event(
@@ -100,6 +132,81 @@ async fn log_auth_event(
             None,
         )
         .await;
+}
+
+async fn collect_tenant_summaries(
+    state: &AppState,
+    user_id: &str,
+    role: &str,
+    active_tenant: &str,
+    admin_tenants: &[String],
+) -> Result<Vec<TenantSummary>, (StatusCode, Json<ErrorResponse>)> {
+    let has_wildcard = admin_tenants.iter().any(|t| t == ADMIN_TENANT_WILDCARD);
+    // Wildcard admin: return all tenants
+    if role == "admin" && has_wildcard {
+        let (all_tenants, _) = state
+            .db
+            .list_tenants_paginated(200, 0)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, "Failed to list tenants for admin");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+
+        let tenants = all_tenants
+            .into_iter()
+            .map(|t| TenantSummary {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                id: t.id,
+                name: t.name,
+                status: t.status,
+                created_at: Some(t.created_at),
+            })
+            .collect();
+
+        return Ok(tenants);
+    }
+
+    let mut tenant_ids: HashSet<String> = HashSet::new();
+    tenant_ids.insert(active_tenant.to_string());
+
+    if role == "admin" && !has_wildcard {
+        for t in admin_tenants {
+            if t != ADMIN_TENANT_WILDCARD {
+                tenant_ids.insert(t.clone());
+            }
+        }
+
+        if let Ok(db_grants) = adapteros_db::get_user_tenant_access(&state.db, user_id).await {
+            for t in db_grants {
+                tenant_ids.insert(t);
+            }
+        }
+    }
+
+    let mut tenants: Vec<TenantSummary> = Vec::new();
+    for tenant_id in tenant_ids {
+        if let Some(t) = state.db.get_tenant(&tenant_id).await.map_err(|e| {
+            warn!(error = %e, tenant_id = %tenant_id, "Failed to fetch tenant");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })? {
+            tenants.push(TenantSummary {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                id: t.id,
+                name: t.name,
+                status: t.status,
+                created_at: Some(t.created_at),
+            });
+        }
+    }
+
+    Ok(tenants)
 }
 
 /// Bootstrap initial admin user (one-time operation)
@@ -155,38 +262,18 @@ pub async fn bootstrap_admin_handler(
         ));
     }
 
-    // Ensure system tenant exists before creating admin user
-    let system_tenant_exists =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tenants WHERE id = 'system'")
-            .fetch_one(state.db.pool())
-            .await
-            .unwrap_or(0)
-            > 0;
-
-    if !system_tenant_exists {
-        info!("Creating system tenant during bootstrap");
-        sqlx::query(
-            "INSERT INTO tenants (id, name, itar_flag, created_at) VALUES ('system', 'System', 0, datetime('now'))"
+    // Ensure system tenant exists before creating admin user (KV-capable)
+    state.db.ensure_system_tenant().await.map_err(|e| {
+        warn!(error = %e, "Failed to ensure system tenant during bootstrap");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("system tenant creation failed")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
-        .execute(state.db.pool())
-        .await
-        .map_err(|e| {
-            warn!(error = %e, "Failed to create system tenant during bootstrap");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("system tenant creation failed").with_code("DATABASE_ERROR")),
-            )
-        })?;
-
-        // Initialize policy bindings for system tenant
-        if let Err(e) = state
-            .db
-            .initialize_tenant_policy_bindings("system", "system")
-            .await
-        {
-            warn!(error = %e, "Failed to initialize system tenant policy bindings (non-fatal)");
-        }
-    }
+    })?;
 
     // Hash password
     let pw_hash = hash_password(&req.password).map_err(|e| {
@@ -216,19 +303,26 @@ pub async fn bootstrap_admin_handler(
             )
         })?;
 
-    // Grant admin user access to system tenant for cross-tenant operations
-    if let Err(e) = adapteros_db::grant_user_tenant_access(
-        &state.db,
-        &user_id,
-        "system",
-        &user_id, // Self-granted during bootstrap
-        Some("Bootstrap admin auto-grant"),
-        None, // No expiration
-    )
-    .await
-    {
-        warn!(error = %e, user_id = %user_id, "Failed to grant system tenant access during bootstrap (non-fatal)");
-        // Non-fatal - user can still access their own tenant
+    // Grant admin user access to system tenant for cross-tenant operations (best-effort; SQL only)
+    if state.db.storage_mode().write_to_sql() && state.db.pool_opt().is_some() {
+        if let Err(e) = adapteros_db::grant_user_tenant_access(
+            &state.db,
+            &user_id,
+            "system",
+            &user_id, // Self-granted during bootstrap
+            Some("Bootstrap admin auto-grant"),
+            None, // No expiration
+        )
+        .await
+        {
+            warn!(error = %e, user_id = %user_id, "Failed to grant system tenant access during bootstrap (non-fatal)");
+            // Non-fatal - user can still access their own tenant
+        }
+    } else {
+        warn!(
+            user_id = %user_id,
+            "Skipped system tenant grant (SQL disabled or pool unavailable)"
+        );
     }
 
     // Log to audit (no user context yet, so use system)
@@ -387,10 +481,10 @@ pub async fn login_handler(
         )
     })?;
 
-    let tenant_id = if user.role == "admin" {
-        "system".to_string()
-    } else {
+    let tenant_id = if user.tenant_id.is_empty() {
         "default".to_string()
+    } else {
+        user.tenant_id.clone()
     };
 
     if !valid {
@@ -427,17 +521,6 @@ pub async fn login_handler(
         ));
     }
 
-    // Get token TTL from config (default 8 hours)
-    let token_ttl = {
-        let config = state.config.read().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-            )
-        })?;
-        config.security.token_ttl_seconds.unwrap_or(8 * 3600)
-    };
-
     // Get admin tenant access list if user is admin
     let admin_tenants = if user.role == "admin" {
         adapteros_db::get_user_tenant_access(&state.db, &user.id)
@@ -450,8 +533,22 @@ pub async fn login_handler(
         vec![]
     };
 
-    // Generate JWT token
-    let token = if state.use_ed25519 {
+    let auth_cfg = AuthConfig::from_state(&state);
+    let tenants =
+        collect_tenant_summaries(&state, &user.id, &user.role, &tenant_id, &admin_tenants).await?;
+    if tenants.is_empty() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("no tenant access")
+                    .with_code("NO_TENANT_ACCESS")
+                    .with_string_details("You are signed in but have no tenant access. Ask an admin to grant access."),
+            ),
+        ));
+    }
+
+    // Generate access + refresh tokens
+    let access_token = if state.use_ed25519 {
         generate_token_ed25519_with_admin_tenants(
             &user.id,
             &user.email,
@@ -459,10 +556,10 @@ pub async fn login_handler(
             &tenant_id,
             &admin_tenants,
             &state.ed25519_keypair,
-            token_ttl,
+            auth_cfg.access_ttl(),
         )
         .map_err(|e| {
-            warn!(error = %e, "Failed to generate token");
+            warn!(error = %e, "Failed to generate access token");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
@@ -476,10 +573,46 @@ pub async fn login_handler(
             &tenant_id,
             &admin_tenants,
             &state.jwt_secret,
-            token_ttl,
+            auth_cfg.access_ttl(),
         )
         .map_err(|e| {
-            warn!(error = %e, "Failed to generate token");
+            warn!(error = %e, "Failed to generate access token");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+            )
+        })?
+    };
+
+    let refresh_token = if state.use_ed25519 {
+        generate_token_ed25519_with_admin_tenants(
+            &user.id,
+            &user.email,
+            &user.role,
+            &tenant_id,
+            &admin_tenants,
+            &state.ed25519_keypair,
+            auth_cfg.effective_ttl(),
+        )
+        .map_err(|e| {
+            warn!(error = %e, "Failed to generate refresh token");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+            )
+        })?
+    } else {
+        generate_token_with_admin_tenants(
+            &user.id,
+            &user.email,
+            &user.role,
+            &tenant_id,
+            &admin_tenants,
+            &state.jwt_secret,
+            auth_cfg.effective_ttl(),
+        )
+        .map_err(|e| {
+            warn!(error = %e, "Failed to generate refresh token");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
@@ -489,9 +622,9 @@ pub async fn login_handler(
 
     // Decode to get jti and exp
     let claims = if state.use_ed25519 {
-        crate::auth::validate_token_ed25519(&token, &state.ed25519_public_key)
+        crate::auth::validate_token_ed25519(&access_token, &state.ed25519_public_key)
     } else {
-        crate::auth::validate_token(&token, &state.jwt_secret)
+        crate::auth::validate_token(&access_token, &state.jwt_secret)
     }
     .map_err(|e| {
         warn!(error = %e, "Token validation failed after generation");
@@ -502,7 +635,7 @@ pub async fn login_handler(
     })?;
 
     // Create session with user agent for audit tracking (critical - must succeed)
-    let expires_at = Utc::now() + Duration::hours(8);
+    let expires_at = Utc::now() + Duration::seconds(auth_cfg.effective_ttl() as i64);
     create_session(
         &state.db,
         &claims.jti,
@@ -549,10 +682,16 @@ pub async fn login_handler(
     );
 
     // Attach auth cookie for browser-based authentication
-    let auth_cfg = AuthConfig::from_state(&state);
     let mut response_headers = HeaderMap::new();
-    attach_auth_cookie(&mut response_headers, &token, &auth_cfg).map_err(|e| {
+    attach_auth_cookie(&mut response_headers, &access_token, &auth_cfg).map_err(|e| {
         warn!(error = %e, "Failed to attach auth cookie");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+    attach_refresh_cookie(&mut response_headers, &refresh_token, &auth_cfg).map_err(|e| {
+        warn!(error = %e, "Failed to attach refresh cookie");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
@@ -563,11 +702,12 @@ pub async fn login_handler(
         response_headers,
         Json(LoginResponse {
             schema_version: "v1".to_string(),
-            token,
+            token: access_token,
             user_id: user.id,
             tenant_id: tenant_id.clone(),
             role: user.role,
-            expires_in: 28800, // 8 hours
+            expires_in: auth_cfg.access_ttl(),
+            tenants: Some(tenants),
         }),
     ))
 }
@@ -576,7 +716,7 @@ pub async fn login_handler(
 pub async fn logout_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<LogoutResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<LogoutResponse>), (StatusCode, Json<ErrorResponse>)> {
     let expires_at = Utc::now() + Duration::hours(8); // Original expiry
 
     revoke_token(
@@ -616,9 +756,23 @@ pub async fn logout_handler(
 
     info!(user_id = %claims.sub, jti = %claims.jti, "User logged out");
 
-    Ok(Json(LogoutResponse {
-        message: "Logged out successfully".to_string(),
-    }))
+    // Clear cookies
+    let auth_cfg = AuthConfig::from_state(&state);
+    let mut headers = HeaderMap::new();
+    clear_auth_cookies(&mut headers, &auth_cfg).map_err(|e| {
+        warn!(error = %e, "Failed to clear cookies on logout");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("logout failed").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    Ok((
+        headers,
+        Json(LogoutResponse {
+            message: "Logged out successfully".to_string(),
+        }),
+    ))
 }
 
 /// Token refresh handler
@@ -635,59 +789,108 @@ pub async fn logout_handler(
 #[axum::debug_handler]
 pub async fn refresh_token_handler(
     State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-) -> Result<Json<RefreshResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Extract config value before any await to avoid holding RwLockReadGuard across await
-    let token_ttl = state
-        .config
-        .read()
-        .map(|cfg| cfg.security.token_ttl_seconds.unwrap_or(8 * 3600))
-        .unwrap_or_else(|_| {
-            warn!("Config lock poisoned during token refresh, using default TTL");
-            8 * 3600 // Default 8 hours
-        });
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<RefreshResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let refresh_token = extract_cookie_token(&headers, "refresh_token").ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(
+                ErrorResponse::new("session expired")
+                    .with_code("SESSION_EXPIRED")
+                    .with_string_details("refresh token missing"),
+            ),
+        )
+    })?;
 
-    let new_token = match refresh_token(&claims, &state.ed25519_keypair, token_ttl) {
-        Ok(token) => token,
+    let refresh_claims = match if state.use_ed25519 {
+        crate::auth::validate_token_ed25519(&refresh_token, &state.ed25519_public_key)
+    } else {
+        crate::auth::validate_token(&refresh_token, &state.jwt_secret)
+    } {
+        Ok(claims) => claims,
         Err(e) => {
-            warn!(error = %e, "Failed to refresh token");
-            log_auth_event(
-                &state.db,
-                &claims,
-                "auth.refresh",
-                "session",
-                None,
-                "failure",
-                Some("token refresh failed"),
-                None,
-            )
-            .await;
+            warn!(error = %e, "Failed to validate refresh token");
             return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR")),
+                StatusCode::UNAUTHORIZED,
+                Json(
+                    ErrorResponse::new("session expired")
+                        .with_code("SESSION_EXPIRED")
+                        .with_string_details("refresh token invalid or expired"),
+                ),
             ));
         }
     };
 
-    let new_claims = match if state.use_ed25519 {
-        crate::auth::validate_token_ed25519(&new_token, &state.ed25519_public_key)
+    // Generate fresh tokens
+    let auth_cfg = AuthConfig::from_state(&state);
+    let admin_tenants = refresh_claims.admin_tenants.clone();
+
+    let new_access_token = if state.use_ed25519 {
+        generate_token_ed25519_with_admin_tenants(
+            &refresh_claims.sub,
+            &refresh_claims.email,
+            &refresh_claims.role,
+            &refresh_claims.tenant_id,
+            &admin_tenants,
+            &state.ed25519_keypair,
+            auth_cfg.access_ttl(),
+        )
     } else {
-        crate::auth::validate_token(&new_token, &state.jwt_secret)
+        generate_token_with_admin_tenants(
+            &refresh_claims.sub,
+            &refresh_claims.email,
+            &refresh_claims.role,
+            &refresh_claims.tenant_id,
+            &admin_tenants,
+            &state.jwt_secret,
+            auth_cfg.access_ttl(),
+        )
+    }
+    .map_err(|e| {
+        warn!(error = %e, "Failed to generate refreshed access token");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let new_refresh_token = if state.use_ed25519 {
+        generate_token_ed25519_with_admin_tenants(
+            &refresh_claims.sub,
+            &refresh_claims.email,
+            &refresh_claims.role,
+            &refresh_claims.tenant_id,
+            &admin_tenants,
+            &state.ed25519_keypair,
+            auth_cfg.effective_ttl(),
+        )
+    } else {
+        generate_token_with_admin_tenants(
+            &refresh_claims.sub,
+            &refresh_claims.email,
+            &refresh_claims.role,
+            &refresh_claims.tenant_id,
+            &admin_tenants,
+            &state.jwt_secret,
+            auth_cfg.effective_ttl(),
+        )
+    }
+    .map_err(|e| {
+        warn!(error = %e, "Failed to generate refreshed session token");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let new_access_claims = match if state.use_ed25519 {
+        crate::auth::validate_token_ed25519(&new_access_token, &state.ed25519_public_key)
+    } else {
+        crate::auth::validate_token(&new_access_token, &state.jwt_secret)
     } {
         Ok(claims) => claims,
         Err(e) => {
             warn!(error = %e, "Token validation failed after refresh");
-            log_auth_event(
-                &state.db,
-                &claims,
-                "auth.refresh",
-                "session",
-                None,
-                "failure",
-                Some("token validation failed"),
-                None,
-            )
-            .await;
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
@@ -695,133 +898,351 @@ pub async fn refresh_token_handler(
         }
     };
 
-    let expires_at = Utc::now() + Duration::hours(8);
+    // Persist session for new access token (best-effort)
+    let expires_at = Utc::now() + Duration::seconds(auth_cfg.access_ttl() as i64);
     let expires_at_str = expires_at.to_rfc3339();
-
-    let mut tx = match state.db.pool().begin().await {
-        Ok(tx) => tx,
-        Err(e) => {
-            warn!(error = %e, "Failed to begin transaction for token refresh");
-            log_auth_event(
-                &state.db,
-                &claims,
-                "auth.refresh",
-                "session",
-                None,
-                "failure",
-                Some("transaction begin failed"),
-                None,
-            )
-            .await;
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-            ));
-        }
-    };
-
     if let Err(e) = sqlx::query(
         "INSERT INTO user_sessions (jti, user_id, tenant_id, created_at, expires_at, last_activity)
          VALUES (?, ?, ?, datetime('now'), ?, datetime('now'))",
     )
-    .bind(&new_claims.jti)
-    .bind(&claims.sub)
-    .bind(&claims.tenant_id)
+    .bind(&new_access_claims.jti)
+    .bind(&refresh_claims.sub)
+    .bind(&refresh_claims.tenant_id)
     .bind(&expires_at_str)
-    .execute(&mut *tx)
+    .execute(state.db.pool())
     .await
     {
-        warn!(error = %e, user_id = %claims.sub, "Failed to create refreshed session");
-        log_auth_event(
-            &state.db,
-            &claims,
-            "auth.refresh",
-            "session",
-            Some(&new_claims.jti),
-            "failure",
-            Some("session creation failed"),
-            None,
-        )
-        .await;
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("session creation failed").with_code("SESSION_ERROR")),
-        ));
-    }
-
-    if let Err(e) = sqlx::query(
-        "INSERT INTO revoked_tokens (jti, user_id, tenant_id, revoked_at, revoked_by, reason, expires_at)
-         VALUES (?, ?, ?, datetime('now'), ?, 'token refresh', ?)
-         ON CONFLICT(jti) DO NOTHING",
-    )
-    .bind(&claims.jti)
-    .bind(&claims.sub)
-    .bind(&claims.tenant_id)
-    .bind(&claims.sub)
-    .bind(&expires_at_str)
-    .execute(&mut *tx)
-    .await
-    {
-        warn!(error = %e, "Failed to revoke old token during refresh");
-        log_auth_event(
-            &state.db,
-            &claims,
-            "auth.refresh",
-            "session",
-            Some(&claims.jti),
-            "failure",
-            Some("token revocation failed"),
-            None,
-        )
-        .await;
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-        ));
-    }
-
-    if let Err(e) = tx.commit().await {
-        warn!(error = %e, user_id = %claims.sub, "Failed to commit token refresh transaction");
-        log_auth_event(
-            &state.db,
-            &claims,
-            "auth.refresh",
-            "session",
-            Some(&new_claims.jti),
-            "failure",
-            Some("transaction commit failed"),
-            None,
-        )
-        .await;
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-        ));
+        warn!(error = %e, user_id = %refresh_claims.sub, "Failed to create refreshed session");
     }
 
     log_auth_event(
         &state.db,
-        &claims,
+        &refresh_claims,
         "auth.refresh",
         "session",
-        Some(&new_claims.jti),
+        Some(&new_access_claims.jti),
         "success",
         None,
         None,
     )
     .await;
 
+    let mut response_headers = HeaderMap::new();
+    attach_auth_cookie(&mut response_headers, &new_access_token, &auth_cfg).map_err(|e| {
+        warn!(error = %e, "Failed to attach refreshed auth cookie");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+    attach_refresh_cookie(&mut response_headers, &new_refresh_token, &auth_cfg).map_err(|e| {
+        warn!(error = %e, "Failed to attach refreshed session cookie");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
     info!(
-        user_id = %claims.sub,
-        old_jti = %claims.jti,
-        new_jti = %new_claims.jti,
+        user_id = %refresh_claims.sub,
+        old_jti = %refresh_claims.jti,
+        new_jti = %new_access_claims.jti,
         "Token refreshed"
     );
 
-    Ok(Json(RefreshResponse {
-        token: new_token,
-        expires_at: new_claims.exp,
+    Ok((
+        response_headers,
+        Json(RefreshResponse {
+            token: new_access_token,
+            expires_at: new_access_claims.exp,
+        }),
+    ))
+}
+
+/// Auth subsystem health check
+#[utoipa::path(
+    get,
+    path = "/v1/auth/health",
+    responses(
+        (status = 200, description = "Auth health", body = AuthHealthResponse),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "auth"
+)]
+pub async fn auth_health_handler(
+    State(state): State<AppState>,
+) -> Result<Json<AuthHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let db_status = if let Some(pool) = state.db.pool_opt() {
+        match sqlx::query("SELECT 1").fetch_one(pool).await {
+            Ok(_) => "ok".to_string(),
+            Err(e) => {
+                warn!(error = %e, "DB health check failed for auth health");
+                "unhealthy".to_string()
+            }
+        }
+    } else {
+        "unknown".to_string()
+    };
+
+    let signing_keys = if state.use_ed25519 {
+        "eddsa".to_string()
+    } else {
+        "hmac".to_string()
+    };
+
+    Ok(Json(AuthHealthResponse {
+        status: "ok".to_string(),
+        db: db_status,
+        signing_keys,
+        idp_configured: false,
     }))
+}
+
+/// List tenants the current user can access (for tenant picker)
+#[utoipa::path(
+    get,
+    path = "/v1/auth/tenants",
+    responses(
+        (status = 200, description = "User tenants", body = TenantListResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "auth"
+)]
+pub async fn list_user_tenants_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<TenantListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let tenants = collect_tenant_summaries(
+        &state,
+        &claims.sub,
+        &claims.role,
+        &claims.tenant_id,
+        &claims.admin_tenants,
+    )
+    .await?;
+
+    Ok(Json(TenantListResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        tenants,
+    }))
+}
+
+/// Switch active tenant (re-issue access + refresh tokens)
+#[utoipa::path(
+    post,
+    path = "/v1/auth/tenants/switch",
+    request_body = SwitchTenantRequest,
+    responses(
+        (status = 200, description = "Tenant switched", body = SwitchTenantResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Tenant access denied")
+    ),
+    tag = "auth"
+)]
+pub async fn switch_tenant_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<SwitchTenantRequest>,
+) -> Result<(HeaderMap, Json<SwitchTenantResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let target_tenant = req.tenant_id;
+
+    // Fast path: same tenant
+    if target_tenant == claims.tenant_id {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("already on tenant")
+                    .with_code("TENANT_ALREADY_ACTIVE")
+                    .with_string_details("requested tenant is already active"),
+            ),
+        ));
+    }
+
+    // Verify access
+    let mut allowed = false;
+    if claims.role == "admin" {
+        if claims
+            .admin_tenants
+            .iter()
+            .any(|t| t == ADMIN_TENANT_WILDCARD)
+        {
+            allowed = true;
+        } else if claims.admin_tenants.contains(&target_tenant) {
+            allowed = true;
+        } else if let Ok(grants) =
+            adapteros_db::get_user_tenant_access(&state.db, &claims.sub).await
+        {
+            allowed = grants.contains(&target_tenant);
+        }
+    } else if claims.tenant_id == target_tenant {
+        allowed = true;
+    }
+
+    if !allowed {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("tenant access denied")
+                    .with_code("TENANT_ACCESS_DENIED")
+                    .with_string_details(
+                        "You have no role in this tenant. Request access from an admin.",
+                    ),
+            ),
+        ));
+    }
+
+    // Load user to get role/email (authoritative)
+    let user = state
+        .db
+        .get_user(&claims.sub)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, user_id = %claims.sub, "Failed to load user for tenant switch");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse::new("user not found").with_code("UNAUTHORIZED")),
+            )
+        })?;
+
+    let auth_cfg = AuthConfig::from_state(&state);
+
+    let admin_tenants = if user.role == "admin" {
+        adapteros_db::get_user_tenant_access(&state.db, &user.id)
+            .await
+            .unwrap_or_else(|_| claims.admin_tenants.clone())
+    } else {
+        vec![]
+    };
+
+    let access_token = if state.use_ed25519 {
+        generate_token_ed25519_with_admin_tenants(
+            &user.id,
+            &user.email,
+            &user.role,
+            &target_tenant,
+            &admin_tenants,
+            &state.ed25519_keypair,
+            auth_cfg.access_ttl(),
+        )
+    } else {
+        generate_token_with_admin_tenants(
+            &user.id,
+            &user.email,
+            &user.role,
+            &target_tenant,
+            &admin_tenants,
+            &state.jwt_secret,
+            auth_cfg.access_ttl(),
+        )
+    }
+    .map_err(|e| {
+        warn!(error = %e, "Failed to generate access token for tenant switch");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let refresh_token = if state.use_ed25519 {
+        generate_token_ed25519_with_admin_tenants(
+            &user.id,
+            &user.email,
+            &user.role,
+            &target_tenant,
+            &admin_tenants,
+            &state.ed25519_keypair,
+            auth_cfg.effective_ttl(),
+        )
+    } else {
+        generate_token_with_admin_tenants(
+            &user.id,
+            &user.email,
+            &user.role,
+            &target_tenant,
+            &admin_tenants,
+            &state.jwt_secret,
+            auth_cfg.effective_ttl(),
+        )
+    }
+    .map_err(|e| {
+        warn!(error = %e, "Failed to generate refresh token for tenant switch");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let access_claims = if state.use_ed25519 {
+        crate::auth::validate_token_ed25519(&access_token, &state.ed25519_public_key)
+    } else {
+        crate::auth::validate_token(&access_token, &state.jwt_secret)
+    }
+    .map_err(|e| {
+        warn!(error = %e, "Token validation failed after tenant switch generation");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let expires_at = Utc::now() + Duration::seconds(auth_cfg.access_ttl() as i64);
+    if let Err(e) = create_session(
+        &state.db,
+        &access_claims.jti,
+        &user.id,
+        &target_tenant,
+        &expires_at.to_rfc3339(),
+        None,
+        None,
+    )
+    .await
+    {
+        warn!(error = %e, user_id = %user.id, "Failed to create session during tenant switch");
+    }
+
+    let tenants = collect_tenant_summaries(
+        &state,
+        &user.id,
+        &user.role,
+        &target_tenant,
+        &admin_tenants,
+    )
+    .await?;
+
+    let mut headers = HeaderMap::new();
+    attach_auth_cookie(&mut headers, &access_token, &auth_cfg).map_err(|e| {
+        warn!(error = %e, "Failed to attach auth cookie during tenant switch");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+    attach_refresh_cookie(&mut headers, &refresh_token, &auth_cfg).map_err(|e| {
+        warn!(error = %e, "Failed to attach refresh cookie during tenant switch");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    Ok((
+        headers,
+        Json(SwitchTenantResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            token: access_token,
+            user_id: user.id,
+            tenant_id: target_tenant,
+            role: user.role,
+            expires_in: auth_cfg.access_ttl(),
+            tenants: Some(tenants),
+        }),
+    ))
 }
 
 /// List active sessions for current user
@@ -1169,9 +1590,28 @@ pub async fn dev_bypass_handler(
         "Dev bypass login successful"
     );
 
+    let admin_tenants =
+        adapteros_db::get_user_tenant_access(&state.db, &ctx.user.id).await.unwrap_or_default();
+    let role_string = ctx.role.to_string();
+    let tenants = collect_tenant_summaries(
+        &state,
+        &ctx.user.id,
+        &role_string,
+        &ctx.user.tenant_id,
+        &admin_tenants,
+    )
+    .await?;
+
     let mut response_headers = HeaderMap::new();
     attach_auth_cookie(&mut response_headers, &token, &auth_cfg).map_err(|err| {
         warn!(error = %err, "Failed to attach auth cookie for dev bypass");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+    attach_refresh_cookie(&mut response_headers, &token, &auth_cfg).map_err(|err| {
+        warn!(error = %err, "Failed to attach refresh cookie for dev bypass");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
@@ -1187,6 +1627,7 @@ pub async fn dev_bypass_handler(
             tenant_id: ctx.user.tenant_id.clone(),
             role: ctx.role.to_string(),
             expires_in: auth_cfg.effective_ttl(),
+            tenants: Some(tenants),
         }),
     ))
 }

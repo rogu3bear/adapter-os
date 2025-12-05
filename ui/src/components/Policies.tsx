@@ -27,7 +27,8 @@ import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Skeleton } from './ui/skeleton';
 import { BookmarkButton } from './ui/bookmark-button';
 
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
+import { useTenant } from '@/providers/FeatureProviders';
 import { useRBAC } from '@/hooks/useRBAC';
 import { useProgressiveHints } from '@/hooks/useProgressiveHints';
 import { getPageHints } from '@/data/page-hints';

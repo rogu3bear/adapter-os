@@ -9,10 +9,15 @@ use adapteros_core::Result;
 use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::Db;
+use uuid::Uuid;
 
 /// Test helper to create an in-memory database with migrations
 async fn setup_test_db() -> Result<Db> {
     Db::new_in_memory().await
+}
+
+fn stack_name() -> String {
+    format!("stack.test.{}", Uuid::new_v4().simple())
 }
 
 /// Test helper to create a tenant
@@ -162,7 +167,7 @@ async fn test_chat_bootstrap_db_returns_provenance_fields() {
     }
 
     // Create stack and link to job
-    let stack_id = match create_test_stack(&db, tenant_id, "stack.provenance.test").await {
+    let stack_id = match create_test_stack(&db, tenant_id, &stack_name()).await {
         Ok(id) => id,
         Err(e) => {
             eprintln!("Skipping test - stack creation failed: {}", e);
@@ -326,7 +331,7 @@ async fn test_create_chat_from_job_with_provenance_fields() {
     }
 
     // Create stack
-    let stack_id = match create_test_stack(&db, tenant_id, "stack.chat.provenance").await {
+    let stack_id = match create_test_stack(&db, tenant_id, &stack_name()).await {
         Ok(id) => id,
         Err(e) => {
             eprintln!("Skipping test - stack creation failed: {}", e);
@@ -650,7 +655,7 @@ async fn test_full_provenance_chain_job_to_chat() {
     }
 
     // Step 2: Create stack
-    let stack_id = match create_test_stack(&db, tenant_id, "stack.chain.test").await {
+    let stack_id = match create_test_stack(&db, tenant_id, &stack_name()).await {
         Ok(id) => id,
         Err(e) => {
             eprintln!("Skipping test - stack creation failed: {}", e);

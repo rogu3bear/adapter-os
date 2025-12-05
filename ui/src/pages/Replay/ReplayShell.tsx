@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -17,9 +17,11 @@ import { useToast } from '@/hooks/use-toast';
 export default function ReplayShell() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const [selectedSession, setSelectedSession] = useState<ReplaySession | null>(null);
   const [compareId, setCompareId] = useState<string>('');
+  const preselectedSessionId = searchParams.get('sessionId') || undefined;
 
   const activeTab: ReplayTab = useMemo(
     () => resolveReplayTab(location.pathname, location.hash),
@@ -70,6 +72,7 @@ export default function ReplayShell() {
 
         <TabsContent value="runs" className="mt-6">
           <ReplayPanel
+            initialSessionId={preselectedSessionId}
             onSessionSelect={(session) => {
               setSelectedSession(session);
               if (session) {
@@ -109,6 +112,10 @@ function DecisionTraceTab({ session }: { session: ReplaySession | null }) {
     <Card>
       <CardHeader>
         <CardTitle>Routing decision trace</CardTitle>
+        <div className="text-xs text-muted-foreground flex gap-2">
+          <Link to="/routing" className="underline underline-offset-4">View routing history</Link>
+          <Link to="/telemetry" className="underline underline-offset-4">Open telemetry</Link>
+        </div>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         <div className="grid grid-cols-2 gap-3">

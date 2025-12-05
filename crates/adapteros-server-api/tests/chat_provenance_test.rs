@@ -14,10 +14,15 @@ use adapteros_db::Db;
 use adapteros_server_api::handlers::chat_sessions::get_chat_provenance;
 use axum::{extract::Path, extract::State, Extension, Json};
 use common::{setup_state, test_admin_claims};
+use uuid::Uuid;
 
 /// Test helper to create an in-memory database with migrations
 async fn setup_test_db() -> Result<Db> {
     Db::new_in_memory().await
+}
+
+fn stack_name() -> String {
+    format!("stack.test.{}", Uuid::new_v4().simple())
 }
 
 /// Test helper to create a tenant
@@ -218,7 +223,7 @@ async fn test_provenance_chain_data_exists() {
     let stack_id = match create_test_stack_with_adapters(
         &db,
         tenant_id,
-        "stack.provenance.test",
+        &stack_name(),
         vec![adapter_id.to_string()],
     )
     .await
@@ -330,7 +335,7 @@ async fn test_provenance_external_adapter() {
     let stack_id = match create_test_stack_with_adapters(
         &db,
         tenant_id,
-        "stack.external.adapter",
+        &stack_name(),
         vec![adapter_id.to_string()],
     )
     .await
@@ -411,7 +416,7 @@ async fn test_provenance_handler_happy_path() {
 
     let tenant_id = "tenant-1"; // pre-created by setup_state
     let session_id = "session-handler-001";
-    let stack_name = "stack.handler.test";
+    let stack_name = stack_name();
     let adapter_id = "adapter-handler-001";
 
     // Create adapter

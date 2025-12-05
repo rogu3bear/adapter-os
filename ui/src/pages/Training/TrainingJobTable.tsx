@@ -242,6 +242,18 @@ export function TrainingJobTable({
                         </Link>
                       )}
 
+                      {typedJob.adapter_id && (
+                        <Link to={`/adapters/${typedJob.adapter_id}#overview`}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            title="View adapter"
+                          >
+                            View adapter
+                          </Button>
+                        </Link>
+                      )}
+
                       {typedJob.status === 'completed' && (
                         <Link to={`/testing?adapter=${typedJob.adapter_id}`}>
                           <Button size="sm" variant="default">

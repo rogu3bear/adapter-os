@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { cn } from '@/components/ui/utils';
-import { useResize } from '@/layout/LayoutProvider';
+import { useResize } from '@/providers/CoreProviders';
 import { PageHeader, PageHeaderAction, PageHeaderBadge } from '@/components/ui/page-header';
 import { logger } from '@/utils/logger';
 import { formatClusterPrefixedLabel } from '@/config/routes';

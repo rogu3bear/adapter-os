@@ -16,7 +16,32 @@ export interface LoginResponse {
   tenant_id: string;  // Required by backend (not optional)
   role: string;
   expires_in: number;  // Changed from expires_at to expires_in (seconds)
+  tenants?: TenantSummary[];
 }
+
+export interface RefreshResponse {
+  token: string;
+  expires_at: number;
+}
+
+export interface TenantSummary {
+  schema_version: string;
+  id: string;
+  name: string;
+  status?: string | null;
+  created_at?: string | null;
+}
+
+export interface TenantListResponse {
+  schema_version: string;
+  tenants: TenantSummary[];
+}
+
+export interface SwitchTenantRequest {
+  tenant_id: string;
+}
+
+export type SwitchTenantResponse = LoginResponse;
 
 export interface UserInfoResponse {
   schema_version: string;  // Required by backend API

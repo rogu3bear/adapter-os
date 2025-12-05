@@ -236,7 +236,11 @@ impl ReplayRepository {
             }
         }
 
-        items.sort_by(|a, b| b.executed_at.cmp(&a.executed_at));
+        items.sort_by(|a, b| {
+            b.executed_at
+                .cmp(&a.executed_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
         Ok(items)
     }
 
@@ -288,8 +292,7 @@ impl ReplayRepository {
 
         if let Some(first_key) = keys.first() {
             if let Some(bytes) = self.backend.get(first_key).await? {
-                let record =
-                    VersionedRecord::<ReplaySessionKv>::deserialize_and_migrate(&bytes)?;
+                let record = VersionedRecord::<ReplaySessionKv>::deserialize_and_migrate(&bytes)?;
                 return Ok(Some(record.data));
             }
         }

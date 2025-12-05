@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { useTraining } from '@/hooks/useTraining';
 import { useAdapterStacks } from '@/hooks/useAdmin';
 import { ChatInterface } from '@/components/ChatInterface';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import { ArrowRight, ArrowLeft, CheckCircle, Play, UploadCloud } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Dataset, DatasetValidationStatus, TrainingJob } from '@/api/training-types';

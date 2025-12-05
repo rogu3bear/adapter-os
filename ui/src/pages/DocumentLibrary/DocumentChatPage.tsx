@@ -24,6 +24,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import DocumentChatLayout from '@/components/documents/DocumentChatLayout';
 import { useDocument } from '@/hooks/useDocumentsApi';
+import { Link } from 'react-router-dom';
 
 interface DocumentChatParams {
   documentId: string;
@@ -209,6 +210,12 @@ export default function DocumentChatPage() {
           tenantId={document.tenant_id}
         />
       </main>
+
+      <div className="p-4 border-t text-sm text-muted-foreground">
+        <Link to="/telemetry/viewer" className="underline underline-offset-4">
+          View telemetry for this session
+        </Link>
+      </div>
 
       {/* Keyboard shortcut help - screen reader only */}
       <div className="sr-only" role="region" aria-label="Keyboard shortcuts">

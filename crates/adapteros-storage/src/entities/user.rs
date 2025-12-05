@@ -106,7 +106,7 @@ pub struct UserKv {
     pub display_name: String,
 
     // Authentication (never serialized in logs/telemetry)
-    #[serde(skip_serializing)]
+    #[serde(default)]
     pub pw_hash: String,
 
     // Authorization

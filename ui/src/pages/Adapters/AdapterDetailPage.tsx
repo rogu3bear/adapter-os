@@ -20,6 +20,7 @@ import { LoadingState } from '@/components/ui/loading-state';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import FeatureLayout from '@/layout/FeatureLayout';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 import { useAdapterDetail } from '@/hooks/useAdapterDetail';
 import { useAdapterOperations } from '@/hooks/useAdapterOperations';
@@ -474,6 +475,25 @@ export default function AdapterDetailPage() {
             </DropdownMenu>
           </div>
         </div>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>Next steps</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm text-muted-foreground">
+              Train jobs for this adapter or configure routing to activate it in the stack.
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => navigate(`/training/jobs?adapterId=${adapterId}`)}>
+                View training jobs
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => navigate(`/router-config?adapterId=${adapterId}`)}>
+                Configure routing
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>

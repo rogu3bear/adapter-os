@@ -16,7 +16,7 @@ import { calculateTotalMemory } from '@/utils/memoryEstimation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { logger } from '@/utils/logger';
 import { useChatSessions } from '@/hooks/useChatSessions';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
 import { useStackPolicyStream } from '@/hooks/useStreamingEndpoints';
 import {

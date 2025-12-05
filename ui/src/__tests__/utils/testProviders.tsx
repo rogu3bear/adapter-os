@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { render, RenderOptions } from '@testing-library/react';
+import { vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, MemoryRouter, MemoryRouterProps } from 'react-router-dom';
 
@@ -161,6 +162,8 @@ export function clearQueryCache(queryClient: QueryClient) {
 /**
  * Mock auth context for testing authenticated components
  */
+const mockFn = (globalThis as { jest?: { fn: () => unknown } }).jest?.fn ?? vi.fn;
+
 export const mockAuthContext = {
   isAuthenticated: true,
   user: {
@@ -172,16 +175,16 @@ export const mockAuthContext = {
     id: 'tenant-1',
     name: 'Test Tenant',
   },
-  login: jest.fn(),
-  logout: jest.fn(),
-  refreshToken: jest.fn(),
+  login: mockFn(),
+  logout: mockFn(),
+  refreshToken: mockFn(),
 };
 
 /**
  * Mock router context for testing navigation
  */
 export const mockRouterContext = {
-  navigate: jest.fn(),
+  navigate: mockFn(),
   location: {
     pathname: '/test',
     search: '',

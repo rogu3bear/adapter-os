@@ -186,7 +186,7 @@ const DatasetTableRow = ({
             title="Start training with this collection"
           >
             <Play className="mr-1 h-4 w-4" />
-            Train
+            Use in training job
           </Button>
         )}
         {(dataset.validation_status === 'draft' || dataset.validation_status === 'invalid') && canValidate && (
@@ -568,8 +568,7 @@ export function DatasetsTab() {
         canDelete={can('dataset:delete')}
         onView={(id) => navigate(`/training/datasets/${id}`)}
         onStartTraining={(id) => {
-          setInitialDatasetId(id);
-          setIsTrainingWizardOpen(true);
+          navigate(`/training/jobs?datasetId=${encodeURIComponent(id)}`);
         }}
         onValidate={handleValidateDataset}
         onDelete={(id) => setDeleteDatasetId(id)}

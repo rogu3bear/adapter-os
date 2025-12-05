@@ -28,6 +28,7 @@ import {
 import { useComplianceAudit } from '@/hooks/useSecurity';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import type { ComplianceControl, PolicyViolationRecord } from '@/api/types';
+import { Link } from 'react-router-dom';
 
 export function ComplianceTab() {
   const { complianceAudit, isLoading, error, refetch } = useComplianceAudit();
@@ -152,7 +153,10 @@ export function ComplianceTab() {
   return (
     <div className="space-y-6">
       {/* Action Bar */}
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/replay#runs">Open related replay</Link>
+        </Button>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh

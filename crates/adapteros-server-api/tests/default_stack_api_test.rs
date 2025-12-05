@@ -12,6 +12,7 @@
 use adapteros_core::Result;
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::Db;
+use uuid::Uuid;
 
 /// Test helper to create a tenant with a specific ID
 async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
@@ -30,6 +31,10 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
 async fn setup_test_db() -> Result<Db> {
     let db = Db::new_in_memory().await?;
     Ok(db)
+}
+
+fn stack_name() -> String {
+    format!("stack.test.{}", Uuid::new_v4().simple())
 }
 
 #[tokio::test]
@@ -72,7 +77,7 @@ async fn test_set_and_get_default_stack() {
     // Create a stack
     let stack_req = CreateStackRequest {
         tenant_id: tenant_id.to_string(),
-        name: "stack.test.my-stack".to_string(),
+        name: stack_name(),
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
@@ -107,7 +112,7 @@ async fn test_clear_default_stack() {
     // Create and set a default stack
     let stack_req = CreateStackRequest {
         tenant_id: tenant_id.to_string(),
-        name: "stack.test.my-stack".to_string(),
+        name: stack_name(),
         description: Some("Test stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
@@ -170,7 +175,7 @@ async fn test_change_default_stack() {
     // Create two stacks
     let stack1_req = CreateStackRequest {
         tenant_id: tenant_id.to_string(),
-        name: "stack.test.stack1".to_string(),
+        name: stack_name(),
         description: Some("Stack 1".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
@@ -180,7 +185,7 @@ async fn test_change_default_stack() {
 
     let stack2_req = CreateStackRequest {
         tenant_id: tenant_id.to_string(),
-        name: "stack.test.stack2".to_string(),
+        name: stack_name(),
         description: Some("Stack 2".to_string()),
         adapter_ids: vec!["adapter2".to_string()],
         workflow_type: Some("Sequential".to_string()),
@@ -228,7 +233,7 @@ async fn test_tenant_isolation_for_default_stack() {
     // Create a stack for tenant1
     let stack_req = CreateStackRequest {
         tenant_id: tenant1_id.to_string(),
-        name: "stack.tenant1.my-stack".to_string(),
+        name: stack_name(),
         description: Some("Tenant 1's stack".to_string()),
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),

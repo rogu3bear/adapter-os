@@ -25,7 +25,40 @@ pub struct LoginResponse {
     pub tenant_id: String,
     pub role: String,
     pub expires_in: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenants: Option<Vec<TenantSummary>>,
 }
+
+/// Minimal tenant summary for tenant picker
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct TenantSummary {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub id: String,
+    pub name: String,
+    pub status: Option<String>,
+    pub created_at: Option<String>,
+}
+
+/// Current user's tenant list response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct TenantListResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub tenants: Vec<TenantSummary>,
+}
+
+/// Switch tenant request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct SwitchTenantRequest {
+    pub tenant_id: String,
+}
+
+/// Switch tenant response (reuses login response shape)
+pub type SwitchTenantResponse = LoginResponse;
 
 /// User information response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

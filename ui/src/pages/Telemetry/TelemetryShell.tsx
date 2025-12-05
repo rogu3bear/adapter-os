@@ -15,6 +15,7 @@ import type { Alert, TelemetryBundle, TelemetryEvent } from '@/api/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { Link } from 'react-router-dom';
 
 export default function TelemetryShell() {
   const location = useLocation();
@@ -121,6 +122,7 @@ function TelemetryAlertsTab() {
               <TableHead>Severity</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Message</TableHead>
+              <TableHead>Investigate</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -133,6 +135,11 @@ function TelemetryAlertsTab() {
                 </TableCell>
                 <TableCell>{alert.status}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{alert.message}</TableCell>
+                <TableCell>
+                  <Link to="/replay" className="text-xs underline underline-offset-4">
+                    View affected sessions
+                  </Link>
+                </TableCell>
                 <TableCell className="text-right space-x-2">
                   <Button
                     size="sm"

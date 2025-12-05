@@ -4,6 +4,7 @@ Use this as a page-by-page checklist to impose the Build/Run/Observe/Verify stru
 
 ## Page-to-cluster mapping (breadcrumb/header/nav label)
 - **Label rule**: Prefix breadcrumbs and page headers with the cluster name (`Build`, `Run`, `Observe`, `Verify`). Sidebar/nav group should be the same cluster name; no other nav groups remain.
+- Legacy Build flows stay routable but hidden from nav: `/management`, `/personas`, `/flow/lora`, `/trainer`, `/promotion`, `/create-adapter`, `/metrics/advanced`, `/federation`.
 - **Build**
   - `/workflow` (onboarding root), `/flow/lora` (guided), `/personas` (tour), `/management` (ops console for setup)
   - `/create-adapter`, `/adapters` (+ `/:adapterId`, `/activations`, `/usage`, `/lineage`, `/manifest`, `/new`)

@@ -4154,25 +4154,83 @@ pub async fn list_violations(
 
 /// List telemetry bundles (stub)
 pub async fn list_telemetry_bundles(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<TelemetryBundleResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would query telemetry store
-    Ok(Json(vec![]))
+    let bundles = state
+        .db
+        .get_telemetry_bundles_by_tenant(&claims.tenant_id, 100, 0)
+        .await
+        .map_err(|e| {
+            tracing::error!(tenant_id = %claims.tenant_id, error = %e, "Failed to list telemetry bundles");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to list telemetry bundles")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let response = bundles
+        .into_iter()
+        .map(|bundle| {
+            let size_bytes = std::fs::metadata(&bundle.path)
+                .map(|m| m.len())
+                .unwrap_or(0);
+
+            TelemetryBundleResponse {
+                id: bundle.id,
+                cpid: bundle.cpid,
+                event_count: bundle.event_count as u64,
+                size_bytes,
+                created_at: bundle.created_at,
+            }
+        })
+        .collect();
+
+    Ok(Json(response))
 }
 
 /// Export telemetry bundle as NDJSON
 pub async fn export_telemetry_bundle(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(bundle_id): Path<String>,
 ) -> Result<Json<ExportTelemetryBundleResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would fetch bundle from telemetry store
+    let bundle = state
+        .db
+        .get_telemetry_bundle(&claims.tenant_id, &bundle_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(tenant_id = %claims.tenant_id, bundle_id = %bundle_id, error = %e, "Failed to load telemetry bundle");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to load telemetry bundle")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let Some(bundle) = bundle else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("Bundle not found").with_code("NOT_FOUND")),
+        ));
+    };
+
+    let size_bytes = std::fs::metadata(&bundle.path)
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
+
     Ok(Json(ExportTelemetryBundleResponse {
-        bundle_id: bundle_id.clone(),
-        events_count: 42_000,
-        size_bytes: 12_582_912,
-        download_url: format!("/v1/telemetry/bundles/{}/download", bundle_id),
+        bundle_id: bundle.id.clone(),
+        events_count: bundle.event_count,
+        size_bytes,
+        download_url: format!("/v1/telemetry/bundles/{}/download", bundle.id),
         expires_at: chrono::Utc::now().to_rfc3339(),
     }))
 }

@@ -1,4 +1,4 @@
-import { useAuth } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { MonitoringPage } from '@/components/MonitoringPage';
 import { DensityProvider } from '@/contexts/DensityContext';
@@ -7,6 +7,9 @@ import { PERMISSIONS } from '@/utils/rbac';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ShieldAlert } from 'lucide-react';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
+import { Button } from '@/components/ui/button';
+import { Link } from 'react-router-dom';
+import { buildTelemetryFiltersLink } from '@/utils/navLinks';
 
 export default function MetricsPage() {
   const { user } = useAuth();
@@ -26,6 +29,11 @@ export default function MetricsPage() {
           </Alert>
         ) : (
           <SectionErrorBoundary sectionName="Metrics">
+            <div className="flex justify-end mb-4">
+              <Button asChild variant="outline" size="sm">
+                <Link to={buildTelemetryFiltersLink()}>View related telemetry</Link>
+              </Button>
+            </div>
             <MonitoringPage />
           </SectionErrorBoundary>
         )}

@@ -2,7 +2,6 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { LayoutProvider } from '@/layout/LayoutProvider';
 import { ActivityFeedWidget } from '@/components/dashboard/ActivityFeedWidget';
 import { logger } from '@/utils/logger';
 import apiClient from '@/api/client';
@@ -27,6 +26,10 @@ vi.mock('@/api/client', () => {
 });
 
 const apiClientMock = apiClient as any;
+
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({ selectedTenant: 'tenant-1' }),
+}));
 const localStorageMock = {
   getItem: vi.fn().mockReturnValue(null),
   setItem: vi.fn(),
@@ -37,9 +40,7 @@ const localStorageMock = {
 function renderWidget() {
   return render(
     <MemoryRouter>
-      <LayoutProvider>
-        <ActivityFeedWidget />
-      </LayoutProvider>
+      <ActivityFeedWidget />
     </MemoryRouter>
   );
 }

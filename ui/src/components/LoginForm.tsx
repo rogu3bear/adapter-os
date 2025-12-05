@@ -32,7 +32,7 @@ import { LoginFormSchema, type LoginFormData } from '@/schemas/common.schema';
 import { cn } from '@/components/ui/utils';
 import { logger } from '@/utils/logger';
 import type { HealthResponse, SystemHealthResponse, MetaResponse, BaseModelStatus } from '@/api/api-types';
-import type { AuthConfigResponse } from '@/api/auth-types';
+import type { AuthConfigResponse, LoginResponse } from '@/api/auth-types';
 import { formatDurationSeconds } from '@/utils/format';
 
 // Constants for health check configuration
@@ -66,7 +66,7 @@ const safeZodResolver: Resolver<LoginFormData> = async (values, context, options
 };
 
 interface LoginFormProps {
-  onLogin: (credentials: { email: string; password: string }) => Promise<void>;
+  onLogin: (credentials: { email: string; password: string }) => Promise<LoginResponse>;
   onDevBypass?: () => Promise<void>;
   error?: string | null;
 }
@@ -566,6 +566,11 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
                   <Alert variant="destructive">
                     <XCircle className="h-4 w-4" />
                     <AlertDescription>{error}</AlertDescription>
+                    {error.toLowerCase().includes('tenant') && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        If you expected access, ask an admin to grant you to the correct tenant or resend your invite.
+                      </p>
+                    )}
                   </Alert>
                 )}
 

@@ -21,11 +21,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default function AdaptersShell() {
   const { adapterId } = useParams<{ adapterId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const [postRegisterBanner, setPostRegisterBanner] = useState<{ adapterName?: string } | null>(null);
 
   const basePath = useMemo(() => (adapterId ? `/adapters/${adapterId}` : '/adapters'), [adapterId]);
 
@@ -49,6 +51,14 @@ export default function AdaptersShell() {
 
   const tabPath = (tab: AdaptersTab) => adapterTabToPath(tab, adapterId || undefined);
 
+  useEffect(() => {
+    const state = (location.state || {}) as { fromRegister?: boolean; adapterName?: string };
+    if (state.fromRegister) {
+      setPostRegisterBanner({ adapterName: state.adapterName });
+      navigate(`${location.pathname}${location.hash}`, { replace: true, state: {} });
+    }
+  }, [location.hash, location.pathname, location.state, navigate]);
+
   return (
     <FeatureLayout
       title="Adapters"
@@ -56,6 +66,24 @@ export default function AdaptersShell() {
       customHeader={null}
       maxWidth="xl"
     >
+      {postRegisterBanner && (
+        <Alert className="mb-4">
+          <AlertTitle>Adapter registered</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <span>
+              Next: train this adapter or configure routing.
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => navigate(`/training/jobs?adapterId=${adapterId}`)}>
+                Train adapter
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => navigate(`/router-config?adapterId=${adapterId}`)}>
+                Configure routing
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
       <Tabs
         value={activeTab}
         onValueChange={(value: string) => {

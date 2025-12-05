@@ -23,7 +23,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import { useRelativeTime } from '@/hooks/useTimestamp';
 import { useNavigate } from 'react-router-dom';
 

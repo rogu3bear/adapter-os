@@ -140,11 +140,21 @@ pub struct SecurityConfigApi {
     #[serde(default)]
     pub token_ttl_seconds: Option<u64>,
     #[serde(default)]
+    pub access_token_ttl_seconds: Option<u64>,
+    #[serde(default)]
+    pub session_ttl_seconds: Option<u64>,
+    #[serde(default)]
     pub require_mfa: Option<bool>,
     #[serde(default)]
     pub require_pf_deny: bool,
     #[serde(default)]
     pub dev_login_enabled: bool,
+    #[serde(default)]
+    pub cookie_same_site: Option<String>,
+    #[serde(default)]
+    pub cookie_domain: Option<String>,
+    #[serde(default)]
+    pub cookie_secure: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

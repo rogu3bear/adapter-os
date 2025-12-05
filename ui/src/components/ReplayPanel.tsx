@@ -16,18 +16,20 @@ import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { logger, toError } from '@/utils/logger';
 import { usePolling } from '@/hooks/usePolling';
 import { useRBAC } from '@/hooks/useRBAC';
-
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Switch } from './ui/switch';
 
 interface ReplayPanelProps {
   tenantId?: string;
   onSessionSelect: (session: ReplaySession | null) => void;
+  initialSessionId?: string;
 }
 
-export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPanelProps) {
+export function ReplayPanel({ tenantId: tenantProp, onSessionSelect, initialSessionId }: ReplayPanelProps) {
   const { selectedTenant } = useTenant();
   const tenantId = tenantProp ?? selectedTenant;
-  const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [selectedSession, setSelectedSession] = useState<string | null>(initialSessionId || null);
   const { can } = useRBAC();
 
   const [verifying, setVerifying] = useState(false);
@@ -36,6 +38,8 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
   const [newCpid, setNewCpid] = useState('');
   const [newPlanId, setNewPlanId] = useState('');
   const [newBundleIds, setNewBundleIds] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [onlyWithEvidence, setOnlyWithEvidence] = useState(false);
 
   // RBAC permissions
   const canViewAudit = can('audit:view');
@@ -140,6 +144,26 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
   };
 
   const currentSession = (sessions || []).find(s => s.id === selectedSession);
+  const filteredSessions = (sessions || []).filter((session) => {
+    const matchesSearch =
+      !searchTerm ||
+      session.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      session.cpid.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      session.plan_id.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesEvidence = !onlyWithEvidence || (session.telemetry_bundle_ids && session.telemetry_bundle_ids.length > 0);
+    return matchesSearch && matchesEvidence;
+  });
+
+  // Auto-select initial session when provided and sessions load
+  React.useEffect(() => {
+    if (initialSessionId && sessions && sessions.length > 0 && !selectedSession) {
+      const match = sessions.find(s => s.id === initialSessionId);
+      if (match) {
+        setSelectedSession(initialSessionId);
+        onSessionSelect(match);
+      }
+    }
+  }, [initialSessionId, onSessionSelect, selectedSession, sessions]);
 
 
   if (replayError) {
@@ -174,18 +198,69 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
             </Button>
           </div>
 
-          <Select value={selectedSession || ''} onValueChange={handleSessionSelect}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select replay session" />
-            </SelectTrigger>
-            <SelectContent>
-              {(sessions || []).filter(session => session.id && session.id !== '').map(session => (
-                <SelectItem key={session.id} value={session.id}>
-                  {session.cpid} @ {useTimestamp(session.snapshot_at)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Quick filters</label>
+              <Input
+                placeholder="Search by session, policy, or plan"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <div className="flex items-center gap-2">
+                <Switch id="with-evidence" checked={onlyWithEvidence} onCheckedChange={setOnlyWithEvidence} />
+                <label htmlFor="with-evidence" className="text-sm text-muted-foreground">Only sessions with evidence</label>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Select session</label>
+              <Select value={selectedSession || ''} onValueChange={handleSessionSelect}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select replay session" />
+                </SelectTrigger>
+                <SelectContent>
+                  {filteredSessions.filter(session => session.id && session.id !== '').map(session => (
+                    <SelectItem key={session.id} value={session.id}>
+                      {session.cpid} @ {useTimestamp(session.snapshot_at)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Session</TableHead>
+                  <TableHead>Policy</TableHead>
+                  <TableHead>Plan</TableHead>
+                  <TableHead>Bundles</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredSessions.slice(0, 15).map((session) => (
+                  <TableRow
+                    key={session.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => handleSessionSelect(session.id)}
+                  >
+                    <TableCell className="font-mono text-xs">{session.id}</TableCell>
+                    <TableCell className="font-mono text-xs">{session.cpid}</TableCell>
+                    <TableCell className="font-mono text-xs">{session.plan_id}</TableCell>
+                    <TableCell>{session.telemetry_bundle_ids.length}</TableCell>
+                  </TableRow>
+                ))}
+                {filteredSessions.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-sm text-muted-foreground text-center">
+                      No sessions found
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
 
           {currentSession && (
             <div className="space-y-3 border rounded p-3">

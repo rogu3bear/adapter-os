@@ -74,7 +74,7 @@ vi.mock('@/hooks/useChatSharing', () => ({
 
 // Mock useTenant
 const mockSelectedTenant = vi.fn();
-vi.mock('@/layout/LayoutProvider', () => ({
+vi.mock('@/providers/FeatureProviders', () => ({
   useTenant: () => ({ selectedTenant: mockSelectedTenant() }),
 }));
 

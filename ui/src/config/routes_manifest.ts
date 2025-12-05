@@ -398,14 +398,33 @@ export const HUB_DEFINITIONS: Record<string, {
  * Primary spine - the main navigation pages
  */
 export const PRIMARY_SPINE = [
-  '/dashboard',
+  '/workflow',
   '/adapters',
   '/training',
-  '/system',
+  '/router-config',
+  '/base-models',
   '/admin',
-  '/monitoring',
-  '/security/policies',
+  '/dashboard',
+  '/inference',
   '/chat',
+  '/documents',
+  '/code-intelligence',
+  '/monitoring',
+  '/metrics',
+  '/routing',
+  '/system',
+  '/telemetry',
+  '/reports',
+  '/help',
+  '/testing',
+  '/golden',
+  '/replay',
+  '/security/policies',
+  '/security/audit',
+  '/security/compliance',
+  '/owner',
+  '/dev/errors',
+  '/_dev/routes',
 ] as const;
 
 /**

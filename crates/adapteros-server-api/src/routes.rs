@@ -592,6 +592,14 @@ pub fn build(state: AppState) -> Router {
             "/v1/auth/config",
             get(handlers::auth_enhanced::get_auth_config_handler),
         )
+        .route(
+            "/v1/auth/health",
+            get(handlers::auth_enhanced::auth_health_handler),
+        )
+        .route(
+            "/v1/auth/refresh",
+            post(handlers::auth_enhanced::refresh_token_handler),
+        )
         .route("/v1/meta", get(handlers::meta))
         .route("/v1/status", get(handlers::get_status))
         .route(
@@ -658,16 +666,20 @@ pub fn build(state: AppState) -> Router {
         // Admin routes
         .route("/v1/admin/users", get(handlers::admin::list_users))
         .route(
-            "/v1/auth/refresh",
-            post(handlers::auth_enhanced::refresh_token_handler),
-        )
-        .route(
             "/v1/auth/sessions",
             get(handlers::auth_enhanced::list_sessions_handler),
         )
         .route(
             "/v1/auth/sessions/{jti}",
             delete(handlers::auth_enhanced::revoke_session_handler),
+        )
+        .route(
+            "/v1/auth/tenants",
+            get(handlers::auth_enhanced::list_user_tenants_handler),
+        )
+        .route(
+            "/v1/auth/tenants/switch",
+            post(handlers::auth_enhanced::switch_tenant_handler),
         )
         .route(
             "/v1/tenants",

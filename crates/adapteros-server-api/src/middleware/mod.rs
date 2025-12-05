@@ -223,8 +223,8 @@ pub async fn auth_middleware(
                     return Err((
                         StatusCode::UNAUTHORIZED,
                         Json(
-                            ErrorResponse::new("token expired")
-                                .with_code("TOKEN_EXPIRED")
+                            ErrorResponse::new("session expired")
+                                .with_code("SESSION_EXPIRED")
                                 .with_string_details("token expired during request processing"),
                         ),
                     ));

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { HelpCenter } from '@/components/HelpCenter';
 import { DensityProvider } from '@/contexts/DensityContext';

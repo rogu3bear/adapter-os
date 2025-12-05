@@ -1,4 +1,4 @@
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { UserReportsPage } from '@/components/UserReportsPage';
 import { DensityProvider } from '@/contexts/DensityContext';

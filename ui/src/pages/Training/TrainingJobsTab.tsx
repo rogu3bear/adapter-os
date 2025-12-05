@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -14,6 +15,8 @@ import { LastUpdated } from '@/components/ui/last-updated';
 import { PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { withErrorBoundary } from '@/components/withErrorBoundary';
 import type { TrainingJob } from '@/api/training-types';
+import { Badge } from '@/components/ui/badge';
+import { parsePreselectParams, removeParams } from '@/utils/urlParams';
 
 // Custom filter function to search across multiple fields
 function searchJobFields<T>(item: T, searchValue: FilterValue): boolean {
@@ -46,12 +49,27 @@ function filterByDateRange<T>(item: T, dateRange: FilterValue): boolean {
   return true;
 }
 
-export function TrainingJobsTab() {
+export function filterJobsByAdapter(jobs: TrainingJob[], adapterId?: string): TrainingJob[] {
+  if (!adapterId) return jobs;
+  const normalized = adapterId.toLowerCase();
+  return jobs.filter((job) => (job.adapter_id || '').toLowerCase() === normalized || (job.adapter_name || '').toLowerCase() === normalized);
+}
+
+export function TrainingJobsTab({
+  preselectedAdapterId,
+  preselectedDatasetId,
+}: {
+  preselectedAdapterId?: string;
+  preselectedDatasetId?: string;
+}) {
   const { can } = useRBAC();
   const { errors, addError, clearError } = usePageErrors();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [isStartDialogOpen, setIsStartDialogOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [adapterFilter, setAdapterFilter] = useState<string | undefined>(undefined);
 
   const {
     data: jobsData,
@@ -62,7 +80,16 @@ export function TrainingJobsTab() {
 
   const jobs = useMemo(() => jobsData?.jobs || [], [jobsData]);
 
+  useEffect(() => {
+    const parsed = parsePreselectParams(location.search, location.hash);
+    if (parsed.adapterId || preselectedAdapterId) {
+      setAdapterFilter(parsed.adapterId || preselectedAdapterId);
+    }
+  }, [location.hash, location.search, preselectedAdapterId]);
+
   // Filter configuration with URL sync
+  const adapterFilteredJobs = useMemo(() => filterJobsByAdapter(jobs, adapterFilter), [adapterFilter, jobs]);
+
   const {
     filters,
     filteredData: filteredJobs,
@@ -70,7 +97,7 @@ export function TrainingJobsTab() {
     clearFilters,
     activeFilterCount,
   } = useFilter<TrainingJob, TrainingJobFilterKey>({
-    data: jobs,
+    data: adapterFilteredJobs,
     filterConfigs: {
       search: {
         type: 'search',
@@ -121,6 +148,12 @@ export function TrainingJobsTab() {
     setSelectedJobId(jobId);
     refetch();
   }, [refetch]);
+
+  const handleClearAdapterFilter = useCallback(() => {
+    setAdapterFilter(undefined);
+    const nextSearch = removeParams(location.search, ['adapterId']);
+    navigate(`${location.pathname}${nextSearch}${location.hash}`, { replace: true });
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   const handleCancelJob = useCallback(async (jobId: string) => {
     clearError('cancel-job');
@@ -186,6 +219,15 @@ export function TrainingJobsTab() {
         </Card>
       )}
 
+      {adapterFilter && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary">Filtered by adapter {adapterFilter}</Badge>
+          <Button variant="ghost" size="sm" onClick={handleClearAdapterFilter}>
+            Clear
+          </Button>
+        </div>
+      )}
+
       {/* Filter Bar */}
       <TrainingJobFilters
         filters={filters}
@@ -233,6 +275,8 @@ export function TrainingJobsTab() {
           <StartTrainingForm
             onSuccess={handleTrainingStarted}
             onCancel={() => setIsStartDialogOpen(false)}
+            preselectedAdapterId={adapterFilter}
+            preselectedDatasetId={preselectedDatasetId}
           />
         </DialogContent>
       </Dialog>

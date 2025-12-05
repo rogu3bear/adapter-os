@@ -29,7 +29,7 @@ vi.mock('@/components/ChatInterface', () => ({
   ),
 }));
 
-vi.mock('@/layout/LayoutProvider', () => ({
+vi.mock('@/providers/FeatureProviders', () => ({
   useTenant: () => ({ selectedTenant: 'default' }),
 }));
 

@@ -528,6 +528,7 @@ impl AdapterOSClient for UdsClient {
             tenant_id: "default".to_string(),
             role: "admin".to_string(),
             expires_in: 28800, // 8 hours
+            tenants: Some(vec![]),
         })
     }
 

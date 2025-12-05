@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,13 +14,19 @@ import { useRBAC } from '@/hooks/useRBAC';
 import { LastUpdated } from '@/components/ui/last-updated';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import type { TrainingJob } from '@/api/training-types';
+import { Badge } from '@/components/ui/badge';
+import { parsePreselectParams, removeParams } from '@/utils/urlParams';
+import { filterJobsByAdapter } from './TrainingJobsTab';
 
-function TrainingJobsPageContent() {
+function TrainingJobsPageContent({ preselectedAdapterId, preselectedDatasetId }: { preselectedAdapterId?: string; preselectedDatasetId?: string }) {
   const { can } = useRBAC();
   const { errors, addError, clearError } = usePageErrors();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [isStartDialogOpen, setIsStartDialogOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [adapterFilter, setAdapterFilter] = useState<string | undefined>(undefined);
 
   const {
     data: jobsData,
@@ -39,8 +45,16 @@ function TrainingJobsPageContent() {
   });
 
   const jobs = jobsData?.jobs || [];
+  const adapterFilteredJobs = useMemo(() => filterJobsByAdapter(jobs, adapterFilter), [adapterFilter, jobs]);
   const lastUpdated = new Date();
   const activeJobIds = new Set(jobs.filter(j => j.status === 'running' || j.status === 'pending').map(j => j.id));
+
+  useEffect(() => {
+    const parsed = parsePreselectParams(location.search, location.hash);
+    if (parsed.adapterId || preselectedAdapterId) {
+      setAdapterFilter(parsed.adapterId || preselectedAdapterId);
+    }
+  }, [location.hash, location.search, preselectedAdapterId]);
 
   const handleStartTraining = useCallback(() => {
     clearError('start-training');
@@ -52,6 +66,12 @@ function TrainingJobsPageContent() {
     setSelectedJobId(jobId);
     refetch();
   }, [refetch]);
+
+  const handleClearAdapterFilter = useCallback(() => {
+    setAdapterFilter(undefined);
+    const nextSearch = removeParams(location.search, ['adapterId']);
+    navigate(`${location.pathname}${nextSearch}${location.hash}`, { replace: true });
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   const handleCancelJob = useCallback(async (jobId: string) => {
     clearError('cancel-job');
@@ -113,6 +133,15 @@ function TrainingJobsPageContent() {
         </Card>
       )}
 
+      {adapterFilter && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary">Filtered by adapter {adapterFilter}</Badge>
+          <Button variant="ghost" size="sm" onClick={handleClearAdapterFilter}>
+            Clear
+          </Button>
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -127,7 +156,7 @@ function TrainingJobsPageContent() {
         </CardHeader>
         <CardContent>
           <TrainingJobTable
-            jobs={jobs}
+            jobs={adapterFilteredJobs}
             isLoading={isLoading}
             onViewJob={handleViewJob}
             onCancelJob={handleCancelJob}
@@ -146,6 +175,8 @@ function TrainingJobsPageContent() {
           <StartTrainingForm
             onSuccess={handleTrainingStarted}
             onCancel={() => setIsStartDialogOpen(false)}
+            preselectedAdapterId={adapterFilter}
+            preselectedDatasetId={preselectedDatasetId}
           />
         </DialogContent>
       </Dialog>
@@ -165,12 +196,21 @@ function TrainingJobsPageContent() {
   );
 }
 
-export default function TrainingJobsPage() {
+export default function TrainingJobsPage({
+  preselectedAdapterId,
+  preselectedDatasetId,
+}: {
+  preselectedAdapterId?: string;
+  preselectedDatasetId?: string;
+}) {
   return (
     <DensityProvider pageKey="training-jobs">
       <FeatureLayout title="Training Jobs" description="Manage training jobs">
         <PageErrorsProvider>
-          <TrainingJobsPageContent />
+          <TrainingJobsPageContent
+            preselectedAdapterId={preselectedAdapterId}
+            preselectedDatasetId={preselectedDatasetId}
+          />
         </PageErrorsProvider>
       </FeatureLayout>
     </DensityProvider>

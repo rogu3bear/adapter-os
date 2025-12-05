@@ -1,7 +1,7 @@
 "use client";
 
 import { Toaster as Sonner, ToasterProps } from 'sonner';
-import { useTheme } from "@/layout/LayoutProvider";
+import { useTheme } from "@/providers/CoreProviders";
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme } = useTheme();

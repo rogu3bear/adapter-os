@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import PageWrapper from '@/layout/PageWrapper';
 import { ManagementPanel } from '@/components/ManagementPanel';
 

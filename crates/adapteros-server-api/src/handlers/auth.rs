@@ -7,7 +7,8 @@
 use crate::audit_helper;
 use crate::auth::{verify_password, Claims};
 use crate::auth_common::{
-    attach_auth_cookie, build_auth_token, build_user_info, AuthConfig, AuthContext,
+    attach_auth_cookie, attach_refresh_cookie, build_auth_token, build_user_info,
+    clear_auth_cookies, AuthConfig, AuthContext,
 };
 use crate::state::AppState;
 use crate::types::*;
@@ -135,6 +136,13 @@ pub async fn auth_login(
             Json(ErrorResponse::new("Internal server error".to_string())),
         )
     })?;
+    attach_refresh_cookie(&mut headers, &token, &auth_cfg).map_err(|err| {
+        error!(error = %err, "Failed to attach refresh cookie");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("Internal server error".to_string())),
+        )
+    })?;
 
     // 4. Audit log successful login
     // Create full claims for audit logging
@@ -145,7 +153,7 @@ pub async fn auth_login(
         roles: vec![ctx.role.to_string()],
         tenant_id: ctx.tenant_id.clone(),
         admin_tenants: vec![],
-        exp: chrono::Utc::now().timestamp() + auth_cfg.effective_ttl() as i64,
+        exp: chrono::Utc::now().timestamp() + auth_cfg.access_ttl() as i64,
         iat: chrono::Utc::now().timestamp(),
         jti: format!("{}", uuid::Uuid::now_v7()),
         nbf: chrono::Utc::now().timestamp(),
@@ -175,7 +183,8 @@ pub async fn auth_login(
             user_id: ctx.user.id.clone(),
             tenant_id: ctx.user.tenant_id.clone(),
             role: ctx.role.to_string(),
-            expires_in: auth_cfg.effective_ttl(),
+            expires_in: auth_cfg.access_ttl(),
+            tenants: None,
         }),
     ))
 }
@@ -191,11 +200,19 @@ pub async fn auth_login(
     tag = "auth"
 )]
 pub async fn auth_logout(
+    State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // With stateless JWT, logout is client-side (discard token)
-    // Server doesn't need to track anything
-    Ok(StatusCode::NO_CONTENT)
+) -> Result<(HeaderMap, StatusCode), (StatusCode, Json<ErrorResponse>)> {
+    let auth_cfg = AuthConfig::from_state(&state);
+    let mut headers = HeaderMap::new();
+    clear_auth_cookies(&mut headers, &auth_cfg).map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("Internal server error".to_string())),
+        )
+    })?;
+
+    Ok((headers, StatusCode::NO_CONTENT))
 }
 
 /// Get current user info

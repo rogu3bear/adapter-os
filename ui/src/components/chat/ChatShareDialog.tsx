@@ -39,7 +39,7 @@ import {
 } from '@/hooks/useChatSharing';
 import type { SharePermission } from '@/api/chat-types';
 import { toast } from 'sonner';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 
 interface Props {
   sessionId: string;

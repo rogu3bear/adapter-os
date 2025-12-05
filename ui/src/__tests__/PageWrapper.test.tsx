@@ -14,8 +14,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PageWrapper } from '@/layout/PageWrapper';
 
-// Mock the layout provider hooks
-vi.mock('@/layout/LayoutProvider', () => ({
+// Mock the core provider hooks
+vi.mock('@/providers/CoreProviders', () => ({
   useResize: () => ({
     getLayout: vi.fn(),
     setLayout: vi.fn(),

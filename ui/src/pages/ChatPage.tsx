@@ -1,4 +1,5 @@
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
+import { useTenant } from '@/providers/FeatureProviders';
 import PageWrapper from '@/layout/PageWrapper';
 import { ChatInterface } from '@/components/ChatInterface';
 import { ChatErrorBoundary } from '@/components/chat/ChatErrorBoundary';
@@ -6,7 +7,7 @@ import { useRBAC } from '@/hooks/useRBAC';
 import { PERMISSIONS } from '@/utils/rbac';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ShieldAlert } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { CollapsibleSidebar } from '@/pages/OwnerHome/components/CollapsibleSidebar';
 import { SimplifiedChatWidget } from '@/components/chat/SimplifiedChatWidget';
 
@@ -47,6 +48,11 @@ export default function ChatPage() {
           </CollapsibleSidebar>
         </div>
       )}
+      <div className="mt-4 text-sm text-muted-foreground">
+        <Link to="/telemetry/viewer" className="underline underline-offset-4">
+          View telemetry for this chat session
+        </Link>
+      </div>
     </PageWrapper>
   );
 }

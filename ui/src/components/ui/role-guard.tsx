@@ -1,5 +1,5 @@
 import React from 'react';
-import { useAuth } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
 import type { UserRole } from '@/api/types';
 
 interface RoleGuardProps {

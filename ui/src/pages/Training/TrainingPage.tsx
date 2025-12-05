@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import FeatureLayout from '@/layout/FeatureLayout';
@@ -13,12 +13,18 @@ import { Brain, Database, FileText, Activity } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { TrainingWizard } from '@/components/TrainingWizard';
 import { PageHeader as IaPageHeader } from '@/components/shared/PageHeader';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { parsePreselectParams } from '@/utils/urlParams';
 
-function TrainingPageContent() {
+function TrainingPageContent({ preselectedAdapterId, preselectedDatasetId }: { preselectedAdapterId?: string; preselectedDatasetId?: string }) {
   const [activeTab, setActiveTab] = useState('jobs');
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const preselect = useMemo(() => parsePreselectParams(location.search, location.hash), [location.hash, location.search]);
+  const adapterId = preselectedAdapterId ?? preselect.adapterId;
+  const datasetId = preselectedDatasetId ?? preselect.datasetId;
 
   useEffect(() => {
     const shouldOpen = (location.state as { openTrainingWizard?: boolean } | null)?.openTrainingWizard;
@@ -30,6 +36,29 @@ function TrainingPageContent() {
 
   return (
     <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Start training</CardTitle>
+          <CardDescription>Go from template to job without leaving the Training page.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="text-sm text-muted-foreground">
+            Use defaults from Settings and jump directly into jobs or datasets.
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => setIsWizardOpen(true)}>
+              Train new adapter from template
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => navigate('/training/jobs')}>
+              Browse existing jobs
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => navigate('/training/datasets')}>
+              Manage datasets
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full max-w-[800px] grid-cols-4">
           <TabsTrigger value="jobs" className="flex items-center gap-2">
@@ -52,7 +81,7 @@ function TrainingPageContent() {
 
         <TabsContent value="jobs" className="mt-6">
           <SectionErrorBoundary sectionName="Training Jobs">
-            <TrainingJobsTab />
+            <TrainingJobsTab preselectedAdapterId={adapterId} preselectedDatasetId={datasetId} />
           </SectionErrorBoundary>
         </TabsContent>
 
@@ -93,7 +122,13 @@ function TrainingPageContent() {
   );
 }
 
-export default function TrainingPage() {
+export default function TrainingPage({
+  preselectedAdapterId,
+  preselectedDatasetId,
+}: {
+  preselectedAdapterId?: string;
+  preselectedDatasetId?: string;
+}) {
   return (
     <DensityProvider pageKey="training">
       <FeatureLayout
@@ -108,7 +143,10 @@ export default function TrainingPage() {
         }
       >
         <PageErrorsProvider>
-          <TrainingPageContent />
+          <TrainingPageContent
+            preselectedAdapterId={preselectedAdapterId}
+            preselectedDatasetId={preselectedDatasetId}
+          />
         </PageErrorsProvider>
       </FeatureLayout>
     </DensityProvider>

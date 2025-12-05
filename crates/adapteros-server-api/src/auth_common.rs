@@ -12,34 +12,71 @@ use std::str::FromStr;
 
 /// Shared authentication configuration derived from AppState settings.
 pub struct AuthConfig<'a> {
-    pub token_ttl_seconds: u64,
+    pub access_token_ttl_seconds: u64,
+    pub session_ttl_seconds: u64,
     pub production_mode: bool,
     pub dev_login_enabled: bool,
     pub use_ed25519: bool,
     pub ed25519_keypair: &'a Keypair,
     pub jwt_secret: &'a [u8],
+    pub cookie_same_site: String,
+    pub cookie_domain: Option<String>,
+    pub cookie_secure: bool,
 }
 
 impl<'a> AuthConfig<'a> {
     /// Builds the configuration from the current app state.
     pub fn from_state(state: &'a AppState) -> Self {
         let config = state.config.read().unwrap();
-        let ttl = config.security.token_ttl_seconds.unwrap_or(8 * 3600);
-        let token_ttl_seconds = if ttl == 0 { 8 * 3600 } else { ttl };
+        let session_ttl_seconds = config
+            .security
+            .session_ttl_seconds
+            .unwrap_or(8 * 3600);
+        let access_token_ttl_seconds = config
+            .security
+            .access_token_ttl_seconds
+            .unwrap_or(15 * 60);
+        let legacy_ttl = config
+            .security
+            .token_ttl_seconds
+            .unwrap_or(access_token_ttl_seconds);
+        let effective_access_ttl = if access_token_ttl_seconds == 0 {
+            legacy_ttl
+        } else {
+            access_token_ttl_seconds
+        };
+        let cookie_secure = config
+            .security
+            .cookie_secure
+            .unwrap_or(config.server.production_mode);
+        let cookie_same_site = config
+            .security
+            .cookie_same_site
+            .clone()
+            .unwrap_or_else(|| "Lax".to_string());
 
         Self {
-            token_ttl_seconds,
+            access_token_ttl_seconds: effective_access_ttl,
+            session_ttl_seconds,
             production_mode: config.server.production_mode,
             dev_login_enabled: config.security.dev_login_enabled,
             use_ed25519: state.use_ed25519,
             ed25519_keypair: &state.ed25519_keypair,
             jwt_secret: state.jwt_secret.as_slice(),
+            cookie_same_site,
+            cookie_domain: config.security.cookie_domain.clone(),
+            cookie_secure,
         }
     }
 
     /// Effective TTL used for cookies and tokens.
     pub fn effective_ttl(&self) -> u64 {
-        self.token_ttl_seconds
+        self.session_ttl_seconds
+    }
+
+    /// Short-lived access token TTL.
+    pub fn access_ttl(&self) -> u64 {
+        self.access_token_ttl_seconds
     }
 
     /// Whether dev login is allowed under the current config.
@@ -101,7 +138,7 @@ pub enum AuthError {
 
 /// Builds the JWT according to the provided context and configuration.
 pub fn build_auth_token(ctx: &AuthContext, cfg: &AuthConfig) -> Result<String, AuthError> {
-    let ttl = cfg.effective_ttl();
+    let ttl = cfg.access_ttl();
 
     if cfg.use_ed25519 {
         generate_token_ed25519(
@@ -149,27 +186,82 @@ pub fn attach_auth_cookie(
     token: &str,
     cfg: &AuthConfig,
 ) -> Result<(), AuthError> {
-    let expires = cfg.cookie_expiration();
+    attach_cookie(headers, "auth_token", token, cfg, cfg.access_ttl(), None)
+}
+
+/// Attaches the refresh/session cookie to the provided header map.
+pub fn attach_refresh_cookie(
+    headers: &mut HeaderMap,
+    token: &str,
+    cfg: &AuthConfig,
+) -> Result<(), AuthError> {
+    attach_cookie(
+        headers,
+        "refresh_token",
+        token,
+        cfg,
+        cfg.effective_ttl(),
+        Some(&cfg.cookie_same_site),
+    )
+}
+
+fn attach_cookie(
+    headers: &mut HeaderMap,
+    name: &str,
+    token: &str,
+    cfg: &AuthConfig,
+    max_age: u64,
+    same_site_override: Option<&str>,
+) -> Result<(), AuthError> {
+    let expires = Utc::now() + Duration::seconds(max_age as i64);
     let expires_value = expires.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    // In production: Secure + SameSite=Strict for max security
-    // In development: SameSite=Lax to allow cross-origin cookie sharing (e.g., UI on :3200, API on :8080)
-    let (secure_flag, samesite) = if cfg.production_mode {
-        ("; Secure", "Strict")
-    } else {
-        ("", "Lax")
+    let mut secure_required = cfg.cookie_secure;
+    let samesite_raw = same_site_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| cfg.cookie_same_site.clone());
+    let samesite_norm = match samesite_raw.to_ascii_lowercase().as_str() {
+        "none" => {
+            secure_required = true; // Per spec, SameSite=None requires Secure
+            "None".to_string()
+        }
+        "strict" => "Strict".to_string(),
+        _ => "Lax".to_string(),
     };
+    let secure_flag = if secure_required { "; Secure" } else { "" };
+    let domain = cfg
+        .cookie_domain
+        .as_ref()
+        .map(|d| format!("; Domain={}", d))
+        .unwrap_or_default();
 
     let cookie_value = format!(
-        "auth_token={token}; HttpOnly; Path=/; Max-Age={max_age}; Expires={expires}; SameSite={samesite}{secure_flag}",
+        "{name}={token}; HttpOnly; Path=/; Max-Age={max_age}; Expires={expires}; SameSite={samesite}{secure_flag}{domain}",
+        name = name,
         token = token,
-        max_age = cfg.effective_ttl(),
+        max_age = max_age,
         expires = expires_value,
-        samesite = samesite,
-        secure_flag = secure_flag
+        samesite = samesite_norm,
+        secure_flag = secure_flag,
+        domain = domain,
     );
 
     let header_value = HeaderValue::from_str(&cookie_value)?;
-    headers.insert(header::SET_COOKIE, header_value);
+    headers.append(header::SET_COOKIE, header_value);
+    Ok(())
+}
+
+/// Append Set-Cookie headers to clear auth and refresh cookies.
+pub fn clear_auth_cookies(headers: &mut HeaderMap, cfg: &AuthConfig) -> Result<(), AuthError> {
+    // Reuse attach_cookie with Max-Age=0
+    attach_cookie(headers, "auth_token", "", cfg, 0, None)?;
+    attach_cookie(
+        headers,
+        "refresh_token",
+        "",
+        cfg,
+        0,
+        Some(&cfg.cookie_same_site),
+    )?;
     Ok(())
 }
 
@@ -207,12 +299,16 @@ mod tests {
         let keypair = Keypair::generate();
         let jwt_secret = vec![0u8; 32];
         let cfg = AuthConfig {
-            token_ttl_seconds: 60,
+            access_token_ttl_seconds: 60,
+            session_ttl_seconds: 3600,
             production_mode: true,
             dev_login_enabled: false,
             use_ed25519: true,
             ed25519_keypair: &keypair,
             jwt_secret: &jwt_secret,
+            cookie_same_site: "Strict".to_string(),
+            cookie_domain: None,
+            cookie_secure: true,
         };
 
         let ctx = AuthContext::from_user(sample_user()).unwrap();
@@ -240,12 +336,16 @@ mod tests {
         let keypair = Keypair::generate();
         let jwt_secret = vec![0u8; 32];
         let cfg = AuthConfig {
-            token_ttl_seconds: 60,
+            access_token_ttl_seconds: 60,
+            session_ttl_seconds: 3600,
             production_mode: false,
             dev_login_enabled: true,
             use_ed25519: true,
             ed25519_keypair: &keypair,
             jwt_secret: &jwt_secret,
+            cookie_same_site: "Lax".to_string(),
+            cookie_domain: None,
+            cookie_secure: false,
         };
 
         let ctx = AuthContext::from_user(sample_user()).unwrap();
@@ -269,6 +369,35 @@ mod tests {
     }
 
     #[test]
+    fn attach_refresh_cookie_sets_refresh_name() {
+        let keypair = Keypair::generate();
+        let jwt_secret = vec![0u8; 32];
+        let cfg = AuthConfig {
+            access_token_ttl_seconds: 60,
+            session_ttl_seconds: 3600,
+            production_mode: false,
+            dev_login_enabled: true,
+            use_ed25519: true,
+            ed25519_keypair: &keypair,
+            jwt_secret: &jwt_secret,
+            cookie_same_site: "Lax".to_string(),
+            cookie_domain: None,
+            cookie_secure: false,
+        };
+
+        let ctx = AuthContext::from_user(sample_user()).unwrap();
+        let token = build_auth_token(&ctx, &cfg).expect("token generated");
+        let mut headers = HeaderMap::new();
+        attach_refresh_cookie(&mut headers, &token, &cfg).expect("cookie attached");
+        let cookie = headers
+            .get(header::SET_COOKIE)
+            .expect("cookie header should exist")
+            .to_str()
+            .unwrap();
+        assert!(cookie.starts_with("refresh_token="));
+    }
+
+    #[test]
     fn permissions_for_role_returns_admin_permissions() {
         let role = Role::Admin;
         let perms = permissions_for_role(&role);
@@ -283,12 +412,16 @@ mod tests {
 
         // Dev mode, dev_login_enabled=false → NO bypass (explicit opt-in required)
         let cfg = AuthConfig {
-            token_ttl_seconds: 60,
+            access_token_ttl_seconds: 60,
+            session_ttl_seconds: 3600,
             production_mode: false,
             dev_login_enabled: false,
             use_ed25519: true,
             ed25519_keypair: &keypair,
             jwt_secret: &jwt_secret,
+            cookie_same_site: "Lax".to_string(),
+            cookie_domain: None,
+            cookie_secure: false,
         };
         assert!(
             !cfg.dev_login_allowed(),
@@ -317,10 +450,14 @@ mod tests {
         let cfg = AuthConfig {
             production_mode: true,
             dev_login_enabled: false,
-            token_ttl_seconds: 60,
+            access_token_ttl_seconds: 60,
+            session_ttl_seconds: 3600,
             use_ed25519: true,
             ed25519_keypair: &keypair,
             jwt_secret: &jwt_secret,
+            cookie_same_site: "Strict".to_string(),
+            cookie_domain: None,
+            cookie_secure: true,
         };
         assert!(
             !cfg.dev_login_allowed(),

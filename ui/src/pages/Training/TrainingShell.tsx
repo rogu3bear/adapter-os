@@ -17,11 +17,14 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import type { TrainingArtifact, TrainingJob, TrainingTemplate } from '@/api/training-types';
+import { parsePreselectParams } from '@/utils/urlParams';
 
 export default function TrainingShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const { jobId, datasetId } = useParams<{ jobId?: string; datasetId?: string }>();
+
+  const preselect = useMemo(() => parsePreselectParams(location.search, location.hash), [location.hash, location.search]);
 
   const activeTab: TrainingTab = useMemo(
     () => resolveTrainingTab(location.pathname, location.hash, { jobId, datasetId }),
@@ -61,10 +64,14 @@ export default function TrainingShell() {
         </TabsList>
 
         <TabsContent value="overview" className="mt-6">
-          <TrainingPage />
+          <TrainingPage preselectedAdapterId={preselect.adapterId} preselectedDatasetId={preselect.datasetId} />
         </TabsContent>
         <TabsContent value="jobs" className="mt-6">
-          {jobId ? <TrainingJobDetailPage /> : <TrainingJobsPage />}
+          {jobId ? (
+            <TrainingJobDetailPage />
+          ) : (
+            <TrainingJobsPage preselectedAdapterId={preselect.adapterId} preselectedDatasetId={preselect.datasetId} />
+          )}
         </TabsContent>
         <TabsContent value="datasets" className="mt-6">
           {datasetId ? <DatasetDetailPage /> : <TrainingDatasetsPage />}

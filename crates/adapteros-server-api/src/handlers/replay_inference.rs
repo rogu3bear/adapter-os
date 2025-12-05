@@ -81,7 +81,7 @@ pub fn compute_match_status(original: &str, replay: &str) -> ReplayMatchStatus {
         }
 
         let similarity = matching as f32 / total as f32;
-        if similarity > 0.8 {
+        if similarity >= 0.8 {
             ReplayMatchStatus::Semantic
         } else {
             ReplayMatchStatus::Divergent

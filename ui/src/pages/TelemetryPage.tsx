@@ -1,4 +1,5 @@
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
+import { useTenant } from '@/providers/FeatureProviders';
 import { useRBAC } from '@/hooks/useRBAC';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Telemetry } from '@/components/Telemetry';

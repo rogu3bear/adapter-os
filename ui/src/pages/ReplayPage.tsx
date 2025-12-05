@@ -1,4 +1,4 @@
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { ReplayPanel } from '@/components/ReplayPanel';
 import { DensityProvider } from '@/contexts/DensityContext';

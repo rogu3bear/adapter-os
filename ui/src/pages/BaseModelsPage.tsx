@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Database, Info } from 'lucide-react';
 
 import apiClient from '@/api/client';
-import { useTenant } from '@/layout/LayoutProvider';
+import { useTenant } from '@/providers/FeatureProviders';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { ErrorRecovery } from '@/components/ui/error-recovery';

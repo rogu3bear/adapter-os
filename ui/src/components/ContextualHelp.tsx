@@ -4,7 +4,7 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/layout/LayoutProvider';
+import { useAuth } from '@/providers/CoreProviders';
 import { getRoleGuidance } from '@/data/role-guidance';
 import { BookOpen, ArrowRight, Lightbulb, GraduationCap } from 'lucide-react';
 import type { UserRole } from '@/api/types';

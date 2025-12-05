@@ -10,10 +10,15 @@ use adapteros_core::Result;
 use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::Db;
+use uuid::Uuid;
 
 /// Test helper to create an in-memory database with migrations
 async fn setup_test_db() -> Result<Db> {
     Db::new_in_memory().await
+}
+
+fn stack_name() -> String {
+    format!("stack.test.{}", Uuid::new_v4().simple())
 }
 
 /// Test helper to create a tenant
@@ -128,7 +133,7 @@ async fn test_training_job_stack_id_persisted_on_completion() {
     }
 
     // Create a stack that will be associated with the job
-    let stack_id = match create_test_stack(&db, tenant_id, "stack.e2e.train-chat").await {
+    let stack_id = match create_test_stack(&db, tenant_id, &stack_name()).await {
         Ok(id) => id,
         Err(e) => {
             eprintln!("Skipping test - stack creation failed: {}", e);
@@ -203,7 +208,7 @@ async fn test_chat_created_from_training_job_has_stack_id() {
     }
 
     // Create stack
-    let stack_id = match create_test_stack(&db, tenant_id, "stack.chat.from-job").await {
+    let stack_id = match create_test_stack(&db, tenant_id, &stack_name()).await {
         Ok(id) => id,
         Err(e) => {
             eprintln!("Skipping test - stack creation failed: {}", e);
@@ -297,7 +302,7 @@ async fn test_tenant_isolation_training_to_chat() {
     }
 
     // Create stack for tenant A
-    let stack_id_a = match create_test_stack(&db, tenant_a, "stack.isolation.a").await {
+    let stack_id_a = match create_test_stack(&db, tenant_a, &stack_name()).await {
         Ok(id) => id,
         Err(e) => {
             eprintln!("Skipping test - stack creation failed: {}", e);
