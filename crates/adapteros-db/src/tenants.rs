@@ -5,6 +5,7 @@ use crate::Db;
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::tenant_snapshot::{AdapterInfo, PolicyInfo, StackInfo, TenantStateSnapshot};
 use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_storage::entities::tenant::TenantKv;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -55,10 +56,29 @@ pub struct TenantUsage {
     pub memory_total_gb: f64,
 }
 
+impl From<TenantKv> for Tenant {
+    fn from(kv: TenantKv) -> Self {
+        Self {
+            id: kv.id,
+            name: kv.name,
+            itar_flag: kv.itar_flag,
+            created_at: kv.created_at.to_rfc3339(),
+            status: Some(kv.status),
+            updated_at: Some(kv.updated_at.to_rfc3339()),
+            default_stack_id: kv.default_stack_id,
+            max_adapters: kv.max_adapters,
+            max_training_jobs: kv.max_training_jobs,
+            max_storage_gb: kv.max_storage_gb,
+            rate_limit_rpm: kv.rate_limit_rpm,
+            default_pinned_adapter_ids: kv.default_pinned_adapter_ids,
+        }
+    }
+}
+
 impl Db {
-    /// Get a TenantKvRepository if KV writes are enabled
+    /// Get a TenantKvRepository if KV reads/writes are enabled
     fn get_tenant_kv_repo(&self) -> Option<TenantKvRepository> {
-        if self.storage_mode().write_to_kv() {
+        if self.storage_mode().write_to_kv() || self.storage_mode().read_from_kv() {
             self.kv_backend().map(|kv| {
                 let kv_backend: Arc<dyn KvBackend> = kv.clone();
                 TenantKvRepository::new(kv_backend)
@@ -71,14 +91,22 @@ impl Db {
     pub async fn create_tenant(&self, name: &str, itar_flag: bool) -> Result<String> {
         let id = Uuid::now_v7().to_string();
 
-        // SQL write (always happens)
-        sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)")
-            .bind(&id)
-            .bind(name)
-            .bind(itar_flag)
-            .execute(&*self.pool())
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        // SQL write if enabled
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)")
+                    .bind(&id)
+                    .bind(name)
+                    .bind(itar_flag)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| AosError::Database(e.to_string()))?;
+            } else if !self.storage_mode().write_to_kv() {
+                return Err(AosError::Database(
+                    "SQL backend unavailable for create_tenant".to_string(),
+                ));
+            }
+        }
 
         // KV write (dual-write mode)
         if let Some(repo) = self.get_tenant_kv_repo() {
@@ -87,17 +115,24 @@ impl Db {
                 itar_flag,
             };
             if let Err(e) = repo.create_tenant_kv(&params).await {
+                self.record_kv_write_fallback("tenants.create");
                 warn!(error = %e, tenant_id = %id, "Failed to write tenant to KV backend (dual-write)");
             } else {
                 debug!(tenant_id = %id, "Tenant written to both SQL and KV backends");
             }
         }
 
-        // Initialize default policy bindings for new tenant
-        // Core policies (egress, determinism, isolation, evidence) enabled; others disabled
-        if let Err(e) = self.initialize_tenant_policy_bindings(&id, "system").await {
-            warn!(error = %e, tenant_id = %id, "Failed to initialize policy bindings for new tenant");
-            // Non-fatal: tenant is created, bindings can be added later via migration or API
+        // Initialize default policy bindings for new tenant (best-effort, SQL required)
+        if self.storage_mode().write_to_sql() {
+            if let Err(e) = self.initialize_tenant_policy_bindings(&id, "system").await {
+                warn!(error = %e, tenant_id = %id, "Failed to initialize policy bindings for new tenant");
+                // Non-fatal: tenant is created, bindings can be added later via migration or API
+            }
+        } else {
+            warn!(
+                tenant_id = %id,
+                "Skipped policy binding initialization (SQL disabled in current mode)"
+            );
         }
 
         Ok(id)
@@ -194,6 +229,24 @@ impl Db {
     }
 
     pub async fn get_tenant(&self, id: &str) -> Result<Option<Tenant>> {
+        // KV primary path
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_tenant_kv_repo() {
+                match repo.get_tenant_kv(id).await {
+                    Ok(Some(kv)) => return Ok(Some(Tenant::from(kv))),
+                    Ok(None) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("tenants.get.miss");
+                    }
+                    Ok(None) => return Ok(None),
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("tenants.get.error");
+                        warn!(error = %e, tenant_id = %id, "KV tenant read failed, falling back to SQL");
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+
         let tenant = sqlx::query_as::<_, Tenant>(
             "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
                     max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
@@ -207,6 +260,26 @@ impl Db {
     }
 
     pub async fn list_tenants(&self) -> Result<Vec<Tenant>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_tenant_kv_repo() {
+                match repo.list_tenants_kv().await {
+                    Ok(mut kv_tenants) => {
+                        kv_tenants.sort_by(|a, b| {
+                            b.created_at
+                                .cmp(&a.created_at)
+                                .then_with(|| a.id.cmp(&b.id))
+                        });
+                        return Ok(kv_tenants.into_iter().map(Tenant::from).collect());
+                    }
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("tenants.list.error");
+                        warn!(error = %e, "KV tenant list failed, falling back to SQL");
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+
         let tenants = sqlx::query_as::<_, Tenant>(
             "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
                     max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
@@ -224,6 +297,36 @@ impl Db {
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<Tenant>, i64)> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_tenant_kv_repo() {
+                match repo.list_tenants_kv().await {
+                    Ok(mut kv_tenants) => {
+                        kv_tenants.sort_by(|a, b| {
+                            b.created_at
+                                .cmp(&a.created_at)
+                                .then_with(|| a.id.cmp(&b.id))
+                        });
+
+                        let total = kv_tenants.len() as i64;
+                        let start = offset.max(0) as usize;
+                        let end = (start + limit.max(0) as usize).min(kv_tenants.len());
+                        let window = if start < end {
+                            kv_tenants[start..end].to_vec()
+                        } else {
+                            Vec::new()
+                        };
+
+                        return Ok((window.into_iter().map(Tenant::from).collect(), total));
+                    }
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("tenants.list_paginated.error");
+                        warn!(error = %e, "KV tenant pagination failed, falling back to SQL");
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+
         // Get total count
         let total = sqlx::query("SELECT COUNT(*) as cnt FROM tenants")
             .fetch_one(&*self.pool())
@@ -258,6 +361,7 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_tenant_kv_repo() {
             if let Err(e) = repo.rename_tenant_kv(id, new_name).await {
+                self.record_kv_write_fallback("tenants.rename");
                 warn!(error = %e, tenant_id = %id, "Failed to rename tenant in KV backend (dual-write)");
             }
         }
@@ -277,6 +381,7 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_tenant_kv_repo() {
             if let Err(e) = repo.update_tenant_itar_flag_kv(id, itar_flag).await {
+                self.record_kv_write_fallback("tenants.update_itar");
                 warn!(error = %e, tenant_id = %id, "Failed to update tenant ITAR flag in KV backend (dual-write)");
             }
         }
@@ -297,6 +402,7 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_tenant_kv_repo() {
             if let Err(e) = repo.pause_tenant_kv(id).await {
+                self.record_kv_write_fallback("tenants.pause");
                 warn!(error = %e, tenant_id = %id, "Failed to pause tenant in KV backend (dual-write)");
             }
         }
@@ -359,6 +465,7 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_tenant_kv_repo() {
             if let Err(e) = repo.archive_tenant_kv(id).await {
+                self.record_kv_write_fallback("tenants.archive");
                 warn!(error = %e, tenant_id = %id, "Failed to archive tenant in KV backend (dual-write)");
             }
         }
@@ -379,6 +486,7 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_tenant_kv_repo() {
             if let Err(e) = repo.activate_tenant_kv(id).await {
+                self.record_kv_write_fallback("tenants.activate");
                 warn!(error = %e, tenant_id = %id, "Failed to activate tenant in KV backend (dual-write)");
             }
         }
@@ -422,6 +530,7 @@ impl Db {
                 )
                 .await
             {
+                self.record_kv_write_fallback("tenants.update_limits");
                 warn!(error = %e, tenant_id = %id, "Failed to update tenant limits in KV backend (dual-write)");
             }
         }
@@ -695,6 +804,7 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_tenant_kv_repo() {
             if let Err(e) = repo.set_default_stack_kv(tenant_id, stack_id).await {
+                self.record_kv_write_fallback("tenants.set_default_stack");
                 warn!(error = %e, tenant_id = %tenant_id, "Failed to set default stack in KV backend (dual-write)");
             }
         }
@@ -713,6 +823,7 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_tenant_kv_repo() {
             if let Err(e) = repo.clear_default_stack_kv(tenant_id).await {
+                self.record_kv_write_fallback("tenants.clear_default_stack");
                 warn!(error = %e, tenant_id = %tenant_id, "Failed to clear default stack in KV backend (dual-write)");
             }
         }

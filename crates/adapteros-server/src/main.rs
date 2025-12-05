@@ -2,7 +2,7 @@ mod assets;
 
 use adapteros_config::{init_effective_config, try_effective_config, ConfigSnapshot};
 use adapteros_core::{derive_seed, AosError, B3Hash};
-use adapteros_db::{Db, RuntimeSession};
+use adapteros_db::{Db, DbFactory, DbStorageBackend, RuntimeSession, StorageMode};
 use adapteros_deterministic_exec::{
     global_ledger::GlobalTickLedger, init_global_executor, select::select_2, spawn_deterministic,
     EnforcementMode, ExecutorConfig,
@@ -22,6 +22,7 @@ use anyhow::Result;
 use clap::Parser;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::signal;
@@ -545,16 +546,49 @@ async fn main() -> Result<()> {
         warn!("Environment drift check skipped via --skip-drift-check flag (DEVELOPMENT ONLY)");
     }
 
-    // Connect to database
+    // Connect to database / KV based on config
     boot_state.init_db().await;
-    let db_path = server_config
+    let db_cfg = server_config
         .read()
         .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
         .db
-        .path
         .clone();
-    info!("Connecting to database: {}", db_path);
-    let db = Db::connect(&db_path).await?;
+
+    let cfg_backend = adapteros_config::StorageBackend::from_str(&db_cfg.storage_mode)
+        .unwrap_or(adapteros_config::StorageBackend::Sql);
+    let db_backend = match cfg_backend {
+        adapteros_config::StorageBackend::Sql => DbStorageBackend::Sql,
+        adapteros_config::StorageBackend::Dual => DbStorageBackend::Dual,
+        adapteros_config::StorageBackend::KvPrimary => DbStorageBackend::KvPrimary,
+        adapteros_config::StorageBackend::KvOnly => DbStorageBackend::KvOnly,
+    };
+
+    let kv_path = PathBuf::from(db_cfg.kv_path.clone());
+    let kv_tantivy_path = db_cfg.kv_tantivy_path.as_ref().map(PathBuf::from);
+
+    info!(
+        db_path = %db_cfg.path,
+        storage_mode = %cfg_backend.as_str(),
+        kv_path = %kv_path.display(),
+        "Connecting to database with storage backend"
+    );
+
+    let db = DbFactory::create(
+        &db_cfg.path,
+        db_cfg.pool_size,
+        db_backend,
+        Some(kv_path.as_path()),
+        kv_tantivy_path.as_deref(),
+    )
+    .await?;
+
+    if db.storage_mode() != requested_mode {
+        warn!(
+            requested_mode = %requested_mode,
+            effective_mode = %db.storage_mode(),
+            "Storage mode adjusted (coverage or health guardrails)"
+        );
+    }
 
     // Upgrade boot state manager with database for audit logging
     let boot_state = BootStateManager::with_db(Arc::new(db.clone()));
@@ -866,21 +900,27 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Run migrations with Ed25519 signature verification
-    info!("Running database migrations...");
-    db.migrate().await?;
+    let sql_enabled = db.storage_mode().write_to_sql() || db.storage_mode().read_from_sql();
 
-    // Recover from any previous crash (orphaned adapters, stale state)
-    info!("Running crash recovery checks...");
-    db.recover_from_crash().await?;
+    if sql_enabled {
+        // Run migrations with Ed25519 signature verification
+        info!("Running database migrations...");
+        db.migrate().await?;
 
-    // Seed development data
-    if let Err(e) = db.seed_dev_data().await {
-        warn!("Failed to seed development data: {}", e);
-    }
+        // Recover from any previous crash (orphaned adapters, stale state)
+        info!("Running crash recovery checks...");
+        db.recover_from_crash().await?;
 
-    if let Err(e) = seed_models_from_cache_if_empty(&db).await {
-        warn!("Failed to seed cached base models: {}", e);
+        // Seed development data
+        if let Err(e) = db.seed_dev_data().await {
+            warn!("Failed to seed development data: {}", e);
+        }
+
+        if let Err(e) = seed_models_from_cache_if_empty(&db).await {
+            warn!("Failed to seed cached base models: {}", e);
+        }
+    } else {
+        info!("SQL backend disabled; skipping migrations, crash recovery, and SQL seed steps");
     }
 
     if cli.migrate_only {
@@ -2002,6 +2042,11 @@ async fn seed_models_from_cache_if_empty(db: &Db) -> Result<()> {
         .unwrap_or(cfg!(debug_assertions));
 
     if !seed_enabled {
+        return Ok(());
+    }
+
+    if db.pool_opt().is_none() {
+        info!("Skipping model cache seed: SQL pool not available");
         return Ok(());
     }
 

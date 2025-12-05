@@ -17,15 +17,21 @@ use tracing::{debug, warn};
 pub mod constants;
 
 // Database abstraction layer
+pub mod factory;
 pub mod kv_backend;
 pub mod kv_metrics;
+pub mod kv_diff;
+pub mod rag;
+mod replay_kv;
 pub mod sqlite_backend;
+mod telemetry_kv;
 pub mod tenant_execution_policies;
 pub mod tenant_policies;
 pub mod tenant_settings;
 pub mod traits;
 
 // Re-export commonly used types
+pub use factory::{DbFactory, StorageBackend as DbStorageBackend};
 pub use traits::{
     AdapterRecord, CreateStackRequest, DatabaseBackend, DatabaseBackendType, DatabaseConfig,
     StackRecord,
@@ -33,6 +39,7 @@ pub use traits::{
 
 // Re-export KV backend types
 pub use kv_backend::{KvBackend, KvDb, StorageError as KvStorageError};
+pub use kv_diff::DiffIssue;
 
 // Re-export KV metrics types
 pub use kv_metrics::{
@@ -275,6 +282,47 @@ impl std::fmt::Display for StorageMode {
     }
 }
 
+/// Describes KV coverage for runtime guardrails
+#[derive(Debug, Clone, Copy)]
+pub struct KvCoverageSummary {
+    /// Domains with KV repositories and read/write paths
+    pub supported_domains: &'static [&'static str],
+    /// Domains that still rely on SQL-only code paths
+    pub unsupported_domains: &'static [&'static str],
+}
+
+/// Current KV coverage snapshot.
+/// Keep this conservative to avoid silent cutovers when SQL-only paths remain.
+pub fn kv_coverage_summary() -> KvCoverageSummary {
+    // KV repositories with read/write implemented
+    const SUPPORTED: &[&str] = &[
+        "adapters",
+        "adapter_stacks",
+        "tenants",
+        "users",
+        "auth_sessions",
+        "plans",
+    ];
+    // SQL-only domains that block KV-only posture today
+    const UNSUPPORTED: &[&str] = &[
+        "repositories",
+        "documents",
+        "collections",
+        "messages",
+        "rag/telemetry",
+        "replay",
+        "policy_audit",
+        "training_jobs",
+        "runtime_sessions",
+        "chat_sessions",
+    ];
+
+    KvCoverageSummary {
+        supported_domains: SUPPORTED,
+        unsupported_domains: UNSUPPORTED,
+    }
+}
+
 #[cfg(test)]
 mod storage_mode_tests {
     use super::*;
@@ -364,8 +412,8 @@ mod storage_mode_tests {
         assert!(StorageMode::DualWrite.write_to_sql());
         assert!(StorageMode::DualWrite.write_to_kv());
 
-        // KvPrimary: read KV, write both
-        assert!(!StorageMode::KvPrimary.read_from_sql());
+        // KvPrimary: read KV first, SQL fallback allowed
+        assert!(StorageMode::KvPrimary.read_from_sql());
         assert!(StorageMode::KvPrimary.read_from_kv());
         assert!(StorageMode::KvPrimary.write_to_sql());
         assert!(StorageMode::KvPrimary.write_to_kv());
@@ -396,7 +444,10 @@ mod storage_mode_tests {
 impl StorageMode {
     /// Returns true if this mode reads from SQL backend
     pub fn read_from_sql(self) -> bool {
-        matches!(self, StorageMode::SqlOnly | StorageMode::DualWrite)
+        matches!(
+            self,
+            StorageMode::SqlOnly | StorageMode::DualWrite | StorageMode::KvPrimary
+        )
     }
 
     /// Returns true if this mode reads from KV backend
@@ -448,9 +499,10 @@ impl StorageMode {
 /// Supports optional KV backend integration for migration scenarios.
 #[derive(Clone)]
 pub struct Db {
-    pool: SqlitePool,
+    pool: Option<SqlitePool>,
     kv: Option<std::sync::Arc<KvDb>>,
     storage_mode: StorageMode,
+    atomic_dual_write_config: Arc<crate::adapters::AtomicDualWriteConfig>,
     /// Degradation state: if Some, contains the reason for degradation
     degraded_reason: std::sync::Arc<std::sync::RwLock<Option<String>>>,
 }
@@ -470,10 +522,24 @@ impl Db {
         kv: Option<std::sync::Arc<KvDb>>,
         storage_mode: StorageMode,
     ) -> Self {
+        Self::new_with_pool(Some(pool), kv, storage_mode)
+    }
+
+    /// Create a Db without an attached SQL pool (KV-only or external managed SQL)
+    pub fn new_kv_only(kv: Option<std::sync::Arc<KvDb>>, storage_mode: StorageMode) -> Self {
+        Self::new_with_pool(None, kv, storage_mode)
+    }
+
+    fn new_with_pool(
+        pool: Option<SqlitePool>,
+        kv: Option<std::sync::Arc<KvDb>>,
+        storage_mode: StorageMode,
+    ) -> Self {
         Self {
             pool,
             kv,
             storage_mode,
+            atomic_dual_write_config: Arc::new(crate::adapters::AtomicDualWriteConfig::from_env()),
             degraded_reason: std::sync::Arc::new(std::sync::RwLock::new(None)),
         }
     }
@@ -502,12 +568,7 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;
 
-        Ok(Self {
-            pool,
-            kv: None,
-            storage_mode: StorageMode::SqlOnly,
-            degraded_reason: std::sync::Arc::new(std::sync::RwLock::new(None)),
-        })
+        Ok(Self::new_with_pool(Some(pool), None, StorageMode::SqlOnly))
     }
 
     /// Connect to SQLite database using DATABASE_URL environment variable
@@ -574,14 +635,24 @@ impl Db {
             "Initializing database from configuration"
         );
 
-        // Create base database connection
+        // KV path is required for all KV-capable modes
+        let kv_path =
+            std::env::var("AOS_KV_PATH").unwrap_or_else(|_| "var/aos-kv.redb".to_string());
+
+        // Short-circuit for KV-only: no SQLite dependency
+        if requested_mode == StorageMode::KvOnly {
+            let kv = KvDb::init_redb(std::path::Path::new(&kv_path)).map(std::sync::Arc::new)?;
+            info!(kv_path = %kv_path, "KV-only mode enabled; skipping SQL pool");
+            let mut db = Self::new_kv_only(Some(kv), StorageMode::KvOnly);
+            db.enforce_kv_only_guard()?;
+            return Ok(db);
+        }
+
+        // Create base database connection for SQL-capable modes
         let mut db = Self::connect(&database_url).await?;
 
         // Initialize KV backend if required by storage mode
         if requested_mode.write_to_kv() || requested_mode.read_from_kv() {
-            let kv_path =
-                std::env::var("AOS_KV_PATH").unwrap_or_else(|_| "var/aos-kv.redb".to_string());
-
             info!(kv_path = %kv_path, "Initializing KV backend");
 
             match db.init_kv_backend(std::path::Path::new(&kv_path)) {
@@ -610,6 +681,8 @@ impl Db {
             // No KV backend needed for SqlOnly mode
             db.set_storage_mode(requested_mode);
         }
+
+        db.enforce_kv_only_guard()?;
 
         Ok(db)
     }
@@ -673,7 +746,7 @@ impl Db {
         // Run migrations
         info!("Applying database migrations...");
         migrator
-            .run(&self.pool)
+            .run(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
 
@@ -697,7 +770,7 @@ impl Db {
         let latest_db_migration: Option<(i64, String)> = sqlx::query_as(
             "SELECT version, description FROM _sqlx_migrations ORDER BY version DESC LIMIT 1",
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to query migration version: {}", e)))?;
 
@@ -791,7 +864,7 @@ impl Db {
         let mut recovery_actions = Vec::new();
 
         // CRITICAL: Begin transaction for atomic recovery
-        let mut tx = self.pool.begin().await.map_err(|e| {
+        let mut tx = self.pool().begin().await.map_err(|e| {
             AosError::Database(format!("Failed to begin recovery transaction: {}", e))
         })?;
 
@@ -908,7 +981,7 @@ impl Db {
         let cutoff_timestamp = Utc::now().timestamp() - threshold_seconds;
 
         // CRITICAL: Begin transaction for atomic recovery
-        let mut tx = self.pool.begin().await.map_err(|e| {
+        let mut tx = self.pool().begin().await.map_err(|e| {
             AosError::Database(format!("Failed to begin recovery transaction: {}", e))
         })?;
 
@@ -988,7 +1061,7 @@ impl Db {
 
         // Check if data already exists
         let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-            .fetch_one(&self.pool)
+            .fetch_one(self.pool())
             .await?;
 
         if user_count > 0 {
@@ -1003,7 +1076,7 @@ impl Db {
             "INSERT INTO tenants (id, name, created_at) 
              VALUES ('default', 'default', datetime('now'))",
         )
-        .execute(&self.pool)
+        .execute(self.pool())
         .await?;
 
         // Create demo users with hashed passwords
@@ -1036,7 +1109,7 @@ impl Db {
             .bind(display_name)
             .bind(pwd_hash)
             .bind(role)
-            .execute(&self.pool)
+            .execute(self.pool())
             .await?;
         }
 
@@ -1064,7 +1137,7 @@ impl Db {
             .bind(hostname)
             .bind(format!("https://{}:3000", hostname)) // Dummy agent endpoint
             .bind(labels)
-            .execute(&self.pool)
+            .execute(self.pool())
             .await?;
         }
 
@@ -1087,7 +1160,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(adapter_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch adapter: {}", e)))?;
 
@@ -1096,6 +1169,26 @@ impl Db {
 
     /// List stacks for a tenant
     pub async fn list_stacks_for_tenant(&self, tenant_id: &str) -> Result<Vec<StackRecord>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(kv_repo) = self.get_stack_kv_repo() {
+                use stacks_kv::StackKvOps;
+                let stacks = kv_repo
+                    .list_stacks_by_tenant(tenant_id)
+                    .await?
+                    .into_iter()
+                    .map(|kv| stacks_kv::kv_to_stack_record(&kv))
+                    .collect::<Result<Vec<_>>>()?;
+                return Ok(stacks);
+            }
+            if !self.storage_mode().sql_fallback_enabled() {
+                return Ok(Vec::new());
+            }
+        }
+
+        let pool = match self.pool_opt() {
+            Some(p) => p,
+            None => return Ok(Vec::new()),
+        };
         let rows = sqlx::query_as::<_, StackRecord>(
             r#"
             SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by
@@ -1105,7 +1198,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(&self.pool)
+        .fetch_all(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list stacks: {}", e)))?;
 
@@ -1114,6 +1207,23 @@ impl Db {
 
     /// Get a stack by ID and tenant
     pub async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
+        // Prefer KV if enabled
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_stack_kv_repo() {
+                use stacks_kv::StackKvOps;
+                if let Some(kv_stack) = repo.get_stack(tenant_id, id).await? {
+                    return Ok(Some(stacks_kv::kv_to_stack_record(&kv_stack)?));
+                }
+            }
+            if !self.storage_mode().sql_fallback_enabled() {
+                return Ok(None);
+            }
+        }
+
+        let pool = match self.pool_opt() {
+            Some(p) => p,
+            None => return Ok(None),
+        };
         let row = sqlx::query_as::<_, StackRecord>(
             r#"
             SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
@@ -1123,7 +1233,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?;
 
@@ -1132,20 +1242,24 @@ impl Db {
 
     /// Delete a stack by ID and tenant
     pub async fn delete_stack(&self, tenant_id: &str, id: &str) -> Result<bool> {
-        // SQL delete (always happens)
-        let result = sqlx::query(
-            r#"
-            DELETE FROM adapter_stacks
-            WHERE tenant_id = ? AND id = ?
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to delete stack: {}", e)))?;
-
-        let deleted = result.rows_affected() > 0;
+        let mut deleted = false;
+        // SQL delete if enabled
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                let result = sqlx::query(
+                    r#"
+                    DELETE FROM adapter_stacks
+                    WHERE tenant_id = ? AND id = ?
+                    "#,
+                )
+                .bind(tenant_id)
+                .bind(id)
+                .execute(pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to delete stack: {}", e)))?;
+                deleted |= result.rows_affected() > 0;
+            }
+        }
 
         // KV delete (dual-write mode)
         if deleted {
@@ -1168,24 +1282,29 @@ impl Db {
             serde_json::to_string(&stack.adapter_ids).map_err(|e| AosError::Serialization(e))?;
         let workflow_type_str = stack.workflow_type.as_ref().map(|w| format!("{:?}", w));
 
-        // SQL update (always happens)
-        let result = sqlx::query(
-            r#"
-            UPDATE adapter_stacks
-            SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?, updated_at = datetime('now')
-            WHERE id = ?
-            "#,
-        )
-        .bind(&stack.name)
-        .bind(&stack.description)
-        .bind(&adapter_ids_json)
-        .bind(&workflow_type_str)
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?;
+        let mut updated = false;
+        // SQL update if enabled
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                let result = sqlx::query(
+                    r#"
+                    UPDATE adapter_stacks
+                    SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?, updated_at = datetime('now')
+                    WHERE id = ?
+                    "#,
+                )
+                .bind(&stack.name)
+                .bind(&stack.description)
+                .bind(&adapter_ids_json)
+                .bind(&workflow_type_str)
+                .bind(id)
+                .execute(pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?;
 
-        let updated = result.rows_affected() > 0;
+                updated |= result.rows_affected() > 0;
+            }
+        }
 
         // KV update (dual-write mode)
         if updated {
@@ -1204,25 +1323,33 @@ impl Db {
 
     /// Activate a stack by setting lifecycle_state to 'active' (SQL + KV)
     pub async fn activate_stack(&self, tenant_id: &str, id: &str) -> Result<()> {
-        let result = sqlx::query(
-            r#"
-            UPDATE adapter_stacks
-            SET lifecycle_state = 'active',
-                updated_at = datetime('now')
-            WHERE tenant_id = ? AND id = ?
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to activate stack: {}", e)))?;
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                let result = sqlx::query(
+                    r#"
+                    UPDATE adapter_stacks
+                    SET lifecycle_state = 'active',
+                        updated_at = datetime('now')
+                    WHERE tenant_id = ? AND id = ?
+                    "#,
+                )
+                .bind(tenant_id)
+                .bind(id)
+                .execute(pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to activate stack: {}", e)))?;
 
-        if result.rows_affected() == 0 {
-            return Err(AosError::NotFound(format!(
-                "Stack {} not found for tenant {}",
-                id, tenant_id
-            )));
+                if result.rows_affected() == 0 && !self.storage_mode().write_to_kv() {
+                    return Err(AosError::NotFound(format!(
+                        "Stack {} not found for tenant {}",
+                        id, tenant_id
+                    )));
+                }
+            }
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No writable backend configured for activate_stack".to_string(),
+            ));
         }
 
         // KV activation (dual-write mode)
@@ -1243,7 +1370,14 @@ impl Db {
 
     /// Get the underlying pool for custom queries
     pub fn pool(&self) -> &SqlitePool {
-        &self.pool
+        self.pool
+            .as_ref()
+            .expect("SQL pool not available for current storage mode")
+    }
+
+    /// Get the underlying pool if attached (KV-only may return None)
+    pub fn pool_opt(&self) -> Option<&SqlitePool> {
+        self.pool.as_ref()
     }
 
     /// Get the current storage mode
@@ -1318,6 +1452,28 @@ impl Db {
         }
 
         self.storage_mode = mode;
+
+        // Enforce guardrails for KV-only posture
+        let _ = self.enforce_kv_only_guard();
+    }
+
+    /// Get atomic dual-write configuration
+    pub fn atomic_dual_write_config(&self) -> &crate::adapters::AtomicDualWriteConfig {
+        &self.atomic_dual_write_config
+    }
+
+    /// Set atomic dual-write configuration
+    pub fn set_atomic_dual_write_config(&mut self, config: crate::adapters::AtomicDualWriteConfig) {
+        self.atomic_dual_write_config = Arc::new(config);
+    }
+
+    /// Builder-style setter for atomic dual-write configuration
+    pub fn with_atomic_dual_write_config(
+        mut self,
+        config: crate::adapters::AtomicDualWriteConfig,
+    ) -> Self {
+        self.set_atomic_dual_write_config(config);
+        self
     }
 
     /// Attach a KV backend to this database instance
@@ -1355,6 +1511,58 @@ impl Db {
         self.storage_mode = StorageMode::SqlOnly;
     }
 
+    /// Record a KV read fallback (used for drift detection/alerts)
+    fn record_kv_read_fallback(&self, context: &str) {
+        let metrics = crate::kv_metrics::global_kv_metrics();
+        metrics.record_fallback_read();
+        metrics.record_drift_detected();
+        warn!(context = %context, "KV read fallback to SQL");
+    }
+
+    /// Record a KV write fallback (KV write failed but SQL succeeded)
+    fn record_kv_write_fallback(&self, context: &str) {
+        let metrics = crate::kv_metrics::global_kv_metrics();
+        metrics.record_fallback_write();
+        metrics.record_drift_detected();
+        warn!(context = %context, "KV write failed, recorded fallback");
+    }
+
+    /// Prevent entering KV-only mode when unsupported domains remain.
+    ///
+    /// Falls back to KvPrimary and records degradation reason for observability.
+    pub fn enforce_kv_only_guard(&mut self) -> Result<()> {
+        if !self.storage_mode.is_kv_only() {
+            return Ok(());
+        }
+
+        let coverage = kv_coverage_summary();
+        if coverage.unsupported_domains.is_empty() {
+            return Ok(());
+        }
+
+        let reason = format!(
+            "KV-only blocked: missing KV coverage for {}",
+            coverage.unsupported_domains.join(", ")
+        );
+
+        // If we would downgrade but have no SQL pool, bail out to avoid panics on pool()
+        if self.pool.is_none() {
+            return Err(AosError::Config(reason));
+        }
+
+        warn!(
+            event = crate::constants::DEGRADATION_EVENT_KV_UNSUPPORTED,
+            fallback_mode = "kv_primary",
+            missing = ?coverage.unsupported_domains,
+            "KV-only mode rejected; coverage incomplete"
+        );
+
+        // Fall back to KvPrimary to preserve SQL fallback while keeping KV writes
+        self.storage_mode = StorageMode::KvPrimary;
+        self.mark_degraded(reason);
+        Ok(())
+    }
+
     /// Get a StackKvRepository if KV writes are enabled
     fn get_stack_kv_repo(&self) -> Option<stacks_kv::StackKvRepository> {
         if self.storage_mode().write_to_kv() {
@@ -1375,22 +1583,30 @@ impl Db {
         let workflow_type = req.workflow_type.as_deref().unwrap_or("Parallel");
         let description = req.description.as_deref().unwrap_or("");
 
-        // SQL write (always happens)
-        sqlx::query(
-            r#"
-            INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'))
-            "#,
-        )
-        .bind(&id)
-        .bind(&req.tenant_id)
-        .bind(&req.name)
-        .bind(description)
-        .bind(&adapter_ids_json)
-        .bind(workflow_type)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to insert stack: {}", e)))?;
+        // SQL write if enabled
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                sqlx::query(
+                    r#"
+                    INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'))
+                    "#,
+                )
+                .bind(&id)
+                .bind(&req.tenant_id)
+                .bind(&req.name)
+                .bind(description)
+                .bind(&adapter_ids_json)
+                .bind(workflow_type)
+                .execute(pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to insert stack: {}", e)))?;
+            } else if !self.storage_mode().write_to_kv() {
+                return Err(AosError::Database(
+                    "SQL backend unavailable for insert_stack".to_string(),
+                ));
+            }
+        }
 
         // KV write (dual-write mode)
         if let Some(kv_backend) = self.get_stack_kv_repo() {
@@ -1407,21 +1623,25 @@ impl Db {
 
     /// Increment adapter activation count
     pub async fn increment_adapter_activation(&self, adapter_id: &str) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE adapters
-            SET activation_count = activation_count + 1,
-                last_activated = datetime('now'),
-                updated_at = datetime('now')
-            WHERE adapter_id = ?
-            "#,
-        )
-        .bind(adapter_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| {
-            AosError::Database(format!("Failed to increment adapter activation: {}", e))
-        })?;
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                sqlx::query(
+                    r#"
+                    UPDATE adapters
+                    SET activation_count = activation_count + 1,
+                        last_activated = datetime('now'),
+                        updated_at = datetime('now')
+                    WHERE adapter_id = ?
+                    "#,
+                )
+                .bind(adapter_id)
+                .execute(pool)
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to increment adapter activation: {}", e))
+                })?;
+            }
+        }
 
         // KV write (dual-write mode)
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
@@ -1462,17 +1682,17 @@ impl Db {
         // Step 1: Analyze table statistics
         info!("Analyzing table statistics");
         sqlx::query("ANALYZE adapters")
-            .execute(&self.pool)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to analyze adapters table: {}", e)))?;
 
         sqlx::query("ANALYZE users")
-            .execute(&self.pool)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to analyze users table: {}", e)))?;
 
         sqlx::query("ANALYZE adapter_stacks")
-            .execute(&self.pool)
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to analyze adapter_stacks table: {}", e))
@@ -1481,7 +1701,7 @@ impl Db {
         // Step 2: Perform integrity check
         info!("Validating database integrity");
         let integrity_result: String = sqlx::query_scalar("PRAGMA integrity_check")
-            .fetch_one(&self.pool)
+            .fetch_one(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to perform integrity check: {}", e)))?;
 
@@ -1497,7 +1717,7 @@ impl Db {
         // Step 3: Rebuild all indexes
         info!("Rebuilding all indexes");
         sqlx::query("REINDEX")
-            .execute(&self.pool)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to rebuild indexes: {}", e)))?;
 
@@ -1505,7 +1725,7 @@ impl Db {
         let adapter_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM adapters WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(&self.pool)
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to count adapters: {}", e)))?;
 
@@ -1529,7 +1749,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(&self.pool)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list adapters by tenant: {}", e)))?;
 
@@ -1558,7 +1778,7 @@ impl Db {
             "#,
         )
         .bind(email_query)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get user by email: {}", e)))?;
 
@@ -1576,7 +1796,7 @@ impl Db {
             "#,
         )
         .bind(&user_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get user by id: {}", e)))?;
 
@@ -1598,7 +1818,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(index_type)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get index hash: {}", e)))?;
 
@@ -1644,9 +1864,15 @@ impl Db {
 
         info!("Closing database connection pool");
 
+        // In KV-only mode there may be no SQL pool attached
+        let Some(pool) = self.pool_opt() else {
+            info!("No SQL pool attached; nothing to close");
+            return Ok(());
+        };
+
         // SQLite: Perform WAL checkpoint to finalize pending writes
         sqlx::query("PRAGMA optimize")
-            .execute(&self.pool)
+            .execute(pool)
             .await
             .map_err(|e| {
                 AosError::Database(format!(
@@ -1693,7 +1919,9 @@ pub use adapter_record::{
 pub mod adapters;
 pub mod adapters_kv;
 pub mod kv_migration;
-pub use adapters::{Adapter, AdapterRegistrationBuilder, AdapterRegistrationParams};
+pub use adapters::{
+    Adapter, AdapterRegistrationBuilder, AdapterRegistrationParams, AtomicDualWriteConfig,
+};
 pub use adapters_kv::{AdapterKvOps, AdapterKvRepository};
 pub use kv_migration::{MigrationDiscrepancy, MigrationProgress, MigrationStats};
 pub mod artifacts;
@@ -1763,6 +1991,7 @@ pub use promotions::{
 pub mod stacks_kv;
 pub mod tenants;
 pub mod tenants_kv;
+pub mod plans_kv;
 pub use policy_hash::PolicyHashRecord;
 pub use stacks_kv::{StackKvOps, StackKvRepository};
 pub use tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
@@ -1813,6 +2042,7 @@ pub use federation::{QuarantineDetails, QuarantineRecord};
 
 // Authentication sessions module
 pub mod auth_sessions;
+pub mod auth_sessions_kv;
 pub use auth_sessions::AuthSession;
 pub mod runtime_sessions;
 pub use dashboard_configs::DashboardWidgetConfig;
@@ -1883,7 +2113,7 @@ impl Db {
         let row: Option<(String,)> =
             sqlx::query_as("SELECT value FROM system_settings WHERE key = ?")
                 .bind(key)
-                .fetch_optional(&self.pool)
+                .fetch_optional(self.pool())
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to get system setting: {}", e)))?;
 
@@ -1903,7 +2133,7 @@ impl Db {
         )
         .bind(key)
         .bind(value)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to set system setting: {}", e)))?;
 
@@ -2051,6 +2281,7 @@ impl Db {
 
         if let Ok(mut degraded) = self.degraded_reason.write() {
             *degraded = Some(reason.clone());
+            crate::kv_metrics::global_kv_metrics().record_degradation();
             warn!(
                 event = crate::constants::DEGRADATION_EVENT_RUNTIME_FAILED,
                 reason = %reason,

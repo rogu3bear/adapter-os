@@ -24,7 +24,6 @@ pub enum StorageBackend {
     KvOnly,
 }
 
-
 /// Database factory for creating Db instances
 pub struct DbFactory;
 
@@ -49,8 +48,14 @@ impl DbFactory {
         kv_path: Option<&Path>,
         tantivy_path: Option<&Path>,
     ) -> Result<Db> {
-        // Create SQL pool
-        let pool = Self::create_sql_pool(database_url, database_pool_size).await?;
+        // Create SQL pool unless running KV-only
+        // NOTE: If KvOnly is later downgraded by the coverage guard, any code path
+        // that touches `pool()` will panic unless a pool exists. Keep this in mind
+        // if you rely on fallback modes.
+        let pool = match storage_backend {
+            StorageBackend::KvOnly => None,
+            _ => Some(Self::create_sql_pool(database_url, database_pool_size).await?),
+        };
 
         // Create KV backend if enabled
         let (kv, storage_mode) = match storage_backend {
@@ -75,14 +80,17 @@ impl DbFactory {
             }
         };
 
-        Ok(Db::new(pool, kv, storage_mode))
+        let mut db = match pool {
+            Some(pool) => Db::new(pool, kv, storage_mode),
+            None => Db::new_kv_only(kv, storage_mode),
+        };
+
+        db.enforce_kv_only_guard()?;
+        Ok(db)
     }
 
     /// Create SQL connection pool
-    async fn create_sql_pool(
-        database_url: &str,
-        pool_size: u32,
-    ) -> Result<sqlx::SqlitePool> {
+    async fn create_sql_pool(database_url: &str, pool_size: u32) -> Result<sqlx::SqlitePool> {
         use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
         use std::str::FromStr;
 
@@ -115,9 +123,8 @@ impl DbFactory {
         _tantivy_path: Option<&Path>,
     ) -> Result<KvDb> {
         // Get path or use default
-        let kv_path = kv_path.ok_or_else(|| {
-            AosError::Config("KV path required for KV storage mode".to_string())
-        })?;
+        let kv_path = kv_path
+            .ok_or_else(|| AosError::Config("KV path required for KV storage mode".to_string()))?;
 
         // Open redb backend using existing KvDb::init_redb
         info!(kv_path = ?kv_path, "Opening redb backend");
@@ -146,6 +153,27 @@ mod tests {
         let db = DbFactory::create_in_memory().await.unwrap();
         assert_eq!(db.storage_mode(), StorageMode::SqlOnly);
         assert!(!db.has_kv_backend());
+    }
+
+    #[tokio::test]
+    async fn kv_only_guard_blocks_when_incomplete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("cp.sqlite3");
+        let kv_path = tmp.path().join("kv.redb");
+
+        let result = DbFactory::create(
+            db_path.to_str().expect("tmp path should be valid UTF-8"),
+            2,
+            StorageBackend::KvOnly,
+            Some(kv_path.as_path()),
+            None,
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "KvOnly should fail fast when coverage is incomplete"
+        );
     }
 
     #[tokio::test]
