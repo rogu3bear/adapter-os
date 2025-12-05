@@ -47,9 +47,16 @@ impl AdapterRepository {
     pub async fn create(&self, adapter: AdapterKv) -> Result<String, StorageError> {
         let id = adapter.id.clone();
         let key = adapter.primary_key();
+        let legacy_key = adapter.legacy_primary_key();
 
         // Check if adapter already exists
-        if self.backend.exists(&key).await? {
+        let exists_primary = self.backend.exists(&key).await?;
+        let exists_legacy = if legacy_key != key {
+            self.backend.exists(&legacy_key).await?
+        } else {
+            false
+        };
+        if exists_primary || exists_legacy {
             return Err(StorageError::ConflictError(format!(
                 "Adapter already exists: {}",
                 id
@@ -83,28 +90,28 @@ impl AdapterRepository {
             .query_index(adapter_indexes::BY_ADAPTER_ID, adapter_id)
             .await?;
 
-        // adapter_id should be unique, so take the first match
-        let internal_id = ids.first().map(|s| s.as_str());
+        // Build candidate keys: prefer index-resolved id if present, then canonical adapter_id key
+        let mut candidate_keys: Vec<String> = Vec::new();
+        if let Some(first) = ids.first() {
+            candidate_keys.push(format!("adapter:{}", first));
+        }
+        let adapter_key = format!("adapter:{}", adapter_id);
+        if !candidate_keys.contains(&adapter_key) {
+            candidate_keys.push(adapter_key);
+        }
 
-        // Fetch by internal UUID if present
-        let key = internal_id.map(|id| format!("adapter:{}", id));
+        // Attempt candidates in order
+        let mut bytes_opt = None;
+        for key in candidate_keys {
+            if let Some(bytes) = self.backend.get(&key).await? {
+                bytes_opt = Some(bytes);
+                break;
+            }
+        }
 
-        // Fallback: also attempt direct adapter_id key to handle historical mismatches
-        // where the primary key may have been stored using adapter_id instead of UUID.
-        let fallback_key = format!("adapter:{}", adapter_id);
-
-        let bytes = match key {
-            Some(k) => match self.backend.get(&k).await? {
-                Some(b) => b,
-                None => match self.backend.get(&fallback_key).await? {
-                    Some(b) => b,
-                    None => return Ok(None),
-                },
-            },
-            None => match self.backend.get(&fallback_key).await? {
-                Some(b) => b,
-                None => return Ok(None),
-            },
+        let bytes = match bytes_opt {
+            Some(b) => b,
+            None => return Ok(None),
         };
 
         let adapter: AdapterKv = bincode::deserialize(&bytes)?;
@@ -120,13 +127,22 @@ impl AdapterRepository {
     /// Update an existing adapter
     pub async fn update(&self, adapter: AdapterKv) -> Result<(), StorageError> {
         let key = adapter.primary_key();
+        let legacy_key = adapter.legacy_primary_key();
 
-        // Get old adapter for index updates
-        let old_bytes = self
-            .backend
-            .get(&key)
-            .await?
-            .ok_or_else(|| StorageError::NotFound(adapter.id.clone()))?;
+        // Get old adapter for index updates (support legacy UUID-keyed entries)
+        let (stored_key, old_bytes) = match self.backend.get(&key).await? {
+            Some(bytes) => (key.clone(), bytes),
+            None => {
+                if legacy_key != key {
+                    match self.backend.get(&legacy_key).await? {
+                        Some(bytes) => (legacy_key.clone(), bytes),
+                        None => return Err(StorageError::NotFound(adapter.id.clone())),
+                    }
+                } else {
+                    return Err(StorageError::NotFound(adapter.id.clone()));
+                }
+            }
+        };
 
         let old_adapter: AdapterKv = bincode::deserialize(&old_bytes)?;
 
@@ -135,6 +151,11 @@ impl AdapterRepository {
 
         // Update in storage
         self.backend.set(&key, new_value).await?;
+
+        // If we updated a legacy key, remove the old entry to avoid drift
+        if stored_key != key {
+            let _ = self.backend.delete(&stored_key).await?;
+        }
 
         // Update indexes (comparing old vs new values)
         self.update_indexes(&adapter, Some(&old_adapter)).await?;
@@ -152,9 +173,15 @@ impl AdapterRepository {
         };
 
         let key = adapter.primary_key();
+        let legacy_key = adapter.legacy_primary_key();
 
         // Delete from storage
-        let deleted = self.backend.delete(&key).await?;
+        let mut deleted = self.backend.delete(&key).await?;
+        // Also remove legacy key if it exists to prevent drift
+        if legacy_key != key {
+            let legacy_deleted = self.backend.delete(&legacy_key).await?;
+            deleted = deleted || legacy_deleted;
+        }
 
         if deleted {
             // Remove from all indexes
@@ -467,12 +494,26 @@ impl AdapterRepository {
         adapter: &AdapterKv,
         old_adapter: Option<&AdapterKv>,
     ) -> Result<(), StorageError> {
-        let id = &adapter.id;
+        let entity_id = adapter.key_id().to_string();
+        let old_entity_id = old_adapter.map(|a| a.key_id().to_string());
+        let id_changed = old_entity_id
+            .as_ref()
+            .map(|old| old != &entity_id)
+            .unwrap_or(false);
+
+        // If the storage key changed (legacy UUID -> adapter_id), drop old index entries first.
+        if let Some(old) = old_adapter {
+            if id_changed {
+                self.remove_from_indexes(old).await?;
+            }
+        }
+
+        let should_add_new = old_adapter.is_none() || id_changed;
 
         // Tenant index
-        if old_adapter.is_none() {
+        if should_add_new {
             self.index_manager
-                .add_to_index(adapter_indexes::BY_TENANT, &adapter.tenant_id, id)
+                .add_to_index(adapter_indexes::BY_TENANT, &adapter.tenant_id, &entity_id)
                 .await?;
         }
 
@@ -483,29 +524,52 @@ impl AdapterRepository {
                 adapter_indexes::BY_STATE,
                 old_state,
                 &adapter.current_state,
-                id,
+                &entity_id,
             )
             .await?;
 
         // Tier index
         let old_tier = old_adapter.map(|a| a.tier.as_str());
         self.index_manager
-            .update_index(adapter_indexes::BY_TIER, old_tier, &adapter.tier, id)
+            .update_index(
+                adapter_indexes::BY_TIER,
+                old_tier,
+                &adapter.tier,
+                &entity_id,
+            )
             .await?;
 
         // Hash index
-        if old_adapter.is_none() {
+        if should_add_new {
             self.index_manager
-                .add_to_index(adapter_indexes::BY_HASH, &adapter.hash_b3, id)
+                .add_to_index(adapter_indexes::BY_HASH, &adapter.hash_b3, &entity_id)
                 .await?;
         }
 
-        // Adapter ID index (external adapter_id -> internal id mapping)
-        if old_adapter.is_none() {
-            if let Some(adapter_id) = &adapter.adapter_id {
+        // Adapter ID index (external adapter_id -> storage key mapping)
+        if let Some(adapter_id) = &adapter.adapter_id {
+            if should_add_new {
                 self.index_manager
-                    .add_to_index(adapter_indexes::BY_ADAPTER_ID, adapter_id, id)
+                    .add_to_index(adapter_indexes::BY_ADAPTER_ID, adapter_id, &entity_id)
                     .await?;
+            } else if let Some(old) = old_adapter {
+                if old.adapter_id.as_deref() != Some(adapter_id.as_str()) {
+                    if let Some(old_adapter_id) = old.adapter_id.as_ref() {
+                        let old_entity = old_entity_id
+                            .as_deref()
+                            .unwrap_or_else(|| old.key_id());
+                        self.index_manager
+                            .remove_from_index(
+                                adapter_indexes::BY_ADAPTER_ID,
+                                old_adapter_id,
+                                old_entity,
+                            )
+                            .await?;
+                    }
+                    self.index_manager
+                        .add_to_index(adapter_indexes::BY_ADAPTER_ID, adapter_id, &entity_id)
+                        .await?;
+                }
             }
         }
 
@@ -516,7 +580,7 @@ impl AdapterRepository {
                 adapter_indexes::BY_LIFECYCLE_STATE,
                 old_lifecycle,
                 &adapter.lifecycle_state,
-                id,
+                &entity_id,
             )
             .await?;
 
@@ -528,7 +592,7 @@ impl AdapterRepository {
                 adapter_indexes::BY_ACTIVE,
                 old_active.as_deref(),
                 &active_str,
-                id,
+                &entity_id,
             )
             .await?;
 
@@ -540,7 +604,7 @@ impl AdapterRepository {
                 adapter_indexes::BY_PINNED,
                 old_pinned.as_deref(),
                 &pinned_str,
-                id,
+                &entity_id,
             )
             .await?;
 
@@ -548,7 +612,14 @@ impl AdapterRepository {
         if let Some(parent_id) = &adapter.parent_id {
             let old_parent = old_adapter.and_then(|a| a.parent_id.as_deref());
             self.index_manager
-                .update_index(adapter_indexes::BY_PARENT, old_parent, parent_id, id)
+                .update_index(adapter_indexes::BY_PARENT, old_parent, parent_id, &entity_id)
+                .await?;
+        } else if let Some(old_parent) = old_adapter.and_then(|a| a.parent_id.as_deref()) {
+            let old_entity = old_entity_id
+                .as_deref()
+                .unwrap_or_else(|| adapter.key_id());
+            self.index_manager
+                .remove_from_index(adapter_indexes::BY_PARENT, old_parent, old_entity)
                 .await?;
         }
 
@@ -557,51 +628,63 @@ impl AdapterRepository {
 
     /// Remove adapter from all indexes
     async fn remove_from_indexes(&self, adapter: &AdapterKv) -> Result<(), StorageError> {
-        let id = &adapter.id;
-
-        self.index_manager
-            .remove_from_index(adapter_indexes::BY_TENANT, &adapter.tenant_id, id)
-            .await?;
-
-        self.index_manager
-            .remove_from_index(adapter_indexes::BY_STATE, &adapter.current_state, id)
-            .await?;
-
-        self.index_manager
-            .remove_from_index(adapter_indexes::BY_TIER, &adapter.tier, id)
-            .await?;
-
-        self.index_manager
-            .remove_from_index(adapter_indexes::BY_HASH, &adapter.hash_b3, id)
-            .await?;
-
-        // Remove adapter_id index
-        if let Some(adapter_id) = &adapter.adapter_id {
+        for entity_id in adapter.index_entity_ids() {
             self.index_manager
-                .remove_from_index(adapter_indexes::BY_ADAPTER_ID, adapter_id, id)
+                .remove_from_index(adapter_indexes::BY_TENANT, &adapter.tenant_id, &entity_id)
                 .await?;
-        }
 
-        self.index_manager
-            .remove_from_index(
-                adapter_indexes::BY_LIFECYCLE_STATE,
-                &adapter.lifecycle_state,
-                id,
-            )
-            .await?;
-
-        self.index_manager
-            .remove_from_index(adapter_indexes::BY_ACTIVE, &adapter.active.to_string(), id)
-            .await?;
-
-        self.index_manager
-            .remove_from_index(adapter_indexes::BY_PINNED, &adapter.pinned.to_string(), id)
-            .await?;
-
-        if let Some(parent_id) = &adapter.parent_id {
             self.index_manager
-                .remove_from_index(adapter_indexes::BY_PARENT, parent_id, id)
+                .remove_from_index(
+                    adapter_indexes::BY_STATE,
+                    &adapter.current_state,
+                    &entity_id,
+                )
                 .await?;
+
+            self.index_manager
+                .remove_from_index(adapter_indexes::BY_TIER, &adapter.tier, &entity_id)
+                .await?;
+
+            self.index_manager
+                .remove_from_index(adapter_indexes::BY_HASH, &adapter.hash_b3, &entity_id)
+                .await?;
+
+            // Remove adapter_id index
+            if let Some(adapter_id) = &adapter.adapter_id {
+                self.index_manager
+                    .remove_from_index(adapter_indexes::BY_ADAPTER_ID, adapter_id, &entity_id)
+                    .await?;
+            }
+
+            self.index_manager
+                .remove_from_index(
+                    adapter_indexes::BY_LIFECYCLE_STATE,
+                    &adapter.lifecycle_state,
+                    &entity_id,
+                )
+                .await?;
+
+            self.index_manager
+                .remove_from_index(
+                    adapter_indexes::BY_ACTIVE,
+                    &adapter.active.to_string(),
+                    &entity_id,
+                )
+                .await?;
+
+            self.index_manager
+                .remove_from_index(
+                    adapter_indexes::BY_PINNED,
+                    &adapter.pinned.to_string(),
+                    &entity_id,
+                )
+                .await?;
+
+            if let Some(parent_id) = &adapter.parent_id {
+                self.index_manager
+                    .remove_from_index(adapter_indexes::BY_PARENT, parent_id, &entity_id)
+                    .await?;
+            }
         }
 
         Ok(())
@@ -610,6 +693,155 @@ impl AdapterRepository {
 
 #[cfg(test)]
 mod tests {
-    // Tests would go here - testing CRUD operations, lineage traversal,
-    // pagination, index management, etc.
+    use super::*;
+    use crate::kv::indexing::IndexManager;
+    use crate::redb::RedbBackend;
+    use chrono::Utc;
+
+    fn sample_adapter(adapter_id: &str, id: &str, tenant_id: &str) -> AdapterKv {
+        let now = Utc::now().to_rfc3339();
+        AdapterKv {
+            id: id.to_string(),
+            adapter_id: Some(adapter_id.to_string()),
+            tenant_id: tenant_id.to_string(),
+            name: "Test Adapter".to_string(),
+            tier: "warm".to_string(),
+            hash_b3: "b3:test".to_string(),
+            rank: 8,
+            alpha: 16.0,
+            targets_json: "[]".to_string(),
+            acl_json: None,
+            languages_json: None,
+            framework: None,
+            active: 1,
+            category: "code".to_string(),
+            scope: "global".to_string(),
+            framework_id: None,
+            framework_version: None,
+            repo_id: None,
+            commit_sha: None,
+            intent: None,
+            current_state: "unloaded".to_string(),
+            pinned: 0,
+            memory_bytes: 0,
+            last_activated: None,
+            activation_count: 0,
+            expires_at: None,
+            load_state: "cold".to_string(),
+            last_loaded_at: None,
+            aos_file_path: None,
+            aos_file_hash: None,
+            adapter_name: None,
+            tenant_namespace: None,
+            domain: None,
+            purpose: None,
+            revision: None,
+            parent_id: None,
+            fork_type: None,
+            fork_reason: None,
+            version: "1.0.0".to_string(),
+            lifecycle_state: "active".to_string(),
+            archived_at: None,
+            archived_by: None,
+            archive_reason: None,
+            purged_at: None,
+            created_at: now.clone(),
+            updated_at: now,
+        }
+    }
+
+    fn repo_in_memory() -> (AdapterRepository, Arc<dyn KvBackend>, Arc<IndexManager>) {
+        let backend = Arc::new(RedbBackend::open_in_memory().unwrap());
+        let index_manager = Arc::new(IndexManager::new(backend.clone()));
+        let repo = AdapterRepository::new(backend.clone(), index_manager.clone());
+        (repo, backend, index_manager)
+    }
+
+    #[tokio::test]
+    async fn create_and_read_use_adapter_id_key() {
+        let (repo, backend, _indexes) = repo_in_memory();
+        let adapter = sample_adapter("adapter-123", "uuid-1", "tenant-a");
+
+        repo.create(adapter.clone()).await.unwrap();
+
+        // Stored under adapter_id key
+        assert!(backend
+            .get("adapter:adapter-123")
+            .await
+            .unwrap()
+            .is_some());
+
+        let fetched = repo
+            .get("tenant-a", "adapter-123")
+            .await
+            .unwrap()
+            .expect("adapter readable");
+        assert_eq!(fetched.id, "uuid-1");
+        assert_eq!(fetched.adapter_id.as_deref(), Some("adapter-123"));
+    }
+
+    #[tokio::test]
+    async fn update_migrates_legacy_uuid_key() {
+        let (repo, backend, indexes) = repo_in_memory();
+        let mut legacy = sample_adapter("legacy-adapter", "legacy-uuid", "tenant-a");
+
+        // Store legacy key (UUID) and minimal index entry to simulate old layout
+        let bytes = bincode::serialize(&legacy).unwrap();
+        backend
+            .set(&legacy.legacy_primary_key(), bytes)
+            .await
+            .unwrap();
+        indexes
+            .add_to_index(
+                adapter_indexes::BY_ADAPTER_ID,
+                legacy.adapter_id.as_ref().unwrap(),
+                &legacy.id,
+            )
+            .await
+            .unwrap();
+
+        // Update state -> should rewrite under adapter_id key and drop legacy key
+        legacy.current_state = "loaded".to_string();
+        repo.update(legacy.clone()).await.unwrap();
+
+        assert!(backend
+            .get("adapter:legacy-adapter")
+            .await
+            .unwrap()
+            .is_some());
+        assert!(backend
+            .get("adapter:legacy-uuid")
+            .await
+            .unwrap()
+            .is_none());
+
+        let fetched = repo
+            .get("tenant-a", "legacy-adapter")
+            .await
+            .unwrap()
+            .expect("adapter readable after migration");
+        assert_eq!(fetched.current_state, "loaded");
+    }
+
+    #[tokio::test]
+    async fn delete_removes_both_keys() {
+        let (repo, backend, _indexes) = repo_in_memory();
+        let adapter = sample_adapter("delete-me", "uuid-del", "tenant-a");
+
+        repo.create(adapter.clone()).await.unwrap();
+
+        let deleted = repo.delete("tenant-a", "delete-me").await.unwrap();
+        assert!(deleted);
+
+        assert!(backend
+            .get("adapter:delete-me")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(backend
+            .get("adapter:uuid-del")
+            .await
+            .unwrap()
+            .is_none());
+    }
 }

@@ -79,14 +79,26 @@ pub struct AdapterKv {
 }
 
 impl AdapterKv {
+    /// Canonical key identifier: prefer adapter_id, fall back to legacy UUID id.
+    pub fn key_id(&self) -> &str {
+        self.adapter_id
+            .as_deref()
+            .unwrap_or_else(|| self.id.as_str())
+    }
+
     /// Get the primary key for this adapter
     pub fn primary_key(&self) -> String {
+        format!("adapter:{}", self.key_id())
+    }
+
+    /// Legacy primary key (uses internal UUID). Kept for backward-compat reads/writes.
+    pub fn legacy_primary_key(&self) -> String {
         format!("adapter:{}", self.id)
     }
 
     /// Get the tenant-scoped key for this adapter
     pub fn tenant_key(&self) -> String {
-        format!("tenant:{}:adapter:{}", self.tenant_id, self.id)
+        format!("tenant:{}:adapter:{}", self.tenant_id, self.key_id())
     }
 
     /// Get hash-based lookup key
@@ -104,5 +116,14 @@ impl AdapterKv {
     /// Get children relationship key (for lineage traversal)
     pub fn children_key(&self) -> String {
         format!("adapter:{}:children", self.id)
+    }
+
+    /// Entity ids to clean/update indexes (canonical first, then legacy if different).
+    pub fn index_entity_ids(&self) -> Vec<String> {
+        let mut ids = vec![self.key_id().to_string()];
+        if self.id != self.key_id() {
+            ids.push(self.id.clone());
+        }
+        ids
     }
 }

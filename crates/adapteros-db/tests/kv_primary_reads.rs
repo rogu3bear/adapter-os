@@ -184,7 +184,7 @@ async fn test_kv_primary_reads_from_kv_first() {
     db.register_adapter(params).await.unwrap();
 
     // Switch to KvPrimary mode
-    db.set_storage_mode(StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
     // Read adapter - should come from KV or fall back to SQL
     let adapter = db
@@ -197,6 +197,52 @@ async fn test_kv_primary_reads_from_kv_first() {
     assert_eq!(adapter.name, "KV Read Test Adapter");
     assert_eq!(adapter.hash_b3, "b3:kv_read_hash_1");
     assert_eq!(adapter.rank, 16);
+}
+
+// ============================================================================
+// Test X: Dual-write stores adapter_id primary key in KV
+// ============================================================================
+
+#[tokio::test]
+async fn test_dual_write_uses_adapter_id_key() {
+    let (mut db, _temp_dir) = create_dual_write_db().await;
+
+    let params = AdapterRegistrationBuilder::new()
+        .adapter_id("kv-key-align-1")
+        .name("Key Align Adapter")
+        .hash_b3("b3:key_align")
+        .rank(12)
+        .tier("warm")
+        .category("code")
+        .scope("global")
+        .tenant_id("default-tenant")
+        .build()
+        .unwrap();
+
+    let uuid = db.register_adapter(params).await.unwrap();
+
+    // KV backend should store under adapter_id, not internal UUID
+    let kv = db.kv_backend().expect("kv backend attached");
+    let backend = kv.backend().clone();
+    assert!(backend
+        .get("adapter:kv-key-align-1")
+        .await
+        .unwrap()
+        .is_some());
+    assert!(backend
+        .get(&format!("adapter:{}", uuid))
+        .await
+        .unwrap()
+        .is_none());
+
+    // KV-primary reads should succeed via adapter_id
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
+    let adapter = db
+        .get_adapter("kv-key-align-1")
+        .await
+        .unwrap()
+        .expect("adapter should be readable from KV-primary");
+    assert_eq!(adapter.adapter_id.as_deref(), Some("kv-key-align-1"));
 }
 
 // ============================================================================
@@ -354,7 +400,7 @@ async fn test_kv_primary_data_consistency() {
     }
 
     // Switch to KvPrimary mode
-    db.set_storage_mode(StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
     // Verify each adapter can be read with correct data
     for (adapter_id, name, hash_b3, rank, tier) in &test_cases {
@@ -399,7 +445,7 @@ async fn test_kv_primary_list_adapters() {
     }
 
     // Switch to KvPrimary mode
-    db.set_storage_mode(StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
     // List adapters - should use KV
     let adapters = db.list_adapters_by_tenant("default-tenant").await.unwrap();
@@ -484,7 +530,7 @@ async fn test_kv_primary_find_by_hash() {
     db.register_adapter(params).await.unwrap();
 
     // Switch to KvPrimary mode
-    db.set_storage_mode(StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
     // Find by hash - currently falls back to SQL for cross-tenant hash lookup
     // This is expected behavior (see TODO in adapters.rs)
@@ -521,7 +567,7 @@ async fn test_kv_primary_state_updates() {
     db.register_adapter(params).await.unwrap();
 
     // Switch to KvPrimary mode
-    db.set_storage_mode(StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
     // Update state (dual-write in KvPrimary mode)
     db.update_adapter_state_tx("state-test-1", "warm", "Test state transition")
@@ -561,7 +607,7 @@ async fn test_kv_primary_memory_updates() {
     db.register_adapter(params).await.unwrap();
 
     // Switch to KvPrimary mode
-    db.set_storage_mode(StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
     // Update memory
     db.update_adapter_memory_tx("memory-test-1", 1024 * 1024 * 500) // 500MB
@@ -620,7 +666,7 @@ async fn test_kv_primary_lineage() {
     db.register_adapter(child_params).await.unwrap();
 
     // Switch to KvPrimary mode
-    db.set_storage_mode(StorageMode::KvPrimary);
+    db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
     // Query lineage
     let lineage = db.get_adapter_lineage("lineage-parent").await.unwrap();
