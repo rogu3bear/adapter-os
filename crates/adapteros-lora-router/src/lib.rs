@@ -749,12 +749,26 @@ impl Router {
     /// It's maintained for backward compatibility only.
     ///
     /// For proper per-adapter scoring:
-    /// ```ignore
+    /// ```rust
+    /// use adapteros_lora_router::{AdapterInfo, Router, RouterWeights};
+    ///
     /// // Old (deprecated):
-    /// let decision = router.route(&features, &priors);
+    /// let mut router = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
+    /// let features = vec![0.0f32; 22];
+    /// let priors = vec![0.5f32, 0.3f32, 0.2f32];
+    /// let _decision = router.route(&features, &priors);
     ///
     /// // New (recommended):
+    /// let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+    ///     .map(|i| AdapterInfo {
+    ///         id: format!("adapter_{}", i),
+    ///         framework: None,
+    ///         languages: vec![],
+    ///         tier: "default".to_string(),
+    ///     })
+    ///     .collect();
     /// let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+    /// assert_eq!(decision.indices.len(), 2);
     /// ```
     ///
     /// The new API enables:
@@ -796,19 +810,8 @@ impl Router {
         // Take top K
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
 
-        // Softmax with temperature
-        let max_score = top_k
-            .iter()
-            .map(|(_, s)| s)
-            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let exp_scores: Vec<f32> = top_k
-            .iter()
-            .map(|(_, s)| ((s - max_score) / self.tau).exp())
-            .collect();
-        let sum_exp: f32 = exp_scores.iter().sum();
-
-        // Normalize and apply entropy floor
-        let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
+        // Softmax with temperature using deterministic f64 + Kahan path
+        let mut gates: Vec<f32> = Self::deterministic_softmax(&top_k, self.tau);
         let min_gate = self.eps / self.k as f32;
         for g in &mut gates {
             *g = g.max(min_gate);
@@ -903,7 +906,7 @@ impl Router {
     ///
     /// # Returns
     /// Softmax probabilities as f32 (converted from f64 intermediate precision)
-    fn deterministic_softmax(logits: &[(usize, f32)], tau: f32) -> Vec<f32> {
+    pub(crate) fn deterministic_softmax(logits: &[(usize, f32)], tau: f32) -> Vec<f32> {
         if logits.is_empty() {
             return Vec::new();
         }
@@ -1074,22 +1077,8 @@ impl Router {
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
 
         // Apply softmax with temperature
-        let mut gates: Vec<f32> = if self.determinism_config.ieee754_deterministic {
-            // Use deterministic softmax with f64 intermediate precision and Kahan summation
-            Self::deterministic_softmax(&top_k, self.tau)
-        } else {
-            // Standard f32 softmax (may have platform-dependent rounding)
-            let max_score = top_k
-                .iter()
-                .map(|(_, s)| s)
-                .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-            let exp_scores: Vec<f32> = top_k
-                .iter()
-                .map(|(_, s)| ((s - max_score) / self.tau).exp())
-                .collect();
-            let sum_exp: f32 = exp_scores.iter().sum();
-            exp_scores.iter().map(|e| e / sum_exp).collect()
-        };
+        // Softmax with temperature using deterministic f64 + Kahan path
+        let mut gates: Vec<f32> = Self::deterministic_softmax(&top_k, self.tau);
 
         // Apply entropy floor
         let min_gate = self.eps / self.k as f32;
@@ -1881,6 +1870,59 @@ mod tests {
         // Results should sum to approximately 1.0
         let sum: f32 = result1.iter().sum();
         assert!((sum - 1.0).abs() < 0.0001, "Softmax should sum to 1.0");
+    }
+
+    #[test]
+    fn test_route_gates_follow_deterministic_softmax_path() {
+        let priors = vec![0.3f32, 0.2f32, 0.1f32];
+        let features = vec![0.0f32; 22];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
+
+        let mut router =
+            Router::new_with_weights(RouterWeights::default(), priors.len(), 1.0, 0.01);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+
+        // Recreate the router's top-k ordering
+        let mut scores: Vec<(usize, f32)> =
+            priors.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+        scores.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        let top_k: Vec<(usize, f32)> = scores.into_iter().take(priors.len()).collect();
+
+        // Compute expected gates using deterministic softmax + entropy floor + renorm
+        let mut expected_gates = Router::deterministic_softmax(&top_k, 1.0);
+        let eps = 0.01;
+        let min_gate = eps / priors.len() as f32;
+        for g in expected_gates.iter_mut() {
+            *g = g.max(min_gate);
+        }
+        let sum_expected: f32 = expected_gates.iter().sum();
+        for g in expected_gates.iter_mut() {
+            *g /= sum_expected;
+        }
+        let expected_q15: Vec<i16> = expected_gates
+            .iter()
+            .map(|&g| {
+                let q = (g * 32767.0).round() as i16;
+                q.max(0)
+            })
+            .collect();
+
+        assert_eq!(
+            decision.gates_q15.as_slice(),
+            expected_q15.as_slice(),
+            "Route should use deterministic f64 softmax prior to Q15 quantization"
+        );
     }
 
     #[test]

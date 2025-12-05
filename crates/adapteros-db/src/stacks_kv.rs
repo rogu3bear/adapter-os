@@ -103,6 +103,15 @@ impl StackKvRepository {
             .map_err(|e| AosError::Database(format!("Failed to deserialize stack: {}", e)))
     }
 
+    /// Deterministic ordering: created_at DESC then id ASC.
+    fn sort_stacks_deterministically(stacks: &mut Vec<AdapterStackKv>) {
+        stacks.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+    }
+
     /// Update secondary indexes for a stack
     async fn update_indexes(
         &self,
@@ -510,7 +519,9 @@ impl StackKvOps for StackKvRepository {
         let stack_ids: Vec<String> = serde_json::from_slice(&bytes)
             .map_err(|e| AosError::Database(format!("Failed to deserialize stack IDs: {}", e)))?;
 
-        self.load_stacks(tenant_id, &stack_ids).await
+        let mut stacks = self.load_stacks(tenant_id, &stack_ids).await?;
+        Self::sort_stacks_deterministically(&mut stacks);
+        Ok(stacks)
     }
 
     async fn list_all_stacks(&self) -> Result<Vec<AdapterStackKv>> {
@@ -542,6 +553,7 @@ impl StackKvOps for StackKvRepository {
             }
         }
 
+        Self::sort_stacks_deterministically(&mut stacks);
         Ok(stacks)
     }
 

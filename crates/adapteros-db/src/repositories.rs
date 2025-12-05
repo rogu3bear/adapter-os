@@ -110,7 +110,7 @@ impl Db {
         .bind(path)
         .bind(&languages_json)
         .bind(default_branch)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(db_err("register repository"))?;
 
@@ -129,7 +129,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_one(&self.pool)
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("get repository"))?;
 
@@ -153,7 +153,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(repo_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get repository by repo_id"))?;
 
@@ -181,7 +181,7 @@ impl Db {
         .bind(tenant_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(&self.pool)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list repositories"))?;
 
@@ -193,7 +193,7 @@ impl Db {
         let count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM repositories WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(&self.pool)
+                .fetch_one(self.pool())
                 .await
                 .map_err(db_err("count repositories"))?;
 
@@ -211,7 +211,7 @@ impl Db {
         )
         .bind(status)
         .bind(id)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(db_err("update repository status"))?;
 
@@ -239,7 +239,7 @@ impl Db {
         .bind(commit_sha)
         .bind(graph_hash)
         .bind(id)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(db_err("update repository scan"))?;
 
@@ -264,7 +264,7 @@ impl Db {
         )
         .bind(&frameworks_json)
         .bind(id)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update repository frameworks: {}", e))
@@ -280,7 +280,7 @@ impl Db {
     pub async fn delete_repository(&self, id: &str) -> Result<()> {
         // Begin transaction for atomic multi-step deletion
         let mut tx = self
-            .pool
+            .pool()
             .begin()
             .await
             .map_err(db_err("begin transaction"))?;
@@ -358,7 +358,7 @@ impl Db {
         .bind(symbol_index_hash)
         .bind(vector_index_hash)
         .bind(test_map_hash)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(db_err("store code graph metadata"))?;
 
@@ -382,7 +382,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(commit_sha)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get code graph metadata"))?;
 
@@ -406,7 +406,7 @@ impl Db {
             "#,
         )
         .bind(repo_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get latest code graph metadata: {}", e))
@@ -428,7 +428,7 @@ impl Db {
         .bind(&id)
         .bind(repo_id)
         .bind(commit_sha)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(db_err("create scan job"))?;
 
@@ -461,7 +461,7 @@ impl Db {
         .bind(error_message)
         .bind(status)
         .bind(job_id)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(db_err("update scan job progress"))?;
 
@@ -479,7 +479,7 @@ impl Db {
             "#,
         )
         .bind(job_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get scan job"))?;
 
@@ -500,7 +500,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list scan jobs"))?;
 

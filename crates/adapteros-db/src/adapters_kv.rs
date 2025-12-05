@@ -8,11 +8,11 @@ use adapteros_core::{AosError, Result};
 // Use models::AdapterKv which matches what AdapterRepository uses
 use adapteros_storage::repos::adapter::AdapterRepository;
 use adapteros_storage::AdapterKv;
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
+use chrono::{DateTime, Utc};
 
 /// Trait for adapter operations in KV mode
 ///
@@ -133,6 +133,25 @@ impl AdapterKvRepository {
             default_tenant,
             increment_locks,
         }
+    }
+
+    /// Deterministic ordering helper: created_at DESC, then id ASC.
+    fn sort_adapters_deterministically(adapters: &mut Vec<Adapter>) {
+        adapters.sort_by(|a, b| {
+            let parsed_a = DateTime::parse_from_rfc3339(&a.created_at)
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc));
+            let parsed_b = DateTime::parse_from_rfc3339(&b.created_at)
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc));
+
+            match (parsed_b, parsed_a) {
+                (Some(pb), Some(pa)) => pb.cmp(&pa).then_with(|| a.id.cmp(&b.id)),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.id.cmp(&b.id),
+            }
+        });
     }
 }
 
@@ -350,7 +369,9 @@ impl AdapterKvOps for AdapterKvRepository {
             .await
             .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
 
-        Ok(adapters_kv.into_iter().map(|kv| kv.into()).collect())
+        let mut adapters: Vec<Adapter> = adapters_kv.into_iter().map(|kv| kv.into()).collect();
+        Self::sort_adapters_deterministically(&mut adapters);
+        Ok(adapters)
     }
 
     async fn delete_adapter_kv(&self, id: &str) -> Result<()> {
@@ -542,12 +563,12 @@ impl AdapterKvOps for AdapterKvRepository {
             .await
             .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
 
-        let filtered: Vec<Adapter> = adapters
+        let mut filtered: Vec<Adapter> = adapters
             .into_iter()
             .filter(|a| a.category == category)
             .map(|kv| kv.into())
             .collect();
-
+        Self::sort_adapters_deterministically(&mut filtered);
         Ok(filtered)
     }
 
@@ -559,12 +580,12 @@ impl AdapterKvOps for AdapterKvRepository {
             .await
             .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
 
-        let filtered: Vec<Adapter> = adapters
+        let mut filtered: Vec<Adapter> = adapters
             .into_iter()
             .filter(|a| a.scope == scope)
             .map(|kv| kv.into())
             .collect();
-
+        Self::sort_adapters_deterministically(&mut filtered);
         Ok(filtered)
     }
 
@@ -575,7 +596,9 @@ impl AdapterKvOps for AdapterKvRepository {
             .await
             .map_err(|e| AosError::Database(format!("Failed to list adapters by state: {}", e)))?;
 
-        Ok(adapters.into_iter().map(|kv| kv.into()).collect())
+        let mut adapters: Vec<Adapter> = adapters.into_iter().map(|kv| kv.into()).collect();
+        Self::sort_adapters_deterministically(&mut adapters);
+        Ok(adapters)
     }
 
     async fn update_adapter_tier_kv(&self, adapter_id: &str, tier: &str) -> Result<()> {

@@ -84,17 +84,27 @@ impl AdapterRepository {
             .await?;
 
         // adapter_id should be unique, so take the first match
-        let internal_id = match ids.first() {
-            Some(id) => id,
-            None => return Ok(None),
-        };
+        let internal_id = ids.first().map(|s| s.as_str());
 
-        // Fetch by internal UUID
-        let key = format!("adapter:{}", internal_id);
+        // Fetch by internal UUID if present
+        let key = internal_id.map(|id| format!("adapter:{}", id));
 
-        let bytes = match self.backend.get(&key).await? {
-            Some(b) => b,
-            None => return Ok(None),
+        // Fallback: also attempt direct adapter_id key to handle historical mismatches
+        // where the primary key may have been stored using adapter_id instead of UUID.
+        let fallback_key = format!("adapter:{}", adapter_id);
+
+        let bytes = match key {
+            Some(k) => match self.backend.get(&k).await? {
+                Some(b) => b,
+                None => match self.backend.get(&fallback_key).await? {
+                    Some(b) => b,
+                    None => return Ok(None),
+                },
+            },
+            None => match self.backend.get(&fallback_key).await? {
+                Some(b) => b,
+                None => return Ok(None),
+            },
         };
 
         let adapter: AdapterKv = bincode::deserialize(&bytes)?;

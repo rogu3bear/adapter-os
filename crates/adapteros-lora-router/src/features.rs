@@ -405,17 +405,34 @@ fn softmax(logits: &[f32]) -> Vec<f32> {
         return Vec::new();
     }
 
-    // Subtract max for numerical stability
-    let max_logit = logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+    // Subtract max for numerical stability (f64 intermediate)
+    let max_logit = logits
+        .iter()
+        .map(|&x| x as f64)
+        .fold(f64::NEG_INFINITY, f64::max);
 
-    let exp_logits: Vec<f32> = logits.iter().map(|&x| (x - max_logit).exp()).collect();
-    let sum_exp: f32 = exp_logits.iter().sum();
+    // Kahan-summed exponentials in f64 to reduce rounding drift
+    let mut sum = 0.0f64;
+    let mut c = 0.0f64;
+    let exp_logits: Vec<f64> = logits
+        .iter()
+        .map(|&x| {
+            let exp = ((x as f64) - max_logit).exp();
 
-    if sum_exp == 0.0 {
+            let y = exp - c;
+            let t = sum + y;
+            c = (t - sum) - y;
+            sum = t;
+
+            exp
+        })
+        .collect();
+
+    if sum == 0.0 {
         return vec![1.0 / logits.len() as f32; logits.len()]; // Uniform if all zero
     }
 
-    exp_logits.iter().map(|&x| x / sum_exp).collect()
+    exp_logits.iter().map(|&x| (x / sum) as f32).collect()
 }
 
 /// Compute Shannon entropy of probability distribution

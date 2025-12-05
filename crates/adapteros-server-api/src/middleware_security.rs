@@ -317,28 +317,285 @@ pub fn cors_layer() -> CorsLayer {
 
 #[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
     use super::*;
+    use axum::{
+        body::Body,
+        http::{header, HeaderMap, Request, StatusCode},
+        middleware,
+        routing::{get, post},
+        Router,
+    };
+    use tower::ServiceExt;
 
-    // NOTE: These tests are ignored because axum::middleware::Next cannot be
-    // constructed directly in tests. Need to use axum-test or similar framework.
+    const CSP_HEADER_VALUE: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; worker-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';";
+    const PERMISSIONS_POLICY_HEADER_VALUE: &str = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), accelerometer=(), gyroscope=(), ambient-light-sensor=(), autoplay=(), encrypted-media=(), fullscreen=(self), picture-in-picture=()";
+
+    fn build_security_app() -> Router {
+        Router::new()
+            .route("/ok", get(|| async { StatusCode::OK }))
+            .route("/unauthorized", get(|| async { StatusCode::UNAUTHORIZED }))
+            .route("/forbidden", get(|| async { StatusCode::FORBIDDEN }))
+            .layer(middleware::from_fn(security_headers_middleware))
+    }
+
+    fn build_request_size_app() -> Router {
+        Router::new()
+            .route("/", post(|| async { StatusCode::OK }))
+            .route("/get", get(|| async { StatusCode::OK }))
+            .layer(middleware::from_fn(request_size_limit_middleware))
+    }
+
+    fn build_cors_app() -> Router {
+        Router::new()
+            .route("/", get(|| async { StatusCode::OK }))
+            .layer(cors_layer())
+    }
+
+    async fn call(app: Router, req: Request<Body>) -> Response {
+        app.oneshot(req).await.expect("router call should succeed")
+    }
+
+    fn assert_security_headers(headers: &HeaderMap) {
+        assert_eq!(
+            headers.get("Content-Security-Policy"),
+            Some(&HeaderValue::from_static(CSP_HEADER_VALUE))
+        );
+        assert_eq!(
+            headers.get("X-Frame-Options"),
+            Some(&HeaderValue::from_static("DENY"))
+        );
+        assert_eq!(
+            headers.get("X-Content-Type-Options"),
+            Some(&HeaderValue::from_static("nosniff"))
+        );
+        assert_eq!(
+            headers.get("Referrer-Policy"),
+            Some(&HeaderValue::from_static("strict-origin-when-cross-origin"))
+        );
+        assert_eq!(
+            headers.get("Permissions-Policy"),
+            Some(&HeaderValue::from_static(PERMISSIONS_POLICY_HEADER_VALUE))
+        );
+    }
+
+    async fn preflight_request(app: Router, origin: &str, method: Method) -> Response {
+        let request = Request::builder()
+            .method(Method::OPTIONS)
+            .uri("/")
+            .header(header::ORIGIN, origin)
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, method.as_str())
+            .body(Body::empty())
+            .expect("failed to build request");
+
+        call(app, request).await
+    }
+
+    fn assert_allow_origin(response: &Response, origin: &str) {
+        let headers = response.headers();
+        let origin_value = HeaderValue::from_str(origin).expect("origin header must be valid");
+
+        assert_eq!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&origin_value)
+        );
+        assert_eq!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS),
+            Some(&HeaderValue::from_static("true"))
+        );
+    }
+
+    fn assert_preflight_headers(response: &Response) {
+        let headers = response.headers();
+
+        let allow_methods = headers
+            .get(header::ACCESS_CONTROL_ALLOW_METHODS)
+            .expect("allow-methods header missing")
+            .to_str()
+            .expect("allow-methods header not utf8");
+
+        for method in ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"] {
+            assert!(
+                allow_methods.contains(method),
+                "allow-methods missing {method}"
+            );
+        }
+
+        assert_eq!(
+            headers.get(header::ACCESS_CONTROL_MAX_AGE),
+            Some(&HeaderValue::from_static("86400"))
+        );
+    }
+
+    struct EnvGuard {
+        allowed_origins: Option<String>,
+        production_mode: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn new() -> Self {
+            Self {
+                allowed_origins: std::env::var("ALLOWED_ORIGINS").ok(),
+                production_mode: std::env::var("AOS_PRODUCTION_MODE").ok(),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match self.allowed_origins.as_ref() {
+                Some(value) => std::env::set_var("ALLOWED_ORIGINS", value),
+                None => std::env::remove_var("ALLOWED_ORIGINS"),
+            }
+
+            match self.production_mode.as_ref() {
+                Some(value) => std::env::set_var("AOS_PRODUCTION_MODE", value),
+                None => std::env::remove_var("AOS_PRODUCTION_MODE"),
+            }
+        }
+    }
 
     #[tokio::test]
-    #[ignore = "axum::middleware::Next cannot be constructed in tests"]
     async fn test_security_headers_added() {
-        // TODO: Implement using axum-test crate
+        let app = build_security_app();
+
+        let ok_response = call(
+            app.clone(),
+            Request::builder()
+                .uri("/ok")
+                .body(Body::empty())
+                .expect("failed to build request"),
+        )
+        .await;
+        assert_eq!(ok_response.status(), StatusCode::OK);
+        assert_security_headers(ok_response.headers());
+        assert!(ok_response.headers().get("Cache-Control").is_none());
+
+        let unauthorized_response = call(
+            app.clone(),
+            Request::builder()
+                .uri("/unauthorized")
+                .body(Body::empty())
+                .expect("failed to build request"),
+        )
+        .await;
+        assert_eq!(unauthorized_response.status(), StatusCode::UNAUTHORIZED);
+        assert_security_headers(unauthorized_response.headers());
+        assert_eq!(
+            unauthorized_response
+                .headers()
+                .get("Cache-Control")
+                .map(HeaderValue::as_bytes),
+            Some("no-cache, no-store, must-revalidate".as_bytes())
+        );
+        assert_eq!(
+            unauthorized_response
+                .headers()
+                .get("Pragma")
+                .map(HeaderValue::as_bytes),
+            Some("no-cache".as_bytes())
+        );
+        assert_eq!(
+            unauthorized_response
+                .headers()
+                .get("Expires")
+                .map(HeaderValue::as_bytes),
+            Some("0".as_bytes())
+        );
+
+        let forbidden_response = call(
+            app,
+            Request::builder()
+                .uri("/forbidden")
+                .body(Body::empty())
+                .expect("failed to build request"),
+        )
+        .await;
+        assert_eq!(forbidden_response.status(), StatusCode::FORBIDDEN);
+        assert_security_headers(forbidden_response.headers());
+        assert_eq!(
+            forbidden_response
+                .headers()
+                .get("Cache-Control")
+                .map(HeaderValue::as_bytes),
+            Some("no-cache, no-store, must-revalidate".as_bytes())
+        );
     }
 
     #[tokio::test]
-    #[ignore = "axum::middleware::Next cannot be constructed in tests"]
     async fn test_request_size_limit() {
-        // TODO: Implement using axum-test crate
+        let app = build_request_size_app();
+
+        let valid_post = call(
+            app.clone(),
+            Request::builder()
+                .method(Method::POST)
+                .uri("/")
+                .header("content-length", "1024")
+                .body(Body::empty())
+                .expect("failed to build request"),
+        )
+        .await;
+        assert_eq!(valid_post.status(), StatusCode::OK);
+
+        let oversized_post = call(
+            app.clone(),
+            Request::builder()
+                .method(Method::POST)
+                .uri("/")
+                .header("content-length", (10 * 1024 * 1024 + 1).to_string())
+                .body(Body::empty())
+                .expect("failed to build request"),
+        )
+        .await;
+        assert_eq!(oversized_post.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+        let oversized_get = call(
+            app,
+            Request::builder()
+                .method(Method::GET)
+                .uri("/get")
+                .header("content-length", "2048")
+                .body(Body::empty())
+                .expect("failed to build request"),
+        )
+        .await;
+        assert_eq!(oversized_get.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
-    #[test]
-    #[ignore = "CorsLayer API changed - allow_methods requires argument"]
-    fn test_cors_layer_configuration() {
-        // TODO: Update test for new CorsLayer API
+    #[tokio::test]
+    async fn test_cors_layer_configuration() {
+        let _env_guard = EnvGuard::new();
+
+        std::env::remove_var("ALLOWED_ORIGINS");
+        std::env::remove_var("AOS_PRODUCTION_MODE");
+        let dev_response =
+            preflight_request(build_cors_app(), "http://localhost:3200", Method::GET).await;
+        assert_eq!(dev_response.status(), StatusCode::OK);
+        assert_allow_origin(&dev_response, "http://localhost:3200");
+        assert_preflight_headers(&dev_response);
+
+        std::env::set_var(
+            "ALLOWED_ORIGINS",
+            "https://example.com, https://another.com",
+        );
+        let explicit_response =
+            preflight_request(build_cors_app(), "https://example.com", Method::POST).await;
+        assert_eq!(explicit_response.status(), StatusCode::OK);
+        assert_allow_origin(&explicit_response, "https://example.com");
+        assert_preflight_headers(&explicit_response);
+
+        std::env::remove_var("ALLOWED_ORIGINS");
+        std::env::set_var("AOS_PRODUCTION_MODE", "true");
+        let blocked_response =
+            preflight_request(build_cors_app(), "https://blocked.com", Method::GET).await;
+        assert_eq!(blocked_response.status(), StatusCode::FORBIDDEN);
+        assert!(
+            blocked_response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .is_none(),
+            "origin should be rejected when production origins are not configured"
+        );
     }
 }
 

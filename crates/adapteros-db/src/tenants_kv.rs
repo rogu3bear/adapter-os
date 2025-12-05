@@ -490,26 +490,6 @@ impl From<Tenant> for TenantKv {
     }
 }
 
-/// Convert KV TenantKv to SQL Tenant
-impl From<TenantKv> for Tenant {
-    fn from(kv_tenant: TenantKv) -> Self {
-        Self {
-            id: kv_tenant.id,
-            name: kv_tenant.name,
-            itar_flag: kv_tenant.itar_flag,
-            created_at: kv_tenant.created_at.to_rfc3339(),
-            status: Some(kv_tenant.status),
-            updated_at: Some(kv_tenant.updated_at.to_rfc3339()),
-            default_stack_id: kv_tenant.default_stack_id,
-            default_pinned_adapter_ids: kv_tenant.default_pinned_adapter_ids,
-            max_adapters: kv_tenant.max_adapters,
-            max_training_jobs: kv_tenant.max_training_jobs,
-            max_storage_gb: kv_tenant.max_storage_gb,
-            rate_limit_rpm: kv_tenant.rate_limit_rpm,
-        }
-    }
-}
-
 /// Helper function to create TenantKv from CreateTenantParams (used in tests)
 #[allow(dead_code)]
 fn tenant_kv_from_params(params: &CreateTenantParams, id: &str) -> TenantKv {
@@ -533,6 +513,8 @@ fn tenant_kv_from_params(params: &CreateTenantParams, id: &str) -> TenantKv {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_storage::redb::RedbBackend;
+    use std::sync::Arc;
 
     #[test]
     fn test_sql_to_kv_conversion() {
@@ -601,5 +583,26 @@ mod tests {
         assert_eq!(tenant.itar_flag, true);
         assert_eq!(tenant.status, "active");
         assert!(tenant.default_stack_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_create_and_list_tenants_kv() {
+        let backend = Arc::new(adapteros_storage::redb::RedbBackend::open_in_memory().unwrap());
+        let repo = TenantKvRepository::new(backend);
+
+        let params = CreateTenantParams {
+            name: "TenantA".into(),
+            itar_flag: false,
+        };
+
+        let tenant_id = repo
+            .create_tenant_kv(&params)
+            .await
+            .expect("kv write should succeed");
+        let tenants = repo.list_tenants_kv().await.expect("kv list should succeed");
+
+        assert_eq!(tenants.len(), 1);
+        assert_eq!(tenants[0].id, tenant_id);
+        assert_eq!(tenants[0].name, "TenantA");
     }
 }

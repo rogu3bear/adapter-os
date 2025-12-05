@@ -1856,35 +1856,31 @@ impl LifecycleManager {
             let db_clone = db.clone();
             let adapter_id_clone = adapter_id_str.clone();
 
-            // Spawn async task to update database without blocking
-            let _ = spawn_deterministic("Adapter activation update".to_string(), async move {
-                // Record activation event
-                if let Err(e) = db_clone
-                    .record_activation(&adapter_id_clone, None, 1.0, true)
-                    .await
-                {
-                    warn!("Failed to record adapter activation in database: {}", e);
-                }
-
-                // Update activation count and last_activated timestamp
-                if let Err(e) = sqlx::query(
-                    "UPDATE adapters SET
-                     activation_count = ?,
-                     last_activated = datetime('now'),
-                     updated_at = datetime('now')
-                     WHERE adapter_id = ?",
-                )
-                .bind(activation_count as i64)
-                .bind(&adapter_id_clone)
-                .execute(db_clone.pool())
+            // Persist activation immediately (fallback when deterministic executor isn't running)
+            if let Err(e) = db_clone
+                .record_activation(&adapter_id_clone, None, 1.0, true)
                 .await
-                {
-                    warn!(
-                        "Failed to update adapter activation count in database: {}",
-                        e
-                    );
-                }
-            });
+            {
+                warn!("Failed to record adapter activation in database: {}", e);
+            }
+
+            if let Err(e) = sqlx::query(
+                "UPDATE adapters SET
+                 activation_count = ?,
+                 last_activated = datetime('now'),
+                 updated_at = datetime('now')
+                 WHERE adapter_id = ?",
+            )
+            .bind(activation_count as i64)
+            .bind(&adapter_id_clone)
+            .execute(db_clone.pool())
+            .await
+            {
+                warn!(
+                    "Failed to update adapter activation count in database: {}",
+                    e
+                );
+            }
         }
 
         // Log activation (non-blocking)
@@ -2019,7 +2015,17 @@ impl LifecycleManager {
                 // This prevents race where adapter could be pinned after check but before unload
                 {
                     let mut loader = self.loader.write();
-                    loader.unload_adapter(adapter_id)?;
+                    if let Err(e) = loader.unload_adapter(adapter_id) {
+                        // Allow eviction to continue when adapter was never loaded
+                        if !e.to_string().contains("not loaded") {
+                            return Err(e);
+                        } else {
+                            warn!(
+                                adapter_id = %adapter_id_str,
+                                "Adapter not loaded during eviction; continuing DB cleanup"
+                            );
+                        }
+                    }
                 } // LOADER LOCK RELEASED
 
                 // FIX 2: Set state to Unloaded AFTER successful loader.unload()
@@ -2038,27 +2044,23 @@ impl LifecycleManager {
             let db_clone = db.clone();
             let adapter_id_clone = adapter_id_str.clone();
 
-            // Spawn async task to update database without blocking
-            let _ = spawn_deterministic("Adapter eviction update".to_string(), async move {
-                // Update adapter state to unloaded and reset memory
-                if let Err(e) = db_clone
-                    .update_adapter_state(&adapter_id_clone, "unloaded", "eviction")
-                    .await
-                {
-                    warn!(
-                        "Failed to update adapter state during eviction in database: {}",
-                        e
-                    );
-                }
+            // Persist eviction immediately (fallback when deterministic executor isn't running)
+            if let Err(e) = db_clone
+                .update_adapter_state(&adapter_id_clone, "unloaded", "eviction")
+                .await
+            {
+                warn!(
+                    "Failed to update adapter state during eviction in database: {}",
+                    e
+                );
+            }
 
-                // Update memory usage to 0
-                if let Err(e) = db_clone.update_adapter_memory(&adapter_id_clone, 0).await {
-                    warn!(
-                        "Failed to update adapter memory during eviction in database: {}",
-                        e
-                    );
-                }
-            });
+            if let Err(e) = db_clone.update_adapter_memory(&adapter_id_clone, 0).await {
+                warn!(
+                    "Failed to update adapter memory during eviction in database: {}",
+                    e
+                );
+            }
         }
 
         // Structured log for adapter eviction (PRD-INFRA-01)

@@ -807,9 +807,68 @@ pub fn default_schema() -> ConfigSchema {
                 min: Some(1),
                 max: Some(100),
             })
-            .default_value("10")
+            .default_value("20")
             .description("Database connection pool size")
             .category("DATABASE")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_STORAGE_BACKEND")
+            .config_type(ConfigType::Enum {
+                values: vec![
+                    "sql_only".to_string(),
+                    "dual_write".to_string(),
+                    "kv_primary".to_string(),
+                    "kv_only".to_string(),
+                ],
+            })
+            .default_value("sql_only")
+            .description("Storage backend selection: sql_only, dual_write, kv_primary, kv_only")
+            .category("DATABASE")
+            .config_key("database.storage_mode")
+            .toml_key("db.storage_mode")
+            .build(),
+    );
+
+    // Alias for compatibility
+    schema.add_variable(
+        ConfigVariable::new("AOS_STORAGE_MODE")
+            .config_type(ConfigType::Enum {
+                values: vec![
+                    "sql_only".to_string(),
+                    "dual_write".to_string(),
+                    "kv_primary".to_string(),
+                    "kv_only".to_string(),
+                ],
+            })
+            .default_value("sql_only")
+            .description("Storage backend alias (same as AOS_STORAGE_BACKEND)")
+            .category("DATABASE")
+            .config_key("database.storage_mode")
+            .toml_key("db.storage_mode")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_KV_PATH")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var/aos-kv.redb")
+            .description("Path to KV (redb) file when using KV storage modes")
+            .category("DATABASE")
+            .config_key("database.kv_path")
+            .toml_key("db.kv_path")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_KV_TANTIVY_PATH")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var/aos-kv-index")
+            .description("Path to KV Tantivy index (search) when using KV modes")
+            .category("DATABASE")
+            .config_key("database.kv_tantivy_path")
+            .toml_key("db.kv_tantivy_path")
             .build(),
     );
 

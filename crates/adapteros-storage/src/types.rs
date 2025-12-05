@@ -334,6 +334,40 @@ impl KeyBuilder {
     pub fn telemetry_bundle(tenant_id: &str, bundle_id: &str) -> Self {
         Self::new("telemetry").tenant(tenant_id).id(bundle_id)
     }
+
+    /// Create a key for telemetry events with deterministic ordering
+    ///
+    /// Pattern: `telemetry:tenant_id:events:seq`
+    pub fn telemetry_event(tenant_id: &str, seq: &str) -> Self {
+        Self::new("telemetry").tenant(tenant_id).sub("events", seq)
+    }
+
+    /// Create a key for replay metadata
+    ///
+    /// Pattern: `replay:tenant_id:metadata:inference_id`
+    pub fn replay_metadata(tenant_id: &str, inference_id: &str) -> Self {
+        Self::new("replay")
+            .tenant(tenant_id)
+            .sub("metadata", inference_id)
+    }
+
+    /// Create a key for replay executions
+    ///
+    /// Pattern: `replay:tenant_id:executions:execution_id`
+    pub fn replay_execution(tenant_id: &str, execution_id: &str) -> Self {
+        Self::new("replay")
+            .tenant(tenant_id)
+            .sub("executions", execution_id)
+    }
+
+    /// Create a key for replay sessions
+    ///
+    /// Pattern: `replay:tenant_id:sessions:session_id`
+    pub fn replay_session(tenant_id: &str, session_id: &str) -> Self {
+        Self::new("replay")
+            .tenant(tenant_id)
+            .sub("sessions", session_id)
+    }
 }
 
 #[cfg(test)]

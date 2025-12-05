@@ -3,9 +3,11 @@
 //! Records the replay key and content for each inference operation,
 //! enabling exact reproduction of model outputs under identical conditions.
 
+use crate::replay_kv::record_replay_drift;
 use crate::{Db, Result};
 use adapteros_core::AosError;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use uuid::Uuid;
 
 /// Inference replay metadata record
@@ -120,9 +122,11 @@ impl Db {
 
         let sampling_algorithm_version = params
             .sampling_algorithm_version
+            .clone()
             .unwrap_or_else(|| "v1.0.0".to_string());
         let replay_status = params
             .replay_status
+            .clone()
             .unwrap_or_else(|| "available".to_string());
         let prompt_truncated = if params.prompt_truncated { 1 } else { 0 };
         let response_truncated = if params.response_truncated { 1 } else { 0 };
@@ -139,7 +143,10 @@ impl Db {
                 fallback_triggered, replay_guarantee, execution_policy_id,
                 execution_policy_version, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                datetime('now')
+            )
             "#,
         )
         .bind(&id)
@@ -166,9 +173,36 @@ impl Db {
         .bind(&params.replay_guarantee)
         .bind(&params.execution_policy_id)
         .bind(&params.execution_policy_version)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create replay metadata: {}", e)))?;
+
+        // Dual-write to KV when enabled
+        if let Some(repo) = self.replay_repo_if_write() {
+            let kv_meta = self.kv_replay_metadata_from_params(&id, &params);
+            match repo.store_metadata(kv_meta.clone()).await {
+                Ok(_) => {
+                    if let Ok(Some(fetched)) = repo
+                        .get_metadata_by_inference_any(&kv_meta.inference_id)
+                        .await
+                    {
+                        if fetched.manifest_hash != kv_meta.manifest_hash
+                            || fetched.sampling_params_json != kv_meta.sampling_params_json
+                        {
+                            record_replay_drift("replay_metadata_mismatch");
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        tenant_id = %params.tenant_id,
+                        inference_id = %params.inference_id,
+                        error = %e,
+                        "Failed to dual-write replay metadata to KV"
+                    );
+                }
+            }
+        }
 
         Ok(id)
     }
@@ -181,6 +215,30 @@ impl Db {
         &self,
         inference_id: &str,
     ) -> Result<Option<InferenceReplayMetadata>> {
+        if let Some(repo) = self.replay_repo_if_read() {
+            match repo.get_metadata_by_inference_any(inference_id).await {
+                Ok(Some(meta)) => return self.kv_replay_metadata_to_record(meta).map(Some),
+                Ok(None) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Ok(None);
+                    }
+                }
+                Err(e) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Err(AosError::Database(format!(
+                            "KV read failed for replay metadata: {}",
+                            e
+                        )));
+                    }
+                    warn!(
+                        inference_id = %inference_id,
+                        error = %e,
+                        "KV replay metadata read failed, falling back to SQL"
+                    );
+                }
+            }
+        }
+
         let record = sqlx::query_as::<_, InferenceReplayMetadataRow>(
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
@@ -195,7 +253,7 @@ impl Db {
             "#,
         )
         .bind(inference_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch replay metadata: {}", e)))?;
 
@@ -207,6 +265,26 @@ impl Db {
     /// Retrieves replay metadata by its unique ID.
     /// Returns None if no metadata exists with the given ID.
     pub async fn get_replay_metadata(&self, id: &str) -> Result<Option<InferenceReplayMetadata>> {
+        if let Some(repo) = self.replay_repo_if_read() {
+            match repo.get_metadata_by_id(id).await {
+                Ok(Some(meta)) => return self.kv_replay_metadata_to_record(meta).map(Some),
+                Ok(None) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Ok(None);
+                    }
+                }
+                Err(e) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Err(AosError::Database(format!(
+                            "KV read failed for replay metadata: {}",
+                            e
+                        )));
+                    }
+                    warn!(metadata_id = %id, error = %e, "KV replay metadata read failed, falling back to SQL");
+                }
+            }
+        }
+
         let record = sqlx::query_as::<_, InferenceReplayMetadataRow>(
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
@@ -221,7 +299,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch replay metadata: {}", e)))?;
 
@@ -242,7 +320,7 @@ impl Db {
         )
         .bind(status)
         .bind(inference_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update replay status: {}", e)))?;
 
@@ -259,6 +337,34 @@ impl Db {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<InferenceReplayMetadata>> {
+        if let Some(repo) = self.replay_repo_if_read() {
+            match repo
+                .list_metadata_by_tenant(tenant_id, limit.max(0) as usize, offset.max(0) as usize)
+                .await
+            {
+                Ok(records) => {
+                    let mut mapped = Vec::new();
+                    for meta in records {
+                        mapped.push(self.kv_replay_metadata_to_record(meta)?);
+                    }
+                    return Ok(mapped);
+                }
+                Err(e) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Err(AosError::Database(format!(
+                            "KV read failed for replay metadata by tenant: {}",
+                            e
+                        )));
+                    }
+                    warn!(
+                        tenant_id = %tenant_id,
+                        error = %e,
+                        "KV replay metadata list failed, falling back to SQL"
+                    );
+                }
+            }
+        }
+
         let records = sqlx::query_as::<_, InferenceReplayMetadataRow>(
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
@@ -277,7 +383,7 @@ impl Db {
         .bind(tenant_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list replay metadata: {}", e)))?;
 

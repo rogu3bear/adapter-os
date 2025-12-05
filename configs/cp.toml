@@ -8,6 +8,10 @@ production_mode = false
 
 [db]
 path = "var/aos-cp.sqlite3"
+storage_mode = "sql_only"
+pool_size = 20
+kv_path = "var/aos-kv.redb"
+kv_tantivy_path = "var/aos-kv-index"
 
 [security]
 # Set to false for development mode (allows running without root/PF rules)

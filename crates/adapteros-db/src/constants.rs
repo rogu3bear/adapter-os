@@ -63,6 +63,7 @@ pub const COLLECTION_COLUMNS: &str =
 pub const DEGRADATION_EVENT_INIT_FAILED: &str = "kv_init_failed";
 pub const DEGRADATION_EVENT_RUNTIME_FAILED: &str = "kv_runtime_failed";
 pub const DEGRADATION_EVENT_RECOVERED: &str = "kv_recovered";
+pub const DEGRADATION_EVENT_KV_UNSUPPORTED: &str = "kv_unsupported_mode";
 
 #[cfg(test)]
 mod tests {

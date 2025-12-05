@@ -1,5 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/config/routes_manifest', () => {
+  return {
+    PRIMARY_SPINE: [
+      '/dashboard',
+      '/workflow',
+      '/trainer',
+      '/metrics',
+      '/telemetry',
+      '/workspaces',
+      '/security/policies',
+      '/security/audit',
+      '/reports',
+      '/admin',
+      '/admin/tenants',
+    ],
+  };
+});
+
 vi.mock('@/config/routes', () => {
   const routes = [
     {
@@ -82,6 +100,13 @@ vi.mock('@/config/routes', () => {
       navOrder: 3,
       requiredRoles: ['admin'],
     },
+    {
+      path: '/labs',
+      navGroup: 'Labs',
+      navTitle: 'Labs',
+      navIcon: () => null,
+      navOrder: 1,
+    },
   ];
 
   const canAccessRoute = (
@@ -148,6 +173,12 @@ describe('generateNavigationGroups', () => {
     const complianceGroups = generateNavigationGroups('Operator', ['audit.view']);
     const complianceGroup = complianceGroups.find((group) => group.title === 'Compliance');
     expect(complianceGroup?.items.map((item) => item.label)).toEqual(expect.arrayContaining(['Policies', 'Audit Logs']));
+  });
+
+  it('filters out routes that are not in the primary spine', () => {
+    const groups = generateNavigationGroups('Operator', []);
+    const labsGroup = groups.find((group) => group.title === 'Labs');
+    expect(labsGroup).toBeUndefined();
   });
 });
 

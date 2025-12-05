@@ -1323,6 +1323,7 @@ dependencies = [
  "argon2",
  "async-trait",
  "axum 0.8.7",
+ "axum-test",
  "base64 0.22.1",
  "blake3",
  "chrono",

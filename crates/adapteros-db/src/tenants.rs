@@ -122,17 +122,10 @@ impl Db {
             }
         }
 
-        // Initialize default policy bindings for new tenant (best-effort, SQL required)
-        if self.storage_mode().write_to_sql() {
-            if let Err(e) = self.initialize_tenant_policy_bindings(&id, "system").await {
-                warn!(error = %e, tenant_id = %id, "Failed to initialize policy bindings for new tenant");
-                // Non-fatal: tenant is created, bindings can be added later via migration or API
-            }
-        } else {
-            warn!(
-                tenant_id = %id,
-                "Skipped policy binding initialization (SQL disabled in current mode)"
-            );
+        // Initialize default policy bindings for new tenant (KV and/or SQL)
+        if let Err(e) = self.initialize_tenant_policy_bindings(&id, "system").await {
+            warn!(error = %e, tenant_id = %id, "Failed to initialize policy bindings for new tenant");
+            // Non-fatal: tenant is created, bindings can be added later via migration or API
         }
 
         Ok(id)
@@ -179,49 +172,79 @@ impl Db {
         ];
 
         let now = Utc::now().to_rfc3339();
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
 
-        for policy_id in all_policies {
-            let id = Uuid::new_v4().to_string();
-            let enabled = CORE_POLICIES.contains(&policy_id);
-
-            sqlx::query(
-                r#"
-                INSERT INTO tenant_policy_bindings
-                (id, tenant_id, policy_pack_id, scope, enabled, created_at, created_by, updated_at)
-                VALUES (?, ?, ?, 'global', ?, ?, ?, ?)
-                "#,
-            )
-            .bind(&id)
-            .bind(tenant_id)
-            .bind(policy_id)
-            .bind(if enabled { 1 } else { 0 })
-            .bind(&now)
-            .bind(created_by)
-            .bind(&now)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                AosError::Database(format!(
-                    "Failed to initialize policy binding for {}: {}",
-                    policy_id, e
-                ))
-            })?;
+        // KV path (supports kv_only / kv_primary)
+        if self.storage_mode().write_to_kv() {
+            if let Some(repo) = self.get_policy_binding_kv_repo() {
+                for policy_id in all_policies {
+                    let enabled = CORE_POLICIES.contains(&policy_id);
+                    let binding = crate::tenant_policy_bindings_kv::TenantPolicyBindingKv {
+                        id: Uuid::now_v7().to_string(),
+                        tenant_id: tenant_id.to_string(),
+                        policy_pack_id: policy_id.to_string(),
+                        scope: "global".to_string(),
+                        enabled,
+                        created_at: Utc::now(),
+                        created_by: created_by.to_string(),
+                        updated_at: Utc::now(),
+                        updated_by: Some(created_by.to_string()),
+                    };
+                    repo.put_binding(binding).await?;
+                }
+            }
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+        // SQL path when available (dual-write)
+        if self.storage_mode().write_to_sql() {
+            if let Some(mut tx) = self.pool_opt().map(|p| p.begin()) {
+                let mut tx = tx
+                    .await
+                    .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
+                for policy_id in all_policies {
+                    let id = Uuid::new_v4().to_string();
+                    let enabled = CORE_POLICIES.contains(&policy_id);
+
+                    sqlx::query(
+                        r#"
+                        INSERT INTO tenant_policy_bindings
+                        (id, tenant_id, policy_pack_id, scope, enabled, created_at, created_by, updated_at)
+                        VALUES (?, ?, ?, 'global', ?, ?, ?, ?)
+                        "#,
+                    )
+                    .bind(&id)
+                    .bind(tenant_id)
+                    .bind(policy_id)
+                    .bind(if enabled { 1 } else { 0 })
+                    .bind(&now)
+                    .bind(created_by)
+                    .bind(&now)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!(
+                            "Failed to initialize policy binding for {}: {}",
+                            policy_id, e
+                        ))
+                    })?;
+                }
+
+                tx.commit()
+                    .await
+                    .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+            } else if !self.storage_mode().write_to_kv() {
+                return Err(AosError::Database(
+                    "Policy binding init failed: SQL unavailable and KV disabled".to_string(),
+                ));
+            }
+        }
 
         info!(
             tenant_id = %tenant_id,
             created_by = %created_by,
             total_policies = all_policies.len(),
             core_enabled = CORE_POLICIES.len(),
+            mode = %self.storage_mode(),
             "Initialized tenant policy bindings"
         );
 

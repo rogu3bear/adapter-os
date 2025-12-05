@@ -43,7 +43,7 @@ impl Db {
             FROM federation_bundle_signatures
             "#,
         )
-        .fetch_one(&self.pool)
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count federation hosts: {}", e)))?;
 
@@ -63,7 +63,7 @@ impl Db {
             LIMIT 1
             "#,
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch quarantine details: {}", e)))?;
 
@@ -93,7 +93,7 @@ impl Db {
             LIMIT 1
             "#,
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch quarantine: {}", e)))?;
 
@@ -119,7 +119,7 @@ impl Db {
             "#,
         )
         .bind(quarantine_id)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update quarantine: {}", e)))?;
 
@@ -144,7 +144,7 @@ impl Db {
         .bind(quarantine_id)
         .bind(requested_by)
         .bind(consensus_decision_id)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to record release attempt: {}", e)))?;
 
@@ -166,7 +166,7 @@ impl Db {
             "#,
         )
         .bind(executed_by)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to record release execution: {}", e)))?;
 
@@ -184,7 +184,7 @@ impl Db {
             WHERE released = FALSE
             "#,
         )
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to release quarantines: {}", e)))?;
 

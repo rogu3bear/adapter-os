@@ -3,9 +3,11 @@
 //! Records each replay attempt with match analysis and divergence details.
 //! Multiple executions can exist per original inference for different replay modes.
 
+use crate::replay_kv::record_replay_drift;
 use crate::{Db, Result};
 use adapteros_core::AosError;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use uuid::Uuid;
 
 /// Replay execution record
@@ -129,6 +131,19 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to create replay execution: {}", e)))?;
 
+        if let Some(repo) = self.replay_repo_if_write() {
+            let kv_exec = self.kv_replay_execution_from_create(&id, &params);
+            if let Err(e) = repo.store_execution(kv_exec).await {
+                warn!(
+                    tenant_id = %params.tenant_id,
+                    inference_id = %params.original_inference_id,
+                    error = %e,
+                    "Failed to dual-write replay execution to KV"
+                );
+                record_replay_drift("replay_execution_dual_write_failed");
+            }
+        }
+
         Ok(id)
     }
 
@@ -186,6 +201,51 @@ impl Db {
             AosError::Database(format!("Failed to update replay execution result: {}", e))
         })?;
 
+        if let Some(repo) = self.replay_repo_if_write() {
+            // Lookup tenant to enforce isolation
+            let tenant_id: Option<String> =
+                sqlx::query_scalar("SELECT tenant_id FROM replay_executions WHERE id = ?")
+                    .bind(id)
+                    .fetch_optional(&*self.pool())
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!("Failed to lookup execution tenant: {}", e))
+                    })?;
+
+            if let Some(tid) = tenant_id {
+                match repo.get_execution(&tid, id).await {
+                    Ok(Some(mut kv_exec)) => {
+                        self.kv_replay_execution_apply_update(&mut kv_exec, &params)?;
+                        if let Err(e) = repo.update_execution(kv_exec).await {
+                            warn!(
+                                tenant_id = %tid,
+                                execution_id = %id,
+                                error = %e,
+                                "Failed to dual-write replay execution update to KV"
+                            );
+                        }
+                    }
+                    Ok(None) => {
+                        warn!(
+                            tenant_id = %tid,
+                            execution_id = %id,
+                            "KV replay execution missing during update"
+                        );
+                        record_replay_drift("replay_execution_missing_on_update");
+                    }
+                    Err(e) => {
+                        warn!(
+                            tenant_id = %tid,
+                            execution_id = %id,
+                            error = %e,
+                            "KV replay execution fetch failed during update"
+                        );
+                        record_replay_drift("replay_execution_fetch_failed");
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -193,6 +253,26 @@ impl Db {
     ///
     /// Retrieves a specific replay execution record with all its details.
     pub async fn get_replay_execution(&self, id: &str) -> Result<Option<ReplayExecution>> {
+        if let Some(repo) = self.replay_repo_if_read() {
+            match repo.get_execution_by_id(id).await {
+                Ok(Some(exec)) => return self.kv_replay_execution_to_record(exec).map(Some),
+                Ok(None) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Ok(None);
+                    }
+                }
+                Err(e) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Err(AosError::Database(format!(
+                            "KV read failed for replay execution: {}",
+                            e
+                        )));
+                    }
+                    warn!(execution_id = %id, error = %e, "KV replay execution read failed, falling back to SQL");
+                }
+            }
+        }
+
         let record = sqlx::query_as::<_, ReplayExecutionRow>(
             r#"
             SELECT id, original_inference_id, tenant_id, replay_mode,
@@ -227,6 +307,31 @@ impl Db {
         &self,
         inference_id: &str,
     ) -> Result<Vec<ReplayExecution>> {
+        if let Some(repo) = self.replay_repo_if_read() {
+            match repo.list_executions_for_inference(inference_id).await {
+                Ok(execs) => {
+                    let mut mapped = Vec::new();
+                    for exec in execs {
+                        mapped.push(self.kv_replay_execution_to_record(exec)?);
+                    }
+                    return Ok(mapped);
+                }
+                Err(e) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Err(AosError::Database(format!(
+                            "KV read failed for replay executions: {}",
+                            e
+                        )));
+                    }
+                    warn!(
+                        inference_id = %inference_id,
+                        error = %e,
+                        "KV replay executions read failed, falling back to SQL"
+                    );
+                }
+            }
+        }
+
         let records = sqlx::query_as::<_, ReplayExecutionRow>(
             r#"
             SELECT id, original_inference_id, tenant_id, replay_mode,

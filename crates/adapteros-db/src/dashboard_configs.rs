@@ -24,7 +24,7 @@ impl Db {
              ORDER BY position ASC",
         )
         .bind(user_id)
-        .fetch_all(&self.pool)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get dashboard config: {}", e)))?;
 
@@ -57,7 +57,7 @@ impl Db {
         .bind(position)
         .bind(&now)
         .bind(&now)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to upsert widget config: {}", e)))?;
 
@@ -71,7 +71,7 @@ impl Db {
         widgets: Vec<(String, bool, i32)>, // (widget_id, enabled, position)
     ) -> Result<usize> {
         let mut tx = self
-            .pool
+            .pool()
             .begin()
             .await
             .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
@@ -115,7 +115,7 @@ impl Db {
     pub async fn reset_dashboard_config(&self, user_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM dashboard_configs WHERE user_id = ?")
             .bind(user_id)
-            .execute(&self.pool)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to reset dashboard config: {}", e)))?;
 
@@ -127,7 +127,7 @@ impl Db {
         let count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM dashboard_configs WHERE user_id = ?")
                 .bind(user_id)
-                .fetch_one(&self.pool)
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to check dashboard config: {}", e))

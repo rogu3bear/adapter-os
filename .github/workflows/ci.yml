@@ -45,6 +45,22 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --exclude adapteros-lora-mlx-ffi
 
+  kv-primary:
+    name: KV Primary Mode
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prepare KV path
+        run: mkdir -p /tmp/aos-kv
+      - name: Run KV-primary smoke suite
+        env:
+          AOS_STORAGE_BACKEND: kv_primary
+          AOS_KV_PATH: /tmp/aos-kv/aos-kv.redb
+        run: |
+          cargo test -p adapteros-db -- --nocapture
+          cargo test -p adapteros-server-api -- --nocapture
+
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest

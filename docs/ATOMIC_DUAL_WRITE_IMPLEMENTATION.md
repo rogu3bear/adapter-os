@@ -2,6 +2,15 @@
 
 **Phase 4 Preparation for KV-Primary Migration**
 
+## Current Status (implemented)
+
+- Atomic dual-write config (`AtomicDualWriteConfig`) with best-effort vs strict modes loaded from env (`AOS_ATOMIC_DUAL_WRITE_STRICT`).
+- Strict-mode handling added for register/update/delete paths with SQL rollback on register and consistency errors surfaced on updates.
+- Consistency repair helpers (`ensure_consistency`, batch, tenant validation with optional repair) implemented.
+- CLI entrypoint `aosctl storage validate-consistency --tenant <id> [--repair]` runs per-tenant parity checks (with optional repair).
+- KV adapter lookup now tolerates historical key mismatches by falling back to adapter_id-based fetch.
+- Tests added for strict rollback, best-effort behavior, strict-update error surfacing, consistency repair, and KV index coverage.
+
 ## Overview
 
 This document describes the implementation of atomic dual-write with rollback support in `crates/adapteros-db/src/adapters.rs`. This is preparation for Phase 4 migration from SQL-primary to KV-primary storage mode.
@@ -810,3 +819,4 @@ DEBUG Successfully repaired adapter consistency adapter_id="adapter-123"
 ---
 
 **Copyright JKCA | 2025 James KC Auchterlonie**
+MLNavigator Inc 2025-12-05.

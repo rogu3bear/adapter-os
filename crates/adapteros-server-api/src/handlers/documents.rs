@@ -621,11 +621,8 @@ pub async fn process_document(
         "Parsed document into chunks"
     );
 
-    // Create RAG index using the embedding model hash and dimension
-    use adapteros_lora_rag::PgVectorIndex;
     let model_hash = embedding_model.model_hash();
     let dimension = embedding_model.dimension();
-    let rag_index = PgVectorIndex::new_sqlite(state.db_pool.clone(), model_hash, dimension);
 
     let mut chunk_count = 0;
 
@@ -680,18 +677,21 @@ pub async fn process_document(
         // Format: {document_id}__chunk_{index} where document_id is the UUID
         let rag_doc_id = format!("{}__chunk_{}", id, chunk.chunk_index);
 
-        // Insert into rag_documents table for vector search
-        rag_index
-            .add_document(
-                &claims.tenant_id,
-                rag_doc_id,
-                chunk.text.clone(),
+        // Insert into RAG storage (SQL + KV according to storage mode)
+        state
+            .db
+            .upsert_rag_document(adapteros_db::rag::RagDocumentWrite {
+                tenant_id: claims.tenant_id.clone(),
+                doc_id: rag_doc_id,
+                text: chunk.text.clone(),
                 embedding,
-                "v1".to_string(),
-                "all".to_string(),
-                document.mime_type.clone(),
-                None,
-            )
+                rev: "v1".to_string(),
+                effectivity: "all".to_string(),
+                source_type: document.mime_type.clone(),
+                superseded_by: None,
+                embedding_model_hash: model_hash,
+                embedding_dimension: dimension,
+            })
             .await
             .map_err(|e| db_error(format!("Failed to index chunk in RAG: {}", e)))?;
 

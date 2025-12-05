@@ -89,6 +89,7 @@ nix = { version = "0.29", features = ["signal"] }
 [dev-dependencies]
 criterion = { workspace = true }
 futures = "0.3"
+axum-test = { version = "16" }
 
 [lints.rust]
 # Enforce handler return type standards

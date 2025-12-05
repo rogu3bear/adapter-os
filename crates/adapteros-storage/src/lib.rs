@@ -26,8 +26,13 @@ pub use error::StorageError;
 pub use index::{IndexDef, IndexManager as IndexMgr, KeyExtractor};
 pub use kv::{IndexManager as KvIndexManager, KvBackend};
 pub use migration::{MigrationError, MigrationReport, VerificationReport};
-pub use models::AdapterKv;
-pub use repos::{AdapterRepository, PaginatedResult};
+pub use models::{
+    AdapterKv, RagDocumentKv, ReplayExecutionKv, ReplayMetadataKv, ReplaySessionKv,
+    TelemetryBundleKv, TelemetryEventKv, DEFAULT_BUNDLE_CHUNK_SIZE,
+};
+pub use repos::{
+    AdapterRepository, PaginatedResult, RagRepository, ReplayRepository, TelemetryRepository,
+};
 pub use types::{KeyBuilder, VersionedRecord, CURRENT_SCHEMA_VERSION};
 
 use adapteros_core::Result;

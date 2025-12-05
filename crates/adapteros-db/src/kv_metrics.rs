@@ -155,6 +155,10 @@ pub struct KvMetrics {
     errors_backend: AtomicU64,
     errors_timeout: AtomicU64,
     errors_other: AtomicU64,
+
+    // Drift/degradation tracking
+    drift_detections_total: AtomicU64,
+    degraded_events_total: AtomicU64,
 }
 
 impl KvMetrics {
@@ -186,6 +190,9 @@ impl KvMetrics {
             errors_backend: AtomicU64::new(0),
             errors_timeout: AtomicU64::new(0),
             errors_other: AtomicU64::new(0),
+
+            drift_detections_total: AtomicU64::new(0),
+            degraded_events_total: AtomicU64::new(0),
         }
     }
 
@@ -256,6 +263,16 @@ impl KvMetrics {
         };
     }
 
+    /// Record a drift detection (SQL/KV mismatch or fallback)
+    pub fn record_drift_detected(&self) {
+        self.drift_detections_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a degradation event (KV guardrails triggered)
+    pub fn record_degradation(&self) {
+        self.degraded_events_total.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Get a snapshot of current metrics
     pub fn snapshot(&self) -> KvMetricsSnapshot {
         let reads = self.reads_total.load(Ordering::Relaxed);
@@ -305,6 +322,9 @@ impl KvMetrics {
                 + self.errors_backend.load(Ordering::Relaxed)
                 + self.errors_timeout.load(Ordering::Relaxed)
                 + self.errors_other.load(Ordering::Relaxed),
+
+            drift_detections_total: self.drift_detections_total.load(Ordering::Relaxed),
+            degraded_events_total: self.degraded_events_total.load(Ordering::Relaxed),
         }
     }
 
@@ -343,6 +363,9 @@ impl KvMetrics {
         self.errors_backend.store(0, Ordering::Relaxed);
         self.errors_timeout.store(0, Ordering::Relaxed);
         self.errors_other.store(0, Ordering::Relaxed);
+
+        self.drift_detections_total.store(0, Ordering::Relaxed);
+        self.degraded_events_total.store(0, Ordering::Relaxed);
     }
 
     // Internal helper: increment the appropriate latency bucket
@@ -450,6 +473,10 @@ pub struct KvMetricsSnapshot {
     pub errors_timeout: u64,
     pub errors_other: u64,
     pub errors_total: u64,
+
+    // Drift/degradation
+    pub drift_detections_total: u64,
+    pub degraded_events_total: u64,
 }
 
 /// RAII guard for automatic KV operation timing

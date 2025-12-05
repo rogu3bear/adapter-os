@@ -747,8 +747,51 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Pending API updates - InferRequest fields changed"]
-    async fn test_infer_request_serialization() {}
+    async fn test_infer_request_serialization() {
+        let request = crate::types::WorkerInferRequest {
+            cpid: "cp-123".to_string(),
+            prompt: "Hello worker".to_string(),
+            max_tokens: 128,
+            require_evidence: true,
+            stack_id: Some("stack-42".to_string()),
+            stack_version: Some(7),
+            temperature: 0.7,
+            top_k: Some(5),
+            top_p: Some(0.9),
+            seed: Some(4242),
+            router_seed: Some("router-seed".to_string()),
+            determinism_mode: Some("strict".to_string()),
+            pinned_adapter_ids: Some(vec!["adapter-a".to_string(), "adapter-b".to_string()]),
+            strict_mode: Some(true),
+            effective_adapter_ids: Some(vec!["eff-1".to_string(), "eff-2".to_string()]),
+            routing_policy: None,
+        };
+
+        let serialized =
+            serde_json::to_vec(&request).expect("WorkerInferRequest should serialize to JSON");
+        let deserialized: crate::types::WorkerInferRequest =
+            serde_json::from_slice(&serialized).expect("WorkerInferRequest should deserialize");
+
+        assert_eq!(request.cpid, deserialized.cpid);
+        assert_eq!(request.prompt, deserialized.prompt);
+        assert_eq!(request.max_tokens, deserialized.max_tokens);
+        assert_eq!(request.require_evidence, deserialized.require_evidence);
+        assert_eq!(request.stack_id, deserialized.stack_id);
+        assert_eq!(request.stack_version, deserialized.stack_version);
+        assert_eq!(request.temperature, deserialized.temperature);
+        assert_eq!(request.top_k, deserialized.top_k);
+        assert_eq!(request.top_p, deserialized.top_p);
+        assert_eq!(request.seed, deserialized.seed);
+        assert_eq!(request.router_seed, deserialized.router_seed);
+        assert_eq!(request.determinism_mode, deserialized.determinism_mode);
+        assert_eq!(request.pinned_adapter_ids, deserialized.pinned_adapter_ids);
+        assert_eq!(request.strict_mode, deserialized.strict_mode);
+        assert_eq!(
+            request.effective_adapter_ids,
+            deserialized.effective_adapter_ids
+        );
+        assert!(deserialized.routing_policy.is_none());
+    }
 
     #[tokio::test]
     async fn test_patch_proposal_request_serialization() {

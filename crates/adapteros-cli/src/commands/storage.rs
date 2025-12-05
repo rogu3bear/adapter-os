@@ -154,6 +154,31 @@ pub enum StorageCommand {
         #[arg(long)]
         stacks_only: bool,
     },
+
+    /// Validate and optionally repair consistency for a tenant
+    ///
+    /// Runs SQL↔KV parity checks for all adapters in a tenant. With --repair, fixes drift by
+    /// syncing SQL → KV using ensure_consistency().
+    #[command(after_help = r#"Examples:
+  aosctl storage validate-consistency --tenant default --repair
+  aosctl storage validate-consistency --tenant default --db-path ./var/aos-cp.sqlite3 --kv-path ./var/aos-kv.redb"#)]
+    ValidateConsistency {
+        /// Tenant ID to validate
+        #[arg(long)]
+        tenant: String,
+
+        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        #[arg(long)]
+        db_path: Option<PathBuf>,
+
+        /// KV database path
+        #[arg(long, default_value = "./var/aos-kv.redb")]
+        kv_path: PathBuf,
+
+        /// Repair drift by syncing SQL → KV
+        #[arg(long, default_value_t = false)]
+        repair: bool,
+    },
 }
 
 #[derive(Serialize)]
@@ -185,6 +210,15 @@ struct VerificationReport {
     stacks_mismatched: usize,
 }
 
+#[derive(Serialize)]
+struct ConsistencyReport {
+    tenant: String,
+    consistent: usize,
+    inconsistent: usize,
+    errors: usize,
+    repaired: bool,
+}
+
 /// Get storage command name for telemetry
 fn get_storage_command_name(cmd: &StorageCommand) -> String {
     match cmd {
@@ -192,6 +226,7 @@ fn get_storage_command_name(cmd: &StorageCommand) -> String {
         StorageCommand::SetMode { .. } => "storage_set_mode".to_string(),
         StorageCommand::Migrate { .. } => "storage_migrate".to_string(),
         StorageCommand::Verify { .. } => "storage_verify".to_string(),
+        StorageCommand::ValidateConsistency { .. } => "storage_validate_consistency".to_string(),
     }
 }
 
@@ -255,6 +290,12 @@ pub async fn handle_storage_command(cmd: StorageCommand, output: &OutputWriter) 
             )
             .await
         }
+        StorageCommand::ValidateConsistency {
+            tenant,
+            db_path,
+            kv_path,
+            repair,
+        } => validate_consistency(db_path, kv_path, tenant, repair, output).await,
     }
 }
 
@@ -548,6 +589,60 @@ async fn verify_consistency(
 
     output.success("Verification preview complete");
 
+    Ok(())
+}
+
+// ============================================================
+// Validate Consistency Implementation
+// ============================================================
+
+async fn validate_consistency(
+    db_path: Option<PathBuf>,
+    kv_path: PathBuf,
+    tenant: String,
+    repair: bool,
+    output: &OutputWriter,
+) -> Result<()> {
+    output.info("Tenant Consistency Validation");
+    output.info("============================");
+
+    let db_url = get_db_url(db_path.as_ref());
+    let mut db = Db::connect(&db_url)
+        .await
+        .context("Failed to connect to database")?;
+
+    if !db.has_kv_backend() {
+        output.info(&format!(
+            "KV backend not attached; initializing at {}",
+            kv_path.display()
+        ));
+        db.init_kv_backend(&kv_path)
+            .context("Failed to initialize KV backend")?;
+    }
+
+    let (consistent, inconsistent, errors) = db
+        .validate_tenant_consistency(&tenant, repair)
+        .await
+        .context("Consistency validation failed")?;
+
+    if output.is_json() {
+        let report = ConsistencyReport {
+            tenant: tenant.clone(),
+            consistent,
+            inconsistent,
+            errors,
+            repaired: repair,
+        };
+        output.json(&report)?;
+    } else {
+        output.kv("Tenant", &tenant);
+        output.kv("Repair Enabled", if repair { "yes" } else { "no" });
+        output.kv("Consistent", &consistent.to_string());
+        output.kv("Inconsistent", &inconsistent.to_string());
+        output.kv("Errors", &errors.to_string());
+    }
+
+    output.success("Consistency validation complete");
     Ok(())
 }
 

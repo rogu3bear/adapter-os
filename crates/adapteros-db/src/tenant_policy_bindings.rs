@@ -2,6 +2,9 @@
 //!
 //! Manages per-tenant policy pack enable/disable state with full audit trail.
 
+use crate::tenant_policy_bindings_kv::{
+    kv_to_binding, PolicyBindingKvRepository, TenantPolicyBindingKv,
+};
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
@@ -55,10 +58,35 @@ pub const ALL_POLICIES: &[&str] = &[
 ];
 
 impl Db {
+    fn get_policy_binding_kv_repo(&self) -> Option<PolicyBindingKvRepository> {
+        if self.storage_mode().write_to_kv() || self.storage_mode().read_from_kv() {
+            self.kv_backend()
+                .map(|kv| PolicyBindingKvRepository::new(kv.backend().clone()))
+        } else {
+            None
+        }
+    }
+
     /// Get active (enabled) policy pack IDs for a tenant
     ///
     /// Returns a list of policy_pack_id strings for all enabled policies.
     pub async fn get_active_policies_for_tenant(&self, tenant_id: &str) -> Result<Vec<String>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_policy_binding_kv_repo() {
+                match repo.get_active_policy_ids(tenant_id).await {
+                    Ok(ids) => return Ok(ids),
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("tenant_policy_bindings.get_active.error");
+                        debug!(error = %e, tenant_id = %tenant_id, "KV get_active_policies failed; falling back to SQL");
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            if !self.storage_mode().sql_fallback_enabled() {
+                return Ok(Vec::new());
+            }
+        }
+
         let rows = sqlx::query(
             r#"
             SELECT policy_pack_id
@@ -113,6 +141,29 @@ impl Db {
         updated_by: &str,
     ) -> Result<bool> {
         let now = chrono::Utc::now().to_rfc3339();
+
+        // KV path
+        if self.storage_mode().write_to_kv() {
+            if let Some(repo) = self.get_policy_binding_kv_repo() {
+                let previous = repo
+                    .upsert_enabled(tenant_id, policy_pack_id, enabled, updated_by)
+                    .await?;
+                // Best-effort audit: if SQL available keep logging, otherwise warn
+                if self.storage_mode().write_to_sql() && self.pool_opt().is_some() {
+                    // fall through to SQL path to record audit row too
+                } else {
+                    info!(
+                        tenant_id = %tenant_id,
+                        policy_pack_id = %policy_pack_id,
+                        previous_enabled = %previous,
+                        new_enabled = %enabled,
+                        updated_by = %updated_by,
+                        "Toggled tenant policy binding (KV-only)"
+                    );
+                    return Ok(previous);
+                }
+            }
+        }
 
         // Get the previous state for audit
         let previous_enabled = sqlx::query(
@@ -239,6 +290,25 @@ impl Db {
         &self,
         tenant_id: &str,
     ) -> Result<Vec<TenantPolicyBinding>> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_policy_binding_kv_repo() {
+                match repo.list_bindings(tenant_id).await {
+                    Ok(kv_bindings) => {
+                        let bindings = kv_bindings.iter().map(kv_to_binding).collect();
+                        return Ok(bindings);
+                    }
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("tenant_policy_bindings.list.error");
+                        debug!(error = %e, tenant_id = %tenant_id, "KV list bindings failed; falling back to SQL");
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            if !self.storage_mode().sql_fallback_enabled() {
+                return Ok(Vec::new());
+            }
+        }
+
         let rows = sqlx::query(
             r#"
             SELECT id, tenant_id, policy_pack_id, scope, enabled,
@@ -283,6 +353,26 @@ impl Db {
         tenant_id: &str,
         policy_pack_id: &str,
     ) -> Result<bool> {
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_policy_binding_kv_repo() {
+                match repo.get_binding(tenant_id, policy_pack_id).await {
+                    Ok(Some(binding)) => return Ok(binding.enabled),
+                    Ok(None) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("tenant_policy_bindings.get.miss");
+                    }
+                    Ok(None) => return Ok(false),
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("tenant_policy_bindings.get.error");
+                        debug!(error = %e, tenant_id = %tenant_id, "KV policy enabled check failed; falling back to SQL");
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            if !self.storage_mode().sql_fallback_enabled() {
+                return Ok(false);
+            }
+        }
+
         let result = sqlx::query(
             r#"
             SELECT enabled

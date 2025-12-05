@@ -170,9 +170,46 @@ impl Default for ConfigSchema {
             FieldDefinition {
                 field_type: "integer".to_string(),
                 required: false,
-                default_value: Some("10".to_string()),
+                default_value: Some("20".to_string()),
                 description: Some("Database connection pool size".to_string()),
                 validation_rules: Some(vec!["range:1-100".to_string()]),
+            },
+        );
+
+        fields.insert(
+            "database.storage_mode".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("sql_only".to_string()),
+                description: Some(
+                    "Storage mode: sql_only, dual_write, kv_primary, kv_only".to_string(),
+                ),
+                validation_rules: Some(vec![
+                    "enum:sql_only,dual_write,kv_primary,kv_only".to_string()
+                ]),
+            },
+        );
+
+        fields.insert(
+            "database.kv_path".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("var/aos-kv.redb".to_string()),
+                description: Some("Path to KV (redb) file".to_string()),
+                validation_rules: None,
+            },
+        );
+
+        fields.insert(
+            "database.kv_tantivy_path".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("var/aos-kv-index".to_string()),
+                description: Some("Path to KV search index (Tantivy)".to_string()),
+                validation_rules: None,
             },
         );
 

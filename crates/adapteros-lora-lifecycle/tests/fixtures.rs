@@ -47,6 +47,21 @@ impl TestDbFixture {
     }
 }
 
+/// Ensure a tenant exists for fixture data and return its ID
+async fn ensure_fixture_tenant(db: &Db) -> String {
+    if let Some(id) = sqlx::query_scalar::<_, String>("SELECT id FROM tenants LIMIT 1")
+        .fetch_optional(db.pool())
+        .await
+        .expect("Failed to query tenants")
+    {
+        id
+    } else {
+        db.create_tenant("default-tenant", false)
+            .await
+            .expect("Failed to create default tenant for fixtures")
+    }
+}
+
 /// Builder for creating test adapters with various configurations
 pub struct TestAdapterBuilder {
     id: String,
@@ -126,8 +141,12 @@ impl TestAdapterBuilder {
 
     /// Register adapter in database
     pub async fn register(self, db: &Db) -> String {
+        // Ensure a tenant exists and use it for registrations to satisfy FKs
+        let tenant_id = ensure_fixture_tenant(db).await;
+
         db.register_adapter(
             AdapterRegistrationBuilder::new()
+                .tenant_id(&tenant_id)
                 .adapter_id(&self.id)
                 .name(&self.name)
                 .hash_b3(&self.hash)
@@ -139,6 +158,30 @@ impl TestAdapterBuilder {
         )
         .await
         .expect("Failed to register adapter");
+
+        // Persist desired state and memory (dual-write to KV when enabled)
+        db.update_adapter_state_and_memory(
+            &self.id,
+            &self.state,
+            self.memory_bytes,
+            "fixture_setup",
+        )
+        .await
+        .expect("Failed to set adapter state and memory");
+
+        // Seed activation count for tests (SQL primary; KV updates if storage_mode permits)
+        if self.activation_count > 0 {
+            sqlx::query(
+                "UPDATE adapters
+                 SET activation_count = ?, last_activated = datetime('now'), updated_at = datetime('now')
+                 WHERE adapter_id = ?",
+            )
+            .bind(self.activation_count)
+            .bind(&self.id)
+            .execute(db.pool())
+            .await
+            .expect("Failed to set activation count for adapter");
+        }
 
         self.id
     }
@@ -164,10 +207,6 @@ pub mod fixtures {
             .register(db)
             .await;
 
-        db.update_adapter_state(&id, "cold", "fixture_setup")
-            .await
-            .expect("Failed to set state");
-
         id
     }
 
@@ -179,10 +218,6 @@ pub mod fixtures {
             .with_activation_count(5)
             .register(db)
             .await;
-
-        db.update_adapter_state(&id, "warm", "fixture_setup")
-            .await
-            .expect("Failed to set state");
 
         id
     }
@@ -196,10 +231,6 @@ pub mod fixtures {
             .register(db)
             .await;
 
-        db.update_adapter_state(&id, "hot", "fixture_setup")
-            .await
-            .expect("Failed to set state");
-
         id
     }
 
@@ -211,13 +242,10 @@ pub mod fixtures {
             .register(db)
             .await;
 
-        db.update_adapter_state(&id, "resident", "fixture_setup")
-            .await
-            .expect("Failed to set state");
-
         // Pin the adapter
+        let tenant_id = ensure_fixture_tenant(db).await;
         db.pin_adapter(
-            "default",
+            &tenant_id,
             &id,
             Some("2099-12-31 23:59:59"),
             "test_reason",
@@ -252,18 +280,6 @@ pub mod fixtures {
             .register(db)
             .await;
 
-        db.update_adapter_state(&cold, "cold", "fixture_setup")
-            .await
-            .expect("Failed to set cold state");
-
-        db.update_adapter_state(&warm, "warm", "fixture_setup")
-            .await
-            .expect("Failed to set warm state");
-
-        db.update_adapter_state(&hot, "hot", "fixture_setup")
-            .await
-            .expect("Failed to set hot state");
-
         (cold, warm, hot)
     }
 
@@ -278,10 +294,6 @@ pub mod fixtures {
                 .with_activation_count(i as i64)
                 .register(db)
                 .await;
-
-            db.update_adapter_state(&id, "warm", "fixture_setup")
-                .await
-                .expect("Failed to set state");
 
             ids.push(id);
         }
@@ -312,18 +324,6 @@ pub mod fixtures {
             .register(db)
             .await;
 
-        db.update_adapter_state(&code, "warm", "fixture_setup")
-            .await
-            .expect("Failed to set code state");
-
-        db.update_adapter_state(&framework, "warm", "fixture_setup")
-            .await
-            .expect("Failed to set framework state");
-
-        db.update_adapter_state(&codebase, "warm", "fixture_setup")
-            .await
-            .expect("Failed to set codebase state");
-
         (code, framework, codebase)
     }
 
@@ -341,16 +341,9 @@ pub mod fixtures {
             .register(db)
             .await;
 
-        db.update_adapter_state(&pinned, "resident", "fixture_setup")
-            .await
-            .expect("Failed to set pinned state");
-
-        db.update_adapter_state(&unpinned, "warm", "fixture_setup")
-            .await
-            .expect("Failed to set unpinned state");
-
         // Pin the first adapter
-        db.pin_adapter("default", &pinned, None, "test_pinned", Some("test_user"))
+        let tenant_id = ensure_fixture_tenant(db).await;
+        db.pin_adapter(&tenant_id, &pinned, None, "test_pinned", Some("test_user"))
             .await
             .expect("Failed to pin adapter");
 
@@ -371,14 +364,6 @@ pub mod fixtures {
             .register(db)
             .await;
 
-        db.update_adapter_state(&expired, "warm", "fixture_setup")
-            .await
-            .expect("Failed to set expired state");
-
-        db.update_adapter_state(&expiring, "warm", "fixture_setup")
-            .await
-            .expect("Failed to set expiring state");
-
         (expired, expiring)
     }
 
@@ -390,10 +375,6 @@ pub mod fixtures {
             .register(db)
             .await;
 
-        db.update_adapter_state(&id, "hot", "fixture_setup")
-            .await
-            .expect("Failed to set state");
-
         id
     }
 
@@ -404,10 +385,6 @@ pub mod fixtures {
             .with_activation_count(0)
             .register(db)
             .await;
-
-        db.update_adapter_state(&id, "cold", "fixture_setup")
-            .await
-            .expect("Failed to set state");
 
         id
     }
@@ -437,8 +414,6 @@ pub mod utils {
 
     /// Count adapters in a specific state
     pub async fn count_adapters_in_state(db: &Db, state: &str) -> i64 {
-        use sqlx::Row;
-
         let result: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM adapters WHERE current_state = ?")
                 .bind(state)
@@ -451,8 +426,6 @@ pub mod utils {
 
     /// Count all adapters
     pub async fn count_all_adapters(db: &Db) -> i64 {
-        use sqlx::Row;
-
         let result: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM adapters")
             .fetch_one(db.pool())
             .await
@@ -463,8 +436,6 @@ pub mod utils {
 
     /// Get total memory usage across all adapters
     pub async fn total_memory_usage(db: &Db) -> i64 {
-        use sqlx::Row;
-
         let result: (Option<i64>,) = sqlx::query_as("SELECT SUM(memory_bytes) FROM adapters")
             .fetch_one(db.pool())
             .await

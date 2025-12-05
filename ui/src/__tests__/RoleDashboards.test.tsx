@@ -19,16 +19,15 @@ import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
 import type { User, Tenant, AuditLog, SystemMetrics, TrainingJob, Dataset, Adapter } from '@/api/types';
 
 // Import dashboards
-import Dashboard from '@/components/dashboard';
+import Dashboard, { DashboardProvider } from '@/components/dashboard';
 import AdminDashboard from '@/components/dashboard/roles/AdminDashboard';
 import OperatorDashboard from '@/components/dashboard/roles/OperatorDashboard';
-import SREDashboard from '@/components/dashboard/roles/SREDashboard';
-import ComplianceDashboard from '@/components/dashboard/roles/ComplianceDashboard';
 import ViewerDashboard from '@/components/dashboard/roles/ViewerDashboard';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 // Mock data
 const mockAdminUser: User = {
@@ -193,6 +192,84 @@ const mockQueryAuditLogs = vi.fn();
 const mockGetSystemMetrics = vi.fn();
 const mockListAdapters = vi.fn();
 
+const tenantsQueryState = {
+  data: mockTenants as Tenant[] | null,
+  isLoading: false,
+  error: null as unknown,
+};
+
+const adapterStacksState = {
+  data: [] as unknown[],
+  isLoading: false,
+  error: null as unknown,
+};
+
+const defaultStackState = {
+  data: null as unknown,
+  isLoading: false,
+  error: null as unknown,
+};
+
+const trainingJobsState = {
+  data: { jobs: mockTrainingJobs } as { jobs: TrainingJob[] } | null,
+  isLoading: false,
+  error: null as unknown,
+};
+
+const datasetsState = {
+  data: { datasets: mockDatasets } as { datasets: Dataset[] } | null,
+  isLoading: false,
+  error: null as unknown,
+};
+
+const adaptersState = {
+  data: { adapters: mockAdapters } as { adapters: Adapter[] } | null,
+  isLoading: false,
+  error: null as unknown,
+};
+
+const chatSessionsState = {
+  sessions: [] as unknown[],
+  isLoading: false,
+};
+
+const resetQueryStates = () => {
+  tenantsQueryState.data = mockTenants;
+  tenantsQueryState.isLoading = false;
+  tenantsQueryState.error = null;
+
+  adapterStacksState.data = [];
+  adapterStacksState.isLoading = false;
+  adapterStacksState.error = null;
+
+  defaultStackState.data = null;
+  defaultStackState.isLoading = false;
+  defaultStackState.error = null;
+
+  trainingJobsState.data = { jobs: mockTrainingJobs };
+  trainingJobsState.isLoading = false;
+  trainingJobsState.error = null;
+
+  datasetsState.data = { datasets: mockDatasets };
+  datasetsState.isLoading = false;
+  datasetsState.error = null;
+
+  adaptersState.data = { adapters: mockAdapters };
+  adaptersState.isLoading = false;
+  adaptersState.error = null;
+
+  chatSessionsState.sessions = [];
+  chatSessionsState.isLoading = false;
+};
+
+const resolveCommonApiMocks = () => {
+  mockListTenants.mockResolvedValue(mockTenants);
+  mockListUsers.mockResolvedValue({ users: [mockAdminUser, mockOperatorUser] });
+  mockQueryAuditLogs.mockResolvedValue(mockAuditLogs);
+  mockGetSystemMetrics.mockResolvedValue(mockSystemMetrics);
+  mockListAdapters.mockResolvedValue(mockAdapters);
+};
+
 vi.mock('@/api/client', () => ({
   __esModule: true,
   default: {
@@ -207,21 +284,21 @@ vi.mock('@/api/client', () => ({
 // Mock hooks
 vi.mock('@/hooks/useAdmin', () => ({
   useTenants: () => ({
-    data: mockTenants,
-    isLoading: false,
-    error: null,
+    data: tenantsQueryState.data,
+    isLoading: tenantsQueryState.isLoading,
+    error: tenantsQueryState.error,
     refetch: vi.fn(),
   }),
   useAdapterStacks: () => ({
-    data: [],
-    isLoading: false,
-    error: null,
+    data: adapterStacksState.data,
+    isLoading: adapterStacksState.isLoading,
+    error: adapterStacksState.error,
     refetch: vi.fn(),
   }),
   useGetDefaultStack: () => ({
-    data: null,
-    isLoading: false,
-    error: null,
+    data: defaultStackState.data,
+    isLoading: defaultStackState.isLoading,
+    error: defaultStackState.error,
     refetch: vi.fn(),
   }),
 }));
@@ -229,15 +306,15 @@ vi.mock('@/hooks/useAdmin', () => ({
 vi.mock('@/hooks/useTraining', () => ({
   useTraining: {
     useTrainingJobs: () => ({
-      data: { jobs: mockTrainingJobs },
-      isLoading: false,
-      error: null,
+      data: trainingJobsState.data,
+      isLoading: trainingJobsState.isLoading,
+      error: trainingJobsState.error,
       refetch: vi.fn(),
     }),
     useDatasets: () => ({
-      data: { datasets: mockDatasets },
-      isLoading: false,
-      error: null,
+      data: datasetsState.data,
+      isLoading: datasetsState.isLoading,
+      error: datasetsState.error,
       refetch: vi.fn(),
     }),
   },
@@ -245,17 +322,17 @@ vi.mock('@/hooks/useTraining', () => ({
 
 vi.mock('@/pages/Adapters/useAdapters', () => ({
   useAdapters: () => ({
-    data: { adapters: mockAdapters },
-    isLoading: false,
-    error: null,
+    data: adaptersState.data,
+    isLoading: adaptersState.isLoading,
+    error: adaptersState.error,
     refetch: vi.fn(),
   }),
 }));
 
 vi.mock('@/hooks/useChatSessionsApi', () => ({
   useChatSessionsApi: () => ({
-    sessions: [],
-    isLoading: false,
+    sessions: chatSessionsState.sessions,
+    isLoading: chatSessionsState.isLoading,
     createSession: vi.fn(),
     updateSession: vi.fn(),
     deleteSession: vi.fn(),
@@ -264,6 +341,13 @@ vi.mock('@/hooks/useChatSessionsApi', () => ({
 
 // Mock CoreProviders with AuthContext
 let mockUser: User | null = null;
+const roleUsers: Record<string, User> = {
+  admin: mockAdminUser,
+  operator: mockOperatorUser,
+  sre: mockSREUser,
+  compliance: mockComplianceUser,
+  viewer: mockViewerUser,
+};
 
 vi.mock('@/providers/CoreProviders', () => ({
   useAuth: () => ({
@@ -302,20 +386,38 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
   return (
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <DashboardProvider>
+          <SectionErrorBoundary sectionName="Dashboard">{children}</SectionErrorBoundary>
+        </DashboardProvider>
       </QueryClientProvider>
     </MemoryRouter>
+  );
+}
+
+function setMockUserRole(role: User['role'] | 'unknown' | null) {
+  if (!role) {
+    mockUser = null;
+    return;
+  }
+  const normalized = role.toLowerCase();
+  mockUser = roleUsers[normalized] || { ...mockViewerUser, role: role as User['role'] };
+}
+
+function renderDashboardForRole(role: User['role'] | 'unknown' | null) {
+  setMockUserRole(role);
+  return render(
+    <TestWrapper>
+      <Dashboard />
+    </TestWrapper>
   );
 }
 
 describe('AdminDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetQueryStates();
+    resolveCommonApiMocks();
     mockUser = mockAdminUser;
-    mockListTenants.mockResolvedValue(mockTenants);
-    mockListUsers.mockResolvedValue({ users: [mockAdminUser, mockOperatorUser] });
-    mockQueryAuditLogs.mockResolvedValue(mockAuditLogs);
-    mockGetSystemMetrics.mockResolvedValue(mockSystemMetrics);
   });
 
   it('renders Admin Dashboard with correct title', async () => {
@@ -414,9 +516,9 @@ describe('AdminDashboard', () => {
 describe('OperatorDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetQueryStates();
+    resolveCommonApiMocks();
     mockUser = mockOperatorUser;
-    mockGetSystemMetrics.mockResolvedValue(mockSystemMetrics);
-    mockListAdapters.mockResolvedValue(mockAdapters);
   });
 
   it('renders Operator Dashboard with correct title', async () => {
@@ -511,9 +613,9 @@ describe('OperatorDashboard', () => {
 describe('ViewerDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetQueryStates();
+    resolveCommonApiMocks();
     mockUser = mockViewerUser;
-    mockGetSystemMetrics.mockResolvedValue(mockSystemMetrics);
-    mockListAdapters.mockResolvedValue(mockAdapters);
   });
 
   it('renders Viewer Dashboard with correct title', async () => {
@@ -605,22 +707,12 @@ describe('ViewerDashboard', () => {
 describe('Dashboard Router', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockListTenants.mockResolvedValue(mockTenants);
-    mockListUsers.mockResolvedValue({ users: [] });
-    mockQueryAuditLogs.mockResolvedValue(mockAuditLogs);
-    mockGetSystemMetrics.mockResolvedValue(mockSystemMetrics);
-    mockListAdapters.mockResolvedValue(mockAdapters);
+    resetQueryStates();
+    resolveCommonApiMocks();
   });
 
-  it.skip('renders AdminDashboard for admin role', async () => {
-    // Skip: Dashboard component routing test - requires full mock setup
-    mockUser = mockAdminUser;
-
-    render(
-      <TestWrapper>
-        <Dashboard />
-      </TestWrapper>
-    );
+  it('renders AdminDashboard for admin role', async () => {
+    renderDashboardForRole('admin');
 
     await waitFor(() => {
       expect(screen.getByText('Admin Dashboard')).toBeTruthy();
@@ -628,15 +720,8 @@ describe('Dashboard Router', () => {
     });
   });
 
-  it.skip('renders OperatorDashboard for operator role', async () => {
-    // Skip: Dashboard component routing test - requires full mock setup
-    mockUser = mockOperatorUser;
-
-    render(
-      <TestWrapper>
-        <Dashboard />
-      </TestWrapper>
-    );
+  it('renders OperatorDashboard for operator role', async () => {
+    renderDashboardForRole('operator');
 
     await waitFor(() => {
       expect(screen.getByText('Operator Dashboard')).toBeTruthy();
@@ -644,30 +729,16 @@ describe('Dashboard Router', () => {
     });
   });
 
-  it.skip('renders ViewerDashboard for viewer role', async () => {
-    // Skip: Dashboard component routing test - requires full mock setup
-    mockUser = mockViewerUser;
-
-    render(
-      <TestWrapper>
-        <Dashboard />
-      </TestWrapper>
-    );
+  it('renders ViewerDashboard for viewer role', async () => {
+    renderDashboardForRole('viewer');
 
     await waitFor(() => {
       expect(screen.getByText('Getting Started')).toBeTruthy();
     });
   });
 
-  it.skip('defaults to ViewerDashboard for unknown role', async () => {
-    // Skip: Dashboard component routing test - requires full mock setup
-    mockUser = { ...mockViewerUser, role: 'unknown' as any };
-
-    render(
-      <TestWrapper>
-        <Dashboard />
-      </TestWrapper>
-    );
+  it('defaults to ViewerDashboard for unknown role', async () => {
+    renderDashboardForRole('unknown');
 
     await waitFor(() => {
       expect(screen.getByText('Getting Started')).toBeTruthy();
@@ -678,11 +749,8 @@ describe('Dashboard Router', () => {
 describe('Permission-Based Widget Filtering', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockListTenants.mockResolvedValue(mockTenants);
-    mockListUsers.mockResolvedValue({ users: [] });
-    mockQueryAuditLogs.mockResolvedValue(mockAuditLogs);
-    mockGetSystemMetrics.mockResolvedValue(mockSystemMetrics);
-    mockListAdapters.mockResolvedValue(mockAdapters);
+    resetQueryStates();
+    resolveCommonApiMocks();
   });
 
   it('admin sees all widgets', async () => {
@@ -745,11 +813,8 @@ describe('Permission-Based Widget Filtering', () => {
 describe('Quick Actions Role Filtering', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockListTenants.mockResolvedValue(mockTenants);
-    mockListUsers.mockResolvedValue({ users: [] });
-    mockQueryAuditLogs.mockResolvedValue(mockAuditLogs);
-    mockGetSystemMetrics.mockResolvedValue(mockSystemMetrics);
-    mockListAdapters.mockResolvedValue(mockAdapters);
+    resetQueryStates();
+    resolveCommonApiMocks();
   });
 
   it('admin has tenant and user management actions', async () => {
@@ -822,7 +887,9 @@ describe('Error Handling', () => {
 
   it('shows error message when tenant data fails to load', async () => {
     mockUser = mockAdminUser;
-    mockListTenants.mockRejectedValue(new Error('Failed to fetch tenants'));
+    resetQueryStates();
+    tenantsQueryState.data = null;
+    tenantsQueryState.error = new Error('Failed to fetch tenants');
     mockListUsers.mockResolvedValue({ users: [] });
     mockQueryAuditLogs.mockResolvedValue([]);
     mockGetSystemMetrics.mockResolvedValue(mockSystemMetrics);
@@ -842,24 +909,10 @@ describe('Error Handling', () => {
 
   it('shows error message when training jobs fail to load', async () => {
     mockUser = mockOperatorUser;
-
-    // Mock the hook to return an error
-    vi.mock('@/hooks/useTraining', () => ({
-      useTraining: {
-        useTrainingJobs: () => ({
-          data: null,
-          isLoading: false,
-          error: new Error('Failed to fetch training jobs'),
-          refetch: vi.fn(),
-        }),
-        useDatasets: () => ({
-          data: { datasets: mockDatasets },
-          isLoading: false,
-          error: null,
-          refetch: vi.fn(),
-        }),
-      },
-    }));
+    resetQueryStates();
+    resolveCommonApiMocks();
+    trainingJobsState.data = null;
+    trainingJobsState.error = new Error('Failed to fetch training jobs');
 
     render(
       <TestWrapper>
@@ -878,35 +931,15 @@ describe('Error Handling', () => {
 describe('Loading States', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetQueryStates();
+    resolveCommonApiMocks();
   });
 
-  it.skip('shows skeleton loaders while data is loading', async () => {
-    // Skip: Loading state test requires complex mock setup
+  it('shows skeleton loaders while data is loading', async () => {
     mockUser = mockAdminUser;
-
-    // Mock loading state
-    vi.mock('@/hooks/useAdmin', () => ({
-      useTenants: () => ({
-        data: null,
-        isLoading: true,
-        error: null,
-        refetch: vi.fn(),
-      }),
-      useAdapterStacks: () => ({
-        data: [],
-        isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-      }),
-      useGetDefaultStack: () => ({
-        data: null,
-        isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-      }),
-    }));
-
-    mockListUsers.mockImplementation(() => new Promise(() => {})); // Never resolves
+    tenantsQueryState.data = null;
+    tenantsQueryState.isLoading = true;
+    mockListUsers.mockImplementation(() => new Promise(() => {})); // keep users loading
 
     render(
       <TestWrapper>
@@ -914,8 +947,9 @@ describe('Loading States', () => {
       </TestWrapper>
     );
 
-    // Should show loading skeletons
-    const skeletons = document.querySelectorAll('[class*="skeleton"]');
-    expect(skeletons.length).toBeGreaterThan(0);
+    await waitFor(() => {
+      const skeletons = document.querySelectorAll('[class*="skeleton"]');
+      expect(skeletons.length).toBeGreaterThan(0);
+    });
   });
 });

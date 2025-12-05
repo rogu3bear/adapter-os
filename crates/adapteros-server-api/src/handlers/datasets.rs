@@ -1030,7 +1030,11 @@ pub async fn validate_dataset(
         dataset_id,
         is_valid,
         validation_status: map_validation_status(validation_status),
-        errors: if validation_errors.is_empty() { None } else { Some(validation_errors) },
+        errors: if validation_errors.is_empty() {
+            None
+        } else {
+            Some(validation_errors)
+        },
         validated_at: chrono::Utc::now().to_rfc3339(),
     }))
 }

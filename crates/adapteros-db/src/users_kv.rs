@@ -89,6 +89,9 @@ pub trait UserKvOps {
     /// Count total users
     async fn count_users_kv(&self) -> Result<i64>;
 
+    /// List all users (unsorted)
+    async fn list_users_kv(&self) -> Result<Vec<UserKv>>;
+
     /// List users by tenant
     async fn list_users_by_tenant_kv(&self, tenant_id: &str) -> Result<Vec<UserKv>>;
 
@@ -349,6 +352,26 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         }
     }
 
+    async fn list_users_kv(&self) -> Result<Vec<UserKv>> {
+        let prefix = UserKeys::all_users_prefix();
+        let keys = self
+            .backend
+            .scan_prefix(prefix)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list users: {}", e)))?;
+
+        let mut users = Vec::new();
+        for key in keys {
+            if let Some(user_id) = key.strip_prefix(prefix) {
+                if let Some(user) = self.get_user_safe(user_id).await? {
+                    users.push(user);
+                }
+            }
+        }
+
+        Ok(users)
+    }
+
     async fn list_users_by_tenant_kv(&self, tenant_id: &str) -> Result<Vec<UserKv>> {
         // Scan tenant users set
         let prefix = format!("{}::", UserKeys::tenant_users_set(tenant_id));
@@ -530,6 +553,7 @@ pub fn kv_to_user(kv_user: &UserKv) -> User {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_storage::redb::RedbBackend;
 
     #[test]
     fn test_user_keys() {
@@ -567,5 +591,28 @@ mod tests {
         assert_eq!(back_to_sql.id, sql_user.id);
         assert_eq!(back_to_sql.email, sql_user.email);
         assert_eq!(back_to_sql.role, "admin");
+    }
+
+    #[tokio::test]
+    async fn list_users_kv_returns_all_users() {
+        let backend = RedbBackend::open_in_memory().expect("in-memory backend");
+        let repo = UserKvRepository::new(backend);
+
+        let user_id = repo
+            .create_user_kv(
+                "alice@example.com",
+                "Alice",
+                "pw-hash",
+                Role::Admin,
+                "tenant-1",
+            )
+            .await
+            .expect("write to kv");
+
+        let users = repo.list_users_kv().await.expect("list users");
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0].id, user_id);
+        assert_eq!(users[0].email, "alice@example.com");
+        assert_eq!(users[0].tenant_id, "tenant-1");
     }
 }

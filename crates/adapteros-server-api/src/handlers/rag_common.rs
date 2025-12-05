@@ -25,7 +25,7 @@
 
 use crate::state::AppState;
 use adapteros_core::B3Hash;
-use adapteros_lora_rag::{EmbeddingModel, PgVectorIndex};
+use adapteros_lora_rag::EmbeddingModel;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -141,16 +141,19 @@ pub async fn retrieve_rag_context(
     // Encode the query
     let query_embedding = embedding_model.encode_text(query)?;
 
-    // Get the embedding model hash for index creation
     let model_hash = embedding_model.model_hash();
     let dimension = embedding_model.dimension();
 
-    // Create RAG index using the database pool
-    let index = PgVectorIndex::new_sqlite(state.db_pool.clone(), model_hash, dimension);
-
-    // Retrieve candidate documents (more than TOP_K since we'll filter by collection)
-    let all_results = index
-        .retrieve(tenant_id, &query_embedding, config.candidate_k)
+    // Retrieve candidate documents via storage-mode aware Db API
+    let all_results = state
+        .db
+        .retrieve_rag_documents(
+            tenant_id,
+            &model_hash,
+            dimension,
+            &query_embedding,
+            config.candidate_k,
+        )
         .await?;
 
     // Get document IDs that belong to the specified collection (efficient - just IDs)
@@ -264,14 +267,6 @@ pub async fn store_rag_evidence(
     request_id: &str,
     session_id: Option<&str>,
 ) -> Vec<String> {
-    // Re-retrieve the documents to get chunk metadata
-    // (We need to look up chunk IDs which aren't stored in RagContextResult)
-    let index = PgVectorIndex::new_sqlite(
-        state.db_pool.clone(),
-        B3Hash::hash(rag_result.embedding_model_hash.as_bytes()),
-        0, // Dimension not needed for this lookup
-    );
-
     let mut evidence_params_list = Vec::new();
 
     // Iterate over all retrieved chunks (doc_id, chunk_index, score)

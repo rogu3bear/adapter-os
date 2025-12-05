@@ -66,8 +66,9 @@ pub use hooks::{is_core_policy, Decision, HookContext, PolicyDecision, PolicyHoo
 pub use mplora::{MploraConfig, MploraPolicy};
 pub use numeric::validate_numeric_units;
 pub use packs::{
-    AdapterNameValidation, NamingConfig, NamingPolicy, NamingViolation, NamingViolationType,
-    StackNameValidation,
+    AdapterNameValidation, DeterminismConfig, DeterminismPolicy, EpsilonBounds, NamingConfig,
+    NamingPolicy, NamingViolation, NamingViolationType, RngSeedingMethod, StackNameValidation,
+    TieBreakRule, ToolchainRequirements,
 };
 pub use patch_policy::{
     CodePolicy, ComprehensiveValidation, FilePatch, LintValidation, PatchPolicyEngine,
@@ -353,8 +354,8 @@ impl PolicyEngine {
         &self.policies.egress
     }
 
-    /// Get determinism policy
-    pub fn determinism_policy(&self) -> &DeterminismPolicy {
+    /// Get determinism policy (manifest definition)
+    pub fn determinism_policy(&self) -> &adapteros_manifest::DeterminismPolicy {
         &self.policies.determinism
     }
 

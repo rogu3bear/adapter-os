@@ -12,16 +12,12 @@
 
 mod fixtures;
 
-use adapteros_db::Db;
 use adapteros_lora_lifecycle::{AdapterState, LifecycleManager};
 use adapteros_manifest::Policies;
 use fixtures::{fixtures as test_fixtures, utils, TestDbFixture};
 use std::path::PathBuf;
 
-// TODO: Refactor TestAdapterBuilder to match AdapterRegistrationBuilder API
-// The builder types are mismatched (u16 vs i32 for rank, u16 vs String for tier, etc.)
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_update_adapter_state_persists_to_db() {
     let fixture = TestDbFixture::new().await;
     let adapter_id = test_fixtures::single_unloaded(fixture.db()).await;
@@ -75,7 +71,6 @@ async fn test_update_adapter_state_persists_to_db() {
 }
 
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_record_adapter_activation_updates_db() {
     let fixture = TestDbFixture::new().await;
     let adapter_id = test_fixtures::single_unloaded(fixture.db()).await;
@@ -137,7 +132,6 @@ async fn test_record_adapter_activation_updates_db() {
 }
 
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_evict_adapter_updates_state_and_memory() {
     let fixture = TestDbFixture::new().await;
     let adapter_id = test_fixtures::single_cold(fixture.db()).await;
@@ -212,7 +206,6 @@ async fn test_evict_adapter_updates_state_and_memory() {
 }
 
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_multiple_activations_increment_count() {
     let fixture = TestDbFixture::new().await;
     let adapter_id = test_fixtures::single_unloaded(fixture.db()).await;
@@ -274,7 +267,6 @@ async fn test_multiple_activations_increment_count() {
 }
 
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_multi_state_lifecycle_verification() {
     let fixture = TestDbFixture::new().await;
     let (cold, warm, hot) = test_fixtures::multi_state_lifecycle(fixture.db()).await;
@@ -299,7 +291,6 @@ async fn test_multi_state_lifecycle_verification() {
 }
 
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_category_based_adapters() {
     let fixture = TestDbFixture::new().await;
     let (code, framework, codebase) = test_fixtures::category_adapters(fixture.db()).await;
@@ -315,7 +306,6 @@ async fn test_category_based_adapters() {
 }
 
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_high_memory_pressure_scenario() {
     let fixture = TestDbFixture::new().await;
     let adapters = test_fixtures::high_memory_pressure(fixture.db()).await;
@@ -332,7 +322,6 @@ async fn test_high_memory_pressure_scenario() {
 }
 
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_pinned_adapter_cannot_be_unpinned_in_lifecycle() {
     let fixture = TestDbFixture::new().await;
     let (pinned, unpinned) = test_fixtures::pinned_and_unpinned(fixture.db()).await;
@@ -347,7 +336,6 @@ async fn test_pinned_adapter_cannot_be_unpinned_in_lifecycle() {
 }
 
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_parallel_fixture_isolation() {
     // This test verifies that fixtures can run in parallel without conflicts
     let (fixture1_result, fixture2_result) = tokio::join!(
@@ -375,7 +363,6 @@ async fn test_parallel_fixture_isolation() {
 }
 
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_activation_tracking_with_utilities() {
     let fixture = TestDbFixture::new().await;
     let adapter_id = test_fixtures::low_activation(fixture.db()).await;
@@ -392,7 +379,6 @@ async fn test_activation_tracking_with_utilities() {
 }
 
 #[tokio::test]
-#[ignore = "Pending fixture API refactoring"]
 async fn test_list_adapters_with_state() {
     let fixture = TestDbFixture::new().await;
     let (cold, warm, hot) = test_fixtures::multi_state_lifecycle(fixture.db()).await;

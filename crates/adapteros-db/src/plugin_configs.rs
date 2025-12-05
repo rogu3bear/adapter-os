@@ -43,7 +43,7 @@ impl Db {
     pub async fn get_plugin_config(&self, plugin_name: &str) -> Result<Option<PluginConfig>> {
         sqlx::query_as::<_, PluginConfig>("SELECT * FROM plugin_configs WHERE plugin_name = ?")
             .bind(plugin_name)
-            .fetch_optional(&self.pool)
+            .fetch_optional(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to get plugin config: {}", e)))
     }
@@ -83,7 +83,7 @@ impl Db {
             .bind(enabled)
             .bind(config_json)
             .bind(&existing_config.id)
-            .execute(&self.pool)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to update plugin config: {}", e)))?;
         } else {
@@ -96,7 +96,7 @@ impl Db {
             .bind(plugin_name)
             .bind(enabled)
             .bind(config_json)
-            .execute(&self.pool)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to insert plugin config: {}", e)))?;
         }
@@ -118,7 +118,7 @@ impl Db {
     /// ```
     pub async fn list_plugin_configs(&self) -> Result<Vec<PluginConfig>> {
         sqlx::query_as::<_, PluginConfig>("SELECT * FROM plugin_configs ORDER BY plugin_name")
-            .fetch_all(&self.pool)
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to list plugin configs: {}", e)))
     }
@@ -154,7 +154,7 @@ impl Db {
         )
         .bind(plugin_name)
         .bind(tenant_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to check tenant plugin override: {}", e))
@@ -200,7 +200,7 @@ impl Db {
         )
         .bind(plugin_name)
         .bind(tenant_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to check existing tenant override: {}", e))
@@ -214,7 +214,7 @@ impl Db {
             .bind(true)
             .bind(config_override)
             .bind(&existing_record.id)
-            .execute(&self.pool)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to update tenant plugin override: {}", e)))?;
         } else {
@@ -228,7 +228,7 @@ impl Db {
             .bind(tenant_id)
             .bind(true)
             .bind(config_override)
-            .execute(&self.pool)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to insert tenant plugin override: {}", e)))?;
         }
@@ -258,7 +258,7 @@ impl Db {
         )
         .bind(plugin_name)
         .bind(tenant_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to check existing tenant override: {}", e))
@@ -269,7 +269,7 @@ impl Db {
             sqlx::query("UPDATE plugin_tenant_enables SET enabled = ? WHERE id = ?")
                 .bind(false)
                 .bind(&existing_record.id)
-                .execute(&self.pool)
+                .execute(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to disable tenant plugin: {}", e))
@@ -284,7 +284,7 @@ impl Db {
             .bind(plugin_name)
             .bind(tenant_id)
             .bind(false)
-            .execute(&self.pool)
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to insert tenant plugin override: {}", e)))?;
         }
@@ -314,7 +314,7 @@ impl Db {
             "SELECT * FROM plugin_tenant_enables WHERE tenant_id = ? ORDER BY plugin_name",
         )
         .bind(tenant_id)
-        .fetch_all(&self.pool)
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list tenant plugin enables: {}", e)))
     }

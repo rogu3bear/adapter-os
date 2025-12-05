@@ -10,6 +10,8 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::kv_metrics::{global_kv_metrics, KvErrorType, KvOperationTimer, KvOperationType};
+
 // Re-export KV types from adapteros-storage
 pub use adapteros_storage::kv::IndexManager;
 pub use adapteros_storage::kv::KvBackend;
@@ -93,50 +95,59 @@ impl KvDb {
 
     /// Get a value by key
     pub async fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        self.backend
-            .get(key)
-            .await
-            .map_err(|e| AosError::Database(format!("KV get failed: {}", e)))
+        let _timer = KvOperationTimer::new(KvOperationType::Read);
+        self.backend.get(key).await.map_err(|e| {
+            global_kv_metrics().record_error(KvErrorType::Backend);
+            AosError::Database(format!("KV get failed: {}", e))
+        })
     }
 
     /// Set a value for a key
     pub async fn set(&self, key: &str, value: Vec<u8>) -> Result<()> {
-        self.backend
-            .set(key, value)
-            .await
-            .map_err(|e| AosError::Database(format!("KV set failed: {}", e)))
+        let _timer = KvOperationTimer::new(KvOperationType::Write);
+        self.backend.set(key, value).await.map_err(|e| {
+            global_kv_metrics().record_error(KvErrorType::Backend);
+            AosError::Database(format!("KV set failed: {}", e))
+        })
     }
 
     /// Delete a key
     pub async fn delete(&self, key: &str) -> Result<bool> {
-        self.backend
-            .delete(key)
-            .await
-            .map_err(|e| AosError::Database(format!("KV delete failed: {}", e)))
+        let _timer = KvOperationTimer::new(KvOperationType::Delete);
+        self.backend.delete(key).await.map_err(|e| {
+            global_kv_metrics().record_error(KvErrorType::Backend);
+            AosError::Database(format!("KV delete failed: {}", e))
+        })
     }
 
     /// Check if a key exists
     pub async fn exists(&self, key: &str) -> Result<bool> {
-        self.backend
-            .exists(key)
-            .await
-            .map_err(|e| AosError::Database(format!("KV exists failed: {}", e)))
+        let _timer = KvOperationTimer::new(KvOperationType::Read);
+        self.backend.exists(key).await.map_err(|e| {
+            global_kv_metrics().record_error(KvErrorType::Backend);
+            AosError::Database(format!("KV exists failed: {}", e))
+        })
     }
 
     /// Scan keys with a prefix
     pub async fn scan_prefix(&self, prefix: &str) -> Result<Vec<String>> {
-        self.backend
-            .scan_prefix(prefix)
-            .await
-            .map_err(|e| AosError::Database(format!("KV scan_prefix failed: {}", e)))
+        let _timer = KvOperationTimer::new(KvOperationType::Scan);
+        self.backend.scan_prefix(prefix).await.map_err(|e| {
+            global_kv_metrics().record_error(KvErrorType::Backend);
+            AosError::Database(format!("KV scan_prefix failed: {}", e))
+        })
     }
 
     /// Query keys using an index
     pub async fn query_by_index(&self, index_name: &str, index_value: &str) -> Result<Vec<String>> {
+        let _timer = KvOperationTimer::new(KvOperationType::IndexQuery);
         self.index_manager
             .query_index(index_name, index_value)
             .await
-            .map_err(|e| AosError::Database(format!("Index query failed: {}", e)))
+            .map_err(|e| {
+                global_kv_metrics().record_error(KvErrorType::Backend);
+                AosError::Database(format!("Index query failed: {}", e))
+            })
     }
 
     /// Add an entry to a secondary index
@@ -146,10 +157,14 @@ impl KvDb {
         index_value: &str,
         entity_id: &str,
     ) -> Result<()> {
+        let _timer = KvOperationTimer::new(KvOperationType::Write);
         self.index_manager
             .add_to_index(index_name, index_value, entity_id)
             .await
-            .map_err(|e| AosError::Database(format!("Index add failed: {}", e)))
+            .map_err(|e| {
+                global_kv_metrics().record_error(KvErrorType::Backend);
+                AosError::Database(format!("Index add failed: {}", e))
+            })
     }
 
     /// Remove an entry from a secondary index
@@ -159,10 +174,14 @@ impl KvDb {
         index_value: &str,
         entity_id: &str,
     ) -> Result<()> {
+        let _timer = KvOperationTimer::new(KvOperationType::Delete);
         self.index_manager
             .remove_from_index(index_name, index_value, entity_id)
             .await
-            .map_err(|e| AosError::Database(format!("Index remove failed: {}", e)))
+            .map_err(|e| {
+                global_kv_metrics().record_error(KvErrorType::Backend);
+                AosError::Database(format!("Index remove failed: {}", e))
+            })
     }
 
     /// Update an index entry (remove old, add new)
@@ -173,10 +192,14 @@ impl KvDb {
         new_value: &str,
         entity_id: &str,
     ) -> Result<()> {
+        let _timer = KvOperationTimer::new(KvOperationType::Write);
         self.index_manager
             .update_index(index_name, old_value, new_value, entity_id)
             .await
-            .map_err(|e| AosError::Database(format!("Index update failed: {}", e)))
+            .map_err(|e| {
+                global_kv_metrics().record_error(KvErrorType::Backend);
+                AosError::Database(format!("Index update failed: {}", e))
+            })
     }
 }
 

@@ -142,3 +142,30 @@ pub mod adapter_indexes {
     /// Index name for querying adapters by external adapter_id
     pub const BY_ADAPTER_ID: &str = "adapters_by_adapter_id";
 }
+
+/// Index definitions for telemetry
+pub mod telemetry_indexes {
+    /// Index telemetry events by tenant and event type
+    /// index value format: "{tenant_id}:{event_type}"
+    pub const EVENTS_BY_TENANT_TYPE: &str = "telemetry_events_by_tenant_type";
+}
+
+/// Index definitions for replay artifacts
+pub mod replay_indexes {
+    /// Index replay metadata by tenant
+    pub const META_BY_TENANT: &str = "replay_meta_by_tenant";
+    /// Index replay metadata by inference id (global lookup)
+    pub const META_BY_INFERENCE: &str = "replay_meta_by_inference";
+    /// Index replay metadata by record id
+    pub const META_BY_ID: &str = "replay_meta_by_id";
+    /// Index replay executions by tenant
+    pub const EXEC_BY_TENANT: &str = "replay_exec_by_tenant";
+    /// Index replay executions by original inference id
+    pub const EXEC_BY_INFERENCE: &str = "replay_exec_by_inference";
+    /// Index replay executions by execution id
+    pub const EXEC_BY_ID: &str = "replay_exec_by_id";
+    /// Index replay sessions by tenant
+    pub const SESSIONS_BY_TENANT: &str = "replay_sessions_by_tenant";
+    /// Index replay sessions by id
+    pub const SESSIONS_BY_ID: &str = "replay_sessions_by_id";
+}

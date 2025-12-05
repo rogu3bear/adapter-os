@@ -239,16 +239,7 @@ impl ScoringFunction for AdapterAwareScorer {
 
         // Top-k softmax with entropy floor
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(k).collect();
-        let max_score = top_k
-            .iter()
-            .map(|(_, s)| s)
-            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let exp_scores: Vec<f32> = top_k
-            .iter()
-            .map(|(_, s)| ((s - max_score) / tau).exp())
-            .collect();
-        let sum_exp: f32 = exp_scores.iter().sum();
-        let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
+        let mut gates: Vec<f32> = Router::deterministic_softmax(&top_k, tau);
         let min_gate = eps / k as f32;
         for g in &mut gates {
             *g = g.max(min_gate);
@@ -353,5 +344,22 @@ mod tests {
         let router2 = Router::new_with_weights(weights2, 3, 1.0, 0.02);
         let scorer2 = create_scorer("entropy_floor", router2);
         assert_eq!(scorer2.name(), "entropy_floor");
+    }
+
+    #[test]
+    fn test_adapter_aware_scorer_deterministic_gates() {
+        let features = vec![0.0f32; 22];
+        let priors = vec![0.4f32, 0.2f32, 0.1f32];
+        let frameworks = vec![None, None, None];
+
+        let mut scorer = AdapterAwareScorer::new(frameworks, &features);
+
+        let decision1 = scorer.score(&features, &priors, 3, 1.0, 0.02);
+        let decision2 = scorer.score(&features, &priors, 3, 1.0, 0.02);
+
+        assert_eq!(
+            decision1.gates_q15, decision2.gates_q15,
+            "Adapter-aware scorer should be deterministic with identical inputs"
+        );
     }
 }

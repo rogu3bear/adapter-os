@@ -52,7 +52,7 @@ impl Db {
         .bind(signer_pubkey)
         .bind(now)
         .bind(now)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await?;
 
         Ok(())
@@ -73,7 +73,7 @@ impl Db {
         )
         .bind(policy_pack_id)
         .bind(cpid_str)
-        .fetch_optional(&self.pool)
+        .fetch_optional(self.pool())
         .await?;
 
         if let Some(row) = row {
@@ -125,7 +125,7 @@ impl Db {
         .bind(now)
         .bind(policy_pack_id)
         .bind(cpid_str)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await?;
 
         if result.rows_affected() == 0 {
@@ -157,7 +157,7 @@ impl Db {
                  ORDER BY policy_pack_id",
             )
             .bind(cpid_str)
-            .fetch_all(&self.pool)
+            .fetch_all(self.pool())
             .await?
         } else {
             sqlx::query(
@@ -165,7 +165,7 @@ impl Db {
                  FROM policy_hashes
                  ORDER BY cpid, policy_pack_id",
             )
-            .fetch_all(&self.pool)
+            .fetch_all(self.pool())
             .await?
         };
 
@@ -209,7 +209,7 @@ impl Db {
         )
         .bind(policy_pack_id)
         .bind(cpid_str)
-        .execute(&self.pool)
+        .execute(self.pool())
         .await?;
 
         if result.rows_affected() == 0 {

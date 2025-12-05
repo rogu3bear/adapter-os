@@ -1,8 +1,10 @@
+use crate::telemetry_kv::record_telemetry_drift;
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
+use tracing::warn;
 use uuid::Uuid;
 
 /// Builder for creating telemetry batch parameters
@@ -21,7 +23,7 @@ pub struct TelemetryBatchBuilder {
 }
 
 /// Parameters for telemetry batch recording
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TelemetryBatchParams {
     pub tenant_id: String,
     pub event_type: String,
@@ -215,6 +217,32 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to record telemetry batch: {}", e)))?;
 
+        // Dual-write to KV when enabled
+        if let Some(repo) = self.telemetry_repo_if_write() {
+            let kv_event = self.kv_event_from_params(&id, &params);
+            match repo.store_event(kv_event.clone()).await {
+                Ok(_) => {
+                    // Diff check for drift detection
+                    if let Ok(Some(fetched)) =
+                        repo.get_event(&kv_event.tenant_id, &kv_event.seq).await
+                    {
+                        let kv_event_data_json =
+                            serde_json::to_string(&fetched.event_data).unwrap_or_default();
+                        if kv_event_data_json != event_data_json {
+                            record_telemetry_drift("telemetry_event_payload_mismatch");
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        tenant_id = %params.tenant_id,
+                        "Failed to dual-write telemetry event to KV"
+                    );
+                }
+            }
+        }
+
         Ok(id)
     }
 
@@ -224,6 +252,35 @@ impl Db {
         tenant_id: &str,
         limit: i32,
     ) -> Result<Vec<TelemetryRecord>> {
+        // KV-primary read path
+        if let Some(repo) = self.telemetry_repo_if_read() {
+            match repo
+                .list_events_by_tenant(tenant_id, limit.max(0) as usize)
+                .await
+            {
+                Ok(events) => {
+                    let mut converted = Vec::new();
+                    for ev in events {
+                        converted.push(Db::kv_event_to_record(ev)?);
+                    }
+                    return Ok(converted);
+                }
+                Err(e) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Err(AosError::Database(format!(
+                            "KV read failed for telemetry: {}",
+                            e
+                        )));
+                    }
+                    warn!(
+                        tenant_id = %tenant_id,
+                        error = %e,
+                        "KV telemetry read failed, falling back to SQL"
+                    );
+                }
+            }
+        }
+
         let records = sqlx::query_as::<_, TelemetryRecord>(
             r#"
             SELECT id, tenant_id, event_type, event_data, timestamp, source,
@@ -246,19 +303,50 @@ impl Db {
     /// Get telemetry records by event type
     pub async fn get_telemetry_by_event_type(
         &self,
+        tenant_id: &str,
         event_type: &str,
         limit: i32,
     ) -> Result<Vec<TelemetryRecord>> {
+        if let Some(repo) = self.telemetry_repo_if_read() {
+            match repo
+                .list_events_by_type(tenant_id, event_type, limit.max(0) as usize)
+                .await
+            {
+                Ok(events) => {
+                    let mut converted = Vec::new();
+                    for ev in events {
+                        converted.push(Db::kv_event_to_record(ev)?);
+                    }
+                    return Ok(converted);
+                }
+                Err(e) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Err(AosError::Database(format!(
+                            "KV read failed for telemetry by type: {}",
+                            e
+                        )));
+                    }
+                    warn!(
+                        tenant_id = %tenant_id,
+                        event_type = %event_type,
+                        error = %e,
+                        "KV telemetry read failed, falling back to SQL"
+                    );
+                }
+            }
+        }
+
         let records = sqlx::query_as::<_, TelemetryRecord>(
             r#"
             SELECT id, tenant_id, event_type, event_data, timestamp, source,
                    user_id, session_id, metadata, tags, priority, created_at
             FROM telemetry_events
-            WHERE event_type = ?
+            WHERE tenant_id = ? AND event_type = ?
             ORDER BY timestamp DESC
             LIMIT ?
             "#,
         )
+        .bind(tenant_id)
         .bind(event_type)
         .bind(limit)
         .fetch_all(&*self.pool())
@@ -275,6 +363,33 @@ impl Db {
         limit: i32,
         offset: i32,
     ) -> Result<Vec<TelemetryBundle>> {
+        if let Some(repo) = self.telemetry_repo_if_read() {
+            match repo
+                .list_bundles_by_tenant(tenant_id, limit.max(0) as usize, offset.max(0) as usize)
+                .await
+            {
+                Ok(bundles) => {
+                    return Ok(bundles
+                        .into_iter()
+                        .map(Db::kv_bundle_to_record)
+                        .collect());
+                }
+                Err(e) => {
+                    if !self.storage_mode().sql_fallback_enabled() {
+                        return Err(AosError::Database(format!(
+                            "KV read failed for telemetry bundles: {}",
+                            e
+                        )));
+                    }
+                    warn!(
+                        tenant_id = %tenant_id,
+                        error = %e,
+                        "KV telemetry bundles read failed, falling back to SQL"
+                    );
+                }
+            }
+        }
+
         let bundles = sqlx::query_as::<_, TelemetryBundle>(
             r#"
             SELECT id, tenant_id, cpid, path, merkle_root_b3, start_seq, end_seq, event_count, created_at

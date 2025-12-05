@@ -41,9 +41,29 @@ fn default_bind() -> String {
     "127.0.0.1".to_string()
 }
 
+fn default_storage_mode() -> String {
+    "sql_only".to_string()
+}
+
+fn default_pool_size() -> u32 {
+    20
+}
+
+fn default_kv_path() -> String {
+    "var/aos-kv.redb".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
     pub path: String,
+    #[serde(default = "default_pool_size")]
+    pub pool_size: u32,
+    #[serde(default = "default_storage_mode")]
+    pub storage_mode: String,
+    #[serde(default = "default_kv_path")]
+    pub kv_path: String,
+    #[serde(default)]
+    pub kv_tantivy_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

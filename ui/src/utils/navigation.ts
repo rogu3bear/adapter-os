@@ -1,4 +1,5 @@
 import { routes, canAccessRoute, type RouteConfig } from '@/config/routes';
+import { PRIMARY_SPINE } from '@/config/routes_manifest';
 import type { LucideIcon } from 'lucide-react';
 import type { UserRole } from '@/api/types';
 
@@ -22,6 +23,7 @@ export interface NavGroup {
  * Filters routes by user role and organizes them into logical groups
  */
 export function generateNavigationGroups(userRole?: string, userPermissions?: string[]): NavGroup[] {
+  const spineOrder = new Map<string, number>(PRIMARY_SPINE.map((path, index) => [path, index]));
   const groupsMap = new Map<string, NavGroup>();
 
   // Process each route from the central config
@@ -31,18 +33,27 @@ export function generateNavigationGroups(userRole?: string, userPermissions?: st
       continue;
     }
 
+    // Keep sidebar focused on primary spine pages
+    if (!spineOrder.has(route.path)) {
+      continue;
+    }
+
     // Check if user can access this route
     if (!canAccessRoute(route, userRole as UserRole | undefined, userPermissions)) {
       continue;
     }
 
-    const groupKey = route.cluster;
+    const groupKey = route.navGroup ?? route.cluster ?? 'Other';
+    const routeOrder = spineOrder.get(route.path) ?? Number.MAX_SAFE_INTEGER;
     const group = groupsMap.get(groupKey) || {
       title: groupKey,
       items: [],
       roles: route.requiredRoles,
-      order: 0,
+      order: routeOrder,
     };
+
+    // Keep the earliest spine position for deterministic grouping order
+    group.order = Math.min(group.order ?? Number.MAX_SAFE_INTEGER, routeOrder);
 
     // Add the route to the group
     group.items.push({
@@ -59,20 +70,12 @@ export function generateNavigationGroups(userRole?: string, userPermissions?: st
   // Convert map to array and sort
   const groups = Array.from(groupsMap.values());
 
-  // Sort groups by predefined order matching IA clusters
-  const groupOrder = ['Build', 'Run', 'Observe', 'Verify'];
   groups.sort((a, b) => {
-    const aIndex = groupOrder.indexOf(a.title);
-    const bIndex = groupOrder.indexOf(b.title);
-
-    // Known groups get priority based on order array
-    if (aIndex !== -1 && bIndex !== -1) {
-      return aIndex - bIndex;
+    const aOrder = a.order ?? Number.MAX_SAFE_INTEGER;
+    const bOrder = b.order ?? Number.MAX_SAFE_INTEGER;
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder;
     }
-    if (aIndex !== -1) return -1;
-    if (bIndex !== -1) return 1;
-
-    // Alphabetical fallback
     return a.title.localeCompare(b.title);
   });
 

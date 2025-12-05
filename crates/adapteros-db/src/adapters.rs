@@ -2,8 +2,9 @@ use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use std::env;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::adapters_kv::{AdapterKvOps, AdapterKvRepository};
@@ -17,6 +18,52 @@ use crate::constants::ADAPTER_COLUMNS;
 
 /// Alias for backwards compatibility
 const ADAPTER_SELECT_FIELDS: &str = ADAPTER_COLUMNS;
+
+/// Configuration for atomic dual-write behavior (SQL + KV)
+#[derive(Debug, Clone)]
+pub struct AtomicDualWriteConfig {
+    /// Require KV writes to succeed; if true, failures surface as errors
+    /// and registration attempts to rollback SQL inserts.
+    pub require_kv_success: bool,
+}
+
+impl Default for AtomicDualWriteConfig {
+    fn default() -> Self {
+        Self {
+            require_kv_success: false,
+        }
+    }
+}
+
+impl AtomicDualWriteConfig {
+    /// Best-effort mode: KV failures are logged but do not fail the operation.
+    pub fn best_effort() -> Self {
+        Self::default()
+    }
+
+    /// Strict mode: KV failures propagate errors; registration attempts rollback.
+    pub fn strict_atomic() -> Self {
+        Self {
+            require_kv_success: true,
+        }
+    }
+
+    /// Convenience predicate
+    pub fn is_strict(&self) -> bool {
+        self.require_kv_success
+    }
+
+    /// Load from environment variable `AOS_ATOMIC_DUAL_WRITE_STRICT`.
+    /// Accepts: "1", "true", "yes" (case-insensitive) for strict mode.
+    pub fn from_env() -> Self {
+        match env::var("AOS_ATOMIC_DUAL_WRITE_STRICT") {
+            Ok(val) if matches!(val.to_lowercase().as_str(), "1" | "true" | "yes") => {
+                Self::strict_atomic()
+            }
+            _ => Self::best_effort(),
+        }
+    }
+}
 
 /// Builder for creating adapter registration parameters
 #[derive(Debug, Default)]
@@ -586,53 +633,93 @@ impl Db {
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
 
-        // Write to SQL (primary storage)
-        sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, manifest_schema_version, content_hash_b3, provenance_json, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
-        )
-        .bind(&id)
-        .bind(&params.tenant_id)
-        .bind(&params.adapter_id)
-        .bind(&params.name)
-        .bind(&params.hash_b3)
-        .bind(params.rank)
-        .bind(params.alpha)
-        .bind(&params.tier)
-        .bind(&params.targets_json)
-        .bind(&params.acl_json)
-        .bind(&params.languages_json)
-        .bind(&params.framework)
-        .bind(&params.category)
-        .bind(&params.scope)
-        .bind(&params.framework_id)
-        .bind(&params.framework_version)
-        .bind(&params.repo_id)
-        .bind(&params.commit_sha)
-        .bind(&params.intent)
-        .bind(&params.expires_at)
-        .bind(&params.adapter_name)
-        .bind(&params.tenant_namespace)
-        .bind(&params.domain)
-        .bind(&params.purpose)
-        .bind(&params.revision)
-        .bind(&params.parent_id)
-        .bind(&params.fork_type)
-        .bind(&params.fork_reason)
-        .bind(&params.aos_file_path)
-        .bind(&params.aos_file_hash)
-        .bind(&params.base_model_id)
-        .bind(&params.manifest_schema_version)
-        .bind(&params.content_hash_b3)
-        .bind(&params.provenance_json)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        // Write to SQL when allowed by storage mode
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                sqlx::query(
+                    "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, manifest_schema_version, content_hash_b3, provenance_json, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
+                )
+                .bind(&id)
+                .bind(&params.tenant_id)
+                .bind(&params.adapter_id)
+                .bind(&params.name)
+                .bind(&params.hash_b3)
+                .bind(params.rank)
+                .bind(params.alpha)
+                .bind(&params.tier)
+                .bind(&params.targets_json)
+                .bind(&params.acl_json)
+                .bind(&params.languages_json)
+                .bind(&params.framework)
+                .bind(&params.category)
+                .bind(&params.scope)
+                .bind(&params.framework_id)
+                .bind(&params.framework_version)
+                .bind(&params.repo_id)
+                .bind(&params.commit_sha)
+                .bind(&params.intent)
+                .bind(&params.expires_at)
+                .bind(&params.adapter_name)
+                .bind(&params.tenant_namespace)
+                .bind(&params.domain)
+                .bind(&params.purpose)
+                .bind(&params.revision)
+                .bind(&params.parent_id)
+                .bind(&params.fork_type)
+                .bind(&params.fork_reason)
+                .bind(&params.aos_file_path)
+                .bind(&params.aos_file_hash)
+                .bind(&params.base_model_id)
+                .bind(&params.manifest_schema_version)
+                .bind(&params.content_hash_b3)
+                .bind(&params.provenance_json)
+                .execute(pool)
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
+            } else if !self.storage_mode().write_to_kv() {
+                // No SQL pool and not writing to KV means we cannot satisfy the write
+                return Err(AosError::Database(
+                    "SQL backend unavailable for adapter registration".to_string(),
+                ));
+            }
+        }
 
         // KV write (dual-write mode) - use same ID as SQL for consistency
         if let Some(repo) = self.get_adapter_kv_repo(&params.tenant_id) {
             if let Err(e) = repo.register_adapter_kv_with_id(&id, params.clone()).await {
-                warn!(error = %e, adapter_id = %id, mode = "dual-write", "Failed to write adapter to KV backend");
+                if self.atomic_dual_write_config().is_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %id,
+                        tenant_id = %params.tenant_id,
+                        mode = "dual-write-strict",
+                        "KV write failed in strict atomic mode - rolling back SQL insert"
+                    );
+
+                    if let Err(rollback_err) = sqlx::query("DELETE FROM adapters WHERE id = ?")
+                        .bind(&id)
+                        .execute(&*self.pool())
+                        .await
+                    {
+                        error!(
+                            original_error = %e,
+                            rollback_error = %rollback_err,
+                            adapter_id = %id,
+                            tenant_id = %params.tenant_id,
+                            "CRITICAL: Failed to rollback SQL insert after KV failure"
+                        );
+                        return Err(AosError::Database(format!(
+                            "KV write failed and rollback failed (adapter_id: {id}). Manual repair required."
+                        )));
+                    }
+
+                    return Err(AosError::Database(format!(
+                        "KV write failed in strict mode for adapter_id={id}: {e}"
+                    )));
+                } else {
+                    warn!(error = %e, adapter_id = %id, mode = "dual-write", "Failed to write adapter to KV backend");
+                }
             } else {
                 debug!(adapter_id = %id, tenant_id = %params.tenant_id, mode = "dual-write", "Adapter registered in both SQL and KV backends");
             }
@@ -738,12 +825,14 @@ impl Db {
                         return Ok(adapters);
                     }
                     Ok(_) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("adapters.list_for_tenant.empty");
                         debug!(tenant_id = %tenant_id, mode = "kv-fallback", "KV returned empty list, falling back to SQL");
                     }
                     Ok(adapters) => {
                         return Ok(adapters);
                     }
                     Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("adapters.list_for_tenant.error");
                         warn!(error = %e, tenant_id = %tenant_id, mode = "kv-fallback", "KV read failed, falling back to SQL");
                     }
                     Err(e) => {
@@ -828,7 +917,20 @@ impl Db {
         // KV write (dual-write mode)
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
             if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
-                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to delete adapter from KV backend");
+                if self.atomic_dual_write_config().is_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "CONSISTENCY WARNING: SQL delete committed but KV delete failed in strict mode. KV entry may be orphaned."
+                    );
+                    return Err(AosError::Database(format!(
+                        "Adapter deleted in SQL but KV delete failed (strict mode): {e}"
+                    )));
+                } else {
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to delete adapter from KV backend");
+                }
             } else {
                 debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter deleted from both SQL and KV backends");
             }
@@ -917,7 +1019,20 @@ impl Db {
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
             if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
-                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to cascade delete adapter from KV backend");
+                if self.atomic_dual_write_config().is_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "CONSISTENCY WARNING: SQL cascade delete committed but KV delete failed in strict mode. KV entry may be orphaned."
+                    );
+                    return Err(AosError::Database(format!(
+                        "Cascade delete succeeded in SQL but failed in KV (strict mode): {e}"
+                    )));
+                } else {
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to cascade delete adapter from KV backend");
+                }
             } else {
                 debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Adapter cascade deleted from both SQL and KV backends");
             }
@@ -1095,7 +1210,20 @@ impl Db {
                     .update_adapter_state_kv(adapter_id, state, reason)
                     .await
                 {
-                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend");
+                    if self.atomic_dual_write_config().is_strict() {
+                        error!(
+                            error = %e,
+                            adapter_id = %adapter_id,
+                            tenant_id = %tenant_id,
+                            mode = "dual-write-strict",
+                            "CONSISTENCY WARNING: SQL state update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
+                        );
+                        return Err(AosError::Database(format!(
+                            "State update succeeded in SQL but failed in KV (strict mode): {e}"
+                        )));
+                    } else {
+                        warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend");
+                    }
                 } else {
                     debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, mode = "dual-write", "Adapter state updated in both SQL and KV backends");
                 }
@@ -1125,7 +1253,20 @@ impl Db {
                     .update_adapter_memory_kv(adapter_id, memory_bytes)
                     .await
                 {
-                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter memory in KV backend");
+                    if self.atomic_dual_write_config().is_strict() {
+                        error!(
+                            error = %e,
+                            adapter_id = %adapter_id,
+                            tenant_id = %tenant_id,
+                            mode = "dual-write-strict",
+                            "CONSISTENCY WARNING: SQL memory update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
+                        );
+                        return Err(AosError::Database(format!(
+                            "Memory update succeeded in SQL but failed in KV (strict mode): {e}"
+                        )));
+                    } else {
+                        warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter memory in KV backend");
+                    }
                 } else {
                     debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter memory updated in both SQL and KV backends");
                 }
@@ -1198,7 +1339,20 @@ impl Db {
                 .update_adapter_state_kv(adapter_id, state, reason)
                 .await
             {
-                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend");
+                if self.atomic_dual_write_config().is_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "CONSISTENCY WARNING: SQL state update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
+                    );
+                    return Err(AosError::Database(format!(
+                        "State update (tx) succeeded in SQL but failed in KV (strict mode): {e}"
+                    )));
+                } else {
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend");
+                }
             } else {
                 debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, mode = "dual-write", "Adapter state updated in both SQL and KV backends (tx)");
             }
@@ -1308,7 +1462,20 @@ impl Db {
                 .update_adapter_state_kv(adapter_id, new_state, reason)
                 .await
             {
-                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend (CAS)");
+                if self.atomic_dual_write_config().is_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "CONSISTENCY WARNING: SQL state update committed but KV write failed in strict mode (CAS). Use ensure_consistency() to repair."
+                    );
+                    return Err(AosError::Database(format!(
+                        "State update (CAS) succeeded in SQL but failed in KV (strict mode): {e}"
+                    )));
+                } else {
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend (CAS)");
+                }
             } else {
                 debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, new_state = %new_state, mode = "dual-write", "Adapter state updated in both SQL and KV backends (CAS)");
             }
@@ -1384,7 +1551,20 @@ impl Db {
                 .update_adapter_memory_kv(adapter_id, memory_bytes)
                 .await
             {
-                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter memory in KV backend");
+                if self.atomic_dual_write_config().is_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "CONSISTENCY WARNING: SQL memory update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
+                    );
+                    return Err(AosError::Database(format!(
+                        "Memory update (tx) succeeded in SQL but failed in KV (strict mode): {e}"
+                    )));
+                } else {
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter memory in KV backend");
+                }
             } else {
                 debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter memory updated in both SQL and KV backends (tx)");
             }
@@ -1461,7 +1641,20 @@ impl Db {
                 .update_adapter_state_and_memory_kv(adapter_id, state, memory_bytes, reason)
                 .await
             {
-                warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state/memory in KV backend");
+                if self.atomic_dual_write_config().is_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "CONSISTENCY WARNING: SQL state/memory update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
+                    );
+                    return Err(AosError::Database(format!(
+                        "State/memory update succeeded in SQL but failed in KV (strict mode): {e}"
+                    )));
+                } else {
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state/memory in KV backend");
+                }
             } else {
                 debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter state/memory updated in both SQL and KV backends");
             }
@@ -1872,7 +2065,20 @@ impl Db {
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
             if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
                 if let Err(e) = repo.update_adapter_tier_kv(adapter_id, tier).await {
-                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter tier in KV backend");
+                    if self.atomic_dual_write_config().is_strict() {
+                        error!(
+                            error = %e,
+                            adapter_id = %adapter_id,
+                            tenant_id = %tenant_id,
+                            mode = "dual-write-strict",
+                            "CONSISTENCY WARNING: SQL tier update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
+                        );
+                        return Err(AosError::Database(format!(
+                            "Tier update succeeded in SQL but failed in KV (strict mode): {e}"
+                        )));
+                    } else {
+                        warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter tier in KV backend");
+                    }
                 } else {
                     debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, tier = %tier, mode = "dual-write", "Adapter tier updated in both SQL and KV backends");
                 }
@@ -1880,6 +2086,258 @@ impl Db {
         }
 
         Ok(())
+    }
+
+    /// Ensure consistency between SQL and KV storage for a single adapter.
+    ///
+    /// Returns:
+    /// - Ok(true) if adapter is consistent or was repaired
+    /// - Ok(false) if adapter not found in SQL
+    pub async fn ensure_consistency(&self, adapter_id: &str) -> Result<bool> {
+        // Get adapter from SQL (source of truth during migration)
+        let query = format!(
+            "SELECT {} FROM adapters WHERE adapter_id = ?",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapter = match sqlx::query_as::<_, Adapter>(&query)
+            .bind(adapter_id)
+            .fetch_optional(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?
+        {
+            Some(a) => a,
+            None => return Ok(false),
+        };
+
+        // If KV is not available, consider consistent
+        let repo = match self.get_adapter_kv_repo(&adapter.tenant_id) {
+            Some(r) => r,
+            None => return Ok(true),
+        };
+
+        // Check KV entry
+        match repo.get_adapter_kv(adapter_id).await {
+            Ok(Some(kv_adapter)) => {
+                let fields_match = kv_adapter.hash_b3 == adapter.hash_b3
+                    && kv_adapter.tier == adapter.tier
+                    && kv_adapter.current_state == adapter.current_state
+                    && kv_adapter.memory_bytes == adapter.memory_bytes;
+
+                if fields_match {
+                    return Ok(true);
+                }
+
+                // Repair by re-registering from SQL data
+                warn!(
+                    adapter_id = %adapter_id,
+                    tenant_id = %adapter.tenant_id,
+                    "Inconsistency detected between SQL and KV - repairing from SQL"
+                );
+
+                let params = AdapterRegistrationParams {
+                    tenant_id: adapter.tenant_id.clone(),
+                    adapter_id: adapter
+                        .adapter_id
+                        .clone()
+                        .unwrap_or_else(|| adapter_id.to_string()),
+                    name: adapter.name.clone(),
+                    hash_b3: adapter.hash_b3.clone(),
+                    rank: adapter.rank,
+                    tier: adapter.tier.clone(),
+                    alpha: adapter.alpha,
+                    targets_json: adapter.targets_json.clone(),
+                    acl_json: adapter.acl_json.clone(),
+                    languages_json: adapter.languages_json.clone(),
+                    framework: adapter.framework.clone(),
+                    category: adapter.category.clone(),
+                    scope: adapter.scope.clone(),
+                    framework_id: adapter.framework_id.clone(),
+                    framework_version: adapter.framework_version.clone(),
+                    repo_id: adapter.repo_id.clone(),
+                    commit_sha: adapter.commit_sha.clone(),
+                    intent: adapter.intent.clone(),
+                    expires_at: adapter.expires_at.clone(),
+                    aos_file_path: adapter.aos_file_path.clone(),
+                    aos_file_hash: adapter.aos_file_hash.clone(),
+                    adapter_name: adapter.adapter_name.clone(),
+                    tenant_namespace: adapter.tenant_namespace.clone(),
+                    domain: adapter.domain.clone(),
+                    purpose: adapter.purpose.clone(),
+                    revision: adapter.revision.clone(),
+                    parent_id: adapter.parent_id.clone(),
+                    fork_type: adapter.fork_type.clone(),
+                    fork_reason: adapter.fork_reason.clone(),
+                    base_model_id: adapter.base_model_id.clone(),
+                    manifest_schema_version: adapter.manifest_schema_version.clone(),
+                    content_hash_b3: adapter.content_hash_b3.clone(),
+                    provenance_json: adapter.provenance_json.clone(),
+                };
+
+                // Delete old KV entry then re-register and sync state/memory
+                let _ = repo.delete_adapter_kv(adapter_id).await;
+                repo.register_adapter_kv(params)
+                    .await
+                    .map_err(|e| AosError::Database(format!("Failed to repair KV entry: {}", e)))?;
+                repo.update_adapter_state_kv(
+                    adapter_id,
+                    &adapter.current_state,
+                    "consistency_repair",
+                )
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to repair KV state: {}", e)))?;
+                repo.update_adapter_memory_kv(adapter_id, adapter.memory_bytes)
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!("Failed to repair KV memory: {}", e))
+                    })?;
+
+                Ok(true)
+            }
+            Ok(None) => {
+                // Missing in KV - create it
+                warn!(
+                    adapter_id = %adapter_id,
+                    tenant_id = %adapter.tenant_id,
+                    "Adapter missing in KV - creating from SQL"
+                );
+
+                let params = AdapterRegistrationParams {
+                    tenant_id: adapter.tenant_id.clone(),
+                    adapter_id: adapter
+                        .adapter_id
+                        .clone()
+                        .unwrap_or_else(|| adapter_id.to_string()),
+                    name: adapter.name.clone(),
+                    hash_b3: adapter.hash_b3.clone(),
+                    rank: adapter.rank,
+                    tier: adapter.tier.clone(),
+                    alpha: adapter.alpha,
+                    targets_json: adapter.targets_json.clone(),
+                    acl_json: adapter.acl_json.clone(),
+                    languages_json: adapter.languages_json.clone(),
+                    framework: adapter.framework.clone(),
+                    category: adapter.category.clone(),
+                    scope: adapter.scope.clone(),
+                    framework_id: adapter.framework_id.clone(),
+                    framework_version: adapter.framework_version.clone(),
+                    repo_id: adapter.repo_id.clone(),
+                    commit_sha: adapter.commit_sha.clone(),
+                    intent: adapter.intent.clone(),
+                    expires_at: adapter.expires_at.clone(),
+                    aos_file_path: adapter.aos_file_path.clone(),
+                    aos_file_hash: adapter.aos_file_hash.clone(),
+                    adapter_name: adapter.adapter_name.clone(),
+                    tenant_namespace: adapter.tenant_namespace.clone(),
+                    domain: adapter.domain.clone(),
+                    purpose: adapter.purpose.clone(),
+                    revision: adapter.revision.clone(),
+                    parent_id: adapter.parent_id.clone(),
+                    fork_type: adapter.fork_type.clone(),
+                    fork_reason: adapter.fork_reason.clone(),
+                    base_model_id: adapter.base_model_id.clone(),
+                    manifest_schema_version: adapter.manifest_schema_version.clone(),
+                    content_hash_b3: adapter.content_hash_b3.clone(),
+                    provenance_json: adapter.provenance_json.clone(),
+                };
+
+                repo.register_adapter_kv(params).await.map_err(|e| {
+                    AosError::Database(format!("Failed to create adapter in KV: {}", e))
+                })?;
+                repo.update_adapter_state_kv(
+                    adapter_id,
+                    &adapter.current_state,
+                    "consistency_repair",
+                )
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to sync state to KV: {}", e)))?;
+                repo.update_adapter_memory_kv(adapter_id, adapter.memory_bytes)
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!("Failed to sync memory to KV: {}", e))
+                    })?;
+
+                Ok(true)
+            }
+            Err(e) => Err(AosError::Database(format!(
+                "Consistency check failed: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Batch ensure consistency for multiple adapters
+    pub async fn ensure_consistency_batch(
+        &self,
+        adapter_ids: &[String],
+    ) -> Vec<(String, Result<bool>)> {
+        let mut results = Vec::new();
+
+        for adapter_id in adapter_ids {
+            let res = self.ensure_consistency(adapter_id).await;
+            results.push((adapter_id.clone(), res));
+        }
+
+        results
+    }
+
+    /// Validate consistency for all adapters in a tenant
+    ///
+    /// Returns (consistent, inconsistent, errors)
+    pub async fn validate_tenant_consistency(
+        &self,
+        tenant_id: &str,
+        repair: bool,
+    ) -> Result<(usize, usize, usize)> {
+        let adapters = self.list_adapters_for_tenant(tenant_id).await?;
+
+        let mut consistent = 0usize;
+        let mut inconsistent = 0usize;
+        let mut errors = 0usize;
+
+        for adapter in adapters {
+            if let Some(adapter_id) = &adapter.adapter_id {
+                if repair {
+                    match self.ensure_consistency(adapter_id).await {
+                        Ok(true) => consistent += 1,
+                        Ok(false) => {}
+                        Err(_) => {
+                            inconsistent += 1;
+                            errors += 1;
+                        }
+                    }
+                } else {
+                    // Check-only path (no repair)
+                    match self.get_adapter_kv_repo(&adapter.tenant_id) {
+                        None => {
+                            consistent += 1;
+                        }
+                        Some(repo) => match repo.get_adapter_kv(adapter_id).await {
+                            Ok(Some(kv_adapter)) => {
+                                let fields_match = kv_adapter.hash_b3 == adapter.hash_b3
+                                    && kv_adapter.tier == adapter.tier
+                                    && kv_adapter.current_state == adapter.current_state
+                                    && kv_adapter.memory_bytes == adapter.memory_bytes;
+
+                                if fields_match {
+                                    consistent += 1;
+                                } else {
+                                    inconsistent += 1;
+                                }
+                            }
+                            Ok(None) => {
+                                inconsistent += 1;
+                            }
+                            Err(_) => {
+                                inconsistent += 1;
+                                errors += 1;
+                            }
+                        },
+                    }
+                }
+            }
+        }
+
+        Ok((consistent, inconsistent, errors))
     }
 
     // =========================================================================
