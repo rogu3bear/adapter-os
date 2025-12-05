@@ -267,6 +267,7 @@ impl Db {
                 r#"
                 SELECT id, user_id, workspace_id, type as type_, target_type, target_id, title, content, read_at, created_at
                 FROM notifications
+                WHERE user_id = ?
                 ORDER BY created_at DESC
                 LIMIT ?
                 "#,
