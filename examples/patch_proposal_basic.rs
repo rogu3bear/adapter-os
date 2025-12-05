@@ -151,8 +151,8 @@ async fn validate_patch(
 fn create_mock_policies() -> Policies {
     use adapteros_core::B3Hash;
     use adapteros_manifest::{
-        ArtifactsPolicy, DeterminismPolicy, EgressPolicy, EvidencePolicy, IsolationPolicy,
-        MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
+        ArtifactsPolicy, DeterminismPolicy, DriftPolicy, EgressPolicy, EvidencePolicy,
+        IsolationPolicy, MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
     };
 
     Policies {
@@ -200,6 +200,10 @@ fn create_mock_policies() -> Policies {
             latency_p95_ms: 24,
             router_overhead_pct_max: 8,
             throughput_tokens_per_s_min: 40,
+            max_tokens: 1000,
+            cpu_threshold_pct: 90.0,
+            memory_threshold_pct: 95.0,
+            circuit_breaker_threshold: 5,
         },
         memory: MemoryPolicy {
             min_headroom_pct: 15u8,
@@ -210,6 +214,13 @@ fn create_mock_policies() -> Policies {
             require_signature: true,
             require_sbom: true,
             cas_only: true,
+        },
+        drift: DriftPolicy {
+            os_build_tolerance: 0,
+            gpu_driver_tolerance: 0,
+            env_hash_tolerance: 0,
+            allow_warnings: true,
+            block_on_critical: true,
         },
     }
 }

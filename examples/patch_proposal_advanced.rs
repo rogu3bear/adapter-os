@@ -4,7 +4,7 @@
 //! including custom evidence retrieval, policy configuration, and telemetry integration.
 
 use adapteros_lora_worker::{
-    evidence::{EvidencePolicy, EvidenceRequest, EvidenceRetriever, EvidenceSpan, EvidenceType},
+    evidence::{EvidenceRequest, EvidenceRetriever, EvidenceSpan, EvidenceType},
     patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator},
     patch_telemetry::{EvidenceMetrics, PatchGenerationMetrics, PatchTelemetry, ValidationMetrics},
     patch_validator::{CodePolicy, PatchValidator, ValidationResult},
@@ -17,6 +17,14 @@ use std::collections::HashMap;
 use std::time::Instant;
 #[cfg(feature = "extended-tests")]
 use tokio;
+
+/// Simple evidence policy used by this example (separate from manifest policies).
+struct EvidencePolicy {
+    min_spans: usize,
+    min_sources: usize,
+    min_avg_score: f32,
+    max_retrieval_time_ms: u64,
+}
 
 #[cfg(not(feature = "extended-tests"))]
 fn main() {
@@ -248,7 +256,7 @@ fn create_comprehensive_evidence() -> Vec<EvidenceSpan> {
             rev: "v1".to_string(),
             span_hash: "auth_framework_hash".to_string(),
             score: 0.85,
-            evidence_type: EvidenceType::Other,
+            evidence_type: EvidenceType::Framework,
             file_path: "src/framework/middleware.rs".to_string(),
             start_line: 70,
             end_line: 80,
@@ -294,11 +302,13 @@ fn validate_evidence_quality(
         ));
     }
 
+    let is_valid = errors.is_empty();
+
     Ok(ValidationResult {
-        is_valid: errors.is_empty(),
+        is_valid,
         errors,
         warnings: Vec::new(),
-        confidence: if errors.is_empty() { 0.9 } else { 0.3 },
+        confidence: if is_valid { 0.9 } else { 0.3 },
         violations: Vec::new(),
         evidence_validation: None,
         security_validation: None,
@@ -355,8 +365,9 @@ async fn validate_patch_advanced(
 fn create_advanced_policies() -> Policies {
     use adapteros_core::B3Hash;
     use adapteros_manifest::{
-        ArtifactsPolicy, DeterminismPolicy, EgressPolicy, EvidencePolicy, IsolationPolicy,
-        MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
+        ArtifactsPolicy, DeterminismPolicy, DriftPolicy, EgressPolicy,
+        EvidencePolicy as ManifestEvidencePolicy, IsolationPolicy, MemoryPolicy, NumericPolicy,
+        PerformancePolicy, RagPolicy, RefusalPolicy,
     };
 
     Policies {
@@ -373,7 +384,7 @@ fn create_advanced_policies() -> Policies {
             rng: "hkdf_seeded".to_string(),
             retrieval_tie_break: vec!["score_desc".to_string(), "doc_id_asc".to_string()],
         },
-        evidence: EvidencePolicy {
+        evidence: ManifestEvidencePolicy {
             require_open_book: true,
             min_spans: 3,
             prefer_latest_revision: true,
@@ -404,6 +415,10 @@ fn create_advanced_policies() -> Policies {
             latency_p95_ms: 20,
             router_overhead_pct_max: 5,
             throughput_tokens_per_s_min: 50,
+            max_tokens: 4096,
+            cpu_threshold_pct: 80.0,
+            memory_threshold_pct: 75.0,
+            circuit_breaker_threshold: 3,
         },
         memory: MemoryPolicy {
             min_headroom_pct: 20u8,
