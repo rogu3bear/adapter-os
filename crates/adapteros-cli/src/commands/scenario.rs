@@ -5,7 +5,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_db::adapters::Adapter;
 use adapteros_db::Db;
 use adapteros_scenarios::{AdapterConfig, ScenarioConfig, ScenarioLoader};
-use clap::{Args, Subcommand};
+use clap::Subcommand;
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
 use reqwest::Client;
 use serde::Deserialize;
@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
-#[derive(Debug, Args, Clone)]
+#[derive(Debug, Subcommand, Clone)]
 pub struct ScenarioCommand {
     #[command(subcommand)]
     pub subcommand: ScenarioSubcommand,
@@ -544,6 +544,8 @@ mod tests {
             expires_at: None,
             load_state: "warm".to_string(),
             last_loaded_at: None,
+            aos_file_path: None,
+            aos_file_hash: None,
             adapter_name: None,
             tenant_namespace: None,
             domain: None,
