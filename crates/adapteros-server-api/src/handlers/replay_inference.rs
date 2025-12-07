@@ -572,7 +572,7 @@ pub async fn execute_replay(
         )
     })?;
 
-    let mut inference_request = InferenceRequestInternal {
+    let inference_request = InferenceRequestInternal {
         request_id: replay_id.clone(),
         cpid: claims.tenant_id.clone(),
         prompt: prompt.clone(),

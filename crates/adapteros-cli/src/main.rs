@@ -190,7 +190,7 @@ Examples:
 
     /// Scenario readiness utilities
     #[command(subcommand)]
-    Scenario(commands::scenario::ScenarioCommand),
+    Scenario(commands::scenario::ScenarioSubcommand),
 
     // ============================================================
     // Node & Cluster Management
