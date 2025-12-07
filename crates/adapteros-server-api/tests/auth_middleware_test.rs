@@ -5,10 +5,9 @@
 //! - Correct HTTP status codes for auth failures
 //! - Debug-only bypass restrictions
 
-use adapteros_core::{B3Hash, Result};
+use adapteros_core::Result;
 use adapteros_db::Db;
 use chrono::{Duration, Utc};
-use uuid::Uuid;
 
 #[tokio::test]
 async fn test_revoked_token_detection() -> Result<()> {

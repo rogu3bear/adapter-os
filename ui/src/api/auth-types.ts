@@ -7,6 +7,8 @@ export interface LoginRequest {
   username: string;  // Required by backend
   email: string;
   password: string;
+  totp_code?: string;
+  device_id?: string;
 }
 
 export interface LoginResponse {
@@ -17,6 +19,8 @@ export interface LoginResponse {
   role: string;
   expires_in: number;  // Changed from expires_at to expires_in (seconds)
   tenants?: TenantSummary[];
+  mfa_level?: string;
+  admin_tenants?: string[]; // Tenant IDs the admin can manage; "*" wildcard is dev-only (debug / dev-bypass)
 }
 
 export interface RefreshResponse {
@@ -55,6 +59,7 @@ export interface UserInfoResponse {
   mfa_enabled?: boolean;
   permissions?: string[];
   token_last_rotated_at?: string;
+  admin_tenants?: string[]; // Tenant IDs the admin can manage; "*" wildcard is dev-only (debug / dev-bypass)
 }
 
 export interface User {
@@ -71,6 +76,7 @@ export interface User {
   mfa_enabled?: boolean;
   permissions?: string[];
   token_last_rotated_at?: string;
+  admin_tenants?: string[]; // Tenant IDs the admin can manage; "*" wildcard is dev-only (debug / dev-bypass)
 }
 
 export type UserRole = 'admin' | 'operator' | 'sre' | 'compliance' | 'auditor' | 'viewer';
@@ -175,6 +181,7 @@ export interface ProfileResponse {
 export interface AuthConfigResponse {
   allow_registration: boolean;
   require_email_verification: boolean;
+  access_token_ttl_minutes?: number;
   session_timeout_minutes: number;
   max_login_attempts: number;
   password_min_length: number;

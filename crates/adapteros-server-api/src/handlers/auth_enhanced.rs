@@ -1,34 +1,48 @@
+use crate::audit_helper;
 use crate::auth::{
     generate_token_ed25519_with_admin_tenants, generate_token_with_admin_tenants, hash_password,
-    verify_password, Claims,
+    issue_access_token_ed25519, issue_access_token_hmac, issue_refresh_token_ed25519,
+    issue_refresh_token_ed25519_with_kv, issue_refresh_token_hmac,
+    issue_refresh_token_hmac_with_kv, validate_refresh_token_ed25519, validate_refresh_token_hmac,
+    verify_password, Claims, JWT_ISSUER,
 };
 use crate::auth_common::{
-    attach_auth_cookie, attach_refresh_cookie, clear_auth_cookies, AuthConfig,
+    attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, clear_auth_cookies, AuthConfig,
 };
 use crate::ip_extraction::ClientIp;
+use crate::mfa::{
+    decrypt_mfa_secret, derive_mfa_key, encrypt_mfa_secret, generate_backup_codes,
+    generate_totp_secret, hash_backup_codes, otpauth_uri, verify_and_mark_backup_code, verify_totp,
+    BackupCode,
+};
 use crate::security::{
-    create_session, get_user_sessions, is_account_locked, revoke_token, track_auth_attempt,
+    check_login_lockout, create_session, get_session_by_id, get_user_sessions, lock_session,
+    revoke_token, track_auth_attempt, upsert_user_session,
 };
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::auth::{
-    LoginRequest, LoginResponse, SwitchTenantRequest, SwitchTenantResponse, TenantListResponse,
-    TenantSummary,
+    LoginRequest, LoginResponse, MfaDisableRequest, MfaEnrollStartResponse, MfaEnrollVerifyRequest,
+    MfaEnrollVerifyResponse, MfaStatusResponse, SwitchTenantRequest, SwitchTenantResponse,
+    TenantListResponse, TenantSummary,
 };
+use adapteros_db::auth_sessions_kv::AuthSessionKvRepository;
 use adapteros_db::{
     users::{Role, User},
     Db,
 };
-use std::collections::HashSet;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     Extension, Json,
 };
-use chrono::{Duration, Utc};
+use blake3;
+use chrono::{Duration, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use std::collections::HashSet;
+use tracing::{error, info, warn};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct BootstrapRequest {
@@ -85,10 +99,15 @@ fn audit_claims_for_user(user: &User, tenant_id: &str) -> Claims {
         roles: vec![user.role.clone()],
         tenant_id: tenant_id.to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 0,
         iat: 0,
         jti: String::new(),
         nbf: 0,
+        iss: JWT_ISSUER.to_string(),
     }
 }
 
@@ -144,17 +163,13 @@ async fn collect_tenant_summaries(
     let has_wildcard = admin_tenants.iter().any(|t| t == ADMIN_TENANT_WILDCARD);
     // Wildcard admin: return all tenants
     if role == "admin" && has_wildcard {
-        let (all_tenants, _) = state
-            .db
-            .list_tenants_paginated(200, 0)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to list tenants for admin");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-                )
-            })?;
+        let (all_tenants, _) = state.db.list_tenants_paginated(200, 0).await.map_err(|e| {
+            warn!(error = %e, "Failed to list tenants for admin");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?;
 
         let tenants = all_tenants
             .into_iter()
@@ -369,8 +384,8 @@ pub async fn login_handler(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    // Check account lockout
-    let is_locked = is_account_locked(&state.db, &req.email, 15)
+    // Check account lockout (user + IP)
+    let lockout_state = check_login_lockout(&state.db, &req.email, &client_ip.0)
         .await
         .map_err(|e| {
             warn!(error = %e, "Failed to check account lockout");
@@ -380,7 +395,8 @@ pub async fn login_handler(
             )
         })?;
 
-    if is_locked {
+    if let Some(lockout) = lockout_state {
+        let lockout_until_str = lockout.until.to_rfc3339();
         track_auth_attempt(
             &state.db,
             &req.email,
@@ -391,12 +407,71 @@ pub async fn login_handler(
         .await
         .ok();
 
+        let lockout_claims = state
+            .db
+            .get_user_by_email(&req.email)
+            .await
+            .ok()
+            .flatten()
+            .map(|u| {
+                let tenant = if u.tenant_id.is_empty() {
+                    "default".to_string()
+                } else {
+                    u.tenant_id.clone()
+                };
+                audit_claims_for_user(&u, &tenant)
+            })
+            .unwrap_or_else(|| Claims {
+                sub: req.email.clone(),
+                email: req.email.clone(),
+                role: "unknown".to_string(),
+                roles: vec![],
+                tenant_id: "default".to_string(),
+                admin_tenants: vec![],
+                device_id: None,
+                session_id: None,
+                mfa_level: None,
+                rot_id: None,
+                exp: 0,
+                iat: 0,
+                jti: String::new(),
+                nbf: 0,
+                iss: JWT_ISSUER.to_string(),
+            });
+
+        log_auth_event(
+            &state.db,
+            &lockout_claims,
+            "auth.lockout",
+            "session",
+            None,
+            "failure",
+            Some("too many failed attempts"),
+            Some(&client_ip.0),
+        )
+        .await;
+
+        log_auth_event(
+            &state.db,
+            &lockout_claims,
+            "auth.login_failure_excess",
+            "session",
+            None,
+            "failure",
+            Some("too many failed attempts"),
+            Some(&client_ip.0),
+        )
+        .await;
+
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("account locked")
                     .with_code("ACCOUNT_LOCKED")
-                    .with_string_details("too many failed attempts, try again later"),
+                    .with_string_details(format!(
+                        "too many failed attempts, retry after {}",
+                        lockout_until_str
+                    )),
             ),
         ));
     }
@@ -461,6 +536,52 @@ pub async fn login_handler(
             .await
             .ok();
 
+            if let Ok(Some(lockout)) =
+                check_login_lockout(&state.db, &req.email, &client_ip.0).await
+            {
+                let anon_claims = Claims {
+                    sub: req.email.clone(),
+                    email: req.email.clone(),
+                    role: "unknown".to_string(),
+                    roles: vec![],
+                    tenant_id: "default".to_string(),
+                    admin_tenants: vec![],
+                    device_id: None,
+                    session_id: None,
+                    mfa_level: None,
+                    rot_id: None,
+                    exp: 0,
+                    iat: 0,
+                    jti: String::new(),
+                    nbf: 0,
+                    iss: JWT_ISSUER.to_string(),
+                };
+
+                log_auth_event(
+                    &state.db,
+                    &anon_claims,
+                    "auth.login_failure_excess",
+                    "session",
+                    None,
+                    "failure",
+                    Some("too many failed attempts"),
+                    Some(&client_ip.0),
+                )
+                .await;
+
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    Json(
+                        ErrorResponse::new("account locked")
+                            .with_code("ACCOUNT_LOCKED")
+                            .with_string_details(format!(
+                                "too many failed attempts, retry after {}",
+                                lockout.until.to_rfc3339()
+                            )),
+                    ),
+                ));
+            }
+
             return Err((
                 StatusCode::UNAUTHORIZED,
                 Json(
@@ -473,7 +594,7 @@ pub async fn login_handler(
     };
 
     // Verify password
-    let valid = verify_password(&req.password, &user.pw_hash).map_err(|e| {
+    let verification = verify_password(&req.password, &user.pw_hash).map_err(|e| {
         warn!(error = %e, "Password verification error");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -487,7 +608,7 @@ pub async fn login_handler(
         user.tenant_id.clone()
     };
 
-    if !valid {
+    if !verification.valid {
         track_auth_attempt(
             &state.db,
             &req.email,
@@ -511,6 +632,32 @@ pub async fn login_handler(
         )
         .await;
 
+        if let Ok(Some(lockout)) = check_login_lockout(&state.db, &req.email, &client_ip.0).await {
+            log_auth_event(
+                &state.db,
+                &audit_claims,
+                "auth.login_failure_excess",
+                "session",
+                None,
+                "failure",
+                Some("too many failed attempts"),
+                Some(&client_ip.0),
+            )
+            .await;
+
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(
+                    ErrorResponse::new("account locked")
+                        .with_code("ACCOUNT_LOCKED")
+                        .with_string_details(format!(
+                            "too many failed attempts, retry after {}",
+                            lockout.until.to_rfc3339()
+                        )),
+                ),
+            ));
+        }
+
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(
@@ -519,6 +666,130 @@ pub async fn login_handler(
                     .with_string_details("email or password is incorrect"),
             ),
         ));
+    }
+
+    if verification.needs_rehash {
+        if let Ok(new_hash) = hash_password(&req.password) {
+            if let Err(e) = state.db.update_user_password(&user.id, &new_hash).await {
+                warn!(error = %e, user_id = %user.id, "Failed to upgrade password hash (continuing)");
+            }
+        }
+    }
+
+    // Enforce MFA if enabled for the user
+    let mut mfa_level: Option<String> = None;
+    if user.mfa_enabled {
+        let provided_code = if let Some(code) = req.totp_code.as_deref() {
+            code
+        } else {
+            track_auth_attempt(
+                &state.db,
+                &req.email,
+                &client_ip.0,
+                false,
+                Some("mfa required"),
+            )
+            .await
+            .ok();
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(
+                    ErrorResponse::new("MFA required")
+                        .with_code("MFA_REQUIRED")
+                        .with_string_details("enter your TOTP or backup code"),
+                ),
+            ));
+        };
+
+        let secret_enc = user.mfa_secret_enc.clone().ok_or_else(|| {
+            error!(user_id = %user.id, "MFA enabled but secret missing");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+
+        let key = derive_mfa_key(state.jwt_secret.as_slice());
+        let secret = decrypt_mfa_secret(&secret_enc, &key).map_err(|e| {
+            error!(error = %e, user_id = %user.id, "Failed to decrypt MFA secret");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+
+        let mut used_backup = false;
+        let totp_ok = verify_totp(&secret, provided_code);
+        if totp_ok {
+            let now = chrono::Utc::now().to_rfc3339();
+            if let Err(e) = state.db.update_user_mfa_last_verified(&user.id, &now).await {
+                warn!(error = %e, user_id = %user.id, "Failed to update MFA last verified");
+            }
+            mfa_level = Some("totp".to_string());
+        } else if let Some(json_codes) = user.mfa_backup_codes_json.as_ref() {
+            match serde_json::from_str::<Vec<BackupCode>>(json_codes) {
+                Ok(mut codes) => {
+                    if verify_and_mark_backup_code(&mut codes, provided_code).is_some() {
+                        used_backup = true;
+                        let now = chrono::Utc::now().to_rfc3339();
+                        let updated =
+                            serde_json::to_string(&codes).unwrap_or_else(|_| json_codes.clone());
+                        if let Err(e) = state
+                            .db
+                            .update_user_backup_codes(&user.id, &updated, Some(&now))
+                            .await
+                        {
+                            warn!(error = %e, user_id = %user.id, "Failed to persist backup code usage");
+                        }
+                        mfa_level = Some("backup_code".to_string());
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, user_id = %user.id, "Failed to parse backup codes JSON")
+                }
+            }
+        }
+
+        if mfa_level.is_none() {
+            track_auth_attempt(
+                &state.db,
+                &req.email,
+                &client_ip.0,
+                false,
+                Some("invalid mfa"),
+            )
+            .await
+            .ok();
+
+            let audit_claims = audit_claims_for_user(&user, &tenant_id);
+            log_auth_event(
+                &state.db,
+                &audit_claims,
+                "auth.login.mfa",
+                "session",
+                None,
+                "failure",
+                Some(if used_backup {
+                    "invalid backup code"
+                } else {
+                    "invalid mfa code"
+                }),
+                Some(&client_ip.0),
+            )
+            .await;
+
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(
+                    ErrorResponse::new(if used_backup {
+                        "invalid backup code"
+                    } else {
+                        "invalid mfa code"
+                    })
+                    .with_code("INVALID_MFA_CODE"),
+                ),
+            ));
+        }
     }
 
     // Get admin tenant access list if user is admin
@@ -547,16 +818,26 @@ pub async fn login_handler(
         ));
     }
 
-    // Generate access + refresh tokens
+    // Device + session identifiers
+    let device_id = req.device_id.clone();
+    let session_id = format!("sess-{}", Uuid::now_v7());
+    let rot_id = format!("rot-{}", Uuid::now_v7());
+    let roles_vec = vec![user.role.clone()];
+
+    // Generate access + refresh tokens (embed session_id; refresh carries rot_id)
     let access_token = if state.use_ed25519 {
-        generate_token_ed25519_with_admin_tenants(
+        issue_access_token_ed25519(
             &user.id,
             &user.email,
             &user.role,
+            &roles_vec,
             &tenant_id,
             &admin_tenants,
+            device_id.as_deref(),
+            &session_id,
+            mfa_level.as_deref(),
             &state.ed25519_keypair,
-            auth_cfg.access_ttl(),
+            Some(auth_cfg.access_ttl()),
         )
         .map_err(|e| {
             warn!(error = %e, "Failed to generate access token");
@@ -566,14 +847,18 @@ pub async fn login_handler(
             )
         })?
     } else {
-        generate_token_with_admin_tenants(
+        issue_access_token_hmac(
             &user.id,
             &user.email,
             &user.role,
+            &roles_vec,
             &tenant_id,
             &admin_tenants,
+            device_id.as_deref(),
+            &session_id,
+            mfa_level.as_deref(),
             &state.jwt_secret,
-            auth_cfg.access_ttl(),
+            Some(auth_cfg.access_ttl()),
         )
         .map_err(|e| {
             warn!(error = %e, "Failed to generate access token");
@@ -584,47 +869,136 @@ pub async fn login_handler(
         })?
     };
 
-    let refresh_token = if state.use_ed25519 {
-        generate_token_ed25519_with_admin_tenants(
-            &user.id,
-            &user.email,
-            &user.role,
-            &tenant_id,
-            &admin_tenants,
-            &state.ed25519_keypair,
-            auth_cfg.effective_ttl(),
-        )
-        .map_err(|e| {
-            warn!(error = %e, "Failed to generate refresh token");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+    let kv_repo = state.db.kv_backend().map(|kv| {
+        let backend: std::sync::Arc<dyn adapteros_db::KvBackend> = kv.clone();
+        AuthSessionKvRepository::new(backend)
+    });
+
+    let (refresh_token, refresh_exp_ts, refresh_hash) = if state.use_ed25519 {
+        if let Some(repo) = kv_repo.as_ref() {
+            issue_refresh_token_ed25519_with_kv(
+                repo,
+                &user.id,
+                &tenant_id,
+                &roles_vec,
+                device_id.as_deref(),
+                &session_id,
+                &rot_id,
+                &state.ed25519_keypair,
+                Some(auth_cfg.effective_ttl()),
+                Some(&client_ip.0),
+                user_agent.as_deref(),
             )
-        })?
+            .await
+            .map_err(|e| {
+                warn!(error = %e, "Failed to generate refresh token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+                )
+            })?
+        } else {
+            let token = issue_refresh_token_ed25519(
+                &user.id,
+                &tenant_id,
+                &roles_vec,
+                device_id.as_deref(),
+                &session_id,
+                &rot_id,
+                &state.ed25519_keypair,
+                Some(auth_cfg.effective_ttl()),
+            )
+            .map_err(|e| {
+                warn!(error = %e, "Failed to generate refresh token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+            let claims = validate_refresh_token_ed25519(
+                &token,
+                &state.ed25519_public_keys,
+                &state.ed25519_public_key,
+            )
+            .map_err(|e| {
+                warn!(error = %e, "Failed to validate generated refresh token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+            let hash = blake3::hash(token.as_bytes()).to_hex().to_string();
+            (token, claims.exp, hash)
+        }
     } else {
-        generate_token_with_admin_tenants(
-            &user.id,
-            &user.email,
-            &user.role,
-            &tenant_id,
-            &admin_tenants,
-            &state.jwt_secret,
-            auth_cfg.effective_ttl(),
-        )
-        .map_err(|e| {
-            warn!(error = %e, "Failed to generate refresh token");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+        if let Some(repo) = kv_repo.as_ref() {
+            issue_refresh_token_hmac_with_kv(
+                repo,
+                &user.id,
+                &tenant_id,
+                &roles_vec,
+                device_id.as_deref(),
+                &session_id,
+                &rot_id,
+                &state.jwt_secret,
+                Some(auth_cfg.effective_ttl()),
+                Some(&client_ip.0),
+                user_agent.as_deref(),
             )
-        })?
+            .await
+            .map_err(|e| {
+                warn!(error = %e, "Failed to generate refresh token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+                )
+            })?
+        } else {
+            let token = issue_refresh_token_hmac(
+                &user.id,
+                &tenant_id,
+                &roles_vec,
+                device_id.as_deref(),
+                &session_id,
+                &rot_id,
+                &state.jwt_secret,
+                Some(auth_cfg.effective_ttl()),
+            )
+            .map_err(|e| {
+                warn!(error = %e, "Failed to generate refresh token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+            let claims = validate_refresh_token_hmac(&token, &state.hmac_keys, &state.jwt_secret)
+                .map_err(|e| {
+                warn!(error = %e, "Failed to validate generated refresh token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+            let hash = blake3::hash(token.as_bytes()).to_hex().to_string();
+            (token, claims.exp, hash)
+        }
     };
+
+    let refresh_expires_at = Utc
+        .timestamp_opt(refresh_exp_ts, 0)
+        .single()
+        .unwrap_or_else(|| Utc::now())
+        .to_rfc3339();
 
     // Decode to get jti and exp
     let claims = if state.use_ed25519 {
-        crate::auth::validate_token_ed25519(&access_token, &state.ed25519_public_key)
+        crate::auth::validate_token_ed25519(
+            &access_token,
+            &state.ed25519_public_keys,
+            &state.ed25519_public_key,
+        )
     } else {
-        crate::auth::validate_token(&access_token, &state.jwt_secret)
+        crate::auth::validate_token(&access_token, &state.hmac_keys, state.jwt_secret.as_slice())
     }
     .map_err(|e| {
         warn!(error = %e, "Token validation failed after generation");
@@ -634,16 +1008,19 @@ pub async fn login_handler(
         )
     })?;
 
-    // Create session with user agent for audit tracking (critical - must succeed)
-    let expires_at = Utc::now() + Duration::seconds(auth_cfg.effective_ttl() as i64);
-    create_session(
+    // Persist session with device binding metadata
+    upsert_user_session(
         &state.db,
-        &claims.jti,
+        &session_id,
         &user.id,
         &tenant_id,
-        &expires_at.to_rfc3339(),
+        device_id.as_deref(),
+        Some(&rot_id),
+        Some(&refresh_hash),
+        &refresh_expires_at,
         Some(&client_ip.0),
         user_agent.as_deref(),
+        false,
     )
     .await
     .map_err(|e| {
@@ -663,7 +1040,18 @@ pub async fn login_handler(
     log_auth_event(
         &state.db,
         &claims,
-        "auth.login",
+        "auth.session_created",
+        "session",
+        Some(&claims.jti),
+        "success",
+        None,
+        Some(&client_ip.0),
+    )
+    .await;
+    log_auth_event(
+        &state.db,
+        &claims,
+        "auth.login_success",
         "session",
         Some(&claims.jti),
         "success",
@@ -708,6 +1096,7 @@ pub async fn login_handler(
             role: user.role,
             expires_in: auth_cfg.access_ttl(),
             tenants: Some(tenants),
+            mfa_level,
         }),
     ))
 }
@@ -737,13 +1126,28 @@ pub async fn logout_handler(
         )
     })?;
 
+    if let Some(session_id) = claims.session_id.as_ref() {
+        if let Err(e) = lock_session(&state.db, session_id).await {
+            warn!(error = %e, "Failed to lock session during logout");
+        }
+
+        if let Some(repo) = state.db.kv_backend().map(|kv| {
+            let backend: std::sync::Arc<dyn adapteros_db::KvBackend> = kv.clone();
+            AuthSessionKvRepository::new(backend)
+        }) {
+            if let Err(e) = repo.lock_session(session_id).await {
+                warn!(error = %e, "Failed to lock KV session during logout");
+            }
+        }
+    }
+
     state
         .db
         .log_audit(
             &claims.sub,
             &claims.role,
             &claims.tenant_id,
-            "auth.logout",
+            "auth.session_revoked",
             "session",
             Some(&claims.jti),
             "success",
@@ -791,6 +1195,11 @@ pub async fn refresh_token_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<(HeaderMap, Json<RefreshResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     let refresh_token = extract_cookie_token(&headers, "refresh_token").ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
@@ -803,9 +1212,17 @@ pub async fn refresh_token_handler(
     })?;
 
     let refresh_claims = match if state.use_ed25519 {
-        crate::auth::validate_token_ed25519(&refresh_token, &state.ed25519_public_key)
+        validate_refresh_token_ed25519(
+            &refresh_token,
+            &state.ed25519_public_keys,
+            &state.ed25519_public_key,
+        )
     } else {
-        crate::auth::validate_token(&refresh_token, &state.jwt_secret)
+        validate_refresh_token_hmac(
+            &refresh_token,
+            &state.hmac_keys,
+            state.jwt_secret.as_slice(),
+        )
     } {
         Ok(claims) => claims,
         Err(e) => {
@@ -821,29 +1238,179 @@ pub async fn refresh_token_handler(
         }
     };
 
+    let session_id = refresh_claims.session_id.clone();
+    if session_id.is_empty() {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(
+                ErrorResponse::new("session expired")
+                    .with_code("SESSION_EXPIRED")
+                    .with_string_details("missing session_id"),
+            ),
+        ));
+    }
+
+    let token_device = refresh_claims.device_id.clone();
+    let incoming_rot = refresh_claims.rot_id.clone();
+    let refresh_hash = blake3::hash(refresh_token.as_bytes()).to_hex().to_string();
+    let now_ts = Utc::now().timestamp();
+
+    let session = get_session_by_id(&state.db, &session_id)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Failed to load session for refresh");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(
+                    ErrorResponse::new("session expired")
+                        .with_code("SESSION_EXPIRED")
+                        .with_string_details("session not found"),
+                ),
+            )
+        })?;
+
+    if session.locked != 0 {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(
+                ErrorResponse::new("session expired")
+                    .with_code("SESSION_EXPIRED")
+                    .with_string_details("session locked"),
+            ),
+        ));
+    }
+
+    if let (Some(token_device), Some(session_device)) =
+        (token_device.as_ref(), session.device_id.as_ref())
+    {
+        if token_device != session_device {
+            warn!(
+                session_id = %session_id,
+                token_device = %token_device,
+                session_device = %session_device,
+                "Device mismatch on refresh"
+            );
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(
+                    ErrorResponse::new("unauthorized")
+                        .with_code("UNAUTHORIZED")
+                        .with_string_details("device mismatch"),
+                ),
+            ));
+        }
+    }
+
+    if let Some(stored_rot) = session.rot_id.as_ref() {
+        if stored_rot != &incoming_rot {
+            warn!(session_id = %session_id, "Rotation id mismatch on refresh");
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(
+                    ErrorResponse::new("unauthorized")
+                        .with_code("UNAUTHORIZED")
+                        .with_string_details("rotation mismatch"),
+                ),
+            ));
+        }
+    }
+
+    if let Some(stored_hash) = session.refresh_hash.as_ref() {
+        if stored_hash != &refresh_hash {
+            warn!(session_id = %session_id, "Refresh hash mismatch");
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(
+                    ErrorResponse::new("unauthorized")
+                        .with_code("UNAUTHORIZED")
+                        .with_string_details("refresh mismatch"),
+                ),
+            ));
+        }
+    }
+
+    let session_exp_ts = session
+        .refresh_expires_at
+        .as_ref()
+        .or_else(|| Some(&session.expires_at))
+        .and_then(|dt| chrono::DateTime::parse_from_rfc3339(dt).ok())
+        .map(|dt| dt.timestamp())
+        .unwrap_or(refresh_claims.exp);
+
+    if refresh_claims.exp <= now_ts || session_exp_ts <= now_ts {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(
+                ErrorResponse::new("session expired")
+                    .with_code("SESSION_EXPIRED")
+                    .with_string_details("session expired"),
+            ),
+        ));
+    }
+
+    // Load user to recover role/email/admin tenants for fresh tokens
+    let user = match state.db.get_user(&refresh_claims.sub).await {
+        Ok(Some(u)) => u,
+        _ => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse::new("unauthorized").with_code("UNAUTHORIZED")),
+            ))
+        }
+    };
+
+    let admin_tenants = if user.role == "admin" {
+        adapteros_db::get_user_tenant_access(&state.db, &user.id)
+            .await
+            .unwrap_or_default()
+    } else {
+        vec![]
+    };
+
+    let roles_vec = if refresh_claims.roles.is_empty() {
+        vec![user.role.clone()]
+    } else {
+        refresh_claims.roles.clone()
+    };
+    let device_id = token_device.or(session.device_id.clone());
+    let new_rot_id = format!("rot-{}", Uuid::now_v7());
+
     // Generate fresh tokens
     let auth_cfg = AuthConfig::from_state(&state);
-    let admin_tenants = refresh_claims.admin_tenants.clone();
 
     let new_access_token = if state.use_ed25519 {
-        generate_token_ed25519_with_admin_tenants(
-            &refresh_claims.sub,
-            &refresh_claims.email,
-            &refresh_claims.role,
+        issue_access_token_ed25519(
+            &user.id,
+            &user.email,
+            &user.role,
+            &roles_vec,
             &refresh_claims.tenant_id,
             &admin_tenants,
+            device_id.as_deref(),
+            &session_id,
+            None,
             &state.ed25519_keypair,
-            auth_cfg.access_ttl(),
+            Some(auth_cfg.access_ttl()),
         )
     } else {
-        generate_token_with_admin_tenants(
-            &refresh_claims.sub,
-            &refresh_claims.email,
-            &refresh_claims.role,
+        issue_access_token_hmac(
+            &user.id,
+            &user.email,
+            &user.role,
+            &roles_vec,
             &refresh_claims.tenant_id,
             &admin_tenants,
+            device_id.as_deref(),
+            &session_id,
+            None,
             &state.jwt_secret,
-            auth_cfg.access_ttl(),
+            Some(auth_cfg.access_ttl()),
         )
     }
     .map_err(|e| {
@@ -854,39 +1421,186 @@ pub async fn refresh_token_handler(
         )
     })?;
 
-    let new_refresh_token = if state.use_ed25519 {
-        generate_token_ed25519_with_admin_tenants(
-            &refresh_claims.sub,
-            &refresh_claims.email,
-            &refresh_claims.role,
-            &refresh_claims.tenant_id,
-            &admin_tenants,
-            &state.ed25519_keypair,
-            auth_cfg.effective_ttl(),
-        )
+    let kv_repo = state.db.kv_backend().map(|kv| {
+        let backend: std::sync::Arc<dyn adapteros_db::KvBackend> = kv.clone();
+        AuthSessionKvRepository::new(backend)
+    });
+
+    let (new_refresh_token, new_refresh_exp_ts, new_refresh_hash) = if state.use_ed25519 {
+        if let Some(repo) = kv_repo.as_ref() {
+            match issue_refresh_token_ed25519_with_kv(
+                repo,
+                &user.id,
+                &refresh_claims.tenant_id,
+                &roles_vec,
+                device_id.as_deref(),
+                &session_id,
+                &new_rot_id,
+                &state.ed25519_keypair,
+                Some(auth_cfg.effective_ttl()),
+                None,
+                user_agent.as_deref(),
+            )
+            .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(error = %e, "Failed to generate refreshed session token");
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR"),
+                        ),
+                    ));
+                }
+            }
+        } else {
+            let token = issue_refresh_token_ed25519(
+                &user.id,
+                &refresh_claims.tenant_id,
+                &roles_vec,
+                device_id.as_deref(),
+                &session_id,
+                &new_rot_id,
+                &state.ed25519_keypair,
+                Some(auth_cfg.effective_ttl()),
+            )
+            .map_err(|e| {
+                warn!(error = %e, "Failed to generate refreshed session token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+            let claims = validate_refresh_token_ed25519(
+                &token,
+                &state.ed25519_public_keys,
+                &state.ed25519_public_key,
+            )
+            .map_err(|e| {
+                warn!(error = %e, "Failed to validate refreshed token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+            let hash = blake3::hash(token.as_bytes()).to_hex().to_string();
+            (token, claims.exp, hash)
+        }
     } else {
-        generate_token_with_admin_tenants(
-            &refresh_claims.sub,
-            &refresh_claims.email,
-            &refresh_claims.role,
-            &refresh_claims.tenant_id,
-            &admin_tenants,
-            &state.jwt_secret,
-            auth_cfg.effective_ttl(),
-        )
-    }
+        if let Some(repo) = kv_repo.as_ref() {
+            match issue_refresh_token_hmac_with_kv(
+                repo,
+                &user.id,
+                &refresh_claims.tenant_id,
+                &roles_vec,
+                device_id.as_deref(),
+                &session_id,
+                &new_rot_id,
+                &state.jwt_secret,
+                Some(auth_cfg.effective_ttl()),
+                None,
+                user_agent.as_deref(),
+            )
+            .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(error = %e, "Failed to generate refreshed session token");
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR"),
+                        ),
+                    ));
+                }
+            }
+        } else {
+            let token = issue_refresh_token_hmac(
+                &user.id,
+                &refresh_claims.tenant_id,
+                &roles_vec,
+                device_id.as_deref(),
+                &session_id,
+                &new_rot_id,
+                &state.jwt_secret,
+                Some(auth_cfg.effective_ttl()),
+            )
+            .map_err(|e| {
+                warn!(error = %e, "Failed to generate refreshed session token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+            let claims = validate_refresh_token_hmac(&token, &state.hmac_keys, &state.jwt_secret)
+                .map_err(|e| {
+                warn!(error = %e, "Failed to validate refreshed token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR")),
+                )
+            })?;
+            let hash = blake3::hash(token.as_bytes()).to_hex().to_string();
+            (token, claims.exp, hash)
+        }
+    };
+
+    let refresh_expires_at = Utc
+        .timestamp_opt(new_refresh_exp_ts, 0)
+        .single()
+        .unwrap_or_else(|| Utc::now())
+        .to_rfc3339();
+
+    // Persist rotation
+    upsert_user_session(
+        &state.db,
+        &session_id,
+        &user.id,
+        &refresh_claims.tenant_id,
+        device_id.as_deref(),
+        Some(&new_rot_id),
+        Some(&new_refresh_hash),
+        &refresh_expires_at,
+        None,
+        user_agent.as_deref(),
+        false,
+    )
+    .await
     .map_err(|e| {
-        warn!(error = %e, "Failed to generate refreshed session token");
+        warn!(error = %e, "Failed to persist rotated session");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("token refresh failed").with_code("INTERNAL_ERROR")),
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
         )
     })?;
 
+    if let Some(repo) = kv_repo.as_ref() {
+        if let Err(e) = repo
+            .rotate_session(
+                &session_id,
+                &new_rot_id,
+                Some(&new_refresh_hash),
+                new_refresh_exp_ts,
+            )
+            .await
+        {
+            warn!(error = %e, "Failed to rotate KV session");
+        }
+    }
+
     let new_access_claims = match if state.use_ed25519 {
-        crate::auth::validate_token_ed25519(&new_access_token, &state.ed25519_public_key)
+        crate::auth::validate_token_ed25519(
+            &new_access_token,
+            &state.ed25519_public_keys,
+            &state.ed25519_public_key,
+        )
     } else {
-        crate::auth::validate_token(&new_access_token, &state.jwt_secret)
+        crate::auth::validate_token(
+            &new_access_token,
+            &state.hmac_keys,
+            state.jwt_secret.as_slice(),
+        )
     } {
         Ok(claims) => claims,
         Err(e) => {
@@ -898,29 +1612,12 @@ pub async fn refresh_token_handler(
         }
     };
 
-    // Persist session for new access token (best-effort)
-    let expires_at = Utc::now() + Duration::seconds(auth_cfg.access_ttl() as i64);
-    let expires_at_str = expires_at.to_rfc3339();
-    if let Err(e) = sqlx::query(
-        "INSERT INTO user_sessions (jti, user_id, tenant_id, created_at, expires_at, last_activity)
-         VALUES (?, ?, ?, datetime('now'), ?, datetime('now'))",
-    )
-    .bind(&new_access_claims.jti)
-    .bind(&refresh_claims.sub)
-    .bind(&refresh_claims.tenant_id)
-    .bind(&expires_at_str)
-    .execute(state.db.pool())
-    .await
-    {
-        warn!(error = %e, user_id = %refresh_claims.sub, "Failed to create refreshed session");
-    }
-
     log_auth_event(
         &state.db,
-        &refresh_claims,
-        "auth.refresh",
+        &new_access_claims,
+        "auth.session_refreshed",
         "session",
-        Some(&new_access_claims.jti),
+        Some(&session_id),
         "success",
         None,
         None,
@@ -942,11 +1639,25 @@ pub async fn refresh_token_handler(
             Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
         )
     })?;
+    let csrf_token = uuid::Uuid::new_v4().to_string();
+    attach_csrf_cookie(
+        &mut response_headers,
+        &csrf_token,
+        &auth_cfg,
+        auth_cfg.effective_ttl(),
+    )
+    .map_err(|e| {
+        warn!(error = %e, "Failed to attach csrf cookie");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
 
     info!(
         user_id = %refresh_claims.sub,
-        old_jti = %refresh_claims.jti,
-        new_jti = %new_access_claims.jti,
+        session_id = %session_id,
+        new_rot_id = %new_rot_id,
         "Token refreshed"
     );
 
@@ -1179,9 +1890,13 @@ pub async fn switch_tenant_handler(
     })?;
 
     let access_claims = if state.use_ed25519 {
-        crate::auth::validate_token_ed25519(&access_token, &state.ed25519_public_key)
+        crate::auth::validate_token_ed25519(
+            &access_token,
+            &state.ed25519_public_keys,
+            &state.ed25519_public_key,
+        )
     } else {
-        crate::auth::validate_token(&access_token, &state.jwt_secret)
+        crate::auth::validate_token(&access_token, &state.hmac_keys, state.jwt_secret.as_slice())
     }
     .map_err(|e| {
         warn!(error = %e, "Token validation failed after tenant switch generation");
@@ -1206,14 +1921,9 @@ pub async fn switch_tenant_handler(
         warn!(error = %e, user_id = %user.id, "Failed to create session during tenant switch");
     }
 
-    let tenants = collect_tenant_summaries(
-        &state,
-        &user.id,
-        &user.role,
-        &target_tenant,
-        &admin_tenants,
-    )
-    .await?;
+    let tenants =
+        collect_tenant_summaries(&state, &user.id, &user.role, &target_tenant, &admin_tenants)
+            .await?;
 
     let mut headers = HeaderMap::new();
     attach_auth_cookie(&mut headers, &access_token, &auth_cfg).map_err(|e| {
@@ -1241,6 +1951,7 @@ pub async fn switch_tenant_handler(
             role: user.role,
             expires_in: auth_cfg.access_ttl(),
             tenants: Some(tenants),
+            mfa_level: None,
         }),
     ))
 }
@@ -1406,6 +2117,18 @@ pub async fn revoke_session_handler(
         ));
     }
 
+    if let Err(e) = lock_session(&state.db, &jti).await {
+        warn!(error = %e, "Failed to lock revoked session");
+    }
+    if let Some(repo) = state.db.kv_backend().map(|kv| {
+        let backend: std::sync::Arc<dyn adapteros_db::KvBackend> = kv.clone();
+        AuthSessionKvRepository::new(backend)
+    }) {
+        if let Err(e) = repo.lock_session(&jti).await {
+            warn!(error = %e, "Failed to lock revoked KV session");
+        }
+    }
+
     log_auth_event(
         &state.db,
         &claims,
@@ -1451,10 +2174,15 @@ pub async fn dev_bypass_handler(
             roles: vec!["system".to_string()],
             tenant_id: "system".to_string(),
             admin_tenants: vec![],
+            device_id: None,
+            session_id: None,
+            mfa_level: None,
+            rot_id: None,
             exp: 0,
             iat: 0,
             jti: String::new(),
             nbf: 0,
+            iss: JWT_ISSUER.to_string(),
         };
         log_auth_event(
             &state.db,
@@ -1521,9 +2249,18 @@ pub async fn dev_bypass_handler(
         disabled: false,
         created_at: Utc::now().to_rfc3339(),
         tenant_id: tenant_id.clone(),
+        failed_attempts: 0,
+        last_failed_at: None,
+        lockout_until: None,
+        mfa_enabled: false,
+        mfa_secret_enc: None,
+        mfa_backup_codes_json: None,
+        mfa_enrolled_at: None,
+        mfa_last_verified_at: None,
+        mfa_recovery_last_used_at: None,
     };
 
-    let ctx = AuthContext::from_user(dev_user).map_err(|err| {
+    let mut ctx = AuthContext::from_user(dev_user).map_err(|err| {
         warn!(error = %err, "Failed to build dev auth context");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1531,7 +2268,11 @@ pub async fn dev_bypass_handler(
         )
     })?;
 
-    let token = build_auth_token(&ctx, &auth_cfg).map_err(|err| {
+    if role == "admin" {
+        ctx.admin_tenants = vec![ADMIN_TENANT_WILDCARD.to_string()];
+    }
+
+    let token = build_auth_token(&ctx, &auth_cfg, None).map_err(|err| {
         warn!(error = %err, "Failed to generate dev bypass token");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1540,9 +2281,13 @@ pub async fn dev_bypass_handler(
     })?;
 
     let claims = if state.use_ed25519 {
-        crate::auth::validate_token_ed25519(&token, &state.ed25519_public_key)
+        crate::auth::validate_token_ed25519(
+            &token,
+            &state.ed25519_public_keys,
+            &state.ed25519_public_key,
+        )
     } else {
-        crate::auth::validate_token(&token, &state.jwt_secret)
+        crate::auth::validate_token(&token, &state.hmac_keys, state.jwt_secret.as_slice())
     }
     .map_err(|e| {
         warn!(error = %e, "Token validation failed after generation");
@@ -1590,8 +2335,9 @@ pub async fn dev_bypass_handler(
         "Dev bypass login successful"
     );
 
-    let admin_tenants =
-        adapteros_db::get_user_tenant_access(&state.db, &ctx.user.id).await.unwrap_or_default();
+    let admin_tenants = adapteros_db::get_user_tenant_access(&state.db, &ctx.user.id)
+        .await
+        .unwrap_or_default();
     let role_string = ctx.role.to_string();
     let tenants = collect_tenant_summaries(
         &state,
@@ -1628,6 +2374,7 @@ pub async fn dev_bypass_handler(
             role: ctx.role.to_string(),
             expires_in: auth_cfg.effective_ttl(),
             tenants: Some(tenants),
+            mfa_level: None,
         }),
     ))
 }
@@ -1855,9 +2602,13 @@ pub async fn dev_bootstrap_handler(
 
     // Validate the generated token
     let claims = if state.use_ed25519 {
-        crate::auth::validate_token_ed25519(&token, &state.ed25519_public_key)
+        crate::auth::validate_token_ed25519(
+            &token,
+            &state.ed25519_public_keys,
+            &state.ed25519_public_key,
+        )
     } else {
-        crate::auth::validate_token(&token, &state.jwt_secret)
+        crate::auth::validate_token(&token, &state.hmac_keys, state.jwt_secret.as_slice())
     }
     .map_err(|e| {
         warn!(error = %e, "Token validation failed after generation");
@@ -1918,6 +2669,324 @@ pub async fn dev_bootstrap_handler(
     ))
 }
 
+/// Get MFA status for current user
+#[utoipa::path(
+    get,
+    path = "/v1/auth/mfa/status",
+    responses(
+        (status = 200, description = "MFA status", body = MfaStatusResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "auth"
+)]
+pub async fn mfa_status_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<MfaStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let user = state
+        .db
+        .get_user(&claims.sub)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("internal error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse::new("unauthorized").with_code("UNAUTHORIZED")),
+        ))?;
+
+    Ok(Json(MfaStatusResponse {
+        mfa_enabled: user.mfa_enabled,
+        enrolled_at: user.mfa_enrolled_at,
+    }))
+}
+
+/// Start MFA enrollment: generate secret and store encrypted pending secret.
+#[utoipa::path(
+    post,
+    path = "/v1/auth/mfa/start",
+    responses(
+        (status = 200, description = "MFA enrollment started", body = MfaEnrollStartResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "auth"
+)]
+pub async fn mfa_start_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<MfaEnrollStartResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let (secret_bytes, secret_b32) = generate_totp_secret();
+    let key = derive_mfa_key(state.jwt_secret.as_slice());
+    let encrypted_secret = encrypt_mfa_secret(&secret_bytes, &key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to prepare MFA secret")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    state
+        .db
+        .set_user_mfa_secret(&claims.sub, &encrypted_secret, &now)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to save MFA secret")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let otpauth = otpauth_uri(&claims.email, "AdapterOS", &secret_b32);
+
+    let _ = audit_helper::log_success(
+        &state.db,
+        &claims,
+        "auth.mfa.start",
+        "user",
+        Some(&claims.sub),
+    )
+    .await;
+
+    Ok(Json(MfaEnrollStartResponse {
+        secret: secret_b32,
+        otpauth_url: otpauth,
+    }))
+}
+
+/// Verify MFA enrollment and return backup codes.
+#[utoipa::path(
+    post,
+    path = "/v1/auth/mfa/verify",
+    request_body = MfaEnrollVerifyRequest,
+    responses(
+        (status = 200, description = "MFA enabled", body = MfaEnrollVerifyResponse),
+        (status = 400, description = "Invalid MFA code", body = ErrorResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "auth"
+)]
+pub async fn mfa_verify_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<MfaEnrollVerifyRequest>,
+) -> Result<Json<MfaEnrollVerifyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let user = state
+        .db
+        .get_user(&claims.sub)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("internal error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse::new("unauthorized").with_code("UNAUTHORIZED")),
+        ))?;
+
+    let secret_enc = user.mfa_secret_enc.clone().ok_or((
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse::new("MFA not initialized").with_code("MFA_NOT_INITIALIZED")),
+    ))?;
+
+    let key = derive_mfa_key(state.jwt_secret.as_slice());
+    let secret = decrypt_mfa_secret(&secret_enc, &key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to decrypt secret")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    if !verify_totp(&secret, &req.totp_code) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("Invalid MFA code").with_code("INVALID_MFA_CODE")),
+        ));
+    }
+
+    let backup_codes = generate_backup_codes();
+    let hashed = hash_backup_codes(&backup_codes);
+    let hashed_json = serde_json::to_string(&hashed).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to encode backup codes")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    state
+        .db
+        .enable_user_mfa(&claims.sub, &secret_enc, &hashed_json, &now)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to persist MFA state")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let _ = audit_helper::log_success(
+        &state.db,
+        &claims,
+        "auth.mfa.enable",
+        "user",
+        Some(&claims.sub),
+    )
+    .await;
+
+    Ok(Json(MfaEnrollVerifyResponse { backup_codes }))
+}
+
+/// Disable MFA using TOTP or backup code.
+#[utoipa::path(
+    post,
+    path = "/v1/auth/mfa/disable",
+    request_body = MfaDisableRequest,
+    responses(
+        (status = 204, description = "MFA disabled"),
+        (status = 400, description = "Invalid request or code", body = ErrorResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "auth"
+)]
+pub async fn mfa_disable_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<MfaDisableRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let user = state
+        .db
+        .get_user(&claims.sub)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("internal error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse::new("unauthorized").with_code("UNAUTHORIZED")),
+        ))?;
+
+    if !user.mfa_enabled {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("MFA not enabled").with_code("MFA_NOT_ENABLED")),
+        ));
+    }
+
+    let provided = req
+        .totp_code
+        .as_deref()
+        .or_else(|| req.backup_code.as_deref())
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("MFA code required").with_code("MFA_CODE_REQUIRED")),
+        ))?;
+
+    let secret_enc = user.mfa_secret_enc.clone().ok_or((
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse::new("MFA secret missing").with_code("MFA_SECRET_MISSING")),
+    ))?;
+
+    let key = derive_mfa_key(state.jwt_secret.as_slice());
+    let secret = decrypt_mfa_secret(&secret_enc, &key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to decrypt secret")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let mut valid = verify_totp(&secret, provided);
+    if !valid {
+        if let Some(json_codes) = user.mfa_backup_codes_json.as_ref() {
+            if let Ok(mut codes) = serde_json::from_str::<Vec<BackupCode>>(json_codes) {
+                if verify_and_mark_backup_code(&mut codes, provided).is_some() {
+                    valid = true;
+                    // Persist used flag
+                    let now = chrono::Utc::now().to_rfc3339();
+                    let updated =
+                        serde_json::to_string(&codes).unwrap_or_else(|_| json_codes.clone());
+                    let _ = state
+                        .db
+                        .update_user_backup_codes(&claims.sub, &updated, Some(&now))
+                        .await;
+                }
+            }
+        }
+    }
+
+    if !valid {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("Invalid MFA code").with_code("INVALID_MFA_CODE")),
+        ));
+    }
+
+    state.db.disable_user_mfa(&claims.sub).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to disable MFA")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let _ = audit_helper::log_success(
+        &state.db,
+        &claims,
+        "auth.mfa.disable",
+        "user",
+        Some(&claims.sub),
+    )
+    .await;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Authentication configuration response for frontend
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AuthConfigResponse {
@@ -1925,6 +2994,8 @@ pub struct AuthConfigResponse {
     pub allow_registration: bool,
     /// Whether email verification is required
     pub require_email_verification: bool,
+    /// Access token lifetime in minutes
+    pub access_token_ttl_minutes: u32,
     /// Session timeout in minutes
     pub session_timeout_minutes: u32,
     /// Maximum failed login attempts before lockout
@@ -1976,8 +3047,9 @@ pub async fn get_auth_config_handler(
     let response = AuthConfigResponse {
         allow_registration: false, // Registration not implemented yet
         require_email_verification: false,
+        access_token_ttl_minutes: (auth_cfg.access_ttl() / 60) as u32,
         session_timeout_minutes: (auth_cfg.effective_ttl() / 60) as u32,
-        max_login_attempts: 5, // Hardcoded for now, could be in config
+        max_login_attempts: config.auth.lockout_threshold,
         password_min_length: 12,
         mfa_required: config.security.require_mfa.unwrap_or(false),
         allowed_domains: None,

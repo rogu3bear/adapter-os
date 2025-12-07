@@ -1,4 +1,7 @@
-use crate::auth::{generate_token, generate_token_ed25519};
+use crate::auth::{
+    generate_token_ed25519_with_admin_tenants_mfa, generate_token_with_admin_tenants_mfa,
+    DEFAULT_SESSION_TTL_SECS,
+};
 use crate::permissions::{permissions_for_role, Permission};
 use crate::state::AppState;
 use adapteros_api_types::auth::UserInfoResponse;
@@ -17,6 +20,7 @@ pub struct AuthConfig<'a> {
     pub production_mode: bool,
     pub dev_login_enabled: bool,
     pub use_ed25519: bool,
+    pub jwt_kid: String,
     pub ed25519_keypair: &'a Keypair,
     pub jwt_secret: &'a [u8],
     pub cookie_same_site: String,
@@ -28,14 +32,15 @@ impl<'a> AuthConfig<'a> {
     /// Builds the configuration from the current app state.
     pub fn from_state(state: &'a AppState) -> Self {
         let config = state.config.read().unwrap();
-        let session_ttl_seconds = config
-            .security
-            .session_ttl_seconds
-            .unwrap_or(8 * 3600);
-        let access_token_ttl_seconds = config
-            .security
-            .access_token_ttl_seconds
-            .unwrap_or(15 * 60);
+        let session_ttl_seconds = if config.auth.session_lifetime > 0 {
+            config.auth.session_lifetime
+        } else {
+            config
+                .security
+                .session_ttl_seconds
+                .unwrap_or(DEFAULT_SESSION_TTL_SECS)
+        };
+        let access_token_ttl_seconds = config.security.access_token_ttl_seconds.unwrap_or(15 * 60);
         let legacy_ttl = config
             .security
             .token_ttl_seconds
@@ -66,6 +71,7 @@ impl<'a> AuthConfig<'a> {
             cookie_same_site,
             cookie_domain: config.security.cookie_domain.clone(),
             cookie_secure,
+            jwt_kid: state.jwt_primary_kid.clone(),
         }
     }
 
@@ -103,6 +109,7 @@ pub struct AuthContext {
     pub mfa_enabled: bool,
     pub password_rotated_at: Option<DateTime<Utc>>,
     pub token_rotated_at: Option<DateTime<Utc>>,
+    pub admin_tenants: Vec<String>,
 }
 
 impl AuthContext {
@@ -112,6 +119,7 @@ impl AuthContext {
         let permissions = permissions_for_role(&role);
         let tenant_id = user.tenant_id.clone();
         let display_name = user.display_name.clone();
+        let mfa_enabled = user.mfa_enabled;
 
         Ok(Self {
             user,
@@ -119,9 +127,10 @@ impl AuthContext {
             display_name,
             role,
             permissions,
-            mfa_enabled: false, // TODO: wire actual MFA flag from user table
+            mfa_enabled,
             password_rotated_at: None, // TODO: respect real password rotation metadata
-            token_rotated_at: None, // TODO: wire token rotation timestamps
+            token_rotated_at: None,    // TODO: wire token rotation timestamps
+            admin_tenants: Vec::new(),
         })
     }
 }
@@ -137,27 +146,37 @@ pub enum AuthError {
 }
 
 /// Builds the JWT according to the provided context and configuration.
-pub fn build_auth_token(ctx: &AuthContext, cfg: &AuthConfig) -> Result<String, AuthError> {
+pub fn build_auth_token(
+    ctx: &AuthContext,
+    cfg: &AuthConfig,
+    mfa_level: Option<&str>,
+) -> Result<String, AuthError> {
     let ttl = cfg.access_ttl();
 
     if cfg.use_ed25519 {
-        generate_token_ed25519(
+        generate_token_ed25519_with_admin_tenants_mfa(
             &ctx.user.id,
             &ctx.user.email,
             &ctx.role.to_string(),
             &ctx.tenant_id,
+            &ctx.admin_tenants,
             cfg.ed25519_keypair,
             ttl,
+            mfa_level,
+            Some(cfg.jwt_kid.as_str()),
         )
         .map_err(AuthError::Token)
     } else {
-        generate_token(
+        generate_token_with_admin_tenants_mfa(
             &ctx.user.id,
             &ctx.user.email,
             &ctx.role.to_string(),
             &ctx.tenant_id,
+            &ctx.admin_tenants,
             cfg.jwt_secret,
             ttl,
+            mfa_level,
+            Some(cfg.jwt_kid.as_str()),
         )
         .map_err(AuthError::Token)
     }
@@ -174,6 +193,7 @@ pub fn build_user_info(ctx: &AuthContext) -> UserInfoResponse {
         tenant_id: ctx.tenant_id.clone(),
         display_name: ctx.display_name.clone(),
         permissions: ctx.permissions.iter().map(|p| p.to_string()).collect(),
+        admin_tenants: ctx.admin_tenants.clone(),
         last_login_at: None, // TODO: surface actual last-login timestamp
         mfa_enabled: Some(ctx.mfa_enabled),
         token_last_rotated_at: ctx.token_rotated_at.map(|dt| dt.to_rfc3339()),
@@ -203,6 +223,44 @@ pub fn attach_refresh_cookie(
         cfg.effective_ttl(),
         Some(&cfg.cookie_same_site),
     )
+}
+
+/// Attaches a CSRF cookie (non-HttpOnly) for double-submit protection.
+pub fn attach_csrf_cookie(
+    headers: &mut HeaderMap,
+    token: &str,
+    cfg: &AuthConfig,
+    max_age: u64,
+) -> Result<(), AuthError> {
+    let expires = Utc::now() + Duration::seconds(max_age as i64);
+    let expires_value = expires.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    let mut secure_required = cfg.cookie_secure;
+    let samesite_norm = match cfg.cookie_same_site.to_ascii_lowercase().as_str() {
+        "none" => {
+            secure_required = true;
+            "None".to_string()
+        }
+        "strict" => "Strict".to_string(),
+        _ => "Lax".to_string(),
+    };
+    let secure_flag = if secure_required { "; Secure" } else { "" };
+    let domain = cfg
+        .cookie_domain
+        .as_ref()
+        .map(|d| format!("; Domain={}", d))
+        .unwrap_or_default();
+
+    let cookie_value = format!(
+        "csrf_token={token}; Path=/; Max-Age={max_age}; Expires={expires}; SameSite={samesite}{secure_flag}{domain}",
+        token = token,
+        max_age = max_age,
+        expires = expires_value,
+        samesite = samesite_norm,
+        secure_flag = secure_flag,
+        domain = domain,
+    );
+    headers.append(header::SET_COOKIE, HeaderValue::from_str(&cookie_value)?);
+    Ok(())
 }
 
 fn attach_cookie(
@@ -262,6 +320,7 @@ pub fn clear_auth_cookies(headers: &mut HeaderMap, cfg: &AuthConfig) -> Result<(
         0,
         Some(&cfg.cookie_same_site),
     )?;
+    attach_csrf_cookie(headers, "", cfg, 0)?;
     Ok(())
 }
 
@@ -282,6 +341,15 @@ mod tests {
             disabled: false,
             created_at: Utc::now().to_rfc3339(),
             tenant_id: "default".to_string(),
+            failed_attempts: 0,
+            last_failed_at: None,
+            lockout_until: None,
+            mfa_enabled: false,
+            mfa_secret_enc: None,
+            mfa_backup_codes_json: None,
+            mfa_enrolled_at: None,
+            mfa_last_verified_at: None,
+            mfa_recovery_last_used_at: None,
         }
     }
 
@@ -304,6 +372,7 @@ mod tests {
             production_mode: true,
             dev_login_enabled: false,
             use_ed25519: true,
+            jwt_kid: "test-kid".to_string(),
             ed25519_keypair: &keypair,
             jwt_secret: &jwt_secret,
             cookie_same_site: "Strict".to_string(),
@@ -312,7 +381,7 @@ mod tests {
         };
 
         let ctx = AuthContext::from_user(sample_user()).unwrap();
-        let token = build_auth_token(&ctx, &cfg).expect("token generated");
+        let token = build_auth_token(&ctx, &cfg, None).expect("token generated");
         let mut headers = HeaderMap::new();
         attach_auth_cookie(&mut headers, &token, &cfg).expect("cookie attached");
         let cookie = headers
@@ -341,6 +410,7 @@ mod tests {
             production_mode: false,
             dev_login_enabled: true,
             use_ed25519: true,
+            jwt_kid: "test-kid".to_string(),
             ed25519_keypair: &keypair,
             jwt_secret: &jwt_secret,
             cookie_same_site: "Lax".to_string(),
@@ -349,7 +419,7 @@ mod tests {
         };
 
         let ctx = AuthContext::from_user(sample_user()).unwrap();
-        let token = build_auth_token(&ctx, &cfg).expect("token generated");
+        let token = build_auth_token(&ctx, &cfg, None).expect("token generated");
         let mut headers = HeaderMap::new();
         attach_auth_cookie(&mut headers, &token, &cfg).expect("cookie attached");
         let cookie = headers
@@ -378,6 +448,7 @@ mod tests {
             production_mode: false,
             dev_login_enabled: true,
             use_ed25519: true,
+            jwt_kid: "test-kid".to_string(),
             ed25519_keypair: &keypair,
             jwt_secret: &jwt_secret,
             cookie_same_site: "Lax".to_string(),
@@ -386,7 +457,7 @@ mod tests {
         };
 
         let ctx = AuthContext::from_user(sample_user()).unwrap();
-        let token = build_auth_token(&ctx, &cfg).expect("token generated");
+        let token = build_auth_token(&ctx, &cfg, None).expect("token generated");
         let mut headers = HeaderMap::new();
         attach_refresh_cookie(&mut headers, &token, &cfg).expect("cookie attached");
         let cookie = headers
@@ -417,6 +488,7 @@ mod tests {
             production_mode: false,
             dev_login_enabled: false,
             use_ed25519: true,
+            jwt_kid: "test-kid".to_string(),
             ed25519_keypair: &keypair,
             jwt_secret: &jwt_secret,
             cookie_same_site: "Lax".to_string(),
@@ -453,6 +525,7 @@ mod tests {
             access_token_ttl_seconds: 60,
             session_ttl_seconds: 3600,
             use_ed25519: true,
+            jwt_kid: "test-kid".to_string(),
             ed25519_keypair: &keypair,
             jwt_secret: &jwt_secret,
             cookie_same_site: "Strict".to_string(),

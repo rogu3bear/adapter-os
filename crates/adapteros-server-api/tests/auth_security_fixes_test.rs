@@ -1,17 +1,20 @@
-///! Tests for critical auth security fixes
-///!
-///! Tests the following security improvements:
-///! 1. Token expiration re-check in auth_middleware
-///! 2. Token revocation check in basic_auth_middleware
-///! 3. AOS_DEV_NO_AUTH restricted to debug builds
-///! 4. Clock skew leeway in JWT validation
-///! 5. Constant-time password verification
+//! Tests for critical auth security fixes
+//!
+//! Tests the following security improvements:
+//! 1. Token expiration re-check in auth_middleware
+//! 2. Token revocation check in basic_auth_middleware
+//! 3. AOS_DEV_NO_AUTH restricted to debug builds
+//! 4. Clock skew leeway in JWT validation
+//! 5. Constant-time password verification
 use adapteros_crypto::Keypair;
 use adapteros_server_api::auth::{
     generate_token_ed25519, hash_password, validate_token_ed25519, verify_password,
 };
+use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
+use bcrypt;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,16 +93,16 @@ fn test_password_verification_constant_time() {
 
     // Verify correct password
     let result1 = verify_password(password, &hash).expect("Failed to verify password");
-    assert!(result1, "Correct password should verify");
+    assert!(result1.valid, "Correct password should verify");
 
     // Verify incorrect password
     let result2 = verify_password("wrong_password_456", &hash).expect("Failed to verify password");
-    assert!(!result2, "Incorrect password should not verify");
+    assert!(!result2.valid, "Incorrect password should not verify");
 
     // Test with invalid hash format - should not panic and return false
     let result3 =
         verify_password(password, "invalid_hash_format").expect("Should handle invalid hash");
-    assert!(!result3, "Invalid hash should return false");
+    assert!(!result3.valid, "Invalid hash should return false");
 
     // All three operations should complete without timing side channels
     // The Argon2 implementation provides constant-time verification
@@ -136,11 +139,15 @@ fn test_password_verification_timing_consistency() {
 fn test_dev_no_auth_available_in_debug() {
     // In debug builds, dev_no_auth_enabled can return true if env var is set
     // This test just verifies the function exists and is callable in debug mode
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    unsafe {
+        std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    }
     // The actual function is private, so we can't test it directly,
     // but this verifies the debug_assertions cfg is working
     assert!(cfg!(debug_assertions), "Should be in debug mode");
-    std::env::remove_var("AOS_DEV_NO_AUTH");
+    unsafe {
+        std::env::remove_var("AOS_DEV_NO_AUTH");
+    }
 }
 
 #[cfg(not(debug_assertions))]
@@ -148,13 +155,17 @@ fn test_dev_no_auth_available_in_debug() {
 fn test_dev_no_auth_disabled_in_release() {
     // In release builds, dev_no_auth_enabled should ALWAYS return false
     // even if the environment variable is set
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    unsafe {
+        std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    }
     // The function should return false in release builds
     assert!(
         !cfg!(debug_assertions),
         "Should be in release mode for this test"
     );
-    std::env::remove_var("AOS_DEV_NO_AUTH");
+    unsafe {
+        std::env::remove_var("AOS_DEV_NO_AUTH");
+    }
 }
 
 #[test]
@@ -213,11 +224,15 @@ fn test_multiple_password_hashes_different() {
 
     // Both hashes should verify the same password
     assert!(
-        verify_password(password, &hash1).expect("Failed to verify hash1"),
+        verify_password(password, &hash1)
+            .expect("Failed to verify hash1")
+            .valid,
         "Hash 1 should verify"
     );
     assert!(
-        verify_password(password, &hash2).expect("Failed to verify hash2"),
+        verify_password(password, &hash2)
+            .expect("Failed to verify hash2")
+            .valid,
         "Hash 2 should verify"
     );
 }
@@ -230,12 +245,15 @@ fn test_empty_password_handling() {
 
     // Verify empty password
     let result = verify_password(empty_password, &hash).expect("Should verify empty password");
-    assert!(result, "Empty password should verify against its hash");
+    assert!(
+        result.valid,
+        "Empty password should verify against its hash"
+    );
 
     // Wrong password should not match
     let wrong_result = verify_password("not_empty", &hash).expect("Should handle mismatch");
     assert!(
-        !wrong_result,
+        !wrong_result.valid,
         "Non-empty password should not match empty hash"
     );
 }
@@ -248,7 +266,43 @@ fn test_special_characters_in_password() {
 
     let result = verify_password(password, &hash).expect("Should verify special characters");
     assert!(
-        result,
+        result.valid,
         "Password with special characters should verify correctly"
+    );
+}
+
+#[test]
+fn test_argon2_upgrade_flag_for_legacy_params() {
+    let salt = SaltString::generate(&mut OsRng);
+    let legacy_hash = Argon2::default()
+        .hash_password("legacy_password".as_bytes(), &salt)
+        .expect("legacy hash")
+        .to_string();
+
+    let verification =
+        verify_password("legacy_password", &legacy_hash).expect("Should verify legacy hash");
+    assert!(verification.valid, "Legacy hash should verify");
+    assert!(
+        verification.needs_rehash,
+        "Legacy hash should request upgrade to hardened parameters"
+    );
+}
+
+#[test]
+fn test_bcrypt_upgrade_flag() {
+    let bcrypt_hash =
+        bcrypt::hash("bcrypt_pw", bcrypt::DEFAULT_COST).expect("Should hash using bcrypt");
+    println!("bcrypt hash: {bcrypt_hash}");
+    println!(
+        "raw bcrypt verify: {:?}",
+        bcrypt::verify("bcrypt_pw", &bcrypt_hash)
+    );
+    let verification =
+        verify_password("bcrypt_pw", &bcrypt_hash).expect("Should verify bcrypt hash");
+
+    assert!(verification.valid, "bcrypt hash should verify");
+    assert!(
+        verification.needs_rehash,
+        "bcrypt hashes should be upgraded to Argon2id"
     );
 }

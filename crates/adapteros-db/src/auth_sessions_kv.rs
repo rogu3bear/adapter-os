@@ -16,11 +16,25 @@ use tracing::warn;
 pub struct AuthSessionKv {
     pub jti: String,
     pub user_id: String,
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub device_id: Option<String>,
+    #[serde(default)]
+    pub rot_id: Option<String>,
+    #[serde(default)]
+    pub refresh_expires_at: Option<i64>,
+    #[serde(default)]
+    pub refresh_hash: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub created_at: DateTime<Utc>,
     pub last_activity: DateTime<Utc>,
     pub expires_at: i64,
+    #[serde(default)]
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -130,11 +144,18 @@ impl AuthSessionKvRepository {
         let session = AuthSessionKv {
             jti: jti.to_string(),
             user_id: user_id.to_string(),
+            tenant_id: None,
+            session_id: None,
+            device_id: None,
+            rot_id: None,
+            refresh_expires_at: None,
+            refresh_hash: None,
             ip_address: ip_address.map(|s| s.to_string()),
             user_agent: user_agent.map(|s| s.to_string()),
             created_at: now,
             last_activity: now,
             expires_at,
+            locked: false,
         };
 
         let bytes = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
@@ -150,6 +171,110 @@ impl AuthSessionKvRepository {
             .map_err(|e| AosError::Database(format!("Failed to index user session: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Create or update a session with device and rotation metadata.
+    pub async fn create_session_with_device(
+        &self,
+        session_id: &str,
+        user_id: &str,
+        tenant_id: &str,
+        device_id: Option<&str>,
+        rot_id: Option<&str>,
+        refresh_expires_at: i64,
+        refresh_hash: Option<&str>,
+        locked: bool,
+        ip_address: Option<&str>,
+        user_agent: Option<&str>,
+    ) -> Result<()> {
+        let now = Utc::now();
+        let session = AuthSessionKv {
+            jti: session_id.to_string(),
+            user_id: user_id.to_string(),
+            tenant_id: Some(tenant_id.to_string()),
+            session_id: Some(session_id.to_string()),
+            device_id: device_id.map(|s| s.to_string()),
+            rot_id: rot_id.map(|s| s.to_string()),
+            refresh_expires_at: Some(refresh_expires_at),
+            refresh_hash: refresh_hash.map(|s| s.to_string()),
+            ip_address: ip_address.map(|s| s.to_string()),
+            user_agent: user_agent.map(|s| s.to_string()),
+            created_at: now,
+            last_activity: now,
+            expires_at: refresh_expires_at,
+            locked,
+        };
+
+        let bytes = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
+        self.backend
+            .set(&Self::session_key(session_id), bytes)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to store auth session: {}", e)))?;
+
+        self.backend
+            .set_add(&Self::user_sessions_set(user_id), session_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to index user session: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Rotate refresh metadata for a session.
+    pub async fn rotate_session(
+        &self,
+        session_id: &str,
+        rot_id: &str,
+        refresh_hash: Option<&str>,
+        refresh_expires_at: i64,
+    ) -> Result<()> {
+        let key = Self::session_key(session_id);
+        let Some(bytes) = self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get auth session: {}", e)))?
+        else {
+            return Ok(());
+        };
+
+        let mut session: AuthSessionKv =
+            serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
+        session.rot_id = Some(rot_id.to_string());
+        session.refresh_hash = refresh_hash.map(|s| s.to_string());
+        session.refresh_expires_at = Some(refresh_expires_at);
+        session.expires_at = refresh_expires_at;
+        session.last_activity = Utc::now();
+
+        let updated = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
+        self.backend
+            .set(&key, updated)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update auth session: {}", e)))
+    }
+
+    /// Mark a session as locked (e.g., on logout/revoke).
+    pub async fn lock_session(&self, session_id: &str) -> Result<()> {
+        let key = Self::session_key(session_id);
+        let Some(bytes) = self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get auth session: {}", e)))?
+        else {
+            return Ok(());
+        };
+
+        let mut session: AuthSessionKv =
+            serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
+        session.locked = true;
+        session.refresh_hash = None;
+        session.last_activity = Utc::now();
+
+        let updated = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
+        self.backend
+            .set(&key, updated)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to lock auth session: {}", e)))
     }
 
     pub async fn update_activity(&self, jti: &str) -> Result<()> {
@@ -240,7 +365,8 @@ impl AuthSessionKvRepository {
                 .map_err(|e| AosError::Database(format!("Failed to fetch session: {}", e)))?
             {
                 if let Ok(session) = serde_json::from_slice::<AuthSessionKv>(&bytes) {
-                    if session.expires_at < now_ts {
+                    let expiry = session.refresh_expires_at.unwrap_or(session.expires_at);
+                    if expiry < now_ts {
                         self.delete_session(&session.jti).await?;
                         deleted += 1;
                     }

@@ -1,54 +1,16 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useForm, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
-import {
-  Lock,
-  Shield,
-  AlertTriangle,
-  XCircle,
-  Zap,
-  Server,
-  CheckCircle2,
-  Loader2,
-  RefreshCw,
-  Cpu,
-  Boxes,
-  ShieldCheck,
-  FileCheck,
-  Fingerprint,
-  Trash2,
-  ChevronDown,
-} from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { Loader2 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { LoginFormSchema, type LoginFormData } from '@/schemas/common.schema';
-import { cn } from '@/components/ui/utils';
 import { logger } from '@/utils/logger';
-import type { HealthResponse, SystemHealthResponse, MetaResponse, BaseModelStatus } from '@/api/api-types';
-import type { AuthConfigResponse, LoginResponse } from '@/api/auth-types';
-import { formatDurationSeconds } from '@/utils/format';
-
-// Constants for health check configuration
-const HEALTH_POLL_INTERVAL_MS = 2000;
-const MAX_RETRY_ATTEMPTS = 3;
-const DEBOUNCE_MS = 300;
-
-// Dev mode constants
-const DEV_ROLES = ['admin', 'operator', 'sre', 'viewer'] as const;
-const LAST_ROLE_KEY = 'aos-last-dev-role';
-const LOCALSTORAGE_KEYS_TO_CLEAR = [
-  'theme',
-  'selectedTenant',
-  'aos_sidebar_collapsed_groups',
-  'aos-first-login-completed',
-];
+import type { AuthConfigResponse } from '@/api/auth-types';
+import type { HealthResponse, SystemHealthResponse, ComponentHealth } from '@/api/api-types';
 
 // Wrapped resolver that catches validation errors during initial render
 // This prevents console errors when form mounts with empty values
@@ -66,143 +28,166 @@ const safeZodResolver: Resolver<LoginFormData> = async (values, context, options
 };
 
 interface LoginFormProps {
-  onLogin: (credentials: { email: string; password: string }) => Promise<LoginResponse>;
+  onLogin: (credentials: { email: string; password: string; totp?: string }) => Promise<void>;
   onDevBypass?: () => Promise<void>;
   error?: string | null;
+  lockoutMessage?: string | null;
+  onConfigLoaded?: (config: AuthConfigResponse) => void;
+  /** When true, shows TOTP field. Set by parent when MFA_REQUIRED error code is received */
+  mfaRequired?: boolean;
 }
 
-type BackendState = 'checking' | 'loading' | 'ready' | 'error';
+const LockLogo = ({ className = 'h-10 w-10 text-foreground' }: { className?: string }) => (
+  <svg
+    viewBox="0 0 64 64"
+    fill="none"
+    role="img"
+    aria-hidden="true"
+    className={className}
+  >
+    <rect x="14" y="26" width="36" height="28" rx="6" className="fill-card stroke-foreground" strokeWidth="2" />
+    <path
+      d="M22 26v-6c0-6.627 5.373-12 12-12s12 5.373 12 12v6"
+      className="stroke-foreground"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    />
+    <circle cx="32" cy="40" r="4" className="fill-foreground/20 stroke-foreground" strokeWidth="2" />
+    <path d="M32 44v5" className="stroke-foreground" strokeWidth="2" strokeLinecap="round" />
+  </svg>
+);
 
+const statusTone = (status: string) => {
+  switch (status) {
+    case 'healthy':
+      return 'bg-emerald-500/10 text-emerald-700 border-emerald-300';
+    case 'degraded':
+      return 'bg-amber-500/10 text-amber-700 border-amber-300';
+    case 'unhealthy':
+    case 'issue':
+      return 'bg-red-500/10 text-red-700 border-red-300';
+    default:
+      return 'bg-muted text-muted-foreground border-border';
+  }
+};
 
-export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
+export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfigLoaded, mfaRequired: mfaRequiredProp }: LoginFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isDevBypassLoading, setIsDevBypassLoading] = useState(false);
-  const [backendState, setBackendState] = useState<BackendState>('checking');
-  const [backendHealth, setBackendHealth] = useState<HealthResponse | null>(null);
-  const [systemHealth, setSystemHealth] = useState<SystemHealthResponse | null>(null);
-  const [metaInfo, setMetaInfo] = useState<MetaResponse | null>(null);
-  const [modelStatus, setModelStatus] = useState<BaseModelStatus | null>(null);
-  const [checkAttempts, setCheckAttempts] = useState(0);
-  const [loadingProgress, setLoadingProgress] = useState(0);
   const [devBypassAllowed, setDevBypassAllowed] = useState(false);
-  const [loadingRole, setLoadingRole] = useState<string | null>(null);
-  const [lastRole, setLastRole] = useState<string | null>(() => {
+  const [showTotpField, setShowTotpField] = useState(false);
+  const [configStatus, setConfigStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'ready' | 'issue'>('checking');
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [systemHealth, setSystemHealth] = useState<SystemHealthResponse | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const [devBypassError, setDevBypassError] = useState<string | null>(null);
+
+  const fetchHealth = useCallback(async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
     try {
-      return localStorage.getItem(LAST_ROLE_KEY);
-    } catch (e) {
-      if (import.meta.env.DEV) {
-        logger.warn('[LoginForm] localStorage read failed', {
-          component: 'LoginForm',
-          operation: 'localStorageRead',
-          error: e instanceof Error ? e.message : String(e),
-        });
+      const healthRes = await apiClient.request<HealthResponse>(
+        '/healthz',
+        { method: 'GET' },
+        false, // skipRetry
+        controller.signal
+      );
+      clearTimeout(timeoutId);
+      setHealth(healthRes);
+      setHealthError(null);
+
+      try {
+        const systemRes = await apiClient.getHealthzAll();
+        setSystemHealth(systemRes);
+      } catch {
+        // System details may not be available yet; keep previous value if any.
       }
-      return null;
-    }
-  });
-  const [debugPanelOpen, setDebugPanelOpen] = useState(false);
-  const [lastClickTime, setLastClickTime] = useState(0);
-  const [clearStorageMessage, setClearStorageMessage] = useState<string | null>(null);
 
-  // Comprehensive backend health check
-  const checkBackendHealth = useCallback(async () => {
-    try {
-      // Primary health check
-      const health = await apiClient.get<HealthResponse>('/healthz');
-      setBackendHealth(health);
-
-      if (health.status === 'healthy' || health.status === 'degraded') {
-        setBackendState('ready');
-        setLoadingProgress(100);
-
-        // Fetch additional data in parallel once backend is ready
-        const [systemHealthRes, metaRes, modelStatusRes] = await Promise.allSettled([
-          apiClient.getHealthzAll(),
-          apiClient.getMeta(),
-          apiClient.getBaseModelStatus(),
-        ]);
-
-        if (systemHealthRes.status === 'fulfilled') {
-          setSystemHealth(systemHealthRes.value);
-        }
-        if (metaRes.status === 'fulfilled') {
-          setMetaInfo(metaRes.value);
-        }
-        // Handle model status gracefully - 401 is expected before login
-        if (modelStatusRes.status === 'fulfilled') {
-          setModelStatus(modelStatusRes.value);
-        } else if (modelStatusRes.status === 'rejected') {
-          // Don't log 401 errors - they're expected when not authenticated
-          // Set modelStatus to null to indicate we need authentication
-          setModelStatus(null);
-        }
-      } else {
-        setBackendState('loading');
-        setLoadingProgress(50);
-      }
+      const status = healthRes.status === 'healthy' ? 'ready' : 'issue';
+      setBackendStatus(status);
     } catch (err) {
-      logger.warn('Backend health check failed', {
-        component: 'LoginForm',
-        operation: 'healthCheck',
-      });
-      setCheckAttempts(prev => {
-        const attempts = prev + 1;
-        if (attempts >= MAX_RETRY_ATTEMPTS) {
-          setBackendState('error');
-          setLoadingProgress(0);
-        } else {
-          setBackendState('loading');
-          setLoadingProgress(Math.min(attempts * 25, 75));
-        }
-        return attempts;
-      });
+      clearTimeout(timeoutId);
+      setBackendStatus('issue');
+      if (err instanceof Error && err.name === 'AbortError') {
+        setHealthError('Health check timed out.');
+      } else {
+        setHealthError('Unable to reach system health.');
+      }
     }
   }, []);
 
-  // Initial backend health check
-  useEffect(() => {
-    checkBackendHealth();
-  }, [checkBackendHealth]);
-
-  // Poll backend health while loading
-  useEffect(() => {
-    if (backendState === 'loading' || backendState === 'checking') {
-      const interval = setInterval(checkBackendHealth, HEALTH_POLL_INTERVAL_MS);
-      return () => clearInterval(interval);
+  const loadAuthConfig = useCallback(async () => {
+    setConfigStatus('loading');
+    setConfigError(null);
+    try {
+      const config = await apiClient.getAuthConfig();
+      setDevBypassAllowed(config.dev_bypass_allowed ?? false);
+      setShowTotpField(config.mfa_required ?? false);
+      logger.info('Auth config TTLs', {
+        component: 'LoginForm',
+        access_token_ttl_minutes: config.access_token_ttl_minutes,
+        session_timeout_minutes: config.session_timeout_minutes,
+      });
+      onConfigLoaded?.(config);
+      setConfigStatus('ready');
+    } catch (err) {
+      setConfigStatus('error');
+      setConfigError('Unable to load sign-in settings. You can still try to sign in.');
+      logger.warn('Auth config load failed', {
+        component: 'LoginForm',
+        operation: 'authConfig',
+      });
     }
-  }, [backendState, checkBackendHealth]);
+  }, [onConfigLoaded]);
 
-  // Fetch auth config when backend is ready
+  // Initial fetch on mount, then poll with adaptive timing
+  const hasFetchedRef = useRef(false);
   useEffect(() => {
-    if (backendState === 'ready') {
-      apiClient.getAuthConfig()
-        .then((config: AuthConfigResponse) => {
-          setDevBypassAllowed(config.dev_bypass_allowed ?? false);
-        })
-        .catch(() => setDevBypassAllowed(false));
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      fetchHealth();
     }
-  }, [backendState]);
+    const interval = setInterval(fetchHealth, backendStatus === 'ready' ? 10000 : 2500);
+    return () => clearInterval(interval);
+  }, [fetchHealth, backendStatus]);
+
+  useEffect(() => {
+    if (backendStatus === 'ready') {
+      loadAuthConfig();
+    }
+  }, [backendStatus, loadAuthConfig]);
 
   const {
     register,
     handleSubmit,
-    formState: { errors, isValid },
+    formState: { errors },
     watch,
   } = useForm<LoginFormData>({
     resolver: safeZodResolver,
     mode: 'onBlur',
     reValidateMode: 'onChange',
     criteriaMode: 'firstError',
-    defaultValues: { email: '', password: '' },
+    defaultValues: { email: '', password: '', totp: '' },
     shouldFocusError: false,
   });
 
   const watchedFields = watch();
 
   const onSubmit = async (data: LoginFormData) => {
+    if (lockoutMessage) {
+      return;
+    }
     setIsLoading(true);
     try {
-      await onLogin({ email: data.email.trim(), password: data.password.trim() });
+      await onLogin({
+        email: data.email.trim(),
+        password: data.password.trim(),
+        totp: data.totp?.trim() || undefined,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -210,6 +195,7 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
 
   const handleDevBypass = async () => {
     setIsDevBypassLoading(true);
+    setDevBypassError(null);
     try {
       const response = await apiClient.devBypass();
       if (!response.token || !response.user_id || !response.tenant_id || !response.role) {
@@ -218,6 +204,7 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
       if (onDevBypass) await onDevBypass();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      setDevBypassError(errorMessage);
       logger.error('Dev bypass failed', {
         component: 'LoginForm',
         operation: 'devBypass',
@@ -227,601 +214,372 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
     }
   };
 
-  const handleRetry = useCallback(() => {
-    setCheckAttempts(0);
-    setBackendState('checking');
-    setLoadingProgress(0);
-    checkBackendHealth();
-  }, [checkBackendHealth]);
-
-  // Keep system health/model status fresh while on the login screen
-  const refreshSystemStatus = useCallback(async () => {
-    const [systemHealthRes, modelStatusRes] = await Promise.allSettled([
-      apiClient.getHealthzAll(),
-      apiClient.getBaseModelStatus(),
-    ]);
-
-    if (systemHealthRes.status === 'fulfilled') {
-      setSystemHealth(systemHealthRes.value);
-    }
-
-    if (modelStatusRes.status === 'fulfilled') {
-      setModelStatus(modelStatusRes.value);
-    } else if (modelStatusRes.status === 'rejected') {
-      // 401 before login is expected; keep showing "Login for status"
-      setModelStatus(null);
-    }
-  }, []);
-
-  // Poll for system health/model status once backend is ready
   useEffect(() => {
-    if (backendState !== 'ready') return;
-
-    refreshSystemStatus();
-    const interval = setInterval(refreshSystemStatus, HEALTH_POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [backendState, refreshSystemStatus]);
-
-  // Handle role badge click with debounce
-  const handleRoleBadgeClick = useCallback(async (role: string) => {
-    const now = Date.now();
-    if (now - lastClickTime < DEBOUNCE_MS) return;
-    if (isLoading || isDevBypassLoading || loadingRole) return;
-
-    setLastClickTime(now);
-    setLoadingRole(role);
-
-    try {
-      const response = await apiClient.devBypass();
-      if (!response.token || !response.user_id || !response.tenant_id || !response.role) {
-        throw new Error('Dev bypass response missing required authentication fields');
-      }
-      // Save last used role
-      try {
-        localStorage.setItem(LAST_ROLE_KEY, role);
-        setLastRole(role);
-      } catch (e) {
-        if (import.meta.env.DEV) {
-          logger.warn('[LoginForm] localStorage write failed', {
-            component: 'LoginForm',
-            operation: 'localStorageWrite',
-            role,
-            error: e instanceof Error ? e.message : String(e),
-          });
-        }
-      }
-      if (onDevBypass) await onDevBypass();
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      logger.error('Dev bypass via role badge failed', {
-        component: 'LoginForm',
-        operation: 'roleBadgeClick',
-        role,
-      }, err instanceof Error ? err : new Error(errorMessage));
-    } finally {
-      setLoadingRole(null);
+    if (mfaRequiredProp) {
+      setShowTotpField(true);
     }
-  }, [lastClickTime, isLoading, isDevBypassLoading, loadingRole, onDevBypass]);
+  }, [mfaRequiredProp]);
 
-  // Handle keyboard events for role badges
-  const handleRoleBadgeKeyDown = useCallback((e: React.KeyboardEvent, role: string) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleRoleBadgeClick(role);
-    }
-  }, [handleRoleBadgeClick]);
+  const componentsToShow: Record<string, ComponentHealth> =
+    systemHealth?.components ?? health?.components ?? {};
+  const issueEntries = Object.entries(componentsToShow)
+    .map(([name, comp]) => ({
+      name,
+      status: comp?.status ?? 'unknown',
+      message: comp?.message,
+    }))
+    .filter((item) => item.status !== 'healthy');
+  const systemStatus = health?.status || systemHealth?.status || 'unknown';
+  const isReady = backendStatus === 'ready' && systemStatus === 'healthy';
+  const lastUpdated = systemHealth?.timestamp
+    ? new Date(systemHealth.timestamp).toLocaleTimeString()
+    : null;
+  const backendUpdates = [
+    {
+      title: 'Overall health',
+      status: systemStatus,
+      message: isReady ? 'All critical services are healthy.' : 'Waiting for services to report healthy.',
+    },
+    ...Object.entries(componentsToShow)
+      .slice(0, 4)
+      .map(([name, comp]) => ({
+        title: name,
+        status: comp?.status ?? 'unknown',
+        message: comp?.message || 'No detail reported yet.',
+      })),
+  ];
 
-  // Clear localStorage
-  const handleClearLocalStorage = useCallback(() => {
-    try {
-      const keysToRemove = Object.keys(localStorage).filter(k =>
-        LOCALSTORAGE_KEYS_TO_CLEAR.includes(k) ||
-        k.startsWith('aos-wizard-') ||
-        k.startsWith('aos-history-')
-      );
-      keysToRemove.forEach(k => localStorage.removeItem(k));
-      // Also clear last role
-      localStorage.removeItem(LAST_ROLE_KEY);
-      setLastRole(null);
-      setClearStorageMessage(`Cleared ${keysToRemove.length + 1} items`);
-      setTimeout(() => setClearStorageMessage(null), 2000);
-    } catch (err) {
-      setClearStorageMessage('Failed to clear storage');
-      setTimeout(() => setClearStorageMessage(null), 2000);
-    }
-  }, []);
-
-  // Calculate system health summary
-  const healthSummary = useMemo(() => {
-    if (!systemHealth?.components) return { healthy: 0, degraded: 0, unhealthy: 0, total: 0 };
-    const components = Object.values(systemHealth.components);
-    return {
-      healthy: components.filter(c => c.status === 'healthy').length,
-      degraded: components.filter(c => c.status === 'degraded').length,
-      unhealthy: components.filter(c => c.status === 'unhealthy').length,
-      total: components.length,
-    };
-  }, [systemHealth]);
-
-  const workerAvailable = useMemo(() => {
-    if (!systemHealth?.components) return false;
-    const components = Object.values(systemHealth.components);
-    const kernelComponent = components.find((c) => c.component === 'kernel');
-    return kernelComponent?.details && typeof kernelComponent.details === 'object' && 'worker_available' in kernelComponent.details
-      ? (kernelComponent.details as Record<string, unknown>).worker_available === true
-      : false;
-  }, [systemHealth]);
-
-  // Loading/Error State - Full Screen
-  if (backendState !== 'ready') {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-background">
-        {/* Subtle grid pattern background */}
-        <div className="absolute inset-0 bg-[linear-gradient(var(--gray-200)_1px,transparent_1px),linear-gradient(90deg,var(--gray-200)_1px,transparent_1px)] bg-[size:64px_64px] opacity-50" />
-
-        <div className="relative w-full max-w-md space-y-8">
-          {/* Logo and Title */}
-          <div className="text-center space-y-3">
-            <div className="inline-flex items-center gap-3 px-4 py-2">
-              <div className="p-2.5 bg-foreground rounded-xl shadow-md">
-                <Boxes className="h-7 w-7 text-background" />
-              </div>
-              <span className="text-2xl font-bold text-foreground tracking-tight">AdapterOS</span>
-            </div>
-            <p className="text-sm text-muted-foreground">Enterprise Adapter Management Platform</p>
-          </div>
-
-          {/* Connection Status Card */}
-          <Card className="bg-card/60 backdrop-blur-2xl border-border/50 shadow-xl border-white/20">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2 text-foreground">
-                <Server className="h-4 w-4 text-muted-foreground" />
-                System Initialization
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {backendState === 'error' ? (
-                <>
-                  <div className="flex items-center gap-3 p-4 rounded-xl bg-destructive/10 border border-destructive/20">
-                    <XCircle className="h-6 w-6 text-destructive flex-shrink-0" />
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-destructive">
-                        Backend Unavailable
-                      </p>
-                      <p className="text-xs text-destructive/80">
-                        Connection failed after {checkAttempts} attempts
-                      </p>
-                    </div>
-                  </div>
-                  <Button onClick={handleRetry} className="w-full" variant="secondary" size="lg">
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Retry Connection
-                  </Button>
-                </>
-              ) : (
-                <div className="flex flex-col items-center gap-6 py-8">
-                  <div className="relative">
-                    <div className="absolute inset-0 h-16 w-16 animate-ping opacity-20 rounded-full bg-foreground" />
-                    <div className="relative p-4 bg-muted rounded-full">
-                      <Loader2 className="h-8 w-8 animate-spin text-foreground" />
-                    </div>
-                  </div>
-                  <div className="text-center space-y-2">
-                    <p className="text-sm font-medium text-foreground">
-                      {backendState === 'checking' ? 'Connecting to AdapterOS' : 'Waiting for services'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Attempt {checkAttempts + 1} of {MAX_RETRY_ATTEMPTS}
-                    </p>
-                  </div>
-                  <div className="w-full space-y-2">
-                    <Progress value={loadingProgress} className="h-1.5" />
-                    <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>Connecting</span>
-                      <span>{loadingProgress}%</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  // Main Login Page - Frosted Glass Design
   return (
-    <div className="min-h-screen flex relative overflow-hidden">
-      {/* Frosted Glass Background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-background/95 via-background/90 to-background/95 backdrop-blur-2xl">
-        {/* Enhanced grid pattern with frosted effect */}
-        <div className="absolute inset-0 bg-[linear-gradient(var(--gray-200)_1px,transparent_1px),linear-gradient(90deg,var(--gray-200)_1px,transparent_1px)] bg-[size:64px_64px] opacity-30" />
-
-        {/* Subtle radial gradient overlay for depth */}
-        <div className="absolute inset-0 bg-gradient-radial from-transparent via-background/20 to-background/40" />
-
-        {/* Frosted glass texture */}
-        <div className="absolute inset-0 bg-white/5 backdrop-blur-sm" />
+    <main className="relative min-h-screen bg-background px-6 py-12 flex items-center justify-center overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 opacity-80">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.05),transparent_35%),radial-gradient(circle_at_80%_0%,rgba(0,0,0,0.05),transparent_30%),radial-gradient(circle_at_40%_80%,rgba(255,255,255,0.03),transparent_30%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.04) 0%,rgba(255,255,255,0.02) 40%,transparent 60%)] bg-[length:140%_140%]" />
       </div>
 
-      {/* Environment Banner */}
-      {(devBypassAllowed || metaInfo?.environment === 'staging') && (
-        <div className={cn(
-          "fixed top-0 inset-x-0 z-50 py-1.5 text-center text-xs font-medium backdrop-blur-xl bg-background/80 border-b border-border/50",
-          devBypassAllowed
-            ? "text-warning"
-            : "text-info"
-        )}>
-          {devBypassAllowed ? "DEVELOPMENT MODE" : "STAGING ENVIRONMENT"}
-        </div>
-      )}
-
-      {/* Left side - Branding & Status */}
-      <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center p-12">
-        <div className="max-w-md space-y-8">
-          {/* Logo */}
-          <div className="space-y-4">
-            <div className="inline-flex items-center gap-3">
-              <div className="p-3 bg-foreground rounded-2xl shadow-lg">
-                <Boxes className="h-8 w-8 text-background" />
-              </div>
-              <span className="text-3xl font-bold text-foreground tracking-tight">AdapterOS</span>
-            </div>
-            <p className="text-lg text-muted-foreground leading-relaxed">
-              Deterministic LoRA adapter orchestration for enterprise AI deployments
-            </p>
-          </div>
-
-
-          {/* System Status Compact */}
-          <div className="p-4 bg-card/60 border border-border/50 rounded-xl backdrop-blur-2xl shadow-lg border-white/20">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-foreground">System Status</span>
-              <Badge
-                variant="outline"
-                className={cn(
-                  "text-xs",
-                  backendHealth?.status === 'healthy'
-                    ? 'bg-success/10 text-success border-success/30'
-                    : 'bg-warning/10 text-warning border-warning/30'
-                )}
-              >
-                {backendHealth?.status === 'healthy' ? 'Operational' : backendHealth?.status?.toUpperCase() || 'Unknown'}
-              </Badge>
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Server className="h-3.5 w-3.5" />
-                <span>
-                  {healthSummary.total > 0
-                    ? `${healthSummary.healthy}/${healthSummary.total} Services`
-                    : 'Services Ready'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Cpu className="h-3.5 w-3.5" />
-                <span
-                  title={modelStatus?.model_path || modelStatus?.model_name || undefined}
-                >
-                  {(() => {
-                    // If we have model_name and it's not the placeholder, use it
-                    if (modelStatus?.model_name && modelStatus.model_name !== 'No Model Loaded') {
-                      return modelStatus.model_name.split('/').pop()?.substring(0, 15);
-                    }
-                    // If model_name is placeholder but we have model_path, use that
-                    if (modelStatus?.model_path && modelStatus.model_path.trim()) {
-                      return modelStatus.model_path.split('/').pop()?.substring(0, 15);
-                    }
-                    // Fallback to checking worker availability
-                    return workerAvailable ? 'Worker Ready' : 'No Model';
-                  })()}
-                </span>
-              </div>
-              {systemHealth?.uptime_seconds && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  <span>Uptime: {formatDurationSeconds(systemHealth.uptime_seconds)}</span>
+      <div className="relative w-full max-w-6xl">
+        <div className="grid gap-8 lg:grid-cols-2">
+          <div className="space-y-8">
+            <section className="rounded-lg border bg-card/95 backdrop-blur-sm p-5 space-y-4 text-center shadow-sm transition-all duration-300 hover:shadow-md">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:text-left">
+                <div className="space-y-1">
+                  <h2 className="text-xl font-semibold">System status</h2>
+                  <p className="text-sm text-muted-foreground">
+                    {isReady
+                      ? 'System is up. Sign in is available.'
+                      : 'Waiting for critical services to become healthy.'}
+                  </p>
                 </div>
-              )}
-              {metaInfo?.version && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <FileCheck className="h-3.5 w-3.5" />
-                  <span>v{metaInfo.version}</span>
+                <div className="flex items-center justify-center gap-2 sm:justify-end">
+                  <span
+                    className={`rounded-full border px-3 py-1 text-sm font-medium capitalize ${statusTone(systemStatus)} ${backendStatus !== 'ready' ? 'ring-2 ring-border/60' : ''}`}
+                  >
+                    {systemStatus}
+                  </span>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Right side - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
-        <div className="w-full max-w-md space-y-6">
-          {/* Mobile Logo */}
-          <div className="lg:hidden text-center space-y-3 mb-8">
-            <div className="inline-flex items-center gap-3">
-              <div className="p-2.5 bg-foreground rounded-xl shadow-md">
-                <Boxes className="h-7 w-7 text-background" />
               </div>
-              <span className="text-2xl font-bold text-foreground tracking-tight">AdapterOS</span>
-            </div>
-          </div>
 
-          {/* Login Card */}
-          <Card className="bg-card/60 backdrop-blur-2xl border-border/50 shadow-xl border-white/20">
-            <CardHeader className="space-y-1 pb-4">
-              <CardTitle className="text-xl text-foreground flex items-center gap-2">
-                <Lock className="h-5 w-5 text-muted-foreground" />
-                Sign In
-              </CardTitle>
-              <CardDescription className="text-muted-foreground">
-                Enter your credentials to access the control plane
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" aria-label="Login form">
-                {/* Error Display */}
-                {error && (
-                  <Alert variant="destructive">
-                    <XCircle className="h-4 w-4" />
-                    <AlertDescription>{error}</AlertDescription>
-                    {error.toLowerCase().includes('tenant') && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        If you expected access, ask an admin to grant you to the correct tenant or resend your invite.
-                      </p>
-                    )}
-                  </Alert>
-                )}
+              {healthError && (
+                <p className="text-sm text-destructive">{healthError}</p>
+              )}
 
-                {/* Email Field */}
+              {backendStatus !== 'ready' && (
                 <div className="space-y-2">
-                  <Label htmlFor="email" className="text-foreground">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="your@email.com"
-                    autoComplete="email"
-                    aria-describedby={errors.email ? 'email-error' : undefined}
-                    aria-invalid={errors.email ? 'true' : 'false'}
-                    {...register('email')}
-                    className={cn(
-                      errors.email && 'border-destructive focus-visible:ring-destructive/20'
-                    )}
-                    disabled={isLoading || isDevBypassLoading}
-                  />
-                  {errors.email && (
-                    <p id="email-error" className="text-sm text-destructive flex items-center gap-1" role="alert">
-                      <XCircle className="h-3 w-3" aria-hidden="true" />
-                      {errors.email.message}
-                    </p>
+                  <h3 className="text-sm font-semibold">What&apos;s not working yet</h3>
+                  {issueEntries.length ? (
+                    <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                      {issueEntries.slice(0, 3).map((item) => (
+                        <li key={item.name} className="flex flex-col">
+                          <span className="font-medium text-foreground">{item.name}</span>
+                          <span className="text-xs capitalize">{item.status}</span>
+                          {item.message && (
+                            <span className="text-xs text-muted-foreground">{item.message}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Waiting for component checks...</p>
                   )}
                 </div>
+              )}
 
-                {/* Password Field */}
-                <div className="space-y-2">
-                  <Label htmlFor="password" className="text-foreground">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="Enter your password"
-                    autoComplete="current-password"
-                    aria-describedby={errors.password ? 'password-error' : undefined}
-                    aria-invalid={errors.password ? 'true' : 'false'}
-                    {...register('password')}
-                    className={cn(
-                      errors.password && 'border-destructive focus-visible:ring-destructive/20'
-                    )}
-                    disabled={isLoading || isDevBypassLoading}
-                  />
-                  {errors.password && (
-                    <p id="password-error" className="text-sm text-destructive flex items-center gap-1" role="alert">
-                      <XCircle className="h-3 w-3" aria-hidden="true" />
-                      {errors.password.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Loading Progress */}
-                {(isLoading || isDevBypassLoading) && (
-                  <div className="space-y-2" role="status" aria-live="polite">
-                    <Progress value={undefined} className="h-1" aria-label="Authentication in progress" />
-                    <p className="text-xs text-muted-foreground text-center">
-                      {isLoading ? 'Authenticating...' : 'Activating dev bypass...'}
-                    </p>
-                  </div>
-                )}
-
-                {/* Login Button */}
+              <div className="flex flex-wrap gap-3">
                 <Button
-                  type="submit"
-                  className="w-full shadow-sm border border-border"
-                  disabled={isLoading || isDevBypassLoading || !watchedFields.email?.trim() || !watchedFields.password?.trim()}
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="px-0"
+                  onClick={() => setShowDetails((prev) => !prev)}
                 >
-                  {isLoading ? (
+                  {showDetails ? 'Hide details' : 'View details'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchHealth}
+                  disabled={backendStatus === 'checking'}
+                >
+                  {backendStatus === 'checking' ? (
                     <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Authenticating...
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Checking...
                     </>
                   ) : (
-                    'Sign In'
+                    'Refresh status'
                   )}
                 </Button>
+              </div>
 
-                {/* Dev Bypass Section */}
-                {devBypassAllowed && (
-                  <>
-                    <div className="relative py-2">
-                      <div className="absolute inset-0 flex items-center">
-                        <span className="w-full border-t border-border" />
+              {showDetails && (
+                <div className="rounded-md border bg-muted/30 p-3 space-y-3 text-left">
+                  {Object.keys(componentsToShow).length ? (
+                    Object.entries(componentsToShow).map(([name, comp]) => {
+                      const compStatus = comp?.status ?? 'unknown';
+                      return (
+                        <div
+                          key={name}
+                          className="space-y-1 border-b border-border/60 pb-2 last:border-b-0 last:pb-0"
+                        >
+                          <div className="flex items-center justify-between text-sm font-medium">
+                            <span>{name}</span>
+                            <span className="capitalize text-muted-foreground">{compStatus}</span>
+                          </div>
+                          {comp?.message && (
+                            <p className="text-xs text-muted-foreground">{comp.message}</p>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">
+                        No component details available yet. Authentication/health checks may still be starting.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Use Refresh status or check authentication logs/worker stderr to see startup issues as they appear.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="rounded-md border bg-muted/40 p-3 space-y-3 text-left transition-all duration-300 hover:shadow-sm">
+                <div className="flex items-center justify-between text-sm font-semibold">
+                  <span>Backend updates</span>
+                  {lastUpdated && <span className="text-xs text-muted-foreground">Last update {lastUpdated}</span>}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {backendUpdates.map((item) => (
+                    <div key={`${item.title}-${item.status}`} className="rounded border border-border/60 bg-card/70 p-3 space-y-1 transition-all duration-300 hover:shadow-sm">
+                      <div className="flex items-center justify-between text-sm font-medium">
+                        <span>{item.title}</span>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-xs capitalize ${statusTone(item.status)}`}
+                        >
+                          {item.status}
+                        </span>
                       </div>
-                      <div className="relative flex justify-center text-xs uppercase">
-                        <span className="bg-card px-3 text-muted-foreground">Development Mode</span>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{item.message}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div className="space-y-8">
+            <header className="flex justify-end">
+              <div className="flex items-center gap-3 text-right">
+                <LockLogo />
+                <div>
+                  <h1 className="text-4xl font-semibold tracking-tight">AdapterOS</h1>
+                  <p className="text-base text-muted-foreground">Sign in to the control plane.</p>
+                </div>
+              </div>
+            </header>
+
+            {isReady ? (
+              <>
+                {(configStatus === 'loading' || configStatus === 'error') && (
+                  <section className="rounded-lg border bg-card p-5 space-y-3" aria-live="polite">
+                    <h2 className="text-xl font-semibold">Preparing sign-in</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {configStatus === 'loading'
+                        ? 'Loading sign-in settings...'
+                        : configError || 'Unable to load sign-in settings. You can still continue.'}
+                    </p>
+                    <div className="flex gap-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={loadAuthConfig}
+                        disabled={configStatus === 'loading'}
+                      >
+                        {configStatus === 'loading' ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Loading
+                          </>
+                        ) : (
+                          'Retry'
+                        )}
+                      </Button>
+                    </div>
+                  </section>
+                )}
+
+                <section className="rounded-lg border bg-card p-8 space-y-6">
+                  <h2 className="text-xl font-semibold">Sign in</h2>
+                  <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" aria-label="Login form">
+                    {lockoutMessage && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{lockoutMessage}</AlertDescription>
+                      </Alert>
+                    )}
+
+                    {error && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{error}</AlertDescription>
+                      </Alert>
+                    )}
+
+                    <div className="grid gap-5 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input
+                          id="email"
+                          type="email"
+                          placeholder="you@example.com"
+                          autoComplete="email"
+                          aria-describedby={errors.email ? 'email-error' : undefined}
+                          aria-invalid={errors.email ? 'true' : 'false'}
+                          {...register('email')}
+                          disabled={isLoading || isDevBypassLoading}
+                        />
+                        {errors.email && (
+                          <p id="email-error" className="text-sm text-destructive" role="alert">
+                            {errors.email.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="password">Password</Label>
+                        <Input
+                          id="password"
+                          type="password"
+                          placeholder="Enter your password"
+                          autoComplete="current-password"
+                          aria-describedby={errors.password ? 'password-error' : undefined}
+                          aria-invalid={errors.password ? 'true' : 'false'}
+                          {...register('password')}
+                          disabled={isLoading || isDevBypassLoading}
+                        />
+                        {errors.password && (
+                          <p id="password-error" className="text-sm text-destructive" role="alert">
+                            {errors.password.message}
+                          </p>
+                        )}
                       </div>
                     </div>
 
+                    {showTotpField ? (
+                      <div className="space-y-2 max-w-sm">
+                        <Label htmlFor="totp">TOTP code</Label>
+                        <Input
+                          id="totp"
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="6-digit code"
+                          autoComplete="one-time-code"
+                          aria-describedby={errors.totp ? 'totp-error' : undefined}
+                          aria-invalid={errors.totp ? 'true' : 'false'}
+                          {...register('totp')}
+                          disabled={isLoading || isDevBypassLoading}
+                        />
+                        {errors.totp && (
+                          <p id="totp-error" className="text-sm text-destructive" role="alert">
+                            {errors.totp.message}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowTotpField(true)}
+                        className="px-0 w-fit"
+                      >
+                        Add TOTP code (if prompted)
+                      </Button>
+                    )}
+
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <Button
+                        type="submit"
+                        className="w-full sm:w-auto"
+                        disabled={
+                          isLoading ||
+                          isDevBypassLoading ||
+                          !!lockoutMessage ||
+                          !watchedFields.email?.trim() ||
+                          !watchedFields.password?.trim()
+                        }
+                      >
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Signing in...
+                          </>
+                        ) : (
+                          'Sign in'
+                        )}
+                      </Button>
+                    </div>
+                  </form>
+                </section>
+
+                {devBypassAllowed && (
+                  <section className="rounded-lg border bg-card p-5 space-y-3">
+                    <h2 className="text-base font-semibold">Development</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Available in local or staging environments.
+                    </p>
+                    {devBypassError && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{devBypassError}</AlertDescription>
+                      </Alert>
+                    )}
                     <Button
                       type="button"
-                      variant="outline"
-                      className="w-full border-warning/30 bg-warning/5 text-warning hover:bg-warning/10 hover:border-warning/50"
+                      variant="secondary"
                       onClick={handleDevBypass}
                       disabled={isDevBypassLoading || isLoading}
+                      className="w-full sm:w-auto"
                     >
                       {isDevBypassLoading ? (
                         <>
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Activating...
+                          Activating dev bypass...
                         </>
                       ) : (
-                        <>
-                          <Zap className="h-4 w-4 mr-2" />
-                          Quick Access (Dev Bypass)
-                        </>
+                        'Use dev bypass'
                       )}
                     </Button>
-                  </>
+                  </section>
                 )}
-              </form>
-            </CardContent>
-          </Card>
-
-          {/* Dev Tools Panel - Only in Dev Mode */}
-          {devBypassAllowed && (
-            <div className="p-4 bg-card/50 border border-border/50 rounded-xl backdrop-blur-2xl space-y-4 shadow-lg border-white/20">
-              {/* Quick Login Section */}
-              <div>
-                <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1.5">
-                  <Zap className="h-3.5 w-3.5 text-warning" />
-                  Quick Login (click to sign in)
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {DEV_ROLES.map((role) => (
-                    <Badge
-                      key={role}
-                      variant="outline"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Sign in as ${role}`}
-                      onClick={() => handleRoleBadgeClick(role)}
-                      onKeyDown={(e) => handleRoleBadgeKeyDown(e, role)}
-                      className={cn(
-                        "text-xs py-1.5 px-3 transition-all duration-150",
-                        "cursor-pointer select-none",
-                        "focus:outline-none focus:ring-2 focus:ring-ring/50",
-                        loadingRole === role
-                          ? "bg-primary/10 border-primary/50 text-primary"
-                          : lastRole === role
-                            ? "bg-warning/10 border-warning/40 text-warning hover:bg-warning/20"
-                            : "bg-muted border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                        (isLoading || isDevBypassLoading || loadingRole) && loadingRole !== role
-                          ? "opacity-50 cursor-not-allowed"
-                          : ""
-                      )}
-                    >
-                      {loadingRole === role ? (
-                        <span className="flex items-center gap-1.5">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          Signing in...
-                        </span>
-                      ) : (
-                        <>
-                          {role}@aos.local
-                          {lastRole === role && (
-                            <span className="ml-1 text-[10px] text-warning">(last)</span>
-                          )}
-                        </>
-                      )}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-
-              {/* Clear Storage Section */}
-              <div className="flex items-center justify-between pt-2 border-t border-border">
-                <span className="text-xs text-muted-foreground">Reset UI State</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleClearLocalStorage}
-                  className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                  {clearStorageMessage || 'Clear Storage'}
-                </Button>
-              </div>
-
-              {/* Debug Info Panel */}
-              <Collapsible open={debugPanelOpen} onOpenChange={setDebugPanelOpen}>
-                <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full pt-2 border-t border-border">
-                  <ChevronDown className={cn(
-                    "h-3.5 w-3.5 transition-transform",
-                    debugPanelOpen ? "rotate-180" : ""
-                  )} />
-                  Debug Info
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-2">
-                  <div className="p-3 bg-muted/50 rounded-lg text-xs font-mono space-y-1.5 text-muted-foreground">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground/70">Environment:</span>
-                      <span>{metaInfo?.environment || 'unknown'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground/70">Backend:</span>
-                      <span className={backendHealth?.status === 'healthy' ? 'text-success' : 'text-warning'}>
-                        {backendHealth?.status || 'unknown'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground/70">Version:</span>
-                      <span>{metaInfo?.version || 'unknown'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground/70">Git Commit:</span>
-                      <span>{metaInfo?.git_commit?.substring(0, 7) || 'unknown'}</span>
-                    </div>
-                    {systemHealth?.uptime_seconds && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground/70">Uptime:</span>
-                        <span>{formatDurationSeconds(systemHealth.uptime_seconds)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground/70">Services:</span>
-                      <span>
-                        {healthSummary.healthy}/{healthSummary.total} healthy
-                        {healthSummary.degraded > 0 && `, ${healthSummary.degraded} degraded`}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground/70">Model:</span>
-                      <span
-                        className="truncate max-w-[180px]"
-                        title={modelStatus?.model_path || modelStatus?.model_name || (workerAvailable ? 'Worker Ready' : 'No Model')}
-                      >
-                        {modelStatus?.model_name && modelStatus.model_name !== 'No Model Loaded'
-                          ? modelStatus.model_name.split('/').pop()
-                          : modelStatus?.model_path?.split('/').pop()
-                            || (workerAvailable ? 'Worker Ready' : 'No Model')}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground/70">Dev Bypass:</span>
-                      <span className="text-success">enabled</span>
-                    </div>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          )}
-
-          {/* Footer */}
-          {metaInfo?.git_commit && (
-            <p className="text-center text-xs text-muted-foreground/70">
-              Build {metaInfo.git_commit.substring(0, 7)} · {metaInfo.environment || 'development'}
-            </p>
-          )}
+              </>
+            ) : (
+              <section className="rounded-lg border bg-muted/40 p-5 text-sm text-muted-foreground">
+                System is still starting. Sign in will appear once all critical components are healthy.
+              </section>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

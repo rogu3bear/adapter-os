@@ -9,7 +9,11 @@
 //! - crates/adapteros-server-api/src/handlers/auth_enhanced.rs: get_auth_config_handler
 //! - crates/adapteros-server-api/src/auth_common.rs: dev_login_allowed()
 
-use adapteros_server_api::handlers::auth_enhanced::AuthConfigResponse;
+mod common;
+
+use adapteros_server_api::handlers::auth_enhanced::{get_auth_config_handler, AuthConfigResponse};
+use axum::extract::State;
+use axum::response::Json;
 use serde_json::Value;
 
 /// Test that AuthConfigResponse has all expected fields with correct types
@@ -19,6 +23,7 @@ fn test_auth_config_response_has_required_fields() {
     let response = AuthConfigResponse {
         allow_registration: false,
         require_email_verification: false,
+        access_token_ttl_minutes: 15,
         session_timeout_minutes: 480,
         max_login_attempts: 5,
         password_min_length: 12,
@@ -53,6 +58,10 @@ fn test_auth_config_response_has_required_fields() {
         "Missing session_timeout_minutes"
     );
     assert!(
+        json.get("access_token_ttl_minutes").is_some(),
+        "Missing access_token_ttl_minutes"
+    );
+    assert!(
         json.get("token_expiry_hours").is_some(),
         "Missing token_expiry_hours"
     );
@@ -61,6 +70,10 @@ fn test_auth_config_response_has_required_fields() {
     assert!(
         json["production_mode"].is_boolean(),
         "production_mode should be boolean"
+    );
+    assert!(
+        json["access_token_ttl_minutes"].is_u64(),
+        "access_token_ttl_minutes should be number"
     );
     assert!(
         json["dev_token_enabled"].is_boolean(),
@@ -83,6 +96,7 @@ fn test_dev_bypass_allowed_reflects_dev_login_enabled() {
     let response_enabled = AuthConfigResponse {
         allow_registration: false,
         require_email_verification: false,
+        access_token_ttl_minutes: 15,
         session_timeout_minutes: 480,
         max_login_attempts: 5,
         password_min_length: 12,
@@ -103,6 +117,7 @@ fn test_dev_bypass_allowed_reflects_dev_login_enabled() {
     let response_disabled = AuthConfigResponse {
         allow_registration: false,
         require_email_verification: false,
+        access_token_ttl_minutes: 15,
         session_timeout_minutes: 480,
         max_login_attempts: 5,
         password_min_length: 12,
@@ -123,6 +138,7 @@ fn test_dev_bypass_allowed_reflects_dev_login_enabled() {
     let response_prod_enabled = AuthConfigResponse {
         allow_registration: false,
         require_email_verification: false,
+        access_token_ttl_minutes: 15,
         session_timeout_minutes: 480,
         max_login_attempts: 5,
         password_min_length: 12,
@@ -168,6 +184,7 @@ fn test_auth_config_response_serialization_roundtrip() {
     let original = AuthConfigResponse {
         allow_registration: true,
         require_email_verification: true,
+        access_token_ttl_minutes: 120,
         session_timeout_minutes: 120,
         max_login_attempts: 3,
         password_min_length: 16,
@@ -216,6 +233,7 @@ fn test_allowed_domains_skipped_when_none() {
     let response = AuthConfigResponse {
         allow_registration: false,
         require_email_verification: false,
+        access_token_ttl_minutes: 15,
         session_timeout_minutes: 480,
         max_login_attempts: 5,
         password_min_length: 12,
@@ -243,6 +261,7 @@ fn test_allowed_domains_included_when_some() {
     let response = AuthConfigResponse {
         allow_registration: false,
         require_email_verification: false,
+        access_token_ttl_minutes: 15,
         session_timeout_minutes: 480,
         max_login_attempts: 5,
         password_min_length: 12,
@@ -265,4 +284,25 @@ fn test_allowed_domains_included_when_some() {
         json["allowed_domains"].is_array(),
         "allowed_domains should be an array"
     );
+}
+
+#[tokio::test]
+async fn test_auth_config_ttl_respects_config_overrides() {
+    let state = common::setup_state(None)
+        .await
+        .expect("state should initialize");
+
+    {
+        let mut cfg = state.config.write().unwrap();
+        cfg.security.access_token_ttl_seconds = Some(1800); // 30 minutes
+        cfg.auth.session_lifetime = 5400; // 90 minutes
+    }
+
+    let Json(resp) = get_auth_config_handler(State(state))
+        .await
+        .expect("handler should succeed");
+
+    assert_eq!(resp.access_token_ttl_minutes, 30);
+    assert_eq!(resp.session_timeout_minutes, 90);
+    assert_eq!(resp.token_expiry_hours, 1); // 5400s -> 1h (integer division)
 }
