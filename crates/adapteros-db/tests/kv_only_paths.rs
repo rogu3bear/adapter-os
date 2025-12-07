@@ -1,11 +1,14 @@
 use adapteros_db::users::Role;
-use adapteros_db::{
-    global_kv_metrics, kv_coverage_summary, Db, KvDb, KvErrorType, StorageMode,
-};
-use std::sync::Arc;
+use adapteros_db::{global_kv_metrics, kv_coverage_summary, Db, KvDb, KvErrorType, StorageMode};
+use once_cell::sync::Lazy;
+use std::sync::{Arc, Mutex};
+
+static KV_METRICS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 #[tokio::test]
 async fn kv_only_supported_domains_smoke_when_coverage_ready() -> adapteros_core::Result<()> {
+    let _guard = KV_METRICS_LOCK.lock().unwrap();
+
     let coverage = kv_coverage_summary();
     if !coverage.unsupported_domains.is_empty() {
         println!(
@@ -48,6 +51,8 @@ async fn kv_only_supported_domains_smoke_when_coverage_ready() -> adapteros_core
 
 #[tokio::test]
 async fn kv_only_downgrades_on_fallback_metrics() -> adapteros_core::Result<()> {
+    let _guard = KV_METRICS_LOCK.lock().unwrap();
+
     let coverage = kv_coverage_summary();
     if !coverage.unsupported_domains.is_empty() {
         println!(
@@ -61,6 +66,9 @@ async fn kv_only_downgrades_on_fallback_metrics() -> adapteros_core::Result<()> 
     metrics.reset();
     metrics.record_fallback_write();
     metrics.record_error(KvErrorType::Backend);
+    let snapshot = metrics.snapshot();
+    assert_eq!(snapshot.fallback_operations_total, 1);
+    assert_eq!(snapshot.errors_total, 1);
 
     let mut db = Db::new_in_memory().await?;
     let kv = KvDb::init_in_memory()?;

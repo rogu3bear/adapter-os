@@ -106,7 +106,7 @@ use adapteros_telemetry::alerting::{
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Global KV metrics instance
 static KV_METRICS: once_cell::sync::Lazy<Arc<KvMetrics>> =
@@ -243,6 +243,13 @@ pub struct KvMetrics {
     // Drift/degradation tracking
     drift_detections_total: AtomicU64,
     degraded_events_total: AtomicU64,
+
+    // Dual-write lag tracking (SQL -> KV)
+    dual_write_lag_sum_ms: AtomicU64,
+    dual_write_lag_count: AtomicU64,
+    dual_write_lag_max_ms: AtomicU64,
+    last_dual_write_epoch_ms: AtomicU64,
+    dual_write_latency_buckets: [AtomicU64; 7],
 }
 
 impl KvMetrics {
@@ -277,6 +284,12 @@ impl KvMetrics {
 
             drift_detections_total: AtomicU64::new(0),
             degraded_events_total: AtomicU64::new(0),
+
+            dual_write_lag_sum_ms: AtomicU64::new(0),
+            dual_write_lag_count: AtomicU64::new(0),
+            dual_write_lag_max_ms: AtomicU64::new(0),
+            last_dual_write_epoch_ms: AtomicU64::new(0),
+            dual_write_latency_buckets: Default::default(),
         }
     }
 
@@ -357,12 +370,42 @@ impl KvMetrics {
         self.degraded_events_total.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Record the observed lag from SQL write completion to KV write completion.
+    pub fn record_dual_write_lag(&self, lag: Duration) {
+        let lag_ms = lag.as_millis() as u64;
+        self.dual_write_lag_sum_ms
+            .fetch_add(lag_ms, Ordering::Relaxed);
+        self.dual_write_lag_count.fetch_add(1, Ordering::Relaxed);
+
+        // Track the max lag with a simple CAS loop.
+        let mut current_max = self.dual_write_lag_max_ms.load(Ordering::Relaxed);
+        while current_max < lag_ms {
+            match self.dual_write_lag_max_ms.compare_exchange(
+                current_max,
+                lag_ms,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(observed) => current_max = observed,
+            }
+        }
+
+        self.increment_latency_bucket(&self.dual_write_latency_buckets, lag);
+
+        if let Ok(since_epoch) = SystemTime::now().duration_since(UNIX_EPOCH) {
+            self.last_dual_write_epoch_ms
+                .store(since_epoch.as_millis() as u64, Ordering::Relaxed);
+        }
+    }
+
     /// Get a snapshot of current metrics
     pub fn snapshot(&self) -> KvMetricsSnapshot {
         let reads = self.reads_total.load(Ordering::Relaxed);
         let writes = self.writes_total.load(Ordering::Relaxed);
         let deletes = self.deletes_total.load(Ordering::Relaxed);
         let scans = self.scans_total.load(Ordering::Relaxed);
+        let dual_write_samples = self.dual_write_lag_count.load(Ordering::Relaxed);
 
         KvMetricsSnapshot {
             // Operation counts
@@ -409,6 +452,18 @@ impl KvMetrics {
 
             drift_detections_total: self.drift_detections_total.load(Ordering::Relaxed),
             degraded_events_total: self.degraded_events_total.load(Ordering::Relaxed),
+
+            dual_write_lag_avg_ms: if dual_write_samples == 0 {
+                0.0
+            } else {
+                self.dual_write_lag_sum_ms.load(Ordering::Relaxed) as f64
+                    / dual_write_samples as f64
+            },
+            dual_write_lag_p95_ms: self.calculate_percentile(&self.dual_write_latency_buckets, 95),
+            dual_write_lag_p99_ms: self.calculate_percentile(&self.dual_write_latency_buckets, 99),
+            dual_write_lag_max_ms: self.dual_write_lag_max_ms.load(Ordering::Relaxed),
+            last_dual_write_epoch_ms: self.last_dual_write_epoch_ms.load(Ordering::Relaxed),
+            dual_write_lag_samples: dual_write_samples,
         }
     }
 
@@ -450,6 +505,14 @@ impl KvMetrics {
 
         self.drift_detections_total.store(0, Ordering::Relaxed);
         self.degraded_events_total.store(0, Ordering::Relaxed);
+
+        self.dual_write_lag_sum_ms.store(0, Ordering::Relaxed);
+        self.dual_write_lag_count.store(0, Ordering::Relaxed);
+        self.dual_write_lag_max_ms.store(0, Ordering::Relaxed);
+        self.last_dual_write_epoch_ms.store(0, Ordering::Relaxed);
+        for bucket in &self.dual_write_latency_buckets {
+            bucket.store(0, Ordering::Relaxed);
+        }
     }
 
     // Internal helper: increment the appropriate latency bucket
@@ -561,6 +624,14 @@ pub struct KvMetricsSnapshot {
     // Drift/degradation
     pub drift_detections_total: u64,
     pub degraded_events_total: u64,
+
+    // Dual-write lag
+    pub dual_write_lag_avg_ms: f64,
+    pub dual_write_lag_p95_ms: f64,
+    pub dual_write_lag_p99_ms: f64,
+    pub dual_write_lag_max_ms: u64,
+    pub last_dual_write_epoch_ms: u64,
+    pub dual_write_lag_samples: u64,
 }
 
 /// RAII guard for automatic KV operation timing
@@ -652,6 +723,12 @@ mod tests {
             errors_total: 0,
             drift_detections_total: 0,
             degraded_events_total: 0,
+            dual_write_lag_avg_ms: 0.0,
+            dual_write_lag_p95_ms: 0.0,
+            dual_write_lag_p99_ms: 0.0,
+            dual_write_lag_max_ms: 0,
+            last_dual_write_epoch_ms: 0,
+            dual_write_lag_samples: 0,
         }
     }
 
@@ -734,6 +811,20 @@ mod tests {
     }
 
     #[test]
+    fn test_dual_write_lag_tracking() {
+        let metrics = KvMetrics::new();
+
+        metrics.record_dual_write_lag(Duration::from_millis(5));
+        metrics.record_dual_write_lag(Duration::from_millis(10));
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.dual_write_lag_samples, 2);
+        assert_eq!(snapshot.dual_write_lag_max_ms, 10);
+        assert!(snapshot.dual_write_lag_avg_ms >= 5.0);
+        assert!(snapshot.dual_write_lag_p95_ms >= 5.0);
+    }
+
+    #[test]
     fn test_operation_timer() {
         // Use the global metrics instance since the timer uses it
         let metrics = global_kv_metrics();
@@ -800,5 +891,84 @@ mod tests {
         assert!(alerts
             .iter()
             .any(|a| a.metric == KV_ALERT_METRIC_DEGRADATIONS));
+    }
+
+    #[test]
+    fn global_alerts_fire_when_metrics_incremented() {
+        let metrics = global_kv_metrics();
+        metrics.reset();
+
+        // Simulate fallback/error/drift/degraded
+        metrics.record_fallback_write();
+        metrics.record_error(KvErrorType::Backend);
+        metrics.record_drift_detected();
+        metrics.record_degradation();
+
+        let mut engine = AlertingEngine::new(10);
+        for rule in kv_alert_rules() {
+            engine.register_rule(rule);
+        }
+
+        let alerts = evaluate_global_kv_alerts(&mut engine);
+        assert!(alerts.iter().any(|a| a.metric == KV_ALERT_METRIC_FALLBACKS));
+        assert!(alerts.iter().any(|a| a.metric == KV_ALERT_METRIC_ERRORS));
+        assert!(alerts.iter().any(|a| a.metric == KV_ALERT_METRIC_DRIFT));
+        assert!(alerts
+            .iter()
+            .any(|a| a.metric == KV_ALERT_METRIC_DEGRADATIONS));
+
+        metrics.reset();
+    }
+
+    #[test]
+    fn kv_alert_rules_ignore_zero_counters() {
+        let mut engine = AlertingEngine::new(10);
+        for rule in kv_alert_rules() {
+            engine.register_rule(rule);
+        }
+
+        let snapshot = empty_snapshot();
+        let alerts = evaluate_kv_alerts(&snapshot, &mut engine);
+        assert!(alerts.is_empty());
+    }
+
+    #[test]
+    fn kv_alert_rules_trigger_individually() {
+        let mut engine = AlertingEngine::new(10);
+        for rule in kv_alert_rules() {
+            engine.register_rule(rule);
+        }
+
+        let mut snapshot = empty_snapshot();
+        snapshot.fallback_operations_total = 1;
+        let alerts = evaluate_kv_alerts(&snapshot, &mut engine);
+        assert!(
+            alerts
+                .iter()
+                .any(|a| a.metric == KV_ALERT_METRIC_FALLBACKS
+                    && (a.value - 1.0).abs() < f64::EPSILON)
+        );
+
+        let mut snapshot = empty_snapshot();
+        snapshot.errors_total = 2;
+        let alerts = evaluate_kv_alerts(&snapshot, &mut engine);
+        assert!(alerts
+            .iter()
+            .any(|a| a.metric == KV_ALERT_METRIC_ERRORS && (a.value - 2.0).abs() < f64::EPSILON));
+
+        let mut snapshot = empty_snapshot();
+        snapshot.drift_detections_total = 3;
+        let alerts = evaluate_kv_alerts(&snapshot, &mut engine);
+        assert!(alerts
+            .iter()
+            .any(|a| a.metric == KV_ALERT_METRIC_DRIFT && (a.value - 3.0).abs() < f64::EPSILON));
+
+        let mut snapshot = empty_snapshot();
+        snapshot.degraded_events_total = 4;
+        let alerts = evaluate_kv_alerts(&snapshot, &mut engine);
+        assert!(alerts
+            .iter()
+            .any(|a| a.metric == KV_ALERT_METRIC_DEGRADATIONS
+                && (a.value - 4.0).abs() < f64::EPSILON));
     }
 }

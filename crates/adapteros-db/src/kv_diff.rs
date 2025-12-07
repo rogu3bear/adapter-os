@@ -6,6 +6,7 @@ use crate::chat_sessions_kv::ChatSessionKvRepository;
 use crate::collections_kv::CollectionKvRepository;
 use crate::documents_kv::DocumentKvRepository;
 use crate::kv_backend::KvBackend;
+use crate::kv_metrics::global_kv_metrics;
 use crate::plans_kv::PlanKvRepository;
 use crate::policy_audit_kv::PolicyAuditKvRepository;
 use crate::runtime_sessions_kv::RuntimeSessionKvRepository;
@@ -26,6 +27,12 @@ pub struct DiffIssue {
     pub field: String,
     pub sql_value: String,
     pub kv_value: String,
+}
+
+fn record_drift_if_issues(issues: &[DiffIssue]) {
+    if !issues.is_empty() {
+        global_kv_metrics().record_drift_detected();
+    }
 }
 
 impl Db {
@@ -95,6 +102,8 @@ impl Db {
             }
         }
 
+        record_drift_if_issues(&issues);
+
         Ok(issues)
     }
 
@@ -131,10 +140,7 @@ impl Db {
                         domain: "collections".into(),
                         id: row_id.clone(),
                         field: "description".into(),
-                        sql_value: row
-                            .description
-                            .clone()
-                            .unwrap_or_else(|| "None".into()),
+                        sql_value: row.description.clone().unwrap_or_else(|| "None".into()),
                         kv_value: col.description.unwrap_or_else(|| "None".into()),
                     });
                 }
@@ -148,6 +154,8 @@ impl Db {
                 });
             }
         }
+
+        record_drift_if_issues(&issues);
 
         Ok(issues)
     }
@@ -201,6 +209,8 @@ impl Db {
             }
         }
 
+        record_drift_if_issues(&issues);
+
         Ok(issues)
     }
 
@@ -252,6 +262,8 @@ impl Db {
                 });
             }
         }
+
+        record_drift_if_issues(&issues);
 
         Ok(issues)
     }
@@ -747,14 +759,8 @@ impl Db {
                             domain: "auth_sessions".into(),
                             id: row.jti.clone(),
                             field: "ip_address".into(),
-                            sql_value: row
-                                .ip_address
-                                .clone()
-                                .unwrap_or_else(|| "None".into()),
-                            kv_value: sess
-                                .ip_address
-                                .clone()
-                                .unwrap_or_else(|| "None".into()),
+                            sql_value: row.ip_address.clone().unwrap_or_else(|| "None".into()),
+                            kv_value: sess.ip_address.clone().unwrap_or_else(|| "None".into()),
                         });
                     }
                     if sess.user_agent != row.user_agent {
@@ -762,14 +768,8 @@ impl Db {
                             domain: "auth_sessions".into(),
                             id: row.jti.clone(),
                             field: "user_agent".into(),
-                            sql_value: row
-                                .user_agent
-                                .clone()
-                                .unwrap_or_else(|| "None".into()),
-                            kv_value: sess
-                                .user_agent
-                                .clone()
-                                .unwrap_or_else(|| "None".into()),
+                            sql_value: row.user_agent.clone().unwrap_or_else(|| "None".into()),
+                            kv_value: sess.user_agent.clone().unwrap_or_else(|| "None".into()),
                         });
                     }
                     if sess.expires_at != row.expires_at {
@@ -809,7 +809,9 @@ impl Db {
             binary_version: String,
             binary_commit: Option<String>,
             started_at: String,
+            #[allow(dead_code)]
             ended_at: Option<String>,
+            #[allow(dead_code)]
             end_reason: Option<String>,
             hostname: String,
             runtime_mode: String,
@@ -874,14 +876,8 @@ impl Db {
                             domain: "runtime_sessions".into(),
                             id: row.id.clone(),
                             field: "binary_commit".into(),
-                            sql_value: row
-                                .binary_commit
-                                .clone()
-                                .unwrap_or_else(|| "None".into()),
-                            kv_value: sess
-                                .binary_commit
-                                .clone()
-                                .unwrap_or_else(|| "None".into()),
+                            sql_value: row.binary_commit.clone().unwrap_or_else(|| "None".into()),
+                            kv_value: sess.binary_commit.clone().unwrap_or_else(|| "None".into()),
                         });
                     }
                     if sess.hostname != row.hostname {

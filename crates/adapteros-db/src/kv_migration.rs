@@ -17,19 +17,22 @@ use crate::auth_sessions_kv::{AuthSessionKv, AuthSessionKvRepository};
 use crate::chat_sessions_kv::ChatSessionKvRepository;
 use crate::collections_kv::CollectionKvRepository;
 use crate::documents_kv::{DocumentChunkKv, DocumentKv, DocumentKvRepository};
+use crate::kv_metrics::global_kv_metrics;
 use crate::plans_kv::{plan_to_kv, PlanKvRepository};
 use crate::policy_audit_kv::PolicyAuditKvRepository;
 use crate::runtime_sessions::RuntimeSession;
 use crate::runtime_sessions_kv::RuntimeSessionKvRepository;
-use crate::stacks_kv::{stack_record_to_kv, StackKvRepository};
+use crate::stacks_kv::{stack_record_to_kv, StackKvOps, StackKvRepository};
 use crate::tenants::Tenant;
 use crate::tenants_kv::TenantKvRepository;
-use crate::traits::StackRecord;
 use crate::training_jobs_kv::{TrainingJobKv, TrainingJobKvRepository, TrainingMetricKv};
+use crate::traits::StackRecord;
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use blake3::Hasher;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -287,12 +290,7 @@ impl Db {
             .map_err(|e| AosError::Database(e.to_string()))?;
             for (doc_id,) in doc_ids {
                 let _ = repo
-                    .add_document_to_collection(
-                        &tenant_id,
-                        &id,
-                        &doc_id,
-                        None,
-                    )
+                    .add_document_to_collection(&tenant_id, &id, &doc_id, None)
                     .await;
             }
         }
@@ -395,7 +393,10 @@ impl Db {
                 training_config_json: row.training_config_json.clone(),
                 status: row.status.clone(),
                 progress_json: row.progress_json.clone(),
-                started_at: row.started_at.map(|d| d.to_string()).unwrap_or_else(|| Utc::now().to_rfc3339()),
+                started_at: row
+                    .started_at
+                    .map(|d| d.to_string())
+                    .unwrap_or_else(|| Utc::now().to_rfc3339()),
                 completed_at: row.completed_at.map(|d| d.to_string()),
                 created_by: row.created_by.clone(),
                 adapter_name: row.adapter_name.clone(),
@@ -1101,6 +1102,38 @@ pub struct MigrationOptions {
     pub checkpoint: Option<MigrationCheckpoint>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantChecksum {
+    pub tenant_id: String,
+
+    pub adapters_sql: usize,
+    pub adapters_kv: usize,
+    pub adapters_hash_sql: String,
+    pub adapters_hash_kv: String,
+
+    pub stacks_sql: usize,
+    pub stacks_kv: usize,
+    pub stacks_hash_sql: String,
+    pub stacks_hash_kv: String,
+
+    pub plans_sql: usize,
+    pub plans_kv: usize,
+    pub plans_hash_sql: String,
+    pub plans_hash_kv: String,
+
+    pub consistent: bool,
+}
+
+fn hash_rows(mut rows: Vec<String>) -> String {
+    rows.sort();
+    let mut hasher = Hasher::new();
+    for row in rows {
+        hasher.update(row.as_bytes());
+        hasher.update(&[0]);
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
 /// Domains supported by the orchestrator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MigrationDomain {
@@ -1185,14 +1218,13 @@ impl Db {
         stats: &mut DomainStats,
     ) -> Result<usize> {
         match domain {
-            MigrationDomain::Adapters => {
-                self.migrate_domain_adapters(start_at, opts, stats).await
-            }
+            MigrationDomain::Adapters => self.migrate_domain_adapters(start_at, opts, stats).await,
             MigrationDomain::Tenants => self.migrate_domain_tenants(start_at, opts, stats).await,
             MigrationDomain::Stacks => self.migrate_domain_stacks(start_at, opts, stats).await,
             MigrationDomain::Plans => self.migrate_domain_plans(start_at, opts, stats).await,
             MigrationDomain::AuthSessions => {
-                self.migrate_domain_auth_sessions(start_at, opts, stats).await
+                self.migrate_domain_auth_sessions(start_at, opts, stats)
+                    .await
             }
             MigrationDomain::RuntimeSessions => {
                 self.migrate_domain_runtime_sessions(start_at, opts, stats)
@@ -1268,7 +1300,8 @@ impl Db {
                 Ok(false) => stats.skipped += 1,
                 Err(e) => {
                     stats.failed += 1;
-                    stats.errors
+                    stats
+                        .errors
                         .push(format!("adapter {}: {}", adapter.id, e.to_string()));
                 }
             }
@@ -1342,7 +1375,8 @@ impl Db {
             let kv_tenant: adapteros_storage::entities::tenant::TenantKv = tenant.clone().into();
             if let Err(e) = repo.put_tenant(&kv_tenant).await {
                 stats.failed += 1;
-                stats.errors
+                stats
+                    .errors
                     .push(format!("tenant {}: {}", kv_tenant.id, e.to_string()));
             } else {
                 stats.migrated += 1;
@@ -1390,7 +1424,9 @@ impl Db {
                 .fetch_all(pool)
                 .await?
         } else {
-            sqlx::query_as::<_, StackRecord>(query).fetch_all(pool).await?
+            sqlx::query_as::<_, StackRecord>(query)
+                .fetch_all(pool)
+                .await?
         };
 
         stacks.sort_by(|a, b| {
@@ -1418,7 +1454,8 @@ impl Db {
                 Ok(kv_stack) => {
                     if let Err(e) = repo.put_stack(kv_stack).await {
                         stats.failed += 1;
-                        stats.errors
+                        stats
+                            .errors
                             .push(format!("stack {}: {}", record.id, e.to_string()));
                     } else {
                         stats.migrated += 1;
@@ -1464,8 +1501,7 @@ impl Db {
             "#
         };
 
-        let mut plans: Vec<crate::models::Plan> = if let Some(tid) = opts.tenant_filter.as_deref()
-        {
+        let mut plans: Vec<crate::models::Plan> = if let Some(tid) = opts.tenant_filter.as_deref() {
             sqlx::query_as::<_, crate::models::Plan>(query)
                 .bind(tid)
                 .fetch_all(pool)
@@ -1501,7 +1537,8 @@ impl Db {
                 Ok(plan_kv) => {
                     if let Err(e) = repo.put_plan(plan_kv).await {
                         stats.failed += 1;
-                        stats.errors
+                        stats
+                            .errors
                             .push(format!("plan {}: {}", plan.id, e.to_string()));
                     } else {
                         stats.migrated += 1;
@@ -1584,11 +1621,18 @@ impl Db {
             let kv = AuthSessionKv {
                 jti: row.jti.clone(),
                 user_id: row.user_id.clone(),
+                tenant_id: None,
+                session_id: None,
+                device_id: None,
+                rot_id: None,
+                refresh_expires_at: None,
+                refresh_hash: None,
                 ip_address: row.ip_address.clone(),
                 user_agent: row.user_agent.clone(),
                 created_at,
                 last_activity,
                 expires_at: row.expires_at,
+                locked: false,
             };
 
             if let Err(e) = repo.put_session(kv).await {
@@ -1611,7 +1655,9 @@ impl Db {
         stats: &mut DomainStats,
     ) -> Result<usize> {
         let kv_backend = self.kv_backend().ok_or_else(|| {
-            AosError::Config("KV backend not initialized; cannot migrate runtime sessions".to_string())
+            AosError::Config(
+                "KV backend not initialized; cannot migrate runtime sessions".to_string(),
+            )
         })?;
         let pool = self.pool_opt().ok_or_else(|| {
             AosError::Database("SQL backend unavailable for runtime session migration".to_string())
@@ -1676,6 +1722,202 @@ impl Db {
         let _ = stats;
         warn!("RAG artifact migration not yet implemented in kv_migration; skipping");
         Ok(0)
+    }
+
+    /// Compute deterministic per-tenant checksums across key domains (SQL vs KV).
+    ///
+    /// Uses sorted serde JSON renderings to ensure stable hashing. Records a drift
+    /// metric when mismatches are detected.
+    pub async fn tenant_checksum(&self, tenant_id: &str) -> Result<TenantChecksum> {
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not attached; cannot compute tenant checksum".to_string())
+        })?;
+
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL backend unavailable for tenant checksum".to_string())
+        })?;
+
+        #[derive(sqlx::FromRow, Serialize)]
+        struct AdapterRow {
+            adapter_id: Option<String>,
+            id: String,
+            hash_b3: Option<String>,
+            lifecycle_state: String,
+            current_state: String,
+            version: String,
+        }
+
+        let sql_adapters: Vec<AdapterRow> = sqlx::query_as(
+            r#"
+            SELECT adapter_id, id, hash_b3, lifecycle_state, current_state, version
+            FROM adapters
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC, id ASC
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_all(pool)
+        .await?;
+        let adapter_repo = AdapterKvRepository::new(
+            Arc::new(adapteros_storage::repos::AdapterRepository::new(
+                kv_backend.backend().clone(),
+                kv_backend.index_manager().clone(),
+            )),
+            tenant_id.to_string(),
+        );
+        let kv_adapters = adapter_repo
+            .list_adapters_for_tenant_kv(tenant_id)
+            .await
+            .unwrap_or_default();
+
+        let sql_stacks: Vec<StackRecord> = sqlx::query_as(
+            r#"
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type,
+                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at,
+                   updated_at, created_by, determinism_mode
+            FROM adapter_stacks
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC, id ASC
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_all(pool)
+        .await?;
+        let stack_repo = StackKvRepository::new(kv_backend.backend().clone());
+        let kv_stacks = stack_repo
+            .list_stacks_by_tenant(tenant_id)
+            .await
+            .unwrap_or_default();
+
+        let sql_plans: Vec<crate::models::Plan> = sqlx::query_as(
+            r#"
+            SELECT id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, metallib_hash_b3, created_at
+            FROM plans
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC, id ASC
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_all(pool)
+        .await?;
+        let plan_repo = PlanKvRepository::new(kv_backend.backend().clone());
+        let kv_plans = plan_repo.list_plans(tenant_id).await.unwrap_or_default();
+
+        let mut adapter_rows_sql = Vec::new();
+        for a in &sql_adapters {
+            let adapter_id = a.adapter_id.as_deref().unwrap_or(&a.id);
+            adapter_rows_sql.push(format!(
+                "{}|{}|{}|{}|{}",
+                adapter_id,
+                a.hash_b3.as_deref().unwrap_or(""),
+                a.lifecycle_state,
+                a.current_state,
+                a.version
+            ));
+        }
+        let mut adapter_rows_kv = Vec::new();
+        for a in &kv_adapters {
+            let adapter_id = a.adapter_id.as_deref().unwrap_or(&a.id);
+            adapter_rows_kv.push(format!(
+                "{}|{}|{}|{}|{}",
+                adapter_id,
+                a.hash_b3.as_str(),
+                a.lifecycle_state,
+                a.current_state,
+                a.version
+            ));
+        }
+        let adapters_hash_sql = hash_rows(adapter_rows_sql);
+        let adapters_hash_kv = hash_rows(adapter_rows_kv);
+
+        let mut stack_rows_sql = Vec::new();
+        for s in &sql_stacks {
+            stack_rows_sql.push(format!(
+                "{}|{}|{}|{}",
+                s.id,
+                s.adapter_ids_json.clone(),
+                s.lifecycle_state.clone(),
+                s.determinism_mode.clone().unwrap_or_default(),
+            ));
+        }
+        let mut stack_rows_kv = Vec::new();
+        for s in &kv_stacks {
+            stack_rows_kv.push(format!(
+                "{}|{}|{}|{}",
+                s.id,
+                s.adapter_ids.join(","),
+                s.lifecycle_state.to_string(),
+                s.workflow_type
+                    .as_ref()
+                    .map(|w| w.to_string())
+                    .unwrap_or_default()
+            ));
+        }
+        let stacks_hash_sql = hash_rows(stack_rows_sql);
+        let stacks_hash_kv = hash_rows(stack_rows_kv);
+
+        let mut plan_rows_sql = Vec::new();
+        for p in &sql_plans {
+            plan_rows_sql.push(format!(
+                "{}|{}|{}|{}",
+                p.id,
+                p.plan_id_b3.clone(),
+                p.manifest_hash_b3.clone(),
+                p.metallib_hash_b3.clone().unwrap_or_default(),
+            ));
+        }
+        let mut plan_rows_kv = Vec::new();
+        for p in &kv_plans {
+            plan_rows_kv.push(format!(
+                "{}|{}|{}|{}",
+                p.id,
+                p.plan_id_b3.clone(),
+                p.manifest_hash_b3.clone(),
+                p.metallib_hash_b3.clone().unwrap_or_default(),
+            ));
+        }
+        let plans_hash_sql = hash_rows(plan_rows_sql);
+        let plans_hash_kv = hash_rows(plan_rows_kv);
+
+        let consistent = adapters_hash_sql == adapters_hash_kv
+            && stacks_hash_sql == stacks_hash_kv
+            && plans_hash_sql == plans_hash_kv
+            && sql_adapters.len() == kv_adapters.len()
+            && sql_stacks.len() == kv_stacks.len()
+            && sql_plans.len() == kv_plans.len();
+
+        if !consistent {
+            global_kv_metrics().record_drift_detected();
+        }
+
+        Ok(TenantChecksum {
+            tenant_id: tenant_id.to_string(),
+            adapters_sql: sql_adapters.len(),
+            adapters_kv: kv_adapters.len(),
+            adapters_hash_sql,
+            adapters_hash_kv,
+            stacks_sql: sql_stacks.len(),
+            stacks_kv: kv_stacks.len(),
+            stacks_hash_sql,
+            stacks_hash_kv,
+            plans_sql: sql_plans.len(),
+            plans_kv: kv_plans.len(),
+            plans_hash_sql,
+            plans_hash_kv,
+            consistent,
+        })
+    }
+
+    /// Tenant-scoped backfill wrapper that preserves caller options while enforcing the tenant filter.
+    pub async fn backfill_tenant_domains(
+        &self,
+        tenant_id: &str,
+        domains: &[MigrationDomain],
+        opts: &MigrationOptions,
+    ) -> Result<(Vec<(MigrationDomain, DomainStats)>, MigrationCheckpoint)> {
+        let mut scoped_opts = opts.clone();
+        scoped_opts.tenant_filter = Some(tenant_id.to_string());
+        self.migrate_domains(domains, &scoped_opts).await
     }
 }
 
@@ -1748,5 +1990,12 @@ mod tests {
         assert_eq!(discrepancy.field, "name");
         assert_eq!(discrepancy.sql_value, "Old Name");
         assert_eq!(discrepancy.kv_value, "New Name");
+    }
+
+    #[test]
+    fn hash_rows_sorts_inputs() {
+        let h1 = hash_rows(vec!["b".into(), "a".into()]);
+        let h2 = hash_rows(vec!["a".into(), "b".into()]);
+        assert_eq!(h1, h2);
     }
 }

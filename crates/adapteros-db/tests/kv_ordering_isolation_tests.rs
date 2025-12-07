@@ -160,5 +160,3 @@ async fn repositories_use_tenant_prefix_and_stable_ordering() -> Result<()> {
 
     Ok(())
 }
-
-
