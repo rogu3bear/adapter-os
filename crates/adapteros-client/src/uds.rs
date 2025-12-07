@@ -529,6 +529,7 @@ impl AdapterOSClient for UdsClient {
             role: "admin".to_string(),
             expires_in: 28800, // 8 hours
             tenants: Some(vec![]),
+            mfa_level: None,
         })
     }
 
@@ -548,6 +549,7 @@ impl AdapterOSClient for UdsClient {
             tenant_id: "default".to_string(),
             display_name: "UDS Operator".to_string(),
             permissions: vec!["AdapterList".to_string()],
+            admin_tenants: vec![],
             last_login_at: None,
             mfa_enabled: None,
             token_last_rotated_at: None,

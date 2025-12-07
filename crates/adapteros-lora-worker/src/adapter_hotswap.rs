@@ -12,11 +12,14 @@
 //!
 //! GPU fingerprint format: GpuBufferFingerprint from adapteros-lora-kernel-mtl
 
-use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
+use adapteros_core::{
+    adapter_fs_path_with_root, constants::BYTES_PER_MB, AosError, B3Hash, RepoAdapterPaths, Result,
+};
 use adapteros_telemetry::TelemetryWriter;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -53,6 +56,33 @@ pub fn adapter_id_to_u16(adapter_id: &str) -> u16 {
     let hash = B3Hash::hash(adapter_id.as_bytes());
     let bytes = hash.to_bytes();
     u16::from_le_bytes([bytes[0], bytes[1]])
+}
+
+fn resolve_adapter_file(
+    repo_root: &Path,
+    tenant_id: &str,
+    adapter_id: &str,
+) -> std::path::PathBuf {
+    let adapter_dir = adapter_fs_path_with_root(repo_root, tenant_id, adapter_id)
+        .unwrap_or_else(|_| repo_root.join(tenant_id).join(adapter_id));
+    let flat = adapter_dir.with_extension("aos");
+    if flat.exists() {
+        return flat;
+    }
+
+    if let Ok(entries) = fs::read_dir(&adapter_dir) {
+        let mut files: Vec<std::path::PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|ext| ext == "aos"))
+            .collect();
+        files.sort();
+        if let Some(path) = files.into_iter().next() {
+            return path;
+        }
+    }
+
+    flat
 }
 
 /// Adapter command for IPC communication
@@ -797,7 +827,8 @@ impl Default for AdapterTable {
 pub struct HotSwapManager<K> {
     table: Arc<AdapterTable>,
     kernels: Option<Arc<tokio::sync::Mutex<K>>>,
-    adapters_path: std::path::PathBuf,
+    repo_root: std::path::PathBuf,
+    tenant_id: String,
 }
 
 impl<K> Clone for HotSwapManager<K> {
@@ -805,7 +836,8 @@ impl<K> Clone for HotSwapManager<K> {
         Self {
             table: self.table.clone(),
             kernels: self.kernels.clone(),
-            adapters_path: self.adapters_path.clone(),
+            repo_root: self.repo_root.clone(),
+            tenant_id: self.tenant_id.clone(),
         }
     }
 }
@@ -824,10 +856,12 @@ impl HotSwapManagerNoKernel {
     ///
     /// For backward compatibility. Equivalent to new_metadata_only().
     pub fn new() -> Self {
+        let repo_root = RepoAdapterPaths::from_env_and_config(None).repo_root;
         Self {
             table: Arc::new(AdapterTable::new()),
             kernels: None,
-            adapters_path: std::path::PathBuf::from("."),
+            repo_root,
+            tenant_id: "default".to_string(),
         }
     }
 }
@@ -839,7 +873,8 @@ where
     /// Create new hot-swap manager with kernel backend
     pub fn new_with_kernels(
         kernels: Arc<tokio::sync::Mutex<K>>,
-        adapters_path: std::path::PathBuf,
+        repo_root: std::path::PathBuf,
+        tenant_id: String,
         telemetry: Option<Arc<TelemetryWriter>>, // add param
     ) -> Self {
         let (tx, mut rx) = mpsc::channel(100);
@@ -925,16 +960,18 @@ where
         Self {
             table: table_arc,
             kernels: Some(kernels),
-            adapters_path,
+            repo_root,
+            tenant_id,
         }
     }
 
     /// Create new hot-swap manager without kernel backend (metadata only)
-    pub fn new_metadata_only(adapters_path: std::path::PathBuf) -> Self {
+    pub fn new_metadata_only(repo_root: std::path::PathBuf, tenant_id: String) -> Self {
         Self {
             table: Arc::new(AdapterTable::new()),
             kernels: None,
-            adapters_path,
+            repo_root,
+            tenant_id,
         }
     }
 
@@ -947,7 +984,8 @@ where
                 // Load actual adapter weights if kernel backend is available
                 let vram_mb = if let Some(ref kernels) = self.kernels {
                     // Load .aos file (async I/O to avoid blocking executor)
-                    let adapter_path = self.adapters_path.join(format!("{}.aos", adapter_id));
+                    let adapter_path =
+                        resolve_adapter_file(&self.repo_root, &self.tenant_id, &adapter_id);
                     let adapter_bytes = tokio::fs::read(&adapter_path).await.map_err(|e| {
                         AosError::Io(format!(
                             "Failed to read adapter file {}: {}",

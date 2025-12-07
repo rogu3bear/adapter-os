@@ -14,23 +14,28 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use adapteros_lora_kernel_coreml::fusion::{LoraFusionConfig, fuse_lora_into_model};
+//! use adapteros_core::Result;
+//! use adapteros_lora_kernel_coreml::fusion::{
+//!     AdapterFusionSpec, LoraFusionConfig, fuse_lora_into_model,
+//! };
+//! use adapteros_lora_kernel_coreml::ComputeUnits;
 //!
-//! let config = LoraFusionConfig {
-//!     base_model_path: "model.mlpackage".into(),
-//!     output_path: "fused_model.mlmodelc".into(),
-//!     adapters: vec![
-//!         AdapterFusionSpec {
+//! fn main() -> Result<()> {
+//!     let config = LoraFusionConfig {
+//!         base_model_path: "model.mlpackage".into(),
+//!         output_path: "fused_model.mlmodelc".into(),
+//!         adapters: vec![AdapterFusionSpec {
 //!             weights_path: "adapter_a.safetensors".into(),
 //!             gate_weight: 0.5,
 //!             alpha: 32.0,
 //!             rank: 16,
-//!         },
-//!     ],
-//!     compute_units: ComputeUnits::CpuAndNeuralEngine,
-//! };
+//!         }],
+//!         compute_units: ComputeUnits::CpuAndNeuralEngine,
+//!     };
 //!
-//! fuse_lora_into_model(&config)?;
+//!     fuse_lora_into_model(&config)?;
+//!     Ok(())
+//! }
 //! ```
 
 use adapteros_core::{AosError, Result};

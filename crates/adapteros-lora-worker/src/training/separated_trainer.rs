@@ -487,6 +487,9 @@ mod tests {
 
         assert_eq!(result.positive_result.example_count, 1);
         assert_eq!(result.negative_result.example_count, 1);
-        assert!(result.total_training_time_ms >= 0);
+        assert!(
+            result.total_training_time_ms > 0,
+            "training time should be positive"
+        );
     }
 }

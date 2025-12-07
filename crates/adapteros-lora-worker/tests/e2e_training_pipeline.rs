@@ -94,7 +94,7 @@ async fn test_e2e_full_pipeline() {
     // Step 3: Package
     let packager = AdapterPackager::new(temp.path());
     let packaged = packager
-        .package_aos("e2e_test", &quantized, &config, "base-model")
+        .package_aos("default", "e2e_test", &quantized, &config, "base-model")
         .await
         .expect("packaging should succeed");
 
@@ -112,6 +112,20 @@ async fn test_e2e_full_pipeline() {
         size > 0,
         "Packaged adapter should have content (got {} bytes)",
         size
+    );
+
+    // Deterministic signatures for archive should be present
+    let sig_path = packaged.weights_path.with_extension("aos.sig");
+    let pub_path = packaged.weights_path.with_extension("aos.pub");
+    assert!(
+        sig_path.exists(),
+        "Signature file should exist at {:?}",
+        sig_path
+    );
+    assert!(
+        pub_path.exists(),
+        "Public key file should exist at {:?}",
+        pub_path
     );
 }
 

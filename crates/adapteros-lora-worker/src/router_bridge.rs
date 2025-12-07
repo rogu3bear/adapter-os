@@ -14,6 +14,7 @@
 //! - Router Decision: adapteros-lora-router/src/lib.rs:1010-1032
 //! - Canonical RouterRing: adapteros-lora-kernel-api/src/lib.rs:8-159
 
+use adapteros_core::AosError;
 use adapteros_lora_kernel_api::RouterRing;
 use adapteros_lora_router::Decision;
 use tracing::{debug, warn};
@@ -99,6 +100,43 @@ pub fn decision_to_router_ring(
         ring.k, k,
         "RouterRing K mismatch after conversion (expected {}, got {})",
         k, ring.k
+    );
+
+    Ok(ring)
+}
+
+/// Convert Decision to RouterRing using a fixed active adapter ID list (hashed IDs)
+///
+/// This enforces that router-selected indices must map to the current active set.
+/// Returns an error if a decision index is out of range for the active set.
+pub fn decision_to_router_ring_with_active_ids(
+    decision: &Decision,
+    active_adapter_ids: &[u16],
+    position: usize,
+) -> Result<RouterRing, AosError> {
+    let mapped_indices: Vec<u16> = decision
+        .indices
+        .iter()
+        .map(|idx| {
+            active_adapter_ids
+                .get(*idx as usize)
+                .copied()
+                .ok_or_else(|| {
+                    AosError::Routing(format!(
+                        "Router decision index {} not in active set (len={})",
+                        idx,
+                        active_adapter_ids.len()
+                    ))
+                })
+        })
+        .collect::<Result<_, _>>()?;
+
+    let mut ring = RouterRing::new(mapped_indices.len());
+    ring.position = position;
+    ring.set_with_max_adapter(
+        mapped_indices.as_slice(),
+        decision.gates_q15.as_slice(),
+        u16::MAX,
     );
 
     Ok(ring)
@@ -274,5 +312,26 @@ mod tests {
         let ring = decision_to_router_ring(&decision, 100).unwrap();
 
         assert_eq!(ring.active_gates(), &[-32767, -16383, 16383, 32767]);
+    }
+
+    #[test]
+    fn test_decision_to_router_ring_with_active_ids_maps_hashes() {
+        let decision = make_decision(&[0, 1], &[111, 222], 0.4);
+        let active_ids = [42u16, 99u16];
+
+        let ring = decision_to_router_ring_with_active_ids(&decision, &active_ids, 7).unwrap();
+
+        assert_eq!(ring.active_indices(), &[42, 99]);
+        assert_eq!(ring.active_gates(), &[111, 222]);
+        assert_eq!(ring.position, 7);
+    }
+
+    #[test]
+    fn test_decision_to_router_ring_with_active_ids_errors_on_missing() {
+        let decision = make_decision(&[0, 1], &[100, 200], 0.2);
+        let active_ids = [7u16];
+
+        let result = decision_to_router_ring_with_active_ids(&decision, &active_ids, 0);
+        assert!(matches!(result, Err(AosError::Routing(_))));
     }
 }

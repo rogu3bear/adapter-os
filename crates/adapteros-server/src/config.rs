@@ -7,6 +7,8 @@ pub struct Config {
     pub server: ServerConfig,
     pub db: DatabaseConfig,
     pub security: SecurityConfig,
+    #[serde(default)]
+    pub auth: AuthConfig,
     pub paths: PathsConfig,
     pub rate_limits: RateLimitsConfig,
     pub metrics: MetricsConfig,
@@ -97,6 +99,25 @@ pub struct SecurityConfig {
     pub jwt_mode: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AuthConfig {
+    /// JWT algorithm to use in development (hs256/hmac)
+    #[serde(default = "default_dev_algo")]
+    pub dev_algo: String,
+    /// JWT algorithm to use in production (eddsa/ed25519)
+    #[serde(default = "default_prod_algo")]
+    pub prod_algo: String,
+    /// Session lifetime in seconds
+    #[serde(default = "default_session_ttl_seconds")]
+    pub session_lifetime: u64,
+    /// Failed attempts before lockout
+    #[serde(default = "default_lockout_threshold")]
+    pub lockout_threshold: u32,
+    /// Lockout cooldown in seconds
+    #[serde(default = "default_lockout_cooldown")]
+    pub lockout_cooldown: u64,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -117,6 +138,26 @@ fn default_jwt_issuer() -> String {
     "adapteros".to_string()
 }
 
+fn default_dev_algo() -> String {
+    "hs256".to_string()
+}
+
+fn default_prod_algo() -> String {
+    "eddsa".to_string()
+}
+
+fn default_session_ttl_seconds() -> u64 {
+    12 * 3600
+}
+
+fn default_lockout_threshold() -> u32 {
+    5
+}
+
+fn default_lockout_cooldown() -> u64 {
+    300
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathsConfig {
     pub artifacts_root: String,
@@ -132,7 +173,7 @@ pub struct PathsConfig {
 }
 
 fn default_adapters_root() -> String {
-    "var/adapters".to_string()
+    "var/adapters/repo".to_string()
 }
 
 fn default_plan_dir() -> String {

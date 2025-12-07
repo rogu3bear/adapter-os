@@ -108,8 +108,8 @@ async fn collect_status(state: &AppState) -> Result<AdapterOSStatus> {
         }
         .to_string();
 
-    // Get kernel hash from plan (stub for now)
-    let kernel_hash = get_kernel_hash()
+    // Get kernel hash from plan (derived from loaded base model)
+    let kernel_hash = get_kernel_hash(base_model_status.base_model_id.as_deref())
         .await
         .unwrap_or_else(|| "00000000".to_string());
 
@@ -169,13 +169,14 @@ async fn query_base_model_status(db: &adapteros_db::Db) -> Result<BaseModelStatu
             .map(|m| m.name)
             .unwrap_or_else(|| "Unknown".to_string());
 
-        let is_loaded = status_record.status == "loaded";
+        let status_enum = adapteros_api_types::ModelLoadStatus::from_str(&status_record.status);
+        let is_loaded = status_enum.is_ready();
 
         Ok(BaseModelStatusInfo {
             base_model_loaded: is_loaded,
             base_model_id: Some(status_record.model_id),
             base_model_name: Some(model_name),
-            base_model_status: status_record.status,
+            base_model_status: status_enum.as_str().to_string(),
             base_model_memory_mb: status_record.memory_usage_mb,
         })
     } else {
@@ -183,16 +184,22 @@ async fn query_base_model_status(db: &adapteros_db::Db) -> Result<BaseModelStatu
             base_model_loaded: false,
             base_model_id: None,
             base_model_name: None,
-            base_model_status: "unloaded".to_string(),
+            base_model_status: adapteros_api_types::ModelLoadStatus::NoModel
+                .as_str()
+                .to_string(),
             base_model_memory_mb: None,
         })
     }
 }
 
 /// Get kernel hash from current plan
-async fn get_kernel_hash() -> Option<String> {
-    // Look for plan in standard location
-    let plan_path = Path::new("plan/qwen7b/manifest.json");
+///
+/// The plan path is derived from the base model id to avoid hard-coded model names.
+async fn get_kernel_hash(base_model_id: Option<&str>) -> Option<String> {
+    let model_id = base_model_id?;
+
+    // Look for plan in model-specific location: plan/<model_id>/manifest.json
+    let plan_path = Path::new("plan").join(model_id).join("manifest.json");
     if !plan_path.exists() {
         return None;
     }

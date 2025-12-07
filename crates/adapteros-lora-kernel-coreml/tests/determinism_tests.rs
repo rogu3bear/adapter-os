@@ -504,7 +504,7 @@ fn test_swift_objcpp_scale_equivalence() {
 
     let data = vec![1.0f32, 2.0, 3.0, 4.0];
     let shape = vec![2usize, 2];
-    let factor = 3.14159f32;
+    let factor = std::f32::consts::PI;
 
     // Run via Swift bridge
     let swift_result = {

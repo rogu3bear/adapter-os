@@ -8,7 +8,7 @@ use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -192,9 +192,7 @@ impl AdapterLoader {
 
     /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
     pub fn load_adapter(&mut self, adapter_id: u16, adapter_name: &str) -> Result<AdapterHandle> {
-        // Check for .aos file first, fall back to .safetensors
-        let aos_path = self.base_path.join(format!("{}.aos", adapter_name));
-        let safetensors_path = self.base_path.join(format!("{}.safetensors", adapter_name));
+        let (aos_path, safetensors_path) = resolve_adapter_paths(&self.base_path, adapter_name);
 
         let (adapter_path, weights_data, metadata) = if aos_path.exists() {
             tracing::debug!(
@@ -269,9 +267,8 @@ impl AdapterLoader {
         let adapter_name_owned = adapter_name.to_string();
 
         let (handle, weights_data) = tokio::task::spawn_blocking(move || {
-            // Check for .aos file first, fall back to .safetensors
-            let aos_path = base_path.join(format!("{}.aos", &adapter_name_owned));
-            let safetensors_path = base_path.join(format!("{}.safetensors", &adapter_name_owned));
+            let (aos_path, safetensors_path) =
+                resolve_adapter_paths(&base_path, &adapter_name_owned);
 
             let (adapter_path, weights_data, metadata) = if aos_path.exists() {
                 tracing::debug!(
@@ -769,6 +766,43 @@ impl AdapterLoader {
             .get(&adapter_id)
             .map(|(_, weights)| weights.data.as_slice())
     }
+}
+
+fn resolve_adapter_paths(base_path: &PathBuf, adapter_name: &str) -> (PathBuf, PathBuf) {
+    let flat_aos = base_path.join(format!("{adapter_name}.aos"));
+    let flat_safetensors = base_path.join(format!("{adapter_name}.safetensors"));
+
+    if flat_aos.exists() || flat_safetensors.exists() {
+        return (flat_aos, flat_safetensors);
+    }
+
+    let adapter_dir = base_path.join(adapter_name);
+    if let Ok(entries) = fs::read_dir(&adapter_dir) {
+        let mut aos_candidates = Vec::new();
+        let mut safetensors_candidates = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "aos") {
+                aos_candidates.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "safetensors") {
+                safetensors_candidates.push(path);
+            }
+        }
+        aos_candidates.sort();
+        safetensors_candidates.sort();
+
+        let aos_path = aos_candidates
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| flat_aos.clone());
+        let safetensors_path = safetensors_candidates
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| flat_safetensors.clone());
+        return (aos_path, safetensors_path);
+    }
+
+    (flat_aos, flat_safetensors)
 }
 
 /// Handle to a loaded adapter

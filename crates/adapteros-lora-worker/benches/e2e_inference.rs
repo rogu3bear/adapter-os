@@ -52,6 +52,8 @@ impl Adapter {
 
     fn run_inference(&self, tokens: &[u32]) -> Vec<f32> {
         // Simulate inference computation
+        let _ = black_box(&self.id);
+        let _ = black_box(self.rank);
         let output_size = tokens.len() * 4096; // hidden_dim = 4096
         vec![0.5; output_size]
     }
@@ -68,7 +70,7 @@ impl AdapterStack {
 
     fn run_inference(&self, tokens: &[u32]) -> Vec<f32> {
         // Simulate K-sparse routing + fusion
-        let mut outputs: Vec<Vec<f32>> = self
+        let outputs: Vec<Vec<f32>> = self
             .adapters
             .iter()
             .map(|adapter| adapter.run_inference(tokens))
@@ -176,7 +178,7 @@ fn bench_cold_start_stack(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("adapters", count), &count, |b, &count| {
             b.iter(|| {
                 // Create and load stack
-                let mut adapters: Vec<Adapter> = (0..count)
+                let adapters: Vec<Adapter> = (0..count)
                     .map(|i| {
                         let mut adapter = Adapter::new(format!("adapter-{}", i), rank);
                         adapter.load();

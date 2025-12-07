@@ -214,18 +214,25 @@ impl ModelLoader {
         // Check if config file exists before attempting security validation
         // (normalize_path requires the file to exist for canonicalization)
         if !config_path.exists() {
-            // Use unified config defaults for Qwen2.5-7B
-            let unified = UnifiedModelConfig::default();
-            return Ok(QwenModelConfig {
-                vocab_size: unified.vocab_size,
-                hidden_size: unified.hidden_size,
-                num_layers: unified.num_layers,
-                num_attention_heads: unified.num_attention_heads,
-                num_key_value_heads: unified.num_key_value_heads,
-                intermediate_size: unified.intermediate_size,
-                rope_theta: unified.rope_theta,
-                max_position_embeddings: unified.max_seq_len,
-            });
+            if cfg!(debug_assertions) {
+                // In debug builds, allow dev fixture for fast local bring-up
+                let unified = UnifiedModelConfig::dev_fixture();
+                return Ok(QwenModelConfig {
+                    vocab_size: unified.vocab_size,
+                    hidden_size: unified.hidden_size,
+                    num_layers: unified.num_layers,
+                    num_attention_heads: unified.num_attention_heads,
+                    num_key_value_heads: unified.num_key_value_heads,
+                    intermediate_size: unified.intermediate_size,
+                    rope_theta: unified.rope_theta,
+                    max_position_embeddings: unified.max_seq_len,
+                });
+            }
+
+            return Err(AosError::Worker(format!(
+                "config.json not found at '{}'; set AOS_MODEL_PATH to a model directory containing config.json",
+                config_path.display()
+            )));
         }
 
         // Canonicalize path for security validation (file exists at this point)
@@ -419,15 +426,15 @@ mod tests {
 
     #[test]
     fn test_config_loading_default() {
-        // When config.json doesn't exist, the unified defaults should be returned
+        // When config.json doesn't exist in debug, the unified dev fixture is returned
         let temp_dir = tempdir().expect("Test temp directory creation should succeed");
         let loader = ModelLoader::new(temp_dir.path());
 
         let config = loader
             .load_config()
             .expect("Test config loading should succeed");
-        // These values come from the unified ModelConfig::default() (Qwen2.5-7B)
-        let unified = UnifiedModelConfig::default();
+        // These values come from the unified ModelConfig::dev_fixture()
+        let unified = UnifiedModelConfig::dev_fixture();
         assert_eq!(config.vocab_size, unified.vocab_size);
         assert_eq!(config.hidden_size, unified.hidden_size);
         assert_eq!(config.num_layers, unified.num_layers);
@@ -435,7 +442,7 @@ mod tests {
 
     #[test]
     fn test_from_unified_config() {
-        let unified = UnifiedModelConfig::default();
+        let unified = UnifiedModelConfig::dev_fixture();
         let loader = ModelLoader::from_unified_config(&unified);
 
         assert_eq!(loader.model_path, unified.path);
@@ -444,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_from_unified_config_with_cache() {
-        let unified = UnifiedModelConfig::default();
+        let unified = UnifiedModelConfig::dev_fixture();
         let cache_config = ModelCacheConfig {
             max_memory_bytes: 1024 * 1024, // 1MB
             max_models: 5,
@@ -461,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_parameter_count_estimation() {
-        // When config.json doesn't exist, uses unified defaults
+        // When config.json doesn't exist in debug, uses unified dev fixture
         let temp_dir = tempdir().expect("Test temp directory creation should succeed");
         let loader = ModelLoader::new(temp_dir.path());
 
@@ -469,14 +476,8 @@ mod tests {
             .get_model_info()
             .expect("Test model info retrieval should succeed");
 
-        // With unified config defaults (Qwen2.5-7B), parameters should be in reasonable range
-        // vocab_size=152064, hidden_size=3584, num_layers=28
-        // Embedding: 152064 * 3584 = 545,157,376
-        // LM head: 3584 * 152064 = 545,157,376
-        // Attention (approx): 28 * 3584 * 3584 * 4 = 1,438,105,856
-        // MLP (approx): 28 * 3584 * 18944 * 2 = 3,801,604,096
-        // Total approx: ~6.3 billion
-        assert!(info.total_parameters > 5_000_000_000);
-        assert!(info.total_parameters < 10_000_000_000);
+        // With unified dev fixture (Qwen2.5-Coder-32B) parameters are much larger; sanity check range
+        assert!(info.total_parameters > 10_000_000_000);
+        assert!(info.total_parameters < 40_000_000_000);
     }
 }

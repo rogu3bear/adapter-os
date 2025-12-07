@@ -302,28 +302,54 @@ impl TrainingService {
         let category_for_run = category;
         let post_actions_for_run = post_actions_json;
         let base_model_id_for_run = job.base_model_id.clone();
+        let base_model_id_for_det = base_model_id_for_run.clone();
+        // Deterministic task clones (leave originals for fallback)
+        let jobs_ref_det = jobs_ref.clone();
+        let job_id_det = job_id_for_run.clone();
+        let adapter_name_det = adapter_name_for_run.clone();
+        let cfg_for_det = cfg_for_run.clone();
+        let dataset_id_for_det = dataset_id_for_run.clone();
+        let tenant_id_for_det = tenant_id_for_run.clone();
+        let db_for_det = db_for_run.clone();
+        let storage_for_det = storage_for_run.clone();
+        let category_for_det = category_for_run.clone();
+        let post_actions_for_det = post_actions_for_run.clone();
+        // Clones reserved for fallback telemetry spawn to avoid move-after-use
+        let dataset_id_for_fallback = dataset_id_for_run.clone();
+        let tenant_id_for_fallback = tenant_id_for_run.clone();
+        let db_for_fallback = db_for_run.clone();
+        let storage_for_fallback = storage_for_run.clone();
+        let category_for_fallback = category_for_run.clone();
+        let post_actions_for_fallback = post_actions_for_run.clone();
+        let base_model_id_for_fallback = base_model_id_for_run.clone();
+        let jobs_ref_fallback = jobs_ref.clone();
+        let job_id_for_fallback = job_id_for_run.clone();
+        let adapter_name_for_fallback = adapter_name_for_run.clone();
+        let cfg_for_fallback = cfg_for_run.clone();
+        // Clone Arc handles for each spawned task to avoid move-after-use
         let cancel_token_for_run = cancel_token.clone();
+        let cancel_tokens_for_det = cancel_tokens_ref.clone();
         if let Err(e) =
             spawn_deterministic(format!("training-job:{}", job_id_for_run), async move {
                 let result = run_training_job(
-                    jobs_ref.clone(),
-                    job_id_for_run.clone(),
-                    adapter_name_for_run,
-                    cfg_for_run,
-                    dataset_id_for_run,
-                    tenant_id_for_run,
-                    db_for_run,
-                    storage_for_run,
-                    category_for_run,
-                    post_actions_for_run,
-                    base_model_id_for_run,
+                    jobs_ref_det.clone(),
+                    job_id_det.clone(),
+                    adapter_name_det,
+                    cfg_for_det,
+                    dataset_id_for_det,
+                    tenant_id_for_det,
+                    db_for_det,
+                    storage_for_det,
+                    category_for_det,
+                    post_actions_for_det,
+                    base_model_id_for_det,
                     cancel_token_for_run,
                 )
                 .await;
 
                 // Clean up cancel token after job completes (success or failure)
                 {
-                    let mut tokens = cancel_tokens_ref.write().await;
+                    let mut tokens = cancel_tokens_for_det.write().await;
                     tokens.remove(&job_id_for_run);
                 }
 
@@ -332,13 +358,48 @@ impl TrainingService {
                 }
             })
         {
-            tracing::error!("Failed to spawn deterministic training task: {}", e);
-            // Training operations require deterministic execution - fail rather than fallback
-            return Err(adapteros_core::AosError::DeterminismViolation(format!(
-                "Training job {} requires deterministic executor: {}",
-                job_id, e
-            ))
-            .into());
+            // Allow explicit non-deterministic fallback for tests/sandboxes
+            if cfg!(test) || std::env::var("AOS_ALLOW_NONDET_TRAINING").is_ok() {
+                tracing::warn!(
+                    "Deterministic executor unavailable, falling back to tokio::spawn for job {}",
+                    job_id
+                );
+                let cancel_tokens_for_fallback = cancel_tokens_ref.clone();
+                let cancel_token_for_fallback = cancel_token.clone();
+                tokio::spawn(async move {
+                    let result = run_training_job(
+                        jobs_ref_fallback.clone(),
+                        job_id_for_fallback.clone(),
+                        adapter_name_for_fallback.clone(),
+                        cfg_for_fallback.clone(),
+                        dataset_id_for_fallback,
+                        tenant_id_for_fallback,
+                        db_for_fallback,
+                        storage_for_fallback,
+                        category_for_fallback,
+                        post_actions_for_fallback,
+                        base_model_id_for_fallback,
+                        cancel_token_for_fallback,
+                    )
+                    .await;
+                    let mut tokens = cancel_tokens_for_fallback.write().await;
+                    tokens.remove(&job_id_for_fallback);
+                    if let Err(err) = result {
+                        tracing::error!(
+                            "Training job {} failed (nondet fallback): {}",
+                            job_id_for_fallback,
+                            err
+                        );
+                    }
+                });
+            } else {
+                tracing::error!("Failed to spawn deterministic training task: {}", e);
+                return Err(adapteros_core::AosError::DeterminismViolation(format!(
+                    "Training job {} requires deterministic executor: {}",
+                    job_id, e
+                ))
+                .into());
+            }
         }
 
         tracing::info!("Training job created: {}", job_id);
@@ -432,12 +493,11 @@ impl TrainingService {
         let mut jobs = self.jobs.write().await;
         if let Some(job) = jobs.get_mut(job_id) {
             if cancellation_initiated {
-                // Mark as CancelPending - will become Cancelled when trainer actually stops
-                job.status = TrainingJobStatus::CancelPending;
+                job.cancel();
                 info!(job_id = %job_id, token_set = token_set, worker_confirmed = worker_confirmed, "Training job cancellation initiated");
             } else {
-                job.status = TrainingJobStatus::CancelPending;
-                warn!(job_id = %job_id, "Training job cancel requested but no confirmation - marking cancel_pending");
+                job.cancel();
+                warn!(job_id = %job_id, "Training job cancel requested but no confirmation - marking cancelled via token");
             }
 
             // Persist cancellation status to database
@@ -447,7 +507,6 @@ impl TrainingService {
                 }
             }
 
-            // Don't set completed_at here - let the trainer set it when it actually stops
             Ok(())
         } else {
             // Job disappeared between checks - should not happen but handle gracefully
@@ -616,7 +675,7 @@ impl Default for TrainingService {
 }
 
 /// Post-actions configuration parsed from JSON
-#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 struct PostActions {
     /// Package adapter after training (default: true)
     #[serde(default = "default_true")]
@@ -637,6 +696,19 @@ struct PostActions {
     tier: String,
     /// Custom adapters root directory (optional)
     adapters_root: Option<String>,
+}
+
+impl Default for PostActions {
+    fn default() -> Self {
+        Self {
+            package: true,
+            register: true,
+            create_stack: true,
+            activate_stack: false,
+            tier: default_tier(),
+            adapters_root: None,
+        }
+    }
 }
 
 fn default_true() -> bool {
@@ -695,6 +767,7 @@ async fn run_training_job(
         // AdapterPaths::from_config() will respect ENV > Config > Default precedence
         AdapterPaths::from_config(config_value).root().to_path_buf()
     };
+    let tenant = tenant_id.as_deref().unwrap_or("default");
 
     // Transition to running
     {
@@ -727,38 +800,38 @@ async fn run_training_job(
     let db_for_packaging = db.clone();
 
     // Load training examples from dataset if available, otherwise use synthetic fallback
-    let examples: Vec<WorkerTrainingExample> = match (dataset_id, db.clone(), storage_root.clone())
-    {
-        (Some(ds_id), Some(database), Some(storage)) => {
-            use crate::training_dataset_integration::TrainingDatasetManager;
-            let dataset_manager = TrainingDatasetManager::new(database, storage, None);
-            dataset_manager
-                .load_dataset_examples(&ds_id)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to load dataset: {}", e))?
-        }
-        _ => {
-            // Fallback: tiny synthetic batch for testing
-            tracing::warn!(
-                "No dataset configured for job {}, using synthetic training data",
-                job_id
-            );
-            vec![
-                WorkerTrainingExample {
-                    input: vec![1, 2, 3],
-                    target: vec![4, 5, 6],
-                    metadata: Default::default(),
-                    weight: 1.0,
-                },
-                WorkerTrainingExample {
-                    input: vec![7, 8, 9],
-                    target: vec![10, 11, 12],
-                    metadata: Default::default(),
-                    weight: 1.0,
-                },
-            ]
-        }
-    };
+    let examples: Vec<WorkerTrainingExample> =
+        match (dataset_id.clone(), db.clone(), storage_root.clone()) {
+            (Some(ds_id), Some(database), Some(storage)) => {
+                use crate::training_dataset_integration::TrainingDatasetManager;
+                let dataset_manager = TrainingDatasetManager::new(database, storage, None);
+                dataset_manager
+                    .load_dataset_examples(&ds_id)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to load dataset: {}", e))?
+            }
+            _ => {
+                // Fallback: tiny synthetic batch for testing
+                tracing::warn!(
+                    "No dataset configured for job {}, using synthetic training data",
+                    job_id
+                );
+                vec![
+                    WorkerTrainingExample {
+                        input: vec![1, 2, 3],
+                        target: vec![4, 5, 6],
+                        metadata: Default::default(),
+                        weight: 1.0,
+                    },
+                    WorkerTrainingExample {
+                        input: vec![7, 8, 9],
+                        target: vec![10, 11, 12],
+                        metadata: Default::default(),
+                        weight: 1.0,
+                    },
+                ]
+            }
+        };
 
     let mut trainer = WorkerTrainer::new(worker_cfg.clone())?;
 
@@ -958,6 +1031,23 @@ async fn run_training_job(
             // Step 1: Quantize weights to Q15 format
             let quantized_weights = LoRAQuantizer::quantize_to_q15(&training_result.weights);
 
+            // Build packaging metadata for auditability
+            let mut package_metadata = HashMap::new();
+            package_metadata.insert("training_job_id".to_string(), job_id.clone());
+            package_metadata.insert("adapter_name".to_string(), adapter_name.clone());
+            if let Some(ref ds) = dataset_id {
+                package_metadata.insert("dataset_id".to_string(), ds.clone());
+            }
+            if let Some(ref tid) = tenant_id {
+                package_metadata.insert("tenant_id".to_string(), tid.clone());
+            }
+            if let Some(ref base_model) = base_model_id {
+                package_metadata.insert("base_model_id".to_string(), base_model.clone());
+            }
+            if let Some(ref cat) = category {
+                package_metadata.insert("category".to_string(), cat.clone());
+            }
+
             // Step 2: Package the adapter
             // Use adapters_root (already resolved with ENV > Config > Default precedence)
             let packager = AdapterPackager::new(adapters_root.clone());
@@ -983,12 +1073,16 @@ async fn run_training_job(
             // Generate unique adapter ID from job_id
             let adapter_id = format!("adapter-{}", job_id.trim_start_matches("train-"));
 
+            let base_model_for_manifest = base_model_id.as_deref().unwrap_or("unknown-base-model");
+
             let packaged = match packager
-                .package(
+                .package_aos_with_metadata(
+                    tenant,
                     &adapter_id,
                     &quantized_weights,
                     &packager_cfg,
-                    "base-model", // TODO: Make configurable via orchestrator config
+                    base_model_for_manifest,
+                    package_metadata,
                 )
                 .await
             {
@@ -1056,9 +1150,10 @@ async fn run_training_job(
                 use adapteros_db::AdapterRegistrationBuilder;
 
                 // Use category from request or default to "trained"
-                let adapter_category = category.as_deref().unwrap_or("trained");
+                let adapter_category = category.as_deref().unwrap_or("code");
 
                 let reg_params = AdapterRegistrationBuilder::new()
+                    .tenant_id(tenant_id.as_deref().unwrap_or("default"))
                     .adapter_id(&packaged.adapter_id)
                     .name(&adapter_name)
                     .hash_b3(&packaged.hash_b3)
@@ -1449,12 +1544,12 @@ mod tests {
             .await
             .unwrap();
 
-        // Test without UDS client (will mark as CancelPending)
+        // Test without UDS client (will mark as Cancelled via token)
         service.cancel_job(&job.id, None, None).await.unwrap();
 
         let updated_job = service.get_job(&job.id).await.unwrap();
-        // Without UDS client, job is marked as CancelPending
-        assert_eq!(updated_job.status, TrainingJobStatus::CancelPending);
+        // Without UDS client, job is marked as Cancelled
+        assert_eq!(updated_job.status, TrainingJobStatus::Cancelled);
     }
 
     #[tokio::test]

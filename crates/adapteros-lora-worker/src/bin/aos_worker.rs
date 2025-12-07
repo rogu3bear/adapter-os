@@ -4,10 +4,10 @@
 //! by the node agent or run standalone for development/testing.
 //!
 //! Usage:
-//!   aos-worker --uds-path ./var/run/worker.sock --manifest manifests/qwen7b.yaml \
-//!              --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16
+//!   aos-worker --uds-path ./var/run/worker.sock --manifest manifests/qwen32b-coder-mlx.yaml \
+//!              --model-path ./var/models/Qwen2.5-7B-Instruct-4bit --manifest-hash <HASH>
 
-use adapteros_core::{B3Hash, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_worker::{
     backend_coordinator::BackendCoordinator,
     backend_factory::{
@@ -20,8 +20,12 @@ use adapteros_lora_worker::{
 use adapteros_manifest::ManifestV3;
 use adapteros_telemetry::TelemetryWriter;
 use clap::Parser;
-use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, OnceLock,
+};
+use std::{fs, path::PathBuf};
+use tokio::signal;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span, warn};
 
@@ -43,6 +47,8 @@ fn register_with_cp(
     tenant_id: &str,
     plan_id: &str,
     manifest_hash: &str,
+    backend: &str,
+    model_hash: &str,
     uds_path: &str,
     capabilities: &[String],
 ) -> std::result::Result<(bool, u32), String> {
@@ -51,6 +57,8 @@ fn register_with_cp(
         "tenant_id": tenant_id,
         "plan_id": plan_id,
         "manifest_hash": manifest_hash,
+        "backend": backend,
+        "model_hash": model_hash,
         "schema_version": SCHEMA_VERSION,
         "api_version": API_VERSION,
         "pid": std::process::id() as i32,
@@ -94,11 +102,22 @@ fn register_with_cp(
 }
 
 /// Notify control plane of worker status change
-fn notify_cp_status(cp_url: &str, worker_id: &str, status: &str, reason: &str) {
+fn notify_cp_status(
+    cp_url: &str,
+    worker_id: &str,
+    status: &str,
+    reason: &str,
+    backend: &str,
+    model_hash: &str,
+    manifest_hash: &str,
+) {
     let notification = serde_json::json!({
         "worker_id": worker_id,
         "status": status,
-        "reason": reason
+        "reason": reason,
+        "backend": backend,
+        "model_hash": model_hash,
+        "manifest_hash": manifest_hash,
     });
 
     let url = format!("{}/api/v1/workers/status", cp_url);
@@ -121,9 +140,95 @@ fn notify_cp_status(cp_url: &str, worker_id: &str, status: &str, reason: &str) {
     }
 }
 
-/// Compute BLAKE3 hash of manifest content for cache key and determinism
-fn compute_manifest_hash(manifest_bytes: &[u8]) -> B3Hash {
-    B3Hash::hash(manifest_bytes)
+/// Parse manifest content from YAML or JSON
+fn parse_manifest(content: &str) -> Result<ManifestV3> {
+    serde_yaml::from_str(content).or_else(|yaml_err| {
+        serde_json::from_str(content).map_err(|json_err| {
+            AosError::Validation(format!(
+                "Failed to parse manifest as YAML ({}) or JSON ({})",
+                yaml_err, json_err
+            ))
+        })
+    })
+}
+
+/// Fetch manifest from control plane by hash
+fn fetch_manifest_from_cp(cp_url: &str, tenant_id: &str, manifest_hash: &B3Hash) -> Result<String> {
+    let url = format!(
+        "{}/api/v1/tenants/{}/manifests/{}",
+        cp_url,
+        tenant_id,
+        manifest_hash.to_hex()
+    );
+
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .build()
+        .new_agent();
+
+    let response = agent
+        .get(&url)
+        .call()
+        .map_err(|e| AosError::Worker(format!("Failed to fetch manifest: {}", e)))?;
+
+    let body = response
+        .into_body()
+        .read_to_string()
+        .map_err(|e| AosError::Worker(format!("Failed to read manifest response: {}", e)))?;
+
+    let parsed: adapteros_api_types::workers::WorkerManifestFetchResponse =
+        serde_json::from_str(&body).map_err(|e| {
+            AosError::Worker(format!("Failed to parse manifest response JSON: {}", e))
+        })?;
+
+    if parsed.manifest_hash != manifest_hash.to_hex() {
+        return Err(AosError::Validation(format!(
+            "Manifest hash mismatch from CP: expected {}, got {}",
+            manifest_hash.to_hex(),
+            parsed.manifest_hash
+        )));
+    }
+
+    let computed = B3Hash::hash(parsed.manifest_json.as_bytes());
+    if computed != *manifest_hash {
+        return Err(AosError::Validation(format!(
+            "Manifest content hash mismatch: expected {}, computed {}",
+            manifest_hash.to_hex(),
+            computed.to_hex()
+        )));
+    }
+
+    Ok(parsed.manifest_json)
+}
+
+/// Cache manifest locally for reuse
+fn cache_manifest(manifest_hash: &B3Hash, manifest_json: &str) {
+    let cache_dir = PathBuf::from("./var/manifest-cache");
+    if fs::create_dir_all(&cache_dir).is_ok() {
+        let cache_path = cache_dir.join(format!("{}.json", manifest_hash.to_hex()));
+        if let Err(e) = fs::write(&cache_path, manifest_json) {
+            warn!(error = %e, path = %cache_path.display(), "Failed to write manifest cache");
+        }
+    } else {
+        warn!("Failed to create manifest cache directory at ./var/manifest-cache");
+    }
+}
+
+struct LoadedManifest {
+    manifest: ManifestV3,
+    _canonical_json: String,
+    hash: B3Hash,
+}
+
+fn validate_backend_feature(choice: &BackendChoice) -> Result<()> {
+    if matches!(choice, BackendChoice::Mlx) && !cfg!(feature = "multi-backend") {
+        return Err(AosError::Config(
+            "MLX backend requested but this binary was built without 'multi-backend'. \
+             Rebuild with: cargo build --features multi-backend"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Detect backend capabilities
@@ -154,6 +259,27 @@ fn detect_capabilities(backend_choice: &str) -> Vec<String> {
 struct WorkerIdentity {
     worker_id: String,
     cp_url: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkerRuntimeMode {
+    Dev,
+    Staging,
+    Prod,
+}
+
+impl WorkerRuntimeMode {
+    fn from_env() -> Self {
+        match std::env::var("AOS_RUNTIME_MODE")
+            .unwrap_or_else(|_| "dev".to_string())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "prod" | "production" => WorkerRuntimeMode::Prod,
+            "staging" | "stage" => WorkerRuntimeMode::Staging,
+            _ => WorkerRuntimeMode::Dev,
+        }
+    }
 }
 
 /// Set up panic hook to report fatal errors to the control plane
@@ -243,9 +369,13 @@ struct Args {
     #[arg(long, env = "AOS_WORKER_SOCKET")]
     uds_path: Option<PathBuf>,
 
-    /// Path to manifest YAML file
-    #[arg(long, default_value = "manifests/qwen7b.yaml")]
-    manifest: PathBuf,
+    /// Manifest hash (preferred) to fetch/verify
+    #[arg(long, env = "AOS_MANIFEST_HASH")]
+    manifest_hash: Option<String>,
+
+    /// Path to manifest YAML/JSON file (fallback when hash fetch is unavailable)
+    #[arg(long, env = "AOS_WORKER_MANIFEST")]
+    manifest: Option<PathBuf>,
 
     /// Path to model directory (auto-discovered from AOS_MODEL_PATH)
     #[arg(long, env = "AOS_MODEL_PATH")]
@@ -283,6 +413,9 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+
+    // Load canonical .env before any environment-based resolution
+    adapteros_config::model::load_dotenv();
 
     // Set up panic hook for fatal error reporting
     let worker_id = args
@@ -324,45 +457,133 @@ async fn main() -> Result<()> {
         "Starting aos-worker"
     );
 
-    // Validate paths
-    if !args.manifest.exists() {
-        error!(path = %args.manifest.display(), "Manifest file not found");
-        return Err(adapteros_core::AosError::Validation(format!(
-            "Manifest file not found: {}",
-            args.manifest.display()
-        )));
-    }
-
     // Resolve model and tokenizer paths
     let model_path = match &args.model_path {
         Some(path) => path.clone(),
         None => adapteros_config::get_model_path_with_fallback()?,
     };
+    if !model_path.exists() {
+        return Err(AosError::Validation(format!(
+            "Model path does not exist: {}",
+            model_path.display()
+        )));
+    }
 
     // Resolve tokenizer via canonical discovery (CLI arg > AOS_TOKENIZER_PATH > AOS_MODEL_PATH/tokenizer.json)
     let tokenizer_path = adapteros_config::resolve_tokenizer_path(args.tokenizer.as_ref())?;
 
-    // Load manifest
-    info!(path = %args.manifest.display(), "Loading manifest");
-    let manifest_bytes = std::fs::read(&args.manifest)
-        .map_err(|e| adapteros_core::AosError::Io(format!("Failed to read manifest: {}", e)))?;
+    // Resolve manifest content (hash-first)
+    let expected_manifest_hash = args
+        .manifest_hash
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|h| B3Hash::from_hex(h).map_err(|e| AosError::Validation(e.to_string())))
+        .transpose()?;
 
-    // Compute manifest hash for cache key, determinism, and registration
-    let manifest_hash = compute_manifest_hash(&manifest_bytes);
-    info!(manifest_hash = %manifest_hash.to_hex(), "Computed manifest hash for deduplication and determinism");
+    let loaded_manifest = if let Some(expected_hash) = expected_manifest_hash {
+        if let Some(path) = args.manifest.as_ref() {
+            if !path.exists() {
+                return Err(AosError::Validation(format!(
+                    "Manifest file not found at {}",
+                    path.display()
+                )));
+            }
+            let manifest_raw = fs::read_to_string(path).map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to read manifest at {}: {}",
+                    path.display(),
+                    e
+                ))
+            })?;
+            let manifest = parse_manifest(&manifest_raw)?;
+            let computed_hash = manifest.compute_hash()?;
+            if computed_hash != expected_hash {
+                return Err(AosError::Validation(format!(
+                    "Manifest hash mismatch: expected {}, computed {}",
+                    expected_hash.to_hex(),
+                    computed_hash.to_hex()
+                )));
+            }
+            let canonical_json = manifest.to_json().map_err(|e| {
+                AosError::Validation(format!("Failed to canonicalize manifest: {}", e))
+            })?;
+            cache_manifest(&computed_hash, &canonical_json);
+            LoadedManifest {
+                manifest,
+                _canonical_json: canonical_json,
+                hash: computed_hash,
+            }
+        } else {
+            info!(
+                manifest_hash = %expected_hash.to_hex(),
+                cp_url = %args.cp_url,
+                tenant_id = %args.tenant_id,
+                "Fetching manifest from control plane"
+            );
+            let manifest_json =
+                fetch_manifest_from_cp(&args.cp_url, &args.tenant_id, &expected_hash)?;
+            let manifest = parse_manifest(&manifest_json)?;
+            let computed_hash = manifest.compute_hash()?;
+            if computed_hash != expected_hash {
+                return Err(AosError::Validation(format!(
+                    "Manifest hash mismatch after fetch: expected {}, computed {}",
+                    expected_hash.to_hex(),
+                    computed_hash.to_hex()
+                )));
+            }
+            let canonical_json = manifest.to_json().map_err(|e| {
+                AosError::Validation(format!("Failed to canonicalize manifest: {}", e))
+            })?;
+            cache_manifest(&computed_hash, &canonical_json);
+            LoadedManifest {
+                manifest,
+                _canonical_json: canonical_json,
+                hash: computed_hash,
+            }
+        }
+    } else {
+        let path = args.manifest.as_ref().ok_or_else(|| {
+            AosError::Validation(
+                "Manifest hash not provided. Supply --manifest-hash/AOS_MANIFEST_HASH or --manifest/AOS_WORKER_MANIFEST"
+                    .to_string(),
+            )
+        })?;
+        if !path.exists() {
+            return Err(AosError::Validation(format!(
+                "Manifest file not found at {}",
+                path.display()
+            )));
+        }
+        let manifest_raw = fs::read_to_string(path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read manifest at {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+        let manifest = parse_manifest(&manifest_raw)?;
+        let computed_hash = manifest.compute_hash()?;
+        let canonical_json = manifest
+            .to_json()
+            .map_err(|e| AosError::Validation(format!("Failed to canonicalize manifest: {}", e)))?;
+        cache_manifest(&computed_hash, &canonical_json);
+        LoadedManifest {
+            manifest,
+            _canonical_json: canonical_json,
+            hash: computed_hash,
+        }
+    };
 
-    let manifest_content = String::from_utf8(manifest_bytes.clone())
-        .map_err(|e| adapteros_core::AosError::Io(format!("Invalid UTF-8 in manifest: {}", e)))?;
-
-    let manifest: ManifestV3 = serde_yaml::from_str(&manifest_content).map_err(|e| {
-        adapteros_core::AosError::Validation(format!("Failed to parse manifest: {}", e))
-    })?;
+    let manifest = loaded_manifest.manifest;
+    let manifest_hash = loaded_manifest.hash;
 
     info!(
         model_id = %manifest.base.model_id,
+        manifest_hash = %manifest_hash.to_hex(),
         k_sparse = manifest.router.k_sparse,
-        "Manifest loaded"
+        "Manifest loaded and verified"
     );
+    let model_hash_hex = manifest.base.model_hash.to_hex();
 
     // Select backend
     let backend_choice = match args.backend.to_lowercase().as_str() {
@@ -375,6 +596,7 @@ async fn main() -> Result<()> {
             BackendChoice::Auto
         }
     };
+    validate_backend_feature(&backend_choice)?;
 
     // Create kernel backend with manifest hash for deterministic caching
     info!(backend = %args.backend, "Creating kernel backend with manifest hash");
@@ -425,6 +647,7 @@ async fn main() -> Result<()> {
     info!("Creating worker instance");
     let worker = Worker::new(
         manifest,
+        &args.tenant_id,
         kernels,
         None, // No RAG system for now
         tokenizer_path.to_str().unwrap_or(""),
@@ -434,6 +657,7 @@ async fn main() -> Result<()> {
     .await?;
 
     let worker = Arc::new(Mutex::new(worker));
+    let drain_flag = Arc::new(AtomicBool::new(false));
 
     // Register with control plane
     let capabilities = detect_capabilities(&args.backend);
@@ -445,6 +669,8 @@ async fn main() -> Result<()> {
         tenant_id = %args.tenant_id,
         plan_id = %args.plan_id,
         manifest_hash = %manifest_hash_hex,
+        backend = %args.backend,
+        model_hash = %model_hash_hex,
         "Registering with control plane"
     );
 
@@ -454,6 +680,8 @@ async fn main() -> Result<()> {
         &args.tenant_id,
         &args.plan_id,
         &manifest_hash_hex,
+        &args.backend,
+        &model_hash_hex,
         &uds_path_str,
         &capabilities,
     ) {
@@ -466,20 +694,42 @@ async fn main() -> Result<()> {
             }
         }
         Err(reason) => {
-            // Log but don't fail - allows running in dev mode without CP
-            warn!(
-                reason = %reason,
-                "Worker registration rejected or failed - continuing anyway (dev mode)"
-            );
+            let runtime_mode = WorkerRuntimeMode::from_env();
+            match runtime_mode {
+                WorkerRuntimeMode::Prod => {
+                    error!(
+                        reason = %reason,
+                        "Worker registration failed in prod - exiting"
+                    );
+                    return Err(AosError::Worker(format!(
+                        "Registration failed in prod: {}",
+                        reason
+                    )));
+                }
+                _ => {
+                    warn!(
+                        reason = %reason,
+                        "Worker registration rejected or failed - continuing (non-prod)"
+                    );
+                }
+            }
         }
     }
 
     // Transition to serving status
-    notify_cp_status(&args.cp_url, &worker_id, "serving", "worker ready");
+    notify_cp_status(
+        &args.cp_url,
+        &worker_id,
+        "serving",
+        "worker ready",
+        &args.backend,
+        &model_hash_hex,
+        &manifest_hash_hex,
+    );
 
     // Start UDS server
     info!(uds_path = %uds_path.display(), "Starting UDS server");
-    let server = UdsServer::new(uds_path, worker);
+    let server = UdsServer::new(uds_path.clone(), worker, None, drain_flag.clone());
 
     let serve_span = info_span!(
         "worker_serve",
@@ -493,11 +743,74 @@ async fn main() -> Result<()> {
     );
     let _serve_span_guard = serve_span.enter();
 
-    // Run server (blocking)
-    server.serve().await?;
+    // Run server with drain handling
+    let mut shutdown_signal = signal::ctrl_c();
+    tokio::pin!(shutdown_signal);
+    let mut serve_fut = server.serve();
+    tokio::pin!(serve_fut);
+    tokio::select! {
+        res = &mut serve_fut => res,
+        _ = &mut shutdown_signal => {
+            info!(worker_id = %worker_id, "Drain signal received, initiating worker drain");
+            drain_flag.store(true, Ordering::Relaxed);
+            notify_cp_status(
+                &args.cp_url,
+                &worker_id,
+                "draining",
+                "drain-signal",
+                &args.backend,
+                &model_hash_hex,
+                &manifest_hash_hex,
+            );
+            serve_fut.await
+        }
+    }?;
 
     // Notify stopped on clean exit
-    notify_cp_status(&args.cp_url, &worker_id, "stopped", "clean shutdown");
+    notify_cp_status(
+        &args.cp_url,
+        &worker_id,
+        "stopped",
+        "clean shutdown",
+        &args.backend,
+        &model_hash_hex,
+        &manifest_hash_hex,
+    );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mlx_guard_triggers_without_feature() {
+        if cfg!(feature = "multi-backend") {
+            return;
+        }
+        let result = validate_backend_feature(&BackendChoice::Mlx);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mlx_guard_allows_with_feature() {
+        if !cfg!(feature = "multi-backend") {
+            return;
+        }
+        let result = validate_backend_feature(&BackendChoice::Mlx);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn worker_runtime_mode_parsing() {
+        std::env::set_var("AOS_RUNTIME_MODE", "prod");
+        assert_eq!(WorkerRuntimeMode::from_env(), WorkerRuntimeMode::Prod);
+
+        std::env::set_var("AOS_RUNTIME_MODE", "staging");
+        assert_eq!(WorkerRuntimeMode::from_env(), WorkerRuntimeMode::Staging);
+
+        std::env::remove_var("AOS_RUNTIME_MODE");
+        assert_eq!(WorkerRuntimeMode::from_env(), WorkerRuntimeMode::Dev);
+    }
 }

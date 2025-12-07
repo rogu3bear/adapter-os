@@ -176,6 +176,7 @@ pub fn get_adapter_path(adapter_id: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn test_default_paths() {
@@ -260,5 +261,21 @@ mod tests {
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
         let paths = AdapterPaths::from_config(None);
         assert_eq!(paths.root(), PathBuf::from(DEFAULT_ADAPTERS_DIR));
+    }
+
+    #[test]
+    fn test_get_default_adapters_root_env() {
+        let tmp = tempdir().unwrap();
+        std::env::set_var(AOS_ADAPTERS_DIR_ENV, tmp.path());
+        let root = get_default_adapters_root();
+        assert!(root.starts_with(tmp.path()));
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+    }
+
+    #[test]
+    fn test_get_default_adapters_root_default() {
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+        let root = get_default_adapters_root();
+        assert_eq!(root, PathBuf::from(DEFAULT_ADAPTERS_DIR));
     }
 }

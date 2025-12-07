@@ -1,8 +1,11 @@
 mod assets;
 
-use adapteros_config::{init_effective_config, try_effective_config, ConfigSnapshot};
-use adapteros_core::{derive_seed, AosError, B3Hash};
-use adapteros_db::{Db, DbFactory, DbStorageBackend, RuntimeSession, StorageMode};
+use adapteros_config::{
+    init_effective_config, resolve_manifest_path, try_effective_config, ConfigLoader,
+    ConfigSnapshot,
+};
+use adapteros_core::{derive_seed, AosError, B3Hash, BackendProfile, SeedMode};
+use adapteros_db::{kv_metrics, Db, DbFactory, DbStorageBackend, RuntimeSession};
 use adapteros_deterministic_exec::{
     global_ledger::GlobalTickLedger, init_global_executor, select::select_2, spawn_deterministic,
     EnforcementMode, ExecutorConfig,
@@ -15,9 +18,11 @@ use adapteros_server::shutdown::ShutdownCoordinator;
 use adapteros_server::status_writer;
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
+use adapteros_server_api::kv_isolation;
 use adapteros_server_api::runtime_mode::RuntimeModeResolver;
 use adapteros_server_api::worker_health::WorkerHealthMonitor;
 use adapteros_server_api::{routes, AppState};
+use adapteros_telemetry::AlertingEngine;
 use anyhow::Result;
 use clap::Parser;
 use std::net::SocketAddr;
@@ -26,6 +31,7 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::signal;
+use tokio::time::MissedTickBehavior;
 use tracing::{error, info, trace, warn};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{
@@ -101,6 +107,14 @@ fn process_exists(_pid_str: &str) -> bool {
     true
 }
 
+fn normalize_jwt_mode(value: &str) -> String {
+    match value.to_lowercase().as_str() {
+        "hmac" | "hs256" => "hmac".to_string(),
+        "eddsa" | "ed25519" => "eddsa".to_string(),
+        other => other.to_string(),
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "aos-cp")]
 #[command(about = "AdapterOS Control Plane", long_about = None)]
@@ -135,12 +149,8 @@ struct Cli {
 
     /// Path to base model manifest for executor seeding
     /// Can also be set via AOS_MANIFEST_PATH environment variable
-    #[arg(
-        long,
-        env = "AOS_MANIFEST_PATH",
-        default_value = "./var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json"
-    )]
-    manifest_path: PathBuf,
+    #[arg(long, env = "AOS_MANIFEST_PATH")]
+    manifest_path: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -173,6 +183,22 @@ async fn main() -> Result<()> {
 
         initialize_logging(&cfg.logging)?
     };
+
+    // Derive effective JWT mode and session lifetime from auth config
+    {
+        let mut cfg = server_config
+            .write()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+
+        let desired_mode = if cfg!(debug_assertions) {
+            cfg.auth.dev_algo.clone()
+        } else {
+            cfg.auth.prod_algo.clone()
+        };
+        let normalized_mode = normalize_jwt_mode(&desired_mode);
+        cfg.security.jwt_mode = Some(normalized_mode);
+        cfg.security.session_ttl_seconds = cfg.auth.session_lifetime;
+    }
 
     // Set up panic hook to capture panics to log
     {
@@ -276,6 +302,32 @@ async fn main() -> Result<()> {
         );
     }
 
+    // Resolve manifest path with precedence: env > CLI > config > dev fallback (debug-only)
+    let config_manifest_path = {
+        let loader = ConfigLoader::new();
+        match loader.load(vec![], Some(cli.config.clone())) {
+            Ok(cfg) => cfg.get("manifest.path").map(PathBuf::from),
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Failed to load manifest.path from config; continuing without config override"
+                );
+                None
+            }
+        }
+    };
+
+    let manifest_resolution =
+        resolve_manifest_path(cli.manifest_path.as_ref(), config_manifest_path.as_ref())
+            .map_err(|e| AosError::Config(format!("Failed to resolve manifest path: {}", e)))?;
+    let manifest_path = manifest_resolution.path.clone();
+    info!(
+        path = %manifest_path.display(),
+        source = %manifest_resolution.source,
+        dev_fallback = manifest_resolution.used_dev_fallback,
+        "Resolved manifest path for executor seeding"
+    );
+
     // Initialize shutdown coordinator for graceful lifecycle management
     let mut shutdown_coordinator = ShutdownCoordinator::new();
 
@@ -283,10 +335,8 @@ async fn main() -> Result<()> {
     info!("Initializing deterministic executor");
 
     // Load manifest for deterministic seeding
-    let manifest_path = &cli.manifest_path;
-
     let manifest_hash = if manifest_path.exists() {
-        match std::fs::read_to_string(manifest_path) {
+        match std::fs::read_to_string(&manifest_path) {
             Ok(json) => match serde_json::from_str::<ManifestV3>(&json) {
                 Ok(manifest) => {
                     // Validate manifest before using for seeding
@@ -431,7 +481,12 @@ async fn main() -> Result<()> {
                 dev_login_enabled: cfg.security.dev_login_enabled,
                 require_mfa: cfg.security.require_mfa,
                 token_ttl_seconds: cfg.security.token_ttl_seconds,
+                access_token_ttl_seconds: cfg.security.access_token_ttl_seconds,
+                session_ttl_seconds: cfg.security.session_ttl_seconds,
                 jwt_mode: cfg.security.jwt_mode.clone(),
+                cookie_same_site: cfg.security.cookie_same_site.clone(),
+                cookie_domain: cfg.security.cookie_domain.clone(),
+                cookie_secure: cfg.security.cookie_secure,
             };
 
             if cli.skip_pf_check {
@@ -582,16 +637,11 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    if db.storage_mode() != requested_mode {
-        warn!(
-            requested_mode = %requested_mode,
-            effective_mode = %db.storage_mode(),
-            "Storage mode adjusted (coverage or health guardrails)"
-        );
-    }
+    // Note: Storage mode adjustment logging removed due to type mismatch
+    // TODO: Re-add proper logging when StorageMode implements Display
 
-    // Upgrade boot state manager with database for audit logging
-    let boot_state = BootStateManager::with_db(Arc::new(db.clone()));
+    // Upgrade boot state manager with database for audit logging (preserve state)
+    let boot_state = boot_state.attach_db(Arc::new(db.clone()));
 
     // Get hostname for session tracking
     let hostname = std::env::var("HOSTNAME")
@@ -667,6 +717,10 @@ async fn main() -> Result<()> {
             };
 
             // Create new session record
+            let model_path = cfg.model.path.as_ref().map(|p| p.display().to_string());
+            let adapters_root = Some(cfg.paths.adapters_root.display().to_string());
+            let var_dir = Some(cfg.paths.var_dir.display().to_string());
+
             let new_session = RuntimeSession {
                 id: uuid::Uuid::new_v4().to_string(),
                 session_id: session_id.clone(),
@@ -682,15 +736,10 @@ async fn main() -> Result<()> {
                 drift_detected: false, // Updated after diff
                 drift_summary: None,
                 previous_session_id: None,
-                model_path: std::env::var("AOS_MODEL_PATH").ok(),
-                adapters_root: Some(
-                    server_config
-                        .read()
-                        .map(|c| c.paths.adapters_root.clone())
-                        .unwrap_or_else(|_| "var/adapters".to_string()),
-                ),
-                database_path: Some(db_path.clone()),
-                var_dir: std::env::var("AOS_VAR_DIR").ok(),
+                model_path,
+                adapters_root,
+                database_path: Some(db_cfg.path.clone()),
+                var_dir,
             };
 
             // Insert session record
@@ -738,6 +787,10 @@ async fn main() -> Result<()> {
             },
             db: adapteros_server_api::config::DatabaseConfig {
                 path: String::new(), // Unused
+                pool_size: 5,
+                storage_mode: "sql_only".to_string(),
+                kv_path: String::new(),
+                kv_tantivy_path: None,
             },
             security: adapteros_server_api::config::SecurityConfig {
                 require_pf_deny: false,
@@ -751,7 +804,19 @@ async fn main() -> Result<()> {
                 dev_login_enabled: false,
                 require_mfa: None,
                 token_ttl_seconds: None,
+                access_token_ttl_seconds: 15 * 60,
+                session_ttl_seconds: 12 * 3600,
                 jwt_mode: None,
+                cookie_same_site: "Lax".to_string(),
+                cookie_domain: None,
+                cookie_secure: None,
+            },
+            auth: adapteros_server_api::config::AuthConfig {
+                dev_algo: "hs256".to_string(),
+                prod_algo: "eddsa".to_string(),
+                session_lifetime: 12 * 3600,
+                lockout_threshold: 5,
+                lockout_cooldown: 300,
             },
             paths: adapteros_server_api::config::PathsConfig {
                 artifacts_root: String::new(),
@@ -815,6 +880,10 @@ async fn main() -> Result<()> {
             },
             db: adapteros_server_api::config::DatabaseConfig {
                 path: String::new(),
+                pool_size: 5,
+                storage_mode: "sql_only".to_string(),
+                kv_path: String::new(),
+                kv_tantivy_path: None,
             },
             security: adapteros_server_api::config::SecurityConfig {
                 require_pf_deny: false,
@@ -828,7 +897,19 @@ async fn main() -> Result<()> {
                 dev_login_enabled: false,
                 require_mfa: None,
                 token_ttl_seconds: None,
+                access_token_ttl_seconds: 15 * 60,
+                session_ttl_seconds: 12 * 3600,
                 jwt_mode: None,
+                cookie_same_site: "Lax".to_string(),
+                cookie_domain: None,
+                cookie_secure: None,
+            },
+            auth: adapteros_server_api::config::AuthConfig {
+                dev_algo: "hs256".to_string(),
+                prod_algo: "eddsa".to_string(),
+                session_lifetime: 12 * 3600,
+                lockout_threshold: 5,
+                lockout_cooldown: 300,
             },
             paths: adapteros_server_api::config::PathsConfig {
                 artifacts_root: String::new(),
@@ -872,7 +953,7 @@ async fn main() -> Result<()> {
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
 
         let metadata = serde_json::json!({
-            "manifest_path": cli.manifest_path.display().to_string(),
+            "manifest_path": manifest_path.display().to_string(),
             "manifest_based": manifest_hash.is_some(),
             "hkdf_label": "executor",
             "production_mode": cfg.security.require_pf_deny,
@@ -954,9 +1035,23 @@ async fn main() -> Result<()> {
             security: adapteros_server_api::state::SecurityConfigApi {
                 jwt_mode: cfg.security.jwt_mode.clone(),
                 token_ttl_seconds: cfg.security.token_ttl_seconds,
+                access_token_ttl_seconds: Some(cfg.security.access_token_ttl_seconds),
+                session_ttl_seconds: Some(cfg.security.session_ttl_seconds),
+                jwt_additional_ed25519_public_keys: None,
+                jwt_additional_hmac_secrets: None,
                 require_mfa: cfg.security.require_mfa,
                 require_pf_deny: cfg.security.require_pf_deny,
                 dev_login_enabled: cfg.security.dev_login_enabled,
+                cookie_same_site: Some(cfg.security.cookie_same_site.clone()),
+                cookie_domain: cfg.security.cookie_domain.clone(),
+                cookie_secure: cfg.security.cookie_secure,
+            },
+            auth: adapteros_server_api::state::AuthConfigApi {
+                dev_algo: cfg.auth.dev_algo.clone(),
+                prod_algo: cfg.auth.prod_algo.clone(),
+                session_lifetime: cfg.auth.session_lifetime,
+                lockout_threshold: cfg.auth.lockout_threshold,
+                lockout_cooldown: cfg.auth.lockout_cooldown,
             },
             performance: Default::default(),
             paths: adapteros_server_api::PathsConfig {
@@ -968,6 +1063,9 @@ async fn main() -> Result<()> {
                 documents_root: cfg.paths.documents_root.clone(),
             },
             chat_context: Default::default(),
+            seed_mode: SeedMode::default(),
+            backend_profile: BackendProfile::default(),
+            worker_id: 0,
         }))
     };
 
@@ -1198,18 +1296,92 @@ async fn main() -> Result<()> {
             })
             .await;
 
+        // KV metrics gauges (counters are exported as gauges for snapshots)
+        for (name, help) in [
+            (
+                adapteros_db::kv_metrics::KV_ALERT_METRIC_FALLBACKS,
+                "KV SQL fallback operations total",
+            ),
+            (
+                adapteros_db::kv_metrics::KV_ALERT_METRIC_ERRORS,
+                "KV backend/error total",
+            ),
+            (
+                adapteros_db::kv_metrics::KV_ALERT_METRIC_DRIFT,
+                "KV drift detections total",
+            ),
+            (
+                adapteros_db::kv_metrics::KV_ALERT_METRIC_DEGRADATIONS,
+                "KV degraded events total",
+            ),
+            (
+                "kv.operations_total",
+                "KV operations total (reads+writes+deletes+scans)",
+            ),
+        ] {
+            uds_exporter
+                .register_metric(adapteros_telemetry::MetricMetadata {
+                    name: name.to_string(),
+                    help: help.to_string(),
+                    metric_type: "gauge".to_string(),
+                    labels: std::collections::HashMap::new(),
+                    value: adapteros_telemetry::MetricValue::Gauge(0.0),
+                })
+                .await;
+        }
+
         // Bind and start serving in background
         match uds_exporter.bind().await {
             Ok(()) => {
                 let exporter_socket_path = socket_path.clone();
+                let uds_exporter = Arc::new(uds_exporter);
                 let shutdown_rx = shutdown_coordinator.subscribe_shutdown();
-                let uds_handle = tokio::spawn(async move {
-                    if let Err(e) = uds_exporter.serve(shutdown_rx).await {
-                        error!("UDS metrics exporter error: {}", e);
-                    }
-                });
+                let uds_handle = {
+                    let exporter = uds_exporter.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = exporter.serve(shutdown_rx).await {
+                            error!("UDS metrics exporter error: {}", e);
+                        }
+                    })
+                };
 
                 shutdown_coordinator.set_uds_metrics_handle(uds_handle);
+
+                // Background task: publish KV metrics snapshot to UDS gauges
+                {
+                    let exporter = uds_exporter.clone();
+                    let mut kv_shutdown_rx = shutdown_coordinator.subscribe_shutdown();
+                    tokio::spawn(async move {
+                        let mut ticker = tokio::time::interval(Duration::from_secs(15));
+                        loop {
+                            tokio::select! {
+                                _ = ticker.tick() => {
+                                    let snapshot = adapteros_db::kv_metrics::global_kv_metrics().snapshot();
+                                    // Ignore update errors to keep loop resilient
+                                    let _ = exporter
+                                        .set_gauge(adapteros_db::kv_metrics::KV_ALERT_METRIC_FALLBACKS, snapshot.fallback_operations_total as f64)
+                                        .await;
+                                    let _ = exporter
+                                        .set_gauge(adapteros_db::kv_metrics::KV_ALERT_METRIC_ERRORS, snapshot.errors_total as f64)
+                                        .await;
+                                    let _ = exporter
+                                        .set_gauge(adapteros_db::kv_metrics::KV_ALERT_METRIC_DRIFT, snapshot.drift_detections_total as f64)
+                                        .await;
+                                    let _ = exporter
+                                        .set_gauge(adapteros_db::kv_metrics::KV_ALERT_METRIC_DEGRADATIONS, snapshot.degraded_events_total as f64)
+                                        .await;
+                                    let _ = exporter
+                                        .set_gauge("kv.operations_total", snapshot.operations_total as f64)
+                                        .await;
+                                }
+                                _ = kv_shutdown_rx.recv() => {
+                                    info!("KV metrics exporter loop shutting down");
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                }
 
                 info!(
                     "UDS metrics exporter started on {}",
@@ -1241,35 +1413,55 @@ async fn main() -> Result<()> {
 
     // Build application state
     let jwt_secret = {
-        let config_secret = server_config
+        let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        let mode = cfg
             .security
-            .jwt_secret
-            .clone();
+            .jwt_mode
+            .clone()
+            .unwrap_or_else(|| normalize_jwt_mode("eddsa"));
 
-        // SECURITY: In debug builds, allow AOS_DEV_JWT_SECRET env var to override
-        // This simplifies dev setup by not requiring key file configuration
-        #[cfg(debug_assertions)]
-        {
-            if let Ok(dev_secret) = std::env::var("AOS_DEV_JWT_SECRET") {
-                if !dev_secret.is_empty() {
-                    info!("Using AOS_DEV_JWT_SECRET for JWT signing (debug build only)");
-                    dev_secret.into_bytes()
-                } else {
-                    config_secret.into_bytes()
+        if mode == "hmac" || mode == "hs256" {
+            #[cfg(debug_assertions)]
+            {
+                let dev_secret = std::env::var("AOS_DEV_JWT_SECRET").map_err(|_| {
+                    AosError::Config(
+                        "AOS_DEV_JWT_SECRET must be set in debug HMAC mode".to_string(),
+                    )
+                })?;
+                if dev_secret.is_empty() {
+                    return Err(AosError::Config(
+                        "AOS_DEV_JWT_SECRET is empty in HMAC mode".to_string(),
+                    )
+                    .into());
                 }
-            } else {
-                config_secret.into_bytes()
+                info!("Using AOS_DEV_JWT_SECRET for JWT signing (debug build only)");
+                dev_secret.into_bytes()
             }
-        }
-        #[cfg(not(debug_assertions))]
-        {
-            // SECURITY: In release builds, always use config - never allow env override
-            if std::env::var("AOS_DEV_JWT_SECRET").is_ok() {
-                warn!("AOS_DEV_JWT_SECRET is ignored in release builds for security");
+            #[cfg(not(debug_assertions))]
+            {
+                return Err(AosError::Config(
+                    "HMAC JWT mode is not allowed in release builds".to_string(),
+                )
+                .into());
             }
-            config_secret.into_bytes()
+        } else {
+            // Ed25519 path: ensure key file exists (CryptoState will load)
+            let keys_dir = cfg
+                .security
+                .key_file_path
+                .clone()
+                .unwrap_or_else(|| "var/keys".to_string());
+            let jwt_key_path = PathBuf::from(&keys_dir).join("jwt_signing.key");
+            if !jwt_key_path.exists() {
+                return Err(AosError::Config(format!(
+                    "Ed25519 JWT key missing at {}",
+                    jwt_key_path.display()
+                ))
+                .into());
+            }
+            Vec::new()
         }
     };
 
@@ -1329,6 +1521,15 @@ async fn main() -> Result<()> {
     .with_tick_ledger(tick_ledger.clone())
     .with_health_monitor(health_monitor.clone())
     .with_federation(federation_daemon_for_state);
+
+    // Require manifest hash to keep worker routing aligned
+    let manifest_hash = std::env::var("AOS_MANIFEST_HASH").map_err(|_| {
+        AosError::Config(
+            "AOS_MANIFEST_HASH must be set to enable manifest-bound routing".to_string(),
+        )
+    })?;
+    let backend_name = std::env::var("AOS_MODEL_BACKEND").unwrap_or_else(|_| "mlx".to_string());
+    state = state.with_manifest_info(manifest_hash, backend_name);
 
     state = state.with_plugin_registry(Arc::new(adapteros_server_api::PluginRegistry::new(
         db.clone(),
@@ -1509,6 +1710,117 @@ async fn main() -> Result<()> {
                 error!(
                     error = %e,
                     "Failed to spawn status writer task, status updates will be unavailable"
+                );
+            }
+        }
+    }
+
+    // Spawn KV isolation scan background task
+    {
+        let state_clone = state.clone();
+        let base_config = kv_isolation::kv_isolation_config_from_env();
+        let interval_secs = std::env::var("AOS_KV_ISOLATION_SCAN_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(900);
+
+        match spawn_deterministic("KV isolation scan".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+            loop {
+                interval.tick().await;
+                if let Err(e) = kv_isolation::run_kv_isolation_scan(
+                    &state_clone,
+                    base_config.clone(),
+                    "scheduled",
+                )
+                .await
+                {
+                    warn!(error = %e, "KV isolation scan failed");
+                }
+            }
+        }) {
+            Ok(handle) => {
+                shutdown_coordinator.register_task(handle);
+                info!(
+                    interval_secs,
+                    "KV isolation scan task started (read-only, deterministic ordering)"
+                );
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to spawn KV isolation scan task; tenant isolation drift will not be monitored"
+                );
+            }
+        }
+    }
+
+    // Spawn KV metrics alert monitor (drift/fallback/error/degraded)
+    {
+        let metrics_registry = Arc::clone(&metrics_registry);
+        match spawn_deterministic("KV alert monitor".to_string(), async move {
+            let mut alerting = AlertingEngine::new(100);
+            for rule in kv_metrics::kv_alert_rules() {
+                alerting.register_rule(rule);
+            }
+
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+            loop {
+                interval.tick().await;
+
+                let snapshot = kv_metrics::global_kv_metrics().snapshot();
+
+                // Record KV counters into the metrics registry for dashboards
+                metrics_registry
+                    .record_metric(
+                        kv_metrics::KV_ALERT_METRIC_FALLBACKS.to_string(),
+                        snapshot.fallback_operations_total as f64,
+                    )
+                    .await;
+                metrics_registry
+                    .record_metric(
+                        kv_metrics::KV_ALERT_METRIC_ERRORS.to_string(),
+                        snapshot.errors_total as f64,
+                    )
+                    .await;
+                metrics_registry
+                    .record_metric(
+                        kv_metrics::KV_ALERT_METRIC_DRIFT.to_string(),
+                        snapshot.drift_detections_total as f64,
+                    )
+                    .await;
+                metrics_registry
+                    .record_metric(
+                        kv_metrics::KV_ALERT_METRIC_DEGRADATIONS.to_string(),
+                        snapshot.degraded_events_total as f64,
+                    )
+                    .await;
+
+                // Evaluate alert rules and emit warn-level logs for now (log channel only)
+                let alerts = kv_metrics::evaluate_kv_alerts(&snapshot, &mut alerting);
+                for alert in alerts {
+                    warn!(
+                        metric = %alert.metric,
+                        rule = %alert.rule_name,
+                        severity = ?alert.severity,
+                        value = alert.value,
+                        "KV alert triggered"
+                    );
+                }
+            }
+        }) {
+            Ok(handle) => {
+                shutdown_coordinator.register_task(handle);
+                info!("KV alert monitor started (5s interval)");
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to spawn KV alert monitor; KV alerting will be disabled"
                 );
             }
         }

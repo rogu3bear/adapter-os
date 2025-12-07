@@ -1718,8 +1718,10 @@ mod tests {
     #[test]
     fn test_router_with_policy_config_entropy_floor() {
         // Create a policy config with custom entropy floor
-        let mut policy_config = adapteros_policy::packs::router::RouterConfig::default();
-        policy_config.entropy_floor = 0.05; // Custom entropy floor
+        let policy_config = adapteros_policy::packs::router::RouterConfig {
+            entropy_floor: 0.05, // Custom entropy floor
+            ..Default::default()
+        };
 
         let router =
             Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
@@ -1735,8 +1737,10 @@ mod tests {
     #[test]
     fn test_router_with_policy_config_sample_tokens() {
         // Create a policy config with custom sample tokens
-        let mut policy_config = adapteros_policy::packs::router::RouterConfig::default();
-        policy_config.sample_tokens_full = 256; // Custom sample tokens
+        let policy_config = adapteros_policy::packs::router::RouterConfig {
+            sample_tokens_full: 256, // Custom sample tokens
+            ..Default::default()
+        };
 
         let router =
             Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
@@ -1751,8 +1755,10 @@ mod tests {
     #[test]
     fn test_router_with_policy_config_k_sparse_clamping() {
         // Create a policy config with k_sparse limit
-        let mut policy_config = adapteros_policy::packs::router::RouterConfig::default();
-        policy_config.k_sparse = 4; // Limit K to 4
+        let policy_config = adapteros_policy::packs::router::RouterConfig {
+            k_sparse: 4, // Limit K to 4
+            ..Default::default()
+        };
 
         // Try to create router with k=6 (exceeds policy limit)
         let router =
@@ -1764,8 +1770,10 @@ mod tests {
 
     #[test]
     fn test_entropy_floor_enforcement_with_policy_config() {
-        let mut policy_config = adapteros_policy::packs::router::RouterConfig::default();
-        policy_config.entropy_floor = 0.15; // Higher entropy floor
+        let policy_config = adapteros_policy::packs::router::RouterConfig {
+            entropy_floor: 0.15, // Higher entropy floor
+            ..Default::default()
+        };
 
         let mut router =
             Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);

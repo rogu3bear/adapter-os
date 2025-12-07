@@ -48,6 +48,12 @@ pub struct MetricsExporter {
     workers_active: Gauge,
     _workers_memory_headroom_pct: GaugeVec,
     _workers_adapters_loaded: GaugeVec,
+    // Model load/unload metrics
+    model_load_success_total: CounterVec,
+    model_load_failure_total: CounterVec,
+    model_unload_success_total: CounterVec,
+    model_unload_failure_total: CounterVec,
+    model_loaded_gauge: GaugeVec,
     // System metrics
     promotions_total: Counter,
     policy_violations_total: Counter,
@@ -137,6 +143,52 @@ impl MetricsExporter {
         )?;
         registry.register(Box::new(workers_adapters_loaded.clone()))?;
 
+        // Base model load/unload metrics
+        let model_load_success_total = CounterVec::new(
+            Opts::new(
+                "adapteros_model_load_success_total",
+                "Successful base model load operations",
+            ),
+            &["model_id", "tenant_id"],
+        )?;
+        registry.register(Box::new(model_load_success_total.clone()))?;
+
+        let model_load_failure_total = CounterVec::new(
+            Opts::new(
+                "adapteros_model_load_failure_total",
+                "Failed base model load operations",
+            ),
+            &["model_id", "tenant_id"],
+        )?;
+        registry.register(Box::new(model_load_failure_total.clone()))?;
+
+        let model_unload_success_total = CounterVec::new(
+            Opts::new(
+                "adapteros_model_unload_success_total",
+                "Successful base model unload operations",
+            ),
+            &["model_id", "tenant_id"],
+        )?;
+        registry.register(Box::new(model_unload_success_total.clone()))?;
+
+        let model_unload_failure_total = CounterVec::new(
+            Opts::new(
+                "adapteros_model_unload_failure_total",
+                "Failed base model unload operations",
+            ),
+            &["model_id", "tenant_id"],
+        )?;
+        registry.register(Box::new(model_unload_failure_total.clone()))?;
+
+        let model_loaded_gauge = GaugeVec::new(
+            Opts::new(
+                "adapteros_model_loaded",
+                "Whether a base model is ready (1) or not (0)",
+            ),
+            &["model_id", "tenant_id"],
+        )?;
+        registry.register(Box::new(model_loaded_gauge.clone()))?;
+
         // System metrics
         let promotions_total = Counter::new(
             "mplora_promotions_total",
@@ -199,6 +251,11 @@ impl MetricsExporter {
             workers_active,
             _workers_memory_headroom_pct: workers_memory_headroom_pct,
             _workers_adapters_loaded: workers_adapters_loaded,
+            model_load_success_total,
+            model_load_failure_total,
+            model_unload_success_total,
+            model_unload_failure_total,
+            model_loaded_gauge,
             promotions_total,
             policy_violations_total,
             adapter_state_transitions_total,
@@ -240,6 +297,48 @@ impl MetricsExporter {
     /// Record a policy violation
     pub fn record_policy_violation(&self) {
         self.policy_violations_total.inc();
+    }
+
+    /// Record model load attempt outcome
+    pub fn record_model_load(&self, model_id: &str, tenant_id: &str, success: bool) {
+        if success {
+            self.model_load_success_total
+                .with_label_values(&[model_id, tenant_id])
+                .inc();
+            self.model_loaded_gauge
+                .with_label_values(&[model_id, tenant_id])
+                .set(1.0);
+        } else {
+            self.model_load_failure_total
+                .with_label_values(&[model_id, tenant_id])
+                .inc();
+            self.model_loaded_gauge
+                .with_label_values(&[model_id, tenant_id])
+                .set(0.0);
+        }
+    }
+
+    /// Record model unload attempt outcome
+    pub fn record_model_unload(&self, model_id: &str, tenant_id: &str, success: bool) {
+        if success {
+            self.model_unload_success_total
+                .with_label_values(&[model_id, tenant_id])
+                .inc();
+            self.model_loaded_gauge
+                .with_label_values(&[model_id, tenant_id])
+                .set(0.0);
+        } else {
+            self.model_unload_failure_total
+                .with_label_values(&[model_id, tenant_id])
+                .inc();
+        }
+    }
+
+    /// Explicitly set the loaded gauge for a model (e.g., after aggregation)
+    pub fn set_model_loaded_gauge(&self, model_id: &str, tenant_id: &str, loaded: bool) {
+        self.model_loaded_gauge
+            .with_label_values(&[model_id, tenant_id])
+            .set(if loaded { 1.0 } else { 0.0 });
     }
 
     /// Record a successful adapter state transition

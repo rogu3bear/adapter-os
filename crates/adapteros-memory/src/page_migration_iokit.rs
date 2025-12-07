@@ -964,7 +964,11 @@ mod tests {
         #[cfg(target_os = "macos")]
         {
             if let Ok(tracker) = PageMigrationTracker::new() {
-                assert!(!tracker.migration_events.read().is_empty() || true); // May be empty on first creation
+                let events = tracker.migration_events.read();
+                assert!(
+                    events.is_empty(),
+                    "tracker should start with no migration events"
+                );
             }
         }
     }

@@ -11,9 +11,13 @@
 //! Signal streaming: docs/llm-interface-specification.md §5.1
 
 use adapteros_core::{AosError, Result};
+use blake3::Hasher;
 use serde_json;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
@@ -23,6 +27,7 @@ use crate::{
     CancelTrainingRequest, InferenceRequest, InferenceResponse, PatchProposalRequest, RequestType,
     Worker,
 };
+use adapteros_db::Db;
 
 /// Request to load a model into the worker
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -54,14 +59,23 @@ use crate::StrictnessControl;
 pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl> {
     socket_path: PathBuf,
     worker: Arc<Mutex<Worker<K>>>,
+    api_key_db: Option<std::sync::Arc<Db>>,
+    drain_flag: Arc<AtomicBool>,
 }
 
 impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> UdsServer<K> {
     /// Create a new UDS server
-    pub fn new(socket_path: PathBuf, worker: Arc<Mutex<Worker<K>>>) -> Self {
+    pub fn new(
+        socket_path: PathBuf,
+        worker: Arc<Mutex<Worker<K>>>,
+        api_key_db: Option<std::sync::Arc<Db>>,
+        drain_flag: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             socket_path,
             worker,
+            api_key_db,
+            drain_flag,
         }
     }
 
@@ -98,6 +112,10 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         let mut consecutive_failures = 0u32;
 
         loop {
+            if self.drain_flag.load(Ordering::Relaxed) {
+                info!("UDS server drain flag set, exiting accept loop");
+                break Ok(());
+            }
             // Check circuit breaker state
             if circuit_breaker.is_open() {
                 warn!(
@@ -108,7 +126,15 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 continue;
             }
 
-            match listener.accept().await {
+            let accept_result = tokio::select! {
+                res = listener.accept() => res,
+                _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {
+                    // Check drain flag periodically
+                    continue;
+                }
+            };
+
+            match accept_result {
                 Ok((stream, _)) => {
                     // Success - reset backoff
                     circuit_breaker.record_success();
@@ -116,8 +142,9 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
 
                     let worker = Arc::clone(&self.worker);
                     // UDS connection handling is a background task, not deterministic inference
+                    let api_key_db = self.api_key_db.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = Self::handle_connection(stream, worker).await {
+                        if let Err(e) = Self::handle_connection(stream, worker, api_key_db).await {
                             error!("Error handling UDS connection: {}", e);
                         }
                     });
@@ -155,10 +182,41 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         }
     }
 
+    /// Validate ApiKey header against the control-plane database (if configured)
+    async fn validate_api_key(
+        headers: &std::collections::HashMap<String, String>,
+        db: &Db,
+    ) -> Result<()> {
+        let auth_header = headers
+            .get("Authorization")
+            .or_else(|| headers.get("authorization"))
+            .ok_or_else(|| AosError::Worker("Missing Authorization header".to_string()))?;
+
+        let token = auth_header
+            .strip_prefix("ApiKey ")
+            .ok_or_else(|| AosError::Worker("Invalid Authorization scheme".to_string()))?;
+
+        let mut hasher = Hasher::new();
+        hasher.update(token.as_bytes());
+        let hash = hasher.finalize().to_hex().to_string();
+
+        let record = db
+            .get_api_key_by_hash(&hash, false)
+            .await
+            .map_err(|e| AosError::Worker(format!("API key lookup failed: {}", e)))?;
+
+        if record.is_none() {
+            return Err(AosError::Worker("API key not found or revoked".to_string()));
+        }
+
+        Ok(())
+    }
+
     /// Handle individual UDS connection
     async fn handle_connection(
         mut stream: UnixStream,
         worker: Arc<Mutex<Worker<K>>>,
+        api_key_db: Option<std::sync::Arc<Db>>,
     ) -> Result<()> {
         let start = std::time::Instant::now();
 
@@ -171,6 +229,15 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         .map_err(|_| AosError::Worker("Request parse timeout (30s)".to_string()))?
         .map_err(|e| AosError::Worker(format!("Request parse failed: {}", e)))?;
         let path = request.path.clone();
+
+        // Optional API key validation when configured
+        if let Some(db) = api_key_db {
+            if let Err(e) = Self::validate_api_key(&request.headers, &db).await {
+                warn!(error = %e, "API key validation failed");
+                Self::send_error(&mut stream, 401, "Unauthorized").await?;
+                return Ok(());
+            }
+        }
 
         // Check if client wants signal streaming
         let wants_signals = request
@@ -220,10 +287,14 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     top_p: None,
                     seed: None,
                     router_seed: None,
+                    seed_mode: None,
+                    request_seed: None,
+                    backend_profile: None,
                     pinned_adapter_ids: None,
                     strict_mode: true,
                     determinism_mode: "strict".to_string(), // Patch proposals use strict mode
                     effective_adapter_ids: None,
+                    placement: None,
                     routing_policy: None,
                 };
 

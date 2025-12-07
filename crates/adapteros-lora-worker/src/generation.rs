@@ -2,6 +2,7 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_lora_router::AdapterInfo;
+use blake3::Hasher;
 use rand::Rng;
 use rand::SeedableRng;
 
@@ -29,7 +30,7 @@ impl Generator {
             top_p: None,
             base_seed: seed,
             step_counter: 0,
-            deterministic_mode: false,
+            deterministic_mode: true,
         }
     }
 
@@ -61,20 +62,15 @@ impl Generator {
         }
     }
 
-    /// Derive a step-specific seed using HKDF
+    /// Derive a step-specific seed using the canonical sampling rule.
     ///
-    /// This ensures each generation step uses a deterministically derived
-    /// seed, enabling reproducible results across runs.
+    /// H("sample" || request_seed || step)
     fn derive_step_seed(&self, step: usize) -> [u8; 32] {
-        use hkdf::Hkdf;
-        use sha2::Sha256;
-
-        let hk = Hkdf::<Sha256>::new(None, &self.base_seed);
-        let mut step_seed = [0u8; 32];
-        let info = format!("gen-step:{}", step);
-        hk.expand(info.as_bytes(), &mut step_seed)
-            .expect("HKDF expand failed");
-        step_seed
+        let mut hasher = Hasher::new();
+        hasher.update(b"sample");
+        hasher.update(&self.base_seed);
+        hasher.update(&(step as u64).to_le_bytes());
+        hasher.finalize().as_bytes().to_owned().try_into().unwrap()
     }
 
     /// Re-seed the RNG for a specific generation step
@@ -169,12 +165,20 @@ impl Generator {
         self.base_seed = seed_bytes;
         self.rng = rand::rngs::StdRng::from_seed(seed_bytes);
         self.step_counter = 0;
+        self.deterministic_mode = true;
     }
 
     /// Apply sampling parameters from an inference request (PRD-02)
     ///
     /// Updates temperature, top_k, top_p, and seed if provided in the request.
     /// This enables deterministic replay when the same parameters are used.
+    pub fn set_seed_bytes(&mut self, seed: [u8; 32]) {
+        self.base_seed = seed;
+        self.rng = rand::rngs::StdRng::from_seed(seed);
+        self.step_counter = 0;
+        self.deterministic_mode = true;
+    }
+
     pub fn apply_request_params(
         &mut self,
         temperature: Option<f32>,

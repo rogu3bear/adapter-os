@@ -1,3 +1,5 @@
+#![cfg(any(debug_assertions, feature = "coreml-stub"))]
+
 //! FusedKernels trait implementation tests for CoreML backend
 //!
 //! These tests verify that the CoreMLBackend correctly implements all methods

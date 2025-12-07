@@ -20,6 +20,12 @@ use crate::backend_factory::{
     KernelBox,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveBackend {
+    Primary,
+    Fallback,
+}
+
 /// Backend coordinator for managing multiple backends and runtime switching
 pub struct BackendCoordinator {
     /// Primary backend
@@ -37,6 +43,10 @@ pub struct BackendCoordinator {
     metrics: Arc<RwLock<CoordinatorMetrics>>,
     /// Capabilities
     capabilities: BackendCapabilities,
+    /// Pinned backend for the current request
+    active_backend: Arc<RwLock<ActiveBackend>>,
+    /// Whether primary has been marked degraded
+    primary_degraded: Arc<RwLock<bool>>,
 }
 
 /// Coordinator metrics for telemetry
@@ -141,6 +151,8 @@ impl BackendCoordinator {
             last_health_check: Arc::new(RwLock::new(Instant::now())),
             metrics: Arc::new(RwLock::new(CoordinatorMetrics::default())),
             capabilities,
+            active_backend: Arc::new(RwLock::new(ActiveBackend::Primary)),
+            primary_degraded: Arc::new(RwLock::new(false)),
         })
     }
 
@@ -202,80 +214,55 @@ impl BackendCoordinator {
         // Check if health check is needed
         self.periodic_health_check().await?;
 
-        // Try primary backend first
-        let primary_health = self.primary_health.read().await;
-        let use_primary = matches!(*primary_health, BackendHealth::Healthy);
-        drop(primary_health);
+        let active_backend = *self.active_backend.read().await;
 
-        if use_primary {
-            let mut primary = self.primary.write().await;
-            match primary.run_step(ring, io) {
-                Ok(_) => {
-                    // Success on primary
-                    let mut metrics = self.metrics.write().await;
-                    metrics.total_operations += 1;
-                    metrics.primary_operations += 1;
-                    metrics.avg_latency_us = (metrics.avg_latency_us
-                        * (metrics.total_operations - 1) as f32
-                        + start.elapsed().as_micros() as f32)
-                        / metrics.total_operations as f32;
-                    Ok(())
-                }
-                Err(e) => {
-                    // Primary failed, mark as degraded and try fallback
-                    warn!(error = %e, "Primary backend failed, attempting fallback");
-                    *self.primary_health.write().await = BackendHealth::Degraded {
-                        reason: format!("Execution failed: {}", e),
-                    };
-
-                    if let Some(ref fallback) = self.fallback {
-                        let mut fallback_backend = fallback.write().await;
-                        match fallback_backend.run_step(ring, io) {
-                            Ok(_) => {
-                                info!("Successfully failed over to fallback backend");
-                                let mut metrics = self.metrics.write().await;
-                                metrics.total_operations += 1;
-                                metrics.fallback_operations += 1;
-                                metrics.backend_switches += 1;
-                                metrics.avg_latency_us = (metrics.avg_latency_us
-                                    * (metrics.total_operations - 1) as f32
-                                    + start.elapsed().as_micros() as f32)
-                                    / metrics.total_operations as f32;
-                                Ok(())
-                            }
-                            Err(fallback_err) => {
-                                error!(error = %fallback_err, "Fallback backend also failed");
-                                Err(AosError::Kernel(format!(
-                                    "Both primary and fallback backends failed: primary={}, fallback={}",
-                                    e, fallback_err
-                                )))
-                            }
-                        }
-                    } else {
+        match active_backend {
+            ActiveBackend::Primary => {
+                let mut primary = self.primary.write().await;
+                match primary.run_step(ring, io) {
+                    Ok(_) => {
+                        *self.primary_degraded.write().await = false;
+                        let mut metrics = self.metrics.write().await;
+                        metrics.total_operations += 1;
+                        metrics.primary_operations += 1;
+                        metrics.avg_latency_us = (metrics.avg_latency_us
+                            * (metrics.total_operations - 1) as f32
+                            + start.elapsed().as_micros() as f32)
+                            / metrics.total_operations as f32;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Primary backend failed");
+                        *self.primary_health.write().await = BackendHealth::Degraded {
+                            reason: format!("Execution failed: {}", e),
+                        };
+                        *self.primary_degraded.write().await = true;
                         Err(e)
                     }
                 }
             }
-        } else if let Some(ref fallback) = self.fallback {
-            // Primary unhealthy, use fallback directly
-            let mut fallback_backend = fallback.write().await;
-            match fallback_backend.run_step(ring, io) {
-                Ok(_) => {
-                    let mut metrics = self.metrics.write().await;
-                    metrics.total_operations += 1;
-                    metrics.fallback_operations += 1;
-                    metrics.avg_latency_us = (metrics.avg_latency_us
-                        * (metrics.total_operations - 1) as f32
-                        + start.elapsed().as_micros() as f32)
-                        / metrics.total_operations as f32;
-                    Ok(())
+            ActiveBackend::Fallback => {
+                let Some(ref fallback) = self.fallback else {
+                    return Err(AosError::Kernel(
+                        "Fallback backend not available".to_string(),
+                    ));
+                };
+
+                let mut fallback_backend = fallback.write().await;
+                match fallback_backend.run_step(ring, io) {
+                    Ok(_) => {
+                        let mut metrics = self.metrics.write().await;
+                        metrics.total_operations += 1;
+                        metrics.fallback_operations += 1;
+                        metrics.avg_latency_us = (metrics.avg_latency_us
+                            * (metrics.total_operations - 1) as f32
+                            + start.elapsed().as_micros() as f32)
+                            / metrics.total_operations as f32;
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
                 }
-                Err(e) => Err(e),
             }
-        } else {
-            Err(AosError::Kernel(
-                "Primary backend unhealthy and no fallback available".to_string(),
-            ))
         }
     }
 
@@ -296,6 +283,7 @@ impl BackendCoordinator {
                 let mut guard: tokio::sync::RwLockWriteGuard<'_, BackendHealth> =
                     self.primary_health.write().await;
                 *guard = health.clone();
+                *self.primary_degraded.write().await = !matches!(health, BackendHealth::Healthy);
                 if !matches!(health, BackendHealth::Healthy) {
                     warn!(health = ?health, "Primary backend health check failed");
                     let mut metrics = self.metrics.write().await;
@@ -308,6 +296,7 @@ impl BackendCoordinator {
                     reason: format!("Health check error: {}", e),
                     recoverable: true,
                 };
+                *self.primary_degraded.write().await = true;
                 let mut metrics = self.metrics.write().await;
                 metrics.health_check_failures += 1;
             }
@@ -371,8 +360,13 @@ impl BackendCoordinator {
             *self.primary_health.write().await = BackendHealth::Degraded {
                 reason: "Manual switch to fallback".to_string(),
             };
-            let mut metrics = self.metrics.write().await;
-            metrics.backend_switches += 1;
+            *self.primary_degraded.write().await = true;
+            let mut active = self.active_backend.write().await;
+            if *active != ActiveBackend::Fallback {
+                let mut metrics = self.metrics.write().await;
+                metrics.backend_switches += 1;
+            }
+            *active = ActiveBackend::Fallback;
             info!("Manually switched to fallback backend");
             Ok(())
         } else {
@@ -385,7 +379,32 @@ impl BackendCoordinator {
     /// Reset primary backend health (attempt recovery)
     pub async fn reset_primary_health(&self) {
         *self.primary_health.write().await = BackendHealth::Healthy;
+        *self.primary_degraded.write().await = false;
+        *self.active_backend.write().await = ActiveBackend::Primary;
         info!("Reset primary backend health to Healthy");
+    }
+
+    /// Pin backend choice before starting a request
+    pub async fn prepare_for_request(&self, strict_mode: bool) {
+        let mut active = self.active_backend.write().await;
+
+        let use_fallback = !strict_mode
+            && self.fallback.is_some()
+            && (*self.primary_degraded.read().await
+                || !matches!(*self.primary_health.read().await, BackendHealth::Healthy));
+
+        let next = if use_fallback {
+            ActiveBackend::Fallback
+        } else {
+            ActiveBackend::Primary
+        };
+
+        if *active != next {
+            let mut metrics = self.metrics.write().await;
+            metrics.backend_switches += 1;
+        }
+
+        *active = next;
     }
 }
 

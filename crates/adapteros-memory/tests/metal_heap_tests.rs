@@ -562,7 +562,7 @@ fn test_real_metal_heap_state_tracking() {
         let heap_states = observer.get_heap_states();
 
         // Should return a vector (may be empty initially)
-        assert!(heap_states.is_vec() || heap_states.len() == 0);
+        assert!(heap_states.is_vec() || heap_states.is_empty());
         println!("Heap states: {} heaps tracked", heap_states.len());
     }
 }
@@ -575,7 +575,7 @@ fn test_real_metal_heap_migration_events() {
         let events = observer.get_migration_events();
 
         // Should return a vector (may be empty initially)
-        assert!(events.is_vec() || events.len() == 0);
+        assert!(events.is_vec() || events.is_empty());
         println!("Migration events recorded: {}", events.len());
     }
 }

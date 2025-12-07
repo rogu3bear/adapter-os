@@ -511,8 +511,8 @@ fn simd_exp_approx_neon_safe(
     use std::arch::aarch64::*;
 
     // Constants
-    const LOG2E: f32 = 1.4426950408889634; // log2(e)
-    const LN2: f32 = 0.6931471805599453; // ln(2)
+    const LOG2E: f32 = std::f32::consts::LOG2_E;
+    const LN2: f32 = std::f32::consts::LN_2;
 
     // Underflow threshold: exp(-87.3) ≈ 1e-38 (smallest normal f32)
     const EXP_UNDERFLOW: f32 = -87.3;
@@ -591,8 +591,8 @@ fn fast_exp_safe(x: f32) -> f32 {
         return 0.0;
     }
 
-    const LOG2E: f32 = 1.4426950408889634;
-    const LN2: f32 = 0.6931471805599453;
+    const LOG2E: f32 = std::f32::consts::LOG2_E;
+    const LN2: f32 = std::f32::consts::LN_2;
     const C1: f32 = 1.0;
     const C2: f32 = 1.0;
     const C3: f32 = 0.5;

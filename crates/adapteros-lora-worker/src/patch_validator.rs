@@ -1244,12 +1244,14 @@ mod tests {
         let policy_engine = PolicyEngine::new(policies);
 
         // Create validator with validation config that disables expensive checks for testing
-        let mut config = ValidationConfig::default();
-        config.enable_evidence_validation = false;
-        config.enable_security_validation = false;
-        config.enable_performance_validation = false;
-        config.enable_test_validation = false;
-        config.enable_lint_validation = false;
+        let config = ValidationConfig {
+            enable_evidence_validation: false,
+            enable_security_validation: false,
+            enable_performance_validation: false,
+            enable_test_validation: false,
+            enable_lint_validation: false,
+            ..Default::default()
+        };
 
         let validator =
             PatchValidator::new_with_features(policy, policy_engine, None, None, config);

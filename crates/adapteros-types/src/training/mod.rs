@@ -23,7 +23,6 @@ use serde::{Deserialize, Serialize};
 /// Training job state machine
 ///
 /// Represents the complete lifecycle of a training job from creation to completion.
-/// The Paused state supports checkpoint and resume functionality.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TrainingJobStatus {
@@ -31,10 +30,6 @@ pub enum TrainingJobStatus {
     Pending,
     /// Job currently executing training
     Running,
-    /// Job temporarily paused (can resume from checkpoint)
-    Paused,
-    /// Cancel sent, awaiting worker confirmation
-    CancelPending,
     /// Job completed successfully
     Completed,
     /// Job failed during execution
@@ -56,10 +51,7 @@ impl TrainingJobStatus {
     pub fn is_active(&self) -> bool {
         matches!(
             self,
-            TrainingJobStatus::Pending
-                | TrainingJobStatus::Running
-                | TrainingJobStatus::Paused
-                | TrainingJobStatus::CancelPending
+            TrainingJobStatus::Pending | TrainingJobStatus::Running
         )
     }
 }
@@ -69,8 +61,6 @@ impl std::fmt::Display for TrainingJobStatus {
         match self {
             TrainingJobStatus::Pending => write!(f, "pending"),
             TrainingJobStatus::Running => write!(f, "running"),
-            TrainingJobStatus::Paused => write!(f, "paused"),
-            TrainingJobStatus::CancelPending => write!(f, "cancelpending"),
             TrainingJobStatus::Completed => write!(f, "completed"),
             TrainingJobStatus::Failed => write!(f, "failed"),
             TrainingJobStatus::Cancelled => write!(f, "cancelled"),
@@ -461,20 +451,6 @@ impl TrainingJob {
         self.completed_at = Some(chrono::Utc::now().to_rfc3339());
     }
 
-    /// Pause job for checkpoint/resume
-    pub fn pause(&mut self) {
-        if self.status == TrainingJobStatus::Running {
-            self.status = TrainingJobStatus::Paused;
-        }
-    }
-
-    /// Resume job from paused state
-    pub fn resume(&mut self) {
-        if self.status == TrainingJobStatus::Paused {
-            self.status = TrainingJobStatus::Running;
-        }
-    }
-
     /// Cancel job
     pub fn cancel(&mut self) {
         if self.status.is_active() {
@@ -740,11 +716,6 @@ mod tests {
     fn test_training_job_status_display() {
         assert_eq!(TrainingJobStatus::Pending.to_string(), "pending");
         assert_eq!(TrainingJobStatus::Running.to_string(), "running");
-        assert_eq!(TrainingJobStatus::Paused.to_string(), "paused");
-        assert_eq!(
-            TrainingJobStatus::CancelPending.to_string(),
-            "cancelpending"
-        );
         assert_eq!(TrainingJobStatus::Completed.to_string(), "completed");
         assert_eq!(TrainingJobStatus::Failed.to_string(), "failed");
         assert_eq!(TrainingJobStatus::Cancelled.to_string(), "cancelled");
@@ -754,8 +725,6 @@ mod tests {
     fn test_training_job_status_terminal() {
         assert!(!TrainingJobStatus::Pending.is_terminal());
         assert!(!TrainingJobStatus::Running.is_terminal());
-        assert!(!TrainingJobStatus::Paused.is_terminal());
-        assert!(!TrainingJobStatus::CancelPending.is_terminal());
         assert!(TrainingJobStatus::Completed.is_terminal());
         assert!(TrainingJobStatus::Failed.is_terminal());
         assert!(TrainingJobStatus::Cancelled.is_terminal());
@@ -765,8 +734,6 @@ mod tests {
     fn test_training_job_status_active() {
         assert!(TrainingJobStatus::Pending.is_active());
         assert!(TrainingJobStatus::Running.is_active());
-        assert!(TrainingJobStatus::Paused.is_active());
-        assert!(TrainingJobStatus::CancelPending.is_active());
         assert!(!TrainingJobStatus::Completed.is_active());
         assert!(!TrainingJobStatus::Failed.is_active());
         assert!(!TrainingJobStatus::Cancelled.is_active());
@@ -828,10 +795,8 @@ mod tests {
         job.start();
         assert_eq!(job.status, TrainingJobStatus::Running);
 
-        job.pause();
-        assert_eq!(job.status, TrainingJobStatus::Paused);
-
-        job.resume();
+        // Pause/resume removed; ensure running remains unchanged by no-op pattern
+        job.update_progress(1, 0.5, 1000.0);
         assert_eq!(job.status, TrainingJobStatus::Running);
     }
 

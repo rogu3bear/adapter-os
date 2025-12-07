@@ -5,64 +5,12 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
-/// Base model loading status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BaseModelStatus {
-    Loading,
-    Loaded,
-    Unloading,
-    Unloaded,
-    Error,
-}
-
-impl BaseModelStatus {
-    /// Convert to string for database storage
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Loading => "loading",
-            Self::Loaded => "loaded",
-            Self::Unloading => "unloading",
-            Self::Unloaded => "unloaded",
-            Self::Error => "error",
-        }
-    }
-
-    /// Parse from string
-    pub fn parse(s: &str) -> Result<Self> {
-        match s {
-            "loading" => Ok(Self::Loading),
-            "loaded" => Ok(Self::Loaded),
-            "unloading" => Ok(Self::Unloading),
-            "unloaded" => Ok(Self::Unloaded),
-            "error" => Ok(Self::Error),
-            _ => Err(AosError::Worker(format!(
-                "Invalid base model status: {}",
-                s
-            ))),
-        }
-    }
-
-    /// Parse from string (convenience method for FromStr compatibility)
-    pub fn from_str(s: &str) -> Result<Self> {
-        Self::parse(s)
-    }
-
-    /// Check if model is currently loaded
-    pub fn is_loaded(&self) -> bool {
-        matches!(self, Self::Loaded)
-    }
-
-    /// Check if model is in transition state
-    pub fn is_transitioning(&self) -> bool {
-        matches!(self, Self::Loading | Self::Unloading)
-    }
-}
+/// Canonical base model loading status shared across components.
+pub type BaseModelStatus = adapteros_api_types::ModelLoadStatus;
 
 /// Base model state tracking
 #[derive(Clone)]
@@ -88,7 +36,7 @@ impl BaseModelState {
     pub fn new(model_id: String, tenant_id: String, db: Arc<Db>) -> Self {
         Self {
             model_id,
-            status: BaseModelStatus::Unloaded,
+            status: BaseModelStatus::NoModel,
             loaded_at: None,
             error_message: None,
             memory_usage_mb: None,
@@ -111,11 +59,11 @@ impl BaseModelState {
 
         // Update timestamps based on status
         match status {
-            BaseModelStatus::Loaded => {
+            BaseModelStatus::Ready => {
                 self.loaded_at = Some(Instant::now());
                 info!("Base model {} loaded successfully", self.model_id);
             }
-            BaseModelStatus::Unloaded => {
+            BaseModelStatus::NoModel => {
                 self.loaded_at = None;
                 info!("Base model {} unloaded", self.model_id);
             }
@@ -147,7 +95,7 @@ impl BaseModelState {
 
     /// Mark model as loaded
     pub async fn mark_loaded(&mut self, memory_usage_mb: u32) -> Result<()> {
-        self.update_status(BaseModelStatus::Loaded, None, Some(memory_usage_mb))
+        self.update_status(BaseModelStatus::Ready, None, Some(memory_usage_mb))
             .await
     }
 
@@ -159,7 +107,7 @@ impl BaseModelState {
 
     /// Mark model as unloaded
     pub async fn mark_unloaded(&mut self) -> Result<()> {
-        self.update_status(BaseModelStatus::Unloaded, None, None)
+        self.update_status(BaseModelStatus::NoModel, None, None)
             .await
     }
 
@@ -176,7 +124,7 @@ impl BaseModelState {
 
     /// Check if model is loaded
     pub fn is_loaded(&self) -> bool {
-        self.status.is_loaded()
+        self.status.is_ready()
     }
 
     /// Get memory usage in MB
@@ -213,12 +161,12 @@ impl BaseModelState {
     /// Load status from database
     pub async fn load_from_db(&mut self) -> Result<()> {
         if let Some(status_record) = self.db.get_base_model_status(&self.tenant_id).await? {
-            self.status = BaseModelStatus::parse(&status_record.status)?;
+            self.status = BaseModelStatus::from_str(&status_record.status);
             self.error_message = status_record.error_message;
             self.memory_usage_mb = status_record.memory_usage_mb.map(|mb| mb as u32);
 
             // Restore loaded_at if model is currently loaded
-            if self.status.is_loaded() && status_record.loaded_at.is_some() {
+            if self.status.is_ready() && status_record.loaded_at.is_some() {
                 // Parse the timestamp (simplified - in production would use proper parsing)
                 self.loaded_at = Some(Instant::now()); // Simplified for now
             }
@@ -238,52 +186,53 @@ mod tests {
     #[test]
     fn test_base_model_status_conversion() {
         assert_eq!(BaseModelStatus::Loading.as_str(), "loading");
-        assert_eq!(BaseModelStatus::Loaded.as_str(), "loaded");
+        assert_eq!(BaseModelStatus::Ready.as_str(), "ready");
         assert_eq!(BaseModelStatus::Unloading.as_str(), "unloading");
-        assert_eq!(BaseModelStatus::Unloaded.as_str(), "unloaded");
+        assert_eq!(BaseModelStatus::NoModel.as_str(), "no-model");
         assert_eq!(BaseModelStatus::Error.as_str(), "error");
+        assert_eq!(BaseModelStatus::Checking.as_str(), "checking");
 
         assert_eq!(
-            BaseModelStatus::from_str("loading").unwrap(),
+            BaseModelStatus::from_str("loading"),
             BaseModelStatus::Loading
         );
+        assert_eq!(BaseModelStatus::from_str("loaded"), BaseModelStatus::Ready);
+        assert_eq!(BaseModelStatus::from_str("ready"), BaseModelStatus::Ready);
         assert_eq!(
-            BaseModelStatus::from_str("loaded").unwrap(),
-            BaseModelStatus::Loaded
-        );
-        assert_eq!(
-            BaseModelStatus::from_str("unloading").unwrap(),
+            BaseModelStatus::from_str("unloading"),
             BaseModelStatus::Unloading
         );
         assert_eq!(
-            BaseModelStatus::from_str("unloaded").unwrap(),
-            BaseModelStatus::Unloaded
+            BaseModelStatus::from_str("unloaded"),
+            BaseModelStatus::NoModel
         );
         assert_eq!(
-            BaseModelStatus::from_str("error").unwrap(),
-            BaseModelStatus::Error
+            BaseModelStatus::from_str("no-model"),
+            BaseModelStatus::NoModel
         );
+        assert_eq!(BaseModelStatus::from_str("error"), BaseModelStatus::Error);
     }
 
     #[test]
     fn test_base_model_status_checks() {
-        assert!(BaseModelStatus::Loaded.is_loaded());
-        assert!(!BaseModelStatus::Loading.is_loaded());
-        assert!(!BaseModelStatus::Unloaded.is_loaded());
+        assert!(BaseModelStatus::Ready.is_ready());
+        assert!(!BaseModelStatus::Loading.is_ready());
+        assert!(!BaseModelStatus::NoModel.is_ready());
 
         assert!(BaseModelStatus::Loading.is_transitioning());
         assert!(BaseModelStatus::Unloading.is_transitioning());
-        assert!(!BaseModelStatus::Loaded.is_transitioning());
-        assert!(!BaseModelStatus::Unloaded.is_transitioning());
+        assert!(BaseModelStatus::Checking.is_transitioning());
+        assert!(!BaseModelStatus::Ready.is_transitioning());
+        assert!(!BaseModelStatus::NoModel.is_transitioning());
     }
 
     #[test]
     fn test_base_model_state_creation() {
         // Note: In-memory database testing would require proper Db implementation
         // For now, just test the status enum functionality
-        let status = BaseModelStatus::Unloaded;
-        assert_eq!(status, BaseModelStatus::Unloaded);
-        assert!(!status.is_loaded());
+        let status = BaseModelStatus::NoModel;
+        assert_eq!(status, BaseModelStatus::NoModel);
+        assert!(!status.is_ready());
         assert!(!status.is_transitioning());
     }
 }

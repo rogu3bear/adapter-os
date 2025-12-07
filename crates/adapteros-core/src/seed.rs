@@ -1,10 +1,13 @@
 //! Deterministic seed derivation using HKDF
 
 use crate::hash::B3Hash;
+use crate::{AosError, Result};
 use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::HashMap;
+use std::fmt;
+use std::str::FromStr;
 use std::sync::Mutex;
 
 lazy_static::lazy_static! {
@@ -19,6 +22,127 @@ pub enum SeedLabel {
     Dropout,
     Sampling,
     Adapter(usize),
+}
+
+/// Execution seed strategy for per-request derivation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SeedMode {
+    /// Requires manifest hash; fails if missing
+    Strict,
+    /// Uses manifest hash when present; otherwise uses a scoped fallback hash
+    BestEffort,
+    /// Dev-only random seed (non-replayable)
+    NonDeterministic,
+}
+
+impl Default for SeedMode {
+    fn default() -> Self {
+        SeedMode::BestEffort
+    }
+}
+
+impl SeedMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SeedMode::Strict => "strict",
+            SeedMode::BestEffort => "best_effort",
+            SeedMode::NonDeterministic => "non_deterministic",
+        }
+    }
+}
+
+impl fmt::Display for SeedMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for SeedMode {
+    type Err = AosError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let normalized = s.to_ascii_lowercase().replace(['-', '_'], "");
+        match normalized.as_str() {
+            "strict" => Ok(SeedMode::Strict),
+            "besteffort" => Ok(SeedMode::BestEffort),
+            "nondeterministic" | "nondet" => Ok(SeedMode::NonDeterministic),
+            _ => Err(AosError::Config(format!(
+                "Invalid seed mode: {} (expected strict, best_effort, non_deterministic)",
+                s
+            ))),
+        }
+    }
+}
+
+/// Backend profile identifier for explicit backend selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum BackendProfile {
+    AutoDev,
+    CoreML,
+    Metal,
+    Mlx,
+}
+
+impl BackendProfile {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BackendProfile::AutoDev => "autodev",
+            BackendProfile::CoreML => "coreml",
+            BackendProfile::Metal => "metal",
+            BackendProfile::Mlx => "mlx",
+        }
+    }
+}
+
+impl Default for BackendProfile {
+    fn default() -> Self {
+        BackendProfile::AutoDev
+    }
+}
+
+impl fmt::Display for BackendProfile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for BackendProfile {
+    type Err = AosError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let normalized = s.to_ascii_lowercase();
+        match normalized.as_str() {
+            "autodev" | "auto" => Ok(BackendProfile::AutoDev),
+            "coreml" => Ok(BackendProfile::CoreML),
+            "metal" => Ok(BackendProfile::Metal),
+            "mlx" => Ok(BackendProfile::Mlx),
+            _ => Err(AosError::Config(format!(
+                "Invalid backend profile: {} (expected autodev, coreml, metal, mlx)",
+                s
+            ))),
+        }
+    }
+}
+
+/// Shared execution profile for request-scoped execution
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ExecutionProfile {
+    pub seed_mode: SeedMode,
+    pub backend_profile: BackendProfile,
+}
+
+impl Default for ExecutionProfile {
+    fn default() -> Self {
+        Self {
+            seed_mode: SeedMode::BestEffort,
+            backend_profile: BackendProfile::AutoDev,
+        }
+    }
 }
 
 impl SeedLabel {
@@ -86,6 +210,61 @@ pub fn derive_seed_indexed(global: &B3Hash, label: &str, index: usize) -> [u8; 3
     derive_seed(global, &indexed_label)
 }
 
+/// Derive a request-scoped seed with configurable determinism mode
+pub fn derive_request_seed(
+    global: &B3Hash,
+    manifest: Option<&B3Hash>,
+    tenant_id: &str,
+    request_id: &str,
+    worker_id: u32,
+    nonce: u64,
+    mode: SeedMode,
+) -> Result<[u8; 32]> {
+    match mode {
+        SeedMode::Strict => {
+            let manifest_hash = manifest.ok_or_else(|| {
+                AosError::DeterminismViolation(
+                    "Strict seed_mode requires manifest hash".to_string(),
+                )
+            })?;
+            let label = format!(
+                "request:{}:{}:{}:{}:{}",
+                manifest_hash.to_hex(),
+                tenant_id,
+                request_id,
+                worker_id,
+                nonce
+            );
+            Ok(derive_seed(global, &label))
+        }
+        SeedMode::BestEffort => {
+            let manifest_hash = manifest
+                .cloned()
+                .unwrap_or_else(|| B3Hash::hash(format!("no_manifest:{}", tenant_id).as_bytes()));
+            let label = format!(
+                "request:{}:{}:{}:{}:{}",
+                manifest_hash.to_hex(),
+                tenant_id,
+                request_id,
+                worker_id,
+                nonce
+            );
+            Ok(derive_seed(global, &label))
+        }
+        SeedMode::NonDeterministic => {
+            if cfg!(debug_assertions) {
+                let mut bytes = [0u8; 32];
+                fastrand::Rng::new().fill(&mut bytes);
+                Ok(bytes)
+            } else {
+                Err(AosError::DeterminismViolation(
+                    "NonDeterministic seed_mode is only permitted in debug builds".to_string(),
+                ))
+            }
+        }
+    }
+}
+
 /// Derive multiple seeds at once
 pub fn derive_seeds(global: &B3Hash, labels: &[&str]) -> Vec<[u8; 32]> {
     labels.iter().map(|l| derive_seed(global, l)).collect()
@@ -144,7 +323,7 @@ pub fn derive_adapter_seed(
     adapter_id: usize,
     layer: usize,
     nonce: u64,
-) -> Result<[u8; 32], String> {
+) -> std::result::Result<[u8; 32], String> {
     let label = format!("adapter_{}:layer_{}", adapter_id, layer);
 
     // Check for reuse
@@ -280,5 +459,86 @@ mod tests {
         let hash2 = hash_adapter_dir(path1);
 
         assert_eq!(hash1, hash2, "Same path should produce same hash");
+    }
+
+    #[test]
+    fn test_request_seed_strict_requires_manifest() {
+        let global = B3Hash::hash(b"global");
+        let result = derive_request_seed(&global, None, "tenant", "req", 1, 0, SeedMode::Strict);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_request_seed_best_effort_with_manifest() {
+        let global = B3Hash::hash(b"global");
+        let manifest = B3Hash::hash(b"manifest");
+        let seed_a = derive_request_seed(
+            &global,
+            Some(&manifest),
+            "tenant",
+            "req",
+            1,
+            0,
+            SeedMode::BestEffort,
+        )
+        .unwrap();
+        let seed_b = derive_request_seed(
+            &global,
+            Some(&manifest),
+            "tenant",
+            "req",
+            1,
+            0,
+            SeedMode::BestEffort,
+        )
+        .unwrap();
+        assert_eq!(seed_a, seed_b, "Deterministic with manifest");
+    }
+
+    #[test]
+    fn test_request_seed_best_effort_without_manifest_is_tenant_scoped() {
+        let global = B3Hash::hash(b"global");
+        let seed_a =
+            derive_request_seed(&global, None, "tenant_a", "req", 1, 0, SeedMode::BestEffort)
+                .unwrap();
+        let seed_b =
+            derive_request_seed(&global, None, "tenant_a", "req", 1, 0, SeedMode::BestEffort)
+                .unwrap();
+        let seed_c =
+            derive_request_seed(&global, None, "tenant_b", "req", 1, 0, SeedMode::BestEffort)
+                .unwrap();
+
+        assert_eq!(seed_a, seed_b, "Same tenant uses stable fallback hash");
+        assert_ne!(seed_a, seed_c, "Different tenant fallback differs");
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn test_request_seed_nondeterministic_varies() {
+        let global = B3Hash::hash(b"global");
+        let seed_a = derive_request_seed(
+            &global,
+            None,
+            "tenant",
+            "req",
+            1,
+            0,
+            SeedMode::NonDeterministic,
+        )
+        .unwrap();
+        let seed_b = derive_request_seed(
+            &global,
+            None,
+            "tenant",
+            "req",
+            1,
+            0,
+            SeedMode::NonDeterministic,
+        )
+        .unwrap();
+        assert_ne!(
+            seed_a, seed_b,
+            "NonDeterministic should produce different seeds"
+        );
     }
 }

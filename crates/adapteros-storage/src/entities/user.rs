@@ -115,9 +115,29 @@ pub struct UserKv {
 
     // Status
     pub disabled: bool,
+    #[serde(default)]
+    pub failed_attempts: i64,
+    #[serde(default)]
+    pub last_failed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub lockout_until: Option<DateTime<Utc>>,
 
     // Timestamps
     pub created_at: DateTime<Utc>,
+
+    // MFA
+    #[serde(default)]
+    pub mfa_enabled: bool,
+    #[serde(default)]
+    pub mfa_secret_enc: Option<String>,
+    #[serde(default)]
+    pub mfa_backup_codes_json: Option<String>,
+    #[serde(default)]
+    pub mfa_enrolled_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub mfa_last_verified_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub mfa_recovery_last_used_at: Option<DateTime<Utc>>,
 }
 
 impl UserKv {
@@ -171,7 +191,16 @@ mod tests {
             role: Role::Admin,
             tenant_id: "tenant-1".to_string(),
             disabled: false,
+            failed_attempts: 0,
+            last_failed_at: None,
+            lockout_until: None,
             created_at: Utc::now(),
+            mfa_enabled: false,
+            mfa_secret_enc: None,
+            mfa_backup_codes_json: None,
+            mfa_enrolled_at: None,
+            mfa_last_verified_at: None,
+            mfa_recovery_last_used_at: None,
         };
 
         assert!(admin.is_admin());
@@ -187,7 +216,16 @@ mod tests {
             role: Role::Viewer,
             tenant_id: "tenant-1".to_string(),
             disabled: false,
+            failed_attempts: 0,
+            last_failed_at: None,
+            lockout_until: None,
             created_at: Utc::now(),
+            mfa_enabled: false,
+            mfa_secret_enc: None,
+            mfa_backup_codes_json: None,
+            mfa_enrolled_at: None,
+            mfa_last_verified_at: None,
+            mfa_recovery_last_used_at: None,
         };
 
         assert!(!viewer.is_admin());
@@ -206,7 +244,16 @@ mod tests {
             role: Role::Operator,
             tenant_id: "tenant-1".to_string(),
             disabled: false,
+            failed_attempts: 0,
+            last_failed_at: None,
+            lockout_until: None,
             created_at: Utc::now(),
+            mfa_enabled: false,
+            mfa_secret_enc: None,
+            mfa_backup_codes_json: None,
+            mfa_enrolled_at: None,
+            mfa_last_verified_at: None,
+            mfa_recovery_last_used_at: None,
         };
 
         assert!(user.is_active());

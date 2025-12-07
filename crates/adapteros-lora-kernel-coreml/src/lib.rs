@@ -11,8 +11,9 @@ use adapteros_lora_kernel_api::{
     RouterRing,
 };
 use std::collections::HashMap;
-use std::ffi::c_void;
-use std::path::PathBuf;
+use std::ffi::{c_void, CStr};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use tokio::sync::{oneshot, RwLock};
 
 pub mod aos_loader;
@@ -899,6 +900,12 @@ unsafe impl Send for CoreMLBackend {}
 unsafe impl Sync for CoreMLBackend {}
 
 impl CoreMLBackend {
+    #[inline]
+    fn gate_q15_to_f32(gate: i16) -> f32 {
+        gate as f32 / 32767.0
+    }
+
+    #[cfg(any(test, debug_assertions, feature = "coreml-stub"))]
     /// Create a new CoreML backend in stub mode
     ///
     /// This constructor creates a backend that operates in stub/fallback mode,
@@ -950,8 +957,16 @@ impl CoreMLBackend {
     }
 
     /// Check if this backend is operating in stub mode
+    #[cfg(any(test, debug_assertions, feature = "coreml-stub"))]
     pub fn is_stub_mode(&self) -> bool {
         self.model_handle.is_null() && self.device_name.contains("Stub")
+    }
+
+    /// Stub mode is disabled in release/production builds
+    #[cfg(not(any(test, debug_assertions, feature = "coreml-stub")))]
+    #[inline]
+    pub fn is_stub_mode(&self) -> bool {
+        false
     }
 
     /// Create a new CoreML backend
@@ -961,9 +976,9 @@ impl CoreMLBackend {
     /// * `production_mode` - If true, enforces ANE-only mode for guaranteed determinism
     ///
     /// # Note
-    /// CoreML FFI layer is not fully implemented. The native bridge code
-    /// (coreml_bridge.mm) is missing. Use `new_stub()` for development/testing,
-    /// or Metal/MLX backends for production.
+    /// Native CoreML FFI is required; stub mode is only compiled for debug/tests
+    /// (or when `coreml-stub` feature is explicitly enabled) and is not available
+    /// in release/production builds.
     pub fn new(compute_units: ComputeUnits, production_mode: bool) -> Result<Self> {
         #[cfg(not(target_os = "macos"))]
         {
@@ -1118,11 +1133,18 @@ impl CoreMLBackend {
     pub fn load_model(&mut self, model_path: &PathBuf) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
-            let model_bytes = std::fs::read(model_path)
+            let (hash_path, load_path) = if model_path.is_dir() {
+                (model_path.join("Manifest.json"), model_path.clone())
+            } else {
+                (model_path.clone(), model_path.clone())
+            };
+
+            let model_bytes = std::fs::read(&hash_path)
                 .map_err(|e| AosError::Io(format!("Failed to read model: {}", e)))?;
             self.model_hash = Some(B3Hash::hash(&model_bytes));
 
-            let path_str = model_path.to_string_lossy();
+            let compiled_path = Self::compile_model_if_needed(&load_path)?;
+            let path_str = compiled_path.to_string_lossy();
             let compute_unit_int = match self.compute_units {
                 ComputeUnits::CpuOnly => 0,
                 ComputeUnits::CpuAndGpu => 1,
@@ -1139,14 +1161,27 @@ impl CoreMLBackend {
             };
 
             if handle.is_null() {
-                return Err(AosError::Kernel("Failed to load CoreML model".to_string()));
+                let mut err_buf = [0i8; 512];
+                let len =
+                    unsafe { ffi::coreml_get_last_error(err_buf.as_mut_ptr(), err_buf.len()) };
+                let reason = if len > 0 {
+                    let slice = &err_buf[..len.min(err_buf.len())];
+                    unsafe { CStr::from_ptr(slice.as_ptr()) }
+                        .to_string_lossy()
+                        .into_owned()
+                } else {
+                    "Failed to load CoreML model".to_string()
+                };
+                return Err(AosError::Kernel(reason));
             }
 
             self.model_handle = handle;
 
             tracing::info!(
-                model_path = %model_path.display(),
+                model_path = %load_path.display(),
+                compiled_path = %compiled_path.display(),
                 hash = %self.model_hash.as_ref().unwrap().to_short_hex(),
+                hash_source = %hash_path.display(),
                 "Loaded CoreML model"
             );
 
@@ -1155,6 +1190,92 @@ impl CoreMLBackend {
 
         #[cfg(not(target_os = "macos"))]
         Err(AosError::Kernel("CoreML not available".to_string()))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn compile_model_if_needed(model_path: &Path) -> Result<PathBuf> {
+        if model_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("mlmodelc"))
+            .unwrap_or(false)
+        {
+            return Ok(model_path.to_path_buf());
+        }
+
+        let hash = B3Hash::hash(model_path.to_string_lossy().as_bytes()).to_hex();
+        let cache_dir = std::env::temp_dir().join("adapteros-coremlc").join(hash);
+
+        if let Some(compiled) = Self::find_compiled_model(&cache_dir)? {
+            return Ok(compiled);
+        }
+
+        std::fs::create_dir_all(&cache_dir).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to create CoreML compile cache at {}: {}",
+                cache_dir.display(),
+                e
+            ))
+        })?;
+
+        let model_str = model_path
+            .to_str()
+            .ok_or_else(|| AosError::Io(format!("Invalid model path: {}", model_path.display())))?;
+        let cache_str = cache_dir
+            .to_str()
+            .ok_or_else(|| AosError::Io(format!("Invalid cache path: {}", cache_dir.display())))?;
+
+        let status = Command::new("xcrun")
+            .args(["coremlc", "compile", model_str, cache_str])
+            .status()
+            .map_err(|e| AosError::Kernel(format!("Failed to spawn coremlc: {}", e)))?;
+
+        if !status.success() {
+            return Err(AosError::Kernel(format!(
+                "coremlc compile failed (status {:?}) for {}",
+                status.code(),
+                model_path.display()
+            )));
+        }
+
+        Self::find_compiled_model(&cache_dir)?.ok_or_else(|| {
+            AosError::Kernel(format!(
+                "coremlc compile produced no .mlmodelc under {}",
+                cache_dir.display()
+            ))
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn find_compiled_model(dir: &Path) -> Result<Option<PathBuf>> {
+        if !dir.exists() {
+            return Ok(None);
+        }
+
+        let entries = std::fs::read_dir(dir).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read compiled model dir {}: {}",
+                dir.display(),
+                e
+            ))
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                AosError::Io(format!("Failed to read entry in {}: {}", dir.display(), e))
+            })?;
+            let path = entry.path();
+            if path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("mlmodelc"))
+                .unwrap_or(false)
+            {
+                return Ok(Some(path));
+            }
+        }
+
+        Ok(None)
     }
 
     pub fn set_compute_units(&mut self, units: ComputeUnits) {
@@ -1361,8 +1482,8 @@ impl CoreMLBackend {
                         MLTensor::from_floats(output_projection, logits_shape)?
                     };
 
-                    // Convert Q15 gate to float: gate / 32768.0
-                    let gate_float = (gate as f32) / 32768.0;
+                    // Convert Q15 gate to float: gate / 32767.0 (router invariant)
+                    let gate_float = Self::gate_q15_to_f32(gate);
 
                     // Scale adapter delta by gate value
                     let scaled_adapter = adapter_tensor.scale(gate_float)?;
@@ -1478,6 +1599,7 @@ impl CoreMLBackend {
     /// Generates deterministic logits and applies LoRA adapter fusion
     /// using the adapter cache. This enables full pipeline testing
     /// without the native FFI bridge.
+    #[cfg(any(test, debug_assertions, feature = "coreml-stub"))]
     fn run_step_stub(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
         tracing::trace!(
             position = io.position,
@@ -1508,8 +1630,8 @@ impl CoreMLBackend {
                 continue;
             }
 
-            // Convert Q15 gate to float: gate / 32768.0
-            let gate_float = (gate_q15 as f32) / 32768.0;
+            // Convert Q15 gate to float: gate / 32767.0 (router invariant)
+            let gate_float = Self::gate_q15_to_f32(gate_q15);
 
             // Apply adapter weights from cache if available
             if let Some(adapter_weights) = self.adapter_cache.get(&adapter_idx) {
@@ -1606,17 +1728,29 @@ impl FusedKernels for CoreMLBackend {
 
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
         let model_hash_snapshot = self.model_hash;
-        // Check for stub mode first - this works on all platforms
-        if self.is_stub_mode() {
-            let result = self.run_step_stub(ring, io);
-            if cfg!(debug_assertions) {
-                debug_assert_eq!(
-                    model_hash_snapshot,
-                    self.model_hash,
-                    "CoreML base model hash changed in stub path; base parameters must stay immutable"
-                );
+
+        #[cfg(any(test, debug_assertions, feature = "coreml-stub"))]
+        {
+            // Check for stub mode first - this works on all platforms
+            if self.is_stub_mode() {
+                let result = self.run_step_stub(ring, io);
+                if cfg!(debug_assertions) {
+                    debug_assert_eq!(
+                        model_hash_snapshot,
+                        self.model_hash,
+                        "CoreML base model hash changed in stub path; base parameters must stay immutable"
+                    );
+                }
+                return result;
             }
-            return result;
+        }
+
+        #[cfg(not(any(test, debug_assertions, feature = "coreml-stub")))]
+        {
+            debug_assert!(
+                !self.is_stub_mode(),
+                "CoreML stub mode is disabled in release builds"
+            );
         }
 
         #[cfg(target_os = "macos")]
@@ -1830,7 +1964,7 @@ pub fn is_neural_engine_available() -> bool {
 mod tests {
     use super::*;
     use adapteros_core::B3Hash;
-    use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+    use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
     use safetensors::{serialize, tensor::TensorView};
     use std::path::PathBuf;
 
@@ -1893,6 +2027,37 @@ mod tests {
     fn test_neural_engine_availability() {
         // Check is_neural_engine_available runs without panic
         let _ = is_neural_engine_available();
+    }
+
+    #[test]
+    fn q15_gate_conversion_matches_router_invariant() {
+        let gates = [0i16, 1, 16384, 32767, -16384];
+        for gate in gates {
+            let expected = gate as f32 / 32767.0;
+            let actual = CoreMLBackend::gate_q15_to_f32(gate);
+            assert!(
+                (actual - expected).abs() < 1e-6,
+                "gate {} expected {}, got {}",
+                gate,
+                expected,
+                actual
+            );
+        }
+    }
+
+    #[test]
+    fn stub_attestation_reports_nondeterministic_without_ane() -> Result<()> {
+        let backend = CoreMLBackend::new_stub(ComputeUnits::CpuAndNeuralEngine)?;
+        let report = backend.attest_determinism()?;
+        assert!(
+            !report.deterministic,
+            "stub backend should never claim determinism"
+        );
+        assert!(matches!(
+            report.rng_seed_method,
+            attestation::RngSeedingMethod::SystemEntropy
+        ));
+        Ok(())
     }
 
     #[test]

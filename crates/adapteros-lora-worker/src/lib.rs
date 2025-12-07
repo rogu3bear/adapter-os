@@ -30,10 +30,14 @@
 //!     top_p: None,
 //!     seed: None,
 //!     router_seed: None,
+//!     seed_mode: None,
+//!     request_seed: None,
+//!     backend_profile: None,
 //!     pinned_adapter_ids: None,
 //!     determinism_mode: "strict".to_string(),
 //!     strict_mode: false,
 //!     effective_adapter_ids: None,
+//!     placement: None,
 //!     routing_policy: None,
 //! };
 //!
@@ -42,9 +46,15 @@
 //!
 //! For full Worker usage with inference, see the integration tests.
 
-use crate::router_bridge::decision_to_router_ring;
+use crate::adapter_hotswap::adapter_id_to_u16;
+use crate::device_placement::{
+    DeviceKind, LaneDescriptor, PlacementDecision, PlacementEngine, TelemetryCollector,
+};
+use crate::router_bridge::decision_to_router_ring_with_active_ids;
 use crate::routing_policy_filter::filter_decision_by_policy;
-use adapteros_core::{paths::AdapterPaths, AosError, B3Hash, Result};
+use adapteros_api_types::{RouterDecisionChainEntry, RouterDecisionHash};
+use adapteros_config::{PlacementConfig, PlacementMode, PlacementWeights};
+use adapteros_core::{AosError, B3Hash, BackendProfile, RepoAdapterPaths, Result, SeedMode};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::{
@@ -55,6 +65,7 @@ use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
@@ -71,6 +82,7 @@ pub mod contact_discovery;
 pub mod conv_pipeline;
 pub mod deadlock;
 pub mod deterministic_rng;
+pub mod device_placement;
 pub mod directory_adapters;
 pub mod embeddings;
 pub mod ephemeral_adapters;
@@ -176,16 +188,41 @@ pub trait StrictnessControl {
     fn set_strict_mode(&mut self, strict: bool);
     /// Reset fallback tracking for a new request
     fn reset_fallback(&mut self);
+    /// Select active lane (primary/fallback) for next step
+    fn set_active_lane(&mut self, lane: BackendLane);
+    /// Report currently active lane
+    fn active_lane(&self) -> BackendLane;
+    /// Names for the available lanes (primary, fallback)
+    fn lane_names(&self) -> (String, Option<String>);
     /// Whether fallback occurred on the last operation
     fn fallback_triggered(&self) -> bool;
     /// Backend name used on the last operation (if known)
     fn last_backend_used(&self) -> Option<String>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendLane {
+    Primary,
+    Fallback,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveBackend {
+    Primary,
+    Fallback,
+}
+
 // Default strictness control for plain backends (no fallback)
 impl StrictnessControl for Box<dyn FusedKernels + Send + Sync> {
     fn set_strict_mode(&mut self, _strict: bool) {}
     fn reset_fallback(&mut self) {}
+    fn set_active_lane(&mut self, _lane: BackendLane) {}
+    fn active_lane(&self) -> BackendLane {
+        BackendLane::Primary
+    }
+    fn lane_names(&self) -> (String, Option<String>) {
+        (self.device_name().to_string(), None)
+    }
     fn fallback_triggered(&self) -> bool {
         false
     }
@@ -214,7 +251,9 @@ impl DirectKernels {
 pub struct CoordinatedKernels {
     primary: Box<dyn FusedKernels + Send + Sync>,
     fallback: Option<Box<dyn FusedKernels + Send + Sync>>,
+    active_backend: ActiveBackend,
     strict_mode: bool,
+    primary_degraded: bool,
     fallback_triggered: bool,
     last_backend: String,
 }
@@ -228,7 +267,9 @@ impl CoordinatedKernels {
         Self {
             primary,
             fallback,
+            active_backend: ActiveBackend::Primary,
             strict_mode: false,
+            primary_degraded: false,
             fallback_triggered: false,
             last_backend,
         }
@@ -255,8 +296,70 @@ impl StrictnessControl for KernelWrapper {
             }
             KernelWrapper::Coordinated(k) => {
                 k.fallback_triggered = false;
-                k.last_backend = k.primary.device_name().to_string();
+                k.active_backend = if k.strict_mode || k.fallback.is_none() || !k.primary_degraded {
+                    ActiveBackend::Primary
+                } else {
+                    ActiveBackend::Fallback
+                };
+                k.fallback_triggered = matches!(k.active_backend, ActiveBackend::Fallback);
+                k.last_backend = match k.active_backend {
+                    ActiveBackend::Primary => k.primary.device_name().to_string(),
+                    ActiveBackend::Fallback => k
+                        .fallback
+                        .as_ref()
+                        .map(|f| f.device_name().to_string())
+                        .unwrap_or_else(|| k.primary.device_name().to_string()),
+                };
             }
+        }
+    }
+
+    fn set_active_lane(&mut self, lane: BackendLane) {
+        match self {
+            KernelWrapper::Direct(k) => {
+                k.last_backend = k.inner.device_name().to_string();
+            }
+            KernelWrapper::Coordinated(k) => {
+                match lane {
+                    BackendLane::Primary => k.active_backend = ActiveBackend::Primary,
+                    BackendLane::Fallback => {
+                        if k.fallback.is_some() {
+                            k.active_backend = ActiveBackend::Fallback;
+                        } else {
+                            k.active_backend = ActiveBackend::Primary;
+                        }
+                    }
+                }
+                k.fallback_triggered = matches!(k.active_backend, ActiveBackend::Fallback);
+                k.last_backend = match k.active_backend {
+                    ActiveBackend::Primary => k.primary.device_name().to_string(),
+                    ActiveBackend::Fallback => k
+                        .fallback
+                        .as_ref()
+                        .map(|f| f.device_name().to_string())
+                        .unwrap_or_else(|| k.primary.device_name().to_string()),
+                };
+            }
+        }
+    }
+
+    fn active_lane(&self) -> BackendLane {
+        match self {
+            KernelWrapper::Direct(_) => BackendLane::Primary,
+            KernelWrapper::Coordinated(k) => match k.active_backend {
+                ActiveBackend::Primary => BackendLane::Primary,
+                ActiveBackend::Fallback => BackendLane::Fallback,
+            },
+        }
+    }
+
+    fn lane_names(&self) -> (String, Option<String>) {
+        match self {
+            KernelWrapper::Direct(k) => (k.inner.device_name().to_string(), None),
+            KernelWrapper::Coordinated(k) => (
+                k.primary.device_name().to_string(),
+                k.fallback.as_ref().map(|f| f.device_name().to_string()),
+            ),
         }
     }
 
@@ -293,34 +396,38 @@ impl FusedKernels for KernelWrapper {
         match self {
             KernelWrapper::Direct(k) => k.inner.run_step(ring, io),
             KernelWrapper::Coordinated(k) => {
-                k.fallback_triggered = false;
-                match k.primary.run_step(ring, io) {
-                    Ok(_) => {
-                        k.last_backend = k.primary.device_name().to_string();
-                        Ok(())
-                    }
-                    Err(e) => {
-                        if k.strict_mode {
-                            return Err(e);
+                k.fallback_triggered = matches!(k.active_backend, ActiveBackend::Fallback);
+                match k.active_backend {
+                    ActiveBackend::Primary => match k.primary.run_step(ring, io) {
+                        Ok(_) => {
+                            k.primary_degraded = false;
+                            k.last_backend = k.primary.device_name().to_string();
+                            k.fallback_triggered = false;
+                            Ok(())
                         }
-                        if let Some(fallback) = k.fallback.as_mut() {
-                            tracing::warn!(error = %e, "Primary backend failed, attempting fallback");
-                            match fallback.run_step(ring, io) {
-                                Ok(_) => {
-                                    k.fallback_triggered = true;
-                                    k.last_backend = fallback.device_name().to_string();
-                                    Ok(())
-                                }
-                                Err(fallback_err) => {
-                                    tracing::error!(error = %fallback_err, "Fallback backend failed");
-                                    Err(AosError::Kernel(format!(
-                                        "Primary and fallback failed: primary={}, fallback={}",
-                                        e, fallback_err
-                                    )))
-                                }
-                            }
-                        } else {
+                        Err(e) => {
+                            k.primary_degraded = true;
+                            k.last_backend = k.primary.device_name().to_string();
                             Err(e)
+                        }
+                    },
+                    ActiveBackend::Fallback => {
+                        let Some(fallback) = k.fallback.as_mut() else {
+                            return Err(AosError::Kernel(
+                                "Fallback backend not configured".to_string(),
+                            ));
+                        };
+
+                        match fallback.run_step(ring, io) {
+                            Ok(_) => {
+                                k.last_backend = fallback.device_name().to_string();
+                                k.fallback_triggered = true;
+                                Ok(())
+                            }
+                            Err(e) => {
+                                k.last_backend = fallback.device_name().to_string();
+                                Err(e)
+                            }
                         }
                     }
                 }
@@ -377,6 +484,7 @@ impl FusedKernels for KernelWrapper {
 /// When router_seed is provided, it overrides the manifest-derived seed
 /// for deterministic adapter selection during replay.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InferenceRequest {
     pub cpid: String,
     pub prompt: String,
@@ -410,6 +518,15 @@ pub struct InferenceRequest {
     /// exact routing decisions from a previous inference.
     #[serde(default)]
     pub router_seed: Option<String>,
+    /// Seed mode provided by control plane
+    #[serde(default)]
+    pub seed_mode: Option<SeedMode>,
+    /// Request-scoped seed provided by control plane (32 bytes)
+    #[serde(default)]
+    pub request_seed: Option<[u8; 32]>,
+    /// Backend profile requested by control plane
+    #[serde(default)]
+    pub backend_profile: Option<BackendProfile>,
     /// Pinned adapter IDs that receive prior boost in routing (CHAT-PIN-02)
     ///
     /// These adapters receive PINNED_BOOST (0.3) added to their prior scores
@@ -426,6 +543,9 @@ pub struct InferenceRequest {
     /// Effective adapter IDs (control-plane gate)
     #[serde(default)]
     pub effective_adapter_ids: Option<Vec<String>>,
+    /// Placement override for replay
+    #[serde(default)]
+    pub placement: Option<PlacementReplay>,
 
     /// Optional routing policy resolved by control plane.
     /// Used to enforce allow/deny lists and max-adapter limits per token.
@@ -457,6 +577,17 @@ pub struct PatchProposalRequest {
     pub target_files: Vec<String>,
     /// Issue description or prompt
     pub description: String,
+}
+
+/// Placement decision trace entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlacementTraceEntry {
+    pub step: usize,
+    pub lane: String,
+    pub score: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_c: Option<f32>,
+    pub utilization: f32,
 }
 
 /// Inference response
@@ -498,6 +629,9 @@ pub struct InferenceResponse {
     /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_routing_fallback: Option<String>,
+    /// Placement decisions per token (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement_trace: Option<Vec<PlacementTraceEntry>>,
 }
 
 /// Patch proposal response with patches and citations
@@ -545,6 +679,10 @@ pub struct ResponseTrace {
     /// Detailed router decisions per step (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub router_decisions: Option<Vec<adapteros_api_types::inference::RouterDecision>>,
+    /// Cryptographically chained router decisions (per-token)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub router_decision_chain:
+        Option<Vec<adapteros_api_types::inference::RouterDecisionChainEntry>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -585,10 +723,71 @@ pub struct CancelTrainingResponse {
     pub stopped_at_epoch: Option<u32>,
 }
 
+struct PlacementState {
+    engine: PlacementEngine,
+    telemetry: TelemetryCollector,
+    lanes: Vec<LaneDescriptor>,
+}
+
+impl PlacementState {
+    fn new(
+        engine: PlacementEngine,
+        telemetry: TelemetryCollector,
+        lanes: Vec<LaneDescriptor>,
+    ) -> Self {
+        Self {
+            engine,
+            telemetry,
+            lanes,
+        }
+    }
+
+    fn decide(&mut self) -> Option<PlacementDecision> {
+        let snapshot = self.telemetry.snapshot();
+        self.engine.choose_lane(&self.lanes, &snapshot)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlacementReplay {
+    pub mode: String,
+    pub weights: PlacementWeights,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace: Vec<PlacementTraceEntry>,
+}
+
+fn device_kind_from_name(name: &str) -> DeviceKind {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("coreml") || lower.contains("ane") || lower.contains("neural") {
+        DeviceKind::Ane
+    } else if lower.contains("metal") || lower.contains("gpu") {
+        DeviceKind::Gpu
+    } else {
+        DeviceKind::Cpu
+    }
+}
+
+fn resolve_worker_adapter_paths() -> RepoAdapterPaths {
+    RepoAdapterPaths::from_env_and_config(None)
+}
+
+#[cfg(test)]
+mod adapter_path_tests {
+    use super::resolve_worker_adapter_paths;
+    use std::path::PathBuf;
+
+    #[test]
+    fn worker_paths_respect_env_override() {
+        std::env::set_var("AOS_ADAPTERS_ROOT", "/tmp/aos-worker-repo");
+        let paths = resolve_worker_adapter_paths();
+        assert_eq!(paths.repo_root, PathBuf::from("/tmp/aos-worker-repo"));
+        std::env::remove_var("AOS_ADAPTERS_ROOT");
+    }
+}
+
 use crate::embeddings::EmbeddingModel;
 use crate::evidence::EvidenceRetriever;
 use crate::tokenizer::QwenTokenizer;
-use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
@@ -618,6 +817,7 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
     _deadlock_detector: DeadlockDetector,
     health_monitor: HealthMonitor,
     telemetry: Option<TelemetryWriter>,
+    placement_template: Option<(PlacementConfig, Vec<LaneDescriptor>)>,
     // Lifecycle management
     profiler: adapteros_profiler::AdapterProfiler,
     lifecycle: Arc<Mutex<adapteros_lora_lifecycle::LifecycleManager>>,
@@ -634,6 +834,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
     /// Create a new worker with comprehensive safety mechanisms
     pub async fn new(
         manifest: ManifestV3,
+        tenant_id: &str,
         kernels: K,
         rag: Option<RagSystem>,
         tokenizer_path: &str,
@@ -723,7 +924,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // Initialize lifecycle manager
         // Use centralized adapter path resolution (ENV > Default)
         // Note: Worker doesn't have access to server config, so ENV variables are the standard way to configure paths
-        let adapters_path = AdapterPaths::default().root().to_path_buf();
+        let adapter_paths = resolve_worker_adapter_paths();
+        let adapters_path = adapter_paths.repo_root.join(tenant_id);
+        let _ = std::fs::create_dir_all(&adapters_path);
 
         // Build adapter hashes map from manifest
         let adapter_hashes: std::collections::HashMap<String, adapteros_core::B3Hash> = manifest
@@ -741,12 +944,38 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             manifest.router.k_sparse,
         )));
 
+        // Placement configuration (CPU/GPU/ANE lane steering)
+        let placement_template = if cfg!(feature = "telemetry-sysinfo") {
+            let placement_cfg = PlacementConfig::from_env();
+            let lane_names = kernels.lane_names();
+            let mut lanes = vec![LaneDescriptor {
+                lane: BackendLane::Primary,
+                kind: device_kind_from_name(&lane_names.0),
+                name: lane_names.0.clone(),
+            }];
+            if let Some(fallback_name) = lane_names.1 {
+                lanes.push(LaneDescriptor {
+                    lane: BackendLane::Fallback,
+                    kind: device_kind_from_name(&fallback_name),
+                    name: fallback_name,
+                });
+            }
+            if placement_cfg.mode != PlacementMode::Off && lanes.len() > 1 {
+                Some((placement_cfg.clone(), lanes))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // Create shared kernels Arc for both Worker and HotSwapManager
         let kernels_arc = Arc::new(tokio::sync::Mutex::new(kernels));
 
         let hotswap = Arc::new(HotSwapManager::new_with_kernels(
             kernels_arc.clone(),
-            adapters_path.clone(),
+            adapter_paths.repo_root.clone(),
+            tenant_id.to_string(),
             Some(Arc::new(telemetry.clone())),
         ));
 
@@ -777,6 +1006,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             _deadlock_detector: deadlock_detector,
             health_monitor,
             telemetry: Some(telemetry),
+            placement_template,
             profiler,
             lifecycle,
             hotswap,
@@ -1013,6 +1243,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // Validate effective adapter gate (if provided)
         let allowed_indices = self.validate_effective_adapter_gate(&request)?;
 
+        if matches!(request.seed_mode, Some(SeedMode::Strict)) && request.request_seed.is_none() {
+            return Err(AosError::DeterminismViolation(
+                "Strict seed_mode requires request_seed".to_string(),
+            ));
+        }
+
         // Compute unavailable pinned adapters (CHAT-PIN-02)
         // These are pinned adapter IDs not present in the worker's loaded adapters
         let unavailable_pinned_adapters = request
@@ -1104,6 +1340,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             },
                             token_count: 0,
                             router_decisions: None,
+                            router_decision_chain: None,
                         },
                         refusal: Some(RefusalResponse::insufficient_evidence(
                             self.manifest.policies.evidence.min_spans,
@@ -1117,6 +1354,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         determinism_mode_applied: Some(request.determinism_mode.clone()),
                         unavailable_pinned_adapters: unavailable_pinned_adapters.clone(),
                         pinned_routing_fallback: pinned_routing_fallback.clone(),
+                        placement_trace: None,
                     });
                 }
             }
@@ -1124,6 +1362,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Apply request-provided sampling parameters (PRD-02: replay support)
         // This enables deterministic replay when the same parameters are provided
+        if let Some(seed_bytes) = request.request_seed {
+            self.generator.set_seed_bytes(seed_bytes);
+        }
         self.generator.apply_request_params(
             request.temperature,
             request.top_k,
@@ -1160,6 +1401,52 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             table.inc_ref(name).await;
         }
 
+        // Build deterministic active adapter view for routing (no per-token attach/detach)
+        let stack_hash = table.compute_stack_hash();
+        let mut active_entries: Vec<(usize, _)> = self
+            .manifest
+            .adapters
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, adapter)| {
+                if stack_handle.active.contains_key(&adapter.id) {
+                    Some((idx, adapter))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if active_entries.is_empty() {
+            return Err(AosError::Worker(
+                "No active adapters available for routing".to_string(),
+            ));
+        }
+
+        // Keep manifest order for deterministic index mapping
+        active_entries.sort_by_key(|(idx, _)| *idx);
+
+        let active_ids: Vec<String> = active_entries
+            .iter()
+            .map(|(_, adapter)| adapter.id.clone())
+            .collect();
+        let active_hashed: Vec<u16> = active_ids.iter().map(|id| adapter_id_to_u16(id)).collect();
+        let active_manifest_indices: Vec<usize> =
+            active_entries.iter().map(|(idx, _)| *idx).collect();
+
+        // Map manifest index -> active position
+        let mut manifest_to_active: HashMap<usize, usize> = HashMap::new();
+        for (pos, (idx, _)) in active_entries.iter().enumerate() {
+            manifest_to_active.insert(*idx, pos);
+        }
+
+        // Inform router of the active stack for deterministic filtering/telemetry
+        self.router.set_active_stack(
+            request.stack_id.clone(),
+            Some(active_ids.clone()),
+            Some(stack_hash),
+        );
+
         // Configure router determinism mode from request (PRD-06: determinism configuration)
         // Parse the request's determinism_mode and apply corresponding router configuration
         let router_config = match request.determinism_mode.as_str() {
@@ -1182,8 +1469,84 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             kernels.reset_fallback();
         }
 
+        // Build priors once from active adapter set
+        let allowed_active_indices: Option<HashSet<usize>> =
+            allowed_indices.as_ref().map(|allowed| {
+                allowed
+                    .iter()
+                    .filter_map(|idx| manifest_to_active.get(idx).copied())
+                    .collect::<HashSet<_>>()
+            });
+
+        if let Some(ref allowed) = allowed_active_indices {
+            if allowed.is_empty() {
+                return Err(AosError::Worker(
+                    "Effective adapter set has no overlap with active stack".to_string(),
+                ));
+            }
+        }
+
+        // Build placement state per-request (env + optional override)
+        let mut placement_state = if let Some((base_cfg, lanes)) = &self.placement_template {
+            let mut effective_cfg = base_cfg.clone();
+            if let Some(ref placement_override) = request.placement {
+                effective_cfg.mode = placement_override
+                    .mode
+                    .parse()
+                    .unwrap_or(adapteros_config::PlacementMode::Balanced);
+                effective_cfg.weights = placement_override.weights;
+            }
+            if effective_cfg.mode == adapteros_config::PlacementMode::Off {
+                None
+            } else {
+                Some(PlacementState::new(
+                    PlacementEngine::new(effective_cfg.clone()),
+                    TelemetryCollector::new(effective_cfg.sample_ms),
+                    lanes.clone(),
+                ))
+            }
+        } else {
+            None
+        };
+
+        let adapter_info: Vec<AdapterInfo> = active_entries
+            .iter()
+            .map(|(_, adapter)| AdapterInfo {
+                id: adapter.id.clone(),
+                framework: None,    // Manifest adapters don't have framework info
+                languages: vec![0], // Default language
+                tier: format!("{:?}", adapter.tier).to_lowercase(),
+            })
+            .collect();
+
+        let mut priors = vec![1.0f32; adapter_info.len()];
+        if let Some(ref allowed) = allowed_active_indices {
+            for (idx, prior) in priors.iter_mut().enumerate() {
+                if !allowed.contains(&idx) {
+                    *prior = 0.0;
+                }
+            }
+        }
+
+        let mut id_to_active: HashMap<&str, usize> = HashMap::new();
+        for (pos, id) in active_ids.iter().enumerate() {
+            id_to_active.insert(id.as_str(), pos);
+        }
+        if let Some(ref pinned_ids) = request.pinned_adapter_ids {
+            for pinned in pinned_ids {
+                if let Some(pos) = id_to_active.get(pinned.as_str()) {
+                    if let Some(prior) = priors.get_mut(*pos) {
+                        *prior += PINNED_BOOST;
+                    }
+                }
+            }
+        }
+
         let mut generated_tokens = Vec::new();
         let mut router_decisions_collected = Vec::new();
+        let mut router_decision_chain = Vec::new();
+        let mut previous_chain_hash: Option<String> = None;
+        let mut placement_trace: Vec<PlacementTraceEntry> = Vec::new();
 
         // Autoregressive generation loop
         for step in 0..request.max_tokens {
@@ -1213,40 +1576,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 CodeFeatures::from_context(&context_text).to_vector()
             };
             // Build priors with PINNED_BOOST for pinned adapters (CHAT-PIN-02)
-            let mut priors = if let Some(ref allowed) = allowed_indices {
-                let mut p = vec![0.0f32; self.manifest.adapters.len()];
-                for idx in allowed {
-                    if let Some(slot) = p.get_mut(*idx) {
-                        *slot = 1.0;
-                    }
-                }
-                p
-            } else {
-                vec![1.0f32; self.manifest.adapters.len()]
-            };
-
-            if let Some(ref pinned_ids) = request.pinned_adapter_ids {
-                for (idx, adapter) in self.manifest.adapters.iter().enumerate() {
-                    if pinned_ids.contains(&adapter.id) {
-                        if let Some(slot) = priors.get_mut(idx) {
-                            *slot += PINNED_BOOST;
-                        }
-                    }
-                }
-            }
-            // Create dummy adapter info for route_with_adapter_info
-            let adapter_info: Vec<AdapterInfo> = self
-                .manifest
-                .adapters
-                .iter()
-                .enumerate()
-                .map(|(_i, adapter)| AdapterInfo {
-                    id: adapter.id.clone(),
-                    framework: None,    // Manifest adapters don't have framework info
-                    languages: vec![0], // Default language
-                    tier: format!("{:?}", adapter.tier).to_lowercase(),
-                })
-                .collect();
             let decision = self
                 .router
                 .route_with_adapter_info(&features, &priors, &adapter_info);
@@ -1278,6 +1607,72 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 stack_hash: self.router.stack_hash(),
             });
 
+            // Build chained router decision entry (per-token)
+            let adapter_ids_for_decision: Vec<String> = decision
+                .indices
+                .iter()
+                .filter_map(|idx| {
+                    self.manifest
+                        .adapters
+                        .get(*idx as usize)
+                        .map(|a| a.id.clone())
+                })
+                .collect();
+
+            let decision_hash_payload =
+                decision.decision_hash.as_ref().map(|h| RouterDecisionHash {
+                    input_hash: h.input_hash.clone(),
+                    output_hash: h.output_hash.clone(),
+                    combined_hash: h.combined_hash.clone(),
+                    tau: h.tau,
+                    eps: h.eps,
+                    k: h.k,
+                });
+
+            let indices_joined = decision
+                .indices
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            let gates_joined = decision
+                .gates_q15
+                .iter()
+                .map(|g| g.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+
+            let entry_material = format!(
+                "{}|{}|{}|{}|{}|{}",
+                step,
+                input_token_id
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(String::new),
+                indices_joined,
+                gates_joined,
+                decision_hash_payload
+                    .as_ref()
+                    .map(|h| h.combined_hash.as_str())
+                    .unwrap_or(""),
+                previous_chain_hash.as_deref().unwrap_or("")
+            );
+
+            let entry_hash = B3Hash::hash(entry_material.as_bytes()).to_hex();
+
+            router_decision_chain.push(RouterDecisionChainEntry {
+                step,
+                input_token_id,
+                adapter_indices: decision.indices.iter().copied().collect(),
+                adapter_ids: adapter_ids_for_decision,
+                gates_q15: decision.gates_q15.iter().copied().collect(),
+                entropy: decision.entropy,
+                decision_hash: decision_hash_payload,
+                previous_hash: previous_chain_hash.clone(),
+                entry_hash: entry_hash.clone(),
+            });
+
+            previous_chain_hash = Some(entry_hash);
+
             // Record routing decision in profiler
             self.profiler.record_routing_decision(&decision.indices);
             {
@@ -1285,14 +1680,18 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 lifecycle.record_router_decision(&decision.indices).await?;
 
                 // Enforce effective_adapter_ids gate: disallow adapters outside allowed set
-                if let Some(ref allowed) = allowed_indices {
+                if let Some(ref allowed) = allowed_active_indices {
                     for &adapter_idx in &decision.indices {
                         if !allowed.contains(&(adapter_idx as usize)) {
+                            let manifest_idx = active_manifest_indices
+                                .get(adapter_idx as usize)
+                                .copied()
+                                .unwrap_or_default();
                             return Err(AosError::AdapterNotInEffectiveSet {
                                 adapter_id: self
                                     .manifest
                                     .adapters
-                                    .get(adapter_idx as usize)
+                                    .get(manifest_idx)
                                     .map(|a| a.id.clone())
                                     .unwrap_or_else(|| format!("adapter_{}", adapter_idx)),
                                 effective_set: request
@@ -1324,9 +1723,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             // Convert Decision to RouterRing
-            let mut router_ring =
-                decision_to_router_ring(&decision, self.manifest.adapters.len() as u16)?;
-            router_ring.position = step;
+            let router_ring =
+                decision_to_router_ring_with_active_ids(&decision, &active_hashed, step)?;
 
             // Execute kernels through Metal and measure latency per adapter
             let mut io_buffers = IoBuffers {
@@ -1334,6 +1732,36 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 output_logits: vec![0.0; self.manifest.base.vocab_size as usize],
                 position: step,
             };
+
+            if let Some(ref mut placement) = placement_state {
+                if !request.strict_mode {
+                    if let Some(decision) = placement.decide() {
+                        {
+                            let mut kernels = self.kernels.lock().await;
+                            kernels.set_active_lane(decision.lane);
+                        }
+                        placement_trace.push(PlacementTraceEntry {
+                            step,
+                            lane: decision.lane_name.clone(),
+                            score: decision.score,
+                            temperature_c: decision.temperature_c,
+                            utilization: decision.utilization,
+                        });
+                        if let Some(t) = &self.telemetry {
+                            let _ = t.log(
+                                "placement.step",
+                                serde_json::json!({
+                                    "step": step,
+                                    "lane": decision.lane_name,
+                                    "score": decision.score,
+                                    "utilization": decision.utilization,
+                                    "temperature_c": decision.temperature_c,
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
 
             let kernel_start = Instant::now();
             {
@@ -1392,6 +1820,22 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             )
         };
 
+        if let Some(profile) = request.backend_profile {
+            let expected = profile.as_str();
+            if backend_used.to_lowercase() != expected {
+                return Err(AosError::DeterminismViolation(format!(
+                    "Backend profile mismatch: requested {}, got {}",
+                    expected, backend_used
+                )));
+            }
+        }
+
+        let router_decision_chain_opt = if router_decision_chain.is_empty() {
+            None
+        } else {
+            Some(router_decision_chain)
+        };
+
         Ok(InferenceResponse {
             text: Some(generated_text),
             status: "ok".to_string(),
@@ -1400,6 +1844,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 &evidence,
                 generated_tokens.len(),
                 Some(router_decisions_collected),
+                router_decision_chain_opt,
             ),
             refusal: None,
             patch_proposal: None,
@@ -1410,6 +1855,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             determinism_mode_applied: Some(request.determinism_mode.clone()),
             unavailable_pinned_adapters,
             pinned_routing_fallback,
+            placement_trace: if placement_trace.is_empty() {
+                None
+            } else {
+                Some(placement_trace)
+            },
         })
     }
 
@@ -1724,7 +2174,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         Ok(InferenceResponse {
             text,
             status,
-            trace: self.build_trace(&request.cpid, &evidence_refs, 0, None),
+            trace: self.build_trace(&request.cpid, &evidence_refs, 0, None, None),
             refusal: if !validation_result.is_valid {
                 Some(RefusalResponse {
                     status: "failed".to_string(),
@@ -1748,6 +2198,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             determinism_mode_applied: Some(request.determinism_mode.clone()),
             unavailable_pinned_adapters,
             pinned_routing_fallback,
+            placement_trace: None,
         })
     }
 
@@ -1852,6 +2303,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         evidence: &[EvidenceRef],
         token_count: usize,
         router_decisions: Option<Vec<adapteros_api_types::inference::RouterDecision>>,
+        router_decision_chain: Option<
+            Vec<adapteros_api_types::inference::RouterDecisionChainEntry>,
+        >,
     ) -> ResponseTrace {
         ResponseTrace {
             cpid: cpid.to_string(),
@@ -1869,6 +2323,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             },
             token_count,
             router_decisions,
+            router_decision_chain,
         }
     }
 

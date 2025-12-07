@@ -7,6 +7,7 @@ license.workspace = true
 
 [features]
 default = []
+telemetry-sysinfo = ["dep:sysinfo"]
 
 # Backend feature flags
 # These must be explicitly enabled to activate conditional compilation paths
@@ -31,7 +32,7 @@ loom = []
 
 # Residency testing features
 ci-residency = []                    # Enable standard CI residency tests
-hardware-residency = ["dep:sysinfo"] # Enable hardware residency tests (Mac Studio)
+hardware-residency = []             # Enable hardware residency tests (Mac Studio)
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
@@ -86,7 +87,7 @@ blake3 = { workspace = true }
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 chrono = "0.4"
 smallvec = "1.13"
-sysinfo = { version = "0.30", optional = true }  # For residency harness
+sysinfo = { version = "0.30", optional = true }  # Telemetry + residency harness
 reqwest = { version = "0.12", features = ["json"] }
 ureq = "3.0"  # PRD-09: Blocking HTTP client for panic hook
 
@@ -108,7 +109,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = { workspace = true }
 proptest = "1.0"
 serial_test = "3.0"
-sysinfo = "0.30"
+sysinfo = { version = "0.30" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi" }
 
 [[bench]]

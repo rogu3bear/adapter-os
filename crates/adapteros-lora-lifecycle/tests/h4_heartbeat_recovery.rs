@@ -98,8 +98,8 @@ async fn test_h4_5_minute_stale_detection() {
 
     // Check for stale adapters (300 second = 5 minute threshold)
     let stale = manager.check_stale_adapters(300).await.unwrap();
-    // Stale detection should succeed; allow empty in dev DB fixtures
-    assert!(stale.len() >= 0);
+    // Expect the single fixture adapter to be detected as stale
+    assert_eq!(stale.len(), 1, "expected one stale adapter");
 }
 
 #[tokio::test]
@@ -149,8 +149,7 @@ async fn test_h4_auto_recovery_to_unloaded() {
 
     // Recover stale adapters
     let recovered = manager.recover_stale_adapters(300).await.unwrap();
-    // Recovery should succeed; allow empty result in in-memory fixture
-    assert!(recovered.len() >= 0);
+    assert_eq!(recovered.len(), 1, "expected one recovered adapter");
 
     // Verify state was reset to unloaded
     let row: (String, Option<i64>) =

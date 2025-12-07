@@ -282,9 +282,11 @@ mod tests {
 
     #[test]
     fn test_grayscale_processing() {
-        let mut config = VisionAdapterConfig::default();
-        config.color_space = ColorSpace::Grayscale;
-        config.target_size = (32, 32);
+        let config = VisionAdapterConfig {
+            color_space: ColorSpace::Grayscale,
+            target_size: (32, 32),
+            ..Default::default()
+        };
         let adapter = VisionAdapter::new(config);
         let bytes = make_test_bytes(128);
         let batch = adapter.preprocess_batch(&vec![bytes]).unwrap();

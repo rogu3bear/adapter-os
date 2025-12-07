@@ -460,13 +460,9 @@ fn test_strict_mode_backend_failure_no_fallback() {
     );
 }
 
-/// Non-strict mode + backend failure = fallback works
-///
-/// This is the counterpart to the strict mode test. When `strict_mode=false`,
-/// the worker SHOULD attempt fallback when primary fails. This is the default
-/// behavior for `BestEffort` or `Relaxed` modes with `allow_fallback=true`.
+/// Non-strict mode does NOT switch mid-run; primary failure ends the request
 #[test]
-fn test_non_strict_mode_allows_fallback() {
+fn test_non_strict_mode_does_not_switch_mid_run() {
     let primary = Box::new(FailingKernel::new("Primary backend failure"))
         as Box<dyn FusedKernels + Send + Sync>;
     let fallback = Box::new(MockKernels::new()) as Box<dyn FusedKernels + Send + Sync>;
@@ -474,7 +470,6 @@ fn test_non_strict_mode_allows_fallback() {
     let coordinated = CoordinatedKernels::new(primary, Some(fallback));
     let mut wrapper = KernelWrapper::Coordinated(coordinated);
 
-    // Non-strict mode allows fallback
     wrapper.set_strict_mode(false);
     wrapper.reset_fallback();
 
@@ -484,20 +479,55 @@ fn test_non_strict_mode_allows_fallback() {
 
     let result = wrapper.run_step(&ring, &mut io);
 
-    // Verify: success via fallback, fallback_triggered=true
     assert!(
-        result.is_ok(),
-        "Non-strict mode should allow fallback: {:?}",
-        result
+        result.is_err(),
+        "Primary failure should end the request when backend is pinned"
+    );
+    assert!(
+        !wrapper.fallback_triggered(),
+        "Fallback is not used mid-run in pinned mode"
+    );
+}
+
+/// After a primary failure, the next request pins to fallback (non-strict)
+#[test]
+fn test_next_request_uses_fallback_after_primary_failure() {
+    let primary = Box::new(FailingKernel::new("Primary backend failure"))
+        as Box<dyn FusedKernels + Send + Sync>;
+    let fallback = Box::new(MockKernels::new()) as Box<dyn FusedKernels + Send + Sync>;
+
+    let coordinated = CoordinatedKernels::new(primary, Some(fallback));
+    let mut wrapper = KernelWrapper::Coordinated(coordinated);
+
+    wrapper.set_strict_mode(false);
+    wrapper.reset_fallback();
+
+    let mut io = IoBuffers::new(1024);
+    io.input_ids.push(1);
+    let ring = RouterRing::new(1);
+
+    // First request fails on primary
+    let result = wrapper.run_step(&ring, &mut io);
+    assert!(result.is_err(), "First request should fail on primary");
+
+    // Next request should pin to fallback because primary is degraded
+    wrapper.reset_fallback();
+    let mut io_second = IoBuffers::new(1024);
+    io_second.input_ids.push(1);
+
+    let second = wrapper.run_step(&ring, &mut io_second);
+    assert!(
+        second.is_ok(),
+        "Fallback should be used on subsequent request"
     );
     assert!(
         wrapper.fallback_triggered(),
-        "Fallback should be triggered when primary fails"
+        "Fallback should be marked when pinned before the request"
     );
     assert_eq!(
         wrapper.last_backend_used(),
         Some("Mock Kernels (Test)".to_string()),
-        "Should have used fallback backend"
+        "Fallback backend should be used once pinned"
     );
 }
 
@@ -624,8 +654,9 @@ fn test_direct_mode_failure_propagates() {
 #[test]
 fn test_strict_mode_semantics_documented() {
     // Document the strict_mode behavior:
-    // - When strict_mode=true, BackendCoordinator MUST NOT fallback on failure
-    // - When strict_mode=false, BackendCoordinator MAY fallback to secondary backend
+    // - When strict_mode=true, worker pins to primary only (no fallback)
+    // - When strict_mode=false, worker may pin to fallback before a request
+    //   (e.g., after primary is degraded) but does not swap mid-run
     //
     // strict_mode is set to true when:
     // 1. determinism_mode == "strict" (DeterminismMode::Strict)

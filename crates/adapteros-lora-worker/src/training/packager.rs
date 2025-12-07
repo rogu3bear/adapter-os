@@ -5,10 +5,12 @@
 use super::quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
 use super::trainer::TrainingConfig;
 use adapteros_aos::AosWriter;
-use adapteros_core::{paths::AdapterPaths, AosError, Result};
+use adapteros_core::{AosError, RepoAdapterPaths, Result};
+use adapteros_crypto::Keypair;
 use safetensors::tensor::TensorView;
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::info;
 
@@ -17,7 +19,7 @@ use tracing::info;
 /// weights remain outside the package boundary.
 #[derive(Debug)]
 pub struct AdapterPackager {
-    output_dir: PathBuf,
+    repo_root: PathBuf,
 }
 
 /// Packaged adapter with all metadata
@@ -55,44 +57,56 @@ impl AdapterPackager {
     /// Create a new packager with output directory
     pub fn new<P: AsRef<Path>>(output_dir: P) -> Self {
         Self {
-            output_dir: output_dir.as_ref().to_path_buf(),
+            repo_root: output_dir.as_ref().to_path_buf(),
         }
     }
 
     /// Create a packager using the default adapters directory
     ///
-    /// Uses the centralized path from `adapteros_core::paths::AdapterPaths`,
-    /// which resolves from environment variable `AOS_ADAPTERS_DIR` or
-    /// defaults to `var/adapters/`.
+    /// Uses the centralized path from `adapteros_core::RepoAdapterPaths`,
+    /// which resolves from environment variable `AOS_ADAPTERS_ROOT`
+    /// (with `AOS_ADAPTERS_DIR` compatibility) or defaults to `var/adapters/repo`.
     pub fn with_default_path() -> Self {
         Self {
-            output_dir: AdapterPaths::default().root().to_path_buf(),
+            repo_root: RepoAdapterPaths::from_env_and_config(None)
+                .repo_root
+                .to_path_buf(),
         }
     }
 
     /// Create a packager from config value, falling back to default
     pub fn from_config(adapters_root: Option<&str>) -> Self {
         Self {
-            output_dir: AdapterPaths::from_config(adapters_root)
-                .root()
+            repo_root: RepoAdapterPaths::from_env_and_config(adapters_root.map(|s| s.to_string()))
+                .repo_root
                 .to_path_buf(),
         }
+    }
+
+    fn adapter_dir(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+    ) -> std::result::Result<PathBuf, adapteros_core::ResolveError> {
+        adapteros_core::adapter_fs_path_with_root(&self.repo_root, tenant_id, adapter_id)
     }
 
     /// Package adapter with weights and manifest
     pub async fn package(
         &self,
+        tenant_id: &str,
         adapter_id: &str,
         weights: &QuantizedLoRAWeights,
         config: &TrainingConfig,
         base_model: &str,
     ) -> Result<PackagedAdapter> {
         self.package_with_metadata(
+            tenant_id,
             adapter_id,
             weights,
             config,
             base_model,
-            std::collections::HashMap::new(),
+            HashMap::new(),
         )
         .await
     }
@@ -100,16 +114,19 @@ impl AdapterPackager {
     /// Package adapter with weights, manifest, and metadata
     pub async fn package_with_metadata(
         &self,
+        tenant_id: &str,
         adapter_id: &str,
         weights: &QuantizedLoRAWeights,
         config: &TrainingConfig,
         base_model: &str,
-        metadata: std::collections::HashMap<String, String>,
+        metadata: HashMap<String, String>,
     ) -> Result<PackagedAdapter> {
         info!("Packaging adapter: {}", adapter_id);
 
-        // Create adapter directory
-        let adapter_dir = self.output_dir.join(adapter_id);
+        // Create adapter directory (canonical tenant-aware path)
+        let adapter_dir =
+            self.adapter_dir(tenant_id, adapter_id)
+                .map_err(|e| AosError::Validation(format!("Invalid adapter path: {}", e)))?;
         tokio::fs::create_dir_all(&adapter_dir).await.map_err(|e| {
             AosError::Training(format!("Failed to create adapter directory: {}", e))
         })?;
@@ -136,12 +153,19 @@ impl AdapterPackager {
             metadata,
         };
 
+        // Serialize manifest once for deterministic signing
+        let manifest_bytes = serde_json::to_vec_pretty(&manifest)
+            .map_err(|e| AosError::Training(format!("Failed to serialize manifest: {}", e)))?;
+
         // Save manifest
         let manifest_path = adapter_dir.join("manifest.json");
-        self.save_manifest(&manifest_path, &manifest).await?;
+        tokio::fs::write(&manifest_path, &manifest_bytes)
+            .await
+            .map_err(|e| AosError::Training(format!("Failed to write manifest: {}", e)))?;
 
-        // Sign the adapter (using mplora-crypto)
-        self.sign_adapter(&adapter_dir).await?;
+        // Deterministic manifest signing (seeded by manifest bytes + adapter_id)
+        self.sign_manifest(&adapter_dir, adapter_id, &manifest_bytes)
+            .await?;
 
         info!("Adapter packaged successfully: {}", adapter_id);
 
@@ -159,12 +183,41 @@ impl AdapterPackager {
     /// This is the preferred format for distribution and loading into Worker.
     pub async fn package_aos(
         &self,
+        tenant_id: &str,
         adapter_id: &str,
         weights: &QuantizedLoRAWeights,
         config: &TrainingConfig,
         base_model: &str,
     ) -> Result<PackagedAdapter> {
+        self.package_aos_with_metadata(
+            tenant_id,
+            adapter_id,
+            weights,
+            config,
+            base_model,
+            HashMap::new(),
+        )
+        .await
+    }
+
+    /// Package adapter as single .aos archive file with metadata
+    pub async fn package_aos_with_metadata(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        weights: &QuantizedLoRAWeights,
+        config: &TrainingConfig,
+        base_model: &str,
+        metadata: HashMap<String, String>,
+    ) -> Result<PackagedAdapter> {
         info!("Packaging adapter as .aos archive: {}", adapter_id);
+
+        let adapter_dir =
+            self.adapter_dir(tenant_id, adapter_id)
+                .map_err(|e| AosError::Validation(format!("Invalid adapter path: {}", e)))?;
+        tokio::fs::create_dir_all(&adapter_dir).await.map_err(|e| {
+            AosError::Training(format!("Failed to create adapter directory: {}", e))
+        })?;
 
         // Serialize weights to in-memory safetensors buffer (matches loader expectations)
         let weights_data = Self::build_safetensors_bytes(weights)?;
@@ -182,13 +235,16 @@ impl AdapterPackager {
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: hash_b3.clone(),
             per_layer_hashes: Some(per_layer_hashes),
-            metadata: std::collections::HashMap::new(),
+            metadata,
         };
 
         // Write .aos archive
-        let aos_path = self.output_dir.join(format!("{}.aos", adapter_id));
+        let aos_path = adapter_dir.join(format!("{}.aos", adapter_id));
         let writer = AosWriter::new();
         writer.write_archive(&aos_path, &manifest, &weights_data)?;
+
+        // Deterministic signature for the archive to allow reproducible verification
+        self.sign_archive(&aos_path, adapter_id).await?;
 
         info!(
             path = %aos_path.display(),
@@ -217,18 +273,6 @@ impl AdapterPackager {
             .map_err(|e| AosError::Training(format!("Failed to write weights: {}", e)))?;
 
         Ok(data)
-    }
-
-    /// Save manifest as JSON
-    async fn save_manifest(&self, path: &Path, manifest: &AdapterManifest) -> Result<()> {
-        let serialized = serde_json::to_vec_pretty(&manifest)
-            .map_err(|e| AosError::Training(format!("Failed to serialize manifest: {}", e)))?;
-
-        tokio::fs::write(path, serialized)
-            .await
-            .map_err(|e| AosError::Training(format!("Failed to write manifest: {}", e)))?;
-
-        Ok(())
     }
 
     /// Compute BLAKE3 hash of file
@@ -386,35 +430,89 @@ impl AdapterPackager {
         Ok(hashes)
     }
 
-    /// Sign adapter directory with Ed25519
-    async fn sign_adapter(&self, adapter_dir: &Path) -> Result<()> {
-        // Generate or load signing keypair
-        let keypair = adapteros_crypto::Keypair::generate();
-
-        // Read manifest for signing
-        let manifest_path = adapter_dir.join("manifest.json");
-        let manifest_data = tokio::fs::read(&manifest_path)
-            .await
-            .map_err(|e| AosError::Training(format!("Failed to read manifest: {}", e)))?;
-
-        // Sign manifest
-        let signature = keypair.sign(&manifest_data);
+    /// Deterministic manifest signing using Ed25519 seeded from manifest bytes
+    async fn sign_manifest(
+        &self,
+        adapter_dir: &Path,
+        adapter_id: &str,
+        manifest_bytes: &[u8],
+    ) -> Result<()> {
+        let keypair = Self::load_signing_keypair("manifest", adapter_id, manifest_bytes)?;
+        let signature = keypair.sign(manifest_bytes);
 
         // Save signature
         let sig_path = adapter_dir.join("signature.sig");
-        tokio::fs::write(sig_path, signature.to_bytes())
+        tokio::fs::write(&sig_path, signature.to_bytes())
             .await
             .map_err(|e| AosError::Training(format!("Failed to write signature: {}", e)))?;
 
-        // Save public key
+        // Save public key (hex-encoded)
         let pubkey_path = adapter_dir.join("public_key.pem");
         let pubkey_hex = hex::encode(keypair.public_key().to_bytes());
-        tokio::fs::write(pubkey_path, pubkey_hex)
+        tokio::fs::write(&pubkey_path, pubkey_hex)
             .await
             .map_err(|e| AosError::Training(format!("Failed to write public key: {}", e)))?;
 
-        info!("Adapter signed successfully");
+        info!("Adapter manifest signed deterministically");
         Ok(())
+    }
+
+    /// Deterministic archive signing for .aos outputs
+    async fn sign_archive(&self, aos_path: &Path, adapter_id: &str) -> Result<()> {
+        let archive_bytes = tokio::fs::read(aos_path).await.map_err(|e| {
+            AosError::Training(format!("Failed to read archive for signing: {}", e))
+        })?;
+        let keypair = Self::load_signing_keypair("aos-archive", adapter_id, &archive_bytes)?;
+        let signature = keypair.sign(&archive_bytes);
+
+        let sig_path = aos_path.with_extension("aos.sig");
+        tokio::fs::write(&sig_path, signature.to_bytes())
+            .await
+            .map_err(|e| AosError::Training(format!("Failed to write archive signature: {}", e)))?;
+
+        let pubkey_path = aos_path.with_extension("aos.pub");
+        let pubkey_hex = hex::encode(keypair.public_key().to_bytes());
+        tokio::fs::write(&pubkey_path, pubkey_hex)
+            .await
+            .map_err(|e| {
+                AosError::Training(format!("Failed to write archive public key: {}", e))
+            })?;
+
+        info!(
+            path = %aos_path.display(),
+            sig = %sig_path.display(),
+            "AOS archive signed deterministically"
+        );
+
+        Ok(())
+    }
+
+    fn deterministic_keypair(label: &str, adapter_id: &str, material: &[u8]) -> Keypair {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(label.as_bytes());
+        hasher.update(adapter_id.as_bytes());
+        hasher.update(material);
+        let hash = hasher.finalize();
+        Keypair::from_bytes(hash.as_bytes())
+    }
+
+    /// Load signing keypair: prefer env-provided Ed25519 seed (32-byte hex), fall back to deterministic.
+    fn load_signing_keypair(label: &str, adapter_id: &str, material: &[u8]) -> Result<Keypair> {
+        if let Ok(hex_seed) = std::env::var("AOS_SIGNING_KEY_HEX") {
+            let bytes = hex::decode(hex_seed.trim())
+                .map_err(|e| AosError::Training(format!("Invalid AOS_SIGNING_KEY_HEX: {}", e)))?;
+            if bytes.len() != 32 {
+                return Err(AosError::Training(
+                    "AOS_SIGNING_KEY_HEX must be 32 bytes".to_string(),
+                ));
+            }
+            let mut seed = [0u8; 32];
+            seed.copy_from_slice(&bytes);
+            return Ok(Keypair::from_bytes(&seed));
+        }
+
+        // Deterministic fallback (test/dev only)
+        Ok(Self::deterministic_keypair(label, adapter_id, material))
     }
 
     /// Verify adapter signature
@@ -463,8 +561,10 @@ impl AdapterPackager {
     }
 
     /// Load packaged adapter
-    pub async fn load(&self, adapter_id: &str) -> Result<PackagedAdapter> {
-        let adapter_dir = self.output_dir.join(adapter_id);
+    pub async fn load(&self, tenant_id: &str, adapter_id: &str) -> Result<PackagedAdapter> {
+        let adapter_dir =
+            self.adapter_dir(tenant_id, adapter_id)
+                .map_err(|e| AosError::Validation(format!("Invalid adapter path: {}", e)))?;
 
         // Verify signature first
         if !self.verify_signature(&adapter_dir).await? {
@@ -535,9 +635,9 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        let packager = AdapterPackager::new(temp_dir.path());
-        packager
-            .save_manifest(&manifest_path, &manifest)
+        let _packager = AdapterPackager::new(temp_dir.path());
+        let manifest_bytes = serde_json::to_vec_pretty(&manifest).unwrap();
+        tokio::fs::write(&manifest_path, manifest_bytes)
             .await
             .unwrap();
 

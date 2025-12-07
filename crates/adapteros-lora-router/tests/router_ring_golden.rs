@@ -127,7 +127,7 @@ fn golden_decision_k8_maximum() {
     // Verify all gates are valid signed Q15
     for &gate in decision.gates_q15.iter() {
         assert!(
-            gate >= -32767 && gate <= 32767,
+            (-32767..=32767).contains(&gate),
             "Gate must be in signed Q15 range"
         );
     }
@@ -273,7 +273,7 @@ fn test_router_produces_valid_decisions() {
     // Verify gates are in valid Q15 range
     for &gate in decision.gates_q15.iter() {
         assert!(
-            gate >= -32767 && gate <= 32767,
+            (-32767..=32767).contains(&gate),
             "Gate {} out of Q15 range",
             gate
         );

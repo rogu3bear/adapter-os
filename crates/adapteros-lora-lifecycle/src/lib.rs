@@ -901,6 +901,22 @@ impl LifecycleManager {
         states.values().cloned().collect()
     }
 
+    async fn ensure_sql_kv_ready(&self, adapter_id: &str) -> Result<()> {
+        if let Some(ref db) = self.db {
+            let status = db.check_adapter_consistency(adapter_id).await?;
+            if !status.is_ready() {
+                let reason = status
+                    .message
+                    .unwrap_or_else(|| "KV consistency check failed".to_string());
+                return Err(AosError::Validation(format!(
+                    "Adapter {} blocked: {}",
+                    adapter_id, reason
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Pin adapter to resident state
     ///
     /// FIX 7: Pin+demote atomic operation - Make pin state change and database update atomic
@@ -927,6 +943,8 @@ impl LifecycleManager {
                 )));
             }
         };
+
+        self.ensure_sql_kv_ready(&adapter_id_str).await?;
 
         if let Some(ref db) = self.db {
             // Use tenant_id:adapter_id as stable pin ID
@@ -1037,6 +1055,8 @@ impl LifecycleManager {
             }
         };
 
+        self.ensure_sql_kv_ready(&adapter_id_str).await?;
+
         // Remove pin from database (single source of truth)
         if let Some(ref db) = self.db {
             sqlx::query("DELETE FROM pinned_adapters WHERE tenant_id = ? AND adapter_id = ?")
@@ -1105,6 +1125,8 @@ impl LifecycleManager {
                 )));
             }
         };
+
+        self.ensure_sql_kv_ready(&adapter_id_str).await?;
 
         // Step 2: Persist to database FIRST (before changing in-memory state)
         if let Some(ref db) = self.db {
@@ -1216,6 +1238,8 @@ impl LifecycleManager {
                 )));
             }
         };
+
+        self.ensure_sql_kv_ready(&adapter_id_str).await?;
 
         // Step 2: Persist to database FIRST (before changing in-memory state)
         if let Some(ref db) = self.db {
@@ -2161,6 +2185,8 @@ impl LifecycleManager {
         // Ensure all adapters in the stack are loaded
         for adapter_id in &adapter_ids {
             debug!("Checking if adapter {} is loaded", adapter_id);
+
+            self.ensure_sql_kv_ready(adapter_id).await?;
 
             // Find the adapter index by ID
             let adapter_idx = {

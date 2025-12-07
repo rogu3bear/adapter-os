@@ -123,7 +123,7 @@ async fn test_h2_state_machine_completeness() {
     );
 
     // Verify all 5 states are reachable
-    let states = vec![
+    let states = [
         AdapterState::Unloaded,
         AdapterState::Cold,
         AdapterState::Warm,

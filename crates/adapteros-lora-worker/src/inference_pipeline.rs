@@ -13,6 +13,7 @@ use adapteros_config::ModelConfig;
 use adapteros_core::{
     derive_seed, AosError, B3Hash, CircuitBreaker, Result, StandardCircuitBreaker,
 };
+use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
 use adapteros_lora_router::{AdapterInfo, Router};
 use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
@@ -112,6 +113,41 @@ impl InferencePipelineConfig {
     pub fn with_manifest_hash(mut self, hash: B3Hash) -> Self {
         self.manifest_hash = Some(hash);
         self
+    }
+}
+
+/// Backend-fixed quantization description
+#[derive(Debug, Clone, Copy)]
+pub enum BackendQuantization {
+    /// Backend enforces fp16/bf16 kernels (Metal/CoreML)
+    BackendFixedFp16Bf16,
+    /// Backend uses model/manifest-provided quantized weights (MLX int4/int8/fp16)
+    BackendUsesModelQuantization,
+    /// Backend fallback when unknown (treated as backend-fixed)
+    Unknown,
+}
+
+impl BackendQuantization {
+    fn from_backend_type(backend: BackendType) -> Self {
+        match backend {
+            BackendType::Metal | BackendType::CoreML => BackendQuantization::BackendFixedFp16Bf16,
+            BackendType::Mlx => BackendQuantization::BackendUsesModelQuantization,
+            _ => BackendQuantization::Unknown,
+        }
+    }
+}
+
+impl std::fmt::Display for BackendQuantization {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BackendQuantization::BackendFixedFp16Bf16 => {
+                write!(f, "fp16/bf16 (backend-fixed)")
+            }
+            BackendQuantization::BackendUsesModelQuantization => {
+                write!(f, "model/manifest quantization (e.g., int4/int8/fp16)")
+            }
+            BackendQuantization::Unknown => write!(f, "backend-fixed (unspecified)"),
+        }
     }
 }
 
@@ -237,6 +273,12 @@ pub struct InferencePipeline {
     router: Router,
     /// Kernel backend
     kernels: KernelBox,
+    /// Backend type (for logging/telemetry)
+    #[allow(dead_code)]
+    backend_type: BackendType,
+    /// Fixed backend quantization (no per-token overrides)
+    #[allow(dead_code)]
+    backend_quantization: BackendQuantization,
     /// Policy engine (reserved for inline policy enforcement)
     _policy: PolicyEngine,
     /// Telemetry writer
@@ -294,7 +336,15 @@ impl InferencePipeline {
         let report = kernels.attest_determinism()?;
         policy.validate_backend_attestation(&report)?;
 
-        info!("Backend determinism validated: {}", report.summary());
+        let backend_quantization = BackendQuantization::from_backend_type(report.backend_type);
+
+        info!(
+            backend = ?report.backend_type,
+            backend_type = ?report.backend_type,
+            backend_quantization = %backend_quantization,
+            "Backend determinism validated: {}",
+            report.summary()
+        );
 
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
@@ -320,6 +370,8 @@ impl InferencePipeline {
             generator,
             router,
             kernels,
+            backend_type: report.backend_type,
+            backend_quantization,
             _policy: policy,
             telemetry,
             config,
@@ -355,7 +407,15 @@ impl InferencePipeline {
         let report = kernels.attest_determinism()?;
         policy.validate_backend_attestation(&report)?;
 
-        info!("Backend determinism validated: {}", report.summary());
+        let backend_quantization = BackendQuantization::from_backend_type(report.backend_type);
+
+        info!(
+            backend = ?report.backend_type,
+            backend_type = ?report.backend_type,
+            backend_quantization = %backend_quantization,
+            "Backend determinism validated: {}",
+            report.summary()
+        );
 
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
@@ -378,6 +438,8 @@ impl InferencePipeline {
             generator,
             router,
             kernels,
+            backend_type: report.backend_type,
+            backend_quantization,
             _policy: policy,
             telemetry,
             config,

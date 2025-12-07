@@ -321,6 +321,6 @@ mod tests {
             !passed,
             "Should fail with bitwise and entropy diff of 0.001"
         );
-        assert!(divs.len() > 0);
+        assert!(!divs.is_empty());
     }
 }

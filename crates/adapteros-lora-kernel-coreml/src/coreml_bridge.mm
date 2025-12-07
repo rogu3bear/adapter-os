@@ -236,7 +236,7 @@ int32_t coreml_run_inference(
         MLModel *model = (__bridge MLModel*)handle;
         NSError *error = nil;
 
-        NSArray<NSNumber*> *shape = @[@(input_len)];
+        NSArray<NSNumber*> *shape = @[@(1), @(input_len)];
         MLMultiArray *inputArray = [[MLMultiArray alloc] initWithShape:shape
                                                               dataType:MLMultiArrayDataTypeInt32
                                                                  error:&error];
@@ -312,7 +312,7 @@ int32_t coreml_run_inference_with_lora(
         NSError *error = nil;
 
         // Create input array
-        NSArray<NSNumber*> *shape = @[@(input_len)];
+        NSArray<NSNumber*> *shape = @[@(1), @(input_len)];
         MLMultiArray *inputArray = [[MLMultiArray alloc] initWithShape:shape
                                                               dataType:MLMultiArrayDataTypeInt32
                                                                  error:&error];
@@ -468,7 +468,7 @@ int32_t coreml_predict_with_state(
             NSError *error = nil;
 
             // Create input array
-            NSArray<NSNumber*> *shape = @[@(input_len)];
+            NSArray<NSNumber*> *shape = @[@(1), @(input_len)];
             MLMultiArray *inputArray = [[MLMultiArray alloc] initWithShape:shape
                                                                   dataType:MLMultiArrayDataTypeInt32
                                                                      error:&error];
@@ -1290,7 +1290,7 @@ void coreml_predict_async_with_timeout(
 
             NSError *error = nil;
 
-            NSArray<NSNumber*> *shape = @[@(input_len)];
+            NSArray<NSNumber*> *shape = @[@(1), @(input_len)];
             MLMultiArray *inputArray = [[MLMultiArray alloc] initWithShape:shape
                                                                   dataType:MLMultiArrayDataTypeInt32
                                                                      error:&error];
@@ -1518,7 +1518,7 @@ void coreml_predict_async_with_lora_timeout(
 
             NSError *error = nil;
 
-            NSArray<NSNumber*> *shape = @[@(input_len)];
+            NSArray<NSNumber*> *shape = @[@(1), @(input_len)];
             MLMultiArray *inputArray = [[MLMultiArray alloc] initWithShape:shape
                                                                   dataType:MLMultiArrayDataTypeInt32
                                                                      error:&error];
@@ -1679,7 +1679,7 @@ void coreml_predict_async(
         @autoreleasepool {
             NSError *error = nil;
 
-            NSArray<NSNumber*> *shape = @[@(input_len)];
+            NSArray<NSNumber*> *shape = @[@(1), @(input_len)];
             MLMultiArray *inputArray = [[MLMultiArray alloc] initWithShape:shape
                                                                   dataType:MLMultiArrayDataTypeInt32
                                                                      error:&error];
@@ -1810,7 +1810,7 @@ void coreml_predict_async_with_lora(
         @autoreleasepool {
             NSError *error = nil;
 
-            NSArray<NSNumber*> *shape = @[@(input_len)];
+            NSArray<NSNumber*> *shape = @[@(1), @(input_len)];
             MLMultiArray *inputArray = [[MLMultiArray alloc] initWithShape:shape
                                                                   dataType:MLMultiArrayDataTypeInt32
                                                                      error:&error];

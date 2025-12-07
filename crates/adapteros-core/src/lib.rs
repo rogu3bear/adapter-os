@@ -25,6 +25,7 @@
 //! let seed = derive_seed(&hash, "component_a");
 //! ```
 
+pub mod adapter_repo_paths;
 pub mod circuit_breaker;
 pub mod constants;
 pub mod context_hash;
@@ -53,6 +54,11 @@ pub mod validation;
 pub mod version;
 pub mod worker_status;
 
+pub use adapter_repo_paths::{
+    adapter_fs_path, adapter_fs_path_with_root, resolve_adapter_roots_from_strings,
+    AdapterPaths as RepoAdapterPaths, ResolveError, VersionStrategy, DEFAULT_CACHE_DIR,
+    DEFAULT_REPO_DIR,
+};
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
     SharedCircuitBreaker, StandardCircuitBreaker,
@@ -75,8 +81,9 @@ pub use plugin_events::{
 pub use plugins::{EventHookType, Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;
 pub use seed::{
-    clear_seed_registry, derive_adapter_seed, derive_seed, derive_seed_full, derive_seed_indexed,
-    derive_seed_typed, hash_adapter_dir, SeedLabel,
+    clear_seed_registry, derive_adapter_seed, derive_request_seed, derive_seed, derive_seed_full,
+    derive_seed_indexed, derive_seed_typed, hash_adapter_dir, BackendProfile, ExecutionProfile,
+    SeedLabel, SeedMode,
 };
 pub use stack::compute_stack_hash;
 pub use status::{AdapterOSStatus, HealthCheckResult, HealthStatus, ServiceStatus};
@@ -93,14 +100,14 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 pub mod prelude {
     pub use crate::{
         bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes, AdapterEvent, AdapterName,
-        AdapterOSStatus, AosError, AuditEvent, B3Hash, CircuitBreaker, CircuitBreakerConfig,
-        CircuitBreakerMetrics, CircuitState, DriftPolicy, EventHookType, ForkType,
-        HealthCheckResult, HealthStatus, InferenceEvent, LifecycleState, LifecycleTransition,
-        MetricsTickEvent, Plugin, PluginConfig, PluginEvent, PluginHealth, PluginStatus,
-        PolicyViolationEvent, Result, ResultExt, SemanticVersion, ServiceStatus,
-        SharedCircuitBreaker, StackName, StandardCircuitBreaker, TrainingConfig, TrainingJob,
-        TrainingJobEvent, TrainingJobStatus, TrainingTemplate, TransitionReason, VersionInfo,
-        WorkerStatus, WorkerStatusTransition, BYTES_PER_GB, BYTES_PER_KB, BYTES_PER_MB, CPID,
-        DEFAULT_TIMEOUT_SECS, SLOW_TIMEOUT_SECS,
+        AdapterOSStatus, AosError, AuditEvent, B3Hash, BackendProfile, CircuitBreaker,
+        CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, DriftPolicy, EventHookType,
+        ExecutionProfile, ForkType, HealthCheckResult, HealthStatus, InferenceEvent,
+        LifecycleState, LifecycleTransition, MetricsTickEvent, Plugin, PluginConfig, PluginEvent,
+        PluginHealth, PluginStatus, PolicyViolationEvent, Result, ResultExt, SeedMode,
+        SemanticVersion, ServiceStatus, SharedCircuitBreaker, StackName, StandardCircuitBreaker,
+        TrainingConfig, TrainingJob, TrainingJobEvent, TrainingJobStatus, TrainingTemplate,
+        TransitionReason, VersionInfo, WorkerStatus, WorkerStatusTransition, BYTES_PER_GB,
+        BYTES_PER_KB, BYTES_PER_MB, CPID, DEFAULT_TIMEOUT_SECS, SLOW_TIMEOUT_SECS,
     };
 }

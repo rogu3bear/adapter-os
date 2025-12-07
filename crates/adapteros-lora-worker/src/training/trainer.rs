@@ -1995,7 +1995,7 @@ mod tests {
         let checkpoint_files: Vec<_> = std::fs::read_dir(temp_dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "ckpt"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "ckpt"))
             .collect();
 
         // Should have at least the latest checkpoint

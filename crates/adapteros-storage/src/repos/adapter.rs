@@ -555,9 +555,7 @@ impl AdapterRepository {
             } else if let Some(old) = old_adapter {
                 if old.adapter_id.as_deref() != Some(adapter_id.as_str()) {
                     if let Some(old_adapter_id) = old.adapter_id.as_ref() {
-                        let old_entity = old_entity_id
-                            .as_deref()
-                            .unwrap_or_else(|| old.key_id());
+                        let old_entity = old_entity_id.as_deref().unwrap_or_else(|| old.key_id());
                         self.index_manager
                             .remove_from_index(
                                 adapter_indexes::BY_ADAPTER_ID,
@@ -612,12 +610,15 @@ impl AdapterRepository {
         if let Some(parent_id) = &adapter.parent_id {
             let old_parent = old_adapter.and_then(|a| a.parent_id.as_deref());
             self.index_manager
-                .update_index(adapter_indexes::BY_PARENT, old_parent, parent_id, &entity_id)
+                .update_index(
+                    adapter_indexes::BY_PARENT,
+                    old_parent,
+                    parent_id,
+                    &entity_id,
+                )
                 .await?;
         } else if let Some(old_parent) = old_adapter.and_then(|a| a.parent_id.as_deref()) {
-            let old_entity = old_entity_id
-                .as_deref()
-                .unwrap_or_else(|| adapter.key_id());
+            let old_entity = old_entity_id.as_deref().unwrap_or_else(|| adapter.key_id());
             self.index_manager
                 .remove_from_index(adapter_indexes::BY_PARENT, old_parent, old_entity)
                 .await?;
@@ -765,11 +766,7 @@ mod tests {
         repo.create(adapter.clone()).await.unwrap();
 
         // Stored under adapter_id key
-        assert!(backend
-            .get("adapter:adapter-123")
-            .await
-            .unwrap()
-            .is_some());
+        assert!(backend.get("adapter:adapter-123").await.unwrap().is_some());
 
         let fetched = repo
             .get("tenant-a", "adapter-123")
@@ -809,11 +806,7 @@ mod tests {
             .await
             .unwrap()
             .is_some());
-        assert!(backend
-            .get("adapter:legacy-uuid")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(backend.get("adapter:legacy-uuid").await.unwrap().is_none());
 
         let fetched = repo
             .get("tenant-a", "legacy-adapter")
@@ -833,15 +826,7 @@ mod tests {
         let deleted = repo.delete("tenant-a", "delete-me").await.unwrap();
         assert!(deleted);
 
-        assert!(backend
-            .get("adapter:delete-me")
-            .await
-            .unwrap()
-            .is_none());
-        assert!(backend
-            .get("adapter:uuid-del")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(backend.get("adapter:delete-me").await.unwrap().is_none());
+        assert!(backend.get("adapter:uuid-del").await.unwrap().is_none());
     }
 }

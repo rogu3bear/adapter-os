@@ -9,8 +9,10 @@ use adapteros_policy::packs::router::{
 
 #[test]
 fn test_router_respects_k_sparse_policy() {
-    let mut policy_config = RouterConfig::default();
-    policy_config.k_sparse = 2; // Limit to 2 adapters
+    let policy_config = RouterConfig {
+        k_sparse: 2, // Limit to 2 adapters
+        ..Default::default()
+    };
 
     let _policy = RouterPolicy::new(policy_config.clone());
     let mut router =
@@ -40,8 +42,10 @@ fn test_router_respects_k_sparse_policy() {
 
 #[test]
 fn test_policy_validates_stack_configuration() {
-    let mut policy_config = RouterConfig::default();
-    policy_config.k_sparse = 3; // Align validation to 3-way stacks used below
+    let policy_config = RouterConfig {
+        k_sparse: 3, // Align validation to 3-way stacks used below
+        ..Default::default()
+    };
     let policy = RouterPolicy::new(policy_config);
 
     // Valid stack

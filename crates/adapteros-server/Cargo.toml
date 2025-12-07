@@ -44,6 +44,7 @@ adapteros-federation = { path = "../adapteros-federation" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 adapteros-model-hub = { path = "../adapteros-model-hub" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs", optional = true }
+adapteros-api-types = { path = "../adapteros-api-types" }
 
 # Workspace dependencies
 anyhow.workspace = true

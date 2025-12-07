@@ -926,7 +926,7 @@ async fn test_policy_pack_enforcement_levels() {
         match config.enforcement_level {
             EnforcementLevel::Info => {
                 // Info level should not block operations
-                let request = create_test_request(&pack_id);
+                let request = create_test_request(pack_id);
                 let result = manager.validate_request(&request).unwrap();
                 // Info level violations should not make the request invalid
                 assert!(
@@ -939,7 +939,7 @@ async fn test_policy_pack_enforcement_levels() {
             }
             EnforcementLevel::Warning => {
                 // Warning level should allow operations but flag issues
-                let request = create_test_request(&pack_id);
+                let request = create_test_request(pack_id);
                 let result = manager.validate_request(&request).unwrap();
                 // Warning level should be valid or have only warning violations
                 assert!(
@@ -952,7 +952,7 @@ async fn test_policy_pack_enforcement_levels() {
             }
             EnforcementLevel::Error => {
                 // Error level should block operations when violations occur
-                let request = create_test_request(&pack_id);
+                let request = create_test_request(pack_id);
                 let result = manager.validate_request(&request).unwrap();
                 // Error level should block operations if Error-severity violations are present
                 let has_error_violations = result
@@ -978,7 +978,7 @@ async fn test_policy_pack_enforcement_levels() {
             }
             EnforcementLevel::Critical => {
                 // Critical level should block operations with critical violations
-                let request = create_test_request(&pack_id);
+                let request = create_test_request(pack_id);
                 let result = manager.validate_request(&request).unwrap();
                 // Critical level should block operations
                 assert!(!result.valid);

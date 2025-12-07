@@ -187,8 +187,8 @@ mod tests {
 
     #[test]
     fn test_load_from_safetensors() {
-        let weights = vec![1.0f32, 2.0, 3.0];
-        let bias = vec![0.5f32, 0.6, 0.7];
+        let weights = [1.0f32, 2.0, 3.0];
+        let bias = [0.5f32, 0.6, 0.7];
         let tensors = [
             (
                 "telemetry_lora.weight".to_string(),
@@ -228,14 +228,14 @@ mod tests {
 
         assert_eq!(base_weights, vec![1.0, 2.0, 3.0], "base weights mutated");
         assert_eq!(base_bias, vec![0.0, 0.0, 0.0], "base bias mutated");
-        let expected_w = vec![1.05, 1.9, 3.2];
+        let expected_w = [1.05, 1.9, 3.2];
         for (got, exp) in composed_w.iter().zip(expected_w.iter()) {
             assert!(
                 (got - exp).abs() < 1e-6,
                 "composed weight mismatch: got {got}, expected {exp}"
             );
         }
-        let expected_b = vec![0.02, 0.04, -0.06];
+        let expected_b = [0.02, 0.04, -0.06];
         for (got, exp) in composed_b.iter().zip(expected_b.iter()) {
             assert!(
                 (got - exp).abs() < 1e-6,

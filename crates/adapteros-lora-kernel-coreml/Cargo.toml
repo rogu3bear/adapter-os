@@ -26,6 +26,7 @@ default = []
 # =============================================================================
 
 ane-optimizations = []  # Enable ANE-specific code paths (macOS 15+ MLTensor)
+coreml-stub = []       # Enable stub fallback for tests/dev; OFF for production
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

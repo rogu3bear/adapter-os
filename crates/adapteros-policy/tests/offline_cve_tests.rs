@@ -224,13 +224,15 @@ async fn test_cve_entry_structure_from_offline_database() {
 
 #[tokio::test]
 async fn test_offline_database_with_custom_config() {
-    let mut config = DependencySecurityConfig::default();
-    config.max_cvss_score = 7.5; // Stricter than default
-    config.allowed_severities = vec![
-        VulnerabilitySeverity::None,
-        VulnerabilitySeverity::Low,
-        VulnerabilitySeverity::Medium,
-    ]; // Disallow High/Critical
+    let config = DependencySecurityConfig {
+        max_cvss_score: 7.5, // Stricter than default
+        allowed_severities: vec![
+            VulnerabilitySeverity::None,
+            VulnerabilitySeverity::Low,
+            VulnerabilitySeverity::Medium,
+        ], // Disallow High/Critical
+        ..Default::default()
+    };
 
     let policy = DependencySecurityPolicy::new(config);
     let fixtures_path = get_fixtures_path();
