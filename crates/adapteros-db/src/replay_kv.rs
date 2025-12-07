@@ -46,9 +46,11 @@ impl Db {
             inference_id: params.inference_id.clone(),
             tenant_id: params.tenant_id.clone(),
             manifest_hash: params.manifest_hash.clone(),
+            base_model_id: params.base_model_id.clone(),
             router_seed: params.router_seed.clone(),
             sampling_params_json: params.sampling_params_json.clone(),
             backend: params.backend.clone(),
+            backend_version: params.backend_version.clone(),
             sampling_algorithm_version: params
                 .sampling_algorithm_version
                 .clone()
@@ -91,9 +93,11 @@ impl Db {
             inference_id: meta.inference_id,
             tenant_id: meta.tenant_id,
             manifest_hash: meta.manifest_hash,
+            base_model_id: meta.base_model_id,
             router_seed: meta.router_seed,
             sampling_params_json: meta.sampling_params_json,
             backend: meta.backend,
+            backend_version: meta.backend_version,
             sampling_algorithm_version: meta.sampling_algorithm_version,
             rag_snapshot_hash: meta.rag_snapshot_hash,
             adapter_ids_json: meta.adapter_ids_json,

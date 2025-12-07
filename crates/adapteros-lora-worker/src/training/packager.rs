@@ -124,9 +124,9 @@ impl AdapterPackager {
         info!("Packaging adapter: {}", adapter_id);
 
         // Create adapter directory (canonical tenant-aware path)
-        let adapter_dir =
-            self.adapter_dir(tenant_id, adapter_id)
-                .map_err(|e| AosError::Validation(format!("Invalid adapter path: {}", e)))?;
+        let adapter_dir = self
+            .adapter_dir(tenant_id, adapter_id)
+            .map_err(|e| AosError::Validation(format!("Invalid adapter path: {}", e)))?;
         tokio::fs::create_dir_all(&adapter_dir).await.map_err(|e| {
             AosError::Training(format!("Failed to create adapter directory: {}", e))
         })?;
@@ -212,9 +212,9 @@ impl AdapterPackager {
     ) -> Result<PackagedAdapter> {
         info!("Packaging adapter as .aos archive: {}", adapter_id);
 
-        let adapter_dir =
-            self.adapter_dir(tenant_id, adapter_id)
-                .map_err(|e| AosError::Validation(format!("Invalid adapter path: {}", e)))?;
+        let adapter_dir = self
+            .adapter_dir(tenant_id, adapter_id)
+            .map_err(|e| AosError::Validation(format!("Invalid adapter path: {}", e)))?;
         tokio::fs::create_dir_all(&adapter_dir).await.map_err(|e| {
             AosError::Training(format!("Failed to create adapter directory: {}", e))
         })?;
@@ -562,9 +562,9 @@ impl AdapterPackager {
 
     /// Load packaged adapter
     pub async fn load(&self, tenant_id: &str, adapter_id: &str) -> Result<PackagedAdapter> {
-        let adapter_dir =
-            self.adapter_dir(tenant_id, adapter_id)
-                .map_err(|e| AosError::Validation(format!("Invalid adapter path: {}", e)))?;
+        let adapter_dir = self
+            .adapter_dir(tenant_id, adapter_id)
+            .map_err(|e| AosError::Validation(format!("Invalid adapter path: {}", e)))?;
 
         // Verify signature first
         if !self.verify_signature(&adapter_dir).await? {

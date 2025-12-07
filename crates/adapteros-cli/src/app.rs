@@ -120,23 +120,28 @@ pub enum Commands {
 
     /// Register a new adapter
     #[command(after_help = r#"Examples:
-  # Register a persistent adapter
-  aosctl register-adapter my_adapter b3:abc123... --tier persistent --rank 16
-
-  # Register an ephemeral adapter (default)
-  aosctl register-adapter temp_fix b3:def456... --rank 8
-
-  # High-rank adapter for complex tasks
-  aosctl register-adapter specialist b3:789ghi... --tier persistent --rank 32
+  # Register from a .aos bundle (explicit tenant and base model)
+  aosctl register-adapter --adapter-id my_adapter --aos ./adapters/my_adapter.aos \
+    --tenant-id tenant-doc-chat --base-model-id qwen2.5-7b --tier persistent --rank 16
 "#)]
     AdapterRegister {
         /// Adapter ID
-        id: String,
+        #[arg(long)]
+        adapter_id: String,
 
-        /// Artifact hash
-        hash: String,
+        /// Path to .aos bundle
+        #[arg(long)]
+        aos: std::path::PathBuf,
 
-        /// Tier (persistent or ephemeral)
+        /// Tenant ID
+        #[arg(long)]
+        tenant_id: String,
+
+        /// Base model ID
+        #[arg(long)]
+        base_model_id: String,
+
+        /// Tier (persistent, warm, or ephemeral)
         #[arg(short, long, default_value = "ephemeral")]
         tier: String,
 
@@ -1397,12 +1402,23 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             list_adapters::run(tier.as_deref(), *include_meta, output).await?;
         }
         Commands::AdapterRegister {
-            id,
-            hash,
+            adapter_id,
+            aos,
+            tenant_id,
+            base_model_id,
             tier,
             rank,
         } => {
-            register_adapter::run(id, hash, tier, *rank, output).await?;
+            register_adapter::run(
+                adapter_id,
+                aos.as_path(),
+                tenant_id,
+                base_model_id,
+                tier,
+                *rank,
+                output,
+            )
+            .await?;
         }
         Commands::AdapterPin {
             tenant,

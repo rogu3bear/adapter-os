@@ -79,12 +79,7 @@ async fn wait_for_terminal(state: &AppState, job_id: &str) -> TrainingJobStatus 
             _ => sleep(Duration::from_millis(50)).await,
         }
     }
-    state
-        .training_service
-        .get_job(job_id)
-        .await
-        .unwrap()
-        .status
+    state.training_service.get_job(job_id).await.unwrap().status
 }
 
 #[tokio::test]
@@ -190,13 +185,9 @@ async fn test_training_cancel_transitions_job() {
     req.config.epochs = 25;
     req.config.gradient_accumulation_steps = Some(16);
 
-    let Json(job) = start_training(
-        State(state.clone()),
-        Extension(claims.clone()),
-        Json(req),
-    )
-    .await
-    .expect("start training");
+    let Json(job) = start_training(State(state.clone()), Extension(claims.clone()), Json(req))
+        .await
+        .expect("start training");
 
     let status = cancel_training(
         State(state.clone()),
@@ -209,7 +200,10 @@ async fn test_training_cancel_transitions_job() {
 
     let terminal = wait_for_terminal(&state, &job.id).await;
     assert!(
-        matches!(terminal, TrainingJobStatus::Cancelled | TrainingJobStatus::Completed),
+        matches!(
+            terminal,
+            TrainingJobStatus::Cancelled | TrainingJobStatus::Completed
+        ),
         "job should end after cancellation request"
     );
 }

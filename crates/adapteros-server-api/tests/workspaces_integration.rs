@@ -43,13 +43,16 @@ async fn create_and_get_workspace_happy_path() {
     let state = setup_state(None).await.expect("state");
     let admin_claims = test_admin_claims();
 
-    let created =
-        create_workspace_for(&state, &admin_claims, "Workspace A", Some("primary")).await;
+    let created = create_workspace_for(&state, &admin_claims, "Workspace A", Some("primary")).await;
 
     // Creator should be stored as owner membership
     let owner_membership = state
         .db
-        .get_workspace_member(&created.id, &admin_claims.tenant_id, Some(&admin_claims.sub))
+        .get_workspace_member(
+            &created.id,
+            &admin_claims.tenant_id,
+            Some(&admin_claims.sub),
+        )
         .await
         .expect("lookup creator membership");
     assert!(owner_membership.is_some());
@@ -79,8 +82,7 @@ async fn list_workspaces_respects_membership() {
 
     let ws_admin_only =
         create_workspace_for(&state, &admin_claims, "Admin Only", Some("private")).await;
-    let ws_shared =
-        create_workspace_for(&state, &admin_claims, "Shared Workspace", None).await;
+    let ws_shared = create_workspace_for(&state, &admin_claims, "Shared Workspace", None).await;
 
     // Grant viewer membership only to the shared workspace
     state
@@ -116,8 +118,7 @@ async fn get_workspace_denies_non_member() {
     let admin_claims = test_admin_claims();
     let viewer_claims = test_viewer_claims();
 
-    let ws_private =
-        create_workspace_for(&state, &admin_claims, "Private Workspace", None).await;
+    let ws_private = create_workspace_for(&state, &admin_claims, "Private Workspace", None).await;
 
     let err = get_workspace(
         State(state.clone()),

@@ -1349,6 +1349,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             dev::handle_dev_command(cmd.clone(), &output).await?;
         }
 
+        // Scenario readiness utilities
+        Commands::Scenario(cmd) => {
+            commands::scenario::run(cmd.clone(), &output).await?;
+        }
+
         // Node & Cluster Management
         Commands::Node(cmd) => {
             node::handle_node_command(cmd.clone(), &output).await?;
@@ -1971,6 +1976,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Stack(_) => "stack",
         Commands::Chat(_) => "chat",
         Commands::Dev(_) => "dev",
+        Commands::Scenario(_) => "scenario",
         Commands::Node(_) => "node",
         Commands::Status { .. } => "status",
         Commands::Doctor { .. } => "doctor",

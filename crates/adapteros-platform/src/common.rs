@@ -125,7 +125,8 @@ impl PlatformUtils {
     ///
     /// This is the canonical location for all runtime data including:
     /// - `var/model-cache/` - Downloaded models from HuggingFace
-    /// - `var/adapters/` - LoRA adapter weights
+    /// - `var/adapters/repo/` - Canonical LoRA adapter bundles
+    /// - `var/adapters/cache/` - Worker/system adapter cache
     /// - `var/artifacts/` - Training artifacts
     /// - `var/bundles/` - Telemetry bundles
     /// - `var/alerts/` - Alert logs
@@ -152,7 +153,7 @@ impl PlatformUtils {
     ///
     /// Returns the directory where LoRA adapter weights are stored.
     /// Delegates to `AdapterPaths` for consistent path resolution.
-    /// Respects `AOS_ADAPTERS_DIR` env var, defaults to `var/adapters`.
+    /// Respects `AOS_ADAPTERS_DIR` env var, defaults to `var/adapters/repo`.
     ///
     /// Note: For config-aware path resolution, use `AdapterPaths::from_config()` directly.
     pub fn aos_adapters_dir() -> PathBuf {
@@ -498,7 +499,7 @@ mod tests {
         assert_eq!(model_cache_dir, PathBuf::from("var/model-cache"));
 
         let adapters_dir = PlatformUtils::aos_adapters_dir();
-        assert_eq!(adapters_dir, PathBuf::from("var/adapters"));
+        assert_eq!(adapters_dir, PathBuf::from("var/adapters/repo"));
 
         let artifacts_dir = PlatformUtils::aos_artifacts_dir();
         assert_eq!(artifacts_dir, PathBuf::from("var/artifacts"));

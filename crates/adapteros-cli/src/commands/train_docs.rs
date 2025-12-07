@@ -188,27 +188,22 @@ impl TrainDocsArgs {
         })?;
 
         let parsed: ScenarioConfig = toml::from_str(&contents).map_err(|e| {
+            AosError::Validation(format!("Failed to parse scenario '{}': {}", name, e))
+        })?;
+
+        let tenant_id = parsed.tenant.and_then(|t| t.id).ok_or_else(|| {
             AosError::Validation(format!(
-                "Failed to parse scenario '{}': {}",
-                name, e
+                "Scenario '{}' is missing tenant.id or model.id; cannot use with --register",
+                name
             ))
         })?;
 
-        let tenant_id = parsed
-            .tenant
-            .and_then(|t| t.id)
-            .ok_or_else(|| AosError::Validation(format!(
+        let base_model_id = parsed.model.and_then(|m| m.id).ok_or_else(|| {
+            AosError::Validation(format!(
                 "Scenario '{}' is missing tenant.id or model.id; cannot use with --register",
                 name
-            )))?;
-
-        let base_model_id = parsed
-            .model
-            .and_then(|m| m.id)
-            .ok_or_else(|| AosError::Validation(format!(
-                "Scenario '{}' is missing tenant.id or model.id; cannot use with --register",
-                name
-            )))?;
+            ))
+        })?;
 
         Ok(RegistrationContext {
             tenant_id,
@@ -484,8 +479,7 @@ impl TrainDocsArgs {
                 revision: Some(revision.clone()),
             };
 
-            crate::commands::register_adapter::register_aos_with_db(&db, register_request)
-                .await?;
+            crate::commands::register_adapter::register_aos_with_db(&db, register_request).await?;
 
             // Optional activation path
             if self.auto_activate {

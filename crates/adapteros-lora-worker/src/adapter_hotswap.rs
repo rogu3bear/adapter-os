@@ -58,11 +58,7 @@ pub fn adapter_id_to_u16(adapter_id: &str) -> u16 {
     u16::from_le_bytes([bytes[0], bytes[1]])
 }
 
-fn resolve_adapter_file(
-    repo_root: &Path,
-    tenant_id: &str,
-    adapter_id: &str,
-) -> std::path::PathBuf {
+fn resolve_adapter_file(repo_root: &Path, tenant_id: &str, adapter_id: &str) -> std::path::PathBuf {
     let adapter_dir = adapter_fs_path_with_root(repo_root, tenant_id, adapter_id)
         .unwrap_or_else(|_| repo_root.join(tenant_id).join(adapter_id));
     let flat = adapter_dir.with_extension("aos");

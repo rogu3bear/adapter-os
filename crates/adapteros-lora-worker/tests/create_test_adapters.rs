@@ -69,7 +69,13 @@ async fn create_test_adapter_fixtures() -> Result<()> {
     let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
     let packager = AdapterPackager::new(&output_dir);
     let packaged = packager
-        .package_aos("test_adapter", &quantized, &config, "test-base-model")
+        .package_aos(
+            "default",
+            "test_adapter",
+            &quantized,
+            &config,
+            "test-base-model",
+        )
         .await?;
 
     println!("      ✓ Path: {}", packaged.weights_path.display());
@@ -97,6 +103,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
     let large_quantized = LoRAQuantizer::quantize_to_q15(&large_result.weights);
     let large_packaged = packager
         .package_aos(
+            "default",
             "large_adapter",
             &large_quantized,
             &large_config,
@@ -155,6 +162,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         let adapter_name = format!("adapter_{}", i);
         let _adapter_packaged = packager
             .package_aos(
+                "default",
                 &adapter_name,
                 &adapter_quantized,
                 &adapter_config,

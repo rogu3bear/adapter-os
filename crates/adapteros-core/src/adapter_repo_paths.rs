@@ -182,10 +182,7 @@ pub fn resolve_adapter_roots_from_strings(
 }
 
 /// Canonical on-disk directory for an adapter (per-tenant)
-pub fn adapter_fs_path(
-    tenant_id: &str,
-    adapter_id: &str,
-) -> Result<PathBuf, ResolveError> {
+pub fn adapter_fs_path(tenant_id: &str, adapter_id: &str) -> Result<PathBuf, ResolveError> {
     let roots = AdapterPaths::from_env_and_config(None);
     adapter_fs_path_with_root(roots.repo_root, tenant_id, adapter_id)
 }

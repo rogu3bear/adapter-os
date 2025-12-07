@@ -72,7 +72,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::fs::create_dir_all(&output_dir).await?;
 
     let packager = AdapterPackager::new(&output_dir);
-    let packaged = packager.package_aos("test_adapter", &quantized, &config).await?;
+    let base_model = "test-base-model";
+    let packaged = packager
+        .package_aos("default", "test_adapter", &quantized, &config, base_model)
+        .await?;
 
     println!("✓ Created .aos archive:");
     println!("  Path: {}", packaged.weights_path.display());
@@ -97,7 +100,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut large_trainer = MicroLoRATrainer::new(large_config.clone())?;
     let large_result = large_trainer.train(&examples).await?;
     let large_quantized = quantizer.quantize(&large_result.weights)?;
-    let large_packaged = packager.package_aos("large_adapter", &large_quantized, &large_config).await?;
+    let large_packaged = packager
+        .package_aos(
+            "default",
+            "large_adapter",
+            &large_quantized,
+            &large_config,
+            base_model,
+        )
+        .await?;
     println!("✓ Created large_adapter.aos");
 
     // Variant 2: Corrupted adapter (modified data for mismatch testing)

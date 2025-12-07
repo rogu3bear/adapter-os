@@ -1,0 +1,32 @@
+id = "doc-chat"
+description = "Train an adapter on a small doc set and chat with it deterministically."
+
+[tenant]
+id = "tenant-doc-chat"
+
+[model]
+id = "qwen2.5-7b-mlx"
+warmup = true
+
+[adapter]
+name = "doc-chat-adapter"
+base_model_id = "qwen2.5-7b-mlx"
+require_loaded = true
+lifecycle_state = "active"
+load_state = "warm"
+
+[training]
+docs_path = "examples/docs/doc-chat"
+register_after_train = true
+
+[chat]
+seed = 42
+determinism_mode = "strict"
+backend_profile = "mlx"
+probe_prompt = "hello"
+probe_max_tokens = 1
+probe_enabled = false
+
+[replay]
+runs = 5
+

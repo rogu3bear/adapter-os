@@ -1364,13 +1364,18 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // This enables deterministic replay when the same parameters are provided
         if let Some(seed_bytes) = request.request_seed {
             self.generator.set_seed_bytes(seed_bytes);
+            // Avoid overriding master request seed with low-entropy seed
+            self.generator
+                .apply_request_params(request.temperature, request.top_k, request.top_p, None);
         }
-        self.generator.apply_request_params(
-            request.temperature,
-            request.top_k,
-            request.top_p,
-            request.seed,
-        );
+        if request.request_seed.is_none() {
+            self.generator.apply_request_params(
+                request.temperature,
+                request.top_k,
+                request.top_p,
+                request.seed,
+            );
+        }
 
         // Generate tokens using autoregressive loop
         let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
