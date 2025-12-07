@@ -7,6 +7,8 @@
 pub use comfy_table::Table;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
 use std::env;
+#[cfg(test)]
+use std::sync::{Arc, Mutex};
 use tracing::{error, warn};
 
 /// Output mode for CLI commands
@@ -65,12 +67,38 @@ impl OutputMode {
 pub struct OutputWriter {
     mode: OutputMode,
     verbose: bool,
+    #[cfg(test)]
+    sink: Option<Arc<Mutex<Vec<String>>>>,
 }
 
 impl OutputWriter {
     /// Create a new output writer
     pub fn new(mode: OutputMode, verbose: bool) -> Self {
-        Self { mode, verbose }
+        Self {
+            mode,
+            verbose,
+            #[cfg(test)]
+            sink: None,
+        }
+    }
+
+    /// Create an output writer that records messages (tests only).
+    #[cfg(test)]
+    pub fn with_sink(mode: OutputMode, verbose: bool, sink: Arc<Mutex<Vec<String>>>) -> Self {
+        Self {
+            mode,
+            verbose,
+            sink: Some(sink),
+        }
+    }
+
+    #[cfg(test)]
+    fn record(&self, msg: impl AsRef<str>) {
+        if let Some(sink) = &self.sink {
+            if let Ok(mut guard) = sink.lock() {
+                guard.push(msg.as_ref().to_string());
+            }
+        }
     }
 
     /// Get the output mode
@@ -90,6 +118,8 @@ impl OutputWriter {
 
     /// Print a progress message (suppressed in quiet/json mode)
     pub fn progress(&self, msg: impl AsRef<str>) {
+        #[cfg(test)]
+        self.record(msg.as_ref());
         if self.is_verbose() && !self.mode.is_json() {
             println!("  {}", msg.as_ref());
         }
@@ -97,6 +127,12 @@ impl OutputWriter {
 
     /// Print a progress completion message
     pub fn progress_done(&self, success: bool) {
+        #[cfg(test)]
+        self.record(if success {
+            "progress:done"
+        } else {
+            "progress:failed"
+        });
         if self.is_verbose() && !self.mode.is_json() {
             if success {
                 println!("  ✓ Done");
@@ -108,6 +144,8 @@ impl OutputWriter {
 
     /// Print verbose message (only in verbose mode)
     pub fn verbose(&self, msg: impl AsRef<str>) {
+        #[cfg(test)]
+        self.record(msg.as_ref());
         if self.is_verbose() && !self.mode.is_json() {
             println!("  {}", msg.as_ref());
         }
@@ -115,6 +153,8 @@ impl OutputWriter {
 
     /// Print a blank line
     pub fn blank(&self) {
+        #[cfg(test)]
+        self.record("");
         if !self.mode.is_quiet() && !self.mode.is_json() {
             println!();
         }
@@ -122,6 +162,8 @@ impl OutputWriter {
 
     /// Print a success message (suppressed in quiet/json mode)
     pub fn success(&self, msg: impl AsRef<str>) {
+        #[cfg(test)]
+        self.record(format!("success:{}", msg.as_ref()));
         if !self.mode.is_quiet() && !self.mode.is_json() {
             println!("✓ {}", msg.as_ref());
         }
@@ -129,6 +171,8 @@ impl OutputWriter {
 
     /// Print a result message (always shown unless JSON)
     pub fn result(&self, msg: impl AsRef<str>) {
+        #[cfg(test)]
+        self.record(msg.as_ref());
         if !self.mode.is_json() {
             println!("{}", msg.as_ref());
         }
@@ -136,11 +180,15 @@ impl OutputWriter {
 
     /// Print an error message (always shown)
     pub fn error(&self, msg: impl AsRef<str>) {
+        #[cfg(test)]
+        self.record(format!("error:{}", msg.as_ref()));
         error!("{}", msg.as_ref());
     }
 
     /// Print a warning message (always shown unless quiet)
     pub fn warning(&self, msg: impl AsRef<str>) {
+        #[cfg(test)]
+        self.record(format!("warn:{}", msg.as_ref()));
         if !self.mode.is_quiet() {
             warn!("{}", msg.as_ref());
         }
@@ -167,6 +215,8 @@ impl OutputWriter {
     /// Print a section header
     pub fn section(&self, title: impl AsRef<str>) {
         let title = title.as_ref();
+        #[cfg(test)]
+        self.record(format!("section:{}", title));
         if !self.mode.is_quiet() && !self.mode.is_json() {
             println!("\n🔧 {}", title);
             println!("{}", "─".repeat(title.len() + 3));
@@ -175,6 +225,8 @@ impl OutputWriter {
 
     /// Print an info message
     pub fn info(&self, msg: impl AsRef<str>) {
+        #[cfg(test)]
+        self.record(format!("info:{}", msg.as_ref()));
         if !self.mode.is_quiet() && !self.mode.is_json() {
             println!("ℹ️  {}", msg.as_ref());
         }
@@ -182,6 +234,8 @@ impl OutputWriter {
 
     /// Print key-value pair
     pub fn kv(&self, key: &str, value: &str) {
+        #[cfg(test)]
+        self.record(format!("{key}:{value}"));
         if !self.mode.is_quiet() && !self.mode.is_json() {
             println!("  {}: {}", key, value);
         }

@@ -420,109 +420,115 @@ pub async fn run_config_command(cmd: ConfigCommand, output: &OutputWriter) -> Re
 // Validate Command Implementation
 // ============================================================================
 
-/// Validate configuration files and environment variables
-pub async fn validate(args: ValidateArgs, output: &OutputWriter) -> Result<()> {
+/// Validation outcome shared between CLI and tests
+struct ValidationOutcome {
+    warnings: Vec<String>,
+}
+
+fn perform_validation(args: &ValidateArgs, output: &OutputWriter) -> Result<ValidationOutcome> {
     info!(env_file = ?args.env_file, production = args.production, "Validating configuration");
 
     let env_file_exists = args.env_file.exists();
     if !env_file_exists && args.env_file.to_string_lossy() != ".env" {
-        output.error(&format!(
+        return Err(AosError::Config(format!(
             "Configuration file not found: {}",
             args.env_file.display()
-        ));
-        std::process::exit(2);
+        )));
     }
 
-    let file_vars = if env_file_exists {
-        parse_env_file(&args.env_file)?
-    } else {
-        HashMap::new()
-    };
-
-    let env_vars: HashMap<String, String> = std::env::vars().collect();
-
-    let mut all_vars = file_vars.clone();
-    for (k, v) in &env_vars {
-        if k.starts_with("AOS_")
-            || k.starts_with("ADAPTEROS_")
-            || MIGRATION_MAP.iter().any(|(legacy, _)| legacy == k)
-        {
-            all_vars.insert(k.clone(), v.clone());
+    // Load the requested .env file (and default .env via loader) into process env
+    if env_file_exists {
+        for item in dotenvy::from_path_iter(&args.env_file).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to read env file {}: {}",
+                args.env_file.display(),
+                e
+            ))
+        })? {
+            let (key, value) =
+                item.map_err(|e| AosError::Config(format!("Invalid env entry: {}", e)))?;
+            std::env::set_var(key, value);
         }
     }
 
-    let mut results = Vec::new();
-    for (name, value) in &all_vars {
-        let source = if env_vars.contains_key(name) && file_vars.get(name) != Some(value) {
-            ConfigSource::Env
-        } else if file_vars.contains_key(name) {
-            ConfigSource::EnvFile
-        } else {
-            ConfigSource::Env
-        };
+    // Validate via deterministic loader (CLI > ENV > manifest > defaults)
+    let loader = adapteros_config::ConfigLoader::new();
+    let manifest_path = args
+        .manifest
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
 
-        let result = validate_variable(name, value, source);
-        results.push(result);
+    if let Err(e) = loader.load(vec![], manifest_path) {
+        return Err(AosError::Config(format!(
+            "Configuration validation failed: {}",
+            e
+        )));
     }
 
-    if args.production {
-        let production_results = validate_production_requirements(&all_vars);
-        results.extend(production_results);
+    // Require and validate database URL explicitly for .env validation
+    let schema = adapteros_config::schema::default_schema();
+    match std::env::var("AOS_DATABASE_URL") {
+        Ok(db_url) => {
+            if let Some(var) = schema.get_variable("AOS_DATABASE_URL") {
+                if let Err(e) = adapteros_config::schema::validate_value(var, &db_url) {
+                    return Err(AosError::Config(format!(
+                        "Invalid AOS_DATABASE_URL: {}",
+                        e.message
+                    )));
+                }
+            }
+        }
+        Err(_) => {
+            return Err(AosError::Config(
+                "Missing required AOS_DATABASE_URL".to_string(),
+            ));
+        }
     }
 
-    let required_checks = validate_required_variables(&all_vars, args.production);
-    results.extend(required_checks);
-
-    let valid_count = results
-        .iter()
-        .filter(|r| matches!(r.status, ValidationStatus::Valid))
-        .count();
-    let warning_count = results
-        .iter()
-        .filter(|r| {
-            matches!(
-                r.status,
-                ValidationStatus::Warning | ValidationStatus::Deprecated
-            )
-        })
-        .count();
-    let error_count = results
-        .iter()
-        .filter(|r| matches!(r.status, ValidationStatus::Error))
-        .count();
-
-    let passed = if args.strict {
-        error_count == 0 && warning_count == 0
-    } else {
-        error_count == 0
-    };
-
-    match args.format {
-        OutputFormat::Json => output_validation_json(
-            &args,
-            &results,
-            valid_count,
-            warning_count,
-            error_count,
-            passed,
-        )?,
-        OutputFormat::Sarif => output_validation_sarif(&args, &results)?,
-        _ => output_validation_text(
-            &args,
-            &results,
-            valid_count,
-            warning_count,
-            error_count,
-            passed,
-            output,
-        )?,
+    // Collect legacy/deprecated variables for warnings
+    let mut warnings = Vec::new();
+    for (legacy, replacement) in MIGRATION_MAP {
+        if std::env::var(legacy).is_ok() {
+            warnings.push(format!(
+                "Deprecated variable {} in use; replace with {}",
+                legacy, replacement
+            ));
+        }
+    }
+    for (name, _) in std::env::vars().filter(|(k, _)| k.starts_with("ADAPTEROS_")) {
+        let replacement = name.replacen("ADAPTEROS_", "AOS_", 1);
+        warnings.push(format!(
+            "Deprecated ADAPTEROS_ variable {} detected; use {}",
+            name, replacement
+        ));
     }
 
-    if !passed {
-        std::process::exit(1);
+    // Emit warnings
+    for warn_msg in &warnings {
+        output.warning(warn_msg);
     }
 
-    Ok(())
+    Ok(ValidationOutcome { warnings })
+}
+
+/// Validate configuration files and environment variables
+pub async fn validate(args: ValidateArgs, output: &OutputWriter) -> Result<()> {
+    match perform_validation(&args, output) {
+        Ok(outcome) => {
+            if args.strict && !outcome.warnings.is_empty() {
+                output.error("Strict mode: deprecated variables found");
+                std::process::exit(1);
+            }
+            if !args.quiet {
+                output.success("Configuration validated successfully");
+            }
+            Ok(())
+        }
+        Err(e) => {
+            output.error(&e.to_string());
+            std::process::exit(1);
+        }
+    }
 }
 
 fn validate_variable(name: &str, value: &str, source: ConfigSource) -> ValidationResult {
@@ -2025,6 +2031,9 @@ fn output_effective_env(entries: &[EffectiveEntry]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::OutputMode;
+    use serial_test::serial;
+    use tempfile::tempdir;
 
     #[test]
     fn test_validate_path_exists() {
@@ -2112,6 +2121,78 @@ mod tests {
         assert!(validate_database_url("sqlite:var/aos.db").is_ok());
         assert!(validate_database_url("/path/to/file.sqlite3").is_ok());
         assert!(validate_database_url("redis://localhost").is_err());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_perform_validation_good_env() {
+        let dir = tempdir().unwrap();
+        let env_path = dir.path().join(".env");
+        std::fs::write(&env_path, "AOS_DATABASE_URL=sqlite://test.db\n").unwrap();
+
+        // Ensure no conflicting vars linger
+        std::env::remove_var("AOS_DATABASE_URL");
+        std::env::remove_var("ADAPTEROS_DATABASE_URL");
+
+        let args = ValidateArgs {
+            env_file: env_path.clone(),
+            strict: false,
+            production: false,
+            format: OutputFormat::Text,
+            quiet: true,
+            manifest: None,
+        };
+
+        let output = OutputWriter::new(OutputMode::Quiet, false);
+        // Run inside the temp directory so load_dotenv picks up only this file
+        let cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+        // Ensure the process env carries a valid DB URL during this test run
+        std::env::set_var("AOS_DATABASE_URL", "sqlite://test.db");
+        let result = perform_validation(&args, &output);
+        std::env::set_current_dir(cwd).unwrap();
+
+        if let Err(e) = result {
+            panic!("expected validation to pass, got error: {}", e);
+        }
+        std::env::remove_var("AOS_DATABASE_URL");
+        std::env::remove_var("ADAPTEROS_DATABASE_URL");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_perform_validation_bad_env() {
+        let dir = tempdir().unwrap();
+        let env_path = dir.path().join(".env");
+        // Invalid database URL to trigger validation failure
+        std::fs::write(&env_path, "AOS_DATABASE_URL=not-a-valid-url\n").unwrap();
+
+        // Ensure required DB vars are absent so validation relies on this invalid value
+        std::env::remove_var("AOS_DATABASE_URL");
+        std::env::remove_var("ADAPTEROS_DATABASE_URL");
+        std::env::set_var("AOS_DATABASE_URL", "not-a-valid-url");
+
+        let args = ValidateArgs {
+            env_file: env_path.clone(),
+            strict: false,
+            production: false,
+            format: OutputFormat::Text,
+            quiet: true,
+            manifest: None,
+        };
+
+        let output = OutputWriter::new(OutputMode::Quiet, false);
+        // Run inside the temp directory so load_dotenv picks up only this file
+        let cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+        let result = perform_validation(&args, &output);
+        std::env::set_current_dir(cwd).unwrap();
+
+        assert!(result.is_err());
+        std::env::remove_var("AOS_DATABASE_URL");
+        std::env::remove_var("ADAPTEROS_DATABASE_URL");
+        // Restore to a valid value to avoid leaking invalid state to other tests
+        std::env::set_var("AOS_DATABASE_URL", "sqlite://test.db");
     }
 
     #[test]

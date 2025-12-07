@@ -8,6 +8,7 @@ pub mod aos;
 pub mod aos_impl;
 pub mod audit;
 pub mod audit_determinism;
+pub mod auth_cli;
 pub mod backend_status;
 pub mod bootstrap;
 pub mod build_plan;
@@ -61,6 +62,7 @@ pub mod replay;
 pub mod report;
 pub mod rollback;
 pub mod router;
+pub mod scenario;
 pub mod secd;
 #[cfg(feature = "secd-support")]
 pub mod secd_audit;

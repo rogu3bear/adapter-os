@@ -14,27 +14,61 @@ use adapteros_ingest_docs::{
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
-use clap::Args;
+use clap::{ArgGroup, Args};
 use glob::glob;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, warn};
 
 /// Train adapter on documentation markdown files
 #[derive(Args, Debug)]
+#[command(
+    group(
+        ArgGroup::new("scenario_group")
+            .args(&["scenario"])
+            .multiple(false)
+            .required(false)
+    ),
+    group(
+        ArgGroup::new("explicit_group")
+            .args(&["tenant_id", "base_model_id"])
+            .multiple(false)
+            .required(false)
+    )
+)]
 pub struct TrainDocsArgs {
     /// Docs directory to scan for markdown files
     #[arg(long, default_value = "./docs")]
     docs_dir: PathBuf,
 
     /// Output directory for trained adapter
-    #[arg(long, default_value = "./adapters/docs-assistant")]
-    output: PathBuf,
+    ///
+    /// Defaults to `${AOS_ADAPTERS_DIR}/docs-assistant` (or `var/adapters/docs-assistant`
+    /// when the env var is not set).
+    #[arg(long)]
+    output: Option<PathBuf>,
 
     /// Version/revision for the adapter (defaults to timestamp)
     #[arg(long)]
     revision: Option<String>,
+
+    /// Scenario profile name (configs/scenarios/<NAME>.toml)
+    #[arg(long, conflicts_with_all = ["tenant_id", "base_model_id"])]
+    scenario: Option<String>,
+
+    /// Tenant ID (explicit mode)
+    #[arg(long, requires = "base_model_id", conflicts_with = "scenario")]
+    tenant_id: Option<String>,
+
+    /// Base model ID (explicit mode)
+    #[arg(long, requires = "tenant_id", conflicts_with = "scenario")]
+    base_model_id: Option<String>,
+
+    /// Register the trained adapter (requires scenario or explicit tenant+model)
+    #[arg(long)]
+    register: bool,
 
     /// Automatically activate adapter for owner chat
     #[arg(long, default_value = "true")]
@@ -77,9 +111,121 @@ pub struct TrainDocsArgs {
     common: CommonTrainingArgs,
 }
 
+#[derive(Debug, Deserialize)]
+struct ScenarioConfig {
+    tenant: Option<ScenarioTenant>,
+    model: Option<ScenarioModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScenarioTenant {
+    id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScenarioModel {
+    id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RegistrationContext {
+    tenant_id: String,
+    base_model_id: String,
+}
+
 impl TrainDocsArgs {
+    /// Resolve output path, honoring env override when no CLI override is provided.
+    fn resolved_output_dir(&self) -> PathBuf {
+        self.output.clone().unwrap_or_else(Self::default_output_dir)
+    }
+
+    fn default_output_dir() -> PathBuf {
+        adapteros_core::paths::get_default_adapters_root().join("docs-assistant")
+    }
+
+    fn resolve_registration_context(&self) -> Result<Option<RegistrationContext>> {
+        if !self.register {
+            return Ok(None);
+        }
+
+        // Scenario mode
+        if let Some(name) = &self.scenario {
+            let resolved = Self::load_scenario_config(name)?;
+            return Ok(Some(resolved));
+        }
+
+        // Explicit mode
+        match (self.tenant_id.as_ref(), self.base_model_id.as_ref()) {
+            (Some(tenant), Some(model)) => Ok(Some(RegistrationContext {
+                tenant_id: tenant.clone(),
+                base_model_id: model.clone(),
+            })),
+            _ => Err(AosError::Validation(
+                "--register requires either --scenario or both --tenant-id and --base-model-id"
+                    .to_string(),
+            )),
+        }
+    }
+
+    fn load_scenario_config(name: &str) -> Result<RegistrationContext> {
+        let path = Path::new("configs")
+            .join("scenarios")
+            .join(format!("{}.toml", name));
+
+        if !path.exists() {
+            return Err(AosError::Validation(format!(
+                "Scenario file not found: {}",
+                path.display()
+            )));
+        }
+
+        let contents = fs::read_to_string(&path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read scenario file {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
+        let parsed: ScenarioConfig = toml::from_str(&contents).map_err(|e| {
+            AosError::Validation(format!(
+                "Failed to parse scenario '{}': {}",
+                name, e
+            ))
+        })?;
+
+        let tenant_id = parsed
+            .tenant
+            .and_then(|t| t.id)
+            .ok_or_else(|| AosError::Validation(format!(
+                "Scenario '{}' is missing tenant.id or model.id; cannot use with --register",
+                name
+            )))?;
+
+        let base_model_id = parsed
+            .model
+            .and_then(|m| m.id)
+            .ok_or_else(|| AosError::Validation(format!(
+                "Scenario '{}' is missing tenant.id or model.id; cannot use with --register",
+                name
+            )))?;
+
+        Ok(RegistrationContext {
+            tenant_id,
+            base_model_id,
+        })
+    }
+
     pub async fn execute(&self) -> Result<()> {
         info!("=== Documentation Training Pipeline ===");
+
+        // Resolve registration context first to surface errors early
+        let registration_ctx = self.resolve_registration_context()?;
+        let base_model_id = registration_ctx
+            .as_ref()
+            .map(|c| c.base_model_id.clone())
+            .or_else(|| self.base_model_id.clone())
+            .unwrap_or_else(|| "qwen2.5-7b".to_string());
 
         // Validate docs directory
         if !self.docs_dir.exists() {
@@ -105,6 +251,7 @@ impl TrainDocsArgs {
             .clone()
             .unwrap_or_else(|| chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string());
         let adapter_id = format!("system/docs/adapteros/{}", revision);
+        let output_dir = self.resolved_output_dir();
 
         // Dry run mode
         if self.dry_run {
@@ -117,7 +264,7 @@ impl TrainDocsArgs {
                 info!("  ... and {} more", doc_paths.len() - 10);
             }
             info!("Adapter ID: {}", adapter_id);
-            info!("Output: {}", self.output.display());
+            info!("Output: {}", output_dir.display());
             info!(
                 "Training config: rank={}, alpha={}, epochs={}",
                 self.common.rank, self.common.alpha, self.common.epochs
@@ -221,12 +368,12 @@ impl TrainDocsArgs {
             .collect();
 
         // Create output directory
-        fs::create_dir_all(&self.output)
+        fs::create_dir_all(&output_dir)
             .map_err(|e| AosError::Io(format!("Failed to create output directory: {}", e)))?;
 
         if self.skip_training {
             // Just save training data
-            let data_path = self.output.join("training_data.json");
+            let data_path = output_dir.join("training_data.json");
             let data_json = serde_json::json!({
                 "examples": examples.iter().map(|ex| {
                     serde_json::json!({
@@ -266,7 +413,7 @@ impl TrainDocsArgs {
         );
 
         // Save adapter weights (JSON format for compatibility)
-        let weights_path = self.output.join("lora_weights.json");
+        let weights_path = output_dir.join("lora_weights.json");
         let weights_json = serde_json::to_string_pretty(&result.weights)?;
         fs::write(&weights_path, &weights_json)?;
 
@@ -287,18 +434,28 @@ impl TrainDocsArgs {
             },
             "created_at": chrono::Utc::now().to_rfc3339(),
         });
-        let metadata_path = self.output.join("metadata.json");
+        let metadata_path = output_dir.join("metadata.json");
         fs::write(&metadata_path, serde_json::to_string_pretty(&metadata)?)?;
 
-        info!("Saved adapter to {}", self.output.display());
+        info!("Saved adapter to {}", output_dir.display());
 
         // Package to .aos archive format
         info!("Packaging adapter to .aos format...");
         let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
-        let packager = AdapterPackager::new(&self.output);
+        let packager = AdapterPackager::new(&output_dir);
         let safe_adapter_id = adapter_id.replace('/', "_");
+        let tenant_for_path = registration_ctx
+            .as_ref()
+            .map(|ctx| ctx.tenant_id.as_str())
+            .unwrap_or("default");
         let packaged = packager
-            .package_aos(&safe_adapter_id, &quantized, &train_config, "qwen2.5-7b")
+            .package_aos(
+                tenant_for_path,
+                &safe_adapter_id,
+                &quantized,
+                &train_config,
+                &base_model_id,
+            )
             .await?;
         info!(
             "Created .aos archive: {} ({} bytes)",
@@ -308,62 +465,45 @@ impl TrainDocsArgs {
                 .unwrap_or(0)
         );
 
-        // === Step 4: Register and Activate ===
-        info!("Step 4/4: Registering adapter...");
-        let db = self.connect_db().await?;
+        // === Step 4: Register and Activate (optional) ===
+        if self.register {
+            info!("Step 4/4: Registering adapter...");
+            let ctx = registration_ctx
+                .as_ref()
+                .expect("registration context must be present when --register is set");
+            let db = self.connect_db().await?;
 
-        // Compute weights hash
-        let weights_hash = format!("b3:{}", blake3::hash(weights_json.as_bytes()).to_hex());
+            let register_request = crate::commands::register_adapter::RegisterAosRequest {
+                adapter_id: adapter_id.clone(),
+                aos_path: packaged.weights_path.clone(),
+                tenant_id: ctx.tenant_id.clone(),
+                base_model_id: base_model_id.clone(),
+                tier: "warm".to_string(),
+                rank: self.common.rank as u32,
+                name: Some("Documentation Assistant".to_string()),
+                revision: Some(revision.clone()),
+            };
 
-        // Register the adapter
-        // Valid categories: code, framework, codebase, ephemeral
-        // Valid scopes: global, tenant, repo, commit
-        let params = AdapterRegistrationBuilder::new()
-            .tenant_id("default")
-            .adapter_id(&adapter_id)
-            .name("Documentation Assistant")
-            .hash_b3(&weights_hash)
-            .rank(self.common.rank as i32)
-            .tier("warm")
-            .category("codebase")
-            .scope("global")
-            .domain(Some("docs"))
-            .purpose(Some("owner-chat"))
-            .revision(Some(revision.clone()))
-            .build()?;
-
-        // Upsert pattern: update if adapter already exists
-        match db.register_adapter(params).await {
-            Ok(db_id) => {
-                info!("Registered new adapter: {} (db_id={})", adapter_id, db_id);
-            }
-            Err(e) if e.to_string().contains("UNIQUE constraint") => {
-                info!("Adapter already exists, updating...");
-                db.update_adapter_state(&adapter_id, "warm", "re-trained from docs")
-                    .await?;
-                info!("Updated existing adapter: {}", adapter_id);
-            }
-            Err(e) => return Err(e.into()),
-        }
-
-        // Update current_state to 'warm' so it's usable for inference
-        // Note: current_state holds the load state (unloaded/cold/warm/hot/resident)
-        // while lifecycle_state holds business state (draft/active/deprecated/retired)
-        db.update_adapter_state(&adapter_id, "warm", "trained from docs")
-            .await?;
-        info!("Set adapter current_state to 'warm'");
-
-        // Auto-activate for owner chat
-        if self.auto_activate {
-            db.set_system_setting("owner_chat_adapter_id", &adapter_id)
+            crate::commands::register_adapter::register_aos_with_db(&db, register_request)
                 .await?;
-            info!("Activated adapter for owner chat");
-        }
 
-        info!("=== Training Pipeline Complete ===");
-        info!("Adapter ID: {}", adapter_id);
-        info!("Weights: {}", weights_path.display());
-        info!("Status: Ready for inference");
+            // Optional activation path
+            if self.auto_activate {
+                db.set_system_setting("owner_chat_adapter_id", &adapter_id)
+                    .await?;
+                info!("Activated adapter for owner chat");
+            }
+
+            info!("=== Training + Registration Complete ===");
+            info!("Adapter ID: {}", adapter_id);
+            info!("AOS: {}", packaged.weights_path.display());
+            info!("Status: Registered for inference");
+        } else {
+            info!("=== Training Pipeline Complete (not registered) ===");
+            info!("Adapter ID: {}", adapter_id);
+            info!("AOS: {}", packaged.weights_path.display());
+            info!("Status: Artifact ready; registration skipped");
+        }
 
         Ok(())
     }
@@ -393,5 +533,41 @@ impl TrainDocsArgs {
                 .unwrap_or_else(|_| "sqlite:var/aos-cp.sqlite3".to_string())
         });
         Db::connect(&db_url).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adapteros_core::paths::AOS_ADAPTERS_DIR_ENV;
+    use serial_test::serial;
+    use std::path::PathBuf;
+
+    #[test]
+    #[serial]
+    fn default_output_respects_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var(AOS_ADAPTERS_DIR_ENV, tmp.path());
+
+        let resolved = TrainDocsArgs::default_output_dir();
+        assert!(
+            resolved.starts_with(tmp.path()),
+            "expected {} to start with {}",
+            resolved.display(),
+            tmp.path().display()
+        );
+
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+    }
+
+    #[test]
+    #[serial]
+    fn default_output_falls_back_to_var() {
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+        let resolved = TrainDocsArgs::default_output_dir();
+        assert_eq!(
+            resolved,
+            PathBuf::from("var").join("adapters").join("docs-assistant")
+        );
     }
 }

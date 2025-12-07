@@ -571,7 +571,11 @@ mod tests {
     #[test]
     fn test_list_policies_count() {
         let policies = list_policies();
-        assert_eq!(policies.len(), 22, "Must have exactly 22 policies");
+        assert_eq!(
+            policies.len(),
+            adapteros_policy::POLICY_INDEX.len(),
+            "Policy registry length must match canonical POLICY_INDEX"
+        );
     }
 
     #[test]

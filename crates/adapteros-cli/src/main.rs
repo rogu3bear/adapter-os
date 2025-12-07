@@ -35,6 +35,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::PathBuf;
 
+mod auth_store;
 mod cli;
 mod cli_telemetry;
 mod commands;
@@ -127,6 +128,13 @@ impl Cli {
 #[derive(Subcommand)]
 enum Commands {
     // ============================================================
+    // Authentication
+    // ============================================================
+    /// Login/logout for CLI-managed tokens
+    #[command(subcommand)]
+    Auth(commands::auth_cli::AuthCommand),
+
+    // ============================================================
     // Tenant Management
     // ============================================================
     /// Initialize a new tenant
@@ -179,6 +187,10 @@ Examples:
     /// Development environment commands (start/stop services)
     #[command(subcommand)]
     Dev(dev::DevCommand),
+
+    /// Scenario readiness utilities
+    #[command(subcommand)]
+    Scenario(commands::scenario::ScenarioCommand),
 
     // ============================================================
     // Node & Cluster Management
@@ -1246,6 +1258,8 @@ Examples:
 async fn main() -> Result<()> {
     // Load .env file first (before anything else reads env vars)
     adapteros_config::load_dotenv();
+    // Preload env defaults from stored CLI login (if present)
+    auth_store::preload_env_from_store();
 
     // Initialize unified logging
     init_logging()?;
@@ -1259,6 +1273,7 @@ async fn main() -> Result<()> {
     // Get command name for telemetry
     let command_name = get_command_name(&cli.command);
     let tenant_id = extract_tenant_from_command(&cli.command);
+    auth_store::warn_if_tenant_mismatch(tenant_id.as_deref(), &output);
 
     // Execute command and handle errors with telemetry
     let result = execute_command(&cli.command, &cli, &output).await;
@@ -1299,6 +1314,11 @@ async fn main() -> Result<()> {
 
 async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -> Result<()> {
     match command {
+        // Auth management
+        Commands::Auth(cmd) => {
+            commands::auth_cli::handle_auth_command(cmd.clone(), &output).await?;
+        }
+
         // System Initialization (Owner Home)
         Commands::Init { args } => {
             init::run(args.clone(), output).await?;
@@ -1945,6 +1965,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
 /// Get command name from Commands enum
 fn get_command_name(command: &Commands) -> String {
     match command {
+        Commands::Auth(_) => "auth",
         Commands::TenantInit { .. } | Commands::Init { .. } => "init-tenant",
         Commands::Adapter(_) => "adapter",
         Commands::Stack(_) => "stack",

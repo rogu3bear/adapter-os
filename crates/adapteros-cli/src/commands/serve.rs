@@ -387,6 +387,7 @@ pub async fn run(
     output.info("Creating worker instance...");
     let worker = adapteros_lora_worker::Worker::new(
         manifest.clone(),
+        tenant,
         kernels,
         rag,
         &tokenizer_path,

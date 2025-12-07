@@ -36,6 +36,7 @@ adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 adapteros-secd = { path = "../adapteros-secd", optional = true }
 adapteros-tui = { path = "../adapteros-tui", optional = true }
+adapteros-scenarios = { path = "../adapteros-scenarios" }
 # adapteros-system-metrics = { path = "../adapteros-system-metrics" }  # Requires DATABASE_URL
 adapteros-replay = { path = "../adapteros-replay" }
 adapteros-trace = { path = "../adapteros-trace" }
@@ -56,6 +57,7 @@ tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { workspace = true, features = ["multipart"] }
 nix = { workspace = true }
+dotenvy = "0.15"
 owo-colors = "4.0"
 serde_yaml = "0.9"
 toml = "0.8"
@@ -63,6 +65,7 @@ tempfile = "3.8"
 glob = "0.3"
 walkdir = "2.4"
 chrono = "0.4"
+dirs = "5.0"
 hex = { workspace = true }
 zip = "1.0"
 fs_extra = "1.3"
@@ -100,3 +103,7 @@ multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 secd-support = ["dep:adapteros-secd"]
 tui = ["dep:adapteros-tui"]
 extended-tests = []
+
+[dev-dependencies]
+axum = { version = "0.8", features = ["macros", "json"] }
+serial_test = "3.1"

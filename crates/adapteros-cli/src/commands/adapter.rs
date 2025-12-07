@@ -7,6 +7,7 @@ use adapteros_core::validation;
 use adapteros_core::AosError;
 use adapteros_core::B3Hash;
 use adapteros_core::Result;
+use adapteros_db::Db;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
 use std::path::{Path, PathBuf};
@@ -128,6 +129,22 @@ async fn directory_upsert(
 /// Validate adapter ID format
 fn validate_adapter_id(adapter_id: &str) -> Result<()> {
     validation::validate_adapter_id(adapter_id).map_err(|e| AosError::from(e))
+}
+
+async fn emit_kv_readiness(adapter_id: &str, output: &OutputWriter) {
+    match Db::connect_env().await {
+        Ok(db) => match db.check_adapter_consistency(adapter_id).await {
+            Ok(status) => {
+                let label = if status.is_ready() { "ready" } else { "stale" };
+                output.kv("KV readiness", label);
+                if let Some(msg) = status.message {
+                    output.kv("KV note", &msg);
+                }
+            }
+            Err(e) => output.warning(&format!("KV readiness check failed: {}", e)),
+        },
+        Err(e) => output.info(&format!("KV readiness skipped (db unavailable): {}", e)),
+    }
 }
 
 /// Connect to worker via UDS and fetch adapter states with retry logic
@@ -1229,6 +1246,8 @@ async fn promote_adapter(
         return Ok(());
     }
 
+    emit_kv_readiness(adapter_id, output).await;
+
     match send_adapter_command(&socket_path, "promote", adapter_id, Duration::from_secs(5)).await {
         Ok(_) => {
             if output.mode().is_json() {
@@ -1291,6 +1310,8 @@ async fn demote_adapter(
         }
         return Ok(());
     }
+
+    emit_kv_readiness(adapter_id, output).await;
 
     match send_adapter_command(&socket_path, "demote", adapter_id, Duration::from_secs(5)).await {
         Ok(_) => {
@@ -1355,6 +1376,8 @@ async fn pin_adapter(
         return Ok(());
     }
 
+    emit_kv_readiness(adapter_id, output).await;
+
     match send_adapter_command(&socket_path, "pin", adapter_id, Duration::from_secs(5)).await {
         Ok(_) => {
             if output.mode().is_json() {
@@ -1417,6 +1440,8 @@ async fn unpin_adapter(
         }
         return Ok(());
     }
+
+    emit_kv_readiness(adapter_id, output).await;
 
     match send_adapter_command(&socket_path, "unpin", adapter_id, Duration::from_secs(5)).await {
         Ok(_) => {

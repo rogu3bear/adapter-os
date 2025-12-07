@@ -292,6 +292,7 @@ fn decisions(args: DecisionsArgs) -> Result<()> {
             stack_id: args.stack.clone(),
             adapter_id: args.adapter.clone(),
             request_id: None,
+            source_type: None,
             since: args.since.clone(),
             until: None,
             min_entropy: if args.anomalies { Some(0.0) } else { None },
