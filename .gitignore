@@ -1,6 +1,5 @@
 # Rust
-/target/
-test-config-precedence/target/
+**/target/
 **/*.rs.bk
 *.pdb
 Cargo.lock
@@ -45,8 +44,8 @@ id_ed25519.pub
 # Verification artifacts (generated outputs)
 target/verify/
 
-# Database (contains sensitive data)
-/var/
+# Database and runtime data (contains sensitive data)
+**/var/
 *.db
 *.db-shm
 *.db-wal
@@ -238,6 +237,7 @@ coverage/
 
 # Test artifacts
 test_output/
+**/test-dbs/
 *.test
 *_test
 
@@ -263,6 +263,7 @@ Thumbs.db
 *.lock
 !pnpm-lock.yaml
 !Cargo.lock
+scripts/**/Cargo.lock
 
 # macOS
 .DS_Store
