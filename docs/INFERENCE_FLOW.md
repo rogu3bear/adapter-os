@@ -1,6 +1,14 @@
 # AdapterOS Inference Flow
 
-## Current Architecture (As of 2025-01-19)
+## Current Architecture (As of 2025-12-07)
+
+### Canonical, code-matched behavior
+
+- Entry points: HTTP `infer`, `batch_infer`, `streaming_infer`, and replay all flow through `InferenceCore::route_and_infer()`; replay uses `route_and_infer_replay()` but still hits the same routing guard.
+- Base model gate: aggregated `ModelLoadStatus` (from `model_status.rs`) must be `ready` before routing; otherwise an `ApiErrorBody` is returned with HTTP 503 and `code="MODEL_NOT_READY"` plus the `request_id`.
+- ModelLoadStatus literals (kebab-case): `no-model`, `loading`, `ready`, `unloading`, `error`, `checking`. Aggregation precedence: any ready → ready; else loading → loading; else checking → checking; else unloading → unloading; else error → error; else no-model.
+- Metrics (Prometheus): `adapteros_model_load_success_total`, `adapteros_model_load_failure_total`, `adapteros_model_unload_success_total`, `adapteros_model_unload_failure_total`, and gauge `adapteros_model_loaded{model_id,tenant_id}` (1 = ready, 0 = not ready).
+- Inference error codes (via `InferenceError`): `MODEL_NOT_READY`, `NO_COMPATIBLE_WORKER`, `BACKPRESSURE`, `PERMISSION_DENIED`, `RAG_ERROR`, `ROUTING_BYPASS`, `REQUEST_TIMEOUT`, `SERVICE_UNAVAILABLE`, `ADAPTER_NOT_FOUND`, plus handler-layer `POLICY_HOOK_VIOLATION`, `VALIDATION_ERROR`, `DATABASE_ERROR`, `SERIALIZATION_ERROR`, `ACCESS_DENIED`, `ADAPTER_NOT_LOADABLE`, `APPROXIMATE_REPLAY_REQUIRED`. All errors are wrapped in `ApiErrorBody { code, message, detail?, request_id }`.
 
 ### Components Status
 
@@ -193,3 +201,13 @@ huggingface-cli download Qwen/Qwen2.5-7B-Instruct \
   --local-dir models/qwen2.5-7b \
   --include "model.safetensors" "config.json" "tokenizer.json"
 ```
+
+## Base model loading (Dec 2025 update)
+
+- Canonical statuses: `no-model`, `loading`, `ready`, `unloading`, `error`, `checking` (JSON-serialized).
+- Aggregation (cluster-level, per model): any `ready` → `ready`; else any `loading` → `loading`; else any `checking` → `checking`; else any `unloading` → `unloading`; else any `error` → `error`; else `no-model`.
+- Router guard: inference is allowed only when aggregated status is `ready`; otherwise requests fail fast with `MODEL_NOT_READY` (503) and ApiErrorBody with `request_id`.
+- Scope: base models are global; `tenant_id` on status endpoints is a view filter today. Load/unload is admin/operator-only; future per-tenant loading would thread `tenant_id` through status, load, and unload.
+- Observability/metrics: load/unload errors surface via ApiErrorBody + `X-Request-ID`; metrics are `adapteros_model_load_success_total`, `adapteros_model_load_failure_total`, `adapteros_model_unload_success_total`, `adapteros_model_unload_failure_total`, and gauge `adapteros_model_loaded{model_id,tenant_id}` (1 = ready).
+
+MLNavigator Inc 2025-12-07.

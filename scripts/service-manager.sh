@@ -256,6 +256,28 @@ start_backend() {
     export DATABASE_URL="${DATABASE_URL:-sqlite://$PROJECT_ROOT/var/aos-cp.sqlite3}"
     export RUST_LOG="${RUST_LOG:-info}"
 
+    # Provide a default manifest path in dev so resolve_manifest_path succeeds
+    if [ -z "${AOS_MANIFEST_PATH:-}" ]; then
+        local dev_manifest="$PROJECT_ROOT/var/models/Qwen2.5-7B-Instruct-4bit/config.json"
+        local fixture_manifest="$PROJECT_ROOT/crates/adapteros-server-api/tests/fixtures/mlx/Mistral-7B-Instruct-4bit/config.json"
+        if [ -f "$dev_manifest" ]; then
+            export AOS_MANIFEST_PATH="$dev_manifest"
+        elif [ -f "$fixture_manifest" ]; then
+            export AOS_MANIFEST_PATH="$fixture_manifest"
+        fi
+    fi
+
+    # Fail fast with a clear message when no manifest is available
+    local manifest_path="${AOS_MANIFEST_PATH:-}"
+    if [ -z "$manifest_path" ]; then
+        error_msg "Manifest path required. Set AOS_MANIFEST_PATH or provide --manifest-path; expected dev manifest at var/models/Qwen2.5-7B-Instruct-4bit/config.json."
+        return 1
+    fi
+    if [ ! -f "$manifest_path" ]; then
+        error_msg "Manifest path does not exist: $manifest_path. Provide a valid .json manifest via AOS_MANIFEST_PATH or CLI."
+        return 1
+    fi
+
     # Load model path if available
     if [ -d "$PROJECT_ROOT/models" ]; then
         local model_path=$(find "$PROJECT_ROOT/models" -maxdepth 1 -type d ! -name "models" | head -1)
@@ -268,10 +290,14 @@ start_backend() {
     mkdir -p "$PROJECT_ROOT/var"
 
     # Start backend server
-    # Note: --skip-drift-check is used for development to bypass environment fingerprint validation
-    # In production, remove this flag and ensure proper baseline fingerprint is signed
+    # Drift checks remain enforced unless explicitly bypassed for development
+    local drift_flag=""
+    if [ "${AOS_DEV_SKIP_DRIFT_CHECK:-0}" = "1" ]; then
+        drift_flag="--skip-drift-check"
+    fi
+
     nohup "$server_bin" --config "${AOS_CONFIG_PATH:-$PROJECT_ROOT/configs/cp.toml}" \
-        --skip-drift-check \
+        ${drift_flag:+$drift_flag} \
         > "$BACKEND_LOG" 2>&1 &
     local pid=$!
 
@@ -877,8 +903,11 @@ start_worker() {
 
     # Determine manifest and model paths (default to 32B model)
     local manifest_path="${AOS_WORKER_MANIFEST:-$PROJECT_ROOT/manifests/qwen32b-coder-mlx.yaml}"
-    local model_path="${AOS_MODEL_PATH:-$PROJECT_ROOT/var/model-cache/models/qwen2.5-coder-32b-instruct-bf16}"
+    local manifest_hash="${AOS_MANIFEST_HASH:-756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e}"
+    local model_path="${AOS_MODEL_PATH:-$PROJECT_ROOT/var/models/Qwen2.5-7B-Instruct-4bit}"
     local uds_path="${AOS_WORKER_SOCKET:-$PROJECT_ROOT/var/run/worker.sock}"
+    # Default to MLX; requires worker to be built with multi-backend/MLX features.
+    # Override via AOS_MODEL_BACKEND=metal|coreml if MLX is unavailable.
     local backend="${AOS_MODEL_BACKEND:-mlx}"
     
     # Auto-detect tokenizer path if not set
@@ -898,6 +927,14 @@ start_worker() {
         return 0
     fi
 
+    # Guard common MLX failure mode: feature not built
+    if [ "$backend" = "mlx" ]; then
+        if ! "$worker_bin" --help 2>&1 | grep -qi "mlx"; then
+            error_msg "Backend 'mlx' requested but worker binary likely built without MLX features. Rebuild with: cargo build -p adapteros-lora-worker --features multi-backend,mlx"
+            return 1
+        fi
+    fi
+
     # Ensure socket directory exists
     mkdir -p "$(dirname "$uds_path")"
 
@@ -906,7 +943,10 @@ start_worker() {
     export RUST_LOG="${RUST_LOG:-info,adapteros_lora_worker=info}"
 
     # Build worker command
-    local worker_cmd="$worker_bin --manifest \"$manifest_path\" --model-path \"$model_path\" --uds-path \"$uds_path\" --backend \"$backend\""
+    # Propagate manifest hash so the worker fetches/verifies by hash
+    export AOS_MANIFEST_HASH="$manifest_hash"
+
+    local worker_cmd="$worker_bin --manifest \"$manifest_path\" --manifest-hash \"$manifest_hash\" --model-path \"$model_path\" --uds-path \"$uds_path\" --backend \"$backend\""
     
     # Add tokenizer path if found
     if [ -n "$tokenizer_path" ] && [ -f "$tokenizer_path" ]; then

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/rogu3bear/mplora"
+repository = "https://github.com/rogu3bear/adapter-os"
 
 [workspace]
 resolver = "2"
@@ -47,6 +47,7 @@ members = [
     "crates/adapteros-orchestrator",
     "crates/adapteros-profiler",
     "crates/adapteros-lora-lifecycle",
+    "crates/adapteros-scenarios",
     "crates/adapteros-git",
     "crates/adapteros-deterministic-exec",
     "crates/adapteros-graph",
@@ -185,6 +186,7 @@ sha2 = "0.10"
 aes-gcm = "0.10"
 rand = "0.8"
 rand_core = "0.6"
+rand_chacha = "0.3"
 
 # Schema & Validation
 schemars = "0.8"
@@ -378,6 +380,8 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+rand = "0.8"
+rand_chacha = "0.3"
 tempfile = "3.0"
 tracing-subscriber = { workspace = true }
 anyhow = "1.0"

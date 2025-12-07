@@ -48,9 +48,11 @@ All adapters are loaded using the unified `adapteros-aos` crate with no format d
 
 | Adapter | File | Rank | Alpha | Base Model | Tensors |
 |---------|------|------|-------|------------|---------|
-| code-assistant | `adapters/code-assistant.aos` | 16 | 32.0 | qwen2.5-7b | 224 |
-| creative-writer | `adapters/creative-writer.aos` | 12 | 24.0 | qwen2.5-7b | 224 |
-| readme-writer | `adapters/readme-writer.aos` | 8 | 16.0 | qwen2.5-7b | 224 |
+| code-assistant | `var/adapters/code-assistant.aos` | 16 | 32.0 | qwen2.5-7b | 224 |
+| creative-writer | `var/adapters/creative-writer.aos` | 12 | 24.0 | qwen2.5-7b | 224 |
+| readme-writer | `var/adapters/readme-writer.aos` | 8 | 16.0 | qwen2.5-7b | 224 |
+
+> Override base dir with `AOS_ADAPTERS_DIR` when needed.
 
 All adapters contain:
 - LoRA A matrices (low-rank down projection)

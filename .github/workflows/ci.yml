@@ -96,6 +96,23 @@ jobs:
         if: steps.coverage.outputs.coverage_ready != 'true'
         run: echo "KV-only smoke skipped; unsupported domains: ${{ steps.coverage.outputs.unsupported_domains }}"
 
+  kv-verify:
+    name: KV Drift Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run SQL↔KV verify gate
+        env:
+          KV_VERIFY_DB: /tmp/aos-ci.sqlite3
+          KV_VERIFY_KV: /tmp/aos-kv.redb
+          KV_VERIFY_OUT: kv-verify.json
+        run: |
+          set -euo pipefail
+          make kv-verify KV_VERIFY_DB=$KV_VERIFY_DB KV_VERIFY_KV=$KV_VERIFY_KV KV_VERIFY_OUT=$KV_VERIFY_OUT
+          cat kv-verify.json
+          jq -e '(.drift == 0) and (.fallback == 0) and (.errors == 0) and (.degraded == false)' kv-verify.json
+
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest

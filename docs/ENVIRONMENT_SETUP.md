@@ -35,8 +35,10 @@ RUST_LOG=debug,adapteros=trace
 AOS_SERVER_PRODUCTION_MODE=false
 AOS_SECURITY_JWT_MODE=hs256
 AOS_DATABASE_URL=sqlite:var/aos-cp.sqlite3
-AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
-AOS_MODEL_BACKEND=auto
+AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit
+AOS_WORKER_MANIFEST=./manifests/qwen32b-coder-mlx.yaml
+AOS_MANIFEST_HASH=756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e
+AOS_MODEL_BACKEND=mlx
 ```
 
 **Use when:**
@@ -59,7 +61,9 @@ AOS_MODEL_BACKEND=auto
 **.env setup:**
 ```bash
 AOS_MODEL_BACKEND=mlx
-AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
+AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit
+AOS_WORKER_MANIFEST=./manifests/qwen32b-coder-mlx.yaml
+AOS_MANIFEST_HASH=756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e
 AOS_MLX_PRECISION=float16
 AOS_MLX_MEMORY_POOL_ENABLED=true
 AOS_MLX_MAX_MEMORY=0
@@ -117,13 +121,15 @@ AOS_TELEMETRY_ENABLED=true
 
 | Variable | Default | Purpose | Example |
 |----------|---------|---------|---------|
-| `AOS_MODEL_PATH` | `./models/qwen2.5-7b-mlx` | Base model directory | `./models/qwen2.5-7b-instruct` |
-| `AOS_MODEL_BACKEND` | `auto` | Backend selection | `mlx`, `coreml`, `metal`, `auto` |
+| `AOS_MODEL_PATH` | `./var/models/Qwen2.5-7B-Instruct-4bit` | Base model directory | `./var/models/Qwen2.5-7B-Instruct-4bit` |
+| `AOS_MANIFEST_HASH` | `756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e` | Manifest hash (preferred contract) | Same as default |
+| `AOS_MODEL_BACKEND` | `mlx` | Backend selection | `mlx`, `coreml`, `metal`, `auto` |
 | `AOS_MODEL_ARCHITECTURE` | Auto-detect | Model type (Qwen2, Llama, etc.) | `qwen2`, `llama2` |
 
 **Notes:**
 - `AOS_MODEL_PATH` must contain `config.json` and model weights
-- `AOS_MODEL_BACKEND=auto` selects: CoreML > Metal > MLX (in that priority)
+- `AOS_MANIFEST_HASH` is the routing contract; workers fetch/verify by hash
+- `AOS_MODEL_BACKEND=mlx` by default; `auto` selects CoreML > Metal > MLX
 - Model auto-detected from `config.json` if architecture not specified
 
 ---
@@ -277,15 +283,12 @@ AOS_MEMORY_EVICTION_THRESHOLD=0.85
 
 | Variable | Default | Purpose | Example |
 |----------|---------|---------|---------|
-| `AOS_MLX_FFI_MODEL` | unset | MLX model directory | `./models/qwen2.5-7b-mlx` |
+| `AOS_MLX_FFI_MODEL` | unset | MLX model directory | `./var/models/Qwen2.5-7B-Instruct-4bit` |
 | `AOS_MLX_MAX_MEMORY` | `0` (unlimited) | Max memory (bytes) | `16000000000` (16GB) |
 | `AOS_MLX_MEMORY_POOL_ENABLED` | `true` | Enable memory pool | `false` to disable |
-| `AOS_MLX_PRECISION` | `float16` | Compute precision | `float32`, `float16`, `bfloat16` |
+| _Quantization_ | model-defined | Quantization/precision is fixed per backend | model weights (int4/int8/fp16) |
 
-**MLX Precision Notes:**
-- `float32` - Full precision, ~2x memory vs float16
-- `float16` - Half precision, fastest on GPU (recommended)
-- `bfloat16` - Brain float, good balance of speed/precision
+**Quantization Note:** Quantization/precision is fixed per backend. MLX uses the model’s packaged weights (int4/int8/fp16) without per-request or per-token overrides. Metal/CoreML run backend-fixed fp16/bf16 kernels.
 
 ---
 
@@ -435,18 +438,18 @@ cargo run -p adapteros-orchestrator -- db migrate
 
 ### Model Not Found
 
-**Problem:** `Error: model not found at ./models/qwen2.5-7b-mlx`
+**Problem:** `Error: model not found at ./var/models/Qwen2.5-7B-Instruct-4bit`
 
 **Solution:**
 ```bash
 # Verify AOS_MODEL_PATH or AOS_MLX_FFI_MODEL
-echo $AOS_MLX_FFI_MODEL
+echo $AOS_MODEL_PATH
 
 # Download model
 ./scripts/download_model.sh
 
 # Check model directory
-ls -la models/qwen2.5-7b-mlx/
+ls -la var/models/Qwen2.5-7B-Instruct-4bit/
 # Should contain: config.json, tokenizer.json, model weights
 ```
 
@@ -479,3 +482,4 @@ cargo run -p adapteros-orchestrator -- config show | grep backend
 ---
 
 **Last Updated:** 2025-11-23 | **Maintainer:** James KC Auchterlonie
+MLNavigator Inc 2025-12-07.

@@ -30,6 +30,7 @@ Cargo.lock
 # Environment
 .env
 .env.local
+/.env.local
 
 # SSH Keys (never commit these!)
 id_ed25519

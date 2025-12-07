@@ -1,26 +1,17 @@
-<<<<<<< HEAD
 @preconcurrency import Foundation
-=======
-import Foundation
->>>>>>> integration-branch
 import CryptoKit
 
 enum StatusReadError: Error, Equatable {
     case fileMissing
     case permissionDenied
-<<<<<<< HEAD
     case decodeFailed(String)
     case validationFailed(String)
     case readError(String)
-=======
-    case decodeFailed
->>>>>>> integration-branch
     case unknown
 }
 
 /// Reads AdapterOS status from the JSON snapshot file without blocking the main thread.
 final class StatusReader {
-<<<<<<< HEAD
     private let filePaths: [String]
     private let decoder: JSONDecoder
     private let readTimeout: TimeInterval
@@ -120,14 +111,6 @@ final class StatusReader {
         } else {
             self.init(filePaths: ["/var/run/adapteros_status.json"])
         }
-=======
-    private let filePath: String
-    private let decoder: JSONDecoder
-
-    init(filePath: String = "/var/run/adapteros_status.json") {
-        self.filePath = filePath
-        self.decoder = JSONDecoder()
->>>>>>> integration-branch
     }
 
     /// Read and decode status. Throws mapped StatusReadError.

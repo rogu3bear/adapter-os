@@ -145,14 +145,70 @@ jobs:
 
       - name: Build CoreML backend only
         run: |
-          cargo build -p adapteros-lora-kernel-mtl \
-            --features coreml-backend
+          cargo build -p adapteros-lora-kernel-coreml \
+            --features ane-optimizations
 
       - name: Test CoreML backend
         run: |
-          cargo test -p adapteros-lora-kernel-mtl \
-            --features coreml-backend \
+          cargo test -p adapteros-lora-kernel-coreml \
+            --features ane-optimizations \
             -- --nocapture
+
+      - name: CoreML perf smoke (tok/s ≥40, p95 <30ms)
+        run: |
+          CONFIG_PATH="var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json"
+          # seq_len 512
+          MODEL_PATH_512="var/model-cache/models/qwen2.5-7b-instruct-fp16-512.mlpackage"
+          OUTPUT=$(AOS_COREML_MLMODEL="$MODEL_PATH_512" \
+            AOS_COREML_CONFIG="$CONFIG_PATH" \
+            COREML_BENCH_STEPS=8 \
+            COREML_BENCH_WARMUP=2 \
+            COREML_BENCH_SEQ_LEN=512 \
+            COREML_BENCH_SOFTMAX=1 \
+            cargo run -p adapteros-lora-kernel-coreml \
+              --example coreml_perf \
+              --release \
+              --features ane-optimizations)
+          echo "$OUTPUT"
+          METRICS=$(echo "$OUTPUT" | tail -n 1)
+          python3 - <<'PY' "$METRICS"
+          import json, sys
+          line = sys.argv[1]
+          data = json.loads(line)
+          tokps = float(data["tokens_per_sec"])
+          p95 = float(data.get("p95_ms_per_token", data.get("p95_ms", 0.0)))
+          if tokps < 40.0:
+              raise SystemExit(f"tokens_per_sec {tokps:.2f} below required 40 tok/s")
+          if p95 > 30.0:
+              raise SystemExit(f"p95_ms_per_token {p95:.2f} exceeds 30ms target")
+          print(f"CoreML perf OK: {tokps:.2f} tok/s, p95/token {p95:.2f} ms")
+
+# seq_len 4096 (per-token p95 gating)
+MODEL_PATH_4096="var/model-cache/models/qwen2.5-7b-instruct-fp16-4096.mlpackage"
+OUTPUT_4096=$(AOS_COREML_MLMODEL="$MODEL_PATH_4096" \
+  AOS_COREML_CONFIG="$CONFIG_PATH" \
+  COREML_BENCH_STEPS=4 \
+  COREML_BENCH_WARMUP=1 \
+  COREML_BENCH_SEQ_LEN=4096 \
+  COREML_BENCH_SOFTMAX=0 \
+  cargo run -p adapteros-lora-kernel-coreml \
+    --example coreml_perf \
+    --release \
+    --features ane-optimizations)
+echo "$OUTPUT_4096"
+METRICS_4096=$(echo "$OUTPUT_4096" | tail -n 1)
+python3 - <<'PY' "$METRICS_4096"
+import json, sys
+line = sys.argv[1]
+data = json.loads(line)
+tokps = float(data["tokens_per_sec"])
+p95 = float(data.get("p95_ms_per_token", data.get("p95_ms", 0.0)))
+if tokps < 40.0:
+    raise SystemExit(f"tokens_per_sec {tokps:.2f} below required 40 tok/s (seq_len=4096)")
+if p95 > 30.0:
+    raise SystemExit(f"p95_ms_per_token {p95:.2f} exceeds 30ms target (seq_len=4096)")
+print(f"CoreML perf OK (4096): {tokps:.2f} tok/s, p95/token {p95:.2f} ms")
+          PY
 
   # macOS builds - All backends
   macos-all-backends:

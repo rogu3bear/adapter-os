@@ -20,7 +20,13 @@ anyhow = "1.0"
 clap = { version = "4.0", features = ["derive"] }
 hex = "0.4"
 byteorder = "1.5"
+safetensors = "0.4"
+adapteros-core = { path = "../../crates/adapteros-core" }
 
 # For tensor manipulation
 ndarray = "0.15"
 rand_distr = "0.4"
+
+[dev-dependencies]
+tempfile = "3.8"
+serial_test = "3.1"

@@ -85,12 +85,16 @@ cargo run --release -p adapteros-orchestrator -- init-tenant \
 
 ## 5. Start the System
 
-**Option A: Full system with one script**
+**Option A (Canonical): Unified `./start`**
 ```bash
-./scripts/run_complete_system.sh
+./start               # backend + UI, health waits, drift checks
+./start backend       # backend only (UI skipped), worker optional
+./start status        # show status without starting
 ```
+- Uses `scripts/service-manager.sh` under the hood; no parallel boot path
+- Worker starts only if binaries + manifest are present; otherwise skipped
 
-**Option B: Start services separately**
+**Option B (Advanced / Manual — bypasses guardrails and health waits)**
 
 Terminal 1 - Backend:
 ```bash
@@ -107,6 +111,11 @@ cd ui
 pnpm install
 pnpm dev
 ```
+
+**Legacy scripts (deprecated; prompt with default No before continuing):**
+- `scripts/run_complete_system.sh` (redirects to `./start`)
+- `scripts/bootstrap_integration_test.sh` / `scripts/bootstrap_with_checkpoints.sh` (legacy bootstrap flows)
+- Use only if `./start` is unavailable and you explicitly need the legacy behavior.
 
 ---
 
@@ -317,3 +326,5 @@ cd ui && pnpm dev
 ---
 
 **Built for Apple Silicon** | Copyright 2025 JKCA / James KC Auchterlonie
+
+MLNavigator Inc 2025-12-06.

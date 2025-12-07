@@ -4,6 +4,16 @@
 
 set -e
 
+echo "DEPRECATION: scripts/bootstrap_with_checkpoints.sh is legacy. Use ./start."
+echo "A prompt will auto-cancel after 15s (default: No)."
+echo ""
+read -r -t 15 -p "Proceed with legacy bootstrap (with checkpoints)? [y/N]: " REPLY || REPLY=""
+echo ""
+if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+  echo "Aborting. Use ./start instead."
+  exit 1
+fi
+
 # Configuration
 CHECKPOINT_FILE="${1:-/tmp/adapteros_install.state}"
 MODE="${2:-full}"

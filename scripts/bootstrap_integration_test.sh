@@ -16,6 +16,16 @@
 
 set -e
 
+echo "DEPRECATION: scripts/bootstrap_integration_test.sh is legacy. Use ./start."
+echo "A prompt will auto-cancel after 15s (default: No)."
+echo ""
+read -r -t 15 -p "Proceed with legacy bootstrap integration harness? [y/N]: " REPLY || REPLY=""
+echo ""
+if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+  echo "Aborting. Use ./start for canonical boot checks."
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"

@@ -30,7 +30,7 @@
 | /admin/plugins | Plugins | 4 | Build | Build |  |
 | /admin/settings | Settings | 5 | Build | Build |  |
 | /base-models | Base Models | 4 | Build | Build |  |
-| /router-config | Routing Config | 3 | Build | Build |  |
+| /router-config | Router Config | 3 | Build | Build |  |
 | /federation | — | — | Build | Build | IA-EXTRA, hidden |
 
 ## Build (expected)
@@ -133,5 +133,12 @@
 - Telemetry ➜ Replay: With a request or session ID, they jump to `/replay#runs` (preselected via query where available) to view decision trace, evidence, and exports.
 - Verify ➜ Coverage: `/testing` and `/golden` link into `/replay#compare` to compare baselines against live runs; security pages (`/security/policies`, `/security/audit`, `/security/compliance`) surface replay links when entries carry session context.
 
-MLNavigator Inc 2025-12-05.
+## Route-domain notes (2025-12-07)
+- Chat: `/chat` and `/documents/:documentId/chat` (forces `source_type=document`); CLI chat uses `source_type=cli|owner_system|cli_prompt` and lands in the same sessions table.
+- Auth: handled via login/logout flows (no dedicated nav); `admin_tenants` echoes from claims and the `"*"` wildcard is dev-only via `AOS_DEV_NO_AUTH` (debug).
+- Router: `/router-config` (Build cluster) for effective routing state; `/routing` (Observe) shows decision history; telemetry viewer forwards `source_type` into routing-decision filters.
+- Telemetry: `/telemetry` + `/telemetry/viewer` (and `/code-intelligence` redirect) propagate `source_type` query parameters for router/telemetry alignment.
+- Reports: `/reports` (Observe) is tenant-scoped and backed by the same monitoring payload as `/monitoring`.
+
+MLNavigator Inc 2025-12-07.
 

@@ -396,7 +396,7 @@ curl -X POST http://localhost:8080/v1/datasets/upload \
 ```bash
 ./target/release/aosctl train \
   --dataset-id 01bx5zzkbk4st8hmq69g82np7c \
-  --output adapters/code-assistant.aos \
+  --output var/adapters/code-assistant.aos \
   --rank 32 \
   --alpha 16 \
   --epochs 5 \

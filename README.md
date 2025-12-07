@@ -192,13 +192,20 @@ cargo run -p adapteros-orchestrator -- init-tenant --id default --uid 1000 --gid
 # Download Qwen 2.5 7B MLX format (~3.8GB)
 huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
     --include "*.safetensors" "*.json" \
-    --local-dir models/qwen2.5-7b-mlx
+    --local-dir var/models/qwen2.5-7b-mlx
 
 # Set the model path for the server
-export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
+export AOS_MLX_FFI_MODEL=var/models/qwen2.5-7b-mlx
 
 # See QUICKSTART.md for complete setup instructions
 ```
+
+### Runtime var layout (canonical)
+
+- `var/adapters/repo/<tenant_id>/<adapter_name>/<version>.aos`: canonical, write-once bundles (default `AOS_ADAPTERS_DIR`).
+- `var/adapters/cache/<hash-prefix>/<manifest_hash>.aos`: worker/system cache; evictable except pinned hashes.
+- `var/manifests/<tenant_id>/<adapter_name>-<version>.json`: resolved manifest snapshots.
+- `var/models/<model-name>/...`: MLX model roots (point `AOS_MLX_FFI_MODEL` here).
 ### Register LoRA Adapters
 
 ```bash
@@ -518,16 +525,10 @@ AdapterOS v0.3-alpha includes:
 - **REST API**: See [docs/control-plane.md](docs/control-plane.md) - includes hot-swap endpoints like `POST /v1/adapter-stacks/{id}/activate` for zero-downtime stack swaps
 - **CLI Commands**: See [crates/adapteros-cli/docs/aosctl_manual.md](crates/adapteros-cli/docs/aosctl_manual.md)
 
-### Web UI Ports
+### Web UI Ports / Boot Entrypoint
 
-The Web UI can be started in different modes with different ports:
-
-| Script | Port | Description |
-|--------|------|-------------|
-| `./launch.sh` | 3200 | Production-style launcher (unified startup) |
-| `scripts/start.sh` | 5173 | Vite development server (hot reload) |
-
-Both are valid startup methods - `launch.sh` is recommended for quick demos while `scripts/start.sh` is better for UI development with live reloading.
+- Canonical boot: `./start` (backend + UI via `scripts/service-manager.sh`), UI on port 3200 by default with health waits and drift checks.
+- Legacy launchers (`launch.sh`, `scripts/run_complete_system.sh`, `scripts/start.sh`) are deprecated; they prompt/redirect or should be avoided. Menu bar helper is optional and currently not maintained.
 
 ---
 
@@ -569,23 +570,15 @@ cargo bench
 
 ## 🗺️ Roadmap & Vision
 
-### **Current Development Focus**
-- **Training Pipeline**: Complete dataset management and LoRA fine-tuning
-- **Federation System**: Cross-node adapter synchronization and consensus
-- **Advanced UI**: Real-time monitoring dashboard and adapter management
-- **Production Hardening**: Service mesh integration and zero-downtime deployments
+### **Current Development Focus** (Updated 2025-12-06)
+- Roadmap below is superseded; current priorities are tracked in the project board and docs runtime guides.
+- Active themes: unified `./start` boot path and guardrails, determinism/regression coverage, policy enforcement wiring, production hardening (egress/tenant isolation), and training pipeline/registry cleanup.
 
-### **Long-term Vision**
-- **Multi-Modal Support**: Vision, audio, and multi-modal adapters
-- **Distributed Training**: Federated learning across edge devices
-- **Auto-Scaling**: Dynamic adapter deployment based on demand
-- **Model Marketplace**: Decentralized adapter sharing and monetization
+### **Long-term Vision** (Aspirational)
+- Multi-modal support (vision/audio), distributed training, auto-scaling, decentralized adapter sharing/marketplace.
 
-### **Community & Ecosystem**
-- **Plugin System**: Third-party adapter development framework
-- **Integration APIs**: REST, GraphQL, and WebSocket interfaces
-- **Documentation**: Interactive tutorials and video guides
-- **Tooling**: IDE integrations and development utilities
+### **Community & Ecosystem** (Aspirational)
+- Plugin system, integration APIs, richer docs/tutorials, IDE/tooling integrations.
 
 ---
 

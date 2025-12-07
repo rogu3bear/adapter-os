@@ -334,3 +334,29 @@ All backend infrastructure is complete and properly integrated with UI component
 - Dataset validation surfaced from T1: status `valid|pending|invalid` + reason on start and monitor screens.
 - Monitor: move from polling to SSE when ready; show phases, timestamps, adapter artifact link (to U3), clear error reasons (dataset invalid, worker error, policy block).
 
+## Route ↔ Domain Alignment (2025-12-06)
+
+| Route | Domain Tables | Status |
+|-------|---------------|--------|
+| `/dashboard` | `inference_executions`, `adapter_activations`, `system_nodes`/`worker_heartbeats`, `chat_sessions` | ✅ |
+| `/inference` | `inference_executions` (via `/v1/inference/execute` or `/v1/router/route`, always writing `stack_id` + `tenant_id`) | ✅ |
+| `/chat` | `chat_sessions`, `chat_messages`, `chat_provenance`, `chat_sessions.source_type='general'` | ✅ |
+| `/documents` | `collections`, `documents`, `document_chunks` (read-only projection) | ✅ |
+| `/documents/:documentId/chat` | `chat_sessions` (`document_id` + `collection_id` bound), `chat_messages`, `source_type='document'` | ✅ |
+| `/code-intelligence` | `telemetry_events` lens with `source_type='code_intelligence'` (redirects to `/telemetry/viewer?source_type=code_intelligence`) | 🧪 |
+| `/router-config` | `router_configs` (+ `router_rules` if present) | ✅ |
+| `/routing` | Read-only `router_decisions` / `routing_events` (no config mutation) | ✅ |
+| `/metrics` and `/reports` | `metrics_aggregates`, `timeseries_metrics` (`/reports` is an alias) | ✅ |
+| `/monitoring`, `/system*` | `system_nodes`, `system_workers`, `node_heartbeats`, `resource_usage` | ✅ |
+| `/telemetry*` | `telemetry_events` | ✅ |
+| `/security/policies` | `guardrail_policies`, `policy_versions` | ✅ |
+| `/security/audit` | `audit_logs` | ✅ |
+| `/security/compliance` | `compliance_artifacts` | 🧪 |
+| `/testing` | `test_suites`, `test_cases` | 🧪 |
+| `/golden` | `golden_examples` | 🧪 |
+| `/replay` | `replay_runs`, `replay_events` | ✅ |
+
+- `/reports` remains a strict alias of `/metrics` (no distinct tables).
+- `/routing` stays read-only; configuration changes belong to `/router-config`.
+
+MLNavigator Inc 2025-12-06.

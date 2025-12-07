@@ -270,7 +270,7 @@ When training a new adapter:
 All methods are in `crates/adapteros-db/src/chat_sessions.rs`:
 
 - `create_chat_session(params)` - Create new session
-- `list_chat_sessions(tenant_id, user_id, limit)` - List sessions
+- `list_chat_sessions(tenant_id, user_id, source_type, document_id, limit)` - List sessions
 - `get_chat_session(session_id)` - Get single session
 - `update_session_activity(session_id)` - Update last_activity_at
 - `add_chat_message(params)` - Add message to session

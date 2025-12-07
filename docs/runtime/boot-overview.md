@@ -14,20 +14,27 @@ This document provides a comprehensive overview of AdapterOS boot infrastructure
 
 ### Current Boot Paths
 
-**Primary Boot Script:**
-- `scripts/run_complete_system.sh` - Complete system startup (API + UI)
-  - System requirements check (Apple Silicon, memory, macOS version)
-  - Model verification
-  - Database initialization via `adapteros-orchestrator db migrate`
-  - Port conflict detection
-  - API server start (`cargo run -p adapteros-server-api`)
-  - UI server start (`pnpm dev` in ui/)
+**Primary Boot Script (Canonical):**
+- `./start` — single supported entrypoint (delegates to `scripts/service-manager.sh`)
+  - Port conflict detection with freeze guard
+  - Backend start via service manager (drift checks enforced; worker optional)
+  - Health waits for backend/UI before reporting ready
+  - UI dev server start (`pnpm dev` in `ui/`)
+  - Menu bar helper is non-essential and currently not maintained; `./start` does not require it
+  - Worker is optional; started if binary + manifest are present
+  - No orchestrator migrate call; control plane migrations run internally
 
-**Secondary Scripts:**
-- `bootstrap.sh` - Basic manual service start (deprecated pattern)
-  - PostgreSQL start
-  - Manual binary execution
-  - Legacy PID file management
+**How `./start` is implemented:**
+- `scripts/service-manager.sh` is the implementation behind `./start`
+  - Reuses the same port guard and drift-check gating; no parallel boot path
+  - Starts backend/UI; worker remains optional and only runs if binaries + manifest exist
+  - Stop/status flows share the same PID/health tracking as `./start`
+
+**Legacy Scripts (opt-in only):**
+- `scripts/run_complete_system.sh` — deprecated shim; now prompts and defaults to **No** before delegating to `./start`
+- `scripts/bootstrap_integration_test.sh` — legacy bootstrap harness; deprecated, guarded by prompt
+- `scripts/bootstrap_with_checkpoints.sh` — legacy resumable bootstrap; deprecated, guarded by prompt
+  - Use only if `./start` is blocked and you explicitly need the legacy flow
 
 ### Binary Entry Points
 
@@ -371,23 +378,33 @@ async fn drain_middleware(
 
 ## 6. CLI Commands
 
-### Boot Commands
+### Boot Commands (canonical)
 
 ```bash
-# Start full system (API + UI)
-./scripts/run_complete_system.sh
+# Start full system (API + UI) with health waits and drift checks
+./start
 
-# Start API only
-./scripts/run_complete_system.sh --no-ui
+# Backend only (UI skipped, worker optional)
+./start backend
 
-# Pre-flight check
-aosctl preflight
+# Status and shutdown
+./start status
+./start down
 
-# Start with explicit mode
+# Pre-flight checks without starting services
+./start preflight
+```
+
+### Advanced / Manual (bypasses guardrails)
+
+```bash
+# Manual server start (bypasses ./start health waits; debugging only)
 AOS_RUNTIME_MODE=prod cargo run -p adapteros-server-api
 
-# Database migration
-aosctl db migrate
+# Legacy scripts (deprecated; guarded by prompts, default No)
+./scripts/run_complete_system.sh          # redirects to ./start
+./scripts/bootstrap_integration_test.sh   # legacy harness
+./scripts/bootstrap_with_checkpoints.sh   # legacy resumable bootstrap
 ```
 
 ### Shutdown Commands
@@ -458,9 +475,9 @@ aosctl status
 ### Boot Scripts
 
 **Duplicates Found:**
-- `scripts/run_complete_system.sh` vs. `bootstrap.sh`
-  - **Resolution:** Use `run_complete_system.sh` (comprehensive checks)
-  - **Action:** Mark `bootstrap.sh` as deprecated
+- `./start` vs. legacy boot scripts
+  - **Resolution:** `./start` is the single endorsed entrypoint; legacy scripts only with explicit opt-in
+  - **Action:** Legacy scripts now emit a deprecation banner and prompt (default No) before continuing
 
 ### Configuration Loading
 
@@ -507,11 +524,10 @@ aosctl status
 
 ### End-to-End Tests
 
-**Full Boot:**
-- `tests/e2e/complete_boot.rs`
-- Run `run_complete_system.sh`
-- Verify API and UI are accessible
-- Test inference request flow
+**Dev Boot (canonical):**
+- `tests/dev_boot.rs`
+- Runs `./start help` and `./start status` to ensure the unified entrypoint is reachable
+- Legacy scripts are intentionally not exercised here
 
 ---
 
@@ -527,3 +543,5 @@ aosctl status
 
 **Last Reviewed:** 2025-11-25
 **Next Review:** 2026-02-25 (quarterly)
+
+MLNavigator Inc 2025-12-06.

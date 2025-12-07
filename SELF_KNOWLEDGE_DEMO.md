@@ -23,7 +23,7 @@ export DATABASE_URL=sqlite://var/aos-cp.sqlite3
 export AOS_TOKENIZER_PATH=models/qwen2.5-7b-instruct-4bit-mlx/tokenizer.json
 ./aosctl train-docs \
   --docs-dir ./docs \
-  --output ./adapters/docs-assistant \
+  --output var/adapters/docs-assistant \
   --revision r003 \
   --auto-activate \
   --rank 16 \
@@ -208,7 +208,7 @@ Expected: List of all 24 canonical policies organized by category (Security, Qua
 
 | File | Status | Purpose |
 |------|--------|---------|
-| `adapters/docs-assistant/` | Created | Trained adapter weights and metadata |
+| `var/adapters/docs-assistant/` | Created | Trained adapter weights and metadata |
 | `golden_runs/` | Initialized | Golden run baselines directory |
 | `SELF_KNOWLEDGE_DEMO.md` | Created | This documentation file |
 

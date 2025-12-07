@@ -57,12 +57,6 @@ infra-check: ## Run infrastructure health checks (prevents rectification issues)
 security-audit: ## Run comprehensive security audit (vulnerabilities, licenses, SBOM)
 	bash scripts/security_audit.sh
 
-sbom: ## Generate Software Bill of Materials
-	@mkdir -p var/security
-	@echo "Generating SBOM..."
-	@cargo tree > var/security/sbom-$(shell date +%Y%m%d-%H%M%S).txt
-	@echo "✅ SBOM generated in var/security/"
-
 license-check: ## Check dependency license compliance
 	@cargo install cargo-license --quiet 2>/dev/null || true
 	@cargo license --json > var/security/licenses-$(shell date +%Y%m%d-%H%M%S).json
@@ -176,9 +170,20 @@ ifeq ($(PROFILE),release)
 	cargo test --release -p adapteros-lora-router --test determinism
 endif
 
+KV_VERIFY_DB ?= ./var/aos-cp.sqlite3
+KV_VERIFY_KV ?= ./var/aos-kv.redb
+KV_VERIFY_DOMAINS ?= adapters,tenants,stacks,plans,auth_sessions,runtime_sessions,rag_artifacts,policy_audit,training_jobs,chat_sessions
+
 # KV drift verification (CI-friendly)
 kv-verify: ## Run SQL↔KV drift verification (fails on drift, no repair)
-	cargo run -p adapteros-cli -- storage verify --json --domains adapters,tenants,stacks,plans,auth_sessions,runtime_sessions,rag_artifacts --fail-on-drift
+	mkdir -p $(dir $(KV_VERIFY_DB)) $(dir $(KV_VERIFY_KV))
+	cargo run -p adapteros-cli -- db migrate --db-path $(KV_VERIFY_DB)
+	cargo run -p adapteros-cli -- storage migrate --db-path $(KV_VERIFY_DB) --kv-path $(KV_VERIFY_KV) --domains $(KV_VERIFY_DOMAINS) --batch-size 200 --force
+	@if [ -n "$(KV_VERIFY_OUT)" ]; then \
+		cargo run -p adapteros-cli -- storage verify --json --db-path $(KV_VERIFY_DB) --kv-path $(KV_VERIFY_KV) --domains $(KV_VERIFY_DOMAINS) --fail-on-drift > $(KV_VERIFY_OUT); \
+	else \
+		cargo run -p adapteros-cli -- storage verify --json --db-path $(KV_VERIFY_DB) --kv-path $(KV_VERIFY_KV) --domains $(KV_VERIFY_DOMAINS) --fail-on-drift; \
+	fi
 
 # CI Integration: Add to test job after cargo test:
 # make determinism-check || exit 1

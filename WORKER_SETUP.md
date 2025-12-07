@@ -15,7 +15,7 @@
 
 3. **32B Model Configuration**
    - Default manifest: `manifests/qwen32b-coder-mlx.yaml`
-   - Default model: `var/model-cache/models/qwen2.5-coder-32b-instruct-bf16`
+   - Default model: `var/models/Qwen2.5-7B-Instruct-4bit`
    - Auto-detects tokenizer path
 
 4. **Health Checks**
@@ -46,10 +46,10 @@ You can override defaults:
 
 ```bash
 export AOS_WORKER_MANIFEST=manifests/qwen32b-coder-mlx.yaml
-export AOS_MODEL_PATH=./var/model-cache/models/qwen2.5-coder-32b-instruct-bf16
+export AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit
 export AOS_WORKER_SOCKET=./var/run/worker.sock
 export AOS_MODEL_BACKEND=mlx
-export AOS_TOKENIZER_PATH=./var/model-cache/models/qwen2.5-coder-32b-instruct-bf16/tokenizer.json
+export AOS_TOKENIZER_PATH=./var/models/Qwen2.5-7B-Instruct-4bit/tokenizer.json
 ```
 
 ## 🚀 Usage
@@ -76,3 +76,4 @@ scripts/service-manager.sh stop worker
 - 32B model takes 1-2 minutes to load
 - Socket created at: `var/run/worker.sock`
 - Logs: `var/logs/worker.log`
+MLNavigator Inc 2025-12-07.

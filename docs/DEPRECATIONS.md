@@ -10,9 +10,9 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
 ## Shell Scripts (Root)
 
 - `service-manager.sh`  
-  - Status: **DEPRECATED**  
-  - Replacement: `aos` (Rust) for local service control and `aosctl` (Rust) for system/cluster operations once available.  
-  - Notes: Existing behavior is presently wired via `aos-launch` and root `./aos`.  
+  - Status: **DEPRECATED for direct use** (still used internally by `./start`)  
+  - Replacement: Use `./start` (delegates to this script) or the upcoming `aos`/`aosctl` CLIs for managed workflows.  
+  - Notes: Not a parallel boot path; `./start` is the canonical entrypoint and reuses this implementation.  
   - Sources: `[source: aos L1-L220]`
 
 - `launch.sh` (root)  
@@ -38,6 +38,24 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
     - `aosctl` (cluster-aware operations, DB, and maintenance tasks)  
   - Notes: New behavior should not be added here; instead, extend the Rust CLIs.  
   - Sources: `[source: aos L1-L220]`
+
+- `scripts/run_complete_system.sh`  
+  - Status: **DEPRECATED (shim)**  
+  - Replacement: `./start`  
+  - Notes: Emits a deprecation banner and 15s prompt (default No) before redirecting to `./start`. Only use if explicitly testing the legacy flow.  
+  - Sources: `[source: scripts/run_complete_system.sh L1-L17]`
+
+- `scripts/bootstrap_integration_test.sh`  
+  - Status: **DEPRECATED**  
+  - Replacement: `./start`  
+  - Notes: Legacy bootstrap harness; now guarded by a 15s prompt (default No). Prefer `./start` for all boot validation.  
+  - Sources: `[source: scripts/bootstrap_integration_test.sh L1-L20]`
+
+- `scripts/bootstrap_with_checkpoints.sh`  
+  - Status: **DEPRECATED**  
+  - Replacement: `./start`  
+  - Notes: Legacy resumable bootstrap; now guarded by a 15s prompt (default No). Prefer `./start`.  
+  - Sources: `[source: scripts/bootstrap_with_checkpoints.sh L1-L20]`
 
 - `scripts/migrate.sh`  
   - Status: **DEPRECATED**  
@@ -282,3 +300,5 @@ As of 2025-01-16, all verify commands have been consolidated into a unified `aos
 - `aosctl federation-verify --bundle-dir <dir>` → `aosctl verify federation --bundle-dir <dir>`
 
 **Note:** The old standalone commands have been removed. Update scripts and CI workflows to use the new subcommand structure.
+
+MLNavigator Inc 2025-12-06.

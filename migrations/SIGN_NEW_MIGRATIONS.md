@@ -58,6 +58,10 @@ cargo test -p adapteros-db test_all_root_migrations_have_signatures
 cargo test -p adapteros-db migration_conflict_summary
 ```
 
+## Local escape hatch
+
+For local debugging only, you may set `AOS_SKIP_MIGRATION_SIGNATURES=1` to temporarily bypass verification. Do **not** use this flag in CI, release builds, or any shared environment.
+
 ## Critical
 
 **DO NOT deploy these migrations to production until they are properly signed.**
@@ -68,3 +72,4 @@ The migration verification system will reject unsigned migrations when `require_
 
 **Maintained by:** James KC Auchterlonie
 **Sign Before:** Production deployment
+MLNavigator Inc 2025-12-07.

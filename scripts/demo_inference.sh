@@ -74,11 +74,13 @@ fi
 echo "${GREEN}✅ Database ready${NC}"
 
 echo "Checking for adapters..."
-ADAPTER_COUNT=$(find adapters -name "*.aos" 2>/dev/null | wc -l | tr -d ' ')
+ADAPTERS_DIR="${AOS_ADAPTERS_DIR:-var/adapters}"
+mkdir -p "${ADAPTERS_DIR}"
+ADAPTER_COUNT=$(find "${ADAPTERS_DIR}" -name "*.aos" 2>/dev/null | wc -l | tr -d ' ')
 if [ "$ADAPTER_COUNT" -eq 0 ]; then
     echo "${YELLOW}⚠️  No adapters found, creating samples...${NC}"
-    python3 scripts/create_aos_adapter.py --name code-assistant --output adapters/code-assistant.aos
-    python3 scripts/create_aos_adapter.py --name creative-writer --output adapters/creative-writer.aos
+    python3 scripts/create_aos_adapter.py --name code-assistant --output "${ADAPTERS_DIR}/code-assistant.aos"
+    python3 scripts/create_aos_adapter.py --name creative-writer --output "${ADAPTERS_DIR}/creative-writer.aos"
 fi
 echo "${GREEN}✅ Found $ADAPTER_COUNT adapter(s)${NC}"
 

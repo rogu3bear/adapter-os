@@ -92,6 +92,20 @@ DATABASE_URL=postgresql://adapteros_admin:admin-password@localhost:5432/adaptero
 - CI/CD integration for credential rotation
 - Connection string validation to enforce user separation
 
+## KV Tenant Isolation Scan (v1)
+
+- The control plane now runs a deterministic KV vs SQL tenant isolation scan on hot tables (`tenants_kv`, `messages_kv`, `policy_audit_kv`) and compares tenant-bearing fields to SQL ground truth.
+- Scans are read-only, ordered deterministically, and emit policy-audit evidence when cross-tenant issues are found. Evidence includes sample findings per tenant.
+- Default cadence is scheduled (configurable via `AOS_KV_ISOLATION_SCAN_SECS`); sampling, max findings, and hash seed are configurable via `AOS_KV_ISOLATION_SAMPLE_RATE`, `AOS_KV_ISOLATION_MAX_FINDINGS`, and `AOS_KV_ISOLATION_HASH_SEED`.
+- Admin API endpoints:
+  - `GET /v1/storage/kv-isolation/health` for the latest snapshot.
+  - `POST /v1/storage/kv-isolation/scan` to trigger a scan on demand.
+- CLI shortcuts:
+  - `aosctl storage kv-isolation-health --server-url ... [--token ...]`
+  - `aosctl storage kv-isolation-scan --server-url ... [--token ...] [--sample-rate ...] [--max-findings ...] [--hash-seed ...]`
+
+MLNavigator Inc 2025-12-05.
+
 ## References
 
 - PostgreSQL User Management: https://www.postgresql.org/docs/current/user-manag.html

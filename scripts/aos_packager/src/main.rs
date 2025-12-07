@@ -3,11 +3,10 @@ use blake3::Hasher;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
-use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use safetensors::SafeTensors;
 
@@ -51,6 +50,10 @@ struct TrainingConfig {
     hidden_dim: u32,
     dropout: Option<f32>,
     weight_decay: Option<f32>,
+}
+
+fn adapters_output_base() -> PathBuf {
+    adapteros_core::paths::get_default_adapters_root()
 }
 
 /// SafeTensors header structure
@@ -109,7 +112,7 @@ fn canonical_layer_id(tensor_name: &str) -> String {
             continue;
         }
 
-        if (lower == "layers" || lower == "layer") {
+        if lower == "layers" || lower == "layer" {
             if let Some(next) = iter.peek() {
                 if let Ok(idx) = next.parse::<usize>() {
                     segments.push(format!("layer_{}", idx));
@@ -149,7 +152,7 @@ fn compute_per_layer_hashes(weights_data: &[u8]) -> Result<HashMap<String, Layer
 
     let mut hashes = HashMap::new();
     for (name, tensor) in tensors.tensors() {
-        let canonical = canonical_layer_id(name);
+        let canonical = canonical_layer_id(&name);
         let hash = blake3_hash(tensor.data());
 
         if hashes
@@ -625,10 +628,12 @@ fn main() -> Result<()> {
             println!("  ✅ Unique semantic IDs");
             println!();
 
+            let output_base = adapters_output_base();
+
             // Package code-assistant
             package_adapter(
                 Path::new("adapters/code_lang_v1"),
-                Path::new("adapters/code-assistant.aos"),
+                &output_base.join("code-assistant.aos"),
                 "default/code/assistant/r001",
                 "Code Assistant",
                 "code",
@@ -639,7 +644,7 @@ fn main() -> Result<()> {
             // Package readme-writer
             package_adapter(
                 Path::new("adapters/README_adapter"),
-                Path::new("adapters/readme-writer.aos"),
+                &output_base.join("readme-writer.aos"),
                 "default/documentation/readme-writer/r001",
                 "README Writer",
                 "documentation",
@@ -648,12 +653,12 @@ fn main() -> Result<()> {
             )?;
 
             // Create and package creative-writer
-            let creative_dir = Path::new("adapters/creative_writer");
-            create_creative_adapter(Path::new("adapters/code_lang_v1"), creative_dir)?;
+            let creative_dir = output_base.join("creative_writer");
+            create_creative_adapter(Path::new("adapters/code_lang_v1"), &creative_dir)?;
 
             package_adapter(
-                creative_dir,
-                Path::new("adapters/creative-writer.aos"),
+                &creative_dir,
+                &output_base.join("creative-writer.aos"),
                 "default/creative/story-writer/r001",
                 "Creative Writer",
                 "creative",
@@ -673,4 +678,37 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adapteros_core::paths::AOS_ADAPTERS_DIR_ENV;
+    use serial_test::serial;
+    use std::path::PathBuf;
+
+    #[test]
+    #[serial]
+    fn adapters_base_prefers_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var(AOS_ADAPTERS_DIR_ENV, tmp.path());
+
+        let base = adapters_output_base();
+        assert!(
+            base.starts_with(tmp.path()),
+            "expected {} to start with {}",
+            base.display(),
+            tmp.path().display()
+        );
+
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+    }
+
+    #[test]
+    #[serial]
+    fn adapters_base_defaults_to_var() {
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+        let base = adapters_output_base();
+        assert_eq!(base, PathBuf::from("var").join("adapters"));
+    }
 }

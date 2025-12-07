@@ -8,11 +8,7 @@ final class StatusReaderTests: XCTestCase {
         """.data(using: .utf8)!
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         FileManager.default.createFile(atPath: tmp.path, contents: json)
-<<<<<<< HEAD
         let reader = StatusReader(filePaths: [tmp.path])
-=======
-        let reader = StatusReader(filePath: tmp.path)
->>>>>>> integration-branch
         let result = await reader.readNow()
         switch result {
         case .success(let tuple):
@@ -28,23 +24,13 @@ final class StatusReaderTests: XCTestCase {
         """.data(using: .utf8)!
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         FileManager.default.createFile(atPath: tmp.path, contents: json)
-<<<<<<< HEAD
         let reader = StatusReader(filePaths: [tmp.path])
-=======
-        let reader = StatusReader(filePath: tmp.path)
->>>>>>> integration-branch
         let result = await reader.readNow()
         if case .success(let tuple) = result { XCTAssertEqual(tuple.0.status, "degraded") } else { XCTFail("Expected success") }
     }
 
     func testMissingFileMapsToError() async throws {
-<<<<<<< HEAD
         let reader = StatusReader(filePaths: ["/path/does/not/exist.json"])
-        let result = await reader.readNow()
-        if case .failure(let err) = result { XCTAssertEqual(err, .fileMissing) } else { XCTFail("Expected fileMissing") }
-    }
-
-    func testSchemaVersionSupport() async throws {
         let json = """
         {"schema_version":"1.0","status":"ok","uptime_secs":100,"adapters_loaded":2,"deterministic":true,"kernel_hash":"abcd1234","telemetry_mode":"local","worker_count":1,"base_model_loaded":true,"base_model_id":"qwen2.5-7b","base_model_name":"Qwen 2.5 7B","base_model_status":"ready","base_model_memory_mb":14336}
         """.data(using: .utf8)!

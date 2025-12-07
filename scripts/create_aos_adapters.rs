@@ -12,8 +12,11 @@
 //! chrono = "0.4"
 //! anyhow = "1.0"
 //! clap = { version = "4.0", features = ["derive"] }
+//! adapteros-core = { path = "crates/adapteros-core" }
+//! tempfile = "3.8"
 //! ```
 
+use adapteros_core::paths::get_default_adapters_root;
 use anyhow::{Context, Result};
 use blake3::Hasher;
 use chrono::Utc;
@@ -93,6 +96,33 @@ fn generate_keypair() -> Keypair {
 fn sign_data(keypair: &Keypair, data: &[u8]) -> String {
     let signature: Signature = keypair.sign(data);
     hex::encode(signature.to_bytes())
+}
+
+fn adapters_output_base() -> PathBuf {
+    get_default_adapters_root()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adapteros_core::paths::AOS_ADAPTERS_DIR_ENV;
+    use tempfile::tempdir;
+
+    #[test]
+    fn adapters_base_prefers_env() {
+        let tmp = tempdir().unwrap();
+        std::env::set_var(AOS_ADAPTERS_DIR_ENV, tmp.path());
+        let base = adapters_output_base();
+        assert!(base.starts_with(tmp.path()));
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+    }
+
+    #[test]
+    fn adapters_base_defaults_to_var() {
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+        let base = adapters_output_base();
+        assert_eq!(base, PathBuf::from("var").join("adapters"));
+    }
 }
 
 /// Package adapter into AOS 2.0 format
@@ -353,10 +383,12 @@ fn main() -> Result<()> {
             }
             println!();
 
+            let output_base = adapters_output_base();
+
             // Package code-assistant
             package_adapter(
                 Path::new("adapters/code_lang_v1"),
-                Path::new("adapters/code-assistant.aos"),
+                &output_base.join("code-assistant.aos"),
                 "default/code/assistant/r001",
                 "Code Assistant",
                 "code",
@@ -367,7 +399,7 @@ fn main() -> Result<()> {
             // Package readme-writer
             package_adapter(
                 Path::new("adapters/README_adapter"),
-                Path::new("adapters/readme-writer.aos"),
+                &output_base.join("readme-writer.aos"),
                 "default/documentation/readme-writer/r001",
                 "README Writer",
                 "documentation",
@@ -376,17 +408,17 @@ fn main() -> Result<()> {
             )?;
 
             // Create and package creative-writer
-            let creative_dir = Path::new("adapters/creative_writer");
+            let creative_dir = output_base.join("creative_writer");
             if !creative_dir.exists() {
                 create_creative_adapter(
                     Path::new("adapters/code_lang_v1"),
-                    creative_dir,
+                    &creative_dir,
                 )?;
             }
 
             package_adapter(
-                creative_dir,
-                Path::new("adapters/creative-writer.aos"),
+                &creative_dir,
+                &output_base.join("creative-writer.aos"),
                 "default/creative/story-writer/r001",
                 "Creative Writer",
                 "creative",

@@ -28,6 +28,7 @@ source scripts/lib/freeze-guard.sh
 : "${AOS_SERVER_PORT:=8080}"
 : "${AOS_UI_PORT:=3200}"
 : "${AOS_VAR_DIR:=var}"
+: "${SKIP_WORKER:=0}"
 
 # Animation characters
 SPINNER_CHARS="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -298,6 +299,13 @@ Environment:
   AOS_SERVER_PORT   Backend API port (default: 8080)
   AOS_UI_PORT       UI server port (default: 3200)
   AOS_VAR_DIR       Runtime data directory (default: var)
+
+Worker options (flags or env):
+  --worker-backend <mlx|metal|coreml>   (or AOS_MODEL_BACKEND)
+  --worker-manifest <path>              (or AOS_WORKER_MANIFEST)
+  --worker-model <path>                 (or AOS_MODEL_PATH)
+  --worker-tokenizer <path>             (or AOS_TOKENIZER_PATH)
+  --skip-worker                         Skip worker startup
 
 EOF
 }
@@ -574,7 +582,9 @@ start_all() {
     
     # Start worker (optional, won't fail if missing)
     print_step "running" "Starting Inference Worker..."
-    if scripts/service-manager.sh start worker >/dev/null 2>&1; then
+    if [ "${SKIP_WORKER:-0}" = "1" ]; then
+        update_step "pending" "Worker          ${FG_YELLOW}SKIPPED${FG_RESET}  (requested via flag)"
+    elif scripts/service-manager.sh start worker >/dev/null 2>&1; then
         # Wait for socket
         local waited=0
         while [ $waited -lt 15 ]; do
@@ -709,6 +719,67 @@ do_shutdown() {
 # =============================================================================
 
 main() {
+    # Parse worker-related flags and strip them from positional args
+    local parsed_args=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --worker-backend)
+                if [ -n "${2:-}" ]; then
+                    export AOS_MODEL_BACKEND="$2"
+                    shift
+                fi
+                ;;
+            --worker-backend=*)
+                export AOS_MODEL_BACKEND="${1#*=}"
+                ;;
+            --worker-manifest)
+                if [ -n "${2:-}" ]; then
+                    export AOS_WORKER_MANIFEST="$2"
+                    shift
+                fi
+                ;;
+            --worker-manifest=*)
+                export AOS_WORKER_MANIFEST="${1#*=}"
+                ;;
+            --worker-model|--worker-model-path)
+                if [ -n "${2:-}" ]; then
+                    export AOS_MODEL_PATH="$2"
+                    shift
+                fi
+                ;;
+            --worker-model=*|--worker-model-path=*)
+                export AOS_MODEL_PATH="${1#*=}"
+                ;;
+            --worker-tokenizer)
+                if [ -n "${2:-}" ]; then
+                    export AOS_TOKENIZER_PATH="$2"
+                    shift
+                fi
+                ;;
+            --worker-tokenizer=*)
+                export AOS_TOKENIZER_PATH="${1#*=}"
+                ;;
+            --skip-worker|--no-worker)
+                SKIP_WORKER=1
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                parsed_args+=("$1")
+                ;;
+        esac
+        shift
+    done
+
+    while [ $# -gt 0 ]; do
+        parsed_args+=("$1")
+        shift
+    done
+
+    set -- "${parsed_args[@]}"
+
     local cmd="${1:-up}"
 
     case "$cmd" in

@@ -524,7 +524,7 @@ jwt_secret = "..."
 
 [paths]
 artifacts_root = "var/artifacts"
-adapters_root = "var/adapters"
+adapters_root = "var/adapters/repo"
 datasets_root = "var/datasets"
 documents_root = "var/documents"
 
@@ -572,23 +572,27 @@ enabled = false
 ### Standard Startup
 
 ```bash
-# 1. Initialize system (one-time)
-aosctl init --owner-email admin@company.com
+# Unified entrypoint (delegates to scripts/service-manager.sh)
+./start           # starts backend + UI, waits for health, worker optional
 
-# 2. Start worker (loads model, listens on socket)
-AOS_DEV_SKIP_METALLIB_CHECK=1 cargo run -p adapteros-lora-worker \
-  --bin aos-worker -- \
-  --manifest manifests/qwen7b-mlx.yaml \
-  --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16 \
-  --uds-path ./var/run/worker.sock
+# Backend only
+./start backend   # same backend path as service-manager, drift checks enforced
 
-# 3. Start control plane (HTTP server, connects to worker)
-AOS_WORKER_SOCKET=./var/run/worker.sock cargo run -p adapteros-server -- \
-  --config configs/cp.toml --single-writer
-
-# 4. Start UI (optional)
-cd ui && pnpm dev
+# Status / shutdown
+./start status
+./start down
 ```
+
+Notes:
+- Worker startup is optional; `./start` attempts it if binaries/manifests are present.
+- Health waits are performed for backend/UI before reporting ready.
+- No orchestrator migrate invocation; control plane handles migrations internally.
+
+### Legacy Scripts (opt-in only; default is NO)
+- `scripts/run_complete_system.sh` — deprecated shim; prompts (15s timeout, default No) before delegating to `./start`
+- `scripts/bootstrap_integration_test.sh` — deprecated harness; guarded by the same prompt
+- `scripts/bootstrap_with_checkpoints.sh` — deprecated resumable bootstrap; guarded by the same prompt
+- Use these only when `./start` cannot run and you explicitly need the legacy flow; they bypass modern guardrails and health waits.
 
 ### Production Deployment
 
@@ -632,4 +636,4 @@ sudo systemctl start aos-cp
 
 *Copyright JKCA | 2025 James KC Auchterlonie*
 
-MLNavigator Inc 2025-12-05.
+MLNavigator Inc 2025-12-06.

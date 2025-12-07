@@ -443,7 +443,7 @@ The frontend organizes routes into navigation groups for the sidebar menu:
 | GET | `/v1/monitoring/dashboards` | `handlers::list_process_monitoring_dashboards` | Yes | List dashboards |
 | POST | `/v1/monitoring/dashboards` | `handlers::create_process_monitoring_dashboard` | Yes | Create dashboard |
 | GET | `/v1/monitoring/health-metrics` | `handlers::list_process_health_metrics` | Yes | Health metrics |
-| GET | `/v1/monitoring/reports` | `handlers::list_process_monitoring_reports` | Yes | List reports |
+| GET | `/v1/monitoring/reports` | `handlers::list_process_monitoring_reports` | Yes | List reports (metrics alias) |
 | POST | `/v1/monitoring/reports` | `handlers::create_process_monitoring_report` | Yes | Create report |
 
 ### Replay Session Endpoints
@@ -818,3 +818,15 @@ None currently documented.
 - Backend routes: `/Users/star/Dev/aos/crates/adapteros-server-api/src/routes.rs`
 - Frontend routes: `/Users/star/Dev/aos/ui/src/config/routes.ts`
 - API client: `/Users/star/Dev/aos/ui/src/api/client.ts`
+
+### Recent Addenda (2025-12-07)
+
+- Chat `source_type` (server-enforced): `general` (default), `document` (requires `document_id`), `owner_system`, `training_job`, `cli`, `cli_prompt`. Validation errors return `VALIDATION_ERROR`; other chat errors use `FORBIDDEN`, `NOT_FOUND`, `DATABASE_ERROR`, or `INTERNAL_ERROR`. Listing filters support `source_type` + `document_id` only in those combinations.
+- Auth endpoints return explicit codes: `INVALID_CREDENTIALS`, `MFA_REQUIRED`, `MFA_NOT_INITIALIZED`, `MFA_NOT_ENABLED`, `MFA_CODE_REQUIRED`, `MFA_SECRET_MISSING`, `INVALID_MFA_CODE`, `ACCOUNT_LOCKED`, `ACCOUNT_DISABLED`, `SESSION_EXPIRED`, `SESSION_ERROR`, `UNAUTHORIZED`, `NO_TENANT_ACCESS`, `BOOTSTRAP_FORBIDDEN`, `DEV_BYPASS_DISABLED`, `DEV_BOOTSTRAP_DISABLED`, `TENANT_ALREADY_ACTIVE`, `TENANT_ACCESS_DENIED`, `WEAK_PASSWORD`, `DATABASE_ERROR`, `INTERNAL_ERROR`, `NOT_FOUND`, `USER_NOT_FOUND`. `admin_tenants` controls cross-tenant access (empty = own tenant only; `"*"` is dev-only via `AOS_DEV_NO_AUTH` debug bypass) and `/v1/auth/me` echoes claims directly when dev bypass is enabled.
+- Routing/inference codes follow `InferenceError`: `MODEL_NOT_READY`, `NO_COMPATIBLE_WORKER`, `BACKPRESSURE`, `PERMISSION_DENIED`, `RAG_ERROR`, `ROUTING_BYPASS`, `REQUEST_TIMEOUT`, `SERVICE_UNAVAILABLE`, `ADAPTER_NOT_FOUND`, plus handler-layer `POLICY_HOOK_VIOLATION`, `SERIALIZATION_ERROR`, `ROUTING_CHAIN_ERROR`, `DATABASE_ERROR`, `ACCESS_DENIED`, `ADAPTER_NOT_LOADABLE`, `APPROXIMATE_REPLAY_REQUIRED`, `VALIDATION_ERROR`, `NOT_FOUND`, `FORBIDDEN`. Errors are wrapped as `ApiErrorBody { code, message, detail?, request_id }`.
+- Model loading: `ModelLoadStatus` values are `no-model`, `loading`, `ready`, `unloading`, `error`, `checking`; router gate only allows `ready` (otherwise 503 `MODEL_NOT_READY`). Metrics: `adapteros_model_load_success_total`, `adapteros_model_load_failure_total`, `adapteros_model_unload_success_total`, `adapteros_model_unload_failure_total`, `adapteros_model_loaded`.
+- Routing decisions: optional `source_type` filter resolves via chat session `request_id`. `/code-intelligence` is a UI redirect to `/telemetry/viewer` that passes `source_type=code_intelligence`; it is not an allowed chat `source_type` unless inserted directly in the DB.
+- `/v1/auth/config` returns `access_token_ttl_minutes`, `session_timeout_minutes`, and other security fields; login/refresh set `csrf_token` (HttpOnly=false) alongside `auth_token`/`refresh_token` and logout clears all three. `/v1/monitoring/reports` is an alias over health metrics (tenant-scoped).
+- JWT rotation: access/refresh tokens emit a `kid`, accept additional verification keys (`jwt_additional_ed25519_public_keys`/`jwt_additional_hmac_secrets`), and fallback to the primary key when `kid` is absent. CLI auth (`aosctl auth login/logout/show`) stores token/tenant/base_url in `AuthStore` and never prints token material; tenant-mismatch warns for non-admin roles.
+
+MLNavigator Inc 2025-12-07.
