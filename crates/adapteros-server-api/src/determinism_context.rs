@@ -1,4 +1,4 @@
-use crate::errors::InferenceError;
+use crate::types::InferenceError;
 use crate::types::{InferenceRequestInternal, SamplingParams};
 use adapteros_core::{derive_request_seed, B3Hash, SeedMode};
 use adapteros_db::InferenceReplayMetadata;

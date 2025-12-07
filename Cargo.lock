@@ -1358,6 +1358,7 @@ dependencies = [
  "git2",
  "glob",
  "hex",
+ "hkdf",
  "hmac",
  "hostname",
  "httpdate",

@@ -2,7 +2,6 @@ use adapteros_cli::commands::train_docs::TrainDocsArgs;
 use adapteros_cli::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use adapteros_core::{adapter_fs_path_with_root, B3Hash};
 use adapteros_db::AdapterRegistrationBuilder;
-use adapteros_lora_worker::training::AdapterPackager;
 use tempfile::tempdir;
 use tokio::fs;
 
@@ -121,6 +120,5 @@ async fn train_docs_and_worker_path_align() {
         "packaged adapter bytes should be non-empty"
     );
 
-    let _packager = AdapterPackager::new(adapters_root.path());
 }
 
