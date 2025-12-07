@@ -10,6 +10,7 @@
 
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use tracing::warn;
 
 impl Db {
     /// Count active chat sessions (sessions with activity in the last 24 hours)
@@ -150,7 +151,8 @@ impl Db {
 
     /// Get adapter memory information for all active adapters
     pub async fn get_adapter_memory_info(&self) -> Result<Vec<AdapterMemoryInfo>> {
-        let adapters = sqlx::query_as::<_, AdapterMemoryInfo>(
+        // Primary query (newer schema)
+        let primary = sqlx::query_as::<_, AdapterMemoryInfo>(
             "SELECT a.adapter_id, a.name, a.rank, a.current_state,
                     COALESCE(a.last_access_at, a.created_at) as last_access,
                     COALESCE(a.access_count, 0) as access_count,
@@ -162,10 +164,53 @@ impl Db {
              ORDER BY a.current_state DESC, a.last_access_at DESC",
         )
         .fetch_all(self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to get adapter memory info: {}", e)))?;
+        .await;
 
-        Ok(adapters)
+        match primary {
+            Ok(adapters) => Ok(adapters),
+            Err(e) => {
+                let err_str = e.to_string();
+                let is_legacy_schema =
+                    err_str.contains("no such column") || err_str.contains("no such table");
+
+                if is_legacy_schema {
+                    // Fallback for older SQLite schemas that lack last_access_at/access_count/pinned tables.
+                    warn!(
+                        error = %e,
+                        "Falling back to legacy adapter memory query (schema missing columns)"
+                    );
+
+                    let fallback = sqlx::query_as::<_, AdapterMemoryInfo>(
+                        "SELECT a.adapter_id,
+                                a.name,
+                                a.rank,
+                                COALESCE(a.current_state, 'unknown') as current_state,
+                                a.created_at as last_access,
+                                0 as access_count,
+                                0 as pinned,
+                                a.category
+                         FROM adapters a
+                         WHERE a.active = 1
+                         ORDER BY a.current_state DESC, a.created_at DESC",
+                    )
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|fallback_err| {
+                        AosError::Database(format!(
+                            "Failed to get adapter memory info (legacy fallback): {}",
+                            fallback_err
+                        ))
+                    })?;
+
+                    Ok(fallback)
+                } else {
+                    Err(AosError::Database(format!(
+                        "Failed to get adapter memory info: {}",
+                        e
+                    )))
+                }
+            }
+        }
     }
 
     /// Get eviction candidates (adapters that could be evicted from memory)

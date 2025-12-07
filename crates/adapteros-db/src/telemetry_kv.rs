@@ -75,6 +75,7 @@ impl Db {
         })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn kv_bundle_from_record(bundle: &TelemetryBundle) -> TelemetryBundleKv {
         TelemetryBundleKv {
             id: bundle.id.clone(),

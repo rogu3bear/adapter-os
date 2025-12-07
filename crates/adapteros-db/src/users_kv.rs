@@ -104,6 +104,49 @@ pub trait UserKvOps {
     /// Update user disabled status
     async fn update_user_disabled_kv(&self, id: &str, disabled: bool) -> Result<()>;
 
+    /// Update user password hash and reset lockout counters
+    async fn update_user_password_kv(
+        &self,
+        id: &str,
+        pw_hash: &str,
+        failed_attempts: i64,
+    ) -> Result<()>;
+
+    /// Set (or replace) MFA secret and reset MFA state
+    async fn set_user_mfa_secret_kv(
+        &self,
+        id: &str,
+        secret_enc: &str,
+        enrolled_at: DateTime<Utc>,
+    ) -> Result<()>;
+
+    /// Enable MFA with backup codes
+    async fn enable_user_mfa_kv(
+        &self,
+        id: &str,
+        secret_enc: &str,
+        backup_codes_json: &str,
+        verified_at: DateTime<Utc>,
+    ) -> Result<()>;
+
+    /// Disable MFA and clear data
+    async fn disable_user_mfa_kv(&self, id: &str) -> Result<()>;
+
+    /// Update backup codes (e.g., mark code used)
+    async fn update_user_backup_codes_kv(
+        &self,
+        id: &str,
+        backup_codes_json: &str,
+        recovery_used_at: Option<DateTime<Utc>>,
+    ) -> Result<()>;
+
+    /// Record last MFA verification timestamp
+    async fn update_user_mfa_last_verified_kv(
+        &self,
+        id: &str,
+        verified_at: DateTime<Utc>,
+    ) -> Result<()>;
+
     /// Delete user (with cascade cleanup of indexes)
     async fn delete_user_kv(&self, id: &str) -> Result<bool>;
 }
@@ -154,6 +197,16 @@ impl<B: KvBackend> UserKvRepository<B> {
             Ok(None) => Ok(None),
             Err(e) => Err(AosError::Database(format!("Failed to get user: {}", e))),
         }
+    }
+
+    /// Internal helper: persist user back to KV without mutating indexes (non-index fields only).
+    async fn save_user(&self, user: &UserKv) -> Result<()> {
+        let key = UserKeys::user(&user.id);
+        let bytes = Self::serialize_user(user)?;
+        self.backend
+            .set(&key, bytes)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to save user: {}", e)))
     }
 
     /// Internal helper: update secondary indexes when creating/updating user
@@ -253,7 +306,16 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
             role,
             tenant_id: tenant_id.to_string(),
             disabled: false,
+            failed_attempts: 0,
+            last_failed_at: None,
+            lockout_until: None,
             created_at: Utc::now(),
+            mfa_enabled: false,
+            mfa_secret_enc: None,
+            mfa_backup_codes_json: None,
+            mfa_enrolled_at: None,
+            mfa_last_verified_at: None,
+            mfa_recovery_last_used_at: None,
         };
 
         // Store user entity
@@ -322,7 +384,16 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
             role,
             tenant_id: tenant_id.to_string(),
             disabled: false,
+            failed_attempts: 0,
+            last_failed_at: None,
+            lockout_until: None,
             created_at: Utc::now(),
+            mfa_enabled: false,
+            mfa_secret_enc: None,
+            mfa_backup_codes_json: None,
+            mfa_enrolled_at: None,
+            mfa_last_verified_at: None,
+            mfa_recovery_last_used_at: None,
         };
 
         // Store user entity
@@ -473,6 +544,121 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         Ok(())
     }
 
+    async fn update_user_password_kv(
+        &self,
+        id: &str,
+        pw_hash: &str,
+        failed_attempts: i64,
+    ) -> Result<()> {
+        // Get existing user
+        let key = UserKeys::user(id);
+        let bytes = self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get user: {}", e)))?
+            .ok_or_else(|| AosError::Database(format!("User not found: {}", id)))?;
+
+        let mut user = Self::deserialize_user(&bytes)?;
+        user.pw_hash = pw_hash.to_string();
+        user.failed_attempts = failed_attempts;
+        user.last_failed_at = None;
+        user.lockout_until = None;
+
+        let value = Self::serialize_user(&user)?;
+        self.backend
+            .set(&key, value)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update user password: {}", e)))?;
+
+        debug!(user_id = %id, "Updated user password in KV storage");
+
+        Ok(())
+    }
+
+    async fn set_user_mfa_secret_kv(
+        &self,
+        id: &str,
+        secret_enc: &str,
+        enrolled_at: DateTime<Utc>,
+    ) -> Result<()> {
+        let mut user = self
+            .get_user_with_pw_hash(id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("User not found: {}", id)))?;
+        user.mfa_secret_enc = Some(secret_enc.to_string());
+        user.mfa_enabled = false;
+        user.mfa_backup_codes_json = None;
+        user.mfa_enrolled_at = Some(enrolled_at);
+        user.mfa_last_verified_at = None;
+        user.mfa_recovery_last_used_at = None;
+        self.save_user(&user).await
+    }
+
+    async fn enable_user_mfa_kv(
+        &self,
+        id: &str,
+        secret_enc: &str,
+        backup_codes_json: &str,
+        verified_at: DateTime<Utc>,
+    ) -> Result<()> {
+        let mut user = self
+            .get_user_with_pw_hash(id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("User not found: {}", id)))?;
+        user.mfa_enabled = true;
+        user.mfa_secret_enc = Some(secret_enc.to_string());
+        user.mfa_backup_codes_json = Some(backup_codes_json.to_string());
+        user.mfa_last_verified_at = Some(verified_at);
+        if user.mfa_enrolled_at.is_none() {
+            user.mfa_enrolled_at = Some(verified_at);
+        }
+        user.mfa_recovery_last_used_at = None;
+        self.save_user(&user).await
+    }
+
+    async fn disable_user_mfa_kv(&self, id: &str) -> Result<()> {
+        let mut user = self
+            .get_user_with_pw_hash(id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("User not found: {}", id)))?;
+        user.mfa_enabled = false;
+        user.mfa_secret_enc = None;
+        user.mfa_backup_codes_json = None;
+        user.mfa_enrolled_at = None;
+        user.mfa_last_verified_at = None;
+        user.mfa_recovery_last_used_at = None;
+        self.save_user(&user).await
+    }
+
+    async fn update_user_backup_codes_kv(
+        &self,
+        id: &str,
+        backup_codes_json: &str,
+        recovery_used_at: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let mut user = self
+            .get_user_with_pw_hash(id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("User not found: {}", id)))?;
+        user.mfa_backup_codes_json = Some(backup_codes_json.to_string());
+        user.mfa_recovery_last_used_at = recovery_used_at;
+        self.save_user(&user).await
+    }
+
+    async fn update_user_mfa_last_verified_kv(
+        &self,
+        id: &str,
+        verified_at: DateTime<Utc>,
+    ) -> Result<()> {
+        let mut user = self
+            .get_user_with_pw_hash(id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("User not found: {}", id)))?;
+        user.mfa_last_verified_at = Some(verified_at);
+        self.save_user(&user).await
+    }
+
     async fn delete_user_kv(&self, id: &str) -> Result<bool> {
         // Get existing user to cleanup indexes
         let key = UserKeys::user(id);
@@ -507,6 +693,22 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
 
 /// Convert SQL User to KV UserKv
 pub fn user_to_kv(sql_user: &User) -> Result<UserKv> {
+    fn parse_optional_timestamp(ts: &Option<String>) -> Result<Option<DateTime<Utc>>> {
+        if let Some(value) = ts {
+            let parsed = DateTime::parse_from_rfc3339(value)
+                .or_else(|_| {
+                    chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
+                        .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
+                        .map(|dt| dt.into())
+                })
+                .map_err(|e| AosError::Parse(format!("Failed to parse timestamp: {}", e)))?
+                .with_timezone(&Utc);
+            Ok(Some(parsed))
+        } else {
+            Ok(None)
+        }
+    }
+
     // Parse role from string using storage Role type
     let role: Role = sql_user
         .role
@@ -532,7 +734,16 @@ pub fn user_to_kv(sql_user: &User) -> Result<UserKv> {
         role,
         tenant_id: sql_user.tenant_id.clone(),
         disabled: sql_user.disabled,
+        failed_attempts: sql_user.failed_attempts,
+        last_failed_at: parse_optional_timestamp(&sql_user.last_failed_at)?,
+        lockout_until: parse_optional_timestamp(&sql_user.lockout_until)?,
         created_at,
+        mfa_enabled: sql_user.mfa_enabled,
+        mfa_secret_enc: sql_user.mfa_secret_enc.clone(),
+        mfa_backup_codes_json: sql_user.mfa_backup_codes_json.clone(),
+        mfa_enrolled_at: parse_optional_timestamp(&sql_user.mfa_enrolled_at)?,
+        mfa_last_verified_at: parse_optional_timestamp(&sql_user.mfa_last_verified_at)?,
+        mfa_recovery_last_used_at: parse_optional_timestamp(&sql_user.mfa_recovery_last_used_at)?,
     })
 }
 
@@ -547,6 +758,21 @@ pub fn kv_to_user(kv_user: &UserKv) -> User {
         disabled: kv_user.disabled,
         created_at: kv_user.created_at.to_rfc3339(),
         tenant_id: kv_user.tenant_id.clone(),
+        failed_attempts: kv_user.failed_attempts,
+        last_failed_at: kv_user.last_failed_at.as_ref().map(|ts| ts.to_rfc3339()),
+        lockout_until: kv_user.lockout_until.as_ref().map(|ts| ts.to_rfc3339()),
+        mfa_enabled: kv_user.mfa_enabled,
+        mfa_secret_enc: kv_user.mfa_secret_enc.clone(),
+        mfa_backup_codes_json: kv_user.mfa_backup_codes_json.clone(),
+        mfa_enrolled_at: kv_user.mfa_enrolled_at.as_ref().map(|ts| ts.to_rfc3339()),
+        mfa_last_verified_at: kv_user
+            .mfa_last_verified_at
+            .as_ref()
+            .map(|ts| ts.to_rfc3339()),
+        mfa_recovery_last_used_at: kv_user
+            .mfa_recovery_last_used_at
+            .as_ref()
+            .map(|ts| ts.to_rfc3339()),
     }
 }
 
@@ -580,6 +806,15 @@ mod tests {
             disabled: false,
             created_at: "2025-01-01T00:00:00Z".to_string(),
             tenant_id: "tenant-1".to_string(),
+            failed_attempts: 0,
+            last_failed_at: None,
+            lockout_until: None,
+            mfa_enabled: false,
+            mfa_secret_enc: None,
+            mfa_backup_codes_json: None,
+            mfa_enrolled_at: None,
+            mfa_last_verified_at: None,
+            mfa_recovery_last_used_at: None,
         };
 
         let kv_user = user_to_kv(&sql_user).unwrap();

@@ -4,10 +4,12 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::env;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::adapters_kv::{AdapterKvOps, AdapterKvRepository};
+use crate::kv_metrics::global_kv_metrics;
 use adapteros_storage::repos::AdapterRepository;
 
 /// Standard adapter SELECT fields for all queries
@@ -645,6 +647,13 @@ impl Db {
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
         let mut sql_inserted = false;
+        let mut dual_write_completed = false;
+        let dual_write_timer =
+            if self.storage_mode().write_to_sql() && self.storage_mode().write_to_kv() {
+                Some(Instant::now())
+            } else {
+                None
+            };
 
         // Write to SQL when allowed by storage mode
         if self.storage_mode().write_to_sql() {
@@ -753,7 +762,14 @@ impl Db {
                     warn!(error = %e, adapter_id = %id, mode = "dual-write", "Failed to write adapter to KV backend");
                 }
             } else {
+                dual_write_completed = sql_inserted;
                 debug!(adapter_id = %id, tenant_id = %params.tenant_id, mode = "dual-write", "Adapter registered in both SQL and KV backends");
+            }
+        }
+
+        if dual_write_completed {
+            if let Some(start) = dual_write_timer {
+                global_kv_metrics().record_dual_write_lag(start.elapsed());
             }
         }
 

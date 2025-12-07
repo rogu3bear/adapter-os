@@ -128,7 +128,7 @@ impl DatabaseBackend for SqliteBackend {
                 description: r.3,
                 adapter_ids_json: r.4,
                 workflow_type: r.5,
-            version: r.6,
+                version: r.6,
                 lifecycle_state: r.7,
                 created_at: r.8,
                 updated_at: r.9,

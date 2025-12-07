@@ -905,7 +905,7 @@ mod tests {
         ];
 
         // Force same timestamp so tie-breaker uses id ASC
-        let ts = stacks[0].created_at;
+        let ts = Utc::now();
         stacks[0].created_at = ts;
         stacks[1].created_at = ts;
 

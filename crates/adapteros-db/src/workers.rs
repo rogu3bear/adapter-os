@@ -199,11 +199,12 @@ impl Db {
                 return Err(AosError::NotFound(format!("Worker not found: {}", id)));
             }
         } else {
-            let result = sqlx::query("UPDATE workers SET last_seen_at = datetime('now') WHERE id = ?")
-                .bind(id)
-                .execute(&*self.pool())
-                .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
+            let result =
+                sqlx::query("UPDATE workers SET last_seen_at = datetime('now') WHERE id = ?")
+                    .bind(id)
+                    .execute(&*self.pool())
+                    .await
+                    .map_err(|e| AosError::Database(e.to_string()))?;
 
             if result.rows_affected() == 0 {
                 return Err(AosError::NotFound(format!("Worker not found: {}", id)));

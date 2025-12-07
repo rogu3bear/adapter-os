@@ -65,7 +65,9 @@ impl CollectionKvRepository {
                 coll.id.as_bytes().to_vec(),
             )
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update collection name index: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to update collection name index: {}", e))
+            })?;
         Ok(())
     }
 
@@ -90,28 +92,30 @@ impl CollectionKvRepository {
 
     async fn append_collection_index(&self, tenant_id: &str, id: &str) -> Result<()> {
         let key = Self::collection_index_key(tenant_id);
-        let mut ids: Vec<String> = match self.backend.get(&key).await.map_err(|e| {
-            AosError::Database(format!("Failed to read collection index: {}", e))
-        })? {
-            Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
-            None => Vec::new(),
-        };
+        let mut ids: Vec<String> =
+            match self.backend.get(&key).await.map_err(|e| {
+                AosError::Database(format!("Failed to read collection index: {}", e))
+            })? {
+                Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
+                None => Vec::new(),
+            };
         if !ids.contains(&id.to_string()) {
             ids.push(id.to_string());
             let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-            self.backend
-                .set(&key, payload)
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to update collection index: {}", e)))?;
+            self.backend.set(&key, payload).await.map_err(|e| {
+                AosError::Database(format!("Failed to update collection index: {}", e))
+            })?;
         }
         Ok(())
     }
 
     async fn remove_collection_index(&self, tenant_id: &str, id: &str) -> Result<()> {
         let key = Self::collection_index_key(tenant_id);
-        if let Some(bytes) = self.backend.get(&key).await.map_err(|e| {
-            AosError::Database(format!("Failed to read collection index: {}", e))
-        })? {
+        if let Some(bytes) =
+            self.backend.get(&key).await.map_err(|e| {
+                AosError::Database(format!("Failed to read collection index: {}", e))
+            })?
+        {
             let mut ids: Vec<String> =
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             ids.retain(|v| v != id);
@@ -119,10 +123,9 @@ impl CollectionKvRepository {
                 let _ = self.backend.delete(&key).await;
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-                self.backend
-                    .set(&key, payload)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to update collection index: {}", e)))?;
+                self.backend.set(&key, payload).await.map_err(|e| {
+                    AosError::Database(format!("Failed to update collection index: {}", e))
+                })?;
             }
         }
         Ok(())
@@ -144,10 +147,9 @@ impl CollectionKvRepository {
         if !ids.contains(&collection_id.to_string()) {
             ids.push(collection_id.to_string());
             let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-            self.backend
-                .set(&key, payload)
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to update doc collection index: {}", e)))?;
+            self.backend.set(&key, payload).await.map_err(|e| {
+                AosError::Database(format!("Failed to update doc collection index: {}", e))
+            })?;
         }
         Ok(())
     }
@@ -169,10 +171,9 @@ impl CollectionKvRepository {
                 let _ = self.backend.delete(&key).await;
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-                self.backend
-                    .set(&key, payload)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to update doc collection index: {}", e)))?;
+                self.backend.set(&key, payload).await.map_err(|e| {
+                    AosError::Database(format!("Failed to update doc collection index: {}", e))
+                })?;
             }
         }
         Ok(())
@@ -191,7 +192,9 @@ impl CollectionKvRepository {
             .backend
             .get(&Self::name_index_key(tenant_id, name))
             .await
-            .map_err(|e| AosError::Database(format!("Failed to read collection name index: {}", e)))?
+            .map_err(|e| {
+                AosError::Database(format!("Failed to read collection name index: {}", e))
+            })?
             .is_some()
         {
             return Err(AosError::Database(format!(
@@ -223,7 +226,9 @@ impl CollectionKvRepository {
                 id.as_bytes().to_vec(),
             )
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update collection name index: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to update collection name index: {}", e))
+            })?;
         Ok(id.to_string())
     }
 
@@ -254,7 +259,9 @@ impl CollectionKvRepository {
             .backend
             .get(&Self::name_index_key(tenant_id, name))
             .await
-            .map_err(|e| AosError::Database(format!("Failed to read collection name index: {}", e)))?
+            .map_err(|e| {
+                AosError::Database(format!("Failed to read collection name index: {}", e))
+            })?
         else {
             return Ok(None);
         };
@@ -326,7 +333,9 @@ impl CollectionKvRepository {
                         id.as_bytes().to_vec(),
                     )
                     .await
-                    .map_err(|e| AosError::Database(format!("Failed to update name index: {}", e)))?;
+                    .map_err(|e| {
+                        AosError::Database(format!("Failed to update name index: {}", e))
+                    })?;
                 coll.name = new_name.to_string();
             }
         }
@@ -374,10 +383,7 @@ impl CollectionKvRepository {
         self.remove_collection_index(tenant_id, id).await?;
         let _ = self
             .backend
-            .delete(&Self::name_index_key(
-                tenant_id,
-                &format!("{}_removed", id),
-            ))
+            .delete(&Self::name_index_key(tenant_id, &format!("{}_removed", id)))
             .await;
         Ok(())
     }
@@ -485,11 +491,10 @@ impl CollectionKvRepository {
         collection_id: &str,
     ) -> Result<i64> {
         let prefix = format!("tenant/{}/collection/{}/doc/", tenant_id, collection_id);
-        let keys = self
-            .backend
-            .scan_prefix(&prefix)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to scan collection docs: {}", e)))?;
+        let keys =
+            self.backend.scan_prefix(&prefix).await.map_err(|e| {
+                AosError::Database(format!("Failed to scan collection docs: {}", e))
+            })?;
         Ok(keys.len() as i64)
     }
 
@@ -571,4 +576,3 @@ impl CollectionKvRepository {
         Ok(ids.len() as i64)
     }
 }
-

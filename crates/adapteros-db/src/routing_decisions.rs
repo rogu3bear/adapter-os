@@ -55,6 +55,7 @@ pub struct RoutingDecisionFilters {
     pub stack_id: Option<String>,
     pub adapter_id: Option<String>,
     pub request_id: Option<String>,
+    pub source_type: Option<String>,
     pub since: Option<String>, // ISO-8601 timestamp
     pub until: Option<String>, // ISO-8601 timestamp
     pub min_entropy: Option<f64>,
@@ -130,6 +131,17 @@ impl Db {
         if let Some(ref stack_id) = filters.stack_id {
             query.push_str(" AND stack_id = ?");
             params.push(stack_id.clone());
+        }
+        if let Some(ref source_type) = filters.source_type {
+            query.push_str(
+                " AND request_id IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM chat_sessions cs
+                    WHERE cs.id = routing_decisions.request_id
+                      AND cs.tenant_id = routing_decisions.tenant_id
+                      AND cs.source_type = ?
+                )",
+            );
+            params.push(source_type.clone());
         }
         if let Some(ref adapter_id) = filters.adapter_id {
             query.push_str(" AND selected_adapter_ids LIKE ?");

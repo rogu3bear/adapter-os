@@ -710,7 +710,7 @@ async fn test_workspace_relationships() -> Result<()> {
 
     // Insert test user
     sqlx::query(
-        "INSERT INTO users (id, email, display_name, pw_hash, role) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO users (id, email, display_name, pw_hash, role, mfa_enabled, mfa_secret_enc, mfa_backup_codes_json, mfa_enrolled_at, mfa_last_verified_at, mfa_recovery_last_used_at) VALUES (?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, NULL)",
     )
     .bind(test_user_id)
     .bind("workspace@example.com")

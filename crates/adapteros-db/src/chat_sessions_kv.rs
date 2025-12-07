@@ -19,13 +19,32 @@ use uuid::Uuid;
 pub struct ChatSessionKv {
     pub id: String,
     pub tenant_id: String,
+    #[serde(default)]
     pub user_id: Option<String>,
+    #[serde(default)]
+    pub created_by: Option<String>,
+    #[serde(default)]
     pub stack_id: Option<String>,
+    #[serde(default)]
     pub collection_id: Option<String>,
+    #[serde(default)]
+    pub document_id: Option<String>,
     pub name: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub source_type: Option<String>,
+    #[serde(default)]
+    pub source_ref_id: Option<String>,
     pub created_at: String,
+    #[serde(default = "ChatSessionKv::default_timestamp")]
+    pub updated_at: String,
     pub last_activity_at: String,
+    #[serde(default)]
     pub metadata_json: Option<String>,
+    #[serde(default)]
+    pub tags_json: Option<String>,
+    #[serde(default)]
     pub pinned_adapter_ids: Option<String>,
     pub status: String,
 }
@@ -34,10 +53,29 @@ pub struct ChatSessionKv {
 pub struct ChatMessageKv {
     pub id: String,
     pub session_id: String,
+    #[serde(default)]
+    pub tenant_id: String,
     pub role: String,
     pub content: String,
     pub timestamp: String,
+    #[serde(default = "ChatMessageKv::default_created_at")]
+    pub created_at: String,
+    #[serde(default)]
+    pub sequence: i64,
+    #[serde(default)]
     pub metadata_json: Option<String>,
+}
+
+impl ChatSessionKv {
+    fn default_timestamp() -> String {
+        ChatSessionKvRepository::now()
+    }
+}
+
+impl ChatMessageKv {
+    fn default_created_at() -> String {
+        ChatSessionKvRepository::now()
+    }
 }
 
 pub struct ChatSessionKvRepository {
@@ -82,19 +120,19 @@ impl ChatSessionKvRepository {
 
     async fn append_index(&self, tenant_id: &str, id: &str) -> Result<()> {
         let key = Self::session_index_key(tenant_id);
-        let mut ids: Vec<String> = match self.backend.get(&key).await.map_err(|e| {
-            AosError::Database(format!("Failed to read chat session index: {}", e))
-        })? {
-            Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
-            None => Vec::new(),
-        };
+        let mut ids: Vec<String> =
+            match self.backend.get(&key).await.map_err(|e| {
+                AosError::Database(format!("Failed to read chat session index: {}", e))
+            })? {
+                Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
+                None => Vec::new(),
+            };
         if !ids.contains(&id.to_string()) {
             ids.push(id.to_string());
             let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-            self.backend
-                .set(&key, payload)
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to update chat session index: {}", e)))?;
+            self.backend.set(&key, payload).await.map_err(|e| {
+                AosError::Database(format!("Failed to update chat session index: {}", e))
+            })?;
         }
         Ok(())
     }
@@ -106,19 +144,21 @@ impl ChatSessionKvRepository {
         session_id: &str,
     ) -> Result<()> {
         let key = Self::user_index_key(tenant_id, user_id);
-        let mut ids: Vec<String> = match self.backend.get(&key).await.map_err(|e| {
-            AosError::Database(format!("Failed to read chat user index: {}", e))
-        })? {
+        let mut ids: Vec<String> = match self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to read chat user index: {}", e)))?
+        {
             Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
             None => Vec::new(),
         };
         if !ids.contains(&session_id.to_string()) {
             ids.push(session_id.to_string());
             let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-            self.backend
-                .set(&key, payload)
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to update chat user index: {}", e)))?;
+            self.backend.set(&key, payload).await.map_err(|e| {
+                AosError::Database(format!("Failed to update chat user index: {}", e))
+            })?;
         }
         Ok(())
     }
@@ -130,9 +170,12 @@ impl ChatSessionKvRepository {
         session_id: &str,
     ) -> Result<()> {
         let key = Self::user_index_key(tenant_id, user_id);
-        if let Some(bytes) = self.backend.get(&key).await.map_err(|e| {
-            AosError::Database(format!("Failed to read chat user index: {}", e))
-        })? {
+        if let Some(bytes) = self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to read chat user index: {}", e)))?
+        {
             let mut ids: Vec<String> =
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             ids.retain(|v| v != session_id);
@@ -140,10 +183,9 @@ impl ChatSessionKvRepository {
                 let _ = self.backend.delete(&key).await;
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-                self.backend
-                    .set(&key, payload)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to update chat user index: {}", e)))?;
+                self.backend.set(&key, payload).await.map_err(|e| {
+                    AosError::Database(format!("Failed to update chat user index: {}", e))
+                })?;
             }
         }
         Ok(())
@@ -155,25 +197,35 @@ impl ChatSessionKvRepository {
         params: &crate::chat_sessions::CreateChatSessionParams,
     ) -> Result<String> {
         let now = Self::now();
+        let title = params.title.clone().or_else(|| Some(params.name.clone()));
+        let created_by = params.created_by.clone().or_else(|| params.user_id.clone());
+        let source_type = params
+            .source_type
+            .clone()
+            .unwrap_or_else(|| "general".to_string());
         let session = ChatSessionKv {
             id: params.id.clone(),
             tenant_id: params.tenant_id.clone(),
             user_id: params.user_id.clone(),
+            created_by,
             stack_id: params.stack_id.clone(),
             collection_id: params.collection_id.clone(),
+            document_id: params.document_id.clone(),
             name: params.name.clone(),
+            title,
+            source_type: Some(source_type),
+            source_ref_id: params.source_ref_id.clone(),
             created_at: now.clone(),
+            updated_at: now.clone(),
             last_activity_at: now,
             metadata_json: params.metadata_json.clone(),
+            tags_json: params.tags_json.clone(),
             pinned_adapter_ids: params.pinned_adapter_ids.clone(),
             status: "active".to_string(),
         };
         let payload = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
         self.backend
-            .set(
-                &Self::session_key(&session.tenant_id, &session.id),
-                payload,
-            )
+            .set(&Self::session_key(&session.tenant_id, &session.id), payload)
             .await
             .map_err(|e| AosError::Database(format!("Failed to store chat session: {}", e)))?;
         self.backend
@@ -218,19 +270,28 @@ impl ChatSessionKvRepository {
         &self,
         tenant_id: &str,
         user_id: Option<&str>,
+        source_type: Option<&str>,
+        document_id: Option<&str>,
         limit: usize,
     ) -> Result<Vec<ChatSessionKv>> {
         let ids: Vec<String> = if let Some(uid) = user_id {
-            match self.backend.get(&Self::user_index_key(tenant_id, uid)).await.map_err(|e| {
-                AosError::Database(format!("Failed to read chat user index: {}", e))
-            })? {
+            match self
+                .backend
+                .get(&Self::user_index_key(tenant_id, uid))
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to read chat user index: {}", e)))?
+            {
                 Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
                 None => Vec::new(),
             }
         } else {
-            match self.backend.get(&Self::session_index_key(tenant_id)).await.map_err(|e| {
-                AosError::Database(format!("Failed to read chat session index: {}", e))
-            })? {
+            match self
+                .backend
+                .get(&Self::session_index_key(tenant_id))
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to read chat session index: {}", e))
+                })? {
                 Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
                 None => Vec::new(),
             }
@@ -240,6 +301,16 @@ impl ChatSessionKvRepository {
         for id in ids {
             if let Some(sess) = self.get_chat_session(&id).await? {
                 if sess.tenant_id == tenant_id {
+                    if let Some(src) = source_type {
+                        if sess.source_type.as_deref() != Some(src) {
+                            continue;
+                        }
+                    }
+                    if let Some(doc) = document_id {
+                        if sess.document_id.as_deref() != Some(doc) {
+                            continue;
+                        }
+                    }
                     sessions.push(sess);
                 }
             }
@@ -259,12 +330,10 @@ impl ChatSessionKvRepository {
             return Ok(());
         };
         session.last_activity_at = Self::now();
+        session.updated_at = session.last_activity_at.clone();
         let payload = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
         self.backend
-            .set(
-                &Self::session_key(&session.tenant_id, session_id),
-                payload,
-            )
+            .set(&Self::session_key(&session.tenant_id, session_id), payload)
             .await
             .map_err(|e| AosError::Database(format!("Failed to store chat session: {}", e)))?;
         Ok(())
@@ -279,12 +348,10 @@ impl ChatSessionKvRepository {
             return Ok(());
         };
         session.collection_id = collection_id;
+        session.updated_at = Self::now();
         let payload = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
         self.backend
-            .set(
-                &Self::session_key(&session.tenant_id, session_id),
-                payload,
-            )
+            .set(&Self::session_key(&session.tenant_id, session_id), payload)
             .await
             .map_err(|e| AosError::Database(format!("Failed to store chat session: {}", e)))?;
         Ok(())
@@ -336,7 +403,9 @@ impl ChatSessionKvRepository {
                 self.backend
                     .set(&Self::session_index_key(&session.tenant_id), payload)
                     .await
-                    .map_err(|e| AosError::Database(format!("Failed to update chat session index: {}", e)))?;
+                    .map_err(|e| {
+                        AosError::Database(format!("Failed to update chat session index: {}", e))
+                    })?;
             }
         }
 
@@ -344,7 +413,10 @@ impl ChatSessionKvRepository {
             .delete(&Self::session_key(&session.tenant_id, &session.id))
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete chat session: {}", e)))?;
-        let _ = self.backend.delete(&Self::session_lookup_key(&session.id)).await;
+        let _ = self
+            .backend
+            .delete(&Self::session_lookup_key(&session.id))
+            .await;
         Ok(())
     }
 
@@ -356,12 +428,27 @@ impl ChatSessionKvRepository {
             return Err(AosError::NotFound("Chat session not found".to_string()));
         };
         let id = params.id.clone();
+        let idx_key = Self::messages_index_key(&session.tenant_id, &session.id);
+        let mut ids: Vec<String> = match self
+            .backend
+            .get(&idx_key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to read message index: {}", e)))?
+        {
+            Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
+            None => Vec::new(),
+        };
+        let next_sequence = params.sequence.unwrap_or_else(|| ids.len() as i64);
+        let created_at = params.created_at.clone().unwrap_or_else(Self::now);
         let message = ChatMessageKv {
             id: id.clone(),
             session_id: params.session_id.clone(),
+            tenant_id: session.tenant_id.clone(),
             role: params.role.clone(),
             content: params.content.clone(),
-            timestamp: Self::now(),
+            timestamp: created_at.clone(),
+            created_at,
+            sequence: next_sequence,
             metadata_json: params.metadata_json.clone(),
         };
         let payload = serde_json::to_vec(&message).map_err(AosError::Serialization)?;
@@ -374,13 +461,6 @@ impl ChatSessionKvRepository {
             .map_err(|e| AosError::Database(format!("Failed to store chat message: {}", e)))?;
 
         // index
-        let idx_key = Self::messages_index_key(&session.tenant_id, &session.id);
-        let mut ids: Vec<String> = match self.backend.get(&idx_key).await.map_err(|e| {
-            AosError::Database(format!("Failed to read message index: {}", e))
-        })? {
-            Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
-            None => Vec::new(),
-        };
         ids.push(id.clone());
         let payload_idx = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
         self.backend
@@ -402,9 +482,12 @@ impl ChatSessionKvRepository {
             return Ok(Vec::new());
         };
         let idx_key = Self::messages_index_key(&session.tenant_id, session_id);
-        let mut ids: Vec<String> = match self.backend.get(&idx_key).await.map_err(|e| {
-            AosError::Database(format!("Failed to read message index: {}", e))
-        })? {
+        let ids: Vec<String> = match self
+            .backend
+            .get(&idx_key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to read message index: {}", e)))?
+        {
             Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
             None => Vec::new(),
         };
@@ -423,7 +506,12 @@ impl ChatSessionKvRepository {
             }
         }
 
-        msgs.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));
+        msgs.sort_by(|a, b| {
+            a.sequence
+                .cmp(&b.sequence)
+                .then_with(|| a.created_at.cmp(&b.created_at))
+                .then_with(|| a.id.cmp(&b.id))
+        });
         if let Some(lim) = limit {
             msgs.truncate(lim.max(0) as usize);
         }
@@ -431,11 +519,9 @@ impl ChatSessionKvRepository {
     }
 
     pub async fn count_active_chat_sessions(&self, tenant_id: &str) -> Result<i64> {
-        let sessions = self.list_chat_sessions(tenant_id, None, usize::MAX).await?;
-        Ok(sessions
-            .iter()
-            .filter(|s| s.status == "active")
-            .count() as i64)
+        let sessions = self
+            .list_chat_sessions(tenant_id, None, None, None, usize::MAX)
+            .await?;
+        Ok(sessions.iter().filter(|s| s.status == "active").count() as i64)
     }
 }
-

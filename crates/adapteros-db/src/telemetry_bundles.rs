@@ -259,12 +259,13 @@ impl Db {
             match repo.list_events_by_tenant(tenant_id, limit as usize).await {
                 Ok(events) => {
                     let mut converted = Vec::new();
+                    let mut sql_records: Option<Vec<TelemetryRecord>> = None;
                     for ev in events {
                         converted.push(Db::kv_event_to_record(ev)?);
                     }
                     if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
                         if let Some(pool) = self.pool_opt() {
-                            let sql_records = sqlx::query_as::<_, TelemetryRecord>(
+                            let sql_records_vec = sqlx::query_as::<_, TelemetryRecord>(
                                 r#"
                                 SELECT id, tenant_id, event_type, event_data, timestamp, source,
                                        user_id, session_id, metadata, tags, priority, created_at
@@ -285,13 +286,22 @@ impl Db {
                                 ))
                             })?;
 
-                            if sql_records.len() != converted.len()
-                                || sql_records.iter().zip(converted.iter()).any(|(sql, kv)| {
-                                    sql.id != kv.id || sql.event_data != kv.event_data
-                                })
+                            if sql_records_vec.len() != converted.len()
+                                || sql_records_vec
+                                    .iter()
+                                    .zip(converted.iter())
+                                    .any(|(sql, kv)| {
+                                        sql.id != kv.id || sql.event_data != kv.event_data
+                                    })
                             {
                                 record_telemetry_drift("telemetry_events_drift_dual_write");
                             }
+                            sql_records = Some(sql_records_vec);
+                        }
+                    }
+                    if converted.is_empty() {
+                        if let Some(sql_records) = sql_records {
+                            return Ok(sql_records);
                         }
                     }
                     return Ok(converted);
@@ -347,12 +357,13 @@ impl Db {
             {
                 Ok(events) => {
                     let mut converted = Vec::new();
+                    let mut sql_records: Option<Vec<TelemetryRecord>> = None;
                     for ev in events {
                         converted.push(Db::kv_event_to_record(ev)?);
                     }
                     if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
                         if let Some(pool) = self.pool_opt() {
-                            let sql_records = sqlx::query_as::<_, TelemetryRecord>(
+                            let sql_records_vec = sqlx::query_as::<_, TelemetryRecord>(
                                 r#"
                                 SELECT id, tenant_id, event_type, event_data, timestamp, source,
                                        user_id, session_id, metadata, tags, priority, created_at
@@ -374,13 +385,22 @@ impl Db {
                                 ))
                             })?;
 
-                            if sql_records.len() != converted.len()
-                                || sql_records.iter().zip(converted.iter()).any(|(sql, kv)| {
-                                    sql.id != kv.id || sql.event_data != kv.event_data
-                                })
+                            if sql_records_vec.len() != converted.len()
+                                || sql_records_vec
+                                    .iter()
+                                    .zip(converted.iter())
+                                    .any(|(sql, kv)| {
+                                        sql.id != kv.id || sql.event_data != kv.event_data
+                                    })
                             {
                                 record_telemetry_drift("telemetry_events_drift_dual_write");
                             }
+                            sql_records = Some(sql_records_vec);
+                        }
+                    }
+                    if converted.is_empty() {
+                        if let Some(sql_records) = sql_records {
+                            return Ok(sql_records);
                         }
                     }
                     return Ok(converted);

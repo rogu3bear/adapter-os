@@ -68,8 +68,8 @@ async fn setup_test_db_with_adapters(adapter_count: usize) -> adapteros_db::Db {
         let email = format!("user{}@aos.local", i);
 
         sqlx::query(
-            "INSERT INTO users (id, email, display_name, pw_hash, role, disabled) \
-             VALUES (?, ?, ?, ?, ?, 0)",
+            "INSERT INTO users (id, email, display_name, pw_hash, role, disabled, mfa_enabled, mfa_secret_enc, mfa_backup_codes_json, mfa_enrolled_at, mfa_last_verified_at, mfa_recovery_last_used_at) \
+             VALUES (?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, NULL, NULL)",
         )
         .bind(&user_id)
         .bind(&email)

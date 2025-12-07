@@ -8,10 +8,10 @@ use crate::query_helpers::{db_err, FilterBuilder};
 use crate::{Db, KvBackend};
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use std::sync::Arc;
 use tracing::warn;
+use uuid::Uuid;
 
 /// Policy audit decision record
 ///
@@ -135,99 +135,141 @@ impl Db {
         resource_id: Option<&str>,
         metadata_json: Option<&str>,
     ) -> Result<String> {
-        // KV write
-        if let Some(repo) = self.get_policy_audit_kv_repo() {
-            if let Err(e) = repo
-                .log_policy_decision(
-                    tenant_id,
-                    policy_pack_id,
-                    hook,
-                    decision,
-                    reason,
-                    request_id,
-                    user_id,
-                    resource_type,
-                    resource_id,
-                    metadata_json,
+        if !self.storage_mode().write_to_sql() {
+            return Err(AosError::Validation(
+                "SQL write disabled - cannot log policy audit decision".to_string(),
+            ));
+        }
+
+        let kv_repo = if self.storage_mode().write_to_kv() {
+            Some(self.get_policy_audit_kv_repo().ok_or_else(|| {
+                AosError::Validation(
+                    "KV backend unavailable - cannot enforce dual-write policy audit".to_string(),
                 )
-                .await
-            {
-                self.record_kv_write_fallback("policy_audit.log");
-                warn!(error = %e, tenant_id = %tenant_id, "KV policy audit log failed");
+            })?)
+        } else {
+            None
+        };
+
+        let id = Uuid::now_v7().to_string();
+        let timestamp = chrono::Utc::now().to_rfc3339();
+
+        let latest_entry = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
+            "SELECT entry_hash, chain_sequence FROM policy_audit_decisions
+             WHERE tenant_id = ?
+             ORDER BY chain_sequence DESC LIMIT 1",
+        )
+        .bind(tenant_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        let (previous_hash, previous_seq) = match latest_entry {
+            Some((hash_opt, seq_opt)) => (hash_opt, seq_opt.unwrap_or(0)),
+            None => (None, 0),
+        };
+        let chain_sequence = previous_seq + 1;
+
+        // Ensure KV is aligned before writing when KV is enabled.
+        if let Some(repo) = kv_repo.as_ref() {
+            if let Some(kv_latest) = repo.latest_entry(tenant_id).await? {
+                if kv_latest.chain_sequence != previous_seq {
+                    return Err(AosError::Validation(format!(
+                        "KV policy audit chain out of sync (expected seq {}, found {})",
+                        previous_seq, kv_latest.chain_sequence
+                    )));
+                }
+                if let Some(prev_hash) = &previous_hash {
+                    if kv_latest.entry_hash != *prev_hash {
+                        return Err(AosError::Validation(
+                            "KV policy audit previous hash mismatch".to_string(),
+                        ));
+                    }
+                }
+            } else if previous_seq != 0 {
+                return Err(AosError::Validation(
+                    "KV policy audit missing prior entries while SQL has history".to_string(),
+                ));
             }
         }
 
-        // SQL write
-        if self.storage_mode().write_to_sql() {
-            let id = Uuid::now_v7().to_string();
-            let timestamp = chrono::Utc::now().to_rfc3339();
+        let mut entry = PolicyAuditDecision {
+            id: id.clone(),
+            tenant_id: tenant_id.to_string(),
+            policy_pack_id: policy_pack_id.to_string(),
+            hook: hook.to_string(),
+            decision: decision.to_string(),
+            reason: reason.map(|s| s.to_string()),
+            request_id: request_id.map(|s| s.to_string()),
+            user_id: user_id.map(|s| s.to_string()),
+            resource_type: resource_type.map(|s| s.to_string()),
+            resource_id: resource_id.map(|s| s.to_string()),
+            metadata_json: metadata_json.map(|s| s.to_string()),
+            timestamp,
+            entry_hash: String::new(),
+            previous_hash,
+            chain_sequence,
+        };
 
-            let latest_entry = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
-                "SELECT entry_hash, chain_sequence FROM policy_audit_decisions
-             WHERE tenant_id = ?
-             ORDER BY chain_sequence DESC LIMIT 1",
-            )
-            .bind(tenant_id)
-            .fetch_optional(&*self.pool())
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let entry_data = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            entry.id,
+            entry.timestamp,
+            entry.tenant_id,
+            entry.policy_pack_id,
+            entry.hook,
+            entry.decision,
+            entry.reason.as_deref().unwrap_or(""),
+            entry.request_id.as_deref().unwrap_or(""),
+            entry.user_id.as_deref().unwrap_or(""),
+            entry.resource_type.as_deref().unwrap_or(""),
+            entry.resource_id.as_deref().unwrap_or(""),
+            entry.metadata_json.as_deref().unwrap_or(""),
+            entry.previous_hash.as_deref().unwrap_or(""),
+        );
+        entry.entry_hash = adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
 
-            let (previous_hash, chain_sequence) = match latest_entry {
-                Some((hash_opt, seq_opt)) => {
-                    let prev_hash = hash_opt.unwrap_or_default();
-                    let next_seq = seq_opt.unwrap_or(0) + 1;
-                    (Some(prev_hash), next_seq)
-                }
-                None => (None, 1),
-            };
+        sqlx::query(
+            "INSERT INTO policy_audit_decisions
+         (id, tenant_id, policy_pack_id, hook, decision, reason, request_id, user_id,
+          resource_type, resource_id, metadata_json, timestamp, previous_hash, entry_hash, chain_sequence)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&entry.id)
+        .bind(&entry.tenant_id)
+        .bind(&entry.policy_pack_id)
+        .bind(&entry.hook)
+        .bind(&entry.decision)
+        .bind(&entry.reason)
+        .bind(&entry.request_id)
+        .bind(&entry.user_id)
+        .bind(&entry.resource_type)
+        .bind(&entry.resource_id)
+        .bind(&entry.metadata_json)
+        .bind(&entry.timestamp)
+        .bind(&entry.previous_hash)
+        .bind(&entry.entry_hash)
+        .bind(entry.chain_sequence)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
-            let entry_data = format!(
-                "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-                id,
-                timestamp,
-                tenant_id,
-                policy_pack_id,
-                hook,
-                decision,
-                reason.unwrap_or(""),
-                request_id.unwrap_or(""),
-                user_id.unwrap_or(""),
-                resource_type.unwrap_or(""),
-                resource_id.unwrap_or(""),
-                metadata_json.unwrap_or(""),
-                previous_hash.as_deref().unwrap_or(""),
-            );
-            let entry_hash = adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
+        if let Some(repo) = kv_repo.as_ref() {
+            repo.put_entry(&entry).await?;
 
-            sqlx::query(
-                "INSERT INTO policy_audit_decisions
-             (id, tenant_id, policy_pack_id, hook, decision, reason, request_id, user_id,
-              resource_type, resource_id, metadata_json, timestamp, previous_hash, entry_hash, chain_sequence)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(&id)
-            .bind(tenant_id)
-            .bind(policy_pack_id)
-            .bind(hook)
-            .bind(decision)
-            .bind(reason)
-            .bind(request_id)
-            .bind(user_id)
-            .bind(resource_type)
-            .bind(resource_id)
-            .bind(metadata_json)
-            .bind(&timestamp)
-            .bind(previous_hash.as_deref())
-            .bind(&entry_hash)
-            .bind(chain_sequence)
-            .execute(&*self.pool())
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
-
-            Ok(id)
-        } else {
-            Ok("kv-only".to_string())
+            let kv_latest = repo.latest_entry(tenant_id).await?.ok_or_else(|| {
+                AosError::Validation("KV policy audit missing after write".to_string())
+            })?;
+            if kv_latest.chain_sequence != entry.chain_sequence
+                || kv_latest.entry_hash != entry.entry_hash
+            {
+                return Err(AosError::Validation(
+                    "KV policy audit entry does not match SQL write".to_string(),
+                ));
+            }
         }
+
+        Ok(id)
     }
 
     /// Verify policy audit chain integrity
@@ -557,11 +599,18 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kv_backend::KvDb;
+    use crate::StorageMode;
 
     async fn setup_test_db() -> Db {
-        Db::new_in_memory()
+        let mut db = Db::new_in_memory()
             .await
-            .expect("Failed to create in-memory database")
+            .expect("Failed to create in-memory database");
+        let kv = KvDb::init_in_memory().expect("Failed to init in-memory KV");
+        db.attach_kv_backend(kv);
+        db.set_storage_mode(StorageMode::DualWrite)
+            .expect("Failed to set storage mode");
+        db
     }
 
     #[tokio::test]

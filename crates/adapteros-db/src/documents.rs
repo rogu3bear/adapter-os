@@ -4,11 +4,11 @@ use crate::documents_kv::{DocumentChunkKv, DocumentKv, DocumentKvRepository};
 use crate::query_helpers::db_err;
 use crate::{Db, KvBackend};
 use adapteros_core::{AosError, Result};
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use uuid::Uuid;
+use std::sync::Arc;
 use tracing::warn;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Document {

@@ -63,6 +63,42 @@ pub struct User {
     #[sqlx(default)]
     #[serde(default = "default_tenant_id")]
     pub tenant_id: String,
+    /// Number of failed login attempts for lockout tracking
+    #[sqlx(default)]
+    #[serde(default)]
+    pub failed_attempts: i64,
+    /// Timestamp of the last failed attempt (RFC3339)
+    #[sqlx(default)]
+    #[serde(default)]
+    pub last_failed_at: Option<String>,
+    /// Lockout expiration timestamp if set (RFC3339)
+    #[sqlx(default)]
+    #[serde(default)]
+    pub lockout_until: Option<String>,
+    /// Whether MFA is enabled for the user
+    #[sqlx(default)]
+    #[serde(default)]
+    pub mfa_enabled: bool,
+    /// Encrypted TOTP secret (nonce + ciphertext, base64 encoded)
+    #[sqlx(default)]
+    #[serde(default)]
+    pub mfa_secret_enc: Option<String>,
+    /// Hashed backup codes (JSON)
+    #[sqlx(default)]
+    #[serde(default)]
+    pub mfa_backup_codes_json: Option<String>,
+    /// Enrollment timestamp (RFC3339)
+    #[sqlx(default)]
+    #[serde(default)]
+    pub mfa_enrolled_at: Option<String>,
+    /// Last successful verification timestamp
+    #[sqlx(default)]
+    #[serde(default)]
+    pub mfa_last_verified_at: Option<String>,
+    /// Last recovery (backup code) usage timestamp
+    #[sqlx(default)]
+    #[serde(default)]
+    pub mfa_recovery_last_used_at: Option<String>,
 }
 
 fn default_tenant_id() -> String {
@@ -110,7 +146,7 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
                 sqlx::query(
-                    "INSERT INTO users (id, email, display_name, pw_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO users (id, email, display_name, pw_hash, role, tenant_id, mfa_enabled, mfa_secret_enc, mfa_backup_codes_json, mfa_enrolled_at, mfa_last_verified_at, mfa_recovery_last_used_at) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, NULL)",
                 )
                 .bind(&id)
                 .bind(email)
@@ -173,7 +209,7 @@ impl Db {
         };
 
         let user = sqlx::query_as::<_, User>(
-            "SELECT id, email, display_name, pw_hash, role, disabled, created_at, tenant_id FROM users WHERE email = ?"
+            "SELECT id, email, display_name, pw_hash, role, disabled, created_at, tenant_id, failed_attempts, last_failed_at, lockout_until, mfa_enabled, mfa_secret_enc, mfa_backup_codes_json, mfa_enrolled_at, mfa_last_verified_at, mfa_recovery_last_used_at FROM users WHERE email = ?"
         )
         .bind(email)
         .fetch_optional(pool)
@@ -200,7 +236,7 @@ impl Db {
         };
 
         let user = sqlx::query_as::<_, User>(
-            "SELECT id, email, display_name, pw_hash, role, disabled, created_at, tenant_id FROM users WHERE id = ?"
+            "SELECT id, email, display_name, pw_hash, role, disabled, created_at, tenant_id, failed_attempts, last_failed_at, lockout_until, mfa_enabled, mfa_secret_enc, mfa_backup_codes_json, mfa_enrolled_at, mfa_last_verified_at, mfa_recovery_last_used_at FROM users WHERE id = ?"
         )
         .bind(id)
         .fetch_optional(pool)
@@ -230,9 +266,7 @@ impl Db {
         let role_str = role.to_string();
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
-                sqlx::query(
-                    "INSERT INTO users (id, email, display_name, pw_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
-                )
+                sqlx::query("INSERT INTO users (id, email, display_name, pw_hash, role, tenant_id, mfa_enabled, mfa_secret_enc, mfa_backup_codes_json, mfa_enrolled_at, mfa_last_verified_at, mfa_recovery_last_used_at) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, NULL)")
                 .bind(id)
                 .bind(email)
                 .bind(display_name)
@@ -397,7 +431,7 @@ impl Db {
 
         // Build SELECT query
         let select_query = format!(
-            "SELECT id, email, display_name, pw_hash, role, disabled, created_at, COALESCE(tenant_id, 'default') as tenant_id FROM users {} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            "SELECT id, email, display_name, pw_hash, role, disabled, created_at, COALESCE(tenant_id, 'default') as tenant_id, failed_attempts, last_failed_at, lockout_until, mfa_enabled, mfa_secret_enc, mfa_backup_codes_json, mfa_enrolled_at, mfa_last_verified_at, mfa_recovery_last_used_at FROM users {} ORDER BY created_at DESC LIMIT ? OFFSET ?",
             where_clause
         );
 
@@ -498,6 +532,44 @@ impl Db {
         Ok(())
     }
 
+    /// Update user password hash and reset lockout counters
+    pub async fn update_user_password(&self, id: &str, pw_hash: &str) -> Result<()> {
+        // SQL write if enabled
+        if self.storage_mode().write_to_sql() {
+            let pool = self.pool_opt().ok_or_else(|| {
+                AosError::Database("SQL backend unavailable for update_user_password".into())
+            })?;
+            let result = sqlx::query(
+                "UPDATE users SET pw_hash = ?, failed_attempts = 0, last_failed_at = NULL, lockout_until = NULL WHERE id = ?",
+            )
+            .bind(pw_hash)
+            .bind(id)
+            .execute(pool)
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+            if result.rows_affected() == 0 {
+                return Err(AosError::NotFound(format!("User not found: {}", id)));
+            }
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No writable backend configured for update_user_password".to_string(),
+            ));
+        }
+
+        // KV write (dual-write mode)
+        if let Some(repo) = self.get_user_kv_repo() {
+            if let Err(e) = repo.update_user_password_kv(id, pw_hash, 0).await {
+                self.record_kv_write_fallback("users.update_password");
+                warn!(error = %e, user_id = %id, "Failed to update user password in KV backend (dual-write)");
+            } else {
+                debug!(user_id = %id, "User password updated in both SQL and KV backends");
+            }
+        }
+
+        Ok(())
+    }
+
     /// Delete user with dual-write support
     ///
     /// Deletes the user from SQL, and also from KV backend if dual-write mode is enabled.
@@ -530,6 +602,149 @@ impl Db {
             } else {
                 debug!(user_id = %id, "User deleted from both SQL and KV backends");
             }
+        }
+
+        Ok(())
+    }
+
+    /// Store (or replace) MFA secret and reset MFA state (disabled).
+    pub async fn set_user_mfa_secret(
+        &self,
+        user_id: &str,
+        secret_enc: &str,
+        enrolled_at: &str,
+    ) -> Result<()> {
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                sqlx::query(
+                    "UPDATE users SET mfa_secret_enc = ?, mfa_enabled = 0, mfa_backup_codes_json = NULL, mfa_enrolled_at = ?, mfa_last_verified_at = NULL, mfa_recovery_last_used_at = NULL WHERE id = ?",
+                )
+                .bind(secret_enc)
+                .bind(enrolled_at)
+                .bind(user_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+
+        if let Some(repo) = self.get_user_kv_repo() {
+            let ts = chrono::DateTime::parse_from_rfc3339(enrolled_at)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now());
+            let _ = repo.set_user_mfa_secret_kv(user_id, secret_enc, ts).await;
+        }
+
+        Ok(())
+    }
+
+    /// Enable MFA with verified secret and backup codes.
+    pub async fn enable_user_mfa(
+        &self,
+        user_id: &str,
+        secret_enc: &str,
+        backup_codes_json: &str,
+        verified_at: &str,
+    ) -> Result<()> {
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                sqlx::query(
+                    "UPDATE users SET mfa_enabled = 1, mfa_secret_enc = ?, mfa_backup_codes_json = ?, mfa_last_verified_at = ?, mfa_enrolled_at = COALESCE(mfa_enrolled_at, ?), mfa_recovery_last_used_at = NULL WHERE id = ?",
+                )
+                .bind(secret_enc)
+                .bind(backup_codes_json)
+                .bind(verified_at)
+                .bind(verified_at)
+                .bind(user_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+
+        if let Some(repo) = self.get_user_kv_repo() {
+            let ts = chrono::DateTime::parse_from_rfc3339(verified_at)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now());
+            let _ = repo
+                .enable_user_mfa_kv(user_id, secret_enc, backup_codes_json, ts)
+                .await;
+        }
+
+        Ok(())
+    }
+
+    /// Disable MFA and clear stored secrets/codes.
+    pub async fn disable_user_mfa(&self, user_id: &str) -> Result<()> {
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                sqlx::query(
+                    "UPDATE users SET mfa_enabled = 0, mfa_secret_enc = NULL, mfa_backup_codes_json = NULL, mfa_enrolled_at = NULL, mfa_last_verified_at = NULL, mfa_recovery_last_used_at = NULL WHERE id = ?",
+                )
+                .bind(user_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+
+        if let Some(repo) = self.get_user_kv_repo() {
+            let _ = repo.disable_user_mfa_kv(user_id).await;
+        }
+
+        Ok(())
+    }
+
+    /// Update backup codes JSON (used flags) and optional recovery timestamp.
+    pub async fn update_user_backup_codes(
+        &self,
+        user_id: &str,
+        backup_codes_json: &str,
+        recovery_used_at: Option<&str>,
+    ) -> Result<()> {
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                sqlx::query(
+                    "UPDATE users SET mfa_backup_codes_json = ?, mfa_recovery_last_used_at = COALESCE(?, mfa_recovery_last_used_at) WHERE id = ?",
+                )
+                .bind(backup_codes_json)
+                .bind(recovery_used_at)
+                .bind(user_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+
+        if let Some(repo) = self.get_user_kv_repo() {
+            let ts = recovery_used_at
+                .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                .map(|dt| dt.with_timezone(&chrono::Utc));
+            let _ = repo
+                .update_user_backup_codes_kv(user_id, backup_codes_json, ts)
+                .await;
+        }
+
+        Ok(())
+    }
+
+    /// Record last successful MFA verification.
+    pub async fn update_user_mfa_last_verified(
+        &self,
+        user_id: &str,
+        verified_at: &str,
+    ) -> Result<()> {
+        if self.storage_mode().write_to_sql() {
+            if let Some(pool) = self.pool_opt() {
+                sqlx::query("UPDATE users SET mfa_last_verified_at = ? WHERE id = ?")
+                    .bind(verified_at)
+                    .bind(user_id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+
+        if let Some(repo) = self.get_user_kv_repo() {
+            let ts = chrono::DateTime::parse_from_rfc3339(verified_at)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now());
+            let _ = repo.update_user_mfa_last_verified_kv(user_id, ts).await;
         }
 
         Ok(())

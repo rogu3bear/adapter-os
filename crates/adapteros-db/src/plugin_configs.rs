@@ -136,6 +136,7 @@ impl Db {
             .map_err(|e| AosError::Database(format!("Failed to list plugin configs: {}", e)))
     }
 
+    #[allow(dead_code)]
     async fn sql_list_tenant_enables(&self, tenant_id: &str) -> Result<Vec<PluginTenantEnable>> {
         let Some(pool) = self.pool_opt() else {
             return Ok(Vec::new());

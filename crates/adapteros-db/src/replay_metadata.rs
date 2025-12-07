@@ -19,12 +19,16 @@ pub struct InferenceReplayMetadata {
     pub tenant_id: String,
     /// BLAKE3 hash of manifest (model + adapters)
     pub manifest_hash: String,
+    /// Base model ID used for this inference (if known)
+    pub base_model_id: Option<String>,
     /// Seed for router selection (null if no routing)
     pub router_seed: Option<String>,
     /// JSON: {temperature, top_k, top_p, max_tokens, seed}
     pub sampling_params_json: String,
     /// Backend used: CoreML, MLX, Metal
     pub backend: String,
+    /// Backend/FFI version hash or identifier (optional)
+    pub backend_version: Option<String>,
     /// Sampling algorithm version for compatibility tracking
     pub sampling_algorithm_version: String,
     /// BLAKE3 hash of sorted document hashes (null if no RAG)
@@ -68,9 +72,11 @@ pub struct CreateReplayMetadataParams {
     pub inference_id: String,
     pub tenant_id: String,
     pub manifest_hash: String,
+    pub base_model_id: Option<String>,
     pub router_seed: Option<String>,
     pub sampling_params_json: String,
     pub backend: String,
+    pub backend_version: Option<String>,
     pub sampling_algorithm_version: Option<String>,
     pub rag_snapshot_hash: Option<String>,
     /// JSON-serializable list of adapter IDs
@@ -135,8 +141,8 @@ impl Db {
         sqlx::query(
             r#"
             INSERT INTO inference_replay_metadata (
-                id, inference_id, tenant_id, manifest_hash, router_seed,
-                sampling_params_json, backend, sampling_algorithm_version,
+                id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
+                sampling_params_json, backend, backend_version, sampling_algorithm_version,
                 rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                 response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                 replay_status, latency_ms, tokens_generated, determinism_mode,
@@ -144,7 +150,7 @@ impl Db {
                 execution_policy_version, created_at
             )
             VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 datetime('now')
             )
             "#,
@@ -153,9 +159,11 @@ impl Db {
         .bind(&params.inference_id)
         .bind(&params.tenant_id)
         .bind(&params.manifest_hash)
+        .bind(&params.base_model_id)
         .bind(&params.router_seed)
         .bind(&params.sampling_params_json)
         .bind(&params.backend)
+        .bind(&params.backend_version)
         .bind(&sampling_algorithm_version)
         .bind(&params.rag_snapshot_hash)
         .bind(&adapter_ids_json)
@@ -225,8 +233,8 @@ impl Db {
                         if let Some(pool) = self.pool_opt() {
                             if let Ok(Some(sql_meta)) = sqlx::query_as::<_, InferenceReplayMetadataRow>(
                                 r#"
-                                SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
-                                       sampling_params_json, backend, sampling_algorithm_version,
+                                SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
+                                       sampling_params_json, backend, backend_version, sampling_algorithm_version,
                                        rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
@@ -278,8 +286,8 @@ impl Db {
 
         let record = sqlx::query_as::<_, InferenceReplayMetadataRow>(
             r#"
-            SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
-                   sampling_params_json, backend, sampling_algorithm_version,
+            SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
+                   sampling_params_json, backend, backend_version, sampling_algorithm_version,
                    rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
@@ -311,8 +319,8 @@ impl Db {
                         if let Some(pool) = self.pool_opt() {
                             if let Ok(Some(sql_meta)) = sqlx::query_as::<_, InferenceReplayMetadataRow>(
                                 r#"
-                                SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
-                                       sampling_params_json, backend, sampling_algorithm_version,
+                                SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
+                                       sampling_params_json, backend, backend_version, sampling_algorithm_version,
                                        rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
@@ -360,8 +368,8 @@ impl Db {
 
         let record = sqlx::query_as::<_, InferenceReplayMetadataRow>(
             r#"
-            SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
-                   sampling_params_json, backend, sampling_algorithm_version,
+            SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
+                   sampling_params_json, backend, backend_version, sampling_algorithm_version,
                    rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
@@ -425,8 +433,8 @@ impl Db {
                         if let Some(pool) = self.pool_opt() {
                             let sql_records = sqlx::query_as::<_, InferenceReplayMetadataRow>(
                                 r#"
-                                SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
-                                       sampling_params_json, backend, sampling_algorithm_version,
+                                SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
+                                       sampling_params_json, backend, backend_version, sampling_algorithm_version,
                                        rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
@@ -477,8 +485,8 @@ impl Db {
 
         let records = sqlx::query_as::<_, InferenceReplayMetadataRow>(
             r#"
-            SELECT id, inference_id, tenant_id, manifest_hash, router_seed,
-                   sampling_params_json, backend, sampling_algorithm_version,
+            SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
+                   sampling_params_json, backend, backend_version, sampling_algorithm_version,
                    rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
@@ -508,9 +516,11 @@ struct InferenceReplayMetadataRow {
     inference_id: String,
     tenant_id: String,
     manifest_hash: String,
+    base_model_id: Option<String>,
     router_seed: Option<String>,
     sampling_params_json: String,
     backend: String,
+    backend_version: Option<String>,
     sampling_algorithm_version: String,
     rag_snapshot_hash: Option<String>,
     adapter_ids_json: Option<String>,
@@ -538,9 +548,11 @@ impl From<InferenceReplayMetadataRow> for InferenceReplayMetadata {
             inference_id: row.inference_id,
             tenant_id: row.tenant_id,
             manifest_hash: row.manifest_hash,
+            base_model_id: row.base_model_id,
             router_seed: row.router_seed,
             sampling_params_json: row.sampling_params_json,
             backend: row.backend,
+            backend_version: row.backend_version,
             sampling_algorithm_version: row.sampling_algorithm_version,
             rag_snapshot_hash: row.rag_snapshot_hash,
             adapter_ids_json: row.adapter_ids_json,
@@ -593,9 +605,11 @@ mod tests {
             inference_id: inference_id.to_string(),
             tenant_id: tenant_id.clone(),
             manifest_hash: "manifest-hash-123".to_string(),
+            base_model_id: Some("base-model-123".to_string()),
             router_seed: Some("seed-456".to_string()),
             sampling_params_json: r#"{"temperature":0.7,"top_k":50,"seed":42}"#.to_string(),
             backend: "CoreML".to_string(),
+            backend_version: Some("v1.0.0".to_string()),
             sampling_algorithm_version: Some("v1.0.0".to_string()),
             rag_snapshot_hash: Some("rag-hash-789".to_string()),
             adapter_ids: Some(vec!["adapter-1".to_string(), "adapter-2".to_string()]),
@@ -663,9 +677,11 @@ mod tests {
             inference_id: inference_id.to_string(),
             tenant_id: tenant_id.clone(),
             manifest_hash: "hash-001".to_string(),
+            base_model_id: None,
             router_seed: None,
             sampling_params_json: r#"{"temperature":0.7}"#.to_string(),
             backend: "MLX".to_string(),
+            backend_version: None,
             sampling_algorithm_version: None,
             rag_snapshot_hash: None,
             adapter_ids: None,
@@ -800,6 +816,42 @@ mod tests {
             .unwrap();
         assert_eq!(metadata.prompt_truncated, 1);
         assert_eq!(metadata.response_truncated, 1);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_flag_persists() {
+        let db = Db::new_in_memory().await.unwrap();
+        let tenant_id = setup_test_tenant(&db).await;
+
+        let params = CreateReplayMetadataParams {
+            inference_id: "inf-fallback".to_string(),
+            tenant_id: tenant_id.clone(),
+            manifest_hash: "hash-fallback".to_string(),
+            router_seed: None,
+            sampling_params_json: "{}".to_string(),
+            backend: "Metal".to_string(),
+            sampling_algorithm_version: None,
+            rag_snapshot_hash: None,
+            adapter_ids: Some(vec!["adapter-fb".to_string()]),
+            prompt_text: "prompt".to_string(),
+            prompt_truncated: false,
+            response_text: Some("resp".to_string()),
+            response_truncated: false,
+            rag_doc_ids: None,
+            chat_context_hash: None,
+            replay_status: Some("available".to_string()),
+            latency_ms: Some(10),
+            tokens_generated: Some(5),
+            determinism_mode: Some("strict".to_string()),
+            fallback_triggered: true,
+            replay_guarantee: Some("exact".to_string()),
+            execution_policy_id: None,
+            execution_policy_version: None,
+        };
+
+        let id = db.create_replay_metadata(params).await.unwrap();
+        let record = db.get_replay_metadata(&id).await.unwrap().unwrap();
+        assert_eq!(record.fallback_triggered, Some(true));
     }
 
     #[tokio::test]

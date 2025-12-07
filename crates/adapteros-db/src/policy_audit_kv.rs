@@ -22,6 +22,13 @@ impl PolicyAuditKvRepository {
         Self { backend }
     }
 
+    pub async fn latest_entry(&self, tenant_id: &str) -> Result<Option<PolicyAuditDecision>> {
+        if let Some((latest_id, _seq)) = self.latest_for_tenant(tenant_id).await? {
+            return self.get_entry(tenant_id, &latest_id).await;
+        }
+        Ok(None)
+    }
+
     fn entry_key(tenant_id: &str, id: &str) -> String {
         format!("tenant/{}/policy_audit/{}", tenant_id, id)
     }
@@ -84,30 +91,12 @@ impl PolicyAuditKvRepository {
                 let prev_entry = self.get_entry(tenant_id, &latest_id).await?;
                 let prev_hash = prev_entry
                     .as_ref()
-                    .and_then(|e| Some(e.entry_hash.clone()))
+                    .map(|e| e.entry_hash.clone())
                     .unwrap_or_default();
                 (Some(prev_hash), seq + 1)
             }
             None => (None, 1),
         };
-
-        let entry_data = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-            id,
-            timestamp,
-            tenant_id,
-            policy_pack_id,
-            hook,
-            decision,
-            reason.unwrap_or(""),
-            request_id.unwrap_or(""),
-            user_id.unwrap_or(""),
-            resource_type.unwrap_or(""),
-            resource_id.unwrap_or(""),
-            metadata_json.unwrap_or(""),
-            previous_hash.as_deref().unwrap_or(""),
-        );
-        let entry_hash = adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
 
         let entry = PolicyAuditDecision {
             id: id.clone(),
@@ -122,25 +111,48 @@ impl PolicyAuditKvRepository {
             resource_id: resource_id.map(|s| s.to_string()),
             metadata_json: metadata_json.map(|s| s.to_string()),
             timestamp,
-            entry_hash: entry_hash.clone(),
+            entry_hash: String::new(), // overwritten in put_entry
             previous_hash,
             chain_sequence,
         };
 
+        self.put_entry(&entry).await.map(|()| id)
+    }
+
+    pub async fn put_entry(&self, entry: &PolicyAuditDecision) -> Result<()> {
+        let entry_data = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            entry.id,
+            entry.timestamp,
+            entry.tenant_id,
+            entry.policy_pack_id,
+            entry.hook,
+            entry.decision,
+            entry.reason.as_deref().unwrap_or(""),
+            entry.request_id.as_deref().unwrap_or(""),
+            entry.user_id.as_deref().unwrap_or(""),
+            entry.resource_type.as_deref().unwrap_or(""),
+            entry.resource_id.as_deref().unwrap_or(""),
+            entry.metadata_json.as_deref().unwrap_or(""),
+            entry.previous_hash.as_deref().unwrap_or(""),
+        );
+        let mut entry = entry.clone();
+        entry.entry_hash = adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
+
         let payload = serde_json::to_vec(&entry).map_err(AosError::Serialization)?;
         self.backend
-            .set(&Self::entry_key(tenant_id, &id), payload)
+            .set(&Self::entry_key(&entry.tenant_id, &entry.id), payload)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to store policy audit entry: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to store policy audit entry: {}", e))
+            })?;
         self.backend
             .set(
-                &Self::seq_key(tenant_id, chain_sequence, &id),
-                id.as_bytes().to_vec(),
+                &Self::seq_key(&entry.tenant_id, entry.chain_sequence, &entry.id),
+                entry.id.as_bytes().to_vec(),
             )
             .await
-            .map_err(|e| AosError::Database(format!("Failed to store policy audit seq: {}", e)))?;
-
-        Ok(id)
+            .map_err(|e| AosError::Database(format!("Failed to store policy audit seq: {}", e)))
     }
 
     pub async fn get_entry(
@@ -178,7 +190,9 @@ impl PolicyAuditKvRepository {
                 .backend
                 .scan_prefix(&Self::seq_prefix(tid))
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to scan policy audit seq: {}", e)))?
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to scan policy audit seq: {}", e))
+                })?
             {
                 if let Some((_, id)) = Self::parse_seq_key(&key) {
                     if let Some(entry) = self.get_entry(tid, &id).await? {
@@ -193,11 +207,10 @@ impl PolicyAuditKvRepository {
         // all tenants: scan tenant prefix
         let mut tenants: std::collections::HashMap<String, Vec<PolicyAuditDecision>> =
             std::collections::HashMap::new();
-        for key in self
-            .backend
-            .scan_prefix("tenant/")
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to scan policy audit keys: {}", e)))?
+        for key in
+            self.backend.scan_prefix("tenant/").await.map_err(|e| {
+                AosError::Database(format!("Failed to scan policy audit keys: {}", e))
+            })?
         {
             if key.contains("/policy_audit/seq/") {
                 if let Some((tenant_part, _)) = key.split_once("/policy_audit/seq/") {
@@ -230,7 +243,7 @@ impl PolicyAuditKvRepository {
     }
 
     fn verify_chain_for_tenant(
-        tenant: &str,
+        _tenant: &str,
         chain: Vec<PolicyAuditDecision>,
     ) -> Result<ChainVerificationResult> {
         if chain.is_empty() {
@@ -295,8 +308,7 @@ impl PolicyAuditKvRepository {
                 decision.metadata_json.as_deref().unwrap_or(""),
                 decision.previous_hash.as_deref().unwrap_or(""),
             );
-            let computed_hash =
-                adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
+            let computed_hash = adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
             if computed_hash != decision.entry_hash {
                 return Ok(ChainVerificationResult {
                     is_valid: false,
@@ -343,10 +355,16 @@ impl PolicyAuditKvRepository {
 
         // Apply filters in-memory
         decisions.retain(|d| {
-            (filters.policy_pack_id.as_ref().map_or(true, |v| &d.policy_pack_id == v))
+            (filters
+                .policy_pack_id
+                .as_ref()
+                .map_or(true, |v| &d.policy_pack_id == v))
                 && (filters.hook.as_ref().map_or(true, |v| &d.hook == v))
                 && (filters.decision.as_ref().map_or(true, |v| &d.decision == v))
-                && (filters.from_time.as_ref().map_or(true, |v| &d.timestamp >= v))
+                && (filters
+                    .from_time
+                    .as_ref()
+                    .map_or(true, |v| &d.timestamp >= v))
                 && (filters.to_time.as_ref().map_or(true, |v| &d.timestamp <= v))
         });
 
@@ -359,4 +377,3 @@ impl PolicyAuditKvRepository {
         Ok(sliced)
     }
 }
-

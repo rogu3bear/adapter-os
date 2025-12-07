@@ -58,9 +58,9 @@ impl TrainingJobKvRepository {
     }
 
     fn tenant_from_job(job: &TrainingJobKv) -> Result<&str> {
-        job.tenant_id
-            .as_deref()
-            .ok_or_else(|| AosError::Validation("training job missing tenant_id for KV keying".into()))
+        job.tenant_id.as_deref().ok_or_else(|| {
+            AosError::Validation("training job missing tenant_id for KV keying".into())
+        })
     }
 
     fn job_key(tenant_id: &str, id: &str) -> String {
@@ -91,6 +91,7 @@ impl TrainingJobKvRepository {
         format!("tenant/{tenant_id}/training_metric_job/{job_id}:{step:020}:{id}")
     }
 
+    #[allow(dead_code)]
     fn now_ts() -> String {
         Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
     }
@@ -129,20 +130,23 @@ impl TrainingJobKvRepository {
             .await
             .map_err(|e| AosError::Database(format!("KV index job status failed: {e}")))?;
 
-            self.backend
-                .set(
-                    &Self::job_tenant_index(
+        self.backend
+            .set(
+                &Self::job_tenant_index(
                     tenant_id,
-                        job.created_at.as_deref().unwrap_or(&job.started_at),
-                        &job.id,
-                    ),
-                    job.id.as_bytes().to_vec(),
-                )
-                .await
-                .map_err(|e| AosError::Database(format!("KV index job tenant failed: {e}")))?;
+                    job.created_at.as_deref().unwrap_or(&job.started_at),
+                    &job.id,
+                ),
+                job.id.as_bytes().to_vec(),
+            )
+            .await
+            .map_err(|e| AosError::Database(format!("KV index job tenant failed: {e}")))?;
 
         self.backend
-            .set(&Self::job_lookup_key(&job.id), tenant_id.as_bytes().to_vec())
+            .set(
+                &Self::job_lookup_key(&job.id),
+                tenant_id.as_bytes().to_vec(),
+            )
             .await
             .map_err(|e| AosError::Database(format!("KV job lookup write failed: {e}")))?;
 
@@ -168,7 +172,9 @@ impl TrainingJobKvRepository {
         else {
             return Ok(None);
         };
-        serde_json::from_slice(&bytes).map_err(AosError::Serialization).map(Some)
+        serde_json::from_slice(&bytes)
+            .map_err(AosError::Serialization)
+            .map(Some)
     }
 
     async fn scan_jobs(&self, prefix: &str) -> Result<Vec<TrainingJobKv>> {
@@ -323,14 +329,14 @@ impl TrainingJobKvRepository {
                 &job.id,
             ))
             .await;
-            let _ = self
-                .backend
-                .delete(&Self::job_tenant_index(
+        let _ = self
+            .backend
+            .delete(&Self::job_tenant_index(
                 Self::tenant_from_job(&job)?,
-                    job.created_at.as_deref().unwrap_or(&job.started_at),
-                    &job.id,
-                ))
-                .await;
+                job.created_at.as_deref().unwrap_or(&job.started_at),
+                &job.id,
+            ))
+            .await;
         let _ = self.backend.delete(&Self::job_lookup_key(id)).await;
         Ok(())
     }
@@ -351,7 +357,12 @@ impl TrainingJobKvRepository {
 
         self.backend
             .set(
-                &Self::metric_job_index(tenant_id, &metric.training_job_id, metric.step, &metric.id),
+                &Self::metric_job_index(
+                    tenant_id,
+                    &metric.training_job_id,
+                    metric.step,
+                    &metric.id,
+                ),
                 metric.id.as_bytes().to_vec(),
             )
             .await

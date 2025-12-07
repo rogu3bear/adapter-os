@@ -649,6 +649,23 @@ impl Db {
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
 
+        // Normalize legacy statuses into canonical model load states (aligned with DB CHECK)
+        let normalized_status = match status {
+            "loaded" | "ready" => "loaded",
+            "unloaded" | "no-model" | "none" => "unloaded",
+            "loading" => "loading",
+            "unloading" => "unloading",
+            "checking" => "loading",
+            "error" => "error",
+            other => {
+                tracing::warn!(
+                    status = %other,
+                    "Unknown base model status; coercing to unloaded"
+                );
+                "unloaded"
+            }
+        };
+
         // Check if status record exists
         let existing = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM base_model_status WHERE tenant_id = ? AND model_id = ?",
@@ -663,7 +680,7 @@ impl Db {
             sqlx::query(
                 "UPDATE base_model_status SET status = ?, error_message = ?, memory_usage_mb = ?, updated_at = ? WHERE tenant_id = ? AND model_id = ?"
             )
-            .bind(status)
+            .bind(normalized_status)
             .bind(error_message)
             .bind(memory_usage_mb)
             .bind(&now)
@@ -680,7 +697,7 @@ impl Db {
             .bind(&id)
             .bind(tenant_id)
             .bind(model_id)
-            .bind(status)
+            .bind(normalized_status)
             .bind(error_message)
             .bind(memory_usage_mb)
             .bind(&now)
@@ -690,8 +707,8 @@ impl Db {
         }
 
         // Update loaded_at/unloaded_at timestamps based on status
-        match status {
-            "loaded" => {
+        match normalized_status {
+            "ready" => {
                 sqlx::query(
                     "UPDATE base_model_status SET loaded_at = ? WHERE tenant_id = ? AND model_id = ?"
                 )
@@ -701,7 +718,7 @@ impl Db {
                 .execute(&*self.pool())
                 .await?;
             }
-            "unloaded" => {
+            "no-model" => {
                 sqlx::query(
                     "UPDATE base_model_status SET unloaded_at = ? WHERE tenant_id = ? AND model_id = ?"
                 )

@@ -280,7 +280,7 @@ mod tests {
     async fn test_create_test_db_convenience() {
         let db = create_test_db().await.unwrap();
         // Should have migrations applied and dev data seeded
-        let tenant = db.get_tenant("default-tenant").await.unwrap();
+        let tenant = db.get_tenant("default").await.unwrap();
         assert!(tenant.is_some());
     }
 
@@ -292,7 +292,7 @@ mod tests {
         assert!(temp_dir.path().exists());
 
         // Verify database is functional
-        let tenant = db.get_tenant("default-tenant").await.unwrap();
+        let tenant = db.get_tenant("default").await.unwrap();
         assert!(tenant.is_some());
     }
 }

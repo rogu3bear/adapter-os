@@ -94,28 +94,33 @@ impl DocumentKvRepository {
 
     async fn append_index(&self, tenant_id: &str, id: &str) -> Result<()> {
         let key = Self::doc_index_key(tenant_id);
-        let mut ids: Vec<String> = match self.backend.get(&key).await.map_err(|e| {
-            AosError::Database(format!("Failed to load document index: {}", e))
-        })? {
+        let mut ids: Vec<String> = match self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to load document index: {}", e)))?
+        {
             Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
             None => Vec::new(),
         };
         if !ids.contains(&id.to_string()) {
             ids.push(id.to_string());
             let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-            self.backend
-                .set(&key, payload)
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to update document index: {}", e)))?;
+            self.backend.set(&key, payload).await.map_err(|e| {
+                AosError::Database(format!("Failed to update document index: {}", e))
+            })?;
         }
         Ok(())
     }
 
     async fn remove_index(&self, tenant_id: &str, id: &str) -> Result<()> {
         let key = Self::doc_index_key(tenant_id);
-        if let Some(bytes) = self.backend.get(&key).await.map_err(|e| {
-            AosError::Database(format!("Failed to load document index: {}", e))
-        })? {
+        if let Some(bytes) = self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to load document index: {}", e)))?
+        {
             let mut ids: Vec<String> =
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             ids.retain(|v| v != id);
@@ -123,10 +128,9 @@ impl DocumentKvRepository {
                 let _ = self.backend.delete(&key).await;
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-                self.backend
-                    .set(&key, payload)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to update document index: {}", e)))?;
+                self.backend.set(&key, payload).await.map_err(|e| {
+                    AosError::Database(format!("Failed to update document index: {}", e))
+                })?;
             }
         }
         Ok(())
@@ -139,9 +143,12 @@ impl DocumentKvRepository {
         chunk_id: &str,
     ) -> Result<()> {
         let key = Self::chunk_index_key(tenant_id, document_id);
-        let mut ids: Vec<String> = match self.backend.get(&key).await.map_err(|e| {
-            AosError::Database(format!("Failed to load chunk index: {}", e))
-        })? {
+        let mut ids: Vec<String> = match self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to load chunk index: {}", e)))?
+        {
             Some(bytes) => serde_json::from_slice(&bytes).map_err(AosError::Serialization)?,
             None => Vec::new(),
         };
@@ -156,6 +163,7 @@ impl DocumentKvRepository {
         Ok(())
     }
 
+    #[allow(dead_code)]
     async fn remove_chunk_index(
         &self,
         tenant_id: &str,
@@ -163,9 +171,12 @@ impl DocumentKvRepository {
         chunk_id: &str,
     ) -> Result<()> {
         let key = Self::chunk_index_key(tenant_id, document_id);
-        if let Some(bytes) = self.backend.get(&key).await.map_err(|e| {
-            AosError::Database(format!("Failed to load chunk index: {}", e))
-        })? {
+        if let Some(bytes) = self
+            .backend
+            .get(&key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to load chunk index: {}", e)))?
+        {
             let mut ids: Vec<String> =
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             ids.retain(|v| v != chunk_id);
@@ -173,10 +184,9 @@ impl DocumentKvRepository {
                 let _ = self.backend.delete(&key).await;
             } else {
                 let payload = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
-                self.backend
-                    .set(&key, payload)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to update chunk index: {}", e)))?;
+                self.backend.set(&key, payload).await.map_err(|e| {
+                    AosError::Database(format!("Failed to update chunk index: {}", e))
+                })?;
             }
         }
         Ok(())
@@ -197,7 +207,9 @@ impl DocumentKvRepository {
                 doc.id.as_bytes().to_vec(),
             )
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update document hash index: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to update document hash index: {}", e))
+            })?;
         self.backend
             .set(
                 &Self::doc_lookup_key(&doc.id),
@@ -391,9 +403,12 @@ impl DocumentKvRepository {
     pub async fn delete_document(&self, tenant_id: &str, id: &str) -> Result<()> {
         // remove chunks
         let chunk_index_key = Self::chunk_index_key(tenant_id, id);
-        if let Some(bytes) = self.backend.get(&chunk_index_key).await.map_err(|e| {
-            AosError::Database(format!("Failed to load chunk index: {}", e))
-        })? {
+        if let Some(bytes) = self
+            .backend
+            .get(&chunk_index_key)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to load chunk index: {}", e)))?
+        {
             let chunk_ids: Vec<String> =
                 serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
             for cid in chunk_ids {
@@ -437,14 +452,6 @@ impl DocumentKvRepository {
         chunk_hash: &str,
         text_preview: Option<String>,
     ) -> Result<String> {
-        // ensure document exists
-        if self.get_document(tenant_id, document_id).await?.is_none() {
-            return Err(AosError::NotFound(format!(
-                "Document {} not found for tenant {}",
-                document_id, tenant_id
-            )));
-        }
-
         let id = Uuid::now_v7().to_string();
         let chunk = DocumentChunkKv {
             id: id.clone(),
@@ -460,20 +467,8 @@ impl DocumentKvRepository {
             created_at: Self::now(),
         };
 
-        let payload = serde_json::to_vec(&chunk).map_err(AosError::Serialization)?;
-        self.backend
-            .set(&Self::chunk_key(tenant_id, document_id, &id), payload)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to store chunk: {}", e)))?;
-        self.append_chunk_index(tenant_id, document_id, &id)
-            .await?;
-        self.backend
-            .set(
-                &Self::chunk_lookup_key(&id),
-                format!("{}|{}", tenant_id, document_id).into_bytes(),
-            )
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to store chunk lookup: {}", e)))?;
+        // Delegate to canonical upsert path to keep a single implementation.
+        self.put_chunk(&chunk).await?;
         Ok(id)
     }
 
@@ -507,7 +502,11 @@ impl DocumentKvRepository {
             }
         }
 
-        chunks.sort_by(|a, b| a.chunk_index.cmp(&b.chunk_index).then_with(|| a.id.cmp(&b.id)));
+        chunks.sort_by(|a, b| {
+            a.chunk_index
+                .cmp(&b.chunk_index)
+                .then_with(|| a.id.cmp(&b.id))
+        });
         Ok(chunks)
     }
 
@@ -556,38 +555,4 @@ impl DocumentKvRepository {
             .map_err(AosError::Serialization)
             .map(Some)
     }
-
-    /// Store a chunk with provided ID (used for migration).
-    pub async fn put_chunk(&self, chunk: &DocumentChunkKv) -> Result<()> {
-        if self
-            .get_document(&chunk.tenant_id, &chunk.document_id)
-            .await?
-            .is_none()
-        {
-            return Err(AosError::NotFound(format!(
-                "Document {} missing for chunk {}",
-                chunk.document_id, chunk.id
-            )));
-        }
-
-        let payload = serde_json::to_vec(chunk).map_err(AosError::Serialization)?;
-        self.backend
-            .set(
-                &Self::chunk_key(&chunk.tenant_id, &chunk.document_id, &chunk.id),
-                payload,
-            )
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to store chunk: {}", e)))?;
-        self.append_chunk_index(&chunk.tenant_id, &chunk.document_id, &chunk.id)
-            .await?;
-        self.backend
-            .set(
-                &Self::chunk_lookup_key(&chunk.id),
-                format!("{}|{}", chunk.tenant_id, chunk.document_id).into_bytes(),
-            )
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to store chunk lookup: {}", e)))?;
-        Ok(())
-    }
 }
-

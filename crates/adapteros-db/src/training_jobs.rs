@@ -146,6 +146,7 @@ impl Db {
         }
     }
 
+    #[allow(dead_code)]
     fn record_to_kv(record: &TrainingJobRecord) -> TrainingJobKv {
         TrainingJobKv {
             id: record.id.clone(),
@@ -621,7 +622,9 @@ impl Db {
 
         if let Some(repo) = self.get_training_job_kv_repo() {
             if let Err(e) = repo
-                .update_job(job_id, |job| job.metadata_json = Some(metadata_json.clone()))
+                .update_job(job_id, |job| {
+                    job.metadata_json = Some(metadata_json.clone())
+                })
                 .await
             {
                 self.record_kv_write_fallback("training_jobs.update_artifact");
@@ -659,7 +662,9 @@ impl Db {
     ) -> Result<()> {
         if let Some(repo) = self.get_training_job_kv_repo() {
             if let Err(e) = repo
-                .update_job(job_id, |job| job.adapter_name = Some(adapter_name.to_string()))
+                .update_job(job_id, |job| {
+                    job.adapter_name = Some(adapter_name.to_string())
+                })
                 .await
             {
                 self.record_kv_write_fallback("training_jobs.update_adapter_name");
@@ -753,7 +758,9 @@ impl Db {
     ) -> Result<()> {
         if let Some(repo) = self.get_training_job_kv_repo() {
             if let Err(e) = repo
-                .update_job(job_id, |job| job.config_hash_b3 = Some(config_hash_b3.to_string()))
+                .update_job(job_id, |job| {
+                    job.config_hash_b3 = Some(config_hash_b3.to_string())
+                })
                 .await
             {
                 self.record_kv_write_fallback("training_jobs.update_config_hash");

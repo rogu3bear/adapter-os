@@ -5,11 +5,12 @@ use crate::documents::Document;
 use crate::query_helpers::db_err;
 use crate::{Db, KvBackend};
 use adapteros_core::{AosError, Result};
-use std::sync::Arc;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use uuid::Uuid;
+use std::sync::Arc;
 use tracing::warn;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DocumentCollection {
@@ -292,10 +293,17 @@ impl Db {
         collection_id: &str,
         document_id: &str,
     ) -> Result<()> {
+        let added_at = Utc::now().to_rfc3339();
+
         if self.storage_mode().write_to_kv() {
             if let Some(repo) = self.get_collection_kv_repo() {
                 if let Err(e) = repo
-                    .add_document_to_collection(tenant_id, collection_id, document_id)
+                    .add_document_to_collection(
+                        tenant_id,
+                        collection_id,
+                        document_id,
+                        Some(added_at.clone()),
+                    )
                     .await
                 {
                     self.record_kv_write_fallback("collections.add_document");
@@ -306,13 +314,14 @@ impl Db {
 
         if self.storage_mode().write_to_sql() {
             sqlx::query(
-                "INSERT INTO collection_documents (tenant_id, collection_id, document_id)
-             VALUES (?, ?, ?)
+                "INSERT INTO collection_documents (tenant_id, collection_id, document_id, added_at)
+             VALUES (?, ?, ?, ?)
              ON CONFLICT(collection_id, document_id) DO NOTHING",
             )
             .bind(tenant_id)
             .bind(collection_id)
             .bind(document_id)
+            .bind(&added_at)
             .execute(&*self.pool())
             .await
             .map_err(db_err("add document to collection"))?;
@@ -353,7 +362,11 @@ impl Db {
                             .is_some()
                         {
                             let _ = repo
-                                .remove_document_from_collection(tenant_id, collection_id, document_id)
+                                .remove_document_from_collection(
+                                    tenant_id,
+                                    collection_id,
+                                    document_id,
+                                )
                                 .await;
                             break;
                         }
@@ -397,9 +410,7 @@ impl Db {
         if self.storage_mode().read_from_kv() {
             if let Some(repo) = self.get_collection_kv_repo() {
                 let mut docs = Vec::new();
-                let links = repo
-                    .list_collection_links(tenant_id, collection_id)
-                    .await?;
+                let links = repo.list_collection_links(tenant_id, collection_id).await?;
                 for link in links {
                     if let Some(doc) = self.get_document(tenant_id, &link.document_id).await? {
                         docs.push(doc);
@@ -517,14 +528,15 @@ impl Db {
         }
 
         if self.storage_mode().read_from_sql() {
-            let rows: Vec<(String,)> =
-                sqlx::query_as("SELECT document_id FROM collection_documents WHERE collection_id = ?")
-                    .bind(collection_id)
-                    .fetch_all(&*self.pool())
-                    .await
-                    .map_err(|e| {
-                        AosError::Database(format!("Failed to list collection document IDs: {}", e))
-                    })?;
+            let rows: Vec<(String,)> = sqlx::query_as(
+                "SELECT document_id FROM collection_documents WHERE collection_id = ?",
+            )
+            .bind(collection_id)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to list collection document IDs: {}", e))
+            })?;
             return Ok(rows.into_iter().map(|(id,)| id).collect());
         }
 

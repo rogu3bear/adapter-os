@@ -166,10 +166,10 @@ async fn test_stack_version_no_increment_on_metadata_change() {
     let renamed = stack_name();
     let update_req = CreateStackRequest {
         tenant_id: "test-tenant".to_string(),
-        name: renamed.clone(), // Changed
+        name: renamed.clone(),                            // Changed
         description: Some("New description".to_string()), // Changed
-        adapter_ids: vec!["adapter1".to_string()], // Same
-        workflow_type: Some("Parallel".to_string()), // Same
+        adapter_ids: vec!["adapter1".to_string()],        // Same
+        workflow_type: Some("Parallel".to_string()),      // Same
         determinism_mode: None,
     };
 

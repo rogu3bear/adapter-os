@@ -13,12 +13,12 @@
 //!
 //! 【2025-01-25†prd-ux-01†chat_sessions_db】
 
-use adapteros_core::{AosError, Result};
 use crate::chat_sessions_kv::{ChatMessageKv, ChatSessionKv, ChatSessionKvRepository};
 use crate::KvBackend;
-use std::sync::Arc;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::{FromRow, QueryBuilder, Sqlite};
+use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::query_helpers::db_err;
@@ -31,16 +31,29 @@ pub struct ChatSession {
     pub id: String,
     pub tenant_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<String>,
+    pub user_id: Option<String>, // legacy created_by
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ref_id: Option<String>,
     pub created_at: String,
+    pub updated_at: String,
     pub last_activity_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags_json: Option<String>,
     /// Pinned adapter IDs for this session (JSON array)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
@@ -53,9 +66,13 @@ pub struct ChatSession {
 pub struct ChatMessage {
     pub id: String,
     pub session_id: String,
-    pub role: String, // 'user', 'assistant', 'system'
+    pub tenant_id: String,
+    pub role: String, // 'user', 'assistant', 'system', 'tool', 'owner_system'
     pub content: String,
-    pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+    pub created_at: String,
+    pub sequence: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_json: Option<String>,
 }
@@ -78,12 +95,40 @@ pub struct CreateChatSessionParams {
     pub id: String,
     pub tenant_id: String,
     pub user_id: Option<String>,
+    pub created_by: Option<String>,
     pub stack_id: Option<String>,
     pub collection_id: Option<String>,
+    pub document_id: Option<String>,
     pub name: String,
+    pub title: Option<String>,
+    pub source_type: Option<String>,
+    pub source_ref_id: Option<String>,
     pub metadata_json: Option<String>,
+    pub tags_json: Option<String>,
     /// Pinned adapter IDs for this session (JSON array). If None, inherits from tenant default.
     pub pinned_adapter_ids: Option<String>,
+}
+
+/// Parameters for updating mutable chat session fields.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct UpdateChatSessionParams {
+    /// Update session name
+    pub name: Option<String>,
+    /// Update session title/name
+    pub title: Option<String>,
+    /// Update stack binding (Some(Some(id)) sets, Some(None) clears, None leaves unchanged)
+    pub stack_id: Option<Option<String>>,
+    /// Update collection binding
+    pub collection_id: Option<Option<String>>,
+    /// Update document binding
+    pub document_id: Option<Option<String>>,
+    /// Update source type
+    pub source_type: Option<String>,
+    /// Update metadata JSON blob
+    pub metadata_json: Option<Option<String>>,
+    /// Update tags JSON blob
+    pub tags_json: Option<Option<String>>,
 }
 
 /// Parameters for adding a message to a session
@@ -92,9 +137,41 @@ pub struct CreateChatSessionParams {
 pub struct AddMessageParams {
     pub id: String,
     pub session_id: String,
+    pub tenant_id: Option<String>,
     pub role: String,
     pub content: String,
+    pub sequence: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
     pub metadata_json: Option<String>,
+}
+
+/// Chat provenance record (snapshot of an inference call tied to a session/message)
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ChatProvenance {
+    pub id: String,
+    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    pub tenant_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_call_id: Option<String>,
+    pub payload_snapshot: String,
+    pub created_at: String,
+}
+
+/// Parameters for creating a chat provenance entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct CreateChatProvenanceParams {
+    pub id: String,
+    pub session_id: String,
+    pub message_id: Option<String>,
+    pub tenant_id: String,
+    pub inference_call_id: Option<String>,
+    pub payload_snapshot: String,
+    pub created_at: Option<String>,
 }
 
 // =============================================================================
@@ -238,16 +315,24 @@ pub struct SessionShare {
 
 impl From<ChatSessionKv> for ChatSession {
     fn from(kv: ChatSessionKv) -> Self {
+        let source_type = kv.source_type.unwrap_or_else(|| "general".to_string());
         Self {
             id: kv.id,
             tenant_id: kv.tenant_id,
             user_id: kv.user_id,
+            created_by: kv.created_by,
             stack_id: kv.stack_id,
             collection_id: kv.collection_id,
+            document_id: kv.document_id,
             name: kv.name,
+            title: kv.title,
+            source_type: Some(source_type),
+            source_ref_id: kv.source_ref_id,
             created_at: kv.created_at,
+            updated_at: kv.updated_at,
             last_activity_at: kv.last_activity_at,
             metadata_json: kv.metadata_json,
+            tags_json: kv.tags_json,
             pinned_adapter_ids: kv.pinned_adapter_ids,
         }
     }
@@ -258,9 +343,12 @@ impl From<ChatMessageKv> for ChatMessage {
         Self {
             id: kv.id,
             session_id: kv.session_id,
+            tenant_id: kv.tenant_id,
             role: kv.role,
             content: kv.content,
-            timestamp: kv.timestamp,
+            timestamp: Some(kv.timestamp),
+            created_at: kv.created_at,
+            sequence: kv.sequence,
             metadata_json: kv.metadata_json,
         }
     }
@@ -297,6 +385,13 @@ impl Db {
             "Creating chat session"
         );
 
+        let title = params.title.clone().unwrap_or_else(|| params.name.clone());
+        let created_by = params.created_by.clone().or_else(|| params.user_id.clone());
+        let source_type = params
+            .source_type
+            .clone()
+            .unwrap_or_else(|| "general".to_string());
+
         // Resolve pinned adapters: use provided value or inherit from tenant default
         let pinned_adapter_ids = match &params.pinned_adapter_ids {
             Some(ids) => Some(ids.clone()),
@@ -316,17 +411,26 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             sqlx::query(
                 r#"
-            INSERT INTO chat_sessions (id, tenant_id, user_id, stack_id, collection_id, name, metadata_json, pinned_adapter_ids)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chat_sessions (
+                id, tenant_id, user_id, created_by, stack_id, collection_id, document_id,
+                name, title, source_type, source_ref_id, metadata_json, tags_json, pinned_adapter_ids
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
             )
             .bind(&params.id)
             .bind(&params.tenant_id)
             .bind(&params.user_id)
+            .bind(&created_by)
             .bind(&params.stack_id)
             .bind(&params.collection_id)
+            .bind(&params.document_id)
             .bind(&params.name)
+            .bind(&title)
+            .bind(&source_type)
+            .bind(&params.source_ref_id)
             .bind(&params.metadata_json)
+            .bind(&params.tags_json)
             .bind(&pinned_adapter_ids)
             .execute(&*self.pool())
             .await
@@ -348,6 +452,130 @@ impl Db {
         Ok(params.id)
     }
 
+    /// Update mutable chat session fields (title, bindings, metadata).
+    ///
+    /// Nested Option semantics:
+    /// - Some(Some(value)) => set to value
+    /// - Some(None) => set to NULL
+    /// - None => leave unchanged
+    pub async fn update_chat_session(
+        &self,
+        session_id: &str,
+        tenant_id: &str,
+        params: UpdateChatSessionParams,
+    ) -> Result<()> {
+        if params.name.is_none()
+            && params.title.is_none()
+            && params.stack_id.is_none()
+            && params.collection_id.is_none()
+            && params.document_id.is_none()
+            && params.source_type.is_none()
+            && params.metadata_json.is_none()
+            && params.tags_json.is_none()
+        {
+            return Ok(()); // nothing to update
+        }
+
+        let mut builder = QueryBuilder::<Sqlite>::new("UPDATE chat_sessions SET ");
+        let mut first = true;
+
+        if let Some(name) = params.name {
+            if !first {
+                builder.push(", ");
+            }
+            builder.push("name = ");
+            builder.push_bind(name);
+            first = false;
+        }
+
+        if let Some(title) = params.title {
+            if !first {
+                builder.push(", ");
+            }
+            builder.push("title = ");
+            builder.push_bind(title);
+            first = false;
+        }
+
+        if let Some(stack_id) = params.stack_id {
+            if !first {
+                builder.push(", ");
+            }
+            builder.push("stack_id = ");
+            builder.push_bind(stack_id);
+            first = false;
+        }
+
+        if let Some(collection_id) = params.collection_id {
+            if !first {
+                builder.push(", ");
+            }
+            builder.push("collection_id = ");
+            builder.push_bind(collection_id);
+            first = false;
+        }
+
+        if let Some(document_id) = params.document_id {
+            if !first {
+                builder.push(", ");
+            }
+            builder.push("document_id = ");
+            builder.push_bind(document_id);
+            first = false;
+        }
+
+        if let Some(source_type) = params.source_type {
+            if !first {
+                builder.push(", ");
+            }
+            builder.push("source_type = ");
+            builder.push_bind(source_type);
+            first = false;
+        }
+
+        if let Some(metadata_json) = params.metadata_json {
+            if !first {
+                builder.push(", ");
+            }
+            builder.push("metadata_json = ");
+            builder.push_bind(metadata_json);
+            first = false;
+        }
+
+        if let Some(tags_json) = params.tags_json {
+            if !first {
+                builder.push(", ");
+            }
+            builder.push("tags_json = ");
+            builder.push_bind(tags_json);
+            first = false;
+        }
+
+        if !first {
+            builder.push(", ");
+        }
+        builder.push("updated_at = datetime('now'), last_activity_at = datetime('now')");
+
+        builder.push(" WHERE id = ");
+        builder.push_bind(session_id);
+        builder.push(" AND tenant_id = ");
+        builder.push_bind(tenant_id);
+
+        if self.storage_mode().write_to_sql() {
+            builder
+                .build()
+                .execute(&*self.pool())
+                .await
+                .map_err(db_err("update chat session"))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for update_chat_session".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// List chat sessions for a user/tenant
     ///
     /// # Arguments
@@ -361,6 +589,8 @@ impl Db {
         &self,
         tenant_id: &str,
         user_id: Option<&str>,
+        source_type: Option<&str>,
+        document_id: Option<&str>,
         limit: Option<i64>,
     ) -> Result<Vec<ChatSession>> {
         let limit = limit.unwrap_or(50);
@@ -368,7 +598,13 @@ impl Db {
         if self.storage_mode().read_from_kv() {
             if let Some(repo) = self.get_chat_session_kv_repo() {
                 let sessions = repo
-                    .list_chat_sessions(tenant_id, user_id, limit as usize)
+                    .list_chat_sessions(
+                        tenant_id,
+                        user_id,
+                        source_type,
+                        document_id,
+                        limit as usize,
+                    )
                     .await?
                     .into_iter()
                     .map(ChatSession::from)
@@ -382,37 +618,35 @@ impl Db {
             }
         }
 
-        let sessions = if let Some(user_id) = user_id {
-            sqlx::query_as::<_, ChatSession>(
-                r#"
-                SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at, last_activity_at, metadata_json, pinned_adapter_ids
-                FROM chat_sessions
-                WHERE tenant_id = ? AND user_id = ?
-                ORDER BY last_activity_at DESC
-                LIMIT ?
-                "#,
-            )
-            .bind(tenant_id)
-            .bind(user_id)
-            .bind(limit)
-            .fetch_all(&*self.pool())
-            .await
-        } else {
-            sqlx::query_as::<_, ChatSession>(
-                r#"
-                SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at, last_activity_at, metadata_json, pinned_adapter_ids
-                FROM chat_sessions
-                WHERE tenant_id = ?
-                ORDER BY last_activity_at DESC
-                LIMIT ?
-                "#,
-            )
-            .bind(tenant_id)
-            .bind(limit)
-            .fetch_all(&*self.pool())
-            .await
+        let mut builder = QueryBuilder::<Sqlite>::new(
+            "SELECT id, tenant_id, user_id, created_by, stack_id, collection_id, document_id, \
+             name, title, source_type, source_ref_id, \
+             created_at, updated_at, last_activity_at, metadata_json, tags_json, pinned_adapter_ids \
+             FROM chat_sessions WHERE tenant_id = ",
+        );
+        builder.push_bind(tenant_id);
+
+        if let Some(user) = user_id {
+            builder.push(" AND user_id = ");
+            builder.push_bind(user);
         }
-        .map_err(db_err("list chat sessions"))?;
+        if let Some(src) = source_type {
+            builder.push(" AND source_type = ");
+            builder.push_bind(src);
+        }
+        if let Some(doc_id) = document_id {
+            builder.push(" AND document_id = ");
+            builder.push_bind(doc_id);
+        }
+
+        builder.push(" ORDER BY last_activity_at DESC LIMIT ");
+        builder.push_bind(limit);
+
+        let query = builder.build_query_as::<ChatSession>();
+        let sessions = query
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(db_err("list chat sessions"))?;
 
         debug!(
             tenant_id = %tenant_id,
@@ -433,7 +667,10 @@ impl Db {
     pub async fn get_chat_session(&self, session_id: &str) -> Result<Option<ChatSession>> {
         if self.storage_mode().read_from_kv() {
             if let Some(repo) = self.get_chat_session_kv_repo() {
-                let session = repo.get_chat_session(session_id).await?.map(ChatSession::from);
+                let session = repo
+                    .get_chat_session(session_id)
+                    .await?
+                    .map(ChatSession::from);
                 if !self.storage_mode().sql_fallback_enabled() || session.is_some() {
                     return Ok(session);
                 }
@@ -442,7 +679,9 @@ impl Db {
 
         let session = sqlx::query_as::<_, ChatSession>(
             r#"
-            SELECT id, tenant_id, user_id, stack_id, collection_id, name, created_at, last_activity_at, metadata_json, pinned_adapter_ids
+            SELECT id, tenant_id, user_id, created_by, stack_id, collection_id, document_id,
+                   name, title, source_type, source_ref_id,
+                   created_at, updated_at, last_activity_at, metadata_json, tags_json, pinned_adapter_ids
             FROM chat_sessions
             WHERE id = ?
             "#,
@@ -473,7 +712,8 @@ impl Db {
             sqlx::query(
                 r#"
             UPDATE chat_sessions
-            SET last_activity_at = datetime('now')
+            SET last_activity_at = datetime('now'),
+                updated_at = datetime('now')
             WHERE id = ?
             "#,
             )
@@ -526,7 +766,8 @@ impl Db {
             sqlx::query(
                 r#"
             UPDATE chat_sessions
-            SET collection_id = ?
+            SET collection_id = ?,
+                updated_at = datetime('now')
             WHERE id = ?
             "#,
             )
@@ -574,7 +815,9 @@ impl Db {
         let rows_affected = sqlx::query(
             r#"
             UPDATE chat_sessions
-            SET pinned_adapter_ids = ?, last_activity_at = datetime('now')
+            SET pinned_adapter_ids = ?,
+                last_activity_at = datetime('now'),
+                updated_at = datetime('now')
             WHERE id = ? AND tenant_id = ?
             "#,
         )
@@ -643,13 +886,53 @@ impl Db {
     ///
     /// # Arguments
     /// * `params` - Message parameters
-    pub async fn add_chat_message(&self, params: AddMessageParams) -> Result<String> {
+    pub async fn add_chat_message(&self, mut params: AddMessageParams) -> Result<String> {
         debug!(
             message_id = %params.id,
             session_id = %params.session_id,
             role = %params.role,
             "Adding chat message"
         );
+
+        // Load session to derive tenant_id and validate access
+        let session = self
+            .get_chat_session(&params.session_id)
+            .await?
+            .ok_or_else(|| AosError::NotFound("Chat session not found".to_string()))?;
+
+        if let Some(tid) = &params.tenant_id {
+            if tid != &session.tenant_id {
+                return Err(AosError::Validation(format!(
+                    "Session {} does not belong to tenant {}",
+                    params.session_id, tid
+                )));
+            }
+        }
+
+        let created_at = params
+            .created_at
+            .clone()
+            .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string());
+
+        let next_sequence = match params.sequence {
+            Some(seq) => seq,
+            None if self.storage_mode().write_to_sql() => sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT MAX(sequence) FROM chat_messages WHERE session_id = ?",
+            )
+            .bind(&params.session_id)
+            .fetch_optional(&*self.pool())
+            .await
+            .map_err(db_err("fetch chat message sequence"))?
+            .flatten()
+            .map(|v| v + 1)
+            .unwrap_or(0),
+            None => 0,
+        };
+
+        // Enrich params for KV write
+        params.tenant_id = Some(session.tenant_id.clone());
+        params.sequence = Some(next_sequence);
+        params.created_at = Some(created_at.clone());
 
         if let Some(repo) = self.get_chat_session_kv_repo() {
             if let Err(e) = repo.add_chat_message(&params).await {
@@ -661,15 +944,21 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             sqlx::query(
                 r#"
-            INSERT INTO chat_messages (id, session_id, role, content, metadata_json)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO chat_messages (
+                id, session_id, tenant_id, role, content, metadata_json, sequence, created_at, timestamp
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
             )
             .bind(&params.id)
             .bind(&params.session_id)
+            .bind(&session.tenant_id)
             .bind(&params.role)
             .bind(&params.content)
             .bind(&params.metadata_json)
+            .bind(next_sequence)
+            .bind(&created_at)
+            .bind(&created_at)
             .execute(&*self.pool())
             .await
             .map_err(db_err("add chat message"))?;
@@ -717,10 +1006,10 @@ impl Db {
 
         let messages = sqlx::query_as::<_, ChatMessage>(
             r#"
-            SELECT id, session_id, role, content, timestamp, metadata_json
+            SELECT id, session_id, tenant_id, role, content, timestamp, created_at, sequence, metadata_json
             FROM chat_messages
-            WHERE session_id = ?
-            ORDER BY timestamp ASC
+            WHERE session_id = ? AND deleted_at IS NULL
+            ORDER BY sequence ASC, created_at ASC, id ASC
             LIMIT ?
             "#,
         )
@@ -802,6 +1091,94 @@ impl Db {
         );
 
         Ok(traces)
+    }
+
+    /// Record chat provenance payload for a session/message
+    pub async fn add_chat_provenance(&self, params: CreateChatProvenanceParams) -> Result<String> {
+        let created_at = params
+            .created_at
+            .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string());
+
+        // Validate session tenant alignment
+        let session = self
+            .get_chat_session(&params.session_id)
+            .await?
+            .ok_or_else(|| AosError::NotFound("Chat session not found".to_string()))?;
+        if session.tenant_id != params.tenant_id {
+            return Err(AosError::Validation(format!(
+                "Session {} does not belong to tenant {}",
+                params.session_id, params.tenant_id
+            )));
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                r#"
+                INSERT INTO chat_provenance (
+                    id, session_id, message_id, tenant_id, inference_call_id, payload_snapshot, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(&params.id)
+            .bind(&params.session_id)
+            .bind(&params.message_id)
+            .bind(&params.tenant_id)
+            .bind(&params.inference_call_id)
+            .bind(&params.payload_snapshot)
+            .bind(&created_at)
+            .execute(&*self.pool())
+            .await
+            .map_err(db_err("add chat provenance"))?;
+        } else {
+            return Err(AosError::Database(
+                "No backend available for chat_provenance".to_string(),
+            ));
+        }
+
+        Ok(params.id)
+    }
+
+    /// List provenance entries for a session
+    pub async fn list_chat_provenance_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<ChatProvenance>> {
+        let entries = sqlx::query_as::<_, ChatProvenance>(
+            r#"
+            SELECT id, session_id, message_id, tenant_id, inference_call_id, payload_snapshot, created_at
+            FROM chat_provenance
+            WHERE session_id = ?
+            ORDER BY created_at ASC, id ASC
+            "#,
+        )
+        .bind(session_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(db_err("list chat provenance by session"))?;
+
+        Ok(entries)
+    }
+
+    /// List provenance entries for a message
+    pub async fn list_chat_provenance_for_message(
+        &self,
+        message_id: &str,
+    ) -> Result<Vec<ChatProvenance>> {
+        let entries = sqlx::query_as::<_, ChatProvenance>(
+            r#"
+            SELECT id, session_id, message_id, tenant_id, inference_call_id, payload_snapshot, created_at
+            FROM chat_provenance
+            WHERE message_id = ?
+            ORDER BY created_at ASC, id ASC
+            "#,
+        )
+        .bind(message_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(db_err("list chat provenance by message"))?;
+
+        Ok(entries)
     }
 
     /// Get session summary with trace counts
@@ -1249,12 +1626,14 @@ impl Db {
         session_id: &str,
         category_id: Option<&str>,
     ) -> Result<()> {
-        sqlx::query("UPDATE chat_sessions SET category_id = ? WHERE id = ?")
-            .bind(category_id)
-            .bind(session_id)
-            .execute(&*self.pool())
-            .await
-            .map_err(db_err("set session category"))?;
+        sqlx::query(
+            "UPDATE chat_sessions SET category_id = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(category_id)
+        .bind(session_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("set session category"))?;
         Ok(())
     }
 
@@ -1271,7 +1650,8 @@ impl Db {
             SET status = 'deleted',
                 deleted_at = datetime('now'),
                 deleted_by = ?,
-                retention_until = datetime('now', '+30 days')
+                retention_until = datetime('now', '+30 days'),
+                updated_at = datetime('now')
             WHERE id = ? AND status != 'deleted'
             "#,
         )
@@ -1298,7 +1678,8 @@ impl Db {
             SET status = 'archived',
                 archived_at = datetime('now'),
                 archived_by = ?,
-                archive_reason = ?
+                archive_reason = ?,
+                updated_at = datetime('now')
             WHERE id = ? AND status = 'active'
             "#,
         )
@@ -1324,7 +1705,8 @@ impl Db {
                 archived_at = NULL,
                 archived_by = NULL,
                 archive_reason = NULL,
-                retention_until = NULL
+                retention_until = NULL,
+                updated_at = datetime('now')
             WHERE id = ? AND status IN ('deleted', 'archived')
             "#,
         )
@@ -1869,12 +2251,14 @@ impl Db {
         session_id: &str,
         description: Option<&str>,
     ) -> Result<()> {
-        sqlx::query("UPDATE chat_sessions SET description = ? WHERE id = ?")
-            .bind(description)
-            .bind(session_id)
-            .execute(&*self.pool())
-            .await
-            .map_err(db_err("update description"))?;
+        sqlx::query(
+            "UPDATE chat_sessions SET description = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(description)
+        .bind(session_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("update description"))?;
         Ok(())
     }
 }
@@ -1897,11 +2281,17 @@ mod tests {
         let params = CreateChatSessionParams {
             id: "session-1".to_string(),
             tenant_id: "test-tenant".to_string(),
-            user_id: Some("user-1".to_string()),
+            user_id: None,
+            created_by: None,
             stack_id: None,
             collection_id: None,
+            document_id: None,
             name: "Test Session".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
             metadata_json: None,
+            tags_json: None,
             pinned_adapter_ids: None,
         };
 
@@ -1932,10 +2322,16 @@ mod tests {
             id: "session-1".to_string(),
             tenant_id: "test-tenant".to_string(),
             user_id: None,
+            created_by: None,
             stack_id: None,
             collection_id: None,
+            document_id: None,
             name: "Test Session".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
             metadata_json: None,
+            tags_json: None,
             pinned_adapter_ids: None,
         };
         db.create_chat_session(session_params).await?;
@@ -1944,8 +2340,11 @@ mod tests {
         let msg1_params = AddMessageParams {
             id: "msg-1".to_string(),
             session_id: "session-1".to_string(),
+            tenant_id: None,
             role: "user".to_string(),
             content: "Hello".to_string(),
+            sequence: None,
+            created_at: None,
             metadata_json: None,
         };
         db.add_chat_message(msg1_params).await?;
@@ -1953,8 +2352,11 @@ mod tests {
         let msg2_params = AddMessageParams {
             id: "msg-2".to_string(),
             session_id: "session-1".to_string(),
+            tenant_id: None,
             role: "assistant".to_string(),
             content: "Hi there!".to_string(),
+            sequence: None,
+            created_at: None,
             metadata_json: None,
         };
         db.add_chat_message(msg2_params).await?;
@@ -1982,10 +2384,16 @@ mod tests {
             id: "session-1".to_string(),
             tenant_id: "test-tenant".to_string(),
             user_id: None,
+            created_by: None,
             stack_id: None,
             collection_id: None,
+            document_id: None,
             name: "Test Session".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
             metadata_json: None,
+            tags_json: None,
             pinned_adapter_ids: None,
         };
         db.create_chat_session(session_params).await?;
