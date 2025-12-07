@@ -798,6 +798,8 @@ impl<'a> InferenceCore<'a> {
                 &augmented_prompt,
                 &response_text,
                 backend_used.as_deref(),
+                backend_used.clone(),
+                base_model_id.clone(),
                 &rag_evidence,
                 latency_ms,
                 prompt_truncated,

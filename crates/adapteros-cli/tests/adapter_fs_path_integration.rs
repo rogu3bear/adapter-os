@@ -2,6 +2,7 @@ use adapteros_cli::commands::train_docs::TrainDocsArgs;
 use adapteros_cli::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use adapteros_core::{adapter_fs_path_with_root, B3Hash};
 use adapteros_db::AdapterRegistrationBuilder;
+use std::collections::HashMap;
 use tempfile::tempdir;
 use tokio::fs;
 
@@ -13,10 +14,11 @@ async fn train_docs_and_worker_path_align() {
 
     // Create minimal tokenizer to satisfy loader
     let tokenizer_path = tokenizer_dir.path().join("tokenizer.json");
-    let tokenizer = tokenizers::Tokenizer::new(tokenizers::models::wordlevel::WordLevel::new(
-        [("hello".to_string(), 0u32)].into_iter().collect(),
-        None,
-    ));
+    let mut vocab = HashMap::new();
+    vocab.insert("hello".to_string(), 0u32);
+    let model =
+        tokenizers::models::wordlevel::WordLevel::new(vocab, Some("[UNK]".to_string())).unwrap();
+    let tokenizer = tokenizers::Tokenizer::new(model);
     tokenizer
         .save(tokenizer_path.to_str().unwrap(), false)
         .expect("tokenizer saved");
