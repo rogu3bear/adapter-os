@@ -165,6 +165,7 @@ impl TestAppStateBuilder {
 
     /// Build the app state
     pub async fn build(self) -> Result<adapteros_server_api::AppState> {
+        use adapteros_core::{BackendProfile, SeedMode};
         use adapteros_lora_worker::memory::UmaPressureMonitor;
         use adapteros_server_api::config::PathsConfig;
         use adapteros_server_api::state::{ApiConfig, MetricsConfig};
@@ -190,21 +191,19 @@ impl TestAppStateBuilder {
             documents_root: "var/documents".to_string(),
         };
 
-        let api_config = Arc::new(std::sync::RwLock::new(ApiConfig {
-            metrics: MetricsConfig {
-                enabled: true,
-                bearer_token: "test-bearer-token".to_string(),
-            },
-            directory_analysis_timeout_secs: 120,
-            use_session_stack_for_routing: false,
-            capacity_limits: Default::default(),
-            general: None,
-            server: Default::default(),
-            security: Default::default(),
-            performance: Default::default(),
-            paths: paths_config,
-            chat_context: Default::default(),
-        }));
+        let mut api_config_inner = ApiConfig::default();
+        api_config_inner.metrics = MetricsConfig {
+            enabled: true,
+            bearer_token: "test-bearer-token".to_string(),
+        };
+        api_config_inner.directory_analysis_timeout_secs = 120;
+        api_config_inner.use_session_stack_for_routing = false;
+        api_config_inner.paths = paths_config;
+        api_config_inner.seed_mode = SeedMode::BestEffort;
+        api_config_inner.backend_profile = BackendProfile::AutoDev;
+        api_config_inner.worker_id = 0;
+
+        let api_config = Arc::new(std::sync::RwLock::new(api_config_inner));
 
         let metrics_exporter = Arc::new(
             adapteros_metrics_exporter::MetricsExporter::new(vec![0.1, 0.5, 1.0]).map_err(|e| {
@@ -427,24 +426,9 @@ impl TestTrainingJobFactory {
         })
         .to_string();
 
-        // Note: repository_training_jobs has a FK to git_repositories(repo_id)
-        // but git_repositories.repo_id lacks UNIQUE constraint, causing FK mismatch errors.
-        // Workaround: use a dedicated connection with FK checks disabled.
         let test_repo_id = format!("test-repo-{}", job_id);
 
-        // Use a dedicated connection for all inserts (PRAGMA is connection-local)
-        let mut conn = db
-            .pool()
-            .acquire()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to acquire connection: {}", e)))?;
-
-        sqlx::query("PRAGMA foreign_keys = OFF")
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to disable FK checks: {}", e)))?;
-
-        // Create test git repository record
+        // Create test git repository record (FK parent)
         sqlx::query(
             "INSERT OR IGNORE INTO git_repositories
              (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
@@ -459,11 +443,11 @@ impl TestTrainingJobFactory {
         .bind("{}")
         .bind("analyzed")
         .bind("test@example.com")
-        .execute(&mut *conn)
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test git repository: {}", e)))?;
 
-        // Now create the training job
+        // Create the training job with FK enforcement enabled
         sqlx::query(
             "INSERT INTO repository_training_jobs
              (id, repo_id, training_config_json, status, progress_json, created_by)
@@ -475,7 +459,7 @@ impl TestTrainingJobFactory {
         .bind(status)
         .bind(&progress_json)
         .bind("test@example.com")
-        .execute(&mut *conn)
+        .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create test training job: {}", e)))?;
 

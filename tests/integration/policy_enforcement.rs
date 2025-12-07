@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Policy Enforcement Validation Tests
 //!
 //! Tests to verify that tenant-specific policies are correctly applied,

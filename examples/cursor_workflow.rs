@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         let status_response = reqwest::Client::new()
-            .get(&format!("http://localhost:8080/v1/code/scan/{}", job_id))
+            .get(format!("http://localhost:8080/v1/code/scan/{}", job_id))
             .send()
             .await?;
 

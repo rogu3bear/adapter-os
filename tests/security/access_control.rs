@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Access Control Enforcement Tests
 //!
 //! This module tests authentication, authorization, and access control mechanisms

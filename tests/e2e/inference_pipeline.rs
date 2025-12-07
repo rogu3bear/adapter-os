@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! End-to-end tests for complete inference pipelines
 //!
 //! Validates the full workflow from model import through inference results,

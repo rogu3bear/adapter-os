@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! End-to-end tests for failure scenario handling
 //!
 //! Validates graceful degradation, error recovery, fallback mechanisms,

@@ -39,10 +39,16 @@ async fn test_create_session_with_pinned_adapters() {
             id: session_id.to_string(),
             tenant_id: "default".to_string(),
             user_id: Some("testadmin@example.com".to_string()),
+            created_by: Some("testadmin@example.com".to_string()),
             stack_id: None,
             collection_id: None,
+            document_id: None,
             name: "E2E Pinned Adapters Test".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
             metadata_json: None,
+            tags_json: None,
             pinned_adapter_ids: Some(serde_json::to_string(&pinned_adapters).unwrap()),
         })
         .await
@@ -97,10 +103,16 @@ async fn test_session_inherits_tenant_default_pinned_adapters() {
             id: session_id.to_string(),
             tenant_id: "default".to_string(),
             user_id: None,
+            created_by: None,
             stack_id: None,
             collection_id: None,
+            document_id: None,
             name: "Inheriting Session".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
             metadata_json: None,
+            tags_json: None,
             pinned_adapter_ids: None, // Should inherit from tenant
         })
         .await
@@ -146,10 +158,16 @@ async fn test_session_explicit_pins_override_tenant_default() {
             id: session_id.to_string(),
             tenant_id: "default".to_string(),
             user_id: None,
+            created_by: None,
             stack_id: None,
             collection_id: None,
+            document_id: None,
             name: "Override Session".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
             metadata_json: None,
+            tags_json: None,
             pinned_adapter_ids: Some(serde_json::to_string(&explicit_adapters).unwrap()),
         })
         .await
@@ -185,6 +203,7 @@ fn test_inference_result_has_pinned_adapter_fields() {
         finish_reason: "stop".to_string(),
         adapters_used: vec!["stack-adapter-1".to_string()],
         router_decisions: vec![],
+        router_decision_chain: None,
         rag_evidence: None,
         latency_ms: 500,
         request_id: "test-request-123".to_string(),
@@ -198,6 +217,7 @@ fn test_inference_result_has_pinned_adapter_fields() {
         fallback_triggered: false,
         determinism_mode_applied: None,
         replay_guarantee: None,
+        placement_trace: None,
     };
 
     // Verify fields are present and correct
@@ -227,6 +247,7 @@ fn test_inference_result_omits_none_pinned_fields() {
         finish_reason: "stop".to_string(),
         adapters_used: vec!["adapter-1".to_string()],
         router_decisions: vec![],
+        router_decision_chain: None,
         rag_evidence: None,
         latency_ms: 250,
         request_id: "test-request-456".to_string(),
@@ -237,6 +258,7 @@ fn test_inference_result_omits_none_pinned_fields() {
         fallback_triggered: false,
         determinism_mode_applied: None,
         replay_guarantee: None,
+        placement_trace: None,
     };
 
     // Verify None fields are properly set
@@ -329,6 +351,7 @@ fn test_graceful_degradation_http_200_behavior() {
         finish_reason: "stop".to_string(),
         adapters_used: vec!["stack-fallback-adapter".to_string()],
         router_decisions: vec![],
+        router_decision_chain: None,
         rag_evidence: None,
         latency_ms: 1000,
         request_id: "graceful-degradation-test".to_string(),
@@ -339,6 +362,7 @@ fn test_graceful_degradation_http_200_behavior() {
         fallback_triggered: false,
         determinism_mode_applied: None,
         replay_guarantee: None,
+        placement_trace: None,
     };
 
     // Key assertions for graceful degradation compliance:

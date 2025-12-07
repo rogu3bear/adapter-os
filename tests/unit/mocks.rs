@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Deterministic Mocking Utilities
 //!
 //! This module provides controlled, reproducible test doubles for AdapterOS components.

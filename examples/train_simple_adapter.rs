@@ -88,7 +88,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let packager = AdapterPackager::new(&output_dir);
     let packaged = packager
-        .package_aos(&result.adapter_id, &quantized, &config, "qwen2.5-7b")
+        .package_aos(
+            "default",
+            &result.adapter_id,
+            &quantized,
+            &config,
+            "qwen2.5-7b",
+        )
         .await?;
 
     println!("   ✅ Packaged adapter: {}", packaged.adapter_id);

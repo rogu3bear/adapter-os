@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! # AdapterOS Performance Benchmarking Suite
 //!
 //! This crate provides comprehensive performance benchmarks for AdapterOS components,

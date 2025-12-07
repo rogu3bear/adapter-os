@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Hash chain validation tests for AdapterOS determinism
 //!
 //! Verifies that hash chains maintain integrity and determinism throughout

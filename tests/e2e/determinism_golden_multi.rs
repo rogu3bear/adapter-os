@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Multi-Host Golden Baseline Determinism Test
 //!
 //! Validates that AdapterOS produces identical outputs across multiple hosts

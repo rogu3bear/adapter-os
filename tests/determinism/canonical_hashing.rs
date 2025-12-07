@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Canonical hashing verification tests for AdapterOS determinism
 //!
 //! Verifies that canonical JSON serialization and BLAKE3 hashing produce
@@ -246,27 +242,17 @@ fn test_hash_chain_with_canonical_json() {
 /// Test telemetry event canonical hashing
 #[test]
 fn test_telemetry_event_canonical_hashing() {
-    use adapteros_telemetry::TelemetryEvent;
+    let event1 = serde_json::json!({
+        "event_type": "test_event",
+        "timestamp": 1234567890,
+        "data": { "key": "value", "count": 42 }
+    });
 
-    let event1 = TelemetryEvent {
-        event_type: "test_event".to_string(),
-<<<<<<< HEAD
-        kind: None,
-=======
->>>>>>> integration-branch
-        timestamp: 1234567890,
-        data: serde_json::json!({"key": "value", "count": 42}),
-    };
-
-    let event2 = TelemetryEvent {
-        event_type: "test_event".to_string(),
-<<<<<<< HEAD
-        kind: None,
-=======
->>>>>>> integration-branch
-        timestamp: 1234567890,
-        data: serde_json::json!({"count": 42, "key": "value"}), // Different field order
-    };
+    let event2 = serde_json::json!({
+        "timestamp": 1234567890,
+        "data": { "count": 42, "key": "value" }, // Different field order
+        "event_type": "test_event"
+    });
 
     // Serialize to canonical JSON
     let json1 = serde_json::to_string(&event1).unwrap();

@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Specialized verification utilities for determinism testing
 //!
 //! Provides common utilities for:
@@ -15,8 +11,21 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use adapteros_core::{B3Hash, CPID, derive_seed};
-use adapteros_telemetry::{TelemetryEvent, EventSequence};
 use adapteros_deterministic_exec::DeterministicExecutor;
+use serde_json::Value;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TelemetryEvent {
+    pub event_type: String,
+    pub timestamp: i64,
+    pub data: Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EventSequence {
+    pub events: Vec<TelemetryEvent>,
+    pub metadata: HashMap<String, String>,
+}
 
 /// Deterministic execution context for testing
 pub struct DeterminismTestContext {

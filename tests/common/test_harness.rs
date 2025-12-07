@@ -8,6 +8,7 @@
 
 #![allow(dead_code)]
 
+use adapteros_core::{BackendProfile, SeedMode};
 use adapteros_db::Db;
 use adapteros_server_api::routes;
 use adapteros_server_api::AppState;
@@ -62,7 +63,7 @@ impl ApiTestHarness {
         let paths_config = PathsConfig {
             artifacts_root: "var/artifacts".to_string(),
             bundles_root: "var/bundles".to_string(),
-            adapters_root: "var/adapters".to_string(),
+            adapters_root: "var/adapters/repo".to_string(),
             plan_dir: "plan".to_string(),
             datasets_root: "var/datasets".to_string(),
             documents_root: "var/documents".to_string(),
@@ -79,9 +80,13 @@ impl ApiTestHarness {
             general: None,
             server: Default::default(),
             security: Default::default(),
+            auth: Default::default(),
             performance: Default::default(),
             paths: paths_config,
             chat_context: Default::default(),
+            seed_mode: SeedMode::BestEffort,
+            backend_profile: BackendProfile::AutoDev,
+            worker_id: 0,
         }));
 
         let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
@@ -105,6 +110,10 @@ impl ApiTestHarness {
             metrics_collector,
             metrics_registry,
             uma_monitor,
+        )
+        .with_manifest_info(
+            "test-manifest-hash".to_string(),
+            std::env::var("AOS_MODEL_BACKEND").unwrap_or_else(|_| "mlx".to_string()),
         );
 
         // Build router

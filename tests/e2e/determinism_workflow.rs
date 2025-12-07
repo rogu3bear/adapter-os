@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! End-to-end tests for determinism workflow validation
 //!
 //! Validates complete determinism guarantees across the entire AdapterOS pipeline,

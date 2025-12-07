@@ -1,6 +1,7 @@
 #![cfg(all(test, feature = "extended-tests"))]
 
 //! Integration test for model UI user journey
+use adapteros_core::{BackendProfile, SeedMode};
 use adapteros_db::Db;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::TrainingService;
@@ -28,16 +29,20 @@ async fn setup_test_env() -> anyhow::Result<(AppState, Claims)> {
         general: None,
         server: Default::default(),
         security: Default::default(),
+        auth: Default::default(),
         performance: Default::default(),
         paths: PathsConfig {
             artifacts_root: "var/artifacts".to_string(),
             bundles_root: "var/bundles".to_string(),
-            adapters_root: "var/adapters".to_string(),
+            adapters_root: "var/adapters/repo".to_string(),
             plan_dir: "var/plan".to_string(),
             datasets_root: "var/datasets".to_string(),
             documents_root: "var/documents".to_string(),
         },
         chat_context: Default::default(),
+        seed_mode: SeedMode::BestEffort,
+        backend_profile: BackendProfile::AutoDev,
+        worker_id: 0,
     }));
     let metrics_exporter = Arc::new(MetricsExporter::new(vec![0.1, 0.5, 1.0])?);
     let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new()?);

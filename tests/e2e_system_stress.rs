@@ -81,7 +81,7 @@ async fn test_concurrent_inference_requests() {
 
     for result in results {
         match result {
-            Ok((i, Ok(response))) => {
+            Ok((_i, Ok(response))) => {
                 if response.status() == StatusCode::OK
                     || response.status() == StatusCode::INTERNAL_SERVER_ERROR
                 {
@@ -90,8 +90,8 @@ async fn test_concurrent_inference_requests() {
                     error_count += 1;
                 }
             }
-            Ok((i, Err(e))) => {
-                println!("Request {} failed: {:?}", i, e);
+            Ok((_i, Err(e))) => {
+                println!("Request failed: {:?}", e);
                 error_count += 1;
             }
             Err(e) => {
@@ -182,11 +182,11 @@ async fn test_simultaneous_training_jobs() {
 
     for result in results {
         match result {
-            Ok((i, Ok(_))) => {
+            Ok((_i, Ok(_))) => {
                 success_count += 1;
             }
-            Ok((i, Err(e))) => {
-                println!("Job {} creation failed: {:?}", i, e);
+            Ok((_i, Err(e))) => {
+                println!("Job creation failed: {:?}", e);
                 error_count += 1;
             }
             Err(e) => {

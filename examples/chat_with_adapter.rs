@@ -9,8 +9,9 @@
 //!
 //! Run with: cargo +nightly -Zscript examples/chat_with_adapter.rs
 
+use adapteros_core::paths::get_default_adapters_root;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // Note: In a real application, you would use:
 // use adapteros_config::ModelConfig;
@@ -28,6 +29,7 @@ fn main() {
     println!();
 
     // Check if adapter path is provided via environment
+    let adapter_base = adapters_dir();
     let adapter_path = if let Ok(path) = std::env::var("AOS_ADAPTER_PATH") {
         path
     } else {
@@ -43,9 +45,18 @@ fn main() {
         io::stdin().read_line(&mut input).unwrap();
 
         match input.trim() {
-            "1" => "adapters/code-assistant.aos".to_string(),
-            "2" => "adapters/creative-writer.aos".to_string(),
-            "3" => "adapters/readme-writer.aos".to_string(),
+            "1" => adapter_base
+                .join("code-assistant.aos")
+                .to_string_lossy()
+                .into_owned(),
+            "2" => adapter_base
+                .join("creative-writer.aos")
+                .to_string_lossy()
+                .into_owned(),
+            "3" => adapter_base
+                .join("readme-writer.aos")
+                .to_string_lossy()
+                .into_owned(),
             _ => {
                 println!("Invalid selection");
                 return;
@@ -83,6 +94,8 @@ fn main() {
 }
 
 fn simulate_inference(adapter: &str, prompt: &str) -> String {
+    let adapter_base = adapters_dir();
+
     // In production, this would:
     // 1. Load adapter with MLXFFIModel::load(adapter)
     // 2. Tokenize prompt
@@ -91,7 +104,7 @@ fn simulate_inference(adapter: &str, prompt: &str) -> String {
     // 5. Return decoded text
 
     match adapter {
-        "adapters/code-assistant.aos" => {
+        adapter if adapter == adapter_base.join("code-assistant.aos").to_string_lossy() => {
             format!(
                 "Based on the code-assistant adapter, here's my response to '{}': \n\
                     I can help you write, debug, and optimize code. \n\
@@ -99,7 +112,7 @@ fn simulate_inference(adapter: &str, prompt: &str) -> String {
                 prompt
             )
         }
-        "adapters/creative-writer.aos" => {
+        adapter if adapter == adapter_base.join("creative-writer.aos").to_string_lossy() => {
             format!(
                 "Using creative-writer adapter for '{}': \n\
                     Let me craft something creative for you. \n\
@@ -107,7 +120,7 @@ fn simulate_inference(adapter: &str, prompt: &str) -> String {
                 prompt
             )
         }
-        "adapters/readme-writer.aos" => {
+        adapter if adapter == adapter_base.join("readme-writer.aos").to_string_lossy() => {
             format!(
                 "Documentation mode for '{}': \n\
                     I'll help you write clear, comprehensive documentation. \n\
@@ -117,4 +130,8 @@ fn simulate_inference(adapter: &str, prompt: &str) -> String {
         }
         _ => "Unknown adapter".to_string(),
     }
+}
+
+fn adapters_dir() -> PathBuf {
+    get_default_adapters_root()
 }

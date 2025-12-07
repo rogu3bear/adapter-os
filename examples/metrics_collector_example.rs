@@ -52,17 +52,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 coll.increment("queue_depth_samples", queue_depth);
 
                 // Record policy violations
-                if counter % 100 == 0 {
+                if counter.is_multiple_of(100) {
                     coll.increment("policy_violations", 1);
                 }
 
                 // Record adapter activations
-                if counter % 200 == 0 {
+                if counter.is_multiple_of(200) {
                     coll.increment("adapter_activations", 1);
                 }
 
                 // Record adapter evictions
-                if counter % 300 == 0 {
+                if counter.is_multiple_of(300) {
                     coll.increment("adapter_evictions", 1);
                 }
             }

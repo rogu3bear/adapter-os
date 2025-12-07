@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Evidence Validation Tests
 //!
 //! This module tests evidence collection, validation, integrity, and tamper detection

@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use adapteros_benchmarks::*;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
@@ -341,8 +337,4 @@ criterion_group!(
              bench_adapter_routing, bench_evidence_processing, bench_end_to_end_latency
 );
 
-<<<<<<< HEAD
 criterion_main!(throughput_benches);
-=======
-criterion_main!(throughput_benches);
->>>>>>> integration-branch

@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Resource Isolation Tests
 //!
 //! Tests to verify that resource allocation and usage limits are properly

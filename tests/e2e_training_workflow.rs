@@ -238,13 +238,7 @@ async fn test_training_job_states() {
         .await
         .expect("Failed to create adapter");
 
-    // Use a dedicated connection for all inserts (PRAGMA is connection-local)
-    // Note: git_repositories.repo_id lacks UNIQUE constraint causing FK mismatch
     let mut conn = harness.db().pool().acquire().await.unwrap();
-    sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(&mut *conn)
-        .await
-        .unwrap();
 
     // Create a git repository first (required for FK)
     sqlx::query(
@@ -378,12 +372,6 @@ async fn test_training_progress_tracking() {
         .await
         .expect("Failed to create adapter");
 
-    // Disable FK checks - git_repositories.repo_id lacks UNIQUE constraint causing FK mismatch
-    sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(harness.db().pool())
-        .await
-        .unwrap();
-
     // Create a git repository first (required for FK)
     sqlx::query(
         "INSERT INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
@@ -473,12 +461,6 @@ async fn test_training_job_cancellation() {
         .create_test_adapter("cancel-adapter", "default")
         .await
         .expect("Failed to create adapter");
-
-    // Disable FK checks - git_repositories.repo_id lacks UNIQUE constraint causing FK mismatch
-    sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(harness.db().pool())
-        .await
-        .unwrap();
 
     // Create a git repository first (required for FK)
     sqlx::query(

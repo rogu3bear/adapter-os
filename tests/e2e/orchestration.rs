@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Test orchestration utilities for end-to-end testing
 //!
 //! Provides comprehensive test environment setup, lifecycle management,

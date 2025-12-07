@@ -5,12 +5,13 @@
 //! # Environment Variables
 //! - `AOS_MODEL_PATH` - Path to the model directory (required)
 //! - `AOS_MODEL_BACKEND` - Backend preference: auto, coreml, metal, mlx (default: auto)
-//! - `AOS_ADAPTER_PATH` - Path to the adapter file (default: adapters/code-assistant.aos)
+//! - `AOS_ADAPTER_PATH` - Path to the adapter file (default: var/adapters/code-assistant.aos; override base with AOS_ADAPTERS_DIR)
 //!
 //! Compile: rustc --edition 2021 examples/run_real_inference.rs -L target/debug/deps
 //! Run: ./run_real_inference
 
-use std::path::Path;
+use adapteros_core::paths::get_default_adapters_root;
+use std::path::{Path, PathBuf};
 
 // Note: In a real application, you would use:
 // use adapteros_config::ModelConfig;
@@ -35,17 +36,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Select adapter - can be overridden via AOS_ADAPTER_PATH
-    let adapter_path = std::env::var("AOS_ADAPTER_PATH")
-        .unwrap_or_else(|_| "adapters/code-assistant.aos".to_string());
+    let adapter_base = adapters_dir();
+    let adapter_path = std::env::var("AOS_ADAPTER_PATH").unwrap_or_else(|_| {
+        adapter_base
+            .join("code-assistant.aos")
+            .to_string_lossy()
+            .into_owned()
+    });
     println!("Loading adapter: {}", adapter_path);
 
     // Check file exists
     if !Path::new(&adapter_path).exists() {
         eprintln!("Error: Adapter not found at {}", adapter_path);
         eprintln!("Available adapters:");
-        eprintln!("  - adapters/code-assistant.aos (1.8MB)");
-        eprintln!("  - adapters/creative-writer.aos (1.8MB)");
-        eprintln!("  - adapters/readme-writer.aos (193KB)");
+        eprintln!("  - {}", adapter_base.join("code-assistant.aos").display());
+        eprintln!("  - {}", adapter_base.join("creative-writer.aos").display());
+        eprintln!("  - {}", adapter_base.join("readme-writer.aos").display());
         return Ok(());
     }
 
@@ -143,4 +149,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   3. Use the CLI: aosctl infer --prompt \"Your question here\"");
 
     Ok(())
+}
+
+fn adapters_dir() -> PathBuf {
+    get_default_adapters_root()
 }

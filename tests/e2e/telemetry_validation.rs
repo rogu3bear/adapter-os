@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! End-to-end tests for telemetry validation
 //!
 //! Validates telemetry collection, canonical JSON formatting, BLAKE3 hashing,

@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Security and Policy Compliance Tests
 //!
 //! This module contains comprehensive security tests for AdapterOS, focusing on:

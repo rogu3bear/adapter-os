@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Evidence-Grounded Response Testing Utilities
 //!
 //! This module provides utilities for testing evidence-grounded response generation

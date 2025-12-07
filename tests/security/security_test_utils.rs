@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Specialized Security Testing Utilities
 //!
 //! This module provides utilities specifically designed for security testing in AdapterOS,

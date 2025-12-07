@@ -120,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\n📋 Scenario: {}", scenario_name);
 
         let response = client
-            .post(&format!("{}/v1/propose-patch", base_url))
+            .post(format!("{}/v1/propose-patch", base_url))
             .header("Authorization", format!("Bearer {}", auth_token))
             .header("Content-Type", "application/json")
             .json(&scenario_request)
@@ -174,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\n🔍 Error Test: {}", error_name);
 
         let response = client
-            .post(&format!("{}/v1/propose-patch", base_url))
+            .post(format!("{}/v1/propose-patch", base_url))
             .header("Authorization", format!("Bearer {}", auth_token))
             .header("Content-Type", "application/json")
             .json(&error_request)

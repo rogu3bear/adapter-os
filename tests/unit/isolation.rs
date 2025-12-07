@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! Component Isolation Helpers
 //!
 //! This module provides utilities for testing AdapterOS components in isolation,

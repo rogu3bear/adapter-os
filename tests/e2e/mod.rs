@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! End-to-end testing framework for AdapterOS
 //!
 //! This module provides comprehensive end-to-end tests that validate complete

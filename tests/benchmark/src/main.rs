@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 //! AdapterOS Benchmark Suite Main Entry Point
 //!
 //! This binary provides a command-line interface for running comprehensive
