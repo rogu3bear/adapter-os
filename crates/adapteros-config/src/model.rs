@@ -9,10 +9,11 @@
 //!
 //! ```env
 //! # .env file in project root
-//! AOS_MODEL_PATH=./var/model-cache/models/qwen2.5-7b-instruct-bf16
-//! AOS_MODEL_BACKEND=auto
+//! AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit
+//! AOS_MODEL_BACKEND=mlx
 //! ```
 
+use crate::path_resolver::{resolve_model_path, DEV_MODEL_PATH};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -130,30 +131,39 @@ pub struct ModelConfig {
 }
 
 impl Default for ModelConfig {
-    /// Default configuration for Qwen2.5-7B model
+    /// Default configuration for Qwen2.5-Coder-32B model (MLX primary, dev-only)
     fn default() -> Self {
+        if !cfg!(debug_assertions) {
+            panic!("ModelConfig::default() is dev-only. Set AOS_MODEL_PATH or load from config.json in release builds.");
+        }
+
+        Self::dev_fixture()
+    }
+}
+
+impl ModelConfig {
+    /// Dev-only fixture used for debug builds and tests.
+    pub fn dev_fixture() -> Self {
         Self {
-            path: PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"),
+            path: PathBuf::from(DEV_MODEL_PATH),
             architecture: "qwen2.5".to_string(),
-            vocab_size: 152064,
-            hidden_size: 3584,
-            num_layers: 28,
-            num_attention_heads: 28,
-            num_key_value_heads: 4,
-            intermediate_size: 18944,
+            vocab_size: 151936,
+            hidden_size: 5120,
+            num_layers: 40,
+            num_attention_heads: 40,
+            num_key_value_heads: 8,
+            intermediate_size: 13824,
             max_seq_len: 32768,
             rope_theta: 1_000_000.0,
             backend: BackendPreference::Auto,
         }
     }
-}
 
-impl ModelConfig {
     /// Create a new ModelConfig with the specified path
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
-            ..Default::default()
+            ..Self::dev_fixture()
         }
     }
 
@@ -171,12 +181,9 @@ impl ModelConfig {
         // Load .env file (silently ignore if not found)
         load_dotenv();
 
-        let mut config = Self::default();
-
-        // Read model path from environment
-        if let Ok(path) = std::env::var("AOS_MODEL_PATH") {
-            config.path = PathBuf::from(path);
-        }
+        let resolved = resolve_model_path(None, None)?;
+        let mut config = Self::dev_fixture();
+        config.path = resolved.path;
 
         // Read backend preference from environment
         if let Ok(backend_str) = std::env::var("AOS_MODEL_BACKEND") {
@@ -309,14 +316,20 @@ impl ModelConfig {
     /// - KV heads divides attention heads evenly (for GQA)
     /// - Head dimension is consistent
     pub fn validate(&self) -> Result<()> {
-        // Validate path exists (skip for default placeholder path)
-        let default_placeholder: PathBuf =
-            "./var/model-cache/models/qwen2.5-7b-instruct-bf16".into();
-        if self.path != default_placeholder && !self.path.exists() {
-            return Err(AosError::Config(format!(
-                "Model path does not exist: '{}'",
-                self.path.display()
-            )));
+        // Validate path exists (skip for dev placeholder path in debug)
+        let dev_placeholder: PathBuf = DEV_MODEL_PATH.into();
+        if !self.path.exists() {
+            if cfg!(debug_assertions) && self.path == dev_placeholder {
+                tracing::warn!(
+                    path = %self.path.display(),
+                    "Dev fixture model path missing; allowed in debug builds"
+                );
+            } else {
+                return Err(AosError::Config(format!(
+                    "Model path does not exist: '{}'",
+                    self.path.display()
+                )));
+            }
         }
 
         // Validate architecture
@@ -560,7 +573,7 @@ pub fn get_tokenizer_path() -> Result<PathBuf> {
          1. Set AOS_TOKENIZER_PATH to the path of your tokenizer.json file, or\n\
          2. Ensure tokenizer.json exists in your model directory{}\n\
          \n\
-         Example: export AOS_TOKENIZER_PATH=./var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json",
+         Example: export AOS_TOKENIZER_PATH=./var/models/Qwen2.5-7B-Instruct-4bit/tokenizer.json",
         model_path_hint
     )))
 }
@@ -629,16 +642,17 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = ModelConfig::default();
-        assert_eq!(config.architecture, "qwen2.5");
-        assert_eq!(config.vocab_size, 152064);
-        assert_eq!(config.hidden_size, 3584);
-        assert_eq!(config.num_layers, 28);
-        assert_eq!(config.num_attention_heads, 28);
-        assert_eq!(config.num_key_value_heads, 4);
-        assert_eq!(config.intermediate_size, 18944);
-        assert_eq!(config.max_seq_len, 32768);
-        assert_eq!(config.rope_theta, 1_000_000.0);
-        assert_eq!(config.backend, BackendPreference::Auto);
+        let fixture = ModelConfig::dev_fixture();
+        assert_eq!(config.architecture, fixture.architecture);
+        assert_eq!(config.vocab_size, fixture.vocab_size);
+        assert_eq!(config.hidden_size, fixture.hidden_size);
+        assert_eq!(config.num_layers, fixture.num_layers);
+        assert_eq!(config.num_attention_heads, fixture.num_attention_heads);
+        assert_eq!(config.num_key_value_heads, fixture.num_key_value_heads);
+        assert_eq!(config.intermediate_size, fixture.intermediate_size);
+        assert_eq!(config.max_seq_len, fixture.max_seq_len);
+        assert_eq!(config.rope_theta, fixture.rope_theta);
+        assert_eq!(config.backend, fixture.backend);
     }
 
     #[test]
@@ -743,10 +757,7 @@ mod tests {
         std::env::remove_var("AOS_MODEL_BACKEND");
 
         let config = ModelConfig::from_env().unwrap();
-        assert_eq!(
-            config.path,
-            PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16")
-        );
+        assert_eq!(config.path, PathBuf::from(DEV_MODEL_PATH));
         assert_eq!(config.backend, BackendPreference::Auto);
     }
 

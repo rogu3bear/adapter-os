@@ -19,12 +19,14 @@
 //! println!("Database: {}", cfg.database.path);
 //! ```
 
+use crate::guards::ConfigGuards;
 use crate::precedence::DeterministicConfig;
 use crate::ConfigLoader;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, BackendProfile, Result, SeedMode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::OnceLock;
 
 /// Global effective configuration instance
@@ -56,6 +58,10 @@ pub struct EffectiveConfig {
     pub alerting: AlertingSection,
     /// Model configuration
     pub model: ModelSection,
+    /// Authentication configuration
+    pub auth: AuthSection,
+    /// Inference configuration
+    pub inference: InferenceSection,
     /// Source tracking for each config key
     sources: HashMap<String, String>,
     /// Whether running in production mode
@@ -191,6 +197,32 @@ pub struct ModelSection {
     pub manifest_path: Option<PathBuf>,
 }
 
+/// Inference section configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceSection {
+    /// Seed mode for request-scoped derivation
+    pub seed_mode: SeedMode,
+    /// Backend profile selection for workers
+    pub backend_profile: BackendProfile,
+    /// Worker identifier used in seed derivation
+    pub worker_id: Option<u32>,
+}
+
+/// Authentication configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthSection {
+    /// Algorithm to use in development (e.g., hs256/hmac)
+    pub dev_algo: String,
+    /// Algorithm to use in production (e.g., eddsa/ed25519)
+    pub prod_algo: String,
+    /// Session lifetime in seconds
+    pub session_lifetime: u64,
+    /// Maximum failed attempts before lockout
+    pub lockout_threshold: u32,
+    /// Lockout cooldown in seconds
+    pub lockout_cooldown: u64,
+}
+
 /// Source of a configuration value (for debugging/observability)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigValueSource {
@@ -233,6 +265,8 @@ impl EffectiveConfig {
         let metrics = Self::build_metrics_section(&config);
         let alerting = Self::build_alerting_section(&config);
         let model = Self::build_model_section(&config);
+        let auth = Self::build_auth_section(&config);
+        let inference = Self::build_inference_section(&config, is_production);
 
         let effective_config = Self {
             inner: config,
@@ -245,6 +279,8 @@ impl EffectiveConfig {
             metrics,
             alerting,
             model,
+            auth,
+            inference,
             sources,
             is_production,
         };
@@ -400,6 +436,23 @@ impl EffectiveConfig {
             if self.database.url.is_empty() {
                 errors.push("Production mode requires database.url to be set".to_string());
             }
+
+            if self.inference.seed_mode != SeedMode::Strict {
+                errors
+                    .push("Production mode requires inference.seed_mode to be strict".to_string());
+            }
+
+            if matches!(self.inference.seed_mode, SeedMode::NonDeterministic) {
+                errors
+                    .push("NonDeterministic seed_mode is not permitted in production".to_string());
+            }
+
+            if self.inference.backend_profile == BackendProfile::AutoDev {
+                errors.push(
+                    "Production mode requires inference.backend_profile to be explicit (coreml|metal|mlx)"
+                        .to_string(),
+                );
+            }
         }
 
         if !errors.is_empty() {
@@ -527,7 +580,7 @@ impl EffectiveConfig {
             adapters_root: config
                 .get("adapters.dir")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("var/adapters")),
+                .unwrap_or_else(|| PathBuf::from("var/adapters/repo")),
             artifacts_root: config
                 .get("artifacts.dir")
                 .map(PathBuf::from)
@@ -635,6 +688,31 @@ impl EffectiveConfig {
         }
     }
 
+    fn build_auth_section(config: &DeterministicConfig) -> AuthSection {
+        AuthSection {
+            dev_algo: config
+                .get("auth.dev_algo")
+                .cloned()
+                .unwrap_or_else(|| "hs256".to_string()),
+            prod_algo: config
+                .get("auth.prod_algo")
+                .cloned()
+                .unwrap_or_else(|| "eddsa".to_string()),
+            session_lifetime: config
+                .get("auth.session_lifetime")
+                .and_then(|v| Self::parse_duration_secs(v))
+                .unwrap_or(12 * 3600),
+            lockout_threshold: config
+                .get("auth.lockout_threshold")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5),
+            lockout_cooldown: config
+                .get("auth.lockout_cooldown")
+                .and_then(|v| Self::parse_duration_secs(v))
+                .unwrap_or(300),
+        }
+    }
+
     fn build_model_section(config: &DeterministicConfig) -> ModelSection {
         ModelSection {
             path: config.get("model.path").map(PathBuf::from),
@@ -644,6 +722,43 @@ impl EffectiveConfig {
                 .unwrap_or_else(|| "auto".to_string()),
             tokenizer_path: config.get("tokenizer.path").map(PathBuf::from),
             manifest_path: config.get("manifest.path").map(PathBuf::from),
+        }
+    }
+
+    fn build_inference_section(
+        config: &DeterministicConfig,
+        is_production: bool,
+    ) -> InferenceSection {
+        let seed_mode = config
+            .get("inference.seed.mode")
+            .and_then(|v| SeedMode::from_str(v).ok())
+            .unwrap_or_else(|| {
+                if is_production {
+                    SeedMode::Strict
+                } else {
+                    SeedMode::BestEffort
+                }
+            });
+
+        let backend_profile = config
+            .get("inference.backend.profile")
+            .and_then(|v| BackendProfile::from_str(v).ok())
+            .unwrap_or_else(|| {
+                if is_production {
+                    BackendProfile::Metal
+                } else {
+                    BackendProfile::AutoDev
+                }
+            });
+
+        let worker_id = config
+            .get("inference.worker.id")
+            .and_then(|v| v.parse::<u32>().ok());
+
+        InferenceSection {
+            seed_mode,
+            backend_profile,
+            worker_id,
         }
     }
 
@@ -693,6 +808,7 @@ pub fn init_effective_config(
 ) -> Result<&'static EffectiveConfig> {
     // Load .env file first
     crate::model::load_dotenv();
+    ConfigGuards::initialize()?;
 
     // Load via ConfigLoader with precedence: CLI > ENV > TOML > defaults
     let loader = ConfigLoader::new();
@@ -704,6 +820,9 @@ pub fn init_effective_config(
     EFFECTIVE_CONFIG
         .set(effective)
         .map_err(|_| AosError::Config("EffectiveConfig already initialized".to_string()))?;
+
+    // Prevent further environment access after init
+    ConfigGuards::freeze()?;
 
     Ok(EFFECTIVE_CONFIG.get().unwrap())
 }
@@ -769,7 +888,7 @@ mod tests {
             "database.url".to_string(),
             "sqlite://var/aos-cp.sqlite3".to_string(),
         );
-        dev_values.insert("adapters.dir".to_string(), "var/adapters".to_string());
+        dev_values.insert("adapters.dir".to_string(), "var/adapters/repo".to_string());
         dev_values.insert(
             "paths.datasets.root".to_string(),
             "var/datasets".to_string(),
@@ -796,7 +915,7 @@ mod tests {
         );
         prod_abs_values.insert(
             "adapters.dir".to_string(),
-            "/var/lib/adapteros/adapters".to_string(),
+            "/var/lib/adapteros/adapters/repo".to_string(),
         );
         prod_abs_values.insert(
             "paths.datasets.root".to_string(),
@@ -822,7 +941,7 @@ mod tests {
             "database.url".to_string(),
             "sqlite://var/aos-cp.sqlite3".to_string(),
         );
-        prod_rel_values.insert("adapters.dir".to_string(), "var/adapters".to_string());
+        prod_rel_values.insert("adapters.dir".to_string(), "var/adapters/repo".to_string());
         prod_rel_values.insert(
             "paths.datasets.root".to_string(),
             "var/datasets".to_string(),
@@ -862,7 +981,7 @@ mod tests {
             "database.url".to_string(),
             "sqlite:///var/lib/adapteros/aos-cp.sqlite3".to_string(),
         );
-        prod_mixed_values.insert("adapters.dir".to_string(), "var/adapters".to_string()); // Relative
+        prod_mixed_values.insert("adapters.dir".to_string(), "var/adapters/repo".to_string()); // Relative
         prod_mixed_values.insert(
             "paths.datasets.root".to_string(),
             "/var/lib/adapteros/datasets".to_string(),

@@ -1,5 +1,6 @@
 //! Configuration loader with precedence: CLI > ENV > manifest
 
+use crate::model::load_dotenv;
 use crate::precedence::ConfigBuilder;
 use crate::types::PrecedenceLevel;
 use crate::types::*;
@@ -33,6 +34,9 @@ impl ConfigLoader {
         cli_args: Vec<String>,
         manifest_path: Option<String>,
     ) -> Result<crate::precedence::DeterministicConfig> {
+        // Always load .env first so environment reads are deterministic
+        load_dotenv();
+
         let mut builder = ConfigBuilder::new().with_cli_args(cli_args.clone());
 
         // Load manifest file first (lowest precedence)
@@ -112,23 +116,9 @@ impl ConfigLoader {
     fn load_environment(&self, mut builder: ConfigBuilder) -> Result<ConfigBuilder> {
         let schema = crate::schema::default_schema();
 
-        // Collect vars with ADAPTEROS_ prefix
-        let adapteros_vars: HashMap<String, String> = std::env::vars()
-            .filter(|(key, _)| key.starts_with(&self.options.env_prefix))
-            .map(|(key, value)| {
-                // Remove prefix and convert to lowercase with dots
-                let config_key = key
-                    .strip_prefix(&self.options.env_prefix)
-                    .unwrap_or(&key)
-                    .to_lowercase()
-                    .replace('_', ".");
-                (config_key, value)
-            })
-            .collect();
-
-        // Collect ALL vars with AOS_ prefix and map using schema
+        // Collect ALL vars with AOS_ prefix and map using schema (canonical)
         let aos_prefix = "AOS_";
-        let aos_vars: HashMap<String, String> = std::env::vars()
+        let aos_vars: HashMap<String, (String, String)> = std::env::vars()
             .filter(|(key, _)| key.starts_with(aos_prefix))
             .map(|(key, value)| {
                 // Use schema config_key if available for proper TOML mapping
@@ -142,25 +132,53 @@ impl ConfigLoader {
                         .replace('_', ".")
                 };
                 tracing::debug!(env_var = %key, config_key = %config_key, "Mapped AOS_ env var");
-                (config_key, value)
+                (config_key, (key, value))
             })
             .collect();
 
-        // Merge both sets (ADAPTEROS_ vars override AOS_ vars)
-        let mut env_vars = aos_vars;
-        for (key, value) in adapteros_vars {
-            // ADAPTEROS_ prefix takes precedence over AOS_ prefix
-            env_vars.insert(key, value);
+        // Collect vars with legacy ADAPTEROS_ prefix (deprecated, warn)
+        let adapteros_vars: HashMap<String, (String, String)> = std::env::vars()
+            .filter(|(key, _)| key.starts_with(&self.options.env_prefix))
+            .map(|(key, value)| {
+                // Remove prefix and convert to lowercase with dots
+                let config_key = key
+                    .strip_prefix(&self.options.env_prefix)
+                    .unwrap_or(&key)
+                    .to_lowercase()
+                    .replace('_', ".");
+                (config_key, (key, value))
+            })
+            .collect();
+
+        // Merge with canonical AOS_* taking precedence over legacy ADAPTEROS_*
+        let mut env_vars: HashMap<String, (String, String)> = HashMap::new();
+        for (config_key, (raw_key, value)) in aos_vars {
+            env_vars.insert(config_key, (format!("env:{}", raw_key), value));
+        }
+
+        for (config_key, (raw_key, value)) in adapteros_vars {
+            if env_vars.contains_key(&config_key) {
+                let replacement = raw_key.replacen("ADAPTEROS_", "AOS_", 1);
+                tracing::warn!(
+                    deprecated_var = %raw_key,
+                    replacement = %replacement,
+                    "Ignoring legacy ADAPTEROS_ variable because AOS_ override is set"
+                );
+                continue;
+            }
+
+            let replacement = raw_key.replacen("ADAPTEROS_", "AOS_", 1);
+            tracing::warn!(
+                deprecated_var = %raw_key,
+                replacement = %replacement,
+                "Using legacy ADAPTEROS_ variable; please migrate to AOS_*"
+            );
+            env_vars.insert(config_key, (format!("env:legacy:{}", raw_key), value));
         }
 
         let count = env_vars.len();
-        for (key, value) in env_vars {
-            builder = builder.add_value(
-                key,
-                value,
-                PrecedenceLevel::Environment,
-                "environment".to_string(),
-            );
+        for (key, (source, value)) in env_vars {
+            builder = builder.add_value(key, value, PrecedenceLevel::Environment, source);
         }
 
         tracing::debug!("Loaded {} environment variables", count);
@@ -448,8 +466,8 @@ url = "sqlite://manifest.db"
     }
 
     #[test]
-    fn test_adapteros_prefix_takes_precedence_over_aos() {
-        // ADAPTEROS_ prefix should take precedence over AOS_ prefix
+    fn test_aos_prefix_takes_precedence_over_adapteros() {
+        // ADAPTEROS_ prefix is deprecated and should not override canonical AOS_
         std::env::set_var("AOS_MODEL_PATH", "/aos/path");
         std::env::set_var("ADAPTEROS_MODEL_PATH", "/adapteros/path");
         // Required field for validation
@@ -458,14 +476,31 @@ url = "sqlite://manifest.db"
         let loader = ConfigLoader::new();
         let config = loader.load(vec![], None).unwrap();
 
-        // ADAPTEROS_ should win
-        assert_eq!(
-            config.get("model.path"),
-            Some(&"/adapteros/path".to_string())
-        );
+        // AOS_ should win over legacy ADAPTEROS_
+        assert_eq!(config.get("model.path"), Some(&"/aos/path".to_string()));
 
         // Clean up
         std::env::remove_var("AOS_MODEL_PATH");
+        std::env::remove_var("ADAPTEROS_MODEL_PATH");
+        std::env::remove_var("ADAPTEROS_DATABASE_URL");
+    }
+
+    #[test]
+    fn test_adapteros_prefix_used_when_aos_missing() {
+        // Legacy ADAPTEROS_ variables still map when no AOS_ is provided
+        std::env::set_var("ADAPTEROS_MODEL_PATH", "/adapteros/only/path");
+        // Required field for validation
+        std::env::set_var("ADAPTEROS_DATABASE_URL", "sqlite://test.db");
+
+        let loader = ConfigLoader::new();
+        let config = loader.load(vec![], None).unwrap();
+
+        assert_eq!(
+            config.get("model.path"),
+            Some(&"/adapteros/only/path".to_string())
+        );
+
+        // Clean up
         std::env::remove_var("ADAPTEROS_MODEL_PATH");
         std::env::remove_var("ADAPTEROS_DATABASE_URL");
     }

@@ -154,9 +154,11 @@ pub struct ConfigGuards;
 impl ConfigGuards {
     /// Initialize the guard system
     pub fn initialize() -> Result<()> {
-        GUARD_STATE
-            .set(RwLock::new(GuardState::new()))
-            .map_err(|_| AosError::Config("Guard system already initialized".to_string()))?;
+        if GUARD_STATE.get().is_none() {
+            GUARD_STATE
+                .set(RwLock::new(GuardState::new()))
+                .map_err(|_| AosError::Config("Guard system already initialized".to_string()))?;
+        }
         Ok(())
     }
 
@@ -261,9 +263,7 @@ impl ConfigGuards {
     /// Safe environment variable access that respects freeze state
     ///
     /// This function should be used instead of `std::env::var` throughout the codebase.
-    /// After configuration is frozen, this will:
-    /// - In permissive mode: log a warning and return the value
-    /// - In strict mode: return an error
+    /// After configuration is frozen, this returns an error and records a violation.
     ///
     /// # Example
     ///
@@ -284,12 +284,10 @@ impl ConfigGuards {
                 &format!("Attempted to read {} after freeze", key),
             );
 
-            // In permissive mode, still return the value but log warning
-            tracing::warn!(
-                key = %key,
-                "Environment variable accessed after configuration freeze. \
-                 This should be read during initialization."
-            );
+            return Err(AosError::Config(format!(
+                "Environment variable access after freeze is prohibited: {}",
+                key
+            )));
         }
 
         std::env::var(key)
@@ -315,6 +313,24 @@ impl ConfigGuards {
         std::env::var(key).is_ok()
     }
 
+    /// Assert that no freeze violations have been recorded
+    pub fn assert_no_violations() -> Result<()> {
+        let violations = Self::get_violations()?;
+        if violations.is_empty() {
+            return Ok(());
+        }
+
+        let messages: Vec<String> = violations
+            .iter()
+            .map(|v| format!("{}: {}", v.attempted_operation, v.message))
+            .collect();
+
+        Err(AosError::Config(format!(
+            "Configuration freeze violations detected: {}",
+            messages.join("; ")
+        )))
+    }
+
     /// Reset guards for testing (clears frozen state and violations)
     #[cfg(test)]
     pub fn reset_for_testing() -> Result<()> {
@@ -335,9 +351,13 @@ pub struct FeatureFlags;
 impl FeatureFlags {
     /// Initialize the feature flag system
     pub fn initialize() -> Result<()> {
-        FEATURE_FLAGS
-            .set(RwLock::new(FeatureFlagRegistry::new()))
-            .map_err(|_| AosError::Config("Feature flag system already initialized".to_string()))?;
+        if FEATURE_FLAGS.get().is_none() {
+            FEATURE_FLAGS
+                .set(RwLock::new(FeatureFlagRegistry::new()))
+                .map_err(|_| {
+                    AosError::Config("Feature flag system already initialized".to_string())
+                })?;
+        }
 
         tracing::info!("Feature flag system initialized");
         Ok(())
@@ -530,6 +550,7 @@ mod tests {
 
     #[test]
     fn test_safe_env_access() {
+        ConfigGuards::reset_for_testing().unwrap();
         ConfigGuards::initialize().unwrap();
 
         // Should work before freeze
@@ -554,6 +575,35 @@ mod tests {
 
         ConfigGuards::clear_violations().unwrap();
         assert_eq!(ConfigGuards::get_violations().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_violation_recorded_after_freeze() {
+        ConfigGuards::reset_for_testing().unwrap();
+        ConfigGuards::initialize().unwrap();
+        ConfigGuards::freeze().unwrap();
+
+        let result = safe_env_var("PATH");
+        assert!(result.is_err());
+
+        let violations = ConfigGuards::get_violations().unwrap();
+        assert!(!violations.is_empty());
+        assert_eq!(violations[0].attempted_operation, "env_var_access");
+    }
+
+    #[test]
+    fn test_assert_no_violations() {
+        ConfigGuards::reset_for_testing().unwrap();
+        ConfigGuards::initialize().unwrap();
+
+        // No violations initially
+        assert!(ConfigGuards::assert_no_violations().is_ok());
+
+        ConfigGuards::freeze().unwrap();
+        let _ = safe_env_var("PATH");
+
+        let result = ConfigGuards::assert_no_violations();
+        assert!(result.is_err());
     }
 
     #[test]

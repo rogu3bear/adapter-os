@@ -19,6 +19,7 @@
 //! assert!(validate_value(&port_var, "99999").is_err());
 //! ```
 
+use crate::path_resolver::{DEV_MANIFEST_PATH, DEV_MODEL_PATH};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -694,7 +695,7 @@ pub fn default_schema() -> ConfigSchema {
     schema.add_variable(
         ConfigVariable::new("AOS_MODEL_PATH")
             .config_type(ConfigType::Path { must_exist: false })
-            .default_value("./var/model-cache/models/qwen2.5-7b-instruct-bf16")
+            .default_value(DEV_MODEL_PATH)
             .description("Path to the model directory or model weights file")
             .category("MODEL")
             .build(),
@@ -710,16 +711,114 @@ pub fn default_schema() -> ConfigSchema {
                     "mlx".to_string(),
                 ],
             })
-            .default_value("auto")
-            .description("Model backend selection: auto (detect best), coreml (ANE production), metal (legacy fallback), mlx (research/training)")
+            .default_value("mlx")
+            .description("Model backend selection: mlx (default), coreml (ANE production), metal (fallback), auto (detect best)")
             .category("MODEL")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_PLACEMENT_MODE")
+            .config_type(ConfigType::Enum {
+                values: vec![
+                    "balanced".to_string(),
+                    "latency".to_string(),
+                    "energy".to_string(),
+                    "thermal".to_string(),
+                    "off".to_string(),
+                ],
+            })
+            .default_value("balanced")
+            .description(
+                "Per-token device placement strategy: balanced, latency, energy, thermal, off",
+            )
+            .category("MODEL")
+            .config_key("placement.mode")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_PLACEMENT_LATENCY_WEIGHT")
+            .config_type(ConfigType::Float {
+                min: Some(0.0),
+                max: Some(5.0),
+            })
+            .default_value("0.5")
+            .description("Weight for latency in placement cost model")
+            .category("MODEL")
+            .config_key("placement.latency_weight")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_PLACEMENT_ENERGY_WEIGHT")
+            .config_type(ConfigType::Float {
+                min: Some(0.0),
+                max: Some(5.0),
+            })
+            .default_value("0.25")
+            .description("Weight for energy efficiency in placement cost model")
+            .category("MODEL")
+            .config_key("placement.energy_weight")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_PLACEMENT_THERMAL_WEIGHT")
+            .config_type(ConfigType::Float {
+                min: Some(0.0),
+                max: Some(5.0),
+            })
+            .default_value("0.25")
+            .description("Weight for thermal headroom in placement cost model")
+            .category("MODEL")
+            .config_key("placement.thermal_weight")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_PLACEMENT_THERMAL_CEILING_C")
+            .config_type(ConfigType::Float {
+                min: Some(40.0),
+                max: Some(110.0),
+            })
+            .default_value("84.0")
+            .description("Thermal ceiling (Celsius) before steering away from a device")
+            .category("MODEL")
+            .config_key("placement.thermal_ceiling_c")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_PLACEMENT_COOLDOWN_STEPS")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: Some(1024),
+            })
+            .default_value("4")
+            .description("Minimum steps to keep a device cooled down after a thermal hit")
+            .category("MODEL")
+            .config_key("placement.cooldown_steps")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_PLACEMENT_SAMPLE_MS")
+            .config_type(ConfigType::Integer {
+                min: Some(50),
+                max: Some(5000),
+            })
+            .default_value("250")
+            .description("Telemetry sampling interval in milliseconds for placement")
+            .category("MODEL")
+            .config_key("placement.sample_ms")
             .build(),
     );
 
     schema.add_variable(
         ConfigVariable::new("AOS_MANIFEST_PATH")
             .config_type(ConfigType::Path { must_exist: false })
-            .default_value("./var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json")
+            .default_value(DEV_MANIFEST_PATH)
             .description("Path to the base model manifest file for executor seeding")
             .category("MODEL")
             .build(),
@@ -730,6 +829,58 @@ pub fn default_schema() -> ConfigSchema {
             .config_type(ConfigType::Path { must_exist: false })
             .description("Path to tokenizer.json file. If not set, discovered from AOS_MODEL_PATH")
             .category("MODEL")
+            .build(),
+    );
+
+    // ========================================================================
+    // INFERENCE Configuration
+    // ========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_INFERENCE_SEED_MODE")
+            .config_type(ConfigType::Enum {
+                values: vec![
+                    "strict".to_string(),
+                    "best_effort".to_string(),
+                    "non_deterministic".to_string(),
+                ],
+            })
+            .default_value("best_effort")
+            .description(
+                "Seed mode for request seeds: strict, best_effort (default dev), non_deterministic (dev-only)",
+            )
+            .category("INFERENCE")
+            .config_key("inference.seed.mode")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_INFERENCE_BACKEND_PROFILE")
+            .config_type(ConfigType::Enum {
+                values: vec![
+                    "autodev".to_string(),
+                    "coreml".to_string(),
+                    "metal".to_string(),
+                    "mlx".to_string(),
+                ],
+            })
+            .default_value("autodev")
+            .description("Backend profile for inference: autodev (dev default), coreml, metal, mlx")
+            .category("INFERENCE")
+            .config_key("inference.backend.profile")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_INFERENCE_WORKER_ID")
+            .config_type(ConfigType::Integer {
+                min: Some(0),
+                max: Some(1_000_000),
+            })
+            .default_value("0")
+            .description("Worker identifier used for request seed derivation")
+            .category("INFERENCE")
+            .config_key("inference.worker.id")
             .build(),
     );
 
@@ -1289,8 +1440,8 @@ pub fn default_schema() -> ConfigSchema {
     schema.add_variable(
         ConfigVariable::new("AOS_ADAPTERS_DIR")
             .config_type(ConfigType::Path { must_exist: false })
-            .default_value("var/adapters")
-            .description("Directory for LoRA adapter weights")
+            .default_value("var/adapters/repo")
+            .description("Directory for LoRA adapter weights (canonical repo)")
             .category("PATHS")
             .build(),
     );

@@ -11,8 +11,8 @@
 //! Create a `.env` file in your project root:
 //!
 //! ```env
-//! AOS_MODEL_PATH=./var/model-cache/models/qwen2.5-7b-instruct-bf16
-//! AOS_MODEL_BACKEND=auto
+//! AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit
+//! AOS_MODEL_BACKEND=metal
 //! AOS_SERVER_PORT=8080
 //! ```
 //!
@@ -36,6 +36,8 @@ pub mod global;
 pub mod guards;
 pub mod loader;
 pub mod model;
+pub mod path_resolver;
+pub mod placement;
 pub mod precedence;
 pub mod runtime;
 pub mod schema;
@@ -44,8 +46,9 @@ pub mod types;
 
 pub use effective::{
     effective_config, init_effective_config, is_effective_initialized, try_effective_config,
-    AlertingSection, ConfigValueSource, DatabaseSection, EffectiveConfig, LoggingSection,
-    MetricsSection, ModelSection, PathsSection, RateLimitsSection, SecuritySection, ServerSection,
+    AlertingSection, AuthSection, ConfigValueSource, DatabaseSection, EffectiveConfig,
+    InferenceSection, LoggingSection, MetricsSection, ModelSection, PathsSection,
+    RateLimitsSection, SecuritySection, ServerSection,
 };
 pub use global::{
     config, config_or_default, init_runtime_config, is_initialized, try_config, ConfigError,
@@ -57,6 +60,11 @@ pub use model::{
     get_tokenizer_path_optional, is_model_path_configured, is_tokenizer_available, load_dotenv,
     resolve_tokenizer_path, BackendPreference, ModelConfig,
 };
+pub use path_resolver::{
+    resolve_manifest_path, resolve_model_path, PathSource, ResolvedPath, DEV_MANIFEST_PATH,
+    DEV_MODEL_PATH,
+};
+pub use placement::{PlacementConfig, PlacementMode, PlacementWeights};
 pub use precedence::DeterministicConfig;
 pub use runtime::{ConfigSource, ParsedValue, RuntimeConfig, StorageBackend};
 pub use schema::{
@@ -83,6 +91,7 @@ pub fn initialize_config(
 ) -> Result<&'static DeterministicConfig> {
     // Load .env file first
     load_dotenv();
+    ConfigGuards::initialize()?;
 
     let loader = ConfigLoader::new();
     let config = loader.load(cli_args, manifest_path)?;
@@ -90,6 +99,9 @@ pub fn initialize_config(
     CONFIG
         .set(config)
         .map_err(|_| AosError::Config("Configuration already initialized".to_string()))?;
+
+    // Lock environment access after initialization
+    ConfigGuards::freeze()?;
 
     Ok(CONFIG.get().unwrap())
 }

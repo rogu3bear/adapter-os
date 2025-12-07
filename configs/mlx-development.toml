@@ -7,8 +7,8 @@ production_mode = false
 
 [mlx]
 enabled = true
-model_path = "./models/qwen2.5-7b-mlx"
-precision = "float16"
+model_path = "./var/models/Qwen2.5-7B-Instruct-4bit"
+# Quantization/precision is fixed by the model weights (int4/int8/fp16); no per-request overrides
 max_memory_mb = 12000
 circuit_breaker_timeout_secs = 300
 

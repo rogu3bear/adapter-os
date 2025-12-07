@@ -11,6 +11,7 @@ use crate::schema::{default_schema, parse_bool, validate_value, ConfigSchema, Co
 use adapteros_core::{AosError, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 /// Storage backend selection for database abstraction layer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,28 +26,34 @@ pub enum StorageBackend {
     KvOnly,
 }
 
-impl StorageBackend {
-    /// Parse from string
-    pub fn from_str(s: &str) -> Result<Self> {
-        match s.to_lowercase().as_str() {
-            "sql" => Ok(Self::Sql),
-            "dual" => Ok(Self::Dual),
-            "kv-primary" => Ok(Self::KvPrimary),
-            "kv-only" => Ok(Self::KvOnly),
+impl std::str::FromStr for StorageBackend {
+    type Err = AosError;
+
+    /// Parse from string (canonical underscore names + hyphen/short aliases).
+    fn from_str(s: &str) -> Result<Self> {
+        let s = s.to_lowercase();
+        match s.as_str() {
+            // Canonical (underscore) plus short alias
+            "sql_only" | "sql" => Ok(Self::Sql),
+            "dual_write" | "dual" => Ok(Self::Dual),
+            "kv_primary" | "kv-primary" => Ok(Self::KvPrimary),
+            "kv_only" | "kv-only" => Ok(Self::KvOnly),
             _ => Err(AosError::Config(format!(
-                "Invalid storage backend: '{}'. Must be one of: sql, dual, kv-primary, kv-only",
+                "Invalid storage backend: '{}'. Must be one of: sql_only, dual_write, kv_primary, kv_only (aliases: sql, dual, kv-primary, kv-only)",
                 s
             ))),
         }
     }
+}
 
-    /// Convert to string
+impl StorageBackend {
+    /// Convert to string (canonical underscore form)
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Sql => "sql",
-            Self::Dual => "dual",
-            Self::KvPrimary => "kv-primary",
-            Self::KvOnly => "kv-only",
+            Self::Sql => "sql_only",
+            Self::Dual => "dual_write",
+            Self::KvPrimary => "kv_primary",
+            Self::KvOnly => "kv_only",
         }
     }
 
@@ -545,6 +552,51 @@ impl RuntimeConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn parses_all_canonical_and_aliases() {
+        // Canonical (underscore)
+        assert!(matches!(
+            StorageBackend::from_str("sql_only").unwrap(),
+            StorageBackend::Sql
+        ));
+        assert!(matches!(
+            StorageBackend::from_str("dual_write").unwrap(),
+            StorageBackend::Dual
+        ));
+        assert!(matches!(
+            StorageBackend::from_str("kv_primary").unwrap(),
+            StorageBackend::KvPrimary
+        ));
+        assert!(matches!(
+            StorageBackend::from_str("kv_only").unwrap(),
+            StorageBackend::KvOnly
+        ));
+
+        // Aliases
+        assert!(matches!(
+            StorageBackend::from_str("sql").unwrap(),
+            StorageBackend::Sql
+        ));
+        assert!(matches!(
+            StorageBackend::from_str("dual").unwrap(),
+            StorageBackend::Dual
+        ));
+        assert!(matches!(
+            StorageBackend::from_str("kv-primary").unwrap(),
+            StorageBackend::KvPrimary
+        ));
+        assert!(matches!(
+            StorageBackend::from_str("kv-only").unwrap(),
+            StorageBackend::KvOnly
+        ));
+    }
+
+    #[test]
+    fn rejects_garbage_values() {
+        assert!(StorageBackend::from_str("bogus").is_err());
+    }
 
     #[test]
     fn test_parse_duration() {

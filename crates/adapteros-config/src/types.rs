@@ -1,5 +1,6 @@
 //! Configuration types and structures
 
+use crate::path_resolver::DEV_MODEL_PATH;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -259,15 +260,69 @@ impl Default for ConfigSchema {
             },
         );
 
+        // Authentication configuration
+        fields.insert(
+            "auth.dev_algo".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("hs256".to_string()),
+                description: Some("JWT algorithm in development (hs256/hmac)".to_string()),
+                validation_rules: Some(vec!["enum:hs256,hmac,eddsa,ed25519".to_string()]),
+            },
+        );
+
+        fields.insert(
+            "auth.prod_algo".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("eddsa".to_string()),
+                description: Some("JWT algorithm in production (eddsa/ed25519)".to_string()),
+                validation_rules: Some(vec!["enum:hs256,hmac,eddsa,ed25519".to_string()]),
+            },
+        );
+
+        fields.insert(
+            "auth.session_lifetime".to_string(),
+            FieldDefinition {
+                field_type: "integer".to_string(),
+                required: false,
+                default_value: Some((12 * 3600).to_string()),
+                description: Some("Session lifetime in seconds".to_string()),
+                validation_rules: Some(vec!["range:60-86400".to_string()]),
+            },
+        );
+
+        fields.insert(
+            "auth.lockout_threshold".to_string(),
+            FieldDefinition {
+                field_type: "integer".to_string(),
+                required: false,
+                default_value: Some("5".to_string()),
+                description: Some("Failed login attempts before lockout".to_string()),
+                validation_rules: Some(vec!["range:1-100".to_string()]),
+            },
+        );
+
+        fields.insert(
+            "auth.lockout_cooldown".to_string(),
+            FieldDefinition {
+                field_type: "integer".to_string(),
+                required: false,
+                default_value: Some("300".to_string()),
+                description: Some("Lockout cooldown in seconds".to_string()),
+                validation_rules: Some(vec!["range:60-86400".to_string()]),
+            },
+        );
+
         // Model configuration
         fields.insert(
             "model.path".to_string(),
             FieldDefinition {
                 field_type: "string".to_string(),
                 required: false,
-                default_value: Some(
-                    "./var/model-cache/models/qwen2.5-7b-instruct-bf16".to_string(),
-                ),
+                default_value: Some(DEV_MODEL_PATH.to_string()),
                 description: Some("Path to the model directory".to_string()),
                 validation_rules: None,
             },
@@ -278,7 +333,7 @@ impl Default for ConfigSchema {
             FieldDefinition {
                 field_type: "string".to_string(),
                 required: false,
-                default_value: Some("auto".to_string()),
+                default_value: Some("mlx".to_string()),
                 description: Some("Model backend selection".to_string()),
                 validation_rules: Some(vec!["enum:auto,coreml,metal,mlx".to_string()]),
             },
