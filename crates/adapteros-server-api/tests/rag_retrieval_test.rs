@@ -406,13 +406,14 @@ async fn test_unified_document_id_flow() -> Result<()> {
     .await?;
 
     sqlx::query(
-        "INSERT INTO collection_documents (collection_id, document_id, tenant_id) VALUES (?, ?, ?)",
+        "INSERT INTO collection_documents (collection_id, document_id, tenant_id, added_at) VALUES (?, ?, ?, ?)",
     )
-        .bind(collection_id)
-        .bind(document_uuid)
-        .bind(&tenant_id)
-        .execute(db.pool())
-        .await?;
+    .bind(collection_id)
+    .bind(document_uuid)
+    .bind(&tenant_id)
+    .bind("2024-01-01T00:00:00Z")
+    .execute(db.pool())
+    .await?;
 
     // Step 5: Verify collection document IDs returns the UUID
     let collection_doc_ids: std::collections::HashSet<String> = db
@@ -552,11 +553,12 @@ async fn test_unified_flow_collection_filtering() -> Result<()> {
     .await?;
 
     sqlx::query(
-        "INSERT INTO collection_documents (collection_id, document_id, tenant_id) VALUES (?, ?, ?)",
+        "INSERT INTO collection_documents (collection_id, document_id, tenant_id, added_at) VALUES (?, ?, ?, ?)",
     )
     .bind(collection_id)
     .bind(doc_in_collection)
     .bind(&tenant_id)
+    .bind("2024-01-01T00:00:00Z")
     .execute(db.pool())
     .await?;
 

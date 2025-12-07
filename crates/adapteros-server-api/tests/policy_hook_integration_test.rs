@@ -47,10 +47,15 @@ async fn test_hook_enforcement_logs_decisions() -> Result<()> {
         roles: vec!["operator".to_string()],
         tenant_id: "hook-test".to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 9999999999,
         iat: 0,
         jti: "test-token".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     };
 
     // Create hook context for OnBeforeInference
@@ -119,10 +124,15 @@ async fn test_hook_ordering_routing_before_inference() -> Result<()> {
         roles: vec!["operator".to_string()],
         tenant_id: "order-test".to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 9999999999,
         iat: 0,
         jti: "test-token".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     };
 
     let request_id = uuid::Uuid::new_v4().to_string();
@@ -193,10 +203,15 @@ async fn test_streaming_fires_all_three_hooks() -> Result<()> {
         roles: vec!["operator".to_string()],
         tenant_id: "stream-test".to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 9999999999,
         iat: 0,
         jti: "test-token".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     };
 
     let request_id = uuid::Uuid::new_v4().to_string();

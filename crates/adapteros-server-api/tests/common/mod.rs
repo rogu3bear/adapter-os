@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use adapteros_core::{BackendProfile, SeedMode};
 use adapteros_db::Db;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
@@ -36,6 +37,29 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     .execute(db.pool())
     .await?;
 
+    // Seed users referenced by claims to satisfy FK constraints in chat sessions
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO users (id, email, display_name, pw_hash, role) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind("tenant-1-user")
+    .bind("user@example.com")
+    .bind("Tenant One User")
+    .bind("test-hash")
+    .bind("admin")
+    .execute(db.pool())
+    .await?;
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO users (id, email, display_name, pw_hash, role) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind("viewer-user-id")
+    .bind("viewer@example.com")
+    .bind("Default Viewer")
+    .bind("test-hash")
+    .bind("viewer")
+    .execute(db.pool())
+    .await?;
+
     // 3. Create test JWT secret
     let jwt_secret = b"test-jwt-secret-for-integration-tests-32bytes!".to_vec();
 
@@ -51,6 +75,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
         general: None,
         server: Default::default(),
         security: Default::default(),
+        auth: Default::default(),
         performance: Default::default(),
         paths: PathsConfig {
             artifacts_root: "/tmp/test-artifacts".to_string(),
@@ -61,6 +86,9 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
             documents_root: "/tmp/test-documents".to_string(),
         },
         chat_context: Default::default(),
+        seed_mode: SeedMode::BestEffort,
+        backend_profile: BackendProfile::AutoDev,
+        worker_id: 0,
     }));
 
     // 5. Create metrics exporter with standard histogram buckets
@@ -100,10 +128,15 @@ pub fn test_admin_claims() -> Claims {
         roles: vec!["admin".to_string()],
         tenant_id: "tenant-1".to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 0,
         iat: 0,
         jti: "test-token".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     }
 }
 
@@ -116,10 +149,15 @@ pub fn test_viewer_claims() -> Claims {
         roles: vec!["viewer".to_string()],
         tenant_id: "default".to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 9999999999,
         iat: 0,
         jti: "test-viewer-token".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     }
 }
 
@@ -132,10 +170,15 @@ pub fn test_operator_claims() -> Claims {
         roles: vec!["operator".to_string()],
         tenant_id: "default".to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 9999999999,
         iat: 0,
         jti: "test-operator-token".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     }
 }
 
@@ -148,10 +191,15 @@ pub fn test_compliance_claims() -> Claims {
         roles: vec!["compliance".to_string()],
         tenant_id: "default".to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 9999999999,
         iat: 0,
         jti: "test-compliance-token".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     }
 }
 

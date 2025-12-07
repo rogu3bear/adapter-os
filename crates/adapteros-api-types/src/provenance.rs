@@ -4,6 +4,7 @@
 //! chat -> stack -> adapters[] -> training jobs -> datasets -> base model
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 
 use crate::schema_version;
@@ -27,6 +28,9 @@ pub struct ChatProvenanceResponse {
     /// Timeline of provenance events (chronological)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeline: Option<Vec<ProvenanceEvent>>,
+    /// Optional provenance entries captured per inference call
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entries: Option<Vec<ChatProvenanceEntry>>,
     /// BLAKE3 hash of the provenance graph (for audit trail)
     pub provenance_hash: String,
     /// Timestamp when provenance was computed
@@ -151,4 +155,16 @@ pub enum ProvenanceEventType {
     AdapterRegistered,
     StackCreated,
     ChatStarted,
+}
+
+/// Single provenance entry captured for a chat inference call
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ChatProvenanceEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_call_id: Option<String>,
+    pub payload_snapshot: Value,
+    pub created_at: String,
 }

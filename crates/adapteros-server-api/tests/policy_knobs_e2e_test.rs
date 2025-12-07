@@ -8,7 +8,7 @@
 use adapteros_api_types::{
     CreateExecutionPolicyRequest, DeterminismPolicy, GoldenPolicy, RoutingPolicy,
 };
-use adapteros_core::Result;
+use adapteros_core::{BackendProfile, Result, SeedMode};
 use adapteros_db::Db;
 use adapteros_server_api::config::PathsConfig;
 use adapteros_server_api::state::{ApiConfig, GeneralConfig, MetricsConfig};
@@ -466,6 +466,7 @@ fn create_test_config(global_determinism: Option<&str>, use_session_stack: bool)
         }),
         server: Default::default(),
         security: Default::default(),
+        auth: Default::default(),
         performance: Default::default(),
         paths: PathsConfig {
             artifacts_root: "/tmp/test".to_string(),
@@ -476,6 +477,9 @@ fn create_test_config(global_determinism: Option<&str>, use_session_stack: bool)
             documents_root: "/tmp/test".to_string(),
         },
         chat_context: Default::default(),
+        seed_mode: SeedMode::BestEffort,
+        backend_profile: BackendProfile::AutoDev,
+        worker_id: 0,
     }
 }
 

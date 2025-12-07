@@ -17,10 +17,15 @@ fn test_non_admin_cannot_cross_tenant_access() {
         roles: vec!["operator".to_string()],
         tenant_id: "tenant-a".to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 0,
         iat: 0,
         jti: "jti-1".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     };
 
     // User can access their own tenant
@@ -41,10 +46,15 @@ fn test_admin_without_grants_cannot_cross_tenant_access() {
         roles: vec!["admin".to_string()],
         tenant_id: "system".to_string(),
         admin_tenants: vec![], // Empty = no cross-tenant access
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 0,
         iat: 0,
         jti: "jti-1".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     };
 
     // Admin can access their own tenant
@@ -65,10 +75,15 @@ fn test_admin_with_specific_grants_can_access_only_granted_tenants() {
         roles: vec!["admin".to_string()],
         tenant_id: "system".to_string(),
         admin_tenants: vec!["tenant-a".to_string(), "tenant-b".to_string()],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 0,
         iat: 0,
         jti: "jti-1".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     };
 
     // Admin can access their own tenant
@@ -92,10 +107,15 @@ fn test_sre_role_cannot_cross_tenant_access() {
         roles: vec!["sre".to_string()],
         tenant_id: "tenant-a".to_string(),
         admin_tenants: vec![], // SRE shouldn't have this anyway
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 0,
         iat: 0,
         jti: "jti-1".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     };
 
     // SRE can access their own tenant
@@ -114,10 +134,15 @@ fn test_viewer_role_cannot_cross_tenant_access() {
         roles: vec!["viewer".to_string()],
         tenant_id: "tenant-a".to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 0,
         iat: 0,
         jti: "jti-1".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     };
 
     // Viewer can access their own tenant
@@ -138,10 +163,15 @@ fn test_admin_tenants_ignored_for_non_admin_roles() {
         roles: vec!["operator".to_string()],
         tenant_id: "tenant-a".to_string(),
         admin_tenants: vec!["tenant-b".to_string()], // Should be ignored
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 0,
         iat: 0,
         jti: "jti-1".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     };
 
     // Can access own tenant
@@ -162,10 +192,15 @@ fn test_backwards_compatibility_empty_admin_tenants() {
         roles: vec!["admin".to_string()],
         tenant_id: "system".to_string(),
         admin_tenants: vec![], // This will be the default for old tokens
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 0,
         iat: 0,
         jti: "jti-1".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     };
 
     // Should work like normal isolated admin

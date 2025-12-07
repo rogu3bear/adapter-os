@@ -12,7 +12,7 @@
 //! data: [DONE]
 //! ```
 
-use crate::auth::Claims;
+use crate::auth::{Claims, JWT_ISSUER};
 use crate::chat_context::build_chat_prompt;
 use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence};
 use crate::inference_core::InferenceCore;
@@ -108,6 +108,9 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             stack_determinism_mode: None,
             effective_adapter_ids: None, // Computed inside InferenceCore
             determinism_mode: None,
+            seed_mode: None,
+            request_seed: None,
+            backend_profile: None,
             max_tokens: req.max_tokens,
             temperature: req.temperature,
             top_k: req.top_k,
@@ -120,6 +123,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             model: req.model.clone(),
             created_at: std::time::Instant::now(),
             router_seed: None, // Use default router behavior for streaming
+            worker_auth_token: None,
         }
     }
 }
@@ -1065,10 +1069,15 @@ impl LoadingStreamState {
                                     roles: Vec::new(),
                                     tenant_id: tenant_id.clone(),
                                     admin_tenants: Vec::new(),
+                                    device_id: None,
+                                    session_id: None,
+                                    mfa_level: None,
+                                    rot_id: None,
                                     exp: 0,
                                     iat: 0,
                                     jti: uuid::Uuid::new_v4().to_string(),
                                     nbf: 0,
+                                    iss: JWT_ISSUER.to_string(),
                                 },
                                 &request_id,
                                 PolicyHook::OnAfterInference,
@@ -1297,10 +1306,15 @@ impl LoadingStreamState {
             roles: Vec::new(),
             tenant_id: self.tenant_id.clone(),
             admin_tenants: Vec::new(),
+            device_id: None,
+            session_id: None,
+            mfa_level: None,
+            rot_id: None,
             exp: 0,
             iat: 0,
             jti: uuid::Uuid::new_v4().to_string(),
             nbf: 0,
+            iss: JWT_ISSUER.to_string(),
         };
 
         // Convert StreamingInferRequest to InferenceRequestInternal
@@ -1547,6 +1561,9 @@ impl StreamState {
             stack_determinism_mode: None,
             effective_adapter_ids: None,
             determinism_mode: None,
+            seed_mode: None,
+            request_seed: None,
+            backend_profile: None,
             max_tokens: self.max_tokens,
             temperature: self.temperature,
             top_k: None,
@@ -1559,6 +1576,7 @@ impl StreamState {
             chat_context_hash: self.chat_context_hash.clone(),
             model: Some(self.model_name.clone()),
             created_at: std::time::Instant::now(),
+            worker_auth_token: None,
         };
 
         // Execute via InferenceCore - the single entry point for all inference
@@ -1639,10 +1657,15 @@ impl StreamState {
                             roles: Vec::new(),
                             tenant_id: tenant_id.clone(),
                             admin_tenants: Vec::new(),
+                            device_id: None,
+                            session_id: None,
+                            mfa_level: None,
+                            rot_id: None,
                             exp: 0,
                             iat: 0,
                             jti: uuid::Uuid::new_v4().to_string(),
                             nbf: 0,
+                            iss: JWT_ISSUER.to_string(),
                         },
                         &request_id,
                         PolicyHook::OnAfterInference,
@@ -1985,10 +2008,15 @@ mod tests {
             roles: Vec::new(),
             tenant_id: "tenant456".to_string(),
             admin_tenants: Vec::new(),
+            device_id: None,
+            session_id: None,
+            mfa_level: None,
+            rot_id: None,
             exp: 0,
             iat: 0,
             jti: "test-jti".to_string(),
             nbf: 0,
+            iss: JWT_ISSUER.to_string(),
         };
 
         // Convert using From implementation
@@ -2049,10 +2077,15 @@ mod tests {
             role: "operator".to_string(),
             roles: Vec::new(),
             admin_tenants: Vec::new(),
+            device_id: None,
+            session_id: None,
+            mfa_level: None,
+            rot_id: None,
             exp: 0,
             iat: 0,
             jti: uuid::Uuid::new_v4().to_string(),
             nbf: 0,
+            iss: JWT_ISSUER.to_string(),
         };
 
         let internal: InferenceRequestInternal = (&streaming_req, &claims).into();

@@ -30,10 +30,19 @@ use crate::types::ErrorResponse;
 use adapteros_core::Result;
 use adapteros_db::Db;
 use axum::{http::StatusCode, Json};
-use chrono::Utc;
+use chrono::{DateTime, Duration, Utc};
+use sqlx::{FromRow, Row};
 use std::env;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+const LOCKOUT_THRESHOLD: i64 = 5;
+const LOCKOUT_WINDOW_MINUTES: i64 = 15;
+const LOCKOUT_COOLDOWN_MINUTES: i64 = 15;
+
+fn lockout_columns_missing(err: &sqlx::Error) -> bool {
+    matches!(err, sqlx::Error::Database(db_err) if db_err.message().contains("failed_attempts"))
+}
 
 /// Check if dev no-auth bypass is enabled (compile-time restricted to debug builds)
 ///
@@ -337,6 +346,24 @@ pub async fn set_tenant_token_baseline(db: &Db, tenant_id: &str, baseline: &str)
     Ok(())
 }
 
+fn parse_timestamp(ts: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(ts)
+        .map(|dt| dt.with_timezone(&Utc))
+        .ok()
+        .or_else(|| {
+            chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%d %H:%M:%S")
+                .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
+                .map(|dt| dt.with_timezone(&Utc))
+                .ok()
+        })
+}
+
+#[derive(Debug, Clone)]
+pub struct LockoutState {
+    pub until: DateTime<Utc>,
+    pub reason: &'static str,
+}
+
 /// Track authentication attempt (for brute force protection)
 pub async fn track_auth_attempt(
     db: &Db,
@@ -345,8 +372,12 @@ pub async fn track_auth_attempt(
     success: bool,
     failure_reason: Option<&str>,
 ) -> Result<()> {
+    if !db.storage_mode().read_from_sql() {
+        return Ok(());
+    }
     let id = Uuid::now_v7().to_string();
-    let attempted_at = Utc::now().to_rfc3339();
+    let now = Utc::now();
+    let attempted_at = now.to_rfc3339();
 
     sqlx::query(
         "INSERT INTO auth_attempts (id, email, ip_address, success, attempted_at, failure_reason)
@@ -361,37 +392,178 @@ pub async fn track_auth_attempt(
     .execute(db.pool())
     .await?;
 
-    if !success {
-        info!(
-            email = %email,
-            ip_address = %ip_address,
-            reason = ?failure_reason,
-            "Failed authentication attempt"
-        );
+    if success {
+        // Reset per-user counters on successful login (best effort)
+        sqlx::query(
+            "UPDATE users SET failed_attempts = 0, last_failed_at = NULL, lockout_until = NULL WHERE email = ?",
+        )
+        .bind(email)
+        .execute(db.pool())
+        .await
+        .ok();
+
+        return Ok(());
     }
+
+    // Failed attempt: update counters and lockout metadata when possible
+    let existing = match sqlx::query(
+        "SELECT failed_attempts, last_failed_at, lockout_until FROM users WHERE email = ?",
+    )
+    .bind(email)
+    .fetch_optional(db.pool())
+    .await
+    {
+        Ok(row) => row,
+        Err(e) if lockout_columns_missing(&e) => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+
+    let mut lockout_until = existing
+        .as_ref()
+        .and_then(|row| row.try_get::<Option<String>, _>("lockout_until").ok())
+        .and_then(|s| s.as_deref().and_then(parse_timestamp));
+
+    if let Some(row) = existing {
+        let failed_attempts: i64 = row.try_get("failed_attempts").unwrap_or(0);
+        let last_failed = row
+            .try_get::<Option<String>, _>("last_failed_at")
+            .ok()
+            .and_then(|s| s.as_deref().and_then(parse_timestamp));
+        let window_start = now - Duration::minutes(LOCKOUT_WINDOW_MINUTES);
+        let within_window = last_failed.map(|ts| ts > window_start).unwrap_or(false);
+
+        let mut attempts = if within_window { failed_attempts } else { 0 };
+        attempts += 1;
+
+        if attempts >= LOCKOUT_THRESHOLD && within_window {
+            let candidate = now + Duration::minutes(LOCKOUT_COOLDOWN_MINUTES);
+            lockout_until =
+                Some(lockout_until.map_or(candidate, |existing| existing.max(candidate)));
+        }
+
+        // IP+user rate limiting
+        let window_cutoff = (now - Duration::minutes(LOCKOUT_WINDOW_MINUTES)).to_rfc3339();
+        let ip_failures: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM auth_attempts
+             WHERE email = ? AND ip_address = ? AND success = 0 AND attempted_at > ?",
+        )
+        .bind(email)
+        .bind(ip_address)
+        .bind(&window_cutoff)
+        .fetch_one(db.pool())
+        .await
+        .unwrap_or(0);
+
+        if ip_failures >= LOCKOUT_THRESHOLD {
+            let candidate = now + Duration::minutes(LOCKOUT_COOLDOWN_MINUTES);
+            lockout_until =
+                Some(lockout_until.map_or(candidate, |existing| existing.max(candidate)));
+        }
+
+        sqlx::query(
+            "UPDATE users
+             SET failed_attempts = ?, last_failed_at = ?, lockout_until = ?
+             WHERE email = ?",
+        )
+        .bind(attempts)
+        .bind(&attempted_at)
+        .bind(lockout_until.map(|ts| ts.to_rfc3339()))
+        .bind(email)
+        .execute(db.pool())
+        .await?;
+    }
+
+    info!(
+        email = %email,
+        ip_address = %ip_address,
+        reason = ?failure_reason,
+        "Failed authentication attempt"
+    );
 
     Ok(())
 }
 
-/// Check if account is locked due to too many failed attempts
-///
-/// Returns Ok(true) if locked, Ok(false) if not locked
-pub async fn is_account_locked(db: &Db, email: &str, window_minutes: i64) -> Result<bool> {
-    let threshold = 5; // 5 failed attempts
-    let window_start = (Utc::now() - chrono::Duration::minutes(window_minutes)).to_rfc3339();
+/// Evaluate lockout/rate-limit state for a user+IP pair
+pub async fn check_login_lockout(
+    db: &Db,
+    email: &str,
+    ip_address: &str,
+) -> Result<Option<LockoutState>> {
+    if !db.storage_mode().read_from_sql() {
+        return Ok(None);
+    }
+    let now = Utc::now();
 
-    let failed_count: i64 = sqlx::query_scalar(
+    if let Some(row) = match sqlx::query(
+        "SELECT failed_attempts, last_failed_at, lockout_until FROM users WHERE email = ?",
+    )
+    .bind(email)
+    .fetch_optional(db.pool())
+    .await
+    {
+        Ok(row) => row,
+        Err(e) if lockout_columns_missing(&e) => None,
+        Err(e) => return Err(e.into()),
+    } {
+        let lockout_until = row
+            .try_get::<Option<String>, _>("lockout_until")
+            .ok()
+            .and_then(|s| s.as_deref().and_then(parse_timestamp));
+        if let Some(until) = lockout_until.filter(|ts| *ts > now) {
+            return Ok(Some(LockoutState {
+                until,
+                reason: "user_lockout",
+            }));
+        }
+
+        let failed_attempts: i64 = row.try_get("failed_attempts").unwrap_or(0);
+
+        if failed_attempts >= LOCKOUT_THRESHOLD {
+            let last_failed = row
+                .try_get::<Option<String>, _>("last_failed_at")
+                .ok()
+                .and_then(|s| s.as_deref().and_then(parse_timestamp));
+            if let Some(last_failed) = last_failed {
+                if now - last_failed < Duration::minutes(LOCKOUT_COOLDOWN_MINUTES) {
+                    let until = last_failed + Duration::minutes(LOCKOUT_COOLDOWN_MINUTES);
+                    return Ok(Some(LockoutState {
+                        until,
+                        reason: "user_lockout",
+                    }));
+                }
+            }
+        }
+    }
+
+    let window_cutoff = (now - Duration::minutes(LOCKOUT_WINDOW_MINUTES)).to_rfc3339();
+    let ip_failures: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM auth_attempts
          WHERE email = ?
+           AND ip_address = ?
            AND success = 0
            AND attempted_at > ?",
     )
     .bind(email)
-    .bind(&window_start)
+    .bind(ip_address)
+    .bind(&window_cutoff)
     .fetch_one(db.pool())
-    .await?;
+    .await
+    .unwrap_or(0);
 
-    Ok(failed_count >= threshold)
+    if ip_failures >= LOCKOUT_THRESHOLD {
+        let until = now + Duration::minutes(LOCKOUT_COOLDOWN_MINUTES);
+        return Ok(Some(LockoutState {
+            until,
+            reason: "ip_rate_limit",
+        }));
+    }
+
+    Ok(None)
+}
+
+/// Check if account is locked due to too many failed attempts
+pub async fn is_account_locked(db: &Db, email: &str, ip_address: &str) -> Result<bool> {
+    Ok(check_login_lockout(db, email, ip_address).await?.is_some())
 }
 
 /// Get recent failed attempts for an account
@@ -413,6 +585,135 @@ pub async fn get_failed_attempts(
     .await?;
 
     Ok(attempts)
+}
+
+/// Session record with device binding metadata (SQL).
+#[derive(Debug, Clone, FromRow)]
+pub struct SessionRecord {
+    pub session_id: String,
+    pub user_id: String,
+    pub tenant_id: String,
+    pub device_id: Option<String>,
+    pub rot_id: Option<String>,
+    pub refresh_hash: Option<String>,
+    pub refresh_expires_at: Option<String>,
+    pub expires_at: String,
+    pub locked: i64,
+}
+
+/// Insert or update a session row with device binding and rotation metadata.
+pub async fn upsert_user_session(
+    db: &Db,
+    session_id: &str,
+    user_id: &str,
+    tenant_id: &str,
+    device_id: Option<&str>,
+    rot_id: Option<&str>,
+    refresh_hash: Option<&str>,
+    refresh_expires_at: &str,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
+    locked: bool,
+) -> Result<()> {
+    let created_at = Utc::now().to_rfc3339();
+
+    sqlx::query(
+        "INSERT INTO user_sessions (
+            session_id, jti, user_id, tenant_id, created_at, expires_at, refresh_expires_at,
+            device_id, rot_id, refresh_hash, locked, ip_address, user_agent, last_activity
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(session_id) DO UPDATE SET
+            device_id=excluded.device_id,
+            rot_id=excluded.rot_id,
+            refresh_hash=excluded.refresh_hash,
+            refresh_expires_at=excluded.refresh_expires_at,
+            expires_at=excluded.expires_at,
+            locked=excluded.locked,
+            ip_address=excluded.ip_address,
+            user_agent=excluded.user_agent,
+            last_activity=datetime('now')",
+    )
+    .bind(session_id)
+    .bind(session_id)
+    .bind(user_id)
+    .bind(tenant_id)
+    .bind(&created_at)
+    .bind(refresh_expires_at)
+    .bind(refresh_expires_at)
+    .bind(device_id)
+    .bind(rot_id)
+    .bind(refresh_hash)
+    .bind(if locked { 1 } else { 0 })
+    .bind(ip_address)
+    .bind(user_agent)
+    .execute(db.pool())
+    .await?;
+
+    Ok(())
+}
+
+/// Fetch a session by ID (session_id preferred, falls back to jti for legacy rows).
+pub async fn get_session_by_id(db: &Db, session_id: &str) -> Result<Option<SessionRecord>> {
+    let row = sqlx::query_as::<_, SessionRecord>(
+        "SELECT
+            COALESCE(session_id, jti) as session_id,
+            user_id,
+            tenant_id,
+            device_id,
+            rot_id,
+            refresh_hash,
+            refresh_expires_at,
+            expires_at,
+            locked
+         FROM user_sessions
+         WHERE session_id = ? OR jti = ?
+         LIMIT 1",
+    )
+    .bind(session_id)
+    .bind(session_id)
+    .fetch_optional(db.pool())
+    .await?;
+
+    Ok(row)
+}
+
+/// Rotate session metadata for refresh tokens.
+pub async fn update_session_rotation(
+    db: &Db,
+    session_id: &str,
+    rot_id: &str,
+    refresh_hash: Option<&str>,
+    refresh_expires_at: &str,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE user_sessions
+         SET rot_id = ?, refresh_hash = ?, refresh_expires_at = ?, expires_at = ?, last_activity = datetime('now')
+         WHERE session_id = ? OR jti = ?",
+    )
+    .bind(rot_id)
+    .bind(refresh_hash)
+    .bind(refresh_expires_at)
+    .bind(refresh_expires_at)
+    .bind(session_id)
+    .bind(session_id)
+    .execute(db.pool())
+    .await?;
+    Ok(())
+}
+
+/// Lock a session to prevent further use.
+pub async fn lock_session(db: &Db, session_id: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE user_sessions
+         SET locked = 1, refresh_hash = NULL, last_activity = datetime('now')
+         WHERE session_id = ? OR jti = ?",
+    )
+    .bind(session_id)
+    .bind(session_id)
+    .execute(db.pool())
+    .await?;
+    Ok(())
 }
 
 /// Create a user session
@@ -501,6 +802,9 @@ pub async fn cleanup_expired_sessions(db: &Db) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::middleware::tenant_route_guard_middleware;
+    use axum::{body::Body, http::Request, routing::get, Router};
+    use tower::ServiceExt;
 
     async fn init_test_schema(db: &Db) {
         sqlx::query(
@@ -516,6 +820,25 @@ mod tests {
         .execute(db.pool())
         .await
         .expect("Failed to create auth_attempts table");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                display_name TEXT NOT NULL,
+                pw_hash TEXT NOT NULL,
+                role TEXT NOT NULL,
+                disabled INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                tenant_id TEXT DEFAULT 'default',
+                failed_attempts INTEGER NOT NULL DEFAULT 0,
+                last_failed_at TEXT,
+                lockout_until TEXT
+            )",
+        )
+        .execute(db.pool())
+        .await
+        .expect("Failed to create users table");
     }
 
     #[test]
@@ -527,10 +850,15 @@ mod tests {
             roles: vec!["operator".to_string()],
             tenant_id: "tenant-a".to_string(),
             admin_tenants: vec![],
+            device_id: None,
+            session_id: None,
+            mfa_level: None,
+            rot_id: None,
             exp: 0,
             iat: 0,
             jti: "jti-1".to_string(),
             nbf: 0,
+            iss: "adapteros".to_string(),
         };
 
         assert!(validate_tenant_isolation(&claims, "tenant-a").is_ok());
@@ -545,10 +873,15 @@ mod tests {
             roles: vec!["operator".to_string()],
             tenant_id: "tenant-a".to_string(),
             admin_tenants: vec![],
+            device_id: None,
+            session_id: None,
+            mfa_level: None,
+            rot_id: None,
             exp: 0,
             iat: 0,
             jti: "jti-1".to_string(),
             nbf: 0,
+            iss: "adapteros".to_string(),
         };
 
         assert!(validate_tenant_isolation(&claims, "tenant-b").is_err());
@@ -563,10 +896,15 @@ mod tests {
             roles: vec!["admin".to_string()],
             tenant_id: "system".to_string(),
             admin_tenants: vec![], // Empty = can only access own tenant
+            device_id: None,
+            session_id: None,
+            mfa_level: None,
+            rot_id: None,
             exp: 0,
             iat: 0,
             jti: "jti-2".to_string(),
             nbf: 0,
+            iss: "adapteros".to_string(),
         };
 
         // Admin with empty admin_tenants can only access their own tenant
@@ -584,10 +922,15 @@ mod tests {
             roles: vec!["admin".to_string()],
             tenant_id: "system".to_string(),
             admin_tenants: vec!["tenant-a".to_string(), "tenant-b".to_string()],
+            device_id: None,
+            session_id: None,
+            mfa_level: None,
+            rot_id: None,
             exp: 0,
             iat: 0,
             jti: "jti-2".to_string(),
             nbf: 0,
+            iss: "adapteros".to_string(),
         };
 
         // Admin can access tenants in admin_tenants list
@@ -599,7 +942,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_attempt_tracking() {
-        let db = Db::connect("sqlite::memory:")
+        let db = Db::connect("sqlite::memory:?cache=shared")
             .await
             .expect("Failed to create test database");
         init_test_schema(&db).await;
@@ -614,7 +957,7 @@ mod tests {
         .await
         .expect("Security operation failed");
 
-        let is_locked = is_account_locked(&db, "user@example.com", 15)
+        let is_locked = is_account_locked(&db, "user@example.com", "192.168.1.1")
             .await
             .expect("Security operation failed");
         assert!(!is_locked); // Only 1 attempt, threshold is 5
@@ -622,7 +965,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_account_lockout() {
-        let db = Db::connect("sqlite::memory:")
+        let db = Db::connect("sqlite::memory:?cache=shared")
             .await
             .expect("Failed to create test database");
         init_test_schema(&db).await;
@@ -640,9 +983,163 @@ mod tests {
             .expect("Security operation failed");
         }
 
-        let is_locked = is_account_locked(&db, "user@example.com", 15)
+        let is_locked = is_account_locked(&db, "user@example.com", "192.168.1.1")
             .await
             .expect("Security operation failed");
         assert!(is_locked);
+    }
+
+    #[tokio::test]
+    async fn test_failed_attempt_counters_and_reset() {
+        let db = Db::connect("sqlite::memory:?cache=shared")
+            .await
+            .expect("Failed to create test database");
+        init_test_schema(&db).await;
+
+        sqlx::query("INSERT INTO users (id, email, display_name, pw_hash, role, disabled, tenant_id) VALUES (?, ?, ?, ?, ?, 0, 'default')")
+            .bind("user-1")
+            .bind("user@example.com")
+            .bind("Test User")
+            .bind("hash")
+            .bind("admin")
+            .execute(db.pool())
+            .await
+            .expect("insert user");
+
+        for _ in 0..LOCKOUT_THRESHOLD {
+            track_auth_attempt(
+                &db,
+                "user@example.com",
+                "10.0.0.1",
+                false,
+                Some("invalid password"),
+            )
+            .await
+            .expect("Security operation failed");
+        }
+
+        let locked_row =
+            sqlx::query("SELECT failed_attempts, lockout_until FROM users WHERE email = ?")
+                .bind("user@example.com")
+                .fetch_one(db.pool())
+                .await
+                .expect("fetch user");
+
+        let failed_attempts: i64 = locked_row.try_get("failed_attempts").unwrap_or(0);
+        let lockout_until = locked_row
+            .try_get::<Option<String>, _>("lockout_until")
+            .ok()
+            .flatten();
+
+        assert!(
+            failed_attempts >= LOCKOUT_THRESHOLD,
+            "failed_attempts should be incremented"
+        );
+        assert!(
+            lockout_until.is_some(),
+            "lockout_until should be set after threshold is hit"
+        );
+
+        track_auth_attempt(&db, "user@example.com", "10.0.0.1", true, None)
+            .await
+            .expect("reset counters");
+
+        let reset_row =
+            sqlx::query("SELECT failed_attempts, lockout_until FROM users WHERE email = ?")
+                .bind("user@example.com")
+                .fetch_one(db.pool())
+                .await
+                .expect("fetch user");
+
+        let reset_failed: i64 = reset_row.try_get("failed_attempts").unwrap_or(0);
+        let reset_lockout = reset_row
+            .try_get::<Option<String>, _>("lockout_until")
+            .ok()
+            .flatten();
+
+        assert_eq!(reset_failed, 0);
+        assert!(reset_lockout.is_none());
+    }
+
+    fn make_claims(tenant_id: &str, role: &str, admin_tenants: Vec<&str>) -> Claims {
+        let now = chrono::Utc::now().timestamp();
+        Claims {
+            sub: "user-tenant-guard".to_string(),
+            email: "user@example.com".to_string(),
+            role: role.to_string(),
+            roles: vec![role.to_string()],
+            tenant_id: tenant_id.to_string(),
+            admin_tenants: admin_tenants.into_iter().map(|s| s.to_string()).collect(),
+            device_id: None,
+            session_id: Some("session".to_string()),
+            mfa_level: None,
+            rot_id: None,
+            exp: now + 3600,
+            iat: now,
+            jti: "jti-tenant-guard".to_string(),
+            nbf: now,
+            iss: crate::auth::JWT_ISSUER.to_string(),
+        }
+    }
+
+    fn tenant_guard_app() -> Router {
+        Router::new()
+            .route(
+                "/v1/tenants/{tenant_id}/resource",
+                get(|| async { StatusCode::OK }),
+            )
+            .layer(axum::middleware::from_fn(tenant_route_guard_middleware))
+    }
+
+    #[tokio::test]
+    async fn tenant_guard_allows_same_tenant() {
+        let mut req = Request::builder()
+            .uri("/v1/tenants/tenant-a/resource")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(make_claims("tenant-a", "operator", vec![]));
+
+        let response = tenant_guard_app().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn tenant_guard_rejects_cross_tenant_non_admin() {
+        let mut req = Request::builder()
+            .uri("/v1/tenants/tenant-b/resource")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(make_claims("tenant-a", "operator", vec![]));
+
+        let resp = tenant_guard_app().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn tenant_guard_allows_admin_with_grant() {
+        let mut req = Request::builder()
+            .uri("/v1/tenants/tenant-b/resource")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(make_claims("system", "admin", vec!["tenant-b"]));
+
+        let response = tenant_guard_app().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn tenant_guard_allows_admin_wildcard() {
+        let mut req = Request::builder()
+            .uri("/v1/tenants/tenant-c/resource")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(make_claims("system", "admin", vec!["*"]));
+
+        let response = tenant_guard_app().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

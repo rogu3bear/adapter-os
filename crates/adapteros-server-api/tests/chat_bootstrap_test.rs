@@ -34,6 +34,22 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Test helper to create a minimal user (needed for created_by FKs)
+async fn create_test_user(db: &Db, user_id: &str) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO users (id, email, display_name, pw_hash, role, disabled)
+         VALUES (?, ?, ?, ?, 'admin', 0)",
+    )
+    .bind(user_id)
+    .bind(format!("{}@example.com", user_id))
+    .bind(format!("User {}", user_id))
+    .bind("pw-hash")
+    .execute(db.pool())
+    .await
+    .map_err(|e| adapteros_core::AosError::Database(format!("Failed to create user: {}", e)))?;
+    Ok(())
+}
+
 /// Test helper to create a git repository (required FK for training jobs)
 async fn create_test_repo(db: &Db, repo_id: &str) -> Result<()> {
     sqlx::query(
@@ -274,6 +290,13 @@ async fn test_create_chat_session_with_stack() {
         return;
     }
 
+    // Seed tenant, user, and stack to satisfy chat_sessions FKs for stack-backed chats.
+    let user_id = "user-chat-001";
+    if let Err(e) = create_test_user(&db, user_id).await {
+        eprintln!("Skipping test - user creation failed: {}", e);
+        return;
+    }
+
     // Create stack
     let stack_name = stack_name();
     let stack_req = CreateStackRequest {
@@ -295,11 +318,17 @@ async fn test_create_chat_session_with_stack() {
     db.create_chat_session(CreateChatSessionParams {
         id: session_id.to_string(),
         tenant_id: tenant_id.to_string(),
-        user_id: Some("test-user".to_string()),
+        user_id: Some(user_id.to_string()),
+        created_by: Some(user_id.to_string()),
         stack_id: Some(stack_id.clone()),
         collection_id: None, // Collection would need to exist and match tenant
+        document_id: None,
         name: "Chat with test-adapter".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     })
     .await

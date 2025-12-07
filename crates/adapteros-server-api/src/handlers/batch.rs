@@ -1,5 +1,6 @@
 use crate::auth::Claims;
 use crate::inference_core::InferenceCore;
+use crate::middleware::ApiKeyToken;
 use crate::permissions::{require_permission, Permission};
 use crate::security::check_tenant_access;
 use crate::state::AppState;
@@ -57,6 +58,7 @@ const MAX_CONCURRENT_BATCH_ITEMS: usize = 6;
 pub async fn batch_infer(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    api_key: Option<Extension<ApiKeyToken>>,
     Json(req): Json<BatchInferRequest>,
 ) -> Result<Json<BatchInferResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute)?;
@@ -86,6 +88,7 @@ pub async fn batch_infer(
         ));
     }
 
+    let worker_token = api_key.as_ref().map(|t| t.0.clone());
     let deadline = Instant::now() + BATCH_TIMEOUT;
 
     // Process batch items concurrently using futures::stream
@@ -93,6 +96,7 @@ pub async fn batch_infer(
         .map(|item| {
             let state = state.clone();
             let claims = claims.clone();
+            let worker_token = worker_token.clone();
             let deadline = deadline;
 
             async move {
@@ -181,7 +185,8 @@ pub async fn batch_infer(
                 }
 
                 // Convert batch item to InferenceRequestInternal
-                let internal_request: InferenceRequestInternal = (&item, &claims).into();
+                let mut internal_request: InferenceRequestInternal = (&item, &claims).into();
+                internal_request.worker_auth_token = worker_token.clone().map(|t| t.0);
 
                 // Create InferenceCore for this batch item
                 let inference_core = InferenceCore::new(&state);
@@ -260,6 +265,15 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
             error: Some(
                 ErrorResponse::new("backpressure")
                     .with_code("SERVICE_UNAVAILABLE")
+                    .with_string_details(msg),
+            ),
+        },
+        InferenceError::ModelNotReady(msg) => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("model not ready")
+                    .with_code("MODEL_NOT_READY")
                     .with_string_details(msg),
             ),
         },
@@ -741,6 +755,7 @@ async fn process_batch_job(
                             crate::types::InferenceError::NoCompatibleWorker { .. } => {
                                 "NO_COMPATIBLE_WORKER"
                             }
+                            crate::types::InferenceError::ModelNotReady(_) => "MODEL_NOT_READY",
                             crate::types::InferenceError::RagError(_) => "INTERNAL_ERROR",
                             crate::types::InferenceError::WorkerError(_) => "INTERNAL_ERROR",
                             crate::types::InferenceError::AdapterNotFound(_) => "NOT_FOUND",

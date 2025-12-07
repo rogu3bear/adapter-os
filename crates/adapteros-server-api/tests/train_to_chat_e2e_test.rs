@@ -230,10 +230,16 @@ async fn test_chat_created_from_training_job_has_stack_id() {
         id: "session-from-job-001".to_string(),
         tenant_id: tenant_id.to_string(),
         user_id: None,
+        created_by: None,
         stack_id: Some(stack_id.clone()),
         collection_id: None,
+        document_id: None,
         name: "Chat from training job".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     };
 
@@ -345,10 +351,16 @@ async fn test_tenant_isolation_training_to_chat() {
         id: "session-cross-tenant".to_string(),
         tenant_id: tenant_b.to_string(), // Different tenant!
         user_id: None,
+        created_by: None,
         stack_id: Some(stack_id_a.clone()), // Stack from tenant A
         collection_id: None,
+        document_id: None,
         name: "Cross-tenant attempt".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     };
 

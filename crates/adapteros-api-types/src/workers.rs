@@ -22,6 +22,12 @@ pub struct WorkerRegistrationRequest {
     pub plan_id: String,
     /// BLAKE3 hash of the loaded manifest (hex-encoded)
     pub manifest_hash: String,
+    /// Backend selected by worker (e.g., mlx, metal, coreml)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    /// Base model hash advertised by worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_hash: Option<String>,
     /// Schema version (e.g., "1.0")
     pub schema_version: String,
     /// API version for CP-worker protocol (e.g., "1.0")
@@ -50,6 +56,18 @@ pub struct WorkerRegistrationResponse {
     pub rejection_reason: Option<String>,
     /// Heartbeat interval in seconds
     pub heartbeat_interval_secs: u32,
+}
+
+/// Manifest fetch response for workers
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct WorkerManifestFetchResponse {
+    /// BLAKE3 hash of the manifest (hex-encoded)
+    pub manifest_hash: String,
+    /// Canonical JSON representation (hash is computed over these bytes)
+    pub manifest_json: String,
+    /// YAML rendering for readability
+    pub manifest_yaml: String,
 }
 
 /// Worker status notification

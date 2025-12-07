@@ -59,10 +59,15 @@ fn create_test_claims(user_id: &str, email: &str, role: &str, tenant_id: &str) -
         roles: vec![role.to_string()],
         tenant_id: tenant_id.to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: exp.timestamp(),
         iat: now.timestamp(),
         jti: Uuid::new_v4().to_string(),
         nbf: now.timestamp(),
+        iss: "adapteros".to_string(),
     }
 }
 
@@ -189,7 +194,6 @@ async fn test_cross_tenant_dataset_access_denied() -> Result<()> {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "FK schema bug: repository_training_jobs.repo_id references git_repositories.repo_id which is not unique"]
 async fn test_cross_tenant_training_job_access_denied() -> Result<()> {
     // Setup: Create in-memory database
     let db = Db::new_in_memory().await?;
@@ -790,10 +794,15 @@ async fn test_token_before_baseline_should_be_rejected() -> Result<()> {
         roles: vec!["operator".to_string()],
         tenant_id: "tenant-a".to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: (Utc::now() + Duration::hours(8)).timestamp(),
         iat: token_iat_timestamp,
         jti: Uuid::new_v4().to_string(),
         nbf: token_iat_timestamp,
+        iss: "adapteros".to_string(),
     };
 
     // Baseline set to T1 (2025-12-02T00:00:00Z) - AFTER token was issued

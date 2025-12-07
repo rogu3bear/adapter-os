@@ -14,6 +14,7 @@ use adapteros_api_types::{
     AdapterProvenance, BaseModelInfo, ChatProvenanceResponse, DatasetProvenance, ProvenanceEvent,
     ProvenanceEventType, SessionSummary, StackProvenance, TrainingJobProvenance,
 };
+use adapteros_db::chat_sessions::UpdateChatSessionParams;
 use adapteros_db::{
     AddMessageParams, ChatCategory, ChatMessage, ChatSearchResult, ChatSession,
     ChatSessionWithStatus, ChatTag, CreateChatSessionParams, InferenceEvidence, SessionShare,
@@ -30,13 +31,25 @@ use utoipa::{IntoParams, ToSchema};
 /// Request to create a new chat session
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateChatSessionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ref_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
 }
 
 /// Response for chat session creation
@@ -45,13 +58,47 @@ pub struct CreateChatSessionResponse {
     pub session_id: String,
     pub tenant_id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub source_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ref_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags_json: Option<String>,
     pub created_at: String,
+}
+
+/// Request to update an existing chat session
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateChatSessionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub stack_id: Option<Option<String>>,
+    #[serde(default)]
+    pub collection_id: Option<Option<String>>,
+    #[serde(default)]
+    pub document_id: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(default)]
+    pub metadata_json: Option<Option<String>>,
+    #[serde(default)]
+    pub tags_json: Option<Option<String>>,
 }
 
 /// Request to add a message to a session
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AddChatMessageRequest {
-    pub role: String, // 'user', 'assistant', 'system'
+    pub role: String, // 'user', 'assistant', 'system', 'tool', 'owner_system'
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_json: Option<String>,
@@ -62,21 +109,31 @@ pub struct AddChatMessageRequest {
 pub struct ChatMessageResponse {
     pub id: String,
     pub session_id: String,
+    pub tenant_id: String,
     pub role: String,
     pub content: String,
     pub timestamp: String,
+    pub created_at: String,
+    pub sequence: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_json: Option<String>,
 }
 
 impl From<ChatMessage> for ChatMessageResponse {
     fn from(msg: ChatMessage) -> Self {
+        let timestamp = msg
+            .timestamp
+            .clone()
+            .unwrap_or_else(|| msg.created_at.clone());
         Self {
             id: msg.id,
             session_id: msg.session_id,
+            tenant_id: msg.tenant_id,
             role: msg.role,
             content: msg.content,
-            timestamp: msg.timestamp,
+            timestamp,
+            created_at: msg.created_at,
+            sequence: msg.sequence,
             metadata_json: msg.metadata_json,
         }
     }
@@ -89,6 +146,10 @@ pub struct ListSessionsQuery {
     pub user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
 }
 
 /// Create a new chat session
@@ -126,18 +187,161 @@ pub async fn create_chat_session(
         ));
     }
 
+    let target_tenant = claims.tenant_id.clone();
+
+    let source_type = req.source_type.clone().unwrap_or_else(|| {
+        if req.document_id.is_some() {
+            "document".to_string()
+        } else {
+            "general".to_string()
+        }
+    });
+    let allowed_sources = [
+        "general",
+        "document",
+        "owner_system",
+        "training_job",
+        "cli",
+        "cli_prompt",
+    ];
+    if !allowed_sources.contains(&source_type.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("Invalid source_type").with_code("VALIDATION_ERROR")),
+        ));
+    }
+
+    if source_type == "document" && req.document_id.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("document_id is required for document chats")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    if req.document_id.is_some() && source_type != "document" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("document_id is only allowed when source_type='document'")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    if let Some(collection_id) = req.collection_id.as_ref() {
+        let collection = state
+            .db
+            .get_collection(&target_tenant, collection_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to validate collection")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        if collection.is_none() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("collection_id not found for tenant")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            ));
+        }
+    }
+
+    if let Some(document_id) = req.document_id.as_ref() {
+        let document = state
+            .db
+            .get_document(&target_tenant, document_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to validate document")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        if document.is_none() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("document_id not found for tenant")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            ));
+        }
+
+        if let Some(collection_id) = req.collection_id.as_ref() {
+            let in_collection = state
+                .db
+                .is_document_in_collection(collection_id, document_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to verify document binding")
+                                .with_code("DATABASE_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+            if !in_collection {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("document_id is not in the provided collection")
+                            .with_code("VALIDATION_ERROR"),
+                    ),
+                ));
+            }
+        }
+    }
+
+    let tags_json = if let Some(tags) = req.tags.as_ref() {
+        Some(serde_json::to_string(tags).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Invalid tags payload")
+                        .with_code("VALIDATION_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?)
+    } else {
+        None
+    };
+
     // Generate session ID
     let session_id = format!("session-{}", uuid::Uuid::new_v4());
 
     // Create session parameters
     let params = CreateChatSessionParams {
         id: session_id.clone(),
-        tenant_id: claims.tenant_id.clone(),
+        tenant_id: target_tenant.clone(),
         user_id: Some(claims.sub.clone()),
+        created_by: Some(claims.sub.clone()),
         stack_id: req.stack_id,
         collection_id: req.collection_id,
+        document_id: req.document_id,
         name: req.name,
+        title: req.title.clone(),
+        source_type: Some(source_type.clone()),
+        source_ref_id: req.source_ref_id.clone(),
         metadata_json: req.metadata_json,
+        tags_json,
         pinned_adapter_ids: None, // Inherits from tenant default
     };
 
@@ -180,20 +384,279 @@ pub async fn create_chat_session(
 
     info!(
         session_id = %session_id,
-        tenant_id = %claims.tenant_id,
+        tenant_id = %target_tenant,
         user_id = %claims.sub,
         "Chat session created"
     );
 
+    let session_name = session.name.clone();
+    let session_id_value = session.id.clone();
+    let session_tenant_id = session.tenant_id.clone();
+    let session_source_type = session
+        .source_type
+        .clone()
+        .unwrap_or_else(|| "general".to_string());
+
     Ok((
         StatusCode::CREATED,
         Json(CreateChatSessionResponse {
-            session_id: session.id,
-            tenant_id: session.tenant_id,
-            name: session.name,
+            session_id: session_id_value,
+            tenant_id: session_tenant_id,
+            name: session_name.clone(),
+            title: session.title.clone().or_else(|| Some(session_name.clone())),
+            source_type: session_source_type,
+            source_ref_id: session.source_ref_id.clone(),
+            stack_id: session.stack_id.clone(),
+            collection_id: session.collection_id.clone(),
+            document_id: session.document_id.clone(),
+            tags_json: session.tags_json.clone(),
             created_at: session.created_at,
         }),
     ))
+}
+
+/// Update chat session metadata (title, bindings, metadata).
+#[utoipa::path(
+    put,
+    path = "/v1/chat/sessions/{session_id}",
+    tag = "chat",
+    params(
+        ("session_id" = String, Path, description = "Session ID")
+    ),
+    request_body = UpdateChatSessionRequest,
+    responses(
+        (status = 200, description = "Session updated", body = ChatSession),
+        (status = 404, description = "Session not found", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    )
+)]
+pub async fn update_chat_session(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+    Json(req): Json<UpdateChatSessionRequest>,
+) -> Result<Json<ChatSession>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
+        )
+    })?;
+
+    // Verify session exists and tenant matches
+    let session = state
+        .db
+        .get_chat_session(&session_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get session")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    if !check_tenant_access(&claims, &session.tenant_id) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
+        ));
+    }
+
+    let current_source = session
+        .source_type
+        .clone()
+        .unwrap_or_else(|| "general".to_string());
+    let target_source_type = req
+        .source_type
+        .clone()
+        .unwrap_or_else(|| current_source.clone());
+    let allowed_sources = [
+        "general",
+        "document",
+        "owner_system",
+        "training_job",
+        "cli",
+        "cli_prompt",
+    ];
+    if !allowed_sources.contains(&target_source_type.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("Invalid source_type").with_code("VALIDATION_ERROR")),
+        ));
+    }
+
+    let target_document_id = match &req.document_id {
+        Some(Some(id)) => Some(id.clone()),
+        Some(None) => None,
+        None => session.document_id.clone(),
+    };
+    let target_collection_id = match &req.collection_id {
+        Some(Some(id)) => Some(id.clone()),
+        Some(None) => None,
+        None => session.collection_id.clone(),
+    };
+
+    if target_source_type == "document" && target_document_id.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("document_id is required for document chats")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    if target_document_id.is_some() && target_source_type != "document" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("document_id is only allowed when source_type='document'")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    if let Some(collection_id) = target_collection_id.as_ref() {
+        let collection = state
+            .db
+            .get_collection(&session.tenant_id, collection_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to validate collection")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        if collection.is_none() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("collection_id not found for tenant")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            ));
+        }
+    }
+
+    if let Some(document_id) = target_document_id.as_ref() {
+        let document = state
+            .db
+            .get_document(&session.tenant_id, document_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to validate document")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        if document.is_none() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("document_id not found for tenant")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            ));
+        }
+
+        if let Some(collection_id) = target_collection_id.as_ref() {
+            let in_collection = state
+                .db
+                .is_document_in_collection(collection_id, document_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to verify document binding")
+                                .with_code("DATABASE_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+            if !in_collection {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("document_id is not in the provided collection")
+                            .with_code("VALIDATION_ERROR"),
+                    ),
+                ));
+            }
+        }
+    }
+
+    state
+        .db
+        .update_chat_session(
+            &session_id,
+            &session.tenant_id,
+            UpdateChatSessionParams {
+                name: req.name,
+                title: req.title,
+                stack_id: req.stack_id,
+                collection_id: req.collection_id,
+                document_id: req.document_id,
+                source_type: req.source_type,
+                metadata_json: req.metadata_json,
+                tags_json: req.tags_json,
+            },
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to update session")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let updated = state
+        .db
+        .get_chat_session(&session_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to retrieve session")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Session not found after update")
+                        .with_code("INTERNAL_ERROR"),
+                ),
+            )
+        })?;
+
+    Ok(Json(updated))
 }
 
 /// List chat sessions for the current user/tenant
@@ -224,9 +687,17 @@ pub async fn list_chat_sessions(
 
     // List sessions - filter by user_id if provided, otherwise show all for tenant
     let user_filter = query.user_id.or(Some(claims.sub.clone()));
+    let source_filter = query.source_type;
+    let document_filter = query.document_id;
     let sessions = state
         .db
-        .list_chat_sessions(&claims.tenant_id, user_filter.as_deref(), query.limit)
+        .list_chat_sessions(
+            &claims.tenant_id,
+            user_filter.as_deref(),
+            source_filter.as_deref(),
+            document_filter.as_deref(),
+            query.limit,
+        )
         .await
         .map_err(|e| {
             (
@@ -377,8 +848,11 @@ pub async fn add_chat_message(
     let params = AddMessageParams {
         id: message_id.clone(),
         session_id: session_id.clone(),
+        tenant_id: Some(session.tenant_id.clone()),
         role: req.role,
         content: req.content,
+        sequence: None,
+        created_at: None,
         metadata_json: req.metadata_json,
     };
 
@@ -788,6 +1262,29 @@ pub async fn get_chat_provenance(
         .unwrap_or_default();
     let message_count = messages.len() as i64;
 
+    // Load captured provenance entries if any
+    let provenance_entries = state
+        .db
+        .list_chat_provenance_for_session(&session_id)
+        .await
+        .unwrap_or_default();
+    let entries = if provenance_entries.is_empty() {
+        None
+    } else {
+        Some(
+            provenance_entries
+                .into_iter()
+                .map(|p| adapteros_api_types::ChatProvenanceEntry {
+                    message_id: p.message_id,
+                    inference_call_id: p.inference_call_id,
+                    payload_snapshot: serde_json::from_str(&p.payload_snapshot)
+                        .unwrap_or(serde_json::Value::String(p.payload_snapshot)),
+                    created_at: p.created_at,
+                })
+                .collect(),
+        )
+    };
+
     // Build session summary
     let session_summary = SessionSummary {
         id: session.id.clone(),
@@ -1001,6 +1498,7 @@ pub async fn get_chat_provenance(
         adapters: adapter_provenances,
         base_model: base_model_info,
         timeline: Some(timeline_events),
+        entries,
         provenance_hash,
         computed_at,
     };

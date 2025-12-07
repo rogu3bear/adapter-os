@@ -19,6 +19,7 @@ pub mod execution_policy;
 pub mod git;
 pub mod inference;
 pub mod metrics;
+pub mod model_status;
 pub mod nodes;
 pub mod plans;
 pub mod provenance;
@@ -47,6 +48,7 @@ pub use repositories::*;
 pub use settings::*;
 pub use tenant_settings::*;
 // Note: telemetry types are not re-exported to avoid conflicts with metrics types
+pub use model_status::*;
 pub use system_state::*;
 pub use tenants::*;
 pub use training::*;

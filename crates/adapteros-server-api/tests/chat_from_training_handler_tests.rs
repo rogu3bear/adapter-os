@@ -354,10 +354,16 @@ async fn test_create_chat_from_job_with_provenance_fields() {
         id: session_id.to_string(),
         tenant_id: tenant_id.to_string(),
         user_id: Some("test-user".to_string()),
+        created_by: Some("test-user".to_string()),
         stack_id: Some(stack_id.clone()),
         collection_id: None,
+        document_id: None,
         name: "Chat from training job".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     };
 
@@ -678,10 +684,16 @@ async fn test_full_provenance_chain_job_to_chat() {
         id: session_id.to_string(),
         tenant_id: tenant_id.to_string(),
         user_id: Some("test-user".to_string()),
+        created_by: Some("test-user".to_string()),
         stack_id: Some(stack_id.clone()),
         collection_id: None,
+        document_id: None,
         name: "Chat from training".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     };
 

@@ -16,7 +16,10 @@ use axum::{
     http::StatusCode,
     Extension, Json,
 };
+use chrono::Utc;
+use serde_json::json;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 // ===== Process Logs and Debugging Endpoints =====
 
@@ -463,16 +466,72 @@ pub async fn list_process_health_metrics(
     )
 )]
 pub async fn list_process_monitoring_reports(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(_params): Query<HashMap<String, String>>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessMonitoringReportResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
-    ))
+    let worker_filter = params.get("worker_id");
+    let metric_filter = params.get("metric_name");
+    let start_time_filter = params.get("start_time");
+    let end_time_filter = params.get("end_time");
+
+    let filters = adapteros_system_metrics::MetricFilters {
+        worker_id: worker_filter.cloned(),
+        tenant_id: None,
+        metric_name: metric_filter.cloned(),
+        start_time: start_time_filter
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc)),
+        end_time: end_time_filter
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc)),
+        limit: Some(1000),
+    };
+
+    let metrics = adapteros_system_metrics::ProcessHealthMetric::query(state.db.pool(), filters)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let response_metrics: Vec<ProcessHealthMetricResponse> = metrics
+        .into_iter()
+        .map(|metric| ProcessHealthMetricResponse {
+            id: metric.id,
+            worker_id: metric.worker_id,
+            tenant_id: metric.tenant_id,
+            metric_name: metric.metric_name,
+            metric_value: metric.metric_value,
+            metric_unit: metric.metric_unit,
+            tags: metric.tags,
+            collected_at: metric.collected_at.to_rfc3339(),
+        })
+        .collect();
+
+    let report = ProcessMonitoringReportResponse {
+        id: format!("report-{}", Uuid::now_v7()),
+        name: "Live metrics".to_string(),
+        description: Some("Alias of /v1/monitoring/health-metrics".to_string()),
+        tenant_id: claims.tenant_id.clone(),
+        report_type: "metrics_alias".to_string(),
+        report_config: json!({"alias": "health-metrics", "filters": params}),
+        generated_at: Utc::now().to_rfc3339(),
+        report_data: Some(json!(response_metrics)),
+        file_path: None,
+        file_size_bytes: None,
+        created_by: Some(claims.sub.clone()),
+    };
+
+    Ok(Json(vec![report]))
 }
 
 /// Create process monitoring report

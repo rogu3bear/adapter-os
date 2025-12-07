@@ -6,9 +6,11 @@
 use crate::audit_helper::{log_failure, log_success};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
+use crate::model_status::aggregate_status;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use crate::uds_client::UdsClient;
+use adapteros_api_types::ModelLoadStatus;
 use adapteros_db::users::Role;
 use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;
@@ -66,8 +68,10 @@ pub struct ModelStatusResponse {
     pub model_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_path: Option<String>,
-    pub status: String,
+    pub status: ModelLoadStatus,
     pub loaded_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
     pub memory_usage_mb: Option<i32>,
     pub is_loaded: bool,
 }
@@ -145,7 +149,9 @@ pub async fn load_model(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    use tracing::{error, info, warn};
+    use tracing::{debug, error, info, warn};
+
+    let request_id = crate::request_id::get_request_id().unwrap_or_else(|| "unknown".to_string());
 
     require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
         (
@@ -181,43 +187,65 @@ pub async fn load_model(
             )
         })?;
 
-    // Check current status in base_model_status table
-    let current_status = state
-        .db
-        .get_base_model_status(tenant_id)
-        .await
-        .map_err(|e| {
-            error!("Failed to fetch model status: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    // Aggregate current status across tenants/nodes for this model
+    let all_statuses = state.db.list_base_model_statuses().await.map_err(|e| {
+        error!("Failed to fetch model statuses: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+    let matching: Vec<_> = all_statuses
+        .iter()
+        .filter(|s| s.model_id == model_id)
+        .collect();
+    let aggregated = aggregate_status(matching.iter().copied());
+    let state_before = aggregated.status;
 
-    // Check if model is already loaded - return success with current status
-    if let Some(status) = &current_status {
-        if status.status == "loaded" && status.model_id == model_id {
-            info!("Model already loaded: {}", model_id);
-            return Ok(Json(ModelStatusResponse {
-                model_id: model_id.clone(),
-                model_name: model.name.clone(),
-                model_path: model.model_path.clone(),
-                status: "loaded".to_string(),
-                memory_usage_mb: status.memory_usage_mb,
-                loaded_at: status.loaded_at.clone(),
-                is_loaded: true,
-            }));
-        }
+    debug!(
+        request_id = %request_id,
+        model_id = %model_id,
+        tenant_id = %tenant_id,
+        state_before = %state_before.as_str(),
+        "model_load_request"
+    );
+
+    if matches!(
+        state_before,
+        ModelLoadStatus::Ready | ModelLoadStatus::Loading
+    ) {
+        let latest = aggregated.latest;
+        state.metrics_exporter.set_model_loaded_gauge(
+            &model_id,
+            tenant_id,
+            state_before.is_ready(),
+        );
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: state_before,
+            loaded_at: latest.and_then(|s| s.loaded_at.clone()),
+            error_message: latest.and_then(|s| s.error_message.clone()),
+            memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
+            is_loaded: state_before.is_ready(),
+        }));
     }
 
-    // Update status to "loading" first
+    // Update status to "loading" first (idempotent ensure)
     state
         .db
-        .update_base_model_status(tenant_id, &model_id, "loading", None, None)
+        .update_base_model_status(
+            tenant_id,
+            &model_id,
+            ModelLoadStatus::Loading.as_str(),
+            None,
+            None,
+        )
         .await
         .map_err(|e| {
             error!("Failed to update model status to loading: {}", e);
@@ -230,6 +258,9 @@ pub async fn load_model(
                 ),
             )
         })?;
+    state
+        .metrics_exporter
+        .set_model_loaded_gauge(&model_id, tenant_id, false);
 
     // Log operation
     let op_id = state
@@ -281,6 +312,45 @@ pub async fn load_model(
         format!("var/model-cache/models/{}", model.name)
     });
 
+    // Validate model path exists before invoking the worker
+    if !StdPath::new(&model_path).exists() {
+        let err_msg = format!("model path does not exist: {}", model_path);
+
+        // Persist error status but do not fail hard if the DB update itself fails
+        let _ = state
+            .db
+            .update_base_model_status(
+                tenant_id,
+                &model_id,
+                ModelLoadStatus::Error.as_str(),
+                Some(&err_msg),
+                None,
+            )
+            .await;
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&err_msg), Some(&now), None)
+            .await;
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_MODEL_LOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &err_msg,
+        )
+        .await;
+
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("model path does not exist")
+                    .with_code("MODEL_PATH_MISSING")
+                    .with_string_details(err_msg),
+            ),
+        ));
+    }
+
     // Call worker via UDS to actually load the model
     let uds_client = UdsClient::new(Duration::from_secs(120)); // Model loading can take time
     let load_result = uds_client
@@ -295,7 +365,7 @@ pub async fn load_model(
                     memory_mb = ?response.memory_usage_mb,
                     "Worker confirmed model is loaded"
                 );
-                ("loaded", response.memory_usage_mb, None)
+                (ModelLoadStatus::Ready, response.memory_usage_mb, None)
             } else {
                 warn!(
                     model_id = %model_id,
@@ -303,7 +373,7 @@ pub async fn load_model(
                     error = ?response.error,
                     "Worker returned non-loaded status"
                 );
-                ("error", None, response.error)
+                (ModelLoadStatus::Error, None, response.error)
             }
         }
         Err(e) => {
@@ -315,7 +385,7 @@ pub async fn load_model(
                 "Failed to communicate with worker for model loading"
             );
             (
-                "error",
+                ModelLoadStatus::Error,
                 None,
                 Some(format!("Worker communication failed: {}", e)),
             )
@@ -330,13 +400,18 @@ pub async fn load_model(
         .update_base_model_status(
             tenant_id,
             &model_id,
-            final_status,
+            final_status.as_str(),
             load_error.as_deref(),
             Some(estimated_memory_mb),
         )
         .await
     {
-        error!("Failed to update model status to {}: {}", final_status, e);
+        error!(
+            model_id = %model_id,
+            request_id = %request_id,
+            error = %e,
+            "Failed to update model status after worker response"
+        );
         // Log operation failure
         let _ = state
             .db
@@ -352,14 +427,19 @@ pub async fn load_model(
             &format!("Failed to load model: {}", e),
         )
         .await;
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to update model status")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        ));
+        state
+            .metrics_exporter
+            .record_model_load(&model_id, tenant_id, false);
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: ModelLoadStatus::Error,
+            loaded_at: None,
+            error_message: Some(e.to_string()),
+            memory_usage_mb: Some(estimated_memory_mb),
+            is_loaded: false,
+        }));
     }
 
     // If worker returned an error, report it
@@ -377,14 +457,19 @@ pub async fn load_model(
             &format!("Worker failed to load model: {}", error_msg),
         )
         .await;
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("worker failed to load model")
-                    .with_code("WORKER_ERROR")
-                    .with_string_details(error_msg),
-            ),
-        ));
+        state
+            .metrics_exporter
+            .record_model_load(&model_id, tenant_id, false);
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: ModelLoadStatus::Error,
+            loaded_at: None,
+            error_message: Some(error_msg),
+            memory_usage_mb: Some(estimated_memory_mb),
+            is_loaded: false,
+        }));
     }
 
     // Log successful operation
@@ -407,16 +492,22 @@ pub async fn load_model(
     info!(
         model_id = %model_id,
         tenant_id = %tenant_id,
+        request_id = %request_id,
         memory_usage_mb = estimated_memory_mb,
         "Model loaded successfully"
     );
+
+    state
+        .metrics_exporter
+        .record_model_load(&model_id, tenant_id, true);
 
     Ok(Json(ModelStatusResponse {
         model_id,
         model_name: model.name,
         model_path: model.model_path,
-        status: "loaded".to_string(),
+        status: ModelLoadStatus::Ready,
         loaded_at: Some(chrono::Utc::now().to_rfc3339()),
+        error_message: None,
         memory_usage_mb: Some(estimated_memory_mb),
         is_loaded: true,
     }))
@@ -465,7 +556,9 @@ pub async fn unload_model(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    use tracing::{error, info, warn};
+    use tracing::{debug, error, info, warn};
+
+    let request_id = crate::request_id::get_request_id().unwrap_or_else(|| "unknown".to_string());
 
     require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
         (
@@ -501,38 +594,51 @@ pub async fn unload_model(
             )
         })?;
 
-    // Check current status
-    let current_status = state
-        .db
-        .get_base_model_status(tenant_id)
-        .await
-        .map_err(|e| {
-            error!("Failed to fetch model status: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    // Aggregate current status across tenants/nodes for this model
+    let all_statuses = state.db.list_base_model_statuses().await.map_err(|e| {
+        error!("Failed to fetch model statuses: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+    let matching: Vec<_> = all_statuses
+        .iter()
+        .filter(|s| s.model_id == model_id)
+        .collect();
+    let aggregated = aggregate_status(matching.iter().copied());
+    let state_before = aggregated.status;
 
-    // Check if model is currently loaded
-    if let Some(status) = &current_status {
-        if status.status != "loaded" || status.model_id != model_id {
-            warn!("Model not currently loaded: {}", model_id);
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new("model not currently loaded").with_code("BAD_REQUEST")),
-            ));
-        }
-    } else {
-        warn!("No model status found for tenant: {}", tenant_id);
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("model not currently loaded").with_code("BAD_REQUEST")),
-        ));
+    debug!(
+        request_id = %request_id,
+        model_id = %model_id,
+        tenant_id = %tenant_id,
+        state_before = %state_before.as_str(),
+        "model_unload_request"
+    );
+
+    // Idempotent no-op for non-ready states
+    if !matches!(state_before, ModelLoadStatus::Ready) {
+        let latest = aggregated.latest;
+        state.metrics_exporter.set_model_loaded_gauge(
+            &model_id,
+            tenant_id,
+            state_before.is_ready(),
+        );
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: state_before,
+            loaded_at: latest.and_then(|s| s.loaded_at.clone()),
+            error_message: latest.and_then(|s| s.error_message.clone()),
+            memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
+            is_loaded: state_before.is_ready(),
+        }));
     }
 
     // Log operation
@@ -562,13 +668,59 @@ pub async fn unload_model(
             )
         })?;
 
-    // Update status to "unloaded"
+    // Transition to unloading then no-model
     if let Err(e) = state
         .db
-        .update_base_model_status(tenant_id, &model_id, "unloaded", None, None)
+        .update_base_model_status(
+            tenant_id,
+            &model_id,
+            ModelLoadStatus::Unloading.as_str(),
+            None,
+            None,
+        )
         .await
     {
-        error!("Failed to update model status to unloaded: {}", e);
+        error!("Failed to update model status to unloading: {}", e);
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
+            .await;
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_MODEL_UNLOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &format!("Failed to set unloading status: {}", e),
+        )
+        .await;
+        state
+            .metrics_exporter
+            .record_model_unload(&model_id, tenant_id, false);
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: ModelLoadStatus::Error,
+            loaded_at: None,
+            error_message: Some(e.to_string()),
+            memory_usage_mb: None,
+            is_loaded: false,
+        }));
+    }
+
+    if let Err(e) = state
+        .db
+        .update_base_model_status(
+            tenant_id,
+            &model_id,
+            ModelLoadStatus::NoModel.as_str(),
+            None,
+            None,
+        )
+        .await
+    {
+        error!("Failed to update model status to no-model: {}", e);
         // Log operation failure
         let _ = state
             .db
@@ -584,14 +736,19 @@ pub async fn unload_model(
             &format!("Failed to unload model: {}", e),
         )
         .await;
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to update model status")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        ));
+        state
+            .metrics_exporter
+            .record_model_unload(&model_id, tenant_id, false);
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: ModelLoadStatus::Error,
+            loaded_at: None,
+            error_message: Some(e.to_string()),
+            memory_usage_mb: None,
+            is_loaded: false,
+        }));
     }
 
     // Log successful operation
@@ -614,15 +771,21 @@ pub async fn unload_model(
     info!(
         model_id = %model_id,
         tenant_id = %tenant_id,
+        request_id = %request_id,
         "Model unloaded successfully"
     );
+
+    state
+        .metrics_exporter
+        .record_model_unload(&model_id, tenant_id, true);
 
     Ok(Json(ModelStatusResponse {
         model_id,
         model_name: model.name,
         model_path: model.model_path,
-        status: "unloaded".to_string(),
+        status: ModelLoadStatus::NoModel,
         loaded_at: None,
+        error_message: None,
         memory_usage_mb: None,
         is_loaded: false,
     }))
@@ -718,26 +881,20 @@ pub async fn get_model_status(
     let status = all_statuses
         .iter()
         .filter(|s| s.model_id == model_id)
-        .max_by_key(|s| s.updated_at.clone());
+        .collect::<Vec<_>>();
 
-    let (status_str, loaded_at, memory_mb, is_loaded) = match status {
-        Some(s) => (
-            s.status.clone(),
-            s.loaded_at.clone(),
-            s.memory_usage_mb,
-            s.status == "loaded",
-        ),
-        None => ("unloaded".to_string(), None, None, false),
-    };
+    let aggregated = aggregate_status(status.iter().copied());
+    let latest = aggregated.latest;
 
     Ok(Json(ModelStatusResponse {
         model_id,
         model_name: model.name,
         model_path: model.model_path,
-        status: status_str,
-        loaded_at,
-        memory_usage_mb: memory_mb,
-        is_loaded,
+        status: aggregated.status,
+        loaded_at: latest.and_then(|s| s.loaded_at.clone()),
+        error_message: latest.and_then(|s| s.error_message.clone()),
+        memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
+        is_loaded: aggregated.status.is_ready(),
     }))
 }
 
@@ -1468,40 +1625,61 @@ pub async fn get_all_models_status(
     let mut total_memory_mb = 0;
     let mut active_model_count = 0;
 
+    let mut grouped: std::collections::HashMap<String, Vec<adapteros_db::models::BaseModelStatus>> =
+        std::collections::HashMap::new();
     for status in statuses {
+        grouped
+            .entry(status.model_id.clone())
+            .or_default()
+            .push(status);
+    }
+
+    for (model_id, records) in grouped {
+        let aggregated = aggregate_status(records.iter());
+        let latest = aggregated.latest;
+
         // Get model details
-        let model = match state.db.get_model(&status.model_id).await {
+        let model = match state.db.get_model(&model_id).await {
             Ok(Some(m)) => m,
             Ok(None) => {
-                error!("Model not found: {}", status.model_id);
+                error!("Model not found: {}", model_id);
                 continue;
             }
             Err(e) => {
-                error!("Failed to get model {}: {}", status.model_id, e);
+                error!("Failed to get model {}: {}", model_id, e);
                 continue;
             }
         };
 
-        let is_loaded = status.status == "loaded";
+        let is_loaded = aggregated.status.is_ready();
         if is_loaded {
             active_model_count += 1;
         }
 
-        if let Some(memory) = status.memory_usage_mb {
+        if let Some(memory) = latest.and_then(|s| s.memory_usage_mb) {
             total_memory_mb += memory as i64;
         }
 
+        let gauge_tenant = latest.map(|s| s.tenant_id.as_str()).unwrap_or("unknown");
+        state.metrics_exporter.set_model_loaded_gauge(
+            &model_id,
+            gauge_tenant,
+            aggregated.status.is_ready(),
+        );
+
         model_responses.push(crate::types::BaseModelStatusResponse {
-            model_id: status.model_id,
+            model_id,
             model_name: model.name,
             model_path: model.model_path,
-            status: status.status,
-            loaded_at: status.loaded_at,
-            unloaded_at: status.unloaded_at,
-            error_message: status.error_message,
-            memory_usage_mb: status.memory_usage_mb,
+            status: aggregated.status,
+            loaded_at: latest.and_then(|s| s.loaded_at.clone()),
+            unloaded_at: latest.and_then(|s| s.unloaded_at.clone()),
+            error_message: latest.and_then(|s| s.error_message.clone()),
+            memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
             is_loaded,
-            updated_at: status.updated_at,
+            updated_at: latest
+                .map(|s| s.updated_at.clone())
+                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
         });
     }
 

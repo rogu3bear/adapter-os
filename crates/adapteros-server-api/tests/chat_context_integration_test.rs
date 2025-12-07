@@ -31,10 +31,16 @@ async fn create_test_session(db: &Db, session_id: &str, tenant_id: &str) {
         id: session_id.to_string(),
         tenant_id: tenant_id.to_string(),
         user_id: None,
+        created_by: None,
         stack_id: None,
         collection_id: None,
+        document_id: None,
         name: "Test Session".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     })
     .await
@@ -46,8 +52,11 @@ async fn add_test_message(db: &Db, session_id: &str, role: &str, content: &str) 
     db.add_chat_message(AddMessageParams {
         id: uuid::Uuid::new_v4().to_string(),
         session_id: session_id.to_string(),
+        tenant_id: None,
         role: role.to_string(),
         content: content.to_string(),
+        sequence: None,
+        created_at: None,
         metadata_json: None,
     })
     .await

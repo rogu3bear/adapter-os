@@ -150,10 +150,10 @@ impl DefaultAdapterService {
             "resident" => Err(AosError::Validation(
                 "Adapter already at maximum state (resident)".to_string(),
             )),
-            _ => {
-                warn!(current_state = %current, "Unknown state, defaulting to cold");
-                Ok("cold")
-            }
+            _ => Err(AosError::Validation(format!(
+                "Unknown adapter state '{}': requires manual repair/migration",
+                current
+            ))),
         }
     }
 
@@ -167,10 +167,10 @@ impl DefaultAdapterService {
             "unloaded" => Err(AosError::Validation(
                 "Adapter already at minimum state (unloaded)".to_string(),
             )),
-            _ => {
-                warn!(current_state = %current, "Unknown state, defaulting to unloaded");
-                Ok("unloaded")
-            }
+            _ => Err(AosError::Validation(format!(
+                "Unknown adapter state '{}': requires manual repair/migration",
+                current
+            ))),
         }
     }
 
@@ -202,6 +202,17 @@ impl DefaultAdapterService {
         lifecycle_manager: &Option<Arc<Mutex<adapteros_lora_lifecycle::LifecycleManager>>>,
         is_promotion: bool,
     ) -> Result<String> {
+        let consistency = self.state.db.check_adapter_consistency(adapter_id).await?;
+        if !consistency.is_ready() {
+            let msg = consistency
+                .message
+                .unwrap_or_else(|| "KV consistency check failed".to_string());
+            return Err(AosError::Validation(format!(
+                "Adapter {} blocked: {}",
+                adapter_id, msg
+            )));
+        }
+
         if let Some(ref lifecycle) = lifecycle_manager {
             let manager = lifecycle.lock().await;
 
@@ -553,6 +564,12 @@ mod tests {
             "unloaded"
         );
         assert!(DefaultAdapterService::previous_state("unloaded").is_err());
+    }
+
+    #[test]
+    fn test_unknown_state_errors() {
+        assert!(DefaultAdapterService::next_state("mystery").is_err());
+        assert!(DefaultAdapterService::previous_state("mystery").is_err());
     }
 
     #[test]

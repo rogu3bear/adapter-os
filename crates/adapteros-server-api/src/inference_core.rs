@@ -27,15 +27,17 @@
 use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence, RagContextResult};
 use crate::state::AppState;
 use crate::types::{
-    ChunkReference, InferenceError, InferenceRequestInternal, InferenceResult, RagEvidence,
-    ReplayContext, RouterCandidateRecord, RouterDecisionRecord, SamplingParams, WorkerInferRequest,
-    MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
+    ChunkReference, InferenceError, InferenceRequestInternal, InferenceResult, PlacementReplay,
+    PlacementTraceEntry, RagEvidence, ReplayContext, RouterCandidateRecord, RouterDecisionRecord,
+    SamplingParams, WorkerInferRequest, MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
 };
 use crate::uds_client::UdsClient;
 use adapteros_api_types::inference::ReplayGuarantee;
-use adapteros_core::identity::IdentityEnvelope;
+use adapteros_config::PlacementConfig;
+use adapteros_core::{identity::IdentityEnvelope, B3Hash};
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
+use hex;
 use std::path::PathBuf;
 use std::time::Duration;
 use tracing::{debug, error, info, info_span, warn};
@@ -451,6 +453,35 @@ impl<'a> InferenceCore<'a> {
         )
         .await?;
 
+        // 0.7 Resolve execution profile (seed_mode + backend_profile) and derive request seed
+        let seed_mode = request.seed_mode.unwrap_or(config.seed_mode);
+        let backend_profile = request.backend_profile.unwrap_or(config.backend_profile);
+
+        let manifest_hash = self
+            .state
+            .manifest_hash
+            .as_deref()
+            .and_then(|h| B3Hash::from_hex(h).ok());
+
+        let global_seed = manifest_hash
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| B3Hash::hash(b"adapteros-request-global"));
+
+        let determinism_ctx = crate::determinism_context::DeterminismContext::from_request(
+            &request,
+            manifest_hash.as_ref(),
+            &global_seed,
+            seed_mode,
+            config.worker_id,
+        )?;
+
+        request.seed_mode = Some(seed_mode);
+        request.backend_profile = Some(backend_profile);
+        request.request_seed = Some(determinism_ctx.request_seed());
+        request.router_seed = Some(determinism_ctx.router_seed_hex().to_string());
+        request.seed = Some(determinism_ctx.request_seed_low64());
+
         // Validate strict mode constraints (seed required for strict mode)
         validate_strict_mode_constraints(resolved_policy.effective_determinism_mode, request.seed)?;
         request.determinism_mode = Some(
@@ -468,6 +499,43 @@ impl<'a> InferenceCore<'a> {
         // 0. Validate adapters are loadable (not archived/purged)
         // This is a defense-in-depth check - handlers should also validate
         self.validate_adapters_loadable(&request).await?;
+
+        // 0.1 Gate on base model readiness (cluster-aggregated)
+        let base_statuses = self
+            .state
+            .db
+            .list_base_model_statuses()
+            .await
+            .map_err(|e| {
+                InferenceError::WorkerError(format!("Failed to fetch base model status: {}", e))
+            })?;
+
+        let filtered: Vec<_> = base_statuses
+            .iter()
+            .filter(|s| s.tenant_id == request.cpid)
+            .filter(|s| {
+                if let Some(ref model_id) = request.model {
+                    &s.model_id == model_id
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        let records: Vec<_> = if filtered.is_empty() {
+            base_statuses.iter().collect()
+        } else {
+            filtered
+        };
+
+        let aggregated = crate::model_status::aggregate_status(records.iter().copied());
+        if !aggregated.status.is_ready() {
+            return Err(InferenceError::ModelNotReady(format!(
+                "Base model not ready (status: {})",
+                aggregated.status.as_str()
+            )));
+        }
+        let base_model_id = aggregated.latest.map(|s| s.model_id.clone());
 
         // Set the routing guard - this allows the UDS client to proceed
         crate::uds_client::enter_routed_context();
@@ -576,34 +644,75 @@ impl<'a> InferenceCore<'a> {
             top_p: request.top_p,
             seed: request.seed,
             router_seed: request.router_seed.clone(),
+            seed_mode: request.seed_mode,
+            request_seed: request.request_seed,
+            backend_profile: request.backend_profile,
             pinned_adapter_ids: pinned_adapter_ids.clone(),
             strict_mode: Some(strict_mode),
             determinism_mode: request.determinism_mode.clone(),
             effective_adapter_ids: request.effective_adapter_ids.clone(),
             routing_policy: execution_policy.routing.clone(),
+            placement: None,
         };
 
         // 4. Call worker via UDS
         // Longer timeout for replay to account for cold worker startup
         let timeout_secs = if is_replay { 120 } else { 60 };
         let uds_client = UdsClient::new(Duration::from_secs(timeout_secs));
-        let worker_response =
-            uds_client
-                .infer(&uds_path, worker_request)
-                .await
-                .map_err(|e| match e {
-                    crate::uds_client::UdsClientError::WorkerNotAvailable(msg) => {
-                        InferenceError::WorkerNotAvailable(msg)
-                    }
-                    crate::uds_client::UdsClientError::Timeout(msg) => InferenceError::Timeout(msg),
-                    crate::uds_client::UdsClientError::RoutingBypass(msg) => {
-                        InferenceError::RoutingBypass(msg)
-                    }
-                    other => InferenceError::WorkerError(other.to_string()),
-                })?;
+        let worker_response = uds_client
+            .infer(
+                &uds_path,
+                worker_request,
+                request.worker_auth_token.as_deref(),
+            )
+            .await
+            .map_err(|e| match e {
+                crate::uds_client::UdsClientError::WorkerNotAvailable(msg) => {
+                    InferenceError::WorkerNotAvailable(msg)
+                }
+                crate::uds_client::UdsClientError::Timeout(msg) => InferenceError::Timeout(msg),
+                crate::uds_client::UdsClientError::RoutingBypass(msg) => {
+                    InferenceError::RoutingBypass(msg)
+                }
+                other => InferenceError::WorkerError(other.to_string()),
+            })?;
 
         // 5. Extract routing decisions from worker response
         let router_decisions = self.extract_router_decisions(&worker_response);
+        let router_decision_chain = self.extract_router_decision_chain(&worker_response);
+
+        // 5b. Persist per-token routing chain for audit
+        if let Some(chain) = router_decision_chain.as_ref() {
+            let records: Vec<adapteros_db::RoutingDecisionChainRecord> = chain
+                .iter()
+                .map(|entry| {
+                    let hash_json = entry
+                        .decision_hash
+                        .as_ref()
+                        .and_then(|h| serde_json::to_string(h).ok());
+                    adapteros_db::make_chain_record_from_api(
+                        &request.cpid,
+                        &request.request_id,
+                        Some(&request.request_id),
+                        entry,
+                        hash_json,
+                    )
+                })
+                .collect();
+
+            if let Err(e) = self
+                .state
+                .db
+                .insert_routing_decision_chain_batch(&records)
+                .await
+            {
+                warn!(
+                    error = %e,
+                    request_id = %request.request_id,
+                    "Failed to persist routing decision chain"
+                );
+            }
+        }
 
         // 5.5. Golden drift detection (if policy requires it)
         if resolved_policy.golden.fail_on_drift {
@@ -695,6 +804,7 @@ impl<'a> InferenceCore<'a> {
                 response_truncated,
                 &determinism_mode_applied,
                 fallback_triggered,
+                worker_response.placement_trace.as_ref(),
                 &replay_guarantee,
                 Some(&execution_policy.id),
                 Some(execution_policy.version),
@@ -799,6 +909,7 @@ impl<'a> InferenceCore<'a> {
             finish_reason: worker_response.status,
             adapters_used: worker_response.trace.router_summary.adapters_used,
             router_decisions,
+            router_decision_chain,
             rag_evidence,
             latency_ms,
             request_id: request.request_id,
@@ -809,6 +920,7 @@ impl<'a> InferenceCore<'a> {
             fallback_triggered,
             determinism_mode_applied: Some(determinism_mode_applied),
             replay_guarantee: Some(replay_guarantee),
+            placement_trace: worker_response.placement_trace.clone(),
         })
     }
 
@@ -1060,31 +1172,24 @@ impl<'a> InferenceCore<'a> {
     ///
     /// This ensures workers only serve requests they're compatible with.
     async fn resolve_worker_path(&self, tenant_id: &str) -> Result<PathBuf, InferenceError> {
-        // Get the current manifest hash from AppState (if available)
-        let required_manifest = self.state.manifest_hash.as_deref();
+        let required_manifest = self.state.manifest_hash.as_deref().ok_or_else(|| {
+            InferenceError::NoCompatibleWorker {
+                required_hash: "unset".to_string(),
+                tenant_id: tenant_id.to_string(),
+                available_count: 0,
+                reason: "Manifest hash not configured on control plane".to_string(),
+            }
+        })?;
 
-        // Get workers - filter by manifest if we have one (manifest binding)
-        let workers = if let Some(manifest_hash) = required_manifest {
-            // Use manifest-aware worker selection
-            self.state
-                .db
-                .list_compatible_workers_for_tenant(manifest_hash, tenant_id)
-                .await
-                .map_err(|e| {
-                    InferenceError::WorkerError(format!("Failed to list compatible workers: {}", e))
-                })?
-        } else {
-            // No manifest specified - get all serving workers and filter by tenant
-            let all_workers = self.state.db.list_serving_workers().await.map_err(|e| {
-                InferenceError::WorkerError(format!("Failed to list workers: {}", e))
+        // Use manifest-aware worker selection
+        let workers = self
+            .state
+            .db
+            .list_compatible_workers_for_tenant(required_manifest, tenant_id)
+            .await
+            .map_err(|e| {
+                InferenceError::WorkerError(format!("Failed to list compatible workers: {}", e))
             })?;
-
-            // Filter by tenant (tenant isolation)
-            all_workers
-                .into_iter()
-                .filter(|w| w.tenant_id == tenant_id)
-                .collect()
-        };
 
         // Select the best compatible worker (already sorted by latency)
         if let Some(worker) = workers.first() {
@@ -1092,37 +1197,10 @@ impl<'a> InferenceCore<'a> {
                 tenant_id = %tenant_id,
                 worker_id = %worker.id,
                 manifest_hash = %worker.manifest_hash_b3.as_deref().unwrap_or("none"),
-                required_manifest = %required_manifest.unwrap_or("any"),
+                required_manifest = %required_manifest,
                 "Selected compatible worker for inference"
             );
             return Ok(PathBuf::from(&worker.uds_path));
-        }
-
-        // If no compatible tenant workers, try any serving worker (dev mode fallback)
-        if required_manifest.is_none() {
-            let any_workers = self.state.db.list_serving_workers().await.map_err(|e| {
-                InferenceError::WorkerError(format!("Failed to list workers: {}", e))
-            })?;
-
-            if let Some(worker) = any_workers.first() {
-                debug!(
-                    tenant_id = %tenant_id,
-                    worker_id = %worker.id,
-                    worker_tenant = %worker.tenant_id,
-                    "No tenant-specific worker, using available serving worker (dev mode)"
-                );
-                return Ok(PathBuf::from(&worker.uds_path));
-            }
-        }
-
-        // Fallback: honor env override or default socket (dev mode)
-        if let Ok(socket_path) = std::env::var("AOS_WORKER_SOCKET") {
-            debug!(
-                tenant_id = %tenant_id,
-                socket_path = %socket_path,
-                "No serving workers found, using AOS_WORKER_SOCKET fallback"
-            );
-            return Ok(PathBuf::from(socket_path));
         }
 
         // No compatible worker available - build detailed error
@@ -1142,55 +1220,49 @@ impl<'a> InferenceCore<'a> {
                     "No serving workers available (check worker registration and health)"
                         .to_string(),
                 )
-            } else if required_manifest.is_some() {
-                // Workers exist but none match the required manifest
+            } else {
                 let manifest_matched = all_serving
                     .iter()
-                    .filter(|w| w.manifest_hash_b3.as_deref() == required_manifest)
+                    .filter(|w| w.manifest_hash_b3.as_deref() == Some(required_manifest))
                     .count();
 
                 if manifest_matched == 0 {
-                    (all_serving.len(), format!(
-                        "No workers match required manifest hash. {} serving workers exist with different manifests",
-                        all_serving.len()
-                    ))
-                } else {
-                    // Manifest matched but tenant didn't
                     (
                         all_serving.len(),
                         format!(
-                            "{} workers match manifest but none belong to tenant '{}'",
-                            manifest_matched, tenant_id
+                            "No workers match required manifest hash. {} serving workers exist with different manifests",
+                            all_serving.len()
                         ),
                     )
-                }
-            } else {
-                // No manifest required, but still no tenant match
-                let tenant_matched = all_serving
-                    .iter()
-                    .filter(|w| w.tenant_id == tenant_id)
-                    .count();
+                } else {
+                    let tenant_matched = all_serving
+                        .iter()
+                        .filter(|w| {
+                            w.tenant_id == tenant_id
+                                && w.manifest_hash_b3.as_deref() == Some(required_manifest)
+                        })
+                        .count();
 
-                if tenant_matched == 0 {
-                    (
-                        all_serving.len(),
-                        format!(
-                            "{} serving workers exist but none belong to tenant '{}'",
+                    if tenant_matched == 0 {
+                        (
                             all_serving.len(),
-                            tenant_id
-                        ),
-                    )
-                } else {
-                    (
-                        all_serving.len(),
-                        "Workers filtered out by schema version incompatibility".to_string(),
-                    )
+                            format!(
+                                "{} workers match manifest but none belong to tenant '{}'",
+                                manifest_matched, tenant_id
+                            ),
+                        )
+                    } else {
+                        (
+                            all_serving.len(),
+                            "Workers filtered out by schema version incompatibility".to_string(),
+                        )
+                    }
                 }
             }
         };
 
         Err(InferenceError::NoCompatibleWorker {
-            required_hash: required_manifest.unwrap_or("any").to_string(),
+            required_hash: required_manifest.to_string(),
             tenant_id: tenant_id.to_string(),
             available_count: all_count,
             reason,
@@ -1413,6 +1485,14 @@ impl<'a> InferenceCore<'a> {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Extract chained router decisions (if present) for audit persistence
+    fn extract_router_decision_chain(
+        &self,
+        response: &crate::types::WorkerInferResponse,
+    ) -> Option<Vec<adapteros_api_types::inference::RouterDecisionChainEntry>> {
+        response.trace.router_decision_chain.clone()
     }
 
     /// Check for golden drift by comparing current routing against a golden baseline
@@ -1690,6 +1770,7 @@ impl<'a> InferenceCore<'a> {
         response_truncated: bool,
         determinism_mode: &str,
         fallback_triggered: bool,
+        placement_trace: Option<&Vec<PlacementTraceEntry>>,
         replay_guarantee: &ReplayGuarantee,
         execution_policy_id: Option<&str>,
         execution_policy_version: Option<i64>,
@@ -1714,6 +1795,22 @@ impl<'a> InferenceCore<'a> {
             ReplayGuarantee::None => "none",
         };
 
+        let placement_replay = placement_trace.map(|trace| {
+            let cfg = PlacementConfig::from_env();
+            let mode_str = match cfg.mode {
+                adapteros_config::PlacementMode::Balanced => "balanced",
+                adapteros_config::PlacementMode::Latency => "latency",
+                adapteros_config::PlacementMode::Energy => "energy",
+                adapteros_config::PlacementMode::Thermal => "thermal",
+                adapteros_config::PlacementMode::Off => "off",
+            };
+            PlacementReplay {
+                mode: mode_str.to_string(),
+                weights: cfg.weights.into(),
+                trace: trace.clone(),
+            }
+        });
+
         // Build sampling params JSON
         let sampling_params = SamplingParams {
             temperature: request.temperature,
@@ -1721,6 +1818,24 @@ impl<'a> InferenceCore<'a> {
             top_p: request.top_p,
             max_tokens: request.max_tokens,
             seed: request.seed,
+            seed_mode: request.seed_mode,
+            backend_profile: request.backend_profile,
+            request_seed_hex: request.request_seed.as_ref().map(|s| hex::encode(s)),
+            placement: placement_replay.or_else(|| {
+                let cfg = PlacementConfig::from_env();
+                let mode_str = match cfg.mode {
+                    adapteros_config::PlacementMode::Balanced => "balanced",
+                    adapteros_config::PlacementMode::Latency => "latency",
+                    adapteros_config::PlacementMode::Energy => "energy",
+                    adapteros_config::PlacementMode::Thermal => "thermal",
+                    adapteros_config::PlacementMode::Off => "off",
+                };
+                Some(PlacementReplay {
+                    mode: mode_str.to_string(),
+                    weights: cfg.weights.into(),
+                    trace: Vec::new(),
+                })
+            }),
         };
         let sampling_params_json = serde_json::to_string(&sampling_params).unwrap_or_default();
 
@@ -1785,9 +1900,11 @@ impl<'a> InferenceCore<'a> {
             inference_id: request.request_id.clone(),
             tenant_id: request.cpid.clone(),
             manifest_hash,
+            base_model_id: base_model_id.clone(),
             router_seed: request.router_seed.clone(),
             sampling_params_json,
             backend,
+            backend_version: backend_used.clone(),
             sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
             rag_snapshot_hash,
             adapter_ids,
@@ -1829,12 +1946,15 @@ mod tests {
     use crate::config::PathsConfig;
     use crate::state::{ApiConfig, MetricsConfig};
     use crate::telemetry::MetricsRegistry;
+    use adapteros_core::{BackendProfile, SeedMode};
     use adapteros_db::chat_sessions::CreateChatSessionParams;
     use adapteros_db::traits::CreateStackRequest;
     use adapteros_db::Db;
     use adapteros_metrics_exporter::MetricsExporter;
     use adapteros_telemetry::MetricsCollector;
+    use std::fs;
     use std::sync::{Arc, RwLock};
+    use tempfile::Builder as TempDirBuilder;
     use uuid::Uuid;
 
     fn stack_name() -> String {
@@ -1873,16 +1993,6 @@ mod tests {
     }
 
     async fn insert_stack(db: &Db, tenant: &str, adapter_ids: &[&str]) -> String {
-        let tenant_clean: String = tenant
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric())
-            .map(|c| c.to_ascii_lowercase())
-            .collect::<String>();
-        let tenant_ns = if tenant_clean.is_empty() {
-            "tenant".to_string()
-        } else {
-            tenant_clean
-        };
         let req = CreateStackRequest {
             tenant_id: tenant.to_string(),
             name: stack_name(),
@@ -1939,12 +2049,19 @@ mod tests {
             id: "s1".to_string(),
             tenant_id: "tenant-1".to_string(),
             user_id: None,
+            created_by: None,
             stack_id: Some("stack-session".to_string()),
             collection_id: None,
+            document_id: None,
             name: "test".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
             created_at: "now".to_string(),
+            updated_at: "now".to_string(),
             last_activity_at: "now".to_string(),
             metadata_json: None,
+            tags_json: None,
             pinned_adapter_ids: None,
         };
         let core = InferenceCore::new(&state);
@@ -1969,12 +2086,19 @@ mod tests {
             id: "s1".to_string(),
             tenant_id: "tenant-1".to_string(),
             user_id: None,
+            created_by: None,
             stack_id: Some(stack_id.clone()),
             collection_id: None,
+            document_id: None,
             name: "test".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
             created_at: "now".to_string(),
+            updated_at: "now".to_string(),
             last_activity_at: "now".to_string(),
             metadata_json: None,
+            tags_json: None,
             pinned_adapter_ids: None,
         };
         let core = InferenceCore::new(&state);
@@ -2000,6 +2124,10 @@ mod tests {
             top_p: Some(0.9),
             max_tokens: 100,
             seed: Some(42),
+            seed_mode: None,
+            backend_profile: None,
+            request_seed_hex: None,
+            placement: None,
         };
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("\"temperature\":0.7"));
@@ -2026,6 +2154,10 @@ mod tests {
             top_p: None,
             max_tokens: 256,
             seed: None,
+            seed_mode: None,
+            backend_profile: None,
+            request_seed_hex: None,
+            placement: None,
         };
         let json = serde_json::to_string(&params).unwrap();
 
@@ -2045,6 +2177,10 @@ mod tests {
             top_p: None,
             max_tokens: 100,
             seed: Some(0), // Seed still matters for tie-breaking
+            seed_mode: None,
+            backend_profile: None,
+            request_seed_hex: None,
+            placement: None,
         };
         assert_eq!(params.temperature, 0.0);
 
@@ -2068,7 +2204,17 @@ mod tests {
     // Effective adapter set resolution tests (bundle A)
     // =========================================================================
     async fn build_test_state(use_session_stack: bool) -> AppState {
-        let db = Db::new_in_memory().await.unwrap();
+        let base = std::path::Path::new("var/test-dbs");
+        fs::create_dir_all(base).unwrap();
+        let dir = TempDirBuilder::new()
+            .prefix("aos-inference-core-")
+            .tempdir_in(base)
+            .unwrap();
+        let db_path = dir.path().join("db.sqlite3");
+        let db = Db::connect(db_path.to_str().unwrap()).await.unwrap();
+        db.migrate().await.unwrap();
+        // Keep the tempdir alive for the lifetime of the test database
+        let _db_dir = dir.into_path();
         // Seed tenant
         adapteros_db::sqlx::query(
             "INSERT OR IGNORE INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')",
@@ -2088,16 +2234,20 @@ mod tests {
             general: None,
             server: Default::default(),
             security: Default::default(),
+            auth: Default::default(),
             performance: Default::default(),
             paths: PathsConfig {
                 artifacts_root: "var/artifacts".into(),
                 bundles_root: "var/bundles".into(),
-                adapters_root: "var/adapters".into(),
+                adapters_root: "var/adapters/repo".into(),
                 plan_dir: "var/plan".into(),
                 datasets_root: "var/datasets".into(),
                 documents_root: "var/documents".into(),
             },
             chat_context: Default::default(),
+            seed_mode: SeedMode::BestEffort,
+            backend_profile: BackendProfile::AutoDev,
+            worker_id: 0,
         }));
 
         let metrics_exporter = Arc::new(MetricsExporter::new(vec![0.1]).unwrap());
@@ -2116,6 +2266,7 @@ mod tests {
             metrics_registry,
             uma_monitor,
         )
+        .with_manifest_info("test-manifest-hash".to_string(), "mlx".to_string())
     }
 
     #[tokio::test]
@@ -2134,6 +2285,19 @@ mod tests {
             Some(vec!["adapter-a".to_string(), "adapter-b".to_string()])
         );
         assert!(req.stack_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_worker_path_requires_manifest_hash() {
+        let state = build_test_state(false).await;
+        let core = InferenceCore::new(&state);
+        let err = core.resolve_worker_path("tenant-1").await.unwrap_err();
+        match err {
+            InferenceError::NoCompatibleWorker { required_hash, .. } => {
+                assert_eq!(required_hash, "test-manifest-hash")
+            }
+            other => panic!("unexpected error: {:?}", other),
+        }
     }
 
     #[tokio::test]
@@ -2251,10 +2415,16 @@ mod tests {
             id: session_id.clone(),
             tenant_id: "tenant-1".to_string(),
             user_id: None,
+            created_by: None,
             stack_id: Some(stack_id.clone()),
             collection_id: None,
+            document_id: None,
             name: "test".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
             metadata_json: None,
+            tags_json: None,
             pinned_adapter_ids: None,
         };
         state.db.create_chat_session(session_params).await.unwrap();
@@ -2298,10 +2468,16 @@ mod tests {
             id: session_id.clone(),
             tenant_id: "tenant-1".to_string(),
             user_id: None,
+            created_by: None,
             stack_id: Some(stack_id),
             collection_id: None,
+            document_id: None,
             name: "test".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
             metadata_json: None,
+            tags_json: None,
             pinned_adapter_ids: None,
         };
         state.db.create_chat_session(session_params).await.unwrap();

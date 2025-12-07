@@ -1,6 +1,7 @@
+use adapteros_core::{BackendProfile, SeedMode};
 use adapteros_crypto::Keypair;
 use adapteros_db::git::FileChangeEvent;
-use adapteros_db::{sqlx, Db};
+use adapteros_db::{sqlx, Db, KvIsolationScanReport};
 use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
@@ -12,6 +13,7 @@ use adapteros_orchestrator::{CodeJobManager, FederationDaemon, TrainingService};
 use adapteros_policy::PolicyPackManager;
 use adapteros_telemetry::{BundleStore, MetricsCollector, RetentionPolicy};
 
+use crate::auth::{derive_kid_from_bytes, derive_kid_from_str};
 use crate::boot_state::BootStateManager;
 use crate::load_coordinator::LoadCoordinator;
 use crate::runtime_mode::RuntimeMode;
@@ -91,6 +93,9 @@ pub struct ApiConfig {
     /// Security configuration
     #[serde(default)]
     pub security: SecurityConfigApi,
+    /// Authentication configuration
+    #[serde(default)]
+    pub auth: AuthConfigApi,
     /// Performance configuration
     #[serde(default)]
     pub performance: PerformanceConfigApi,
@@ -99,6 +104,15 @@ pub struct ApiConfig {
     /// Chat context configuration for multi-turn conversations
     #[serde(default)]
     pub chat_context: ChatContextConfig,
+    /// Seed mode for request-scoped derivation
+    #[serde(default)]
+    pub seed_mode: SeedMode,
+    /// Backend profile to request for execution
+    #[serde(default)]
+    pub backend_profile: BackendProfile,
+    /// Worker identifier used in seed derivation
+    #[serde(default)]
+    pub worker_id: u32,
 }
 
 fn default_directory_analysis_timeout() -> u64 {
@@ -144,6 +158,10 @@ pub struct SecurityConfigApi {
     #[serde(default)]
     pub session_ttl_seconds: Option<u64>,
     #[serde(default)]
+    pub jwt_additional_ed25519_public_keys: Option<Vec<String>>,
+    #[serde(default)]
+    pub jwt_additional_hmac_secrets: Option<Vec<String>>,
+    #[serde(default)]
     pub require_mfa: Option<bool>,
     #[serde(default)]
     pub require_pf_deny: bool,
@@ -155,6 +173,20 @@ pub struct SecurityConfigApi {
     pub cookie_domain: Option<String>,
     #[serde(default)]
     pub cookie_secure: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AuthConfigApi {
+    #[serde(default)]
+    pub dev_algo: String,
+    #[serde(default)]
+    pub prod_algo: String,
+    #[serde(default)]
+    pub session_lifetime: u64,
+    #[serde(default)]
+    pub lockout_threshold: u32,
+    #[serde(default)]
+    pub lockout_cooldown: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -221,16 +253,28 @@ impl Default for ApiConfig {
             general: None,
             server: Default::default(),
             security: Default::default(),
+            auth: Default::default(),
             performance: Default::default(),
             paths: crate::config::PathsConfig {
                 artifacts_root: "var/artifacts".to_string(),
                 bundles_root: "var/bundles".to_string(),
-                adapters_root: "var/adapters".to_string(),
+                adapters_root: "var/adapters/repo".to_string(),
                 plan_dir: "var/plan".to_string(),
                 datasets_root: "var/datasets".to_string(),
                 documents_root: "var/documents".to_string(),
             },
             chat_context: Default::default(),
+            seed_mode: if cfg!(debug_assertions) {
+                SeedMode::BestEffort
+            } else {
+                SeedMode::Strict
+            },
+            backend_profile: if cfg!(debug_assertions) {
+                BackendProfile::AutoDev
+            } else {
+                BackendProfile::Metal
+            },
+            worker_id: 0,
         }
     }
 }
@@ -442,6 +486,9 @@ pub struct AppState {
     pub use_ed25519: bool,
     pub ed25519_keypair: Keypair,
     pub ed25519_public_key: String,
+    pub ed25519_public_keys: Vec<(String, String)>,
+    pub hmac_keys: Vec<(String, Vec<u8>)>,
+    pub jwt_primary_kid: String,
     // Telemetry and metrics fields
     pub metrics_collector: Arc<MetricsCollector>,
     pub metrics_registry: Arc<MetricsRegistry>,
@@ -488,6 +535,9 @@ pub struct AppState {
     pub crypto_audit_logger: Option<Arc<adapteros_crypto::audit::CryptoAuditLogger>>,
     // RAG status indicating whether embedding model is available and why if not
     pub rag_status: Option<RagStatus>,
+    // KV isolation scan state
+    pub kv_isolation_snapshot: Arc<RwLock<KvIsolationSnapshot>>,
+    pub kv_isolation_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AppState {
@@ -501,7 +551,8 @@ impl AppState {
         uma_monitor: Arc<UmaPressureMonitor>,
     ) -> Self {
         let db_pool = db.pool().clone(); // Get the pool from the Db struct
-        let crypto_state = CryptoState::new();
+        let keys_dir = "var/keys".to_string();
+        let crypto_state = CryptoState::new_with_path(&keys_dir);
         let ed25519_keypair = crypto_state.jwt_keypair.clone();
         let ed25519_public_key =
             crate::auth::encode_ed25519_public_key_pem(&ed25519_keypair.public_key().to_bytes());
@@ -519,39 +570,62 @@ impl AppState {
         // Must compute before struct init since config is moved
         let use_ed25519 = {
             let cfg = config.read().unwrap();
-            match cfg.security.jwt_mode.as_deref() {
-                Some("hmac") | Some("hs256") => {
+            let preferred_mode = if cfg!(debug_assertions) {
+                cfg.auth.dev_algo.clone()
+            } else {
+                cfg.auth.prod_algo.clone()
+            };
+            let mode = cfg
+                .security
+                .jwt_mode
+                .clone()
+                .unwrap_or_else(|| preferred_mode.clone());
+            match mode.to_lowercase().as_str() {
+                "hmac" | "hs256" => {
                     tracing::info!("JWT mode configured as HMAC-SHA256");
                     false
                 }
-                Some("eddsa") | Some("ed25519") => {
+                "eddsa" | "ed25519" => {
                     tracing::info!("JWT mode configured as Ed25519");
                     true
                 }
-                None => {
-                    // Default based on build type:
-                    // - Debug: HMAC for simpler dev setup (no key files needed)
-                    // - Release: Ed25519 for production security
-                    #[cfg(debug_assertions)]
-                    {
-                        tracing::info!("JWT mode defaulting to HMAC-SHA256 (debug build)");
-                        false
-                    }
-                    #[cfg(not(debug_assertions))]
-                    {
-                        tracing::info!("JWT mode defaulting to Ed25519 (release build)");
-                        true
-                    }
-                }
-                Some(other) => {
-                    tracing::warn!(
-                        jwt_mode = %other,
-                        "Unknown jwt_mode value, defaulting to Ed25519"
-                    );
+                other => {
+                    tracing::warn!(jwt_mode = %other, "Unknown jwt_mode value, defaulting to Ed25519");
                     true
                 }
             }
         };
+
+        // Primary key identifiers for kid-based selection
+        let primary_ed_kid = derive_kid_from_str(&ed25519_public_key);
+        let mut ed25519_public_keys = vec![(primary_ed_kid.clone(), ed25519_public_key.clone())];
+        if let Some(extra_keys) = config
+            .read()
+            .unwrap()
+            .security
+            .jwt_additional_ed25519_public_keys
+            .clone()
+        {
+            for pem in extra_keys {
+                let kid = derive_kid_from_str(&pem);
+                ed25519_public_keys.push((kid, pem));
+            }
+        }
+
+        let mut hmac_keys = vec![(derive_kid_from_bytes(&jwt_secret), jwt_secret.clone())];
+        if let Some(extra_secrets) = config
+            .read()
+            .unwrap()
+            .security
+            .jwt_additional_hmac_secrets
+            .clone()
+        {
+            for secret in extra_secrets {
+                let bytes = secret.into_bytes();
+                let kid = derive_kid_from_bytes(&bytes);
+                hmac_keys.push((kid, bytes));
+            }
+        }
 
         Self {
             db: db.clone(),
@@ -576,6 +650,9 @@ impl AppState {
             use_ed25519,
             ed25519_keypair: ed25519_keypair.clone(),
             ed25519_public_key,
+            ed25519_public_keys,
+            hmac_keys,
+            jwt_primary_kid: primary_ed_kid,
             metrics_collector,
             metrics_registry,
             telemetry_buffer: Arc::new(TelemetryBuffer::default()),
@@ -617,6 +694,8 @@ impl AppState {
             crypto_audit_logger: None,
             // RAG status initialized via with_rag_status
             rag_status: None,
+            kv_isolation_snapshot: Arc::new(RwLock::new(KvIsolationSnapshot::default())),
+            kv_isolation_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -871,4 +950,14 @@ impl AppState {
             TelemetryWorkerConfig::default(),
         )
     }
+}
+
+/// Shared snapshot for KV isolation scanning status.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct KvIsolationSnapshot {
+    pub last_started_at: Option<String>,
+    pub last_completed_at: Option<String>,
+    pub last_error: Option<String>,
+    pub running: bool,
+    pub last_report: Option<KvIsolationScanReport>,
 }

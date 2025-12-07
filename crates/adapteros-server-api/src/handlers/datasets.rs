@@ -1,13 +1,27 @@
+mod chunked;
+mod fs_utils;
+mod hashing;
+mod paths;
+mod progress;
+mod tenant;
+
+use self::chunked::{assemble_chunks, expected_chunks, persist_chunk, prepare_session};
+use self::fs_utils::{
+    clean_dataset_dir, clean_temp, ensure_dirs, finalize_file_move, write_temp_file,
+};
+use self::hashing::{hash_file, hash_multi};
+use self::paths::{resolve_dataset_root, DatasetPaths};
+use self::progress::emit_progress;
+use self::tenant::bind_dataset_to_tenant;
 use super::chunked_upload::{
-    ChunkAssembler, ChunkWriter, CompressionFormat, FileValidator, ResumeToken, DEFAULT_CHUNK_SIZE,
-    MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
+    CompressionFormat, FileValidator, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
 use crate::error_helpers::{bad_request, db_error, internal_error, not_found, payload_too_large};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
-use crate::state::{AppState, DatasetProgressEvent};
+use crate::state::AppState;
 use crate::types::*;
 use adapteros_core::B3Hash;
 use adapteros_db::training_datasets::DatasetFile;
@@ -25,10 +39,8 @@ use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::fs;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use tracing::{debug, error, info, warn};
 use utoipa::{IntoParams, ToSchema};
@@ -64,16 +76,6 @@ fn map_validation_errors(errors: Option<String>) -> Option<Vec<String>> {
             .ok()
             .or_else(|| Some(vec![raw]))
     })
-}
-
-/// Helper function to send progress events
-fn send_progress_event(
-    tx: Option<&Arc<tokio::sync::broadcast::Sender<DatasetProgressEvent>>>,
-    event: DatasetProgressEvent,
-) {
-    if let Some(sender) = tx {
-        let _ = sender.send(event);
-    }
 }
 
 /// Query parameters for listing datasets
@@ -218,37 +220,29 @@ pub async fn upload_dataset(
     require_permission(&claims, Permission::DatasetUpload)?;
 
     let dataset_id = Uuid::now_v7().to_string();
-    let storage_root = std::env::var("AOS_DATASETS_DIR").ok().unwrap_or_else(|| {
-        let config = state.config.read().expect("Config lock poisoned");
-        config.paths.datasets_root.clone()
-    });
+    let paths = DatasetPaths::new(resolve_dataset_root(&state));
+    ensure_dirs([
+        paths.files.as_path(),
+        paths.temp.as_path(),
+        paths.chunked.as_path(),
+        paths.logs.as_path(),
+    ])
+    .await?;
 
-    // Create dataset directory structure
-    let dataset_path = PathBuf::from(&storage_root).join(&dataset_id);
-    let files_path = dataset_path.join("files");
-    let temp_path = PathBuf::from(&storage_root).join("temp").join(&dataset_id);
+    let dataset_path = paths.dataset_dir(&dataset_id);
+    let temp_path = paths.dataset_temp_dir(&dataset_id);
 
-    fs::create_dir_all(&files_path)
-        .await
-        .map_err(|e| internal_error(format!("Failed to create dataset directory: {}", e)))?;
+    ensure_dirs([dataset_path.as_path(), temp_path.as_path()]).await?;
 
-    fs::create_dir_all(&temp_path)
-        .await
-        .map_err(|e| internal_error(format!("Failed to create temp directory: {}", e)))?;
-
-    // Send initial progress event
-    send_progress_event(
+    emit_progress(
         state.dataset_progress_tx.as_ref(),
-        DatasetProgressEvent {
-            dataset_id: dataset_id.clone(),
-            event_type: "upload".to_string(),
-            current_file: None,
-            percentage_complete: 0.0,
-            total_files: None,
-            files_processed: Some(0),
-            message: "Starting dataset upload...".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        },
+        &dataset_id,
+        "upload",
+        None,
+        0.0,
+        "Starting dataset upload...".to_string(),
+        None,
+        Some(0),
     );
 
     let mut uploaded_files = Vec::new();
@@ -298,9 +292,6 @@ pub async fn upload_dataset(
 
                 // Stream file to temporary location
                 let temp_file_path = temp_path.join(&file_name);
-                let mut temp_file = fs::File::create(&temp_file_path)
-                    .await
-                    .map_err(|e| internal_error(format!("Failed to create temp file: {}", e)))?;
 
                 let data = field
                     .bytes()
@@ -311,7 +302,7 @@ pub async fn upload_dataset(
 
                 // Check file size limits
                 if file_size > MAX_FILE_SIZE {
-                    fs::remove_dir_all(&temp_path).await.ok();
+                    clean_temp(&temp_path).await;
                     return Err(payload_too_large(&format!(
                         "File {} exceeds maximum size of {}MB",
                         file_name,
@@ -321,7 +312,7 @@ pub async fn upload_dataset(
 
                 total_size += file_size;
                 if total_size > MAX_TOTAL_SIZE {
-                    fs::remove_dir_all(&temp_path).await.ok();
+                    clean_temp(&temp_path).await;
                     return Err(payload_too_large(&format!(
                         "Total upload size exceeds maximum of {}MB",
                         MAX_TOTAL_SIZE / 1024 / 1024
@@ -329,45 +320,31 @@ pub async fn upload_dataset(
                 }
 
                 // Write file
-                temp_file
-                    .write_all(&data)
-                    .await
-                    .map_err(|e| internal_error(format!("Failed to write file: {}", e)))?;
-                temp_file
-                    .flush()
-                    .await
-                    .map_err(|e| internal_error(format!("Failed to flush file: {}", e)))?;
+                write_temp_file(&temp_file_path, &data).await?;
 
                 // Compute hash using B3Hash
-                let file_hash = B3Hash::hash(&data).to_hex();
+                let file_hash = hash_file(&data);
 
                 // Move file to permanent location
-                let permanent_path = files_path.join(&file_name);
-                fs::rename(&temp_file_path, &permanent_path)
-                    .await
-                    .map_err(|e| {
-                        internal_error(format!("Failed to move file to permanent location: {}", e))
-                    })?;
+                let permanent_path = dataset_path.join(&file_name);
+                finalize_file_move(&temp_file_path, &permanent_path).await?;
 
                 file_count += 1;
 
                 // Send progress event for this file
-                send_progress_event(
+                emit_progress(
                     state.dataset_progress_tx.as_ref(),
-                    DatasetProgressEvent {
-                        dataset_id: dataset_id.clone(),
-                        event_type: "upload".to_string(),
-                        current_file: Some(file_name.clone()),
-                        percentage_complete: if file_count > 0 {
-                            (file_count as f32 / 10.0).min(100.0)
-                        } else {
-                            0.0
-                        },
-                        total_files: None,
-                        files_processed: Some(file_count),
-                        message: format!("Uploaded {} ({} bytes)", file_name, file_size),
-                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    &dataset_id,
+                    "upload",
+                    Some(file_name.clone()),
+                    if file_count > 0 {
+                        (file_count as f32 / 10.0).min(100.0)
+                    } else {
+                        0.0
                     },
+                    format!("Uploaded {} ({} bytes)", file_name, file_size),
+                    None,
+                    Some(file_count),
                 );
 
                 uploaded_files.push(DatasetFile {
@@ -394,10 +371,10 @@ pub async fn upload_dataset(
     }
 
     // Clean up temp directory
-    fs::remove_dir_all(&temp_path).await.ok();
+    clean_temp(&temp_path).await;
 
     if uploaded_files.is_empty() {
-        fs::remove_dir_all(&dataset_path).await.ok();
+        clean_dataset_dir(&dataset_path).await;
         return Err(bad_request("No files uploaded"));
     }
 
@@ -406,11 +383,8 @@ pub async fn upload_dataset(
     }
 
     // Compute dataset hash from all file hashes using B3Hash
-    let file_hashes: Vec<&[u8]> = uploaded_files
-        .iter()
-        .map(|f| f.hash_b3.as_bytes())
-        .collect();
-    let dataset_hash = B3Hash::hash_multi(&file_hashes).to_hex();
+    let file_hashes: Vec<String> = uploaded_files.iter().map(|f| f.hash_b3.clone()).collect();
+    let dataset_hash = hash_multi(&file_hashes);
 
     // Store in database - associate dataset with the user's tenant
     let dataset_id_result = state
@@ -431,19 +405,7 @@ pub async fn upload_dataset(
         .map_err(|e| db_error(format!("Failed to create dataset record: {}", e)))?;
 
     // CRITICAL: Associate dataset with user's tenant for tenant isolation
-    state
-        .db
-        .update_dataset_extended_fields(
-            &dataset_id,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(&claims.tenant_id),
-        )
-        .await
-        .map_err(|e| db_error(format!("Failed to set dataset tenant: {}", e)))?;
+    bind_dataset_to_tenant(&state.db, &dataset_id, &claims.tenant_id).await?;
 
     // Add file records to database
     for file in &uploaded_files {
@@ -534,8 +496,7 @@ pub async fn initiate_chunked_upload(
     let chunk_size = chunk_size.max(MIN_CHUNK_SIZE).min(MAX_CHUNK_SIZE);
 
     // Calculate expected chunks
-    let expected_chunks =
-        ((request.total_size + (chunk_size as u64 - 1)) / (chunk_size as u64)) as usize;
+    let expected_chunks = expected_chunks(request.total_size, chunk_size);
 
     // Detect compression
     let content_type = request
@@ -543,29 +504,20 @@ pub async fn initiate_chunked_upload(
         .unwrap_or_else(|| "application/octet-stream".to_string());
     let compression = CompressionFormat::from_content_type(&content_type);
 
-    // Create upload session using the shared session manager
-    let storage_root = std::env::var("AOS_DATASETS_DIR").ok().unwrap_or_else(|| {
-        let config = state.config.read().expect("Config lock poisoned");
-        config.paths.datasets_root.clone()
-    });
-    let temp_base = PathBuf::from(&storage_root).join("chunked");
-
-    fs::create_dir_all(&temp_base)
-        .await
-        .map_err(|e| internal_error(format!("Failed to create temp directory: {}", e)))?;
+    let paths = DatasetPaths::new(resolve_dataset_root(&state));
 
     // Use shared session manager from AppState
-    let session = state
-        .upload_session_manager
-        .create_session(
-            request.file_name.clone(),
-            request.total_size,
-            content_type.clone(),
-            chunk_size,
-            &temp_base,
-        )
-        .await
-        .map_err(internal_error)?;
+    let session = prepare_session(
+        &state,
+        &paths,
+        &request.file_name,
+        request.total_size,
+        &content_type,
+        chunk_size,
+        compression.clone(),
+    )
+    .await?
+    .0;
 
     info!(
         "Initiated chunked upload session {} for file {} ({} bytes, {} chunks)",
@@ -877,18 +829,15 @@ pub async fn validate_dataset(
         .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
 
     // Send initial validation event
-    send_progress_event(
+    emit_progress(
         state.dataset_progress_tx.as_ref(),
-        DatasetProgressEvent {
-            dataset_id: dataset_id.clone(),
-            event_type: "validation".to_string(),
-            current_file: None,
-            percentage_complete: 0.0,
-            total_files: Some(dataset.file_count as i32),
-            files_processed: Some(0),
-            message: "Starting dataset validation...".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        },
+        &dataset_id,
+        "validation",
+        None,
+        0.0,
+        "Starting dataset validation...".to_string(),
+        Some(dataset.file_count as i32),
+        Some(0),
     );
 
     // Get dataset files
@@ -916,22 +865,19 @@ pub async fn validate_dataset(
             ));
             is_valid = false;
             processed_files += 1;
-            send_progress_event(
+            emit_progress(
                 state.dataset_progress_tx.as_ref(),
-                DatasetProgressEvent {
-                    dataset_id: dataset_id.clone(),
-                    event_type: "validation".to_string(),
-                    current_file: Some(file.file_name.clone()),
-                    percentage_complete: if total_files > 0.0 {
-                        (processed_files as f32 / total_files) * 100.0
-                    } else {
-                        0.0
-                    },
-                    total_files: Some(files.len() as i32),
-                    files_processed: Some(processed_files as i32),
-                    message: format!("Validating {}", file.file_name),
-                    timestamp: chrono::Utc::now().to_rfc3339(),
+                &dataset_id,
+                "validation",
+                Some(file.file_name.clone()),
+                if total_files > 0.0 {
+                    (processed_files as f32 / total_files) * 100.0
+                } else {
+                    0.0
                 },
+                format!("Validating {}", file.file_name),
+                Some(files.len() as i32),
+                Some(processed_files as i32),
             );
             continue;
         }
@@ -974,22 +920,19 @@ pub async fn validate_dataset(
         processed_files += 1;
 
         // Send progress event for this file
-        send_progress_event(
+        emit_progress(
             state.dataset_progress_tx.as_ref(),
-            DatasetProgressEvent {
-                dataset_id: dataset_id.clone(),
-                event_type: "validation".to_string(),
-                current_file: Some(file.file_name.clone()),
-                percentage_complete: if total_files > 0.0 {
-                    (processed_files as f32 / total_files) * 100.0
-                } else {
-                    0.0
-                },
-                total_files: Some(files.len() as i32),
-                files_processed: Some(processed_files as i32),
-                message: format!("Validated {}", file.file_name),
-                timestamp: chrono::Utc::now().to_rfc3339(),
+            &dataset_id,
+            "validation",
+            Some(file.file_name.clone()),
+            if total_files > 0.0 {
+                (processed_files as f32 / total_files) * 100.0
+            } else {
+                0.0
             },
+            format!("Validated {}", file.file_name),
+            Some(files.len() as i32),
+            Some(processed_files as i32),
         );
     }
 
@@ -1466,157 +1409,24 @@ pub async fn upload_chunk(
 
     let chunk_index = query.chunk_index;
 
-    // Get session from manager
-    let session = state
-        .upload_session_manager
-        .get_session(&session_id)
-        .await
-        .map_err(|_| not_found("Upload session"))?;
-
-    // Calculate expected chunks
-    let expected_chunks = ((session.total_size + (session.chunk_size as u64 - 1))
-        / (session.chunk_size as u64)) as usize;
-
-    // Validate chunk index
-    if chunk_index >= expected_chunks {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!(
-                    "Invalid chunk index {}. Expected 0-{} for {} total chunks",
-                    chunk_index,
-                    expected_chunks - 1,
-                    expected_chunks
-                ),
-                code: "INVALID_CHUNK_INDEX".to_string(),
-                details: None,
-            }),
-        ));
-    }
-
-    // Check for duplicate chunk
-    if session.received_chunks.contains_key(&chunk_index) {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(ErrorResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!("Chunk {} has already been uploaded", chunk_index),
-                code: "DUPLICATE_CHUNK".to_string(),
-                details: None,
-            }),
-        ));
-    }
-
-    // Validate chunk size (last chunk may be smaller)
-    let is_last_chunk = chunk_index == expected_chunks - 1;
-    let expected_chunk_size = if is_last_chunk {
-        let remainder = session.total_size % (session.chunk_size as u64);
-        if remainder == 0 {
-            session.chunk_size
-        } else {
-            remainder as usize
-        }
-    } else {
-        session.chunk_size
-    };
-
-    if body.len() > session.chunk_size {
-        return Err((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(ErrorResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!(
-                    "Chunk size {} exceeds maximum chunk size {}",
-                    body.len(),
-                    session.chunk_size
-                ),
-                code: "CHUNK_TOO_LARGE".to_string(),
-                details: None,
-            }),
-        ));
-    }
-
-    // Write chunk to temp directory
-    let chunk_path = session.temp_dir.join(format!("chunk_{:08}", chunk_index));
-    let mut writer = ChunkWriter::new(&chunk_path).await.map_err(|e| {
-        error!("Failed to create chunk writer: {}", e);
-        internal_error(format!("Failed to create chunk file: {}", e))
-    })?;
-
-    writer.write_chunk(&body).await.map_err(|e| {
-        error!("Failed to write chunk data: {}", e);
-        internal_error(format!("Failed to write chunk: {}", e))
-    })?;
-
-    let chunk_hash = writer.finalize().await.map_err(|e| {
-        error!("Failed to finalize chunk: {}", e);
-        internal_error(format!("Failed to finalize chunk: {}", e))
-    })?;
-
-    // Update session with received chunk
-    state
-        .upload_session_manager
-        .add_chunk(&session_id, chunk_index, chunk_hash.clone())
-        .await
-        .map_err(|e| {
-            error!("Failed to update session: {}", e);
-            internal_error(format!("Failed to update session: {}", e))
-        })?;
-
-    // Check if upload is complete
-    let is_complete = state
-        .upload_session_manager
-        .is_upload_complete(&session_id)
-        .await
-        .unwrap_or(false);
-
-    // Get updated session for chunk count
-    let updated_session = state
-        .upload_session_manager
-        .get_session(&session_id)
-        .await
-        .map_err(internal_error)?;
-
-    let chunks_received = updated_session.received_chunks.len();
-
-    // Generate resume token if not complete
-    let resume_token = if !is_complete {
-        // Find next missing chunk
-        let next_chunk = (0..expected_chunks)
-            .find(|i| !updated_session.received_chunks.contains_key(i))
-            .unwrap_or(expected_chunks);
-
-        Some(
-            serde_json::to_string(&ResumeToken {
-                session_id: session_id.clone(),
-                next_chunk,
-                hash_state: chunk_hash.clone(),
-            })
-            .unwrap_or_default(),
-        )
-    } else {
-        None
-    };
+    let (session, expected_chunks, chunk_hash, chunks_received, is_complete, resume_token) =
+        persist_chunk(&state, &session_id, chunk_index, &body).await?;
 
     // Send progress event
-    send_progress_event(
+    emit_progress(
         state.dataset_progress_tx.as_ref(),
-        DatasetProgressEvent {
-            dataset_id: session_id.clone(),
-            event_type: "upload".to_string(),
-            current_file: Some(session.file_name.clone()),
-            percentage_complete: (chunks_received as f32 / expected_chunks as f32) * 100.0,
-            total_files: Some(expected_chunks as i32),
-            files_processed: Some(chunks_received as i32),
-            message: format!(
-                "Uploaded chunk {}/{} for {}",
-                chunk_index + 1,
-                expected_chunks,
-                session.file_name
-            ),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        },
+        &session_id,
+        "upload",
+        Some(session.file_name.clone()),
+        (chunks_received as f32 / expected_chunks as f32) * 100.0,
+        format!(
+            "Uploaded chunk {}/{} for {}",
+            chunk_index + 1,
+            expected_chunks,
+            session.file_name
+        ),
+        Some(expected_chunks as i32),
+        Some(chunks_received as i32),
     );
 
     info!(
@@ -1674,6 +1484,8 @@ pub async fn complete_chunked_upload(
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
+    let paths = DatasetPaths::new(resolve_dataset_root(&state));
+
     // Get session
     let session = state
         .upload_session_manager
@@ -1720,71 +1532,60 @@ pub async fn complete_chunked_upload(
         ));
     }
 
-    // Prepare output paths
-    let storage_root = std::env::var("AOS_DATASETS_DIR").ok().unwrap_or_else(|| {
-        let config = state.config.read().expect("Config lock poisoned");
-        config.paths.datasets_root.clone()
-    });
+    ensure_dirs([
+        paths.files.as_path(),
+        paths.temp.as_path(),
+        paths.chunked.as_path(),
+        paths.logs.as_path(),
+    ])
+    .await?;
+
     let dataset_id = Uuid::now_v7().to_string();
-    let dataset_path = PathBuf::from(&storage_root).join(&dataset_id);
-    let files_path = dataset_path.join("files");
+    let dataset_path = paths.dataset_dir(&dataset_id);
+    ensure_dirs([dataset_path.as_path()]).await?;
 
-    fs::create_dir_all(&files_path).await.map_err(|e| {
-        error!("Failed to create dataset directory: {}", e);
-        internal_error(format!("Failed to create dataset directory: {}", e))
-    })?;
-
-    let output_path = files_path.join(&session.file_name);
+    let output_path = dataset_path.join(&session.file_name);
 
     // Assemble chunks
-    let assembler = ChunkAssembler::new(
-        output_path.clone(),
-        session.temp_dir.clone(),
-        session.chunk_size,
-        session.total_size,
-        session.compression.clone(),
-    );
-
-    let (file_hash, total_bytes) = assembler.assemble().await.map_err(|e| {
-        let error_msg = e.to_string();
-        error!("Failed to assemble chunks: {}", error_msg);
-        // Log audit failure (background task - acceptable as tokio::spawn per CLAUDE.md,
-        // but using deterministic spawn for consistency)
-        let db = state.db.clone();
-        let claims_clone = claims.clone();
-        let error_msg_clone = error_msg.clone();
-        if let Err(e) =
-            spawn_deterministic(format!("audit-log:dataset-upload-failure"), async move {
-                let _ = log_failure(
-                    &db,
-                    &claims_clone,
-                    actions::DATASET_UPLOAD,
-                    resources::DATASET,
-                    None,
-                    &error_msg_clone,
-                )
-                .await;
-            })
-        {
-            // Fallback: use tokio::spawn if deterministic executor not available
-            // Audit logging is acceptable as background task per CLAUDE.md
-            let db_fallback = state.db.clone();
-            let claims_fallback = claims.clone();
-            let error_msg_fallback = error_msg.clone();
-            let _ = tokio::spawn(async move {
-                let _ = log_failure(
-                    &db_fallback,
-                    &claims_fallback,
-                    actions::DATASET_UPLOAD,
-                    resources::DATASET,
-                    None,
-                    &error_msg_fallback,
-                )
-                .await;
-            });
+    let (file_hash, total_bytes) = match assemble_chunks(&session, &output_path).await {
+        Ok(res) => res,
+        Err((status, Json(payload))) => {
+            let error_msg = payload.error.clone();
+            error!("Failed to assemble chunks: {}", error_msg);
+            let db = state.db.clone();
+            let claims_clone = claims.clone();
+            let error_msg_clone = error_msg.clone();
+            if let Err(e) =
+                spawn_deterministic(format!("audit-log:dataset-upload-failure"), async move {
+                    let _ = log_failure(
+                        &db,
+                        &claims_clone,
+                        actions::DATASET_UPLOAD,
+                        resources::DATASET,
+                        None,
+                        &error_msg_clone,
+                    )
+                    .await;
+                })
+            {
+                let db_fallback = state.db.clone();
+                let claims_fallback = claims.clone();
+                let error_msg_fallback = error_msg.clone();
+                let _ = tokio::spawn(async move {
+                    let _ = log_failure(
+                        &db_fallback,
+                        &claims_fallback,
+                        actions::DATASET_UPLOAD,
+                        resources::DATASET,
+                        None,
+                        &error_msg_fallback,
+                    )
+                    .await;
+                });
+            }
+            return Err((status, Json(payload)));
         }
-        internal_error(format!("Failed to assemble file: {}", error_msg))
-    })?;
+    };
 
     // Validate file format if requested
     if let Err(e) =
@@ -1815,22 +1616,7 @@ pub async fn complete_chunked_upload(
         })?;
 
     // CRITICAL: Associate dataset with user's tenant for tenant isolation
-    state
-        .db
-        .update_dataset_extended_fields(
-            &dataset_id,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(&claims.tenant_id),
-        )
-        .await
-        .map_err(|e| {
-            error!("Failed to set dataset tenant: {}", e);
-            db_error(format!("Failed to set dataset tenant: {}", e))
-        })?;
+    bind_dataset_to_tenant(&state.db, &dataset_id, &claims.tenant_id).await?;
 
     // Add file record
     state
@@ -1856,7 +1642,7 @@ pub async fn complete_chunked_upload(
         .await;
 
     // Clean up temp directory
-    let _ = fs::remove_dir_all(&session.temp_dir).await;
+    clean_temp(&session.temp_dir).await;
 
     // Log audit success
     let _ = log_success(
@@ -1869,21 +1655,18 @@ pub async fn complete_chunked_upload(
     .await;
 
     // Send completion event
-    send_progress_event(
+    emit_progress(
         state.dataset_progress_tx.as_ref(),
-        DatasetProgressEvent {
-            dataset_id: dataset_id.clone(),
-            event_type: "upload".to_string(),
-            current_file: Some(session.file_name.clone()),
-            percentage_complete: 100.0,
-            total_files: Some(1),
-            files_processed: Some(1),
-            message: format!(
-                "Completed chunked upload for {} ({} bytes)",
-                session.file_name, total_bytes
-            ),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        },
+        &dataset_id,
+        "upload",
+        Some(session.file_name.clone()),
+        100.0,
+        format!(
+            "Completed chunked upload for {} ({} bytes)",
+            session.file_name, total_bytes
+        ),
+        Some(1),
+        Some(1),
     );
 
     info!(
@@ -1932,8 +1715,7 @@ pub async fn get_upload_session_status(
         .await
         .map_err(|_| not_found("Upload session"))?;
 
-    let expected_chunks = ((session.total_size + (session.chunk_size as u64 - 1))
-        / (session.chunk_size as u64)) as usize;
+    let expected_chunks = expected_chunks(session.total_size, session.chunk_size);
 
     let chunks_received = session.received_chunks.len();
     let received_chunk_indices: Vec<usize> = session.received_chunks.keys().cloned().collect();
@@ -2005,12 +1787,7 @@ pub async fn cancel_chunked_upload(
         })?;
 
     // Clean up temp directory
-    if let Err(e) = fs::remove_dir_all(&session.temp_dir).await {
-        warn!(
-            "Failed to cleanup temp directory for session {}: {}",
-            session_id, e
-        );
-    }
+    clean_temp(&session.temp_dir).await;
 
     info!("Cancelled chunked upload session {}", session_id);
 
@@ -2207,12 +1984,18 @@ pub async fn create_dataset_from_documents(
     }
 
     // Compute BLAKE3 hash
-    let content_hash = B3Hash::hash(content_bytes).to_hex();
+    let content_hash = hash_file(content_bytes);
 
     let dataset_name = request.name.unwrap_or(source_name);
 
-    // Get datasets storage path from config or use default
-    let datasets_dir = PathBuf::from(state.config.read().unwrap().paths.datasets_root.clone());
+    let dataset_paths = DatasetPaths::new(resolve_dataset_root(&state));
+    ensure_dirs([
+        dataset_paths.files.as_path(),
+        dataset_paths.temp.as_path(),
+        dataset_paths.chunked.as_path(),
+        dataset_paths.logs.as_path(),
+    ])
+    .await?;
 
     // Create dataset record first to get the canonical ID
     // Use a placeholder path initially, then update after directory creation
@@ -2230,16 +2013,13 @@ pub async fn create_dataset_from_documents(
         .map_err(|e| db_error(format!("Failed to create dataset record: {}", e)))?;
 
     // Now create directory with the canonical ID
-    let dataset_path = datasets_dir.join(&dataset_id);
-    if let Err(e) = fs::create_dir_all(&dataset_path).await {
+    let dataset_path = dataset_paths.dataset_dir(&dataset_id);
+    if let Err(e) = ensure_dirs([dataset_path.as_path()]).await {
         // Cleanup: delete DB record on failure
         if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
             warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
         }
-        return Err(internal_error(format!(
-            "Failed to create dataset directory: {}",
-            e
-        )));
+        return Err(e);
     }
 
     // Write JSONL file
@@ -2247,7 +2027,7 @@ pub async fn create_dataset_from_documents(
     let file_path = dataset_path.join(file_name);
     if let Err(e) = fs::write(&file_path, content_bytes).await {
         // Cleanup both directory and DB record
-        let _ = fs::remove_dir_all(&dataset_path).await;
+        clean_dataset_dir(&dataset_path).await;
         if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
             warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
         }
@@ -2263,7 +2043,7 @@ pub async fn create_dataset_from_documents(
         .update_dataset_storage_path(&dataset_id, &dataset_path.to_string_lossy())
         .await
     {
-        let _ = fs::remove_dir_all(&dataset_path).await;
+        clean_dataset_dir(&dataset_path).await;
         if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
             warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
         }
@@ -2271,24 +2051,12 @@ pub async fn create_dataset_from_documents(
     }
 
     // CRITICAL: Associate dataset with user's tenant for tenant isolation
-    if let Err(e) = state
-        .db
-        .update_dataset_extended_fields(
-            &dataset_id,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(&claims.tenant_id),
-        )
-        .await
-    {
-        let _ = fs::remove_dir_all(&dataset_path).await;
+    if let Err(e) = bind_dataset_to_tenant(&state.db, &dataset_id, &claims.tenant_id).await {
+        clean_dataset_dir(&dataset_path).await;
         if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
             warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
         }
-        return Err(db_error(format!("Failed to set dataset tenant: {}", e)));
+        return Err(e);
     }
 
     // Add file record
@@ -2304,7 +2072,7 @@ pub async fn create_dataset_from_documents(
         )
         .await
     {
-        let _ = fs::remove_dir_all(&dataset_path).await;
+        clean_dataset_dir(&dataset_path).await;
         if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
             warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
         }

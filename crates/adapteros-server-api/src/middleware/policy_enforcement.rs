@@ -65,7 +65,7 @@ pub async fn policy_enforcement_middleware(
     let request_id = req
         .extensions()
         .get::<RequestId>()
-        .map(|id| id.as_str().to_string())
+        .map(|id| id.0.clone())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let claims = req.extensions().get::<Claims>().cloned();

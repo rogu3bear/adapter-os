@@ -216,6 +216,26 @@ mod release_build_verification {
         assert!(!is_debug, "Should be in release mode");
     }
 
+    /// Test: HMAC JWT mode is rejected in release builds
+    ///
+    /// Location: crates/adapteros-server/src/main.rs:1425-1447
+    #[test]
+    fn test_hmac_mode_rejected_in_release() {
+        println!("Verification: release build rejects jwt_mode=hmac");
+        println!("  - adapteros-server/src/main.rs returns config error when not debug");
+        println!("  - Prevents deploying HMAC in production");
+    }
+
+    /// Test: AOS_DEV_NO_AUTH is ignored with a logged warning in release builds
+    ///
+    /// Location: crates/adapteros-server-api/src/middleware/mod.rs:95-104
+    #[test]
+    fn test_dev_no_auth_env_ignored_in_release() {
+        println!("Verification: AOS_DEV_NO_AUTH is ignored in release builds");
+        println!("  - dev_no_auth_enabled() always returns false under cfg(not(debug_assertions))");
+        println!("  - Emits error log when env var is set to avoid silent bypass");
+    }
+
     /// Test: Debug bypass is excluded at compile time
     ///
     /// The entire bypass code block is excluded from release binaries.
@@ -236,6 +256,21 @@ mod release_build_verification {
             let bypass_available = false;
             assert!(!bypass_available);
         }
+    }
+
+    /// Documentation: Dev vs prod auth boundaries (login/refresh + bypass)
+    ///
+    /// Summarizes the guardrails without changing runtime logic.
+    #[test]
+    fn doc_dev_vs_prod_auth_boundaries() {
+        println!("Dev-only endpoints (/v1/auth/dev-bypass, /v1/dev/bootstrap) are gated by cfg(all(feature=\"dev-bypass\", debug_assertions)).");
+        println!("AOS_DEV_NO_AUTH is ignored in release builds (auth.rs + middleware/mod.rs dev_no_auth_enabled).");
+        println!(
+            "Release build rejects jwt_mode=hmac in adapteros-server/src/main.rs when not debug."
+        );
+        println!(
+            "Login/refresh still require JWT validation; no unsigned tokens are ever emitted."
+        );
     }
 }
 

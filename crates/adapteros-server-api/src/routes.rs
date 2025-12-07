@@ -2,10 +2,14 @@ use crate::caching;
 use crate::handlers;
 use crate::handlers::auth;
 use crate::handlers::domain_adapters;
+use crate::health::system_ready;
 use crate::middleware::audit::audit_middleware;
 use crate::middleware::context::context_middleware;
 use crate::middleware::policy_enforcement::policy_enforcement_middleware;
-use crate::middleware::{auth_middleware, client_ip_middleware, optional_auth_middleware};
+use crate::middleware::{
+    auth_middleware, client_ip_middleware, csrf_middleware, optional_auth_middleware,
+    tenant_route_guard_middleware,
+};
 use crate::middleware_security::{
     cors_layer, drain_middleware, rate_limiting_middleware, request_size_limit_middleware,
     request_tracking_middleware, security_headers_middleware,
@@ -30,11 +34,18 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::health,
         handlers::ready,
         handlers::get_status,
+        handlers::admin_lifecycle::request_shutdown,
+        handlers::admin_lifecycle::request_maintenance,
+        handlers::admin_lifecycle::safe_restart,
         crate::health::check_all_health,
         crate::health::check_component_health,
         handlers::auth::auth_login,
         handlers::auth::auth_logout,
         handlers::auth::auth_me,
+        handlers::auth_enhanced::mfa_status_handler,
+        handlers::auth_enhanced::mfa_start_handler,
+        handlers::auth_enhanced::mfa_verify_handler,
+        handlers::auth_enhanced::mfa_disable_handler,
         handlers::auth_enhanced::get_auth_config_handler,
         handlers::propose_patch,
         handlers::infer,
@@ -79,6 +90,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_commit_diff,
         handlers::debug_routing,
         handlers::get_routing_history,
+        handlers::routing_decisions::get_routing_decision_chain,
         // Contacts and Streams handlers - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
         handlers::list_contacts,
         handlers::create_contact,
@@ -171,6 +183,8 @@ use utoipa_swagger_ui::SwaggerUi;
         // Storage handlers
         handlers::storage::get_storage_mode,
         handlers::storage::get_storage_stats,
+        handlers::kv_isolation::get_kv_isolation_health,
+        handlers::kv_isolation::trigger_kv_isolation_scan,
         // Runtime handlers
         handlers::runtime::get_current_session,
         handlers::runtime::list_sessions,
@@ -298,6 +312,7 @@ use utoipa_swagger_ui::SwaggerUi;
     ),
     components(schemas(
         crate::types::ErrorResponse,
+        crate::types::ApiErrorBody,
         crate::types::LoginRequest,
         crate::types::LoginResponse,
         crate::types::HealthResponse,
@@ -572,7 +587,7 @@ pub struct ApiDoc;
 
 pub fn build(state: AppState) -> Router {
     // Public routes (no auth required)
-    let public_routes = Router::new()
+    let mut public_routes = Router::new()
         .route("/healthz", get(handlers::health))
         .route("/healthz/all", get(crate::health::check_all_health))
         .route(
@@ -580,6 +595,7 @@ pub fn build(state: AppState) -> Router {
             get(crate::health::check_component_health),
         )
         .route("/readyz", get(handlers::ready))
+        .route("/system/ready", get(system_ready))
         .route(
             "/v1/auth/login",
             post(handlers::auth_enhanced::login_handler),
@@ -603,9 +619,26 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/meta", get(handlers::meta))
         .route("/v1/status", get(handlers::get_status))
         .route(
+            "/admin/lifecycle/request-shutdown",
+            post(handlers::admin_lifecycle::request_shutdown),
+        )
+        .route(
+            "/admin/lifecycle/request-maintenance",
+            post(handlers::admin_lifecycle::request_maintenance),
+        )
+        .route(
+            "/admin/lifecycle/safe-restart",
+            post(handlers::admin_lifecycle::safe_restart),
+        )
+        .route(
             "/v1/version",
             get(|| async { axum::Json(versioning::get_version_info()) }),
         );
+
+    if cfg!(debug_assertions) {
+        public_routes =
+            public_routes.route("/docs", get(|| async { axum::Json(ApiDoc::openapi()) }));
+    }
 
     #[cfg(all(feature = "dev-bypass", debug_assertions))]
     {
@@ -663,6 +696,30 @@ pub fn build(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/v1/auth/logout", post(auth::auth_logout))
         .route("/v1/auth/me", get(auth::auth_me))
+        .route(
+            "/v1/auth/mfa/status",
+            get(handlers::auth_enhanced::mfa_status_handler),
+        )
+        .route(
+            "/v1/auth/mfa/start",
+            post(handlers::auth_enhanced::mfa_start_handler),
+        )
+        .route(
+            "/v1/auth/mfa/verify",
+            post(handlers::auth_enhanced::mfa_verify_handler),
+        )
+        .route(
+            "/v1/auth/mfa/disable",
+            post(handlers::auth_enhanced::mfa_disable_handler),
+        )
+        .route(
+            "/v1/api-keys",
+            get(handlers::api_keys::list_api_keys).post(handlers::api_keys::create_api_key),
+        )
+        .route(
+            "/v1/api-keys/{id}",
+            delete(handlers::api_keys::revoke_api_key),
+        )
         // Admin routes
         .route("/v1/admin/users", get(handlers::admin::list_users))
         .route(
@@ -832,6 +889,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/workers/{worker_id}/logs",
             get(handlers::list_process_logs),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/manifests/{manifest_hash}",
+            get(handlers::worker_manifests::fetch_manifest_by_hash),
         )
         .route(
             "/v1/workers/{worker_id}/crashes",
@@ -1047,6 +1108,7 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/chat/sessions/{session_id}",
             get(handlers::chat_sessions::get_chat_session)
+                .put(handlers::chat_sessions::update_chat_session)
                 .delete(handlers::chat_sessions::delete_chat_session),
         )
         .route(
@@ -1555,6 +1617,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::routing_decisions::get_routing_decision_by_id),
         )
         .route(
+            "/v1/routing/chain",
+            get(handlers::routing_decisions::get_routing_decision_chain),
+        )
+        .route(
             "/v1/routing/sessions/{request_id}",
             get(handlers::routing_decisions::get_session_router_view),
         )
@@ -1853,6 +1919,14 @@ pub fn build(state: AppState) -> Router {
             "/v1/storage/stats",
             get(handlers::storage::get_storage_stats),
         )
+        .route(
+            "/v1/storage/kv-isolation/health",
+            get(handlers::kv_isolation::get_kv_isolation_health),
+        )
+        .route(
+            "/v1/storage/kv-isolation/scan",
+            post(handlers::kv_isolation::trigger_kv_isolation_scan),
+        )
         // Runtime session routes
         .route(
             "/v1/runtime/session",
@@ -1864,6 +1938,18 @@ pub fn build(state: AppState) -> Router {
         )
         .layer(
             ServiceBuilder::new()
+                // Middleware execution order (outermost -> innermost):
+                // auth -> tenant guard -> CSRF -> context -> policy -> audit.
+                // This ensures identity is established before tenant/CSRF checks,
+                // context is populated for downstream hooks, and audit runs with
+                // the final request context.
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    auth_middleware,
+                ))
+                .layer(middleware::from_fn(tenant_route_guard_middleware)) // Enforce tenant isolation for /tenants/{id}
+                .layer(middleware::from_fn(csrf_middleware)) // CSRF double-submit for cookie auth
+                .layer(middleware::from_fn(context_middleware)) // Consolidate request context after auth
                 .layer(middleware::from_fn_with_state(
                     state.clone(),
                     policy_enforcement_middleware,
@@ -1871,12 +1957,7 @@ pub fn build(state: AppState) -> Router {
                 .layer(middleware::from_fn_with_state(
                     state.clone(),
                     audit_middleware,
-                )) // Automatic audit logging (needs RequestContext)
-                .layer(middleware::from_fn(context_middleware)) // Consolidate request context after auth
-                .layer(middleware::from_fn_with_state(
-                    state.clone(),
-                    auth_middleware,
-                )),
+                )), // Automatic audit logging (needs RequestContext)
         );
 
     // Combine routes and apply security middleware layers
@@ -1907,10 +1988,15 @@ pub fn build(state: AppState) -> Router {
         )) // Track in-flight requests for graceful shutdown
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
+            crate::middleware::lifecycle_gate,
+        )) // Reject during maintenance/drain
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
             drain_middleware,
         )) // Reject new requests during drain
         .layer(axum::middleware::from_fn(
-            adapteros_telemetry::middleware::api_logger_middleware,
-        )) // API request/response logging (outermost)
+            crate::middleware::observability_middleware,
+        )) // Logging + error envelope
+        .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking (outermost)
         .with_state(state)
 }

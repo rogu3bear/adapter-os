@@ -13,8 +13,10 @@ use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::B3Hash;
+use adapteros_db::chat_sessions::{AddMessageParams, CreateChatSessionParams};
 use axum::{extract::State, http::StatusCode, response::Json, Extension};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tracing::{debug, info, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -147,6 +149,100 @@ pub async fn handle_owner_chat(
         "Analyzing user message"
     );
 
+    // Ensure an owner-system chat session exists (one per user/tenant)
+    let owner_session_id = format!("owner-session-{}-{}", claims.tenant_id, claims.sub);
+    let owner_session = match state.db.get_chat_session(&owner_session_id).await {
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            let params = CreateChatSessionParams {
+                id: owner_session_id.clone(),
+                tenant_id: claims.tenant_id.clone(),
+                user_id: Some(claims.sub.clone()),
+                created_by: Some(claims.sub.clone()),
+                stack_id: None,
+                collection_id: None,
+                document_id: None,
+                name: "Owner System Assistant".to_string(),
+                title: Some("Owner System Assistant".to_string()),
+                source_type: Some("owner_system".to_string()),
+                source_ref_id: None,
+                metadata_json: Some(r#"{"source_type":"owner_system"}"#.to_string()),
+                tags_json: None,
+                pinned_adapter_ids: None,
+            };
+            state.db.create_chat_session(params).await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to create owner chat session")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
+            state
+                .db
+                .get_chat_session(&owner_session_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to retrieve owner chat session")
+                                .with_code("DATABASE_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?
+                .ok_or_else(|| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Owner chat session missing after creation")
+                                .with_code("INTERNAL_ERROR"),
+                        ),
+                    )
+                })?
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to load owner chat session")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ))
+        }
+    };
+
+    // Persist user message
+    let user_message_id = format!("msg-owner-user-{}", Uuid::new_v4());
+    state
+        .db
+        .add_chat_message(AddMessageParams {
+            id: user_message_id,
+            session_id: owner_session.id.clone(),
+            tenant_id: Some(claims.tenant_id.clone()),
+            role: "user".to_string(),
+            content: last_user_message.content.clone(),
+            sequence: None,
+            created_at: None,
+            metadata_json: None,
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to record owner chat message")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
     // Try adapter-based response first (if configured)
     let response = match try_adapter_response(&state, &last_user_message.content).await {
         Some(adapter_response) => {
@@ -208,6 +304,36 @@ pub async fn handle_owner_chat(
     {
         warn!(error = %e, "Failed to log chat audit event");
     }
+
+    // Persist assistant response for history
+    let assistant_metadata = json!({
+        "source": response.source,
+        "suggested_cli": response.suggested_cli,
+        "relevant_links": response.relevant_links,
+    });
+    state
+        .db
+        .add_chat_message(AddMessageParams {
+            id: format!("msg-owner-assistant-{}", Uuid::new_v4()),
+            session_id: owner_session.id.clone(),
+            tenant_id: Some(claims.tenant_id.clone()),
+            role: "assistant".to_string(),
+            content: response.response.clone(),
+            sequence: None,
+            created_at: None,
+            metadata_json: Some(assistant_metadata.to_string()),
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to record owner assistant response")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     Ok(Json(response))
 }
@@ -353,10 +479,14 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         top_p: None,
         seed: None,
         router_seed: None,
+        seed_mode: None,
+        request_seed: None,
+        backend_profile: None,
         strict_mode: Some(false),
         determinism_mode: None,
         pinned_adapter_ids: None,
         effective_adapter_ids: None,
+        placement: None,
         routing_policy: None,
     };
 
@@ -364,7 +494,7 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
     let client = UdsClient::new(Duration::from_secs(60)); // Increased timeout for inference
     let adapter_desc = adapter_id.as_deref().unwrap_or("base_model");
 
-    match client.infer(&uds_path, request).await {
+    match client.infer(&uds_path, request, None).await {
         Ok(response) => {
             if response.status == "success" {
                 if let Some(text) = response.text {
@@ -611,6 +741,8 @@ fn generate_response(message: &str, context: &Option<ChatContext>) -> OwnerChatR
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use tempfile::Builder as TempDirBuilder;
 
     #[test]
     fn test_adapter_keyword_matching() {
@@ -797,7 +929,17 @@ mod tests {
         use adapteros_db::Db;
 
         // Create in-memory test database
-        let db = Db::new_in_memory().await.expect("Failed to create test db");
+        let base = std::path::Path::new("var/test-dbs");
+        fs::create_dir_all(base).expect("create var/test-dbs");
+        let dir = TempDirBuilder::new()
+            .prefix("aos-owner-chat-")
+            .tempdir_in(base)
+            .expect("create tempdir");
+        let db_path = dir.path().join("db.sqlite3");
+        let db = Db::connect(db_path.to_str().expect("path str"))
+            .await
+            .expect("Failed to create test db");
+        db.migrate().await.expect("migrate");
 
         let user_message = "How do I manage adapters?";
         let assistant_response = "I can help you manage adapters. Adapters are LoRA weights...";

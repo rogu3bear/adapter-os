@@ -1,3 +1,5 @@
+use adapteros_config::PlacementWeights as ConfigPlacementWeights;
+use adapteros_core::{BackendProfile, SeedMode};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -8,6 +10,20 @@ use utoipa::ToSchema;
 pub use adapteros_api_types::*;
 
 // ErrorResponse is imported from adapteros_api_types via the pub use above
+
+/// Standard error envelope returned by the API for all 4xx/5xx responses.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ApiErrorBody {
+    /// Machine-readable error code (e.g., "ADAPTER_NOT_FOUND")
+    pub code: String,
+    /// Human-readable message suitable for UI display
+    pub message: String,
+    /// Optional developer-facing detail (stack trace, context, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// Correlation ID that matches the `x-request-id` header and server logs
+    pub request_id: String,
+}
 
 // ===== Operation Progress Event Type =====
 
@@ -282,7 +298,7 @@ pub struct BaseModelStatusResponse {
     pub model_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_path: Option<String>,
-    pub status: String,
+    pub status: ModelLoadStatus,
     pub loaded_at: Option<String>,
     pub unloaded_at: Option<String>,
     pub error_message: Option<String>,
@@ -1018,6 +1034,15 @@ pub struct WorkerInferRequest {
     /// produce identical routing given identical inputs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub router_seed: Option<String>,
+    /// Seed mode for request-scoped RNG derivation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_mode: Option<SeedMode>,
+    /// Request-scoped seed used by the worker (32 bytes)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_seed: Option<[u8; 32]>,
+    /// Backend profile requested for execution
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_profile: Option<BackendProfile>,
     /// Determinism mode to apply in the worker (strict, besteffort, relaxed)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
@@ -1040,6 +1065,21 @@ pub struct WorkerInferRequest {
     /// Routing policy resolved for this tenant/request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
+
+    /// Placement override for deterministic replay
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub placement: Option<PlacementReplay>,
+}
+
+/// Placement decision trace entry (per token)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+pub struct PlacementTraceEntry {
+    pub step: usize,
+    pub lane: String,
+    pub score: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_c: Option<f32>,
+    pub utilization: f32,
 }
 
 /// Worker inference response (from worker via UDS)
@@ -1067,6 +1107,9 @@ pub struct WorkerInferResponse {
     /// - `Some("stack_only")`: All pinned adapters unavailable, routing uses stack only
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_routing_fallback: Option<String>,
+    /// Placement trace emitted by the worker (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement_trace: Option<Vec<PlacementTraceEntry>>,
 }
 
 /// Worker trace
@@ -1076,6 +1119,10 @@ pub struct WorkerTrace {
     /// Detailed router decisions per step (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub router_decisions: Option<Vec<adapteros_api_types::inference::RouterDecision>>,
+    /// Cryptographically chained router decisions (per token)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub router_decision_chain:
+        Option<Vec<adapteros_api_types::inference::RouterDecisionChainEntry>>,
 }
 
 /// Router summary
@@ -1112,6 +1159,8 @@ pub struct RoutingDecisionsQuery {
     pub stack_id: Option<String>,
     pub adapter_id: Option<String>,
     pub request_id: Option<String>,
+    /// Optional chat source_type filter; matched via chat_sessions on request_id
+    pub source_type: Option<String>,
     pub min_entropy: Option<f64>,
     pub max_overhead_pct: Option<f64>,
     #[serde(default)]
@@ -2593,6 +2642,12 @@ pub struct InferenceRequestInternal {
     pub effective_adapter_ids: Option<Vec<String>>,
     /// Resolved determinism mode applied to this request
     pub determinism_mode: Option<String>,
+    /// Seed mode requested for per-request RNG derivation
+    pub seed_mode: Option<SeedMode>,
+    /// Request-scoped seed derived by control plane
+    pub request_seed: Option<[u8; 32]>,
+    /// Backend profile selected for execution
+    pub backend_profile: Option<BackendProfile>,
 
     // === Sampling Parameters ===
     /// Maximum tokens to generate
@@ -2638,6 +2693,8 @@ pub struct InferenceRequestInternal {
     // === Timing ===
     /// Request creation timestamp
     pub created_at: std::time::Instant,
+    /// Optional auth token used to reach the worker (ApiKey)
+    pub worker_auth_token: Option<String>,
 }
 
 impl InferenceRequestInternal {
@@ -2658,6 +2715,9 @@ impl InferenceRequestInternal {
             stack_determinism_mode: None,
             effective_adapter_ids: None,
             determinism_mode: None,
+            seed_mode: None,
+            request_seed: None,
+            backend_profile: None,
             max_tokens: 100,
             temperature: 0.7,
             top_k: None,
@@ -2670,6 +2730,7 @@ impl InferenceRequestInternal {
             chat_context_hash: None,
             model: None,
             created_at: std::time::Instant::now(),
+            worker_auth_token: None,
         }
     }
 
@@ -2688,7 +2749,7 @@ impl InferenceRequestInternal {
 }
 
 /// Result from inference execution via InferenceCore
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct InferenceResult {
     /// Generated text
     pub text: String,
@@ -2700,6 +2761,10 @@ pub struct InferenceResult {
     pub adapters_used: Vec<String>,
     /// Router decisions made during inference
     pub router_decisions: Vec<RouterDecisionRecord>,
+    /// Cryptographically chained router decisions (per token)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub router_decision_chain:
+        Option<Vec<adapteros_api_types::inference::RouterDecisionChainEntry>>,
     /// RAG evidence if RAG was used
     pub rag_evidence: Option<RagEvidence>,
     /// Total latency in milliseconds
@@ -2727,10 +2792,13 @@ pub struct InferenceResult {
     pub determinism_mode_applied: Option<String>,
     /// Replay guarantee level computed for this inference
     pub replay_guarantee: Option<ReplayGuarantee>,
+    /// Placement trace returned by worker (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement_trace: Option<Vec<PlacementTraceEntry>>,
 }
 
 /// Router decision record for audit trail
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RouterDecisionRecord {
     /// Token generation step
     pub step: usize,
@@ -2745,7 +2813,7 @@ pub struct RouterDecisionRecord {
 }
 
 /// Router candidate record for decision audit
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RouterCandidateRecord {
     /// Adapter index
     pub adapter_idx: u16,
@@ -2756,7 +2824,7 @@ pub struct RouterCandidateRecord {
 }
 
 /// RAG evidence for provenance tracking
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RagEvidence {
     /// Collection ID used for retrieval
     pub collection_id: String,
@@ -2767,7 +2835,7 @@ pub struct RagEvidence {
 }
 
 /// Reference to a document chunk used in RAG
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ChunkReference {
     /// Document ID
     pub document_id: String,
@@ -2800,6 +2868,8 @@ pub enum InferenceError {
     BackpressureError(String),
     /// Routing was bypassed (should never happen)
     RoutingBypass(String),
+    /// Base model not ready for routing
+    ModelNotReady(String),
     /// No compatible worker available for the required manifest
     NoCompatibleWorker {
         required_hash: String,
@@ -2823,6 +2893,7 @@ impl std::fmt::Display for InferenceError {
             Self::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
             Self::BackpressureError(msg) => write!(f, "Backpressure: {}", msg),
             Self::RoutingBypass(msg) => write!(f, "Routing bypass: {}", msg),
+            Self::ModelNotReady(msg) => write!(f, "Model not ready: {}", msg),
             Self::NoCompatibleWorker {
                 required_hash,
                 tenant_id,
@@ -2853,6 +2924,7 @@ impl InferenceError {
             Self::PermissionDenied(_) => StatusCode::FORBIDDEN,
             Self::BackpressureError(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::RoutingBypass(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::ModelNotReady(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::NoCompatibleWorker { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::AdapterNotFound(_) => StatusCode::NOT_FOUND,
         }
@@ -2869,6 +2941,7 @@ impl InferenceError {
             Self::PermissionDenied(_) => "PERMISSION_DENIED",
             Self::BackpressureError(_) => "BACKPRESSURE",
             Self::RoutingBypass(_) => "ROUTING_BYPASS",
+            Self::ModelNotReady(_) => "MODEL_NOT_READY",
             Self::NoCompatibleWorker { .. } => "NO_COMPATIBLE_WORKER",
             Self::AdapterNotFound(_) => "ADAPTER_NOT_FOUND",
         }
@@ -2897,6 +2970,9 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             stack_determinism_mode: None,
             effective_adapter_ids: None, // Computed in InferenceCore
             determinism_mode: None,
+            seed_mode: None,
+            request_seed: None,
+            backend_profile: None,
             max_tokens: req.max_tokens.unwrap_or(100),
             temperature: req.temperature.unwrap_or(0.7),
             top_k: req.top_k,
@@ -2909,6 +2985,7 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             chat_context_hash: None,
             model: req.model.clone(),
             created_at: std::time::Instant::now(),
+            worker_auth_token: None,
         }
     }
 }
@@ -2959,6 +3036,7 @@ impl From<InferenceResult> for InferResponse {
                         }
                     })
                     .collect(),
+                router_decision_chain: result.router_decision_chain,
                 latency_ms: result.latency_ms,
             },
             model: None,
@@ -2997,10 +3075,50 @@ pub const SAMPLING_ALGORITHM_VERSION: &str = "v1.0.0";
 /// Maximum size for stored prompt/response text (64KB)
 pub const MAX_REPLAY_TEXT_SIZE: usize = 64 * 1024;
 
+/// Placement metadata captured for replay/audit.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PlacementReplay {
+    /// Mode applied (balanced/latency/energy/thermal/off)
+    pub mode: String,
+    /// Weights used for the cost model
+    pub weights: PlacementWeightsSchema,
+    /// Optional per-step device trace
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace: Vec<PlacementTraceEntry>,
+}
+
+/// API-safe placement weights schema (decouples utoipa from config crate)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PlacementWeightsSchema {
+    pub latency: f32,
+    pub energy: f32,
+    pub thermal: f32,
+}
+
+impl From<ConfigPlacementWeights> for PlacementWeightsSchema {
+    fn from(w: ConfigPlacementWeights) -> Self {
+        Self {
+            latency: w.latency,
+            energy: w.energy,
+            thermal: w.thermal,
+        }
+    }
+}
+
+impl From<PlacementWeightsSchema> for ConfigPlacementWeights {
+    fn from(w: PlacementWeightsSchema) -> Self {
+        ConfigPlacementWeights {
+            latency: w.latency,
+            energy: w.energy,
+            thermal: w.thermal,
+        }
+    }
+}
+
 /// Sampling parameters for inference replay
 ///
 /// Captures all parameters that affect token generation for reproducibility.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SamplingParams {
     /// Sampling temperature (0.0 - 2.0)
     pub temperature: f32,
@@ -3015,6 +3133,18 @@ pub struct SamplingParams {
     /// Random seed for reproducibility (None for non-deterministic)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
+    /// Seed mode applied for request seed derivation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed_mode: Option<SeedMode>,
+    /// Backend profile requested for execution
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_profile: Option<BackendProfile>,
+    /// Request seed (hex) provided to worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_seed_hex: Option<String>,
+    /// Placement metadata (device selection trace)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<PlacementReplay>,
 }
 
 impl Default for SamplingParams {
@@ -3025,6 +3155,10 @@ impl Default for SamplingParams {
             top_p: Some(0.95),
             max_tokens: 512,
             seed: None,
+            seed_mode: None,
+            backend_profile: None,
+            request_seed_hex: None,
+            placement: None,
         }
     }
 }

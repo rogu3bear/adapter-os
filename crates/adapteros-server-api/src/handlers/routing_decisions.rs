@@ -12,13 +12,14 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
 use adapteros_db::{
-    RouterCandidate as DbRouterCandidate, RoutingDecision as DbRoutingDecision,
-    RoutingDecisionFilters,
+    routing_decision_chain::ChainVerification, RouterCandidate as DbRouterCandidate,
+    RoutingDecision as DbRoutingDecision, RoutingDecisionChainRecord, RoutingDecisionFilters,
 };
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -58,6 +59,7 @@ pub struct RoutingDecisionsQuery {
     pub until: Option<String>,
     pub stack_id: Option<String>,
     pub adapter_id: Option<String>,
+    pub source_type: Option<String>,
     pub min_entropy: Option<f64>,
     pub max_overhead_pct: Option<f64>,
     pub anomalies_only: Option<bool>,
@@ -67,6 +69,64 @@ pub struct RoutingDecisionsQuery {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RoutingDecisionsResponse {
     pub items: Vec<RoutingDecisionResponse>,
+}
+
+/// Query parameters for routing decision chain
+#[derive(Debug, Deserialize)]
+pub struct RoutingChainQuery {
+    pub tenant: String,
+    pub inference_id: String,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    #[serde(default)]
+    pub verify: bool,
+}
+
+/// Routing decision chain response wrapper
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RoutingDecisionChainResponse {
+    pub items: Vec<RoutingDecisionChainItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification: Option<ChainVerificationSchema>,
+}
+
+/// API schema version of chain verification (avoids pulling utoipa into DB types)
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ChainVerificationSchema {
+    pub is_valid: bool,
+    pub entries_checked: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_invalid_step: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl From<ChainVerification> for ChainVerificationSchema {
+    fn from(v: ChainVerification) -> Self {
+        Self {
+            is_valid: v.is_valid,
+            entries_checked: v.entries_checked,
+            first_invalid_step: v.first_invalid_step,
+            error: v.error,
+        }
+    }
+}
+
+/// Routing decision chain item
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RoutingDecisionChainItem {
+    pub step: i64,
+    pub input_token_id: Option<i64>,
+    pub adapter_indices: Vec<u16>,
+    pub adapter_ids: Vec<String>,
+    pub gates_q15: Vec<i16>,
+    pub entropy: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision_hash: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_hash: Option<String>,
+    pub entry_hash: String,
+    pub created_at: String,
 }
 
 /// Routing decision response (enriched with parsed candidates)
@@ -215,6 +275,100 @@ pub async fn ingest_router_decision(
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
+/// GET /v1/routing/chain - Fetch cryptographically chained per-token routing entries
+#[utoipa::path(
+    get,
+    path = "/v1/routing/chain",
+    params(
+        ("tenant" = String, Query, description = "Tenant ID"),
+        ("inference_id" = String, Query, description = "Inference/request ID")
+    ),
+    responses(
+        (status = 200, description = "Routing decision chain", body = RoutingDecisionChainResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 500, description = "Failed to fetch routing decision chain")
+    ),
+    tag = "routing",
+    security(("bearer_token" = []))
+)]
+pub async fn get_routing_decision_chain(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<RoutingChainQuery>,
+) -> Result<Json<RoutingDecisionChainResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+    validate_tenant_isolation(&claims, &query.tenant)?;
+
+    let records = state
+        .db
+        .get_routing_decision_chain(
+            &query.tenant,
+            &query.inference_id,
+            query.limit,
+            query.offset,
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to fetch routing decision chain")
+                        .with_code("ROUTING_CHAIN_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let items: Vec<RoutingDecisionChainItem> =
+        records.into_iter().map(chain_record_to_response).collect();
+
+    let verification = if query.verify {
+        match state
+            .db
+            .verify_routing_decision_chain(&query.tenant, &query.inference_id)
+            .await
+        {
+            Ok(v) => Some(v.into()),
+            Err(e) => {
+                warn!(error = %e, "Failed to verify routing decision chain");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    Ok(Json(RoutingDecisionChainResponse {
+        items,
+        verification,
+    }))
+}
+
+fn chain_record_to_response(rec: RoutingDecisionChainRecord) -> RoutingDecisionChainItem {
+    fn parse_vec<T: DeserializeOwned>(raw: &str) -> Vec<T> {
+        serde_json::from_str(raw).unwrap_or_default()
+    }
+
+    let decision_hash = rec
+        .decision_hash_json
+        .as_ref()
+        .and_then(|json| serde_json::from_str::<Value>(json).ok());
+
+    RoutingDecisionChainItem {
+        step: rec.step,
+        input_token_id: rec.input_token_id,
+        adapter_indices: parse_vec::<u16>(&rec.adapter_indices),
+        adapter_ids: parse_vec::<String>(&rec.adapter_ids),
+        gates_q15: parse_vec::<i16>(&rec.gates_q15),
+        entropy: rec.entropy,
+        decision_hash,
+        previous_hash: rec.previous_hash,
+        entry_hash: rec.entry_hash,
+        created_at: rec.created_at,
+    }
+}
+
 /// GET /v1/routing/decisions - Query routing decisions with filters
 #[utoipa::path(
     get,
@@ -226,6 +380,7 @@ pub async fn ingest_router_decision(
         ("since" = Option<String>, Query, description = "Start time (ISO-8601)"),
         ("until" = Option<String>, Query, description = "End time (ISO-8601)"),
         ("stack_id" = Option<String>, Query, description = "Filter by stack ID"),
+        ("source_type" = Option<String>, Query, description = "Filter by chat source_type via session request_id"),
         ("adapter_id" = Option<String>, Query, description = "Filter by adapter ID"),
         ("min_entropy" = Option<f64>, Query, description = "Minimum entropy threshold"),
         ("max_overhead_pct" = Option<f64>, Query, description = "Maximum overhead percentage"),
@@ -263,6 +418,7 @@ pub async fn get_routing_decisions(
         until: query.until.clone(),
         stack_id: query.stack_id.clone(),
         adapter_id: query.adapter_id.clone(),
+        source_type: query.source_type.clone(),
         request_id: None,
         min_entropy: query.min_entropy,
         max_overhead_pct: query.max_overhead_pct,

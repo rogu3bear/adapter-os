@@ -14,6 +14,7 @@ use crate::chat_context::build_chat_prompt;
 use crate::inference_core::InferenceCore;
 use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
 use crate::middleware::request_id::RequestId;
+use crate::middleware::ApiKeyToken;
 use crate::permissions::Permission;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, InferRequest, InferResponse, InferenceRequestInternal};
@@ -40,11 +41,12 @@ pub async fn infer(
     Extension(claims): Extension<Claims>,
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
+    api_key: Option<Extension<ApiKeyToken>>,
     Json(req): Json<InferRequest>,
 ) -> Result<Json<InferResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Extract request_id for hook context
     let request_id_str = request_id
-        .map(|r| r.0.as_str().to_string())
+        .map(|r| r.0 .0.clone())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     // Role check: Operator, SRE, and Admin can execute inference (Viewer and Compliance cannot)
@@ -164,6 +166,9 @@ pub async fn infer(
     let mut internal = InferenceRequestInternal::from((&req, &claims));
     internal.prompt = base_prompt;
     internal.chat_context_hash = chat_context_hash;
+    if let Some(token) = api_key {
+        internal.worker_auth_token = Some(token.0 .0.clone());
+    }
 
     // Execute via InferenceCore - this is the single entry point for all inference
     let core = InferenceCore::new(&state);

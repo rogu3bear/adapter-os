@@ -90,18 +90,21 @@ pub async fn context_middleware(req: Request<Body>, next: Next) -> Response {
         .unwrap_or_else(|| "unknown".to_string());
 
     // Create consolidated context
-    let ctx = RequestContext {
+    let ctx = Arc::new(RequestContext {
         claims,
         request_id,
         client_ip,
-    };
+    });
 
     // Insert context into extensions
-    parts.extensions.insert(Arc::new(ctx));
+    parts.extensions.insert(ctx.clone());
 
     // Reconstruct request and continue
     let req = Request::from_parts(parts, body);
-    next.run(req).await
+    let mut response = next.run(req).await;
+    // Attach context to the response so outer middleware can log tenant/user IDs.
+    response.extensions_mut().insert(ctx);
+    response
 }
 
 /// Extractor for full request context (may or may not be authenticated)

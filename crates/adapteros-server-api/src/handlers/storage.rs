@@ -11,6 +11,7 @@ use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_db::kv_metrics::{global_kv_metrics, KvMetricsSnapshot};
 use adapteros_db::users::Role;
 use adapteros_db::KvBackend;
 use axum::extract::{Extension, State};
@@ -44,6 +45,13 @@ pub struct StorageStatsResponse {
     pub kv_counts: KvCounts,
     /// Timestamp when stats were collected
     pub collected_at: String,
+    /// KV metrics snapshot
+    #[schema(value_type = Object)]
+    pub kv_metrics: KvMetricsSnapshot,
+    /// Whether cutover guardrails are satisfied
+    pub safe_to_cutover: bool,
+    /// Evidence supporting the cutover decision
+    pub cutover_evidence: Vec<String>,
 }
 
 /// Record counts for SQL tables
@@ -166,12 +174,39 @@ pub async fn get_storage_stats(
         }
     };
 
+    let kv_metrics = global_kv_metrics().snapshot();
+    let (safe_to_cutover, cutover_evidence) = compute_cutover_evidence(&kv_metrics);
+
     Ok(Json(StorageStatsResponse {
         mode: storage_mode.to_string(),
         sql_counts,
         kv_counts,
         collected_at: chrono::Utc::now().to_rfc3339(),
+        kv_metrics,
+        safe_to_cutover,
+        cutover_evidence,
     }))
+}
+
+fn compute_cutover_evidence(snapshot: &KvMetricsSnapshot) -> (bool, Vec<String>) {
+    let safe_lag = snapshot.dual_write_lag_p95_ms <= 10_000.0;
+    let safe_drift = snapshot.drift_detections_total == 0;
+    let safe_fallback = snapshot.fallback_operations_total == 0;
+
+    let evidence = vec![
+        format!(
+            "dual_write_lag_p95_ms={:.1}",
+            snapshot.dual_write_lag_p95_ms
+        ),
+        format!("dual_write_lag_max_ms={}", snapshot.dual_write_lag_max_ms),
+        format!(
+            "fallback_operations_total={}",
+            snapshot.fallback_operations_total
+        ),
+        format!("drift_detections_total={}", snapshot.drift_detections_total),
+        "kv_only_dry_run=not_tracked".to_string(),
+    ];
+    (safe_lag && safe_drift && safe_fallback, evidence)
 }
 
 /// Collect record counts from SQL backend

@@ -7,7 +7,7 @@ use crate::schema_version;
 
 /// Inference request
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub struct InferRequest {
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -127,6 +127,8 @@ pub enum ReplayGuarantee {
 pub struct InferenceTrace {
     pub adapters_used: Vec<String>,
     pub router_decisions: Vec<RouterDecision>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub router_decision_chain: Option<Vec<RouterDecisionChainEntry>>,
     pub latency_ms: u64,
 }
 
@@ -137,6 +139,35 @@ pub struct RouterCandidate {
     pub adapter_idx: u16,
     pub raw_score: f32,
     pub gate_q15: i16,
+}
+
+/// Decision hash material for audit (mirrors router DecisionHash)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct RouterDecisionHash {
+    pub input_hash: String,
+    pub output_hash: String,
+    pub combined_hash: String,
+    pub tau: f32,
+    pub eps: f32,
+    pub k: usize,
+}
+
+/// Chained router decision entry (per token)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct RouterDecisionChainEntry {
+    pub step: usize,
+    pub input_token_id: Option<u32>,
+    pub adapter_indices: Vec<u16>,
+    pub adapter_ids: Vec<String>,
+    pub gates_q15: Vec<i16>,
+    pub entropy: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision_hash: Option<RouterDecisionHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_hash: Option<String>,
+    pub entry_hash: String,
 }
 
 /// Router decision at a specific position (canonical schema)

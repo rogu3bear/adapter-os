@@ -679,10 +679,14 @@ pub async fn test_domain_adapter(
                 top_p: None,
                 seed: None,
                 router_seed: None,
+                seed_mode: None,
+                request_seed: None,
+                backend_profile: None,
                 pinned_adapter_ids: None,
                 determinism_mode: "strict".to_string(), // Determinism tests use strict mode
                 strict_mode: true,
                 effective_adapter_ids: None,
+                placement: None,
                 routing_policy: None,
             };
 
@@ -963,10 +967,14 @@ pub async fn execute_domain_adapter(
             top_p: None,
             seed: None,
             router_seed: None,
+            seed_mode: None,
+            request_seed: None,
+            backend_profile: None,
             pinned_adapter_ids: None,
             determinism_mode: "strict".to_string(), // Default to strict mode for domain adapter execution
             strict_mode: true,
             effective_adapter_ids: None,
+            placement: None,
             routing_policy: None,
         };
 

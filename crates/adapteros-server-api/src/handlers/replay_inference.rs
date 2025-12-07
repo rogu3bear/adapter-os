@@ -16,6 +16,7 @@
 //! - Policy hooks and worker health-based selection
 
 use crate::auth::Claims;
+use crate::determinism_context::DeterminismContext;
 use crate::inference_core::InferenceCore;
 use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
 use crate::security::check_tenant_access;
@@ -560,7 +561,18 @@ pub async fn execute_replay(
         })?;
 
     // Build InferenceRequestInternal from replay metadata (PRD-02)
-    let inference_request = InferenceRequestInternal {
+    let determinism_ctx = DeterminismContext::from_replay_metadata(&metadata).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(&e.to_string())
+                    .with_code("REPLAY_SEED_ERROR")
+                    .with_string_details("Unable to reconstruct determinism seeds from metadata"),
+            ),
+        )
+    })?;
+
+    let mut inference_request = InferenceRequestInternal {
         request_id: replay_id.clone(),
         cpid: claims.tenant_id.clone(),
         prompt: prompt.clone(),
@@ -575,18 +587,22 @@ pub async fn execute_replay(
         stack_determinism_mode: None,
         effective_adapter_ids: None,
         determinism_mode: None,
+        seed_mode: None,
+        request_seed: Some(determinism_ctx.request_seed()),
+        backend_profile: None,
         max_tokens: sampling_params.max_tokens,
         temperature: sampling_params.temperature,
         top_k: sampling_params.top_k,
         top_p: sampling_params.top_p,
-        seed: sampling_params.seed,
-        router_seed: metadata.router_seed.clone(),
+        seed: Some(determinism_ctx.request_seed_low64()),
+        router_seed: Some(determinism_ctx.router_seed_hex().to_string()),
         require_evidence: false,
         session_id: None,
         pinned_adapter_ids: None, // Not used in replay
         chat_context_hash: None,
         model: None,
         created_at: std::time::Instant::now(),
+        worker_auth_token: None,
     };
 
     // Build replay context with manifest/backend constraints (PRD-02)

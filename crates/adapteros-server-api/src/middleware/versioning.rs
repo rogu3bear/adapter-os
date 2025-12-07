@@ -160,7 +160,19 @@ pub async fn versioning_middleware(req: Request, next: Next) -> Response {
     // Extract version from path (primary method)
     let path_version = ApiVersion::from_path(&path);
 
+    // Detect SSE-style requests early so we can force the correct content type
+    // even when proxies strip or alter the Accept header (EventSource expects
+    // `text/event-stream` and will abort on vendor JSON types).
+    let path_is_stream = path.contains("/stream/");
+
     // Extract version from Accept header (secondary method)
+    let accepts_event_stream = req
+        .headers()
+        .get(header::ACCEPT)
+        .and_then(|h| h.to_str().ok())
+        .map(|v| v.contains("text/event-stream"))
+        .unwrap_or(false);
+    let is_sse_request = accepts_event_stream || path_is_stream;
     let accept_version = req
         .headers()
         .get(header::ACCEPT)
@@ -204,12 +216,21 @@ pub async fn versioning_middleware(req: Request, next: Next) -> Response {
         }
     }
 
-    // Add Content-Type with version if not already set
-    // SSE responses already have text/event-stream set, so this preserves them
-    if headers.get(header::CONTENT_TYPE).is_none() && status == StatusCode::OK {
-        let content_type = format!("application/vnd.aos.{}+json", version.as_str());
-        if let Ok(content_type_header) = HeaderValue::from_str(&content_type) {
-            headers.insert(header::CONTENT_TYPE, content_type_header);
+    let has_content_type = headers.get(header::CONTENT_TYPE).is_some();
+
+    // Add or correct Content-Type
+    if status == StatusCode::OK {
+        if is_sse_request {
+            // Ensure SSE endpoints always advertise the correct MIME type
+            headers.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/event-stream"),
+            );
+        } else if !has_content_type {
+            let content_type = format!("application/vnd.aos.{}+json", version.as_str());
+            if let Ok(content_type_header) = HeaderValue::from_str(&content_type) {
+                headers.insert(header::CONTENT_TYPE, content_type_header);
+            }
         }
     }
 
@@ -263,5 +284,35 @@ mod tests {
 
         // Non-deprecated endpoint
         assert!(check_deprecation("/v1/adapters", ApiVersion::V1).is_none());
+    }
+
+    #[tokio::test]
+    async fn sets_event_stream_content_type_when_accepting_sse() {
+        use axum::{body::Body, http::Request, response::Response, routing::get, Router};
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route(
+                "/v1/stream/notifications",
+                get(|| async { Response::new(Body::empty()) }),
+            )
+            .layer(axum::middleware::from_fn(versioning_middleware));
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/stream/notifications")
+                    .header(header::ACCEPT, "text/event-stream")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.headers()
+                .get(header::CONTENT_TYPE)
+                .map(HeaderValue::as_bytes),
+            Some(HeaderValue::from_static("text/event-stream").as_bytes())
+        );
     }
 }

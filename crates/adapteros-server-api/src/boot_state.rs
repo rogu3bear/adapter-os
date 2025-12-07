@@ -62,6 +62,8 @@ pub enum BootState {
     Ready,
     /// All priority models loaded and health-checked
     FullyReady,
+    /// Maintenance mode (no new work, in-flight continues)
+    Maintenance,
     /// Shutdown initiated (reject new requests, track in-flight)
     Draining,
     /// Component shutdown (ordered termination)
@@ -77,6 +79,16 @@ impl BootState {
     /// Returns true if all models are loaded and healthy
     pub fn is_fully_ready(&self) -> bool {
         matches!(self, BootState::FullyReady)
+    }
+
+    /// Returns true if server is in maintenance
+    pub fn is_maintenance(&self) -> bool {
+        matches!(self, BootState::Maintenance)
+    }
+
+    /// Returns true if server is draining or stopping
+    pub fn is_draining(&self) -> bool {
+        matches!(self, BootState::Draining | BootState::Stopping)
     }
 
     /// Returns true if this state indicates the server is shutting down
@@ -109,6 +121,7 @@ impl BootState {
             BootState::LoadingAdapters => "loading-adapters",
             BootState::Ready => "ready",
             BootState::FullyReady => "fully-ready",
+            BootState::Maintenance => "maintenance",
             BootState::Draining => "draining",
             BootState::Stopping => "stopping",
         }
@@ -180,6 +193,17 @@ impl BootStateManager {
         }
     }
 
+    /// Attach a database handle without resetting state or counters.
+    /// Returns a new manager sharing the same state/time/model status.
+    pub fn attach_db(&self, db: Arc<Db>) -> Self {
+        Self {
+            current: Arc::clone(&self.current),
+            start_time: self.start_time,
+            db: Some(db),
+            model_status: Arc::clone(&self.model_status),
+        }
+    }
+
     /// Get the current state
     pub fn current_state(&self) -> BootState {
         *self.current.read()
@@ -203,6 +227,16 @@ impl BootStateManager {
     /// Check if server is shutting down
     pub fn is_shutting_down(&self) -> bool {
         self.current_state().is_shutting_down()
+    }
+
+    /// Check if server is in maintenance
+    pub fn is_maintenance(&self) -> bool {
+        self.current_state().is_maintenance()
+    }
+
+    /// Check if server is draining or stopping
+    pub fn is_draining(&self) -> bool {
+        self.current_state().is_draining()
     }
 
     /// Check if server is booting
@@ -262,6 +296,17 @@ impl BootStateManager {
     pub async fn transition(&self, new_state: BootState, reason: &str) {
         let old_state = {
             let mut current = self.current.write();
+
+            if !Self::is_allowed_transition(*current, new_state) {
+                warn!(
+                    attempted = %new_state,
+                    current = %*current,
+                    reason = reason,
+                    "Rejected invalid boot state transition"
+                );
+                return;
+            }
+
             let old = *current;
             *current = new_state;
             old
@@ -322,6 +367,28 @@ impl BootStateManager {
         );
     }
 
+    /// Validate ordered transition to prevent skipping boot/drain steps.
+    fn is_allowed_transition(from: BootState, to: BootState) -> bool {
+        matches!(
+            (from, to),
+            (BootState::Stopped, BootState::Booting)
+                | (BootState::Booting, BootState::InitializingDb)
+                | (BootState::InitializingDb, BootState::LoadingPolicies)
+                | (BootState::LoadingPolicies, BootState::StartingBackend)
+                | (BootState::StartingBackend, BootState::LoadingBaseModels)
+                | (BootState::LoadingBaseModels, BootState::LoadingAdapters)
+                | (BootState::LoadingAdapters, BootState::Ready)
+                | (BootState::Ready, BootState::FullyReady)
+                | (BootState::Ready, BootState::Maintenance)
+                | (BootState::FullyReady, BootState::Maintenance)
+                | (BootState::Maintenance, BootState::Ready)
+                | (BootState::Ready, BootState::Draining)
+                | (BootState::FullyReady, BootState::Draining)
+                | (BootState::Maintenance, BootState::Draining)
+                | (BootState::Draining, BootState::Stopping)
+        )
+    }
+
     /// Transition to Booting state
     pub async fn boot(&self) {
         self.transition(BootState::Booting, "process-start").await;
@@ -366,6 +433,11 @@ impl BootStateManager {
     pub async fn fully_ready(&self) {
         self.transition(BootState::FullyReady, "all-models-loaded")
             .await;
+    }
+
+    /// Transition to Maintenance state
+    pub async fn maintenance(&self, reason: &str) {
+        self.transition(BootState::Maintenance, reason).await;
     }
 
     /// Transition to Draining state
@@ -450,6 +522,7 @@ mod tests {
         assert_eq!(BootState::Stopped.as_str(), "stopped");
         assert_eq!(BootState::Booting.as_str(), "booting");
         assert_eq!(BootState::Ready.as_str(), "ready");
+        assert_eq!(BootState::Maintenance.as_str(), "maintenance");
         assert_eq!(BootState::Draining.as_str(), "draining");
     }
 
@@ -523,5 +596,52 @@ mod tests {
     async fn test_fully_ready_state_string() {
         assert_eq!(BootState::FullyReady.as_str(), "fully-ready");
         assert_eq!(BootState::FullyReady.to_string(), "fully-ready");
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_transition() {
+        let manager = BootStateManager::new();
+        manager.boot().await;
+        manager.init_db().await;
+        manager.load_policies().await;
+        manager.start_backend().await;
+        manager.load_base_models().await;
+        manager.load_adapters().await;
+        manager.ready().await;
+        assert!(manager.is_ready());
+
+        manager.maintenance("admin-maintenance").await;
+        assert_eq!(manager.current_state(), BootState::Maintenance);
+        assert!(manager.is_maintenance());
+        assert!(!manager.is_ready());
+
+        manager.drain().await;
+        assert_eq!(manager.current_state(), BootState::Draining);
+        assert!(manager.is_draining());
+    }
+
+    #[tokio::test]
+    async fn test_invalid_transition_is_rejected() {
+        let manager = BootStateManager::new();
+
+        // Attempt to skip ahead should be ignored
+        manager.transition(BootState::Ready, "attempt-skip").await;
+        assert_eq!(manager.current_state(), BootState::Stopped);
+
+        // Progress to Ready, then attempt backward invalid transition
+        manager.boot().await;
+        manager.init_db().await;
+        manager.load_policies().await;
+        manager.start_backend().await;
+        manager.load_base_models().await;
+        manager.load_adapters().await;
+        manager.ready().await;
+        assert_eq!(manager.current_state(), BootState::Ready);
+
+        // Draining is allowed from Ready, but LoadingAdapters is not
+        manager
+            .transition(BootState::LoadingAdapters, "invalid-backward")
+            .await;
+        assert_eq!(manager.current_state(), BootState::Ready);
     }
 }

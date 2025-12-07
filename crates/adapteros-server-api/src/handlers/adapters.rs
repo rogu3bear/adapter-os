@@ -1,3 +1,16 @@
+#[path = "adapters/fs_utils.rs"]
+mod adapter_fs_utils;
+#[path = "adapters/hashing.rs"]
+mod adapter_hashing;
+#[path = "adapters/paths.rs"]
+mod adapter_paths;
+#[path = "adapters/progress.rs"]
+mod adapter_progress;
+#[path = "adapters/repo.rs"]
+mod adapter_repo;
+#[path = "adapters/tenant.rs"]
+mod adapter_tenant;
+
 // Adapter Lifecycle & Lineage Handlers
 //
 // This module provides REST API endpoints for:
@@ -15,6 +28,11 @@ use crate::security::validate_tenant_isolation;
 use crate::services::{AdapterService, DefaultAdapterService};
 use crate::state::AppState;
 use crate::types::*;
+use adapter_fs_utils::write_temp_bundle;
+use adapter_hashing::hash_multi_bytes;
+use adapter_paths::resolve_adapter_roots;
+use adapter_progress::emit_adapter_progress;
+use adapter_repo::{map_repo_error, AdapterRepo, DefaultAdapterRepo, StoreBundleRequest};
 use adapteros_db::adapters::Adapter;
 use adapteros_db::users::Role;
 use adapteros_db::{AdapterRegistrationBuilder, AdapterTrainingSnapshot};
@@ -476,6 +494,10 @@ pub struct AdapterDetailResponse {
     pub content_hash_b3: Option<String>,
     /// Basic signature/compliance flag (true when adapter has a recorded content hash)
     pub signature_valid: bool,
+    /// True when SQL + KV records match required hashes
+    pub kv_consistent: bool,
+    /// Human-readable reason when KV is not consistent
+    pub kv_message: Option<String>,
 
     // Timestamps
     pub created_at: String,
@@ -518,6 +540,8 @@ impl From<Adapter> for AdapterDetailResponse {
             manifest_schema_version: adapter.manifest_schema_version,
             content_hash_b3: adapter.content_hash_b3.clone(),
             signature_valid: adapter.content_hash_b3.is_some(),
+            kv_consistent: false,
+            kv_message: None,
             created_at: adapter.created_at,
             updated_at: adapter.updated_at,
             expires_at: adapter.expires_at,
@@ -586,7 +610,16 @@ pub async fn get_adapter_detail(
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
-    Ok(Json(AdapterDetailResponse::from(adapter)))
+    let mut response = AdapterDetailResponse::from(adapter.clone());
+    if let Ok(status) = state.db.check_adapter_consistency(&adapter_id).await {
+        response.kv_consistent = status.is_ready();
+        response.kv_message = status.message;
+    } else {
+        response.kv_consistent = false;
+        response.kv_message = Some("KV consistency check failed".to_string());
+    }
+
+    Ok(Json(response))
 }
 
 // ============================================================================
@@ -1769,59 +1802,12 @@ pub async fn import_adapter(
 
     let auto_load = params.get("load").map(|v| v == "true").unwrap_or(false);
 
-    // Get adapters root using centralized path resolution (ENV > Config > Default)
-    use adapteros_core::paths::AdapterPaths;
-    let adapters_paths = {
-        let config = state.config.read().map_err(|_| {
-            error!("Config lock poisoned");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("config lock poisoned").with_code("INTERNAL_ERROR")),
-            )
-        })?;
-        // adapters_root is String, convert to Option<&str> for from_config
-        let config_value = if config.paths.adapters_root.is_empty() {
-            None
-        } else {
-            Some(config.paths.adapters_root.as_str())
-        };
-        AdapterPaths::from_config(config_value)
-    };
-
-    // Create adapters directory if needed
-    let adapters_path = adapters_paths.root().to_path_buf();
-    if !adapters_path.exists() {
-        tokio::fs::create_dir_all(&adapters_path)
-            .await
-            .map_err(|e| {
-                error!("Failed to create adapters directory: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to create adapters directory")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
-    }
+    // Resolve adapter repo/cache roots (ENV > config > defaults) and ensure temp directory
+    let adapters_paths = resolve_adapter_roots(&state);
 
     // === STREAMING UPLOAD (Issue 6) ===
     // Stream to temp file while computing whole-file hash
-    let temp_id = uuid::Uuid::now_v7();
-    let temp_path = adapters_path.join(format!("{}.aos.tmp", temp_id));
-
-    let mut temp_file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
-        error!("Failed to create temp file: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to create temp file")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let (temp_path, mut temp_file) = write_temp_bundle(&adapters_paths).await?;
 
     let mut hasher = Hasher::new();
     let mut total_bytes: u64 = 0;
@@ -1978,7 +1964,8 @@ pub async fn import_adapter(
         )
     })?;
 
-    let _name = filename.unwrap_or_else(|| "imported.aos".to_string());
+    let filename_for_default = filename.clone();
+    let _name = filename_for_default.unwrap_or_else(|| "imported.aos".to_string());
 
     // Validate minimum size
     if data.len() < 64 {
@@ -2207,9 +2194,7 @@ pub async fn import_adapter(
     }
 
     // F. Content Hash Identity (compute BLAKE3 of manifest + weights for dedup/identity)
-    let content_hash_b3 = B3Hash::hash_multi(&[manifest_bytes, weights_data])
-        .to_hex()
-        .to_string();
+    let content_hash_b3 = hash_multi_bytes(&[manifest_bytes, weights_data]);
 
     // === END PRD-ART-01 VALIDATIONS ===
 
@@ -2237,26 +2222,33 @@ pub async fn import_adapter(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "1.0.0".to_string());
+    let uploaded_file_name = filename.clone().unwrap_or_else(|| _name.clone());
+
+    emit_adapter_progress(
+        &adapter_id,
+        "validated",
+        Some(uploaded_file_name.as_str()),
+        50.0,
+        "Validated adapter bundle",
+    );
 
     // Note: weights_hash was computed in PRD-ART-01 validation section above
 
     // === TRANSACTIONAL SAFETY (Issue 1) ===
-    // Step 1: Atomic rename from temp to final path
-    let file_path = adapters_paths.get_adapter_path(&adapter_id);
+    let repo = DefaultAdapterRepo::new(&state);
+    let stored = repo
+        .store_bundle(StoreBundleRequest {
+            tenant_id: claims.tenant_id.clone(),
+            adapter_name: adapter_name.clone(),
+            version: version.clone(),
+            temp_path: temp_path.clone(),
+            precomputed_hash: Some(file_hash.clone()),
+        })
+        .await
+        .map_err(map_repo_error)?;
+    let file_path = stored.final_path.clone();
     let file_path_str = file_path.to_string_lossy().to_string();
-
-    if let Err(e) = tokio::fs::rename(&temp_path, &file_path).await {
-        let _ = tokio::fs::remove_file(&temp_path).await;
-        error!("Failed to rename temp file to final path: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to finalize adapter file")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        ));
-    }
+    let file_hash = stored.manifest_hash.clone();
 
     // Step 2: Register in database (rollback file on failure)
     let tier = if auto_load { "warm" } else { "ephemeral" };
@@ -2288,22 +2280,10 @@ pub async fn import_adapter(
             )
         })?;
 
-    let registered_id = match state.db.register_adapter(registration_params).await {
-        Ok(id) => id,
-        Err(e) => {
-            // Rollback: remove the file on DB failure
-            let _ = tokio::fs::remove_file(&file_path).await;
-            error!("Failed to register adapter in database: {}", e);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to register adapter")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
-        }
-    };
+    let registered_id = repo
+        .register_bundle(&adapter_id, &claims.tenant_id, registration_params)
+        .await
+        .map_err(map_repo_error)?;
 
     // === AUTO-LOAD (Issue 2) ===
     // Register with lifecycle manager and optionally load
@@ -2360,6 +2340,14 @@ pub async fn import_adapter(
         Some(&adapter_id),
     )
     .await;
+
+    emit_adapter_progress(
+        &adapter_id,
+        "registered",
+        Some(uploaded_file_name.as_str()),
+        100.0,
+        "Adapter import complete",
+    );
 
     // Return adapter response with manifest data
     let now = chrono::Utc::now().to_rfc3339();

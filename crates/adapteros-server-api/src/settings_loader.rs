@@ -120,8 +120,7 @@ pub fn load_full_settings_with_overrides(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-    use tempfile::TempDir;
+    use adapteros_core::{BackendProfile, SeedMode};
 
     #[test]
     fn test_load_overrides_no_file() {
@@ -136,16 +135,20 @@ mod tests {
             general: None,
             server: Default::default(),
             security: Default::default(),
+            auth: Default::default(),
             performance: Default::default(),
             paths: crate::config::PathsConfig {
                 artifacts_root: "var/artifacts".to_string(),
                 bundles_root: "var/bundles".to_string(),
-                adapters_root: "var/adapters".to_string(),
+                adapters_root: "var/adapters/repo".to_string(),
                 plan_dir: "var/plans".to_string(),
                 datasets_root: "var/datasets".to_string(),
                 documents_root: "var/documents".to_string(),
             },
             chat_context: Default::default(),
+            seed_mode: SeedMode::BestEffort,
+            backend_profile: BackendProfile::AutoDev,
+            worker_id: 0,
         }));
 
         let result = load_and_apply_overrides(&api_config);

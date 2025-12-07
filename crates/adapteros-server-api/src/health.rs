@@ -4,14 +4,20 @@
 //! telemetry, and system-metrics.
 
 use crate::state::AppState;
+use crate::worker_health::WorkerHealthStatus;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+use std::path::Path as StdPath;
+use std::time::{Duration, SystemTime};
+use tokio::fs;
+use tokio::io::AsyncWriteExt;
+use tracing::warn;
 use utoipa::ToSchema;
 
 /// Component health status
@@ -41,6 +47,28 @@ pub struct SystemHealthResponse {
     pub components: Vec<ComponentHealth>,
     pub timestamp: u64,
 }
+
+/// System-wide readiness response (aggregated)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SystemReadyResponse {
+    pub ready: bool,
+    pub overall_status: ComponentStatus,
+    pub components: Vec<ComponentHealth>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub boot_elapsed_ms: Option<u64>,
+    #[serde(default)]
+    pub critical_degraded: Vec<String>,
+    #[serde(default)]
+    pub non_critical_degraded: Vec<String>,
+    #[serde(default)]
+    pub maintenance: bool,
+    #[serde(default)]
+    pub reason: String,
+}
+
+const DEFAULT_READY_FLAG_PATH: &str = "var/run/system_ready";
+const DEFAULT_BOOT_LOG_PATH: &str = "var/log/boot-times.log";
+const DEFAULT_UI_HEALTH_URL: &str = "http://127.0.0.1:3200/healthz";
 
 impl ComponentHealth {
     fn new(
@@ -659,6 +687,88 @@ pub async fn check_all_health(State(state): State<AppState>) -> impl IntoRespons
     Json(response)
 }
 
+/// Aggregate readiness across DB, server, workers, router, and UI
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/system/ready",
+    responses(
+        (status = 200, description = "System is ready", body = SystemReadyResponse),
+        (status = 503, description = "System not ready", body = SystemReadyResponse)
+    )
+)]
+pub async fn system_ready(State(state): State<AppState>) -> impl IntoResponse {
+    let (components, boot_elapsed_ms) = gather_system_ready_components(state.clone()).await;
+
+    // Classify components by severity
+    let critical_components = ["server", "db", "router"];
+    let mut critical_degraded = Vec::new();
+    let mut non_critical_degraded = Vec::new();
+
+    for comp in components.iter() {
+        if comp.status == ComponentStatus::Healthy {
+            continue;
+        }
+        if critical_components.contains(&comp.component.as_str()) {
+            critical_degraded.push(comp.component.clone());
+        } else {
+            non_critical_degraded.push(comp.component.clone());
+        }
+    }
+
+    let mut maintenance = false;
+    if let Some(ref boot_state) = state.boot_state {
+        maintenance = boot_state.is_maintenance();
+    }
+
+    let overall_status = components
+        .iter()
+        .fold(ComponentStatus::Healthy, |acc, check| {
+            match (&acc, &check.status) {
+                (ComponentStatus::Unhealthy, _) | (_, ComponentStatus::Unhealthy) => {
+                    ComponentStatus::Unhealthy
+                }
+                (ComponentStatus::Degraded, _) | (_, ComponentStatus::Degraded) => {
+                    ComponentStatus::Degraded
+                }
+                _ => ComponentStatus::Healthy,
+            }
+        });
+
+    let ready = critical_degraded.is_empty() && !maintenance;
+    let reason = if maintenance {
+        "maintenance".to_string()
+    } else if !critical_degraded.is_empty() {
+        format!("critical components degraded: {:?}", critical_degraded)
+    } else if !non_critical_degraded.is_empty() {
+        format!("non-critical degraded: {:?}", non_critical_degraded)
+    } else {
+        "ready".to_string()
+    };
+
+    handle_ready_side_effects(ready, boot_elapsed_ms, &components).await;
+
+    let status_code = if ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (
+        status_code,
+        Json(SystemReadyResponse {
+            ready,
+            overall_status,
+            components,
+            boot_elapsed_ms,
+            critical_degraded,
+            non_critical_degraded,
+            maintenance,
+            reason,
+        }),
+    )
+}
+
 /// Extract ComponentHealth from a response
 async fn extract_health(response: Response) -> ComponentHealth {
     let (_parts, body) = response.into_parts();
@@ -678,6 +788,257 @@ async fn extract_health(response: Response) -> ComponentHealth {
             ComponentStatus::Unhealthy,
             "Failed to read response body",
         ),
+    }
+}
+
+pub async fn gather_system_ready_components(
+    state: AppState,
+) -> (Vec<ComponentHealth>, Option<u64>) {
+    let mut components = Vec::new();
+
+    // Server boot state
+    let server_health = if let Some(ref boot_state) = state.boot_state {
+        let state_label = boot_state.current_state().as_str();
+        if boot_state.is_maintenance() {
+            ComponentHealth::new(
+                "server",
+                ComponentStatus::Degraded,
+                format!("maintenance: {}", state_label),
+            )
+        } else if boot_state.is_draining() || boot_state.is_shutting_down() {
+            ComponentHealth::new(
+                "server",
+                ComponentStatus::Degraded,
+                format!("draining: {}", state_label),
+            )
+        } else if boot_state.is_ready() {
+            ComponentHealth::new(
+                "server",
+                ComponentStatus::Healthy,
+                format!("boot state: {}", state_label),
+            )
+        } else {
+            ComponentHealth::new(
+                "server",
+                ComponentStatus::Degraded,
+                format!("boot state: {}", state_label),
+            )
+        }
+    } else {
+        ComponentHealth::new(
+            "server",
+            ComponentStatus::Degraded,
+            "boot state manager not configured",
+        )
+    };
+    components.push(server_health);
+
+    // Core dependencies
+    let db = extract_health(check_db_health(State(state.clone())).await.into_response()).await;
+    let router = extract_health(
+        check_router_health(State(state.clone()))
+            .await
+            .into_response(),
+    )
+    .await;
+    components.push(db);
+    components.push(router);
+
+    // Workers (UDS)
+    components.push(worker_component_health(&state));
+
+    // UI health
+    components.push(check_ui_health().await);
+
+    let boot_elapsed_ms = state
+        .boot_state
+        .as_ref()
+        .map(|bs| bs.elapsed().as_millis() as u64);
+
+    (components, boot_elapsed_ms)
+}
+
+fn worker_component_health(state: &AppState) -> ComponentHealth {
+    if let Some(monitor) = &state.health_monitor {
+        let summary = monitor.get_health_summary();
+        if summary.is_empty() {
+            return ComponentHealth::new(
+                "workers",
+                ComponentStatus::Degraded,
+                "no workers registered",
+            );
+        }
+
+        let mut any_crashed = false;
+        let mut any_degraded = false;
+        let mut unknown = false;
+
+        for item in summary.iter() {
+            match item.health_status {
+                WorkerHealthStatus::Crashed => any_crashed = true,
+                WorkerHealthStatus::Degraded => any_degraded = true,
+                WorkerHealthStatus::Unknown => unknown = true,
+                WorkerHealthStatus::Healthy => {}
+            }
+        }
+
+        if any_crashed {
+            ComponentHealth::new(
+                "workers",
+                ComponentStatus::Unhealthy,
+                "one or more workers crashed",
+            )
+        } else if any_degraded || unknown {
+            ComponentHealth::new(
+                "workers",
+                ComponentStatus::Degraded,
+                "worker health degraded or unknown",
+            )
+        } else {
+            ComponentHealth::new(
+                "workers",
+                ComponentStatus::Healthy,
+                format!("{} workers healthy", summary.len()),
+            )
+        }
+    } else {
+        ComponentHealth::new(
+            "workers",
+            ComponentStatus::Degraded,
+            "worker health monitor unavailable",
+        )
+    }
+}
+
+async fn check_ui_health() -> ComponentHealth {
+    let url = std::env::var("AOS_UI_HEALTH_URL")
+        .ok()
+        .unwrap_or_else(|| DEFAULT_UI_HEALTH_URL.to_string());
+
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => {
+            return ComponentHealth::new(
+                "ui",
+                ComponentStatus::Degraded,
+                format!("failed to build HTTP client: {}", e),
+            )
+        }
+    };
+
+    match client.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => ComponentHealth::new(
+            "ui",
+            ComponentStatus::Healthy,
+            format!("UI healthy at {}", url),
+        ),
+        Ok(resp) => ComponentHealth::new(
+            "ui",
+            ComponentStatus::Unhealthy,
+            format!("UI health returned {}", resp.status()),
+        ),
+        Err(e) => ComponentHealth::new(
+            "ui",
+            ComponentStatus::Unhealthy,
+            format!("UI health request failed: {}", e),
+        ),
+    }
+}
+
+async fn handle_ready_side_effects(
+    ready: bool,
+    boot_elapsed_ms: Option<u64>,
+    components: &[ComponentHealth],
+) {
+    let flag_path =
+        std::env::var("AOS_SYSTEM_READY_PATH").unwrap_or_else(|_| DEFAULT_READY_FLAG_PATH.into());
+    let log_path =
+        std::env::var("AOS_BOOT_LOG_PATH").unwrap_or_else(|_| DEFAULT_BOOT_LOG_PATH.into());
+
+    let flag_exists = fs::metadata(&flag_path).await.is_ok();
+
+    if ready {
+        write_ready_flag(&flag_path, boot_elapsed_ms, components).await;
+        if !flag_exists {
+            append_boot_log(&log_path, boot_elapsed_ms).await;
+        }
+    } else if flag_exists {
+        if let Err(e) = fs::remove_file(&flag_path).await {
+            warn!(error = %e, path = %flag_path, "Failed to remove system ready flag");
+        }
+    }
+}
+
+async fn write_ready_flag(
+    path: &str,
+    boot_elapsed_ms: Option<u64>,
+    components: &[ComponentHealth],
+) {
+    if let Some(parent) = StdPath::new(path).parent() {
+        if let Err(e) = fs::create_dir_all(parent).await {
+            warn!(
+                error = %e,
+                path = %parent.display(),
+                "Failed to create system ready flag directory"
+            );
+            return;
+        }
+    }
+
+    let payload = serde_json::json!({
+        "ready": true,
+        "boot_elapsed_ms": boot_elapsed_ms,
+        "timestamp": Utc::now().to_rfc3339(),
+        "components": components
+    });
+
+    let bytes = match serde_json::to_vec(&payload) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            warn!(error = %e, "Failed to serialize system ready payload");
+            b"{\"ready\":true}".to_vec()
+        }
+    };
+
+    if let Err(e) = fs::write(path, bytes).await {
+        warn!(error = %e, path = %path, "Failed to write system ready flag");
+    }
+}
+
+async fn append_boot_log(path: &str, boot_elapsed_ms: Option<u64>) {
+    let Some(ms) = boot_elapsed_ms else {
+        return;
+    };
+
+    if let Some(parent) = StdPath::new(path).parent() {
+        if let Err(e) = fs::create_dir_all(parent).await {
+            warn!(
+                error = %e,
+                path = %parent.display(),
+                "Failed to create boot log directory"
+            );
+            return;
+        }
+    }
+
+    match fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .await
+    {
+        Ok(mut file) => {
+            let line = format!("{} boot_ms={}\n", Utc::now().to_rfc3339(), ms);
+            if let Err(e) = file.write_all(line.as_bytes()).await {
+                warn!(error = %e, path = %path, "Failed to append boot log");
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, path = %path, "Failed to open boot log file");
+        }
     }
 }
 

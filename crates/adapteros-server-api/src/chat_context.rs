@@ -231,8 +231,11 @@ mod tests {
             session_id: "test-session".to_string(),
             role: role.to_string(),
             content: content.to_string(),
-            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            timestamp: Some("2024-01-01T00:00:00Z".to_string()),
             metadata_json: None,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            sequence: 0,
+            tenant_id: "tenant-test".to_string(),
         }
     }
 

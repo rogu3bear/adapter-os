@@ -43,10 +43,16 @@ async fn create_test_session(
         id: session_id.to_string(),
         tenant_id: tenant_id.to_string(),
         user_id: None,
+        created_by: None,
         stack_id: None,
         collection_id: None,
+        document_id: None,
         name: "Test Session".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: pinned_adapter_ids.map(|ids| serde_json::to_string(&ids).unwrap()),
     })
     .await
@@ -160,6 +166,9 @@ fn test_inference_request_internal_with_pinned_adapters() {
         stack_determinism_mode: None,
         effective_adapter_ids: None,
         determinism_mode: None,
+        seed_mode: None,
+        request_seed: None,
+        backend_profile: None,
         max_tokens: 512,
         temperature: 0.7,
         top_k: None,
@@ -172,6 +181,7 @@ fn test_inference_request_internal_with_pinned_adapters() {
         model: None,
         created_at: std::time::Instant::now(),
         router_seed: None,
+        worker_auth_token: None,
     };
 
     assert_eq!(request.pinned_adapter_ids, Some(pinned));
@@ -195,6 +205,7 @@ fn test_inference_result_with_unavailable_pinned_adapters() {
         finish_reason: "ok".to_string(),
         adapters_used: vec!["adapter-available".to_string()],
         router_decisions: vec![],
+        router_decision_chain: None,
         rag_evidence: None,
         latency_ms: 100,
         request_id: "req-1".to_string(),
@@ -205,6 +216,7 @@ fn test_inference_result_with_unavailable_pinned_adapters() {
         fallback_triggered: false,
         determinism_mode_applied: None,
         replay_guarantee: None,
+        placement_trace: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -219,6 +231,7 @@ fn test_inference_result_without_unavailable_pinned_adapters() {
         finish_reason: "ok".to_string(),
         adapters_used: vec!["adapter-1".to_string()],
         router_decisions: vec![],
+        router_decision_chain: None,
         rag_evidence: None,
         latency_ms: 100,
         request_id: "req-1".to_string(),
@@ -229,6 +242,7 @@ fn test_inference_result_without_unavailable_pinned_adapters() {
         fallback_triggered: false,
         determinism_mode_applied: None,
         replay_guarantee: None,
+        placement_trace: None,
     };
 
     assert!(result.unavailable_pinned_adapters.is_none());
@@ -250,6 +264,7 @@ fn test_inference_result_all_pins_unavailable_stack_only_fallback() {
         finish_reason: "ok".to_string(),
         adapters_used: vec!["stack-adapter".to_string()],
         router_decisions: vec![],
+        router_decision_chain: None,
         rag_evidence: None,
         latency_ms: 100,
         request_id: "req-1".to_string(),
@@ -260,6 +275,7 @@ fn test_inference_result_all_pins_unavailable_stack_only_fallback() {
         fallback_triggered: false,
         determinism_mode_applied: None,
         replay_guarantee: None,
+        placement_trace: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -280,6 +296,7 @@ fn test_inference_result_partial_pins_unavailable() {
         finish_reason: "ok".to_string(),
         adapters_used: vec!["pin-available".to_string(), "stack-adapter".to_string()],
         router_decisions: vec![],
+        router_decision_chain: None,
         rag_evidence: None,
         latency_ms: 100,
         request_id: "req-1".to_string(),
@@ -290,6 +307,7 @@ fn test_inference_result_partial_pins_unavailable() {
         fallback_triggered: false,
         determinism_mode_applied: None,
         replay_guarantee: None,
+        placement_trace: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -398,10 +416,16 @@ async fn test_tenant_default_pinned_adapters_inheritance() {
         id: "inheriting-session".to_string(),
         tenant_id: tenant_id.clone(),
         user_id: None,
+        created_by: None,
         stack_id: None,
         collection_id: None,
+        document_id: None,
         name: "Inheriting Session".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None, // Not provided - should inherit
     })
     .await
@@ -436,10 +460,16 @@ async fn test_session_explicit_pinned_overrides_tenant_default() {
         id: "explicit-session".to_string(),
         tenant_id: tenant_id.clone(),
         user_id: None,
+        created_by: None,
         stack_id: None,
         collection_id: None,
+        document_id: None,
         name: "Explicit Session".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: Some(serde_json::to_string(&explicit_adapters).unwrap()),
     })
     .await

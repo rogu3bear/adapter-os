@@ -19,12 +19,17 @@ use adapteros_system_metrics::monitoring_types::{
     UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
 };
 use axum::response::Response;
+use chrono::Utc;
+use serde_json::json;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 pub mod activity;
 pub mod adapter_stacks;
 pub mod adapters;
 pub mod admin;
+pub mod admin_lifecycle;
+pub mod api_keys;
 pub mod auth;
 pub mod auth_enhanced;
 pub mod batch;
@@ -48,6 +53,7 @@ pub mod golden;
 pub mod health;
 pub mod inference;
 pub mod journeys;
+pub mod kv_isolation;
 pub mod memory_detail;
 pub mod metrics_time_series;
 pub mod models;
@@ -80,6 +86,7 @@ pub mod training;
 pub mod tutorials;
 pub mod utils;
 pub mod worker_detail;
+pub mod worker_manifests;
 pub mod workers;
 pub mod workspaces;
 
@@ -101,6 +108,11 @@ pub use tenant_policies::{
 
 // Re-export auth handlers (including utoipa path types)
 pub use auth::{__path_auth_login, auth_login, auth_logout, auth_me};
+pub use auth_enhanced::{
+    __path_mfa_disable_handler, __path_mfa_start_handler, __path_mfa_status_handler,
+    __path_mfa_verify_handler, mfa_disable_handler, mfa_start_handler, mfa_status_handler,
+    mfa_verify_handler,
+};
 
 // Re-export training handlers
 pub use training::*;
@@ -137,7 +149,7 @@ pub use domain_adapters::*;
 use serde::{Deserialize, Serialize};
 // use serde_json::json; // unused
 use std::collections::HashMap;
-use tracing::{error, info_span};
+use tracing::{error, info_span, warn};
 
 /// Upsert a synthetic directory adapter and optionally activate it.
 ///
@@ -1825,7 +1837,7 @@ pub async fn get_base_model_status(
             model_id: "none".to_string(),
             model_name: "No Model Loaded".to_string(),
             model_path: None,
-            status: "unloaded".to_string(),
+            status: adapteros_api_types::ModelLoadStatus::NoModel,
             loaded_at: None,
             unloaded_at: None,
             error_message: None,
@@ -1878,13 +1890,14 @@ pub async fn get_base_model_status(
                 )
             })?;
 
-        let is_loaded = status_record.status == "loaded";
+        let status_enum = adapteros_api_types::ModelLoadStatus::from_str(&status_record.status);
+        let is_loaded = status_enum.is_ready();
 
         Ok(Json(BaseModelStatusResponse {
             model_id: status_record.model_id,
             model_name: model.name,
             model_path: model.model_path,
-            status: status_record.status,
+            status: status_enum,
             loaded_at: status_record.loaded_at,
             unloaded_at: status_record.unloaded_at,
             error_message: status_record.error_message,
@@ -1898,7 +1911,7 @@ pub async fn get_base_model_status(
             model_id: "none".to_string(),
             model_name: "No Model Loaded".to_string(),
             model_path: None,
-            status: "unloaded".to_string(),
+            status: adapteros_api_types::ModelLoadStatus::NoModel,
             loaded_at: None,
             unloaded_at: None,
             error_message: None,
@@ -5122,6 +5135,56 @@ pub async fn create_process_monitoring_dashboard(
     ))
 }
 
+fn is_missing_metrics_table(err: &adapteros_core::AosError) -> bool {
+    err.to_string()
+        .contains("no such table: process_health_metrics")
+}
+
+fn map_metrics(
+    metrics: Vec<adapteros_system_metrics::ProcessHealthMetric>,
+) -> Vec<ProcessHealthMetricResponse> {
+    metrics
+        .into_iter()
+        .map(|metric| ProcessHealthMetricResponse {
+            id: metric.id,
+            worker_id: metric.worker_id,
+            tenant_id: metric.tenant_id,
+            metric_name: metric.metric_name,
+            metric_value: metric.metric_value,
+            metric_unit: metric.metric_unit,
+            tags: metric.tags,
+            collected_at: metric.collected_at.to_rfc3339(),
+        })
+        .collect()
+}
+
+async fn fetch_process_health_metrics_with_fallback(
+    state: &AppState,
+    filters: adapteros_system_metrics::MetricFilters,
+) -> Result<Vec<ProcessHealthMetricResponse>, (StatusCode, Json<ErrorResponse>)> {
+    match adapteros_system_metrics::ProcessHealthMetric::query(state.db.pool(), filters).await {
+        Ok(metrics) => Ok(map_metrics(metrics)),
+        Err(e) => {
+            if is_missing_metrics_table(&e) {
+                warn!(
+                    error = %e,
+                    "process_health_metrics table missing; returning empty metrics payload"
+                );
+                Ok(Vec::new())
+            } else {
+                Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                ))
+            }
+        }
+    }
+}
+
 /// List process health metrics
 #[utoipa::path(
     tag = "system",
@@ -5163,34 +5226,7 @@ pub async fn list_process_health_metrics(
         limit: Some(1000), // Limit results
     };
 
-    // Query health metrics from database
-    let metrics = adapteros_system_metrics::ProcessHealthMetric::query(state.db.pool(), filters)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    // Convert ProcessHealthMetric to ProcessHealthMetricResponse
-    let response_metrics: Vec<ProcessHealthMetricResponse> = metrics
-        .into_iter()
-        .map(|metric| ProcessHealthMetricResponse {
-            id: metric.id,
-            worker_id: metric.worker_id,
-            tenant_id: metric.tenant_id,
-            metric_name: metric.metric_name,
-            metric_value: metric.metric_value,
-            metric_unit: metric.metric_unit,
-            tags: metric.tags,
-            collected_at: metric.collected_at.to_rfc3339(),
-        })
-        .collect();
+    let response_metrics = fetch_process_health_metrics_with_fallback(&state, filters).await?;
 
     Ok(Json(response_metrics))
 }
@@ -5209,16 +5245,47 @@ pub async fn list_process_health_metrics(
     )
 )]
 pub async fn list_process_monitoring_reports(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(_params): Query<HashMap<String, String>>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessMonitoringReportResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
-    ))
+    let worker_filter = params.get("worker_id");
+    let metric_filter = params.get("metric_name");
+    let start_time_filter = params.get("start_time");
+    let end_time_filter = params.get("end_time");
+
+    let filters = adapteros_system_metrics::MetricFilters {
+        worker_id: worker_filter.cloned(),
+        tenant_id: None,
+        metric_name: metric_filter.cloned(),
+        start_time: start_time_filter
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc)),
+        end_time: end_time_filter
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc)),
+        limit: Some(1000),
+    };
+
+    let response_metrics = fetch_process_health_metrics_with_fallback(&state, filters).await?;
+
+    let report = ProcessMonitoringReportResponse {
+        id: format!("report-{}", Uuid::now_v7()),
+        name: "Live metrics".to_string(),
+        description: Some("Alias of /v1/monitoring/health-metrics".to_string()),
+        tenant_id: claims.tenant_id.clone(),
+        report_type: "metrics_alias".to_string(),
+        report_config: json!({"alias": "health-metrics", "filters": params}),
+        generated_at: Utc::now().to_rfc3339(),
+        report_data: Some(json!(response_metrics)),
+        file_path: None,
+        file_size_bytes: None,
+        created_by: Some(claims.sub.clone()),
+    };
+
+    Ok(Json(vec![report]))
 }
 
 /// Create process monitoring report
@@ -7390,6 +7457,7 @@ pub async fn routing_decisions(
         stack_id: params.stack_id.clone(),
         adapter_id: params.adapter_id.clone(),
         request_id: params.request_id.clone(),
+        source_type: params.source_type.clone(),
         since: params.since.clone(),
         until: params.until.clone(),
         min_entropy: params.min_entropy,

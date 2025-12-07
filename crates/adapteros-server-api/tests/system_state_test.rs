@@ -182,7 +182,7 @@ async fn test_get_system_state_node_populated() {
     let node = &response.node;
 
     // Node state should have valid values
-    assert!(node.uptime_seconds >= 0);
+    assert!(node.uptime_seconds > 0, "uptime should be positive");
     assert!(node.cpu_usage_percent >= 0.0 && node.cpu_usage_percent <= 100.0);
     assert!(node.memory_usage_percent >= 0.0 && node.memory_usage_percent <= 100.0);
 }

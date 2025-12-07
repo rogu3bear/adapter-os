@@ -71,6 +71,7 @@ impl UdsClient {
         &self,
         uds_path: &Path,
         request: crate::types::WorkerInferRequest,
+        authorization: Option<&str>,
     ) -> Result<crate::types::WorkerInferResponse, UdsClientError> {
         // GUARD: Fail hard if not in routed context
         if !is_routed_context() {
@@ -94,14 +95,20 @@ impl UdsClient {
         let request_json = serde_json::to_string(&request)
             .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
 
+        let auth_header = authorization
+            .map(|token| format!("Authorization: ApiKey {}\r\n", token))
+            .unwrap_or_default();
+
         // Create HTTP request
         let http_request = format!(
             "POST /inference HTTP/1.1\r\n\
              Host: worker\r\n\
              Content-Type: application/json\r\n\
+             {}\
              Content-Length: {}\r\n\
              \r\n\
              {}",
+            auth_header,
             request_json.len(),
             request_json
         );
@@ -170,9 +177,10 @@ impl UdsClient {
         &self,
         uds_path: &Path,
         request: crate::types::WorkerInferRequest,
+        authorization: Option<&str>,
     ) -> Result<(crate::types::WorkerInferResponse, u64), UdsClientError> {
         let start = Instant::now();
-        let response = self.infer(uds_path, request).await?;
+        let response = self.infer(uds_path, request, authorization).await?;
         let latency_ms = start.elapsed().as_millis() as u64;
         Ok((response, latency_ms))
     }
@@ -760,11 +768,15 @@ mod tests {
             top_p: Some(0.9),
             seed: Some(4242),
             router_seed: Some("router-seed".to_string()),
+            seed_mode: None,
+            request_seed: None,
+            backend_profile: None,
             determinism_mode: Some("strict".to_string()),
             pinned_adapter_ids: Some(vec!["adapter-a".to_string(), "adapter-b".to_string()]),
             strict_mode: Some(true),
             effective_adapter_ids: Some(vec!["eff-1".to_string(), "eff-2".to_string()]),
             routing_policy: None,
+            placement: None,
         };
 
         let serialized =
@@ -783,6 +795,9 @@ mod tests {
         assert_eq!(request.top_p, deserialized.top_p);
         assert_eq!(request.seed, deserialized.seed);
         assert_eq!(request.router_seed, deserialized.router_seed);
+        assert_eq!(request.seed_mode, deserialized.seed_mode);
+        assert_eq!(request.request_seed, deserialized.request_seed);
+        assert_eq!(request.backend_profile, deserialized.backend_profile);
         assert_eq!(request.determinism_mode, deserialized.determinism_mode);
         assert_eq!(request.pinned_adapter_ids, deserialized.pinned_adapter_ids);
         assert_eq!(request.strict_mode, deserialized.strict_mode);

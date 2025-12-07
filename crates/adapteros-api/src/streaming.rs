@@ -299,10 +299,14 @@ async fn generate_streaming_response<
         top_p: None,
         seed: None,
         router_seed: None,
+        seed_mode: None,
+        request_seed: None,
+        backend_profile: None,
         pinned_adapter_ids: None,
-        determinism_mode: String::new(),
+        determinism_mode: "strict".to_string(),
         strict_mode: false,
         effective_adapter_ids: None,
+        placement: None,
         routing_policy: None,
     };
 
@@ -425,10 +429,14 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         top_p: None,
         seed: None,
         router_seed: None,
+        seed_mode: None,
+        request_seed: None,
+        backend_profile: None,
         pinned_adapter_ids: None,
-        determinism_mode: String::new(),
+        determinism_mode: "strict".to_string(),
         strict_mode: false,
         effective_adapter_ids: None,
+        placement: None,
         routing_policy: None,
     };
 

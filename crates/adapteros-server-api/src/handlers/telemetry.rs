@@ -9,6 +9,10 @@ use crate::types::{
     ActivityEventResponse, ErrorResponse, MetricDataPointResponse, MetricsSeriesResponse,
     MetricsSnapshotResponse,
 };
+use adapteros_db::kv_metrics::{
+    global_kv_metrics, KV_ALERT_METRIC_DEGRADATIONS, KV_ALERT_METRIC_DRIFT, KV_ALERT_METRIC_ERRORS,
+    KV_ALERT_METRIC_FALLBACKS,
+};
 use adapteros_db::users::Role;
 use adapteros_db::ActivityEvent;
 use adapteros_telemetry::{LogLevel, TelemetryFilters, UnifiedTelemetryEvent};
@@ -37,14 +41,33 @@ pub async fn get_metrics_snapshot(
 
     // Use metrics_exporter snapshot and convert to response format
     let exporter_snapshot = state.metrics_exporter.snapshot();
+    let kv_snapshot = global_kv_metrics().snapshot();
+
+    let mut counters = std::collections::HashMap::from([(
+        "total_requests".to_string(),
+        exporter_snapshot.total_requests,
+    )]);
+    counters.insert(
+        KV_ALERT_METRIC_FALLBACKS.to_string(),
+        kv_snapshot.fallback_operations_total as f64,
+    );
+    counters.insert(
+        KV_ALERT_METRIC_ERRORS.to_string(),
+        kv_snapshot.errors_total as f64,
+    );
+    counters.insert(
+        KV_ALERT_METRIC_DRIFT.to_string(),
+        kv_snapshot.drift_detections_total as f64,
+    );
+    counters.insert(
+        KV_ALERT_METRIC_DEGRADATIONS.to_string(),
+        kv_snapshot.degraded_events_total as f64,
+    );
 
     // Create a MetricsSnapshotResponse from the exporter snapshot
     let response = MetricsSnapshotResponse {
         timestamp: Some(exporter_snapshot.timestamp.to_string()),
-        counters: std::collections::HashMap::from([(
-            "total_requests".to_string(),
-            exporter_snapshot.total_requests,
-        )]),
+        counters,
         gauges: std::collections::HashMap::from([
             ("queue_depth".to_string(), exporter_snapshot.queue_depth),
             (

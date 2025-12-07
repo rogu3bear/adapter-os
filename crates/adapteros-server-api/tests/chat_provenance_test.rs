@@ -8,10 +8,14 @@
 mod common;
 
 use adapteros_core::Result;
+use adapteros_db::chat_sessions::CreateChatProvenanceParams;
 use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::Db;
-use adapteros_server_api::handlers::chat_sessions::get_chat_provenance;
+use adapteros_server_api::handlers::chat_sessions::{
+    add_chat_message, create_chat_session, get_chat_provenance, AddChatMessageRequest,
+    CreateChatSessionRequest,
+};
 use axum::{extract::Path, extract::State, Extension, Json};
 use common::{setup_state, test_admin_claims};
 use uuid::Uuid;
@@ -159,6 +163,81 @@ async fn create_test_stack_with_adapters(
 }
 
 // =============================================================================
+// Minimal provenance response coverage
+// =============================================================================
+
+#[tokio::test]
+async fn provenance_returns_entries_for_chat_session() {
+    let state = setup_state(None).await.expect("state");
+    let claims = test_admin_claims();
+
+    let create_req = CreateChatSessionRequest {
+        tenant_id: None,
+        name: "Provenance Flow".to_string(),
+        title: None,
+        stack_id: None,
+        collection_id: None,
+        document_id: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
+        metadata_json: None,
+        tags: None,
+    };
+
+    let (status, Json(created)) = create_chat_session(
+        State(state.clone()),
+        Extension(claims.clone()),
+        Json(create_req),
+    )
+    .await
+    .expect("create session");
+    assert_eq!(status, axum::http::StatusCode::CREATED);
+
+    let add_req = AddChatMessageRequest {
+        role: "user".to_string(),
+        content: "trace me".to_string(),
+        metadata_json: None,
+    };
+    let (_msg_status, Json(msg)) = add_chat_message(
+        State(state.clone()),
+        Extension(claims.clone()),
+        Path(created.session_id.clone()),
+        Json(add_req),
+    )
+    .await
+    .expect("add message");
+
+    state
+        .db
+        .add_chat_provenance(CreateChatProvenanceParams {
+            id: "prov-entry-1".to_string(),
+            session_id: created.session_id.clone(),
+            message_id: Some(msg.id.clone()),
+            tenant_id: claims.tenant_id.clone(),
+            inference_call_id: Some("call-123".to_string()),
+            payload_snapshot: r#"{"ok":true}"#.to_string(),
+            created_at: None,
+        })
+        .await
+        .expect("provenance inserted");
+
+    let Json(resp) = get_chat_provenance(
+        State(state),
+        Extension(claims),
+        Path(created.session_id.clone()),
+    )
+    .await
+    .expect("provenance response");
+
+    assert_eq!(resp.session.id, created.session_id);
+    assert_eq!(resp.session.message_count, 1);
+    let entries = resp.entries.expect("entries present");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].message_id.as_deref(), Some(msg.id.as_str()));
+    assert_eq!(entries[0].inference_call_id.as_deref(), Some("call-123"));
+}
+
+// =============================================================================
 // Test: Provenance chain data exists for complete flow
 // =============================================================================
 
@@ -240,10 +319,16 @@ async fn test_provenance_chain_data_exists() {
         id: "session-provenance-001".to_string(),
         tenant_id: tenant_id.to_string(),
         user_id: None,
+        created_by: None,
         stack_id: Some(stack_id.clone()),
         collection_id: None,
+        document_id: None,
         name: "Provenance Test Chat".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     };
 
@@ -352,10 +437,16 @@ async fn test_provenance_external_adapter() {
         id: "session-external-001".to_string(),
         tenant_id: tenant_id.to_string(),
         user_id: None,
+        created_by: None,
         stack_id: Some(stack_id.clone()),
         collection_id: None,
+        document_id: None,
         name: "External Adapter Chat".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     };
 
@@ -396,10 +487,15 @@ fn test_claims_for_tenant(tenant_id: &str) -> adapteros_server_api::auth::Claims
         roles: vec!["admin".to_string()],
         tenant_id: tenant_id.to_string(),
         admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
         exp: 9999999999,
         iat: 0,
         jti: "test-token".to_string(),
         nbf: 0,
+        iss: "adapteros".to_string(),
     }
 }
 
@@ -468,10 +564,16 @@ async fn test_provenance_handler_happy_path() {
         id: session_id.to_string(),
         tenant_id: tenant_id.to_string(),
         user_id: None,
+        created_by: None,
         stack_id: Some(stack_id.clone()),
         collection_id: None,
+        document_id: None,
         name: "Handler Test Chat".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     };
     if let Err(e) = state.db.create_chat_session(session_params).await {
@@ -565,10 +667,16 @@ async fn test_provenance_handler_tenant_isolation() {
         id: session_id.to_string(),
         tenant_id: owner_tenant.to_string(),
         user_id: None,
+        created_by: None,
         stack_id: None,
         collection_id: None,
+        document_id: None,
         name: "Isolation Test Chat".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     };
     if let Err(e) = state.db.create_chat_session(session_params).await {
@@ -612,10 +720,16 @@ async fn test_provenance_handler_no_stack() {
         id: session_id.to_string(),
         tenant_id: tenant_id.to_string(),
         user_id: None,
+        created_by: None,
         stack_id: None, // No stack
         collection_id: None,
+        document_id: None,
         name: "No Stack Chat".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
         metadata_json: None,
+        tags_json: None,
         pinned_adapter_ids: None,
     };
     if let Err(e) = state.db.create_chat_session(session_params).await {

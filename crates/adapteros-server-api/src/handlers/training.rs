@@ -1063,10 +1063,16 @@ pub async fn create_chat_from_training_job(
         id: session_id.clone(),
         tenant_id: claims.tenant_id.clone(),
         user_id: Some(claims.sub.clone()),
+        created_by: Some(claims.sub.clone()),
         stack_id: Some(stack_id.clone()),
         collection_id,
+        document_id: None,
         name: name.clone(),
+        title: None,
+        source_type: Some("training_job".to_string()),
+        source_ref_id: Some(req.training_job_id.clone()),
         metadata_json: req.metadata_json,
+        tags_json: None,
         pinned_adapter_ids: None, // Inherits from tenant default
     };
 

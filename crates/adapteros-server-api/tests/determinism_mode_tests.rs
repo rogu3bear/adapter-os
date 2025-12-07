@@ -286,6 +286,7 @@ fn test_inference_result_determinism_fields_flow_through() {
         finish_reason: "stop".to_string(),
         adapters_used: vec!["adapter1".to_string()],
         router_decisions: vec![],
+        router_decision_chain: None,
         rag_evidence: None,
         latency_ms: 100,
         request_id: "req-123".to_string(),
@@ -296,6 +297,7 @@ fn test_inference_result_determinism_fields_flow_through() {
         fallback_triggered: true,
         determinism_mode_applied: Some("besteffort".to_string()),
         replay_guarantee: Some(ReplayGuarantee::Approximate),
+        placement_trace: None,
     };
 
     // Convert to InferResponse
@@ -326,6 +328,7 @@ fn test_inference_result_strict_mode_exact_guarantee() {
         finish_reason: "stop".to_string(),
         adapters_used: vec![],
         router_decisions: vec![],
+        router_decision_chain: None,
         rag_evidence: None,
         latency_ms: 100,
         request_id: "req-456".to_string(),
@@ -336,6 +339,7 @@ fn test_inference_result_strict_mode_exact_guarantee() {
         fallback_triggered: false,
         determinism_mode_applied: Some("strict".to_string()),
         replay_guarantee: Some(ReplayGuarantee::Exact),
+        placement_trace: None,
     };
 
     let response: InferResponse = result.into();
@@ -361,6 +365,7 @@ fn test_inference_result_direct_mode_no_fallback() {
         finish_reason: "stop".to_string(),
         adapters_used: vec![],
         router_decisions: vec![],
+        router_decision_chain: None,
         rag_evidence: None,
         latency_ms: 50,
         request_id: "req-789".to_string(),
@@ -371,6 +376,7 @@ fn test_inference_result_direct_mode_no_fallback() {
         fallback_triggered: false, // Always false in direct mode
         determinism_mode_applied: Some("strict".to_string()),
         replay_guarantee: Some(ReplayGuarantee::Exact),
+        placement_trace: None,
     };
 
     let response: InferResponse = result.into();

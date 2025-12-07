@@ -546,6 +546,9 @@ pub async fn execute_replay_session(
         stack_determinism_mode: None,
         effective_adapter_ids: None,
         determinism_mode: None,
+        seed_mode: None,
+        request_seed: None,
+        backend_profile: None,
         max_tokens: req.max_tokens,
         temperature: 0.7, // Default, could be stored in session
         top_k: None,
@@ -558,6 +561,7 @@ pub async fn execute_replay_session(
         chat_context_hash: None,
         model: None,
         created_at: std::time::Instant::now(),
+        worker_auth_token: None,
     };
 
     // Execute inference through the unified pipeline with replay context (PRD-02)

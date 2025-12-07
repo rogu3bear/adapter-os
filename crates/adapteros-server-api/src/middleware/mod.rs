@@ -7,12 +7,14 @@
 //! - Compression
 //! - Caching (ETags, conditional requests)
 
-use crate::auth::{validate_token, validate_token_ed25519, Claims};
+use crate::auth::{validate_access_token_ed25519, validate_token, Claims};
 use crate::ip_extraction::{extract_client_ip, ClientIp};
 use crate::security::is_token_revoked;
+use crate::security::{get_session_by_id, update_session_activity, validate_tenant_isolation};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_db::auth_sessions_kv::AuthSessionKvRepository;
 use adapteros_db::users::Role;
 use axum::{
     extract::State,
@@ -21,10 +23,16 @@ use axum::{
     response::Response,
     Json,
 };
+use blake3::Hasher;
 use chrono::{Duration, Utc};
+use serde_json;
 use std::env;
 use std::str::FromStr;
 use uuid::Uuid;
+
+/// Raw ApiKey token attached to the request for downstream use (e.g., worker UDS)
+#[derive(Clone)]
+pub struct ApiKeyToken(pub String);
 
 /// Extract auth_token from Cookie header
 fn extract_token_from_cookie(headers: &HeaderMap) -> Option<String> {
@@ -42,16 +50,34 @@ fn extract_token_from_cookie(headers: &HeaderMap) -> Option<String> {
         })
 }
 
+fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|cookies| {
+            let prefix = format!("{name}=");
+            for cookie in cookies.split(';') {
+                let cookie = cookie.trim();
+                if let Some(token) = cookie.strip_prefix(&prefix) {
+                    return Some(token.to_string());
+                }
+            }
+            None
+        })
+}
+
 pub mod audit;
 pub mod caching;
 pub mod compression;
 pub mod context;
+pub mod observability;
 pub mod policy_enforcement;
 pub mod request_id;
 pub mod versioning;
 
 pub use caching::{caching_middleware, CacheControl};
 pub use compression::compression_middleware;
+pub use observability::observability_middleware;
 pub use policy_enforcement::policy_enforcement_middleware;
 pub use request_id::request_id_middleware;
 pub use versioning::{versioning_middleware, ApiVersion, DeprecationInfo};
@@ -92,11 +118,401 @@ fn dev_no_auth_claims() -> Claims {
         // SECURITY: This only works in debug builds via dev_no_auth_enabled() check
         // The "*" wildcard is recognized by check_tenant_access_core() in security/mod.rs
         admin_tenants: vec!["*".to_string()],
+        device_id: None,
+        session_id: Some("dev-session".to_string()),
+        mfa_level: None,
+        rot_id: None,
         exp: (now + Duration::hours(8)).timestamp(),
         iat: now.timestamp(),
         jti: Uuid::new_v4().to_string(),
         nbf: now.timestamp(),
+        iss: crate::auth::JWT_ISSUER.to_string(),
     }
+}
+
+fn extract_tenant_id_from_path(path: &str) -> Option<String> {
+    let mut segments = path.split('/').filter(|s| !s.is_empty());
+    while let Some(seg) = segments.next() {
+        if seg == "tenants" {
+            if let Some(tid) = segments.next() {
+                return Some(tid.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Enforce tenant isolation for any route containing `/tenants/{tenant_id}` in the path.
+///
+/// SECURITY: This runs after authentication and rejects cross-tenant access unless the caller
+/// has explicit admin_tenants access (or dev wildcard in debug builds).
+pub async fn tenant_route_guard_middleware(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    if let Some(path_tenant) = extract_tenant_id_from_path(req.uri().path()) {
+        let claims = req.extensions().get::<Claims>().cloned().ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(
+                    ErrorResponse::new("unauthorized")
+                        .with_code("UNAUTHORIZED")
+                        .with_string_details("missing auth claims for tenant-scoped route"),
+                ),
+            )
+        })?;
+
+        validate_tenant_isolation(&claims, &path_tenant)?;
+    }
+
+    Ok(next.run(req).await)
+}
+
+/// Reject new work when the control plane is in maintenance or draining state.
+pub async fn lifecycle_gate(
+    State(state): State<AppState>,
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let path = req.uri().path();
+    // Allow health and admin lifecycle endpoints to bypass the gate
+    let bypass = path.starts_with("/healthz")
+        || path.starts_with("/readyz")
+        || path.starts_with("/system/ready")
+        || path.starts_with("/v1/status")
+        || path.starts_with("/admin/lifecycle");
+    if bypass {
+        return Ok(next.run(req).await);
+    }
+
+    if let Some(boot_state) = state.boot_state.as_ref() {
+        let current = boot_state.current_state();
+        if current.is_maintenance() {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new("maintenance")
+                        .with_code("SERVICE_UNAVAILABLE")
+                        .with_string_details("control plane in maintenance"),
+                ),
+            ));
+        }
+        if current.is_draining() || current.is_shutting_down() {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new("draining")
+                        .with_code("SERVICE_UNAVAILABLE")
+                        .with_string_details("control plane draining"),
+                ),
+            ));
+        }
+    }
+
+    Ok(next.run(req).await)
+}
+
+fn unauthorized_api_key() -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(
+            ErrorResponse::new("unauthorized")
+                .with_code("UNAUTHORIZED")
+                .with_string_details("invalid api key"),
+        ),
+    )
+}
+
+async fn validate_api_key(
+    state: &AppState,
+    token: &str,
+) -> Result<(Claims, ApiKeyToken), (StatusCode, Json<ErrorResponse>)> {
+    let mut hasher = Hasher::new();
+    hasher.update(token.as_bytes());
+    let hash = hasher.finalize().to_hex().to_string();
+
+    let record = state
+        .db
+        .get_api_key_by_hash(&hash, false)
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = %e, "API key lookup failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+
+    let record = match record {
+        Some(r) => r,
+        None => return Err(unauthorized_api_key()),
+    };
+
+    let user = state.db.get_user(&record.user_id).await.map_err(|e| {
+        tracing::warn!(error = %e, "Failed to load API key user");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let user = match user {
+        Some(u) => u,
+        None => return Err(unauthorized_api_key()),
+    };
+
+    if user.tenant_id != record.tenant_id {
+        tracing::warn!(
+            user_tenant = %user.tenant_id,
+            key_tenant = %record.tenant_id,
+            "API key tenant mismatch"
+        );
+        return Err(unauthorized_api_key());
+    }
+
+    let scopes: Vec<String> = match serde_json::from_str(&record.scopes) {
+        Ok(v) => v,
+        Err(_) => return Err(unauthorized_api_key()),
+    };
+
+    if scopes.is_empty() {
+        return Err(unauthorized_api_key());
+    }
+
+    let now = Utc::now();
+    let primary_role = scopes
+        .get(0)
+        .cloned()
+        .unwrap_or_else(|| "viewer".to_string());
+
+    let claims = Claims {
+        sub: record.user_id.clone(),
+        email: user.email.clone(),
+        role: primary_role,
+        roles: scopes,
+        tenant_id: record.tenant_id.clone(),
+        admin_tenants: vec![],
+        device_id: None,
+        session_id: Some(format!("api-key:{}", record.id)),
+        mfa_level: None,
+        rot_id: None,
+        exp: (now + Duration::days(365)).timestamp(),
+        iat: now.timestamp(),
+        jti: format!("api-key:{}", record.id),
+        nbf: now.timestamp(),
+        iss: crate::auth::JWT_ISSUER.to_string(),
+    };
+
+    Ok((claims, ApiKeyToken(token.to_string())))
+}
+
+fn kv_repo(state: &AppState) -> Option<AuthSessionKvRepository> {
+    state.db.kv_backend().map(|kv| {
+        let backend: std::sync::Arc<dyn adapteros_db::KvBackend> = kv.clone();
+        AuthSessionKvRepository::new(backend)
+    })
+}
+
+async fn validate_access_token_with_session(
+    state: &AppState,
+    token: &str,
+) -> Result<Claims, (StatusCode, Json<ErrorResponse>)> {
+    let claims = if state.use_ed25519 {
+        validate_access_token_ed25519(token, &state.ed25519_public_keys, &state.ed25519_public_key)
+    } else {
+        // Legacy HMAC path retains session validation below
+        validate_token(token, &state.hmac_keys, state.jwt_secret.as_slice())
+    }
+    .map_err(|e| {
+        tracing::warn!(error = %e, "Token validation failed");
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse::new("unauthorized").with_code("UNAUTHORIZED")),
+        )
+    })?;
+
+    if claims.iss != crate::auth::JWT_ISSUER {
+        tracing::warn!(iss = %claims.iss, "Invalid token issuer");
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(
+                ErrorResponse::new("unauthorized")
+                    .with_code("UNAUTHORIZED")
+                    .with_string_details("invalid issuer"),
+            ),
+        ));
+    }
+
+    if claims.tenant_id.is_empty() {
+        tracing::warn!("Token missing tenant_id");
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(
+                ErrorResponse::new("unauthorized")
+                    .with_code("UNAUTHORIZED")
+                    .with_string_details("missing tenant"),
+            ),
+        ));
+    }
+
+    let session_id = claims.session_id.clone().ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(
+                ErrorResponse::new("unauthorized")
+                    .with_code("UNAUTHORIZED")
+                    .with_string_details("missing session"),
+            ),
+        )
+    })?;
+
+    // Validate KV session linkage if backend is present
+    let now_ts = Utc::now().timestamp();
+
+    if let Some(repo) = kv_repo(state) {
+        match repo.get_session(&session_id).await {
+            Ok(Some(session)) => {
+                let now = Utc::now().timestamp();
+                let expiry = session.refresh_expires_at.unwrap_or(session.expires_at);
+                if now >= expiry {
+                    tracing::warn!(session_id = %session_id, "Session expired");
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        Json(
+                            ErrorResponse::new("session expired")
+                                .with_code("SESSION_EXPIRED")
+                                .with_string_details("session no longer valid"),
+                        ),
+                    ));
+                }
+
+                if session.locked {
+                    tracing::warn!(session_id = %session_id, "Session locked");
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        Json(
+                            ErrorResponse::new("session expired")
+                                .with_code("SESSION_EXPIRED")
+                                .with_string_details("session locked"),
+                        ),
+                    ));
+                }
+
+                if let (Some(token_device), Some(session_device)) =
+                    (claims.device_id.as_ref(), session.device_id.as_ref())
+                {
+                    if token_device != session_device {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            token_device = %token_device,
+                            session_device = %session_device,
+                            "Device mismatch for session"
+                        );
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(
+                                ErrorResponse::new("unauthorized")
+                                    .with_code("UNAUTHORIZED")
+                                    .with_string_details("device mismatch"),
+                            ),
+                        ));
+                    }
+                }
+
+                if let Err(e) = repo.update_activity(&session_id).await {
+                    tracing::debug!(error = %e, "Failed to update session activity (KV)");
+                }
+            }
+            Ok(None) => {
+                tracing::warn!(session_id = %session_id, "Session not found in KV");
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(
+                        ErrorResponse::new("unauthorized")
+                            .with_code("UNAUTHORIZED")
+                            .with_string_details("session not found"),
+                    ),
+                ));
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to load session from KV");
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+                ));
+            }
+        }
+    } else {
+        // SQL fallback
+        match get_session_by_id(&state.db, &session_id).await {
+            Ok(Some(session)) => {
+                let session_exp_ts = session
+                    .refresh_expires_at
+                    .as_ref()
+                    .or_else(|| Some(&session.expires_at))
+                    .and_then(|dt| chrono::DateTime::parse_from_rfc3339(dt).ok())
+                    .map(|dt| dt.timestamp())
+                    .unwrap_or(now_ts);
+
+                if session.locked != 0 || session_exp_ts <= now_ts {
+                    tracing::warn!(session_id = %session_id, "Session expired or locked (SQL)");
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        Json(
+                            ErrorResponse::new("session expired")
+                                .with_code("SESSION_EXPIRED")
+                                .with_string_details("session no longer valid"),
+                        ),
+                    ));
+                }
+
+                if let (Some(token_device), Some(session_device)) =
+                    (claims.device_id.as_ref(), session.device_id.as_ref())
+                {
+                    if token_device != session_device {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            token_device = %token_device,
+                            session_device = %session_device,
+                            "Device mismatch for session (SQL)"
+                        );
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(
+                                ErrorResponse::new("unauthorized")
+                                    .with_code("UNAUTHORIZED")
+                                    .with_string_details("device mismatch"),
+                            ),
+                        ));
+                    }
+                }
+
+                if let Err(e) = update_session_activity(&state.db, &session_id).await {
+                    tracing::debug!(error = %e, "Failed to update session activity (SQL)");
+                }
+            }
+            Ok(None) => {
+                tracing::warn!(session_id = %session_id, "Session not found in SQL");
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(
+                        ErrorResponse::new("unauthorized")
+                            .with_code("UNAUTHORIZED")
+                            .with_string_details("session not found"),
+                    ),
+                ));
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to load session from SQL");
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+                ));
+            }
+        }
+    }
+
+    Ok(claims)
 }
 
 /// Extract client IP address from request headers (applies to all routes)
@@ -106,6 +522,46 @@ pub async fn client_ip_middleware(mut req: Request<axum::body::Body>, next: Next
     let ip = extract_client_ip(req.headers()).unwrap_or_else(|| "127.0.0.1".to_string());
     req.extensions_mut().insert(ClientIp(ip));
     next.run(req).await
+}
+
+/// CSRF double-submit check for cookie-authenticated mutations.
+pub async fn csrf_middleware(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let method = req.method().clone();
+    let is_unsafe = matches!(
+        method,
+        axum::http::Method::POST
+            | axum::http::Method::PUT
+            | axum::http::Method::PATCH
+            | axum::http::Method::DELETE
+    );
+
+    if is_unsafe {
+        let has_auth_cookie = extract_cookie_value(req.headers(), "auth_token").is_some();
+        if has_auth_cookie {
+            let cookie_token = extract_cookie_value(req.headers(), "csrf_token");
+            let header_token = req
+                .headers()
+                .get("X-CSRF-Token")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+
+            if cookie_token.is_none() || header_token != cookie_token {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    Json(
+                        ErrorResponse::new("csrf validation failed")
+                            .with_code("CSRF_ERROR")
+                            .with_string_details("Missing or invalid CSRF token"),
+                    ),
+                ));
+            }
+        }
+    }
+
+    Ok(next.run(req).await)
 }
 
 /// Extract and validate JWT from Authorization header
@@ -148,58 +604,35 @@ pub async fn auth_middleware(
     // Also try to extract token from cookies for browser-based authentication
     let cookie_token = extract_token_from_cookie(req.headers());
 
-    let token = auth_header
-        .and_then(|header| header.strip_prefix("Bearer "))
-        .or(query_token.as_deref())
-        .or(cookie_token.as_deref());
+    enum AuthToken<'a> {
+        ApiKey(&'a str),
+        Jwt(&'a str),
+    }
+
+    let token = if let Some(header) = auth_header {
+        if let Some(api_key) = header.strip_prefix("ApiKey ") {
+            Some(AuthToken::ApiKey(api_key))
+        } else if let Some(bearer) = header.strip_prefix("Bearer ") {
+            Some(AuthToken::Jwt(bearer))
+        } else {
+            None
+        }
+    } else if let Some(q) = query_token.as_deref() {
+        Some(AuthToken::Jwt(q))
+    } else if let Some(c) = cookie_token.as_deref() {
+        Some(AuthToken::Jwt(c))
+    } else {
+        None
+    };
 
     if let Some(token) = token {
-        // Use Ed25519 or HMAC validation based on server configuration
-        let claims_result = if state.use_ed25519 {
-            validate_token_ed25519(token, &state.ed25519_public_key)
-        } else {
-            validate_token(token, &state.jwt_secret)
-        };
-        match claims_result {
-            Ok(claims) => {
-                // Debug logging for JWT validation - helps diagnose auth issues in development
-                #[cfg(debug_assertions)]
-                tracing::debug!(
-                    user_id = %claims.sub,
-                    tenant_id = %claims.tenant_id,
-                    admin_tenants = ?claims.admin_tenants,
-                    jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
-                    "JWT validated successfully"
-                );
-
-                // Check if token has been revoked (single check, fail-closed on DB errors)
-                match is_token_revoked(&state.db, &claims.jti).await {
-                    Ok(true) => {
-                        tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used");
-                        return Err((
-                            StatusCode::UNAUTHORIZED,
-                            Json(
-                                ErrorResponse::new("token revoked")
-                                    .with_code("TOKEN_REVOKED")
-                                    .with_string_details("this token has been revoked"),
-                            ),
-                        ));
-                    }
-                    Ok(false) => { /* Token not revoked, continue */ }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Failed to check token revocation - denying access");
-                        return Err((
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-                        ));
-                    }
-                }
-
-                // Extract tenant_id and expiration before moving claims
+        match token {
+            AuthToken::ApiKey(api_token) => {
+                let (claims, api_key_token) = validate_api_key(&state, api_token).await?;
                 let tenant_id = claims.tenant_id.clone();
                 let token_exp = claims.exp;
-                // Insert claims into request extensions for handlers to use
                 req.extensions_mut().insert(claims);
+                req.extensions_mut().insert(api_key_token);
                 let identity = IdentityEnvelope::new(
                     tenant_id,
                     "api".to_string(),
@@ -208,18 +641,9 @@ pub async fn auth_middleware(
                 );
                 req.extensions_mut().insert(identity);
 
-                // Execute the request handler
                 let response = next.run(req).await;
-
-                // SECURITY: Re-validate token expiration after handler completes
-                // This prevents token expiry during long-running requests
                 let now = Utc::now().timestamp();
                 if now >= token_exp {
-                    tracing::warn!(
-                        exp = token_exp,
-                        now = now,
-                        "Token expired during request processing"
-                    );
                     return Err((
                         StatusCode::UNAUTHORIZED,
                         Json(
@@ -232,12 +656,78 @@ pub async fn auth_middleware(
 
                 return Ok(response);
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "Token validation failed");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(ErrorResponse::new("unauthorized").with_code("UNAUTHORIZED")),
-                ));
+            AuthToken::Jwt(token) => {
+                match validate_access_token_with_session(&state, token).await {
+                    Ok(claims) => {
+                        #[cfg(debug_assertions)]
+                        tracing::debug!(
+                            user_id = %claims.sub,
+                            tenant_id = %claims.tenant_id,
+                            admin_tenants = ?claims.admin_tenants,
+                            jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
+                            "JWT validated successfully"
+                        );
+
+                        match is_token_revoked(&state.db, &claims.jti).await {
+                            Ok(true) => {
+                                tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used");
+                                return Err((
+                                    StatusCode::UNAUTHORIZED,
+                                    Json(
+                                        ErrorResponse::new("token revoked")
+                                            .with_code("TOKEN_REVOKED")
+                                            .with_string_details("this token has been revoked"),
+                                    ),
+                                ));
+                            }
+                            Ok(false) => { /* Token not revoked, continue */ }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Failed to check token revocation - denying access");
+                                return Err((
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Json(
+                                        ErrorResponse::new("internal error")
+                                            .with_code("INTERNAL_ERROR"),
+                                    ),
+                                ));
+                            }
+                        }
+
+                        let tenant_id = claims.tenant_id.clone();
+                        let token_exp = claims.exp;
+                        req.extensions_mut().insert(claims);
+                        let identity = IdentityEnvelope::new(
+                            tenant_id,
+                            "api".to_string(),
+                            "middleware".to_string(), // or specific
+                            IdentityEnvelope::default_revision(),
+                        );
+                        req.extensions_mut().insert(identity);
+
+                        let response = next.run(req).await;
+                        let now = Utc::now().timestamp();
+                        if now >= token_exp {
+                            tracing::warn!(
+                                exp = token_exp,
+                                now = now,
+                                "Token expired during request processing"
+                            );
+                            return Err((
+                                StatusCode::UNAUTHORIZED,
+                                Json(
+                                    ErrorResponse::new("session expired")
+                                        .with_code("SESSION_EXPIRED")
+                                        .with_string_details(
+                                            "token expired during request processing",
+                                        ),
+                                ),
+                            ));
+                        }
+
+                        return Ok(response);
+                    }
+                    Err(err) => return Err(err),
+                }
             }
         }
     }
@@ -293,55 +783,34 @@ pub async fn dual_auth_middleware(
     // Also try to extract token from cookies for browser-based authentication
     let cookie_token = extract_token_from_cookie(req.headers());
 
-    let token = auth_header
-        .and_then(|header| header.strip_prefix("Bearer "))
-        .or(query_token.as_deref())
-        .or(cookie_token.as_deref());
+    enum AuthToken<'a> {
+        ApiKey(&'a str),
+        Jwt(&'a str),
+    }
+
+    let token = if let Some(header) = auth_header {
+        if let Some(api_key) = header.strip_prefix("ApiKey ") {
+            Some(AuthToken::ApiKey(api_key))
+        } else if let Some(bearer) = header.strip_prefix("Bearer ") {
+            Some(AuthToken::Jwt(bearer))
+        } else {
+            None
+        }
+    } else if let Some(q) = query_token.as_deref() {
+        Some(AuthToken::Jwt(q))
+    } else if let Some(c) = cookie_token.as_deref() {
+        Some(AuthToken::Jwt(c))
+    } else {
+        None
+    };
 
     if let Some(token) = token {
-        // Use Ed25519 or HMAC validation based on server configuration
-        let claims_result = if state.use_ed25519 {
-            validate_token_ed25519(token, &state.ed25519_public_key)
-        } else {
-            validate_token(token, &state.jwt_secret)
-        };
-        match claims_result {
-            Ok(claims) => {
-                // Debug logging for JWT validation - helps diagnose auth issues in development
-                #[cfg(debug_assertions)]
-                tracing::debug!(
-                    user_id = %claims.sub,
-                    tenant_id = %claims.tenant_id,
-                    admin_tenants = ?claims.admin_tenants,
-                    jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
-                    "JWT validated successfully (dual auth)"
-                );
-
-                // Check if token has been revoked (single check, fail-closed on DB errors)
-                match is_token_revoked(&state.db, &claims.jti).await {
-                    Ok(true) => {
-                        tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used (dual auth)");
-                        return Err((
-                            StatusCode::UNAUTHORIZED,
-                            Json(
-                                ErrorResponse::new("token revoked")
-                                    .with_code("TOKEN_REVOKED")
-                                    .with_string_details("this token has been revoked"),
-                            ),
-                        ));
-                    }
-                    Ok(false) => { /* Token not revoked, continue */ }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Failed to check token revocation (dual auth) - denying access");
-                        return Err((
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
-                        ));
-                    }
-                }
-
+        match token {
+            AuthToken::ApiKey(api_token) => {
+                let (claims, api_key_token) = validate_api_key(&state, api_token).await?;
                 let tenant_id = claims.tenant_id.clone();
                 req.extensions_mut().insert(claims);
+                req.extensions_mut().insert(api_key_token);
                 let identity = IdentityEnvelope::new(
                     tenant_id,
                     "api".to_string(),
@@ -351,16 +820,58 @@ pub async fn dual_auth_middleware(
                 req.extensions_mut().insert(identity);
                 return Ok(next.run(req).await);
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "Token validation failed");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(
-                        ErrorResponse::new("unauthorized")
-                            .with_code("UNAUTHORIZED")
-                            .with_string_details("invalid token"),
-                    ),
-                ));
+            AuthToken::Jwt(token) => {
+                match validate_access_token_with_session(&state, token).await {
+                    Ok(claims) => {
+                        #[cfg(debug_assertions)]
+                        tracing::debug!(
+                            user_id = %claims.sub,
+                            tenant_id = %claims.tenant_id,
+                            admin_tenants = ?claims.admin_tenants,
+                            jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
+                            "JWT validated successfully (dual auth)"
+                        );
+
+                        match is_token_revoked(&state.db, &claims.jti).await {
+                            Ok(true) => {
+                                tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used (dual auth)");
+                                return Err((
+                                    StatusCode::UNAUTHORIZED,
+                                    Json(
+                                        ErrorResponse::new("token revoked")
+                                            .with_code("TOKEN_REVOKED")
+                                            .with_string_details("this token has been revoked"),
+                                    ),
+                                ));
+                            }
+                            Ok(false) => { /* Token not revoked, continue */ }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Failed to check token revocation (dual auth) - denying access");
+                                return Err((
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Json(
+                                        ErrorResponse::new("internal error")
+                                            .with_code("INTERNAL_ERROR"),
+                                    ),
+                                ));
+                            }
+                        }
+
+                        let tenant_id = claims.tenant_id.clone();
+                        req.extensions_mut().insert(claims);
+                        let identity = IdentityEnvelope::new(
+                            tenant_id,
+                            "api".to_string(),
+                            "middleware".to_string(), // or specific
+                            IdentityEnvelope::default_revision(),
+                        );
+                        req.extensions_mut().insert(identity);
+                        return Ok(next.run(req).await);
+                    }
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
             }
         }
     }
@@ -424,50 +935,34 @@ pub async fn optional_auth_middleware(
     // Also try to extract token from cookies for browser-based authentication
     let cookie_token = extract_token_from_cookie(req.headers());
 
-    let token = auth_header
-        .and_then(|header| header.strip_prefix("Bearer "))
-        .or(query_token.as_deref())
-        .or(cookie_token.as_deref());
+    enum AuthToken<'a> {
+        ApiKey(&'a str),
+        Jwt(&'a str),
+    }
+
+    let token = if let Some(header) = auth_header {
+        if let Some(api_key) = header.strip_prefix("ApiKey ") {
+            Some(AuthToken::ApiKey(api_key))
+        } else if let Some(bearer) = header.strip_prefix("Bearer ") {
+            Some(AuthToken::Jwt(bearer))
+        } else {
+            None
+        }
+    } else if let Some(q) = query_token.as_deref() {
+        Some(AuthToken::Jwt(q))
+    } else if let Some(c) = cookie_token.as_deref() {
+        Some(AuthToken::Jwt(c))
+    } else {
+        None
+    };
 
     if let Some(token) = token {
-        // Use Ed25519 or HMAC validation based on server configuration
-        let claims_result = if state.use_ed25519 {
-            validate_token_ed25519(token, &state.ed25519_public_key)
-        } else {
-            validate_token(token, &state.jwt_secret)
-        };
-
-        match claims_result {
-            Ok(claims) => {
-                // Check if token has been revoked (for optional auth, DB errors proceed without auth)
-                let should_skip_auth = match is_token_revoked(&state.db, &claims.jti).await {
-                    Ok(true) => {
-                        tracing::debug!(jti = %claims.jti, "Token is revoked, proceeding without authentication");
-                        true
-                    }
-                    Ok(false) => false,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Failed to check token revocation (optional auth) - proceeding without auth");
-                        true // For optional auth, DB error = proceed unauthenticated
-                    }
-                };
-
-                if should_skip_auth {
-                    // Don't inject claims for revoked tokens or DB errors
-                } else {
-                    // Debug logging for JWT validation - helps diagnose auth issues in development
-                    #[cfg(debug_assertions)]
-                    tracing::debug!(
-                        user_id = %claims.sub,
-                        tenant_id = %claims.tenant_id,
-                        admin_tenants = ?claims.admin_tenants,
-                        jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
-                        "JWT validated successfully (optional auth)"
-                    );
-
-                    // Valid token - inject claims and identity
+        match token {
+            AuthToken::ApiKey(api_token) => match validate_api_key(&state, api_token).await {
+                Ok((claims, api_key_token)) => {
                     let tenant_id = claims.tenant_id.clone();
                     req.extensions_mut().insert(claims);
+                    req.extensions_mut().insert(api_key_token);
                     let identity = IdentityEnvelope::new(
                         tenant_id,
                         "api".to_string(),
@@ -476,10 +971,55 @@ pub async fn optional_auth_middleware(
                     );
                     req.extensions_mut().insert(identity);
                 }
-            }
-            Err(e) => {
-                tracing::debug!(error = %e, "Token validation failed, proceeding without authentication");
-                // Invalid token - proceed without claims
+                Err(e) => {
+                    tracing::debug!(error = ?e, "API key validation failed, proceeding unauthenticated");
+                }
+            },
+            AuthToken::Jwt(token) => {
+                match validate_access_token_with_session(&state, token).await {
+                    Ok(claims) => {
+                        let should_skip_auth = match is_token_revoked(&state.db, &claims.jti).await
+                        {
+                            Ok(true) => {
+                                tracing::debug!(jti = %claims.jti, "Token is revoked, proceeding without authentication");
+                                true
+                            }
+                            Ok(false) => false,
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Failed to check token revocation (optional auth) - proceeding without auth");
+                                true
+                            }
+                        };
+
+                        if should_skip_auth {
+                            // skip
+                        } else {
+                            #[cfg(debug_assertions)]
+                            tracing::debug!(
+                                user_id = %claims.sub,
+                                tenant_id = %claims.tenant_id,
+                                admin_tenants = ?claims.admin_tenants,
+                                jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
+                                "JWT validated successfully (optional auth)"
+                            );
+
+                            let tenant_id = claims.tenant_id.clone();
+                            req.extensions_mut().insert(claims);
+                            let identity = IdentityEnvelope::new(
+                                tenant_id,
+                                "api".to_string(),
+                                "middleware".to_string(),
+                                IdentityEnvelope::default_revision(),
+                            );
+                            req.extensions_mut().insert(identity);
+                        }
+                    }
+                    Err(_e) => {
+                        tracing::debug!(
+                            "Token validation failed, proceeding without authentication"
+                        );
+                    }
+                }
             }
         }
     }
@@ -540,4 +1080,50 @@ pub fn require_any_role(
         StatusCode::FORBIDDEN,
         Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::Body, routing::post, Router};
+    use tower::ServiceExt;
+
+    fn csrf_app() -> Router {
+        Router::new()
+            .route("/", post(|| async { StatusCode::OK }))
+            .layer(axum::middleware::from_fn(csrf_middleware))
+    }
+
+    #[tokio::test]
+    async fn csrf_missing_header_is_rejected() {
+        let req = Request::builder()
+            .method(axum::http::Method::POST)
+            .uri("/")
+            .header(
+                header::COOKIE,
+                "auth_token=abc123; csrf_token=csrf-cookie-value",
+            )
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = csrf_app().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn csrf_matching_header_is_allowed() {
+        let req = Request::builder()
+            .method(axum::http::Method::POST)
+            .uri("/")
+            .header(
+                header::COOKIE,
+                "auth_token=abc123; csrf_token=csrf-cookie-value",
+            )
+            .header("X-CSRF-Token", "csrf-cookie-value")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = csrf_app().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
 }
