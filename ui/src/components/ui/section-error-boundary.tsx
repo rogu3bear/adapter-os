@@ -3,7 +3,7 @@ import { ErrorBoundary as ReactErrorBoundary } from 'react-error-boundary';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from './button';
 import { Card, CardContent } from './card';
-import { logger } from '@/utils/logger';
+import { logUIError } from '@/lib/logUIError';
 
 interface SectionErrorFallbackProps {
   error: Error;
@@ -71,11 +71,12 @@ export function SectionErrorBoundary({
         )
       }
       onError={(error, errorInfo) => {
-        logger.error(`Error in section: ${sectionName || 'unknown'}`, {
+        logUIError(error, {
+          scope: 'section',
           component: 'SectionErrorBoundary',
-          sectionName,
-          componentStack: errorInfo.componentStack,
-        }, error);
+          route: undefined,
+          pageKey: sectionName,
+        });
       }}
       onReset={() => {
         if (onReset) {

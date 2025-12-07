@@ -1,17 +1,19 @@
-import React, { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Database, Info } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { Database, Info, Loader2, Play, Square } from 'lucide-react';
+import { toast } from 'sonner';
 
 import apiClient from '@/api/client';
 import { useTenant } from '@/providers/FeatureProviders';
-import FeatureLayout from '@/layout/FeatureLayout';
-import { DensityProvider } from '@/contexts/DensityContext';
+import PageWrapper from '@/layout/PageWrapper';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { formatBytes } from '@/utils/format';
+import PageTable from '@/components/ui/PageTable';
 
 import type { BaseModelStatus, ModelWithStatsResponse } from '@/api/types';
 
@@ -23,7 +25,7 @@ function statusBadge(status?: BaseModelStatus) {
   }
 
   const variant =
-    status.status === 'loaded'
+    status.status === 'ready'
       ? 'default'
       : status.status === 'error'
         ? 'destructive'
@@ -106,13 +108,34 @@ function HashesCell({ model }: { model: ModelWithStatsResponse }) {
   );
 }
 
-function BaseModelRowView({ model, status }: BaseModelRowItem) {
+function BaseModelRowView({
+  model,
+  status,
+  onLoad,
+  onUnload,
+  isLoadingAction,
+  isUnloadingAction,
+}: BaseModelRowItem & {
+  onLoad: (modelId: string) => void;
+  onUnload: (modelId: string) => void;
+  isLoadingAction: boolean;
+  isUnloadingAction: boolean;
+}) {
+  const isLoaded = status?.status === 'ready';
+  const isBackendLoading = status?.status === 'loading';
+  const isBackendUnloading = status?.status === 'unloading';
+  const disableActions = isBackendLoading || isBackendUnloading || isLoadingAction || isUnloadingAction;
+
   return (
     <tr className="align-top">
       <ModelNameCell model={model} />
       <HashesCell model={model} />
       <td className="px-3 py-3 text-sm text-foreground">{architectureText(model)}</td>
-      <td className="px-3 py-3 text-sm text-foreground">{model.quantization || '—'}</td>
+      <td className="px-3 py-3 text-sm text-foreground">
+        {model.quantization
+          ? `${model.quantization} (backend-fixed)`
+          : '— (backend-fixed)'}
+      </td>
       <td className="px-3 py-3 text-sm text-foreground">
         {model.size_bytes ? formatBytes(model.size_bytes) : '—'}
       </td>
@@ -124,13 +147,58 @@ function BaseModelRowView({ model, status }: BaseModelRowItem) {
       <td className="px-3 py-3 text-sm text-foreground">
         {formatMemory(status?.memory_usage_mb ?? null)}
       </td>
+      <td className="px-3 py-3 text-sm">
+        {isLoaded ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={disableActions}
+            onClick={() => onUnload(model.id)}
+            className="gap-1"
+          >
+            {isUnloadingAction || isBackendUnloading ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Square className="h-3 w-3" />
+            )}
+            Unload
+          </Button>
+        ) : (
+          <Button
+            variant="default"
+            size="sm"
+            disabled={disableActions}
+            onClick={() => onLoad(model.id)}
+            className="gap-1"
+          >
+            {isLoadingAction || isBackendLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Play className="h-3 w-3" />
+            )}
+            {isBackendLoading ? 'Loading...' : 'Load to memory'}
+          </Button>
+        )}
+      </td>
     </tr>
   );
 }
 
-function BaseModelsTable({ rows }: { rows: BaseModelRowItem[] }) {
+function BaseModelsTable({
+  rows,
+  onLoad,
+  onUnload,
+  activeModelId,
+  activeAction,
+}: {
+  rows: BaseModelRowItem[];
+  onLoad: (modelId: string) => void;
+  onUnload: (modelId: string) => void;
+  activeModelId: string | null;
+  activeAction: 'load' | 'unload' | null;
+}) {
   return (
-    <div className="overflow-x-auto">
+    <PageTable minWidth="md">
       <table className="min-w-full divide-y divide-border text-sm">
         <thead>
           <tr className="text-left text-xs uppercase tracking-wide text-foreground font-semibold">
@@ -143,15 +211,23 @@ function BaseModelsTable({ rows }: { rows: BaseModelRowItem[] }) {
             <th className="px-3 py-2">Tenant</th>
             <th className="px-3 py-2">Status</th>
             <th className="px-3 py-2">Memory</th>
+            <th className="px-3 py-2">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {rows.map((row) => (
-            <BaseModelRowView key={row.model.id} {...row} />
+            <BaseModelRowView
+              key={row.model.id}
+              {...row}
+              onLoad={onLoad}
+              onUnload={onUnload}
+              isLoadingAction={activeAction === 'load' && activeModelId === row.model.id}
+              isUnloadingAction={activeAction === 'unload' && activeModelId === row.model.id}
+            />
           ))}
         </tbody>
       </table>
-    </div>
+    </PageTable>
   );
 }
 
@@ -159,10 +235,18 @@ function BaseModelsCard({
   rows,
   isLoading,
   selectedTenant,
+  onLoad,
+  onUnload,
+  activeModelId,
+  activeAction,
 }: {
   rows: BaseModelRowItem[];
   isLoading: boolean;
   selectedTenant?: string | null;
+  onLoad: (modelId: string) => void;
+  onUnload: (modelId: string) => void;
+  activeModelId: string | null;
+  activeAction: 'load' | 'unload' | null;
 }) {
   const hasRows = rows.length > 0;
 
@@ -180,7 +264,15 @@ function BaseModelsCard({
         {!isLoading && !hasRows && (
           <div className="text-sm text-foreground/80">No base models found. Import a model to get started.</div>
         )}
-        {hasRows && <BaseModelsTable rows={rows} />}
+        {hasRows && (
+          <BaseModelsTable
+            rows={rows}
+            onLoad={onLoad}
+            onUnload={onUnload}
+            activeModelId={activeModelId}
+            activeAction={activeAction}
+          />
+        )}
       </CardContent>
     </Card>
   );
@@ -188,6 +280,8 @@ function BaseModelsCard({
 
 export default function BaseModelsPage() {
   const { selectedTenant } = useTenant();
+  const [activeModelId, setActiveModelId] = useState<string | null>(null);
+  const [activeAction, setActiveAction] = useState<'load' | 'unload' | null>(null);
 
   const {
     data: models = [],
@@ -208,23 +302,75 @@ export default function BaseModelsPage() {
     [models],
   );
 
+  const loadMutation = useMutation({
+    mutationFn: (modelId: string) => apiClient.loadBaseModel(modelId),
+    onMutate: (modelId) => {
+      setActiveModelId(modelId);
+      setActiveAction('load');
+    },
+    onSuccess: (_, modelId) => {
+      toast.success(`Loading model "${modelId}"...`);
+      void refetch();
+    },
+    onError: (err, modelId) => {
+      const message = err instanceof Error ? err.message : 'Failed to load model';
+      toast.error(`Failed to load "${modelId}": ${message}`);
+    },
+    onSettled: () => {
+      setActiveModelId(null);
+      setActiveAction(null);
+    },
+  });
+
+  const unloadMutation = useMutation({
+    mutationFn: (modelId: string) => apiClient.unloadBaseModel(modelId),
+    onMutate: (modelId) => {
+      setActiveModelId(modelId);
+      setActiveAction('unload');
+    },
+    onSuccess: (_, modelId) => {
+      toast.success(`Unloaded model "${modelId}"`);
+      void refetch();
+    },
+    onError: (err, modelId) => {
+      const message = err instanceof Error ? err.message : 'Failed to unload model';
+      toast.error(`Failed to unload "${modelId}": ${message}`);
+    },
+    onSettled: () => {
+      setActiveModelId(null);
+      setActiveAction(null);
+    },
+  });
+
+  const handleLoad = (modelId: string) => loadMutation.mutate(modelId);
+  const handleUnload = (modelId: string) => unloadMutation.mutate(modelId);
+
   const showError = error instanceof Error;
 
   return (
-    <DensityProvider pageKey="base-models">
-      <FeatureLayout
-        title="Base Models"
-        description="Active base models and their properties"
-        brief="Base models are frozen/immutable at runtime; adapters layer on top."
-      >
-        <SectionErrorBoundary sectionName="Base Models">
-          <div className="space-y-4">
-            <BaseModelsAlert />
-            {showError && <ErrorRecovery error={error.message} onRetry={() => refetch()} />}
-            <BaseModelsCard rows={rows} isLoading={isLoading} selectedTenant={selectedTenant} />
-          </div>
-        </SectionErrorBoundary>
-      </FeatureLayout>
-    </DensityProvider>
+    <PageWrapper
+      pageKey="base-models"
+      title="Base Models"
+      description="Active base models and their properties"
+      brief="Base models are frozen/immutable at runtime; adapters layer on top."
+      maxWidth="xl"
+      contentPadding="default"
+    >
+      <SectionErrorBoundary sectionName="Base Models">
+        <div className="space-y-4">
+          <BaseModelsAlert />
+          {showError && <ErrorRecovery error={error.message} onRetry={() => refetch()} />}
+          <BaseModelsCard
+            rows={rows}
+            isLoading={isLoading}
+            selectedTenant={selectedTenant}
+            onLoad={handleLoad}
+            onUnload={handleUnload}
+            activeModelId={activeModelId}
+            activeAction={activeAction}
+          />
+        </div>
+      </SectionErrorBoundary>
+    </PageWrapper>
   );
 }

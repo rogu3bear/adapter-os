@@ -20,7 +20,7 @@ interface Props {
   evidence: EvidenceItemData[];
   isVerified: boolean;
   verifiedAt?: string;
-  onViewDocument?: (documentId: string, pageNumber?: number) => void;
+  onViewDocument?: (documentId: string, pageNumber?: number, highlightText?: string) => void;
 }
 
 export function EvidencePanel({ evidence, isVerified, verifiedAt, onViewDocument }: Props) {
@@ -37,7 +37,12 @@ export function EvidencePanel({ evidence, isVerified, verifiedAt, onViewDocument
   /**
    * Handle viewing an evidence item - coordinates with document viewer if available
    */
-  const handleViewEvidence = (documentId: string, chunkId?: string, pageNumber?: number) => {
+  const handleViewEvidence = (
+    documentId: string,
+    chunkId?: string,
+    pageNumber?: number,
+    highlightText?: string
+  ) => {
     // Track which evidence item is active
     setActiveEvidenceId(chunkId || documentId);
 
@@ -58,7 +63,7 @@ export function EvidencePanel({ evidence, isVerified, verifiedAt, onViewDocument
     }
 
     // Also call the parent's onViewDocument callback if provided
-    onViewDocument?.(documentId, pageNumber);
+    onViewDocument?.(documentId, pageNumber, highlightText);
   };
 
   /**

@@ -45,6 +45,9 @@ Ask me anything about your AdapterOS instance!`,
   timestamp: new Date(),
 };
 
+// NOTE: This widget is intentionally ephemeral. Messages are kept in component state
+// and routed through /v1/chat/owner-system; they are not stored in chat_sessions
+// unless we later promote the assistant to a full chat experience.
 export function SystemChatWidget({ systemOverview, adapters, baseModelStatus, activeStack }: SystemChatWidgetProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [input, setInput] = useState('');

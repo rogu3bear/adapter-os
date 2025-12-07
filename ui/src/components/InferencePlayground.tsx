@@ -1066,7 +1066,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
 
           {/* Response Panel */}
           <div className="lg:col-span-2">
-            <Card className="min-h-[600px]">
+            <Card className="min-h-[calc(var(--base-unit)*150)]">
               <CardHeader>
                 <CardTitle className="text-base">Output</CardTitle>
               </CardHeader>

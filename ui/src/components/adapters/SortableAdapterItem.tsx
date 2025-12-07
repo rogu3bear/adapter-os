@@ -136,6 +136,18 @@ export const SortableAdapterItem: React.FC<SortableAdapterItemProps> = ({
               <p className="text-xs text-muted-foreground mt-1">
                 {item.adapter.adapter_id}
               </p>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {item.adapter.version && (
+                  <Badge variant="outline" className="text-[10px]">
+                    v{item.adapter.version}
+                  </Badge>
+                )}
+                {item.adapter.hash_b3 && (
+                  <Badge variant="outline" className="text-[10px]">
+                    b3 {item.adapter.hash_b3.slice(0, 8)}…
+                  </Badge>
+                )}
+              </div>
             </div>
             {!item.enabled && (
               <Badge variant="secondary" className="flex-shrink-0">

@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "./utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-hidden focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  "inline-flex items-center justify-center gap-[var(--space-2)] whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-hidden focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[calc(var(--base-unit)*0.75)] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
@@ -23,15 +23,15 @@ const buttonVariants = cva(
           "bg-success text-white hover:bg-[color-mix(in_srgb,var(--success)_90%,black)] focus-visible:ring-success/40",
       },
       size: {
-        xs: "h-7 text-xs px-2 py-1 gap-1 has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-8 text-sm px-3 py-1.5 gap-1.5 has-[>svg]:px-2.5 [&_svg:not([class*='size-'])]:size-3.5 min-h-[44px] sm:min-h-0",
-        default: "h-10 text-sm px-4 py-2 gap-2 has-[>svg]:px-3 [&_svg:not([class*='size-'])]:size-4 min-h-[44px] sm:min-h-0",
-        md: "h-10 text-sm px-4 py-2 gap-2 has-[>svg]:px-3 [&_svg:not([class*='size-'])]:size-4 min-h-[44px] sm:min-h-0",
-        lg: "h-12 text-base px-6 py-3 gap-2.5 has-[>svg]:px-4 [&_svg:not([class*='size-'])]:size-5 min-h-[44px] sm:min-h-0",
-        xl: "h-14 text-lg px-8 py-4 gap-3 has-[>svg]:px-6 [&_svg:not([class*='size-'])]:size-6",
-        icon: "size-10 rounded-md min-h-[44px] sm:min-h-0",
+        xs: "h-[calc(var(--base-unit)*7)] text-xs px-[var(--space-2)] py-[var(--space-1)] gap-[var(--space-1)] has-[>svg]:px-[calc(var(--base-unit)*1.5)] [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-[var(--space-8)] text-sm px-[var(--space-3)] py-[calc(var(--base-unit)*1.5)] gap-[calc(var(--base-unit)*1.5)] has-[>svg]:px-[calc(var(--base-unit)*2.5)] [&_svg:not([class*='size-'])]:size-3.5 min-h-[calc(var(--base-unit)*11)] sm:min-h-0",
+        default: "h-[calc(var(--base-unit)*10)] text-sm px-[var(--space-4)] py-[var(--space-2)] gap-[var(--space-2)] has-[>svg]:px-[var(--space-3)] [&_svg:not([class*='size-'])]:size-4 min-h-[calc(var(--base-unit)*11)] sm:min-h-0",
+        md: "h-[calc(var(--base-unit)*10)] text-sm px-[var(--space-4)] py-[var(--space-2)] gap-[var(--space-2)] has-[>svg]:px-[var(--space-3)] [&_svg:not([class*='size-'])]:size-4 min-h-[calc(var(--base-unit)*11)] sm:min-h-0",
+        lg: "h-[calc(var(--base-unit)*12)] text-base px-[var(--space-6)] py-[var(--space-3)] gap-[calc(var(--base-unit)*2.5)] has-[>svg]:px-[var(--space-4)] [&_svg:not([class*='size-'])]:size-5 min-h-[calc(var(--base-unit)*11)] sm:min-h-0",
+        xl: "h-[calc(var(--base-unit)*14)] text-lg px-[var(--space-8)] py-[var(--space-4)] gap-[var(--space-3)] has-[>svg]:px-[var(--space-6)] [&_svg:not([class*='size-'])]:size-6",
+        icon: "size-10 rounded-md min-h-[calc(var(--base-unit)*11)] sm:min-h-0",
         "icon-xs": "size-7 rounded-md [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-8 rounded-md min-h-[44px] sm:min-h-0 [&_svg:not([class*='size-'])]:size-3.5",
+        "icon-sm": "size-8 rounded-md min-h-[calc(var(--base-unit)*11)] sm:min-h-0 [&_svg:not([class*='size-'])]:size-3.5",
         "icon-lg": "size-12 rounded-md [&_svg:not([class*='size-'])]:size-5",
         "icon-xl": "size-14 rounded-md [&_svg:not([class*='size-'])]:size-6",
       },
@@ -56,17 +56,7 @@ const Button = React.forwardRef<
     <Comp
       ref={ref}
       data-slot="button"
-      className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-[var(--radius-button)] text-sm font-medium ring-offset-background transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-        "h-[calc(var(--button-padding-y)_*__2_+_var(--font-body))]", // ~36px
-        "px-[var(--button-padding-x)] py-[var(--button-padding-y)]",
-        {
-          'bg-[var(--accent-500)] text-primary-foreground hover:bg-[var(--accent-600)]': variant === "default",
-          'bg-[var(--success)] text-primary-foreground hover:bg-[color-mix(in_srgb,var(--success)_20%,black)]': variant === "success",
-          // ... other variants with tokens
-        },
-        className
-      )}
+      className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />
   );

@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useLiveDataStatus, type OverallConnectionStatus } from '@/hooks/useLiveDataStatus';
 import { useModelStatus, type ModelStatusState } from '@/hooks/useModelStatus';
+import { useTenant } from '@/providers/FeatureProviders';
 import { useErrorStoreSafe } from '@/stores/errorStore';
 
 // ============================================================================
@@ -128,47 +129,35 @@ export function ConnectionStatusIndicator({
   className,
   showDetails = true,
 }: ConnectionStatusIndicatorProps) {
+  const { selectedTenant } = useTenant();
   const { overall, streams, connectedCount, totalStreams, reconnectAll } = useLiveDataStatus();
-  const { status: modelStatus, modelName, isReady: modelReady, errorMessage: modelError } = useModelStatus();
+  const {
+    status: modelStatus,
+    modelName,
+    isReady: modelReady,
+    errorMessage: modelError,
+  } = useModelStatus(selectedTenant || 'default');
 
   // Track background errors from error store (safe - may be null if outside provider)
   const errorStore = useErrorStoreSafe();
   const backgroundErrorCount = errorStore?.getActiveCount() ?? 0;
   const hasBackgroundErrors = backgroundErrorCount > 0;
 
-  // Determine primary status to show
-  // Priority: Model loading > Model error > Connection status
-  const showModelStatus = modelStatus === 'loading' || modelStatus === 'error' || modelStatus === 'unloading';
-  const showNoModel = modelStatus === 'no-model' && overall === 'offline';
-  
-  let config;
-  let Icon;
-  let statusLabel;
+  // Determine combined status to show
+  const modelConfig = MODEL_STATUS_CONFIG[modelStatus];
+  const connectionConfig = STATUS_CONFIG[overall];
+  const prioritizeModelVisual =
+    modelStatus === 'loading' ||
+    modelStatus === 'error' ||
+    modelStatus === 'unloading' ||
+    modelStatus === 'no-model';
 
-  if (showModelStatus) {
-    // Show model loading/error status prominently
-    config = MODEL_STATUS_CONFIG[modelStatus];
-    Icon = config.icon;
-    statusLabel = config.label;
-  } else if (showNoModel) {
-    // Show "No Model" instead of generic "Offline"
-    config = MODEL_STATUS_CONFIG['no-model'];
-    Icon = config.icon;
-    statusLabel = config.label;
-  } else if (modelReady && overall === 'offline') {
-    // Model is ready but streams are offline - show model ready with streams info
-    config = MODEL_STATUS_CONFIG['loaded'];
-    Icon = config.icon;
-    statusLabel = 'Ready';
-  } else {
-    // Normal connection status
-    config = STATUS_CONFIG[overall];
-    Icon = config.icon;
-    statusLabel = config.label;
-  }
+  const config = prioritizeModelVisual ? modelConfig : connectionConfig;
+  const Icon = prioritizeModelVisual ? modelConfig.icon : connectionConfig.icon;
+  const statusLabel = `${connectionConfig.label} | Model: ${modelConfig.label}`;
 
   // Simple badge without dropdown
-  if (!showDetails || (totalStreams === 0 && !showModelStatus && !hasBackgroundErrors)) {
+  if (!showDetails || (totalStreams === 0 && !prioritizeModelVisual && !hasBackgroundErrors)) {
     return (
       <Badge
         variant="outline"
@@ -216,15 +205,29 @@ export function ConnectionStatusIndicator({
         {/* Model Status Section */}
         <DropdownMenuLabel className="flex items-center justify-between">
           <span>Model Status</span>
-          <span className={cn(
-            'text-xs font-normal',
-            modelReady ? 'text-green-600' : modelStatus === 'loading' ? 'text-blue-600' : 'text-muted-foreground'
-          )}>
-            {modelStatus === 'loaded' || modelStatus === 'checking' ? 'Ready' : 
-             modelStatus === 'loading' ? 'Loading...' :
-             modelStatus === 'error' ? 'Error' :
-             modelStatus === 'unloading' ? 'Unloading...' :
-             'Not Loaded'}
+          <span
+            className={cn(
+              'text-xs font-normal',
+              modelStatus === 'error'
+                ? 'text-red-600'
+                : modelStatus === 'loading' || modelStatus === 'unloading' || modelStatus === 'checking'
+                  ? 'text-blue-600'
+                  : modelReady
+                    ? 'text-green-600'
+                    : 'text-muted-foreground',
+            )}
+          >
+            {modelStatus === 'ready'
+              ? 'Ready'
+              : modelStatus === 'loading'
+                ? 'Loading...'
+                : modelStatus === 'unloading'
+                  ? 'Unloading...'
+                  : modelStatus === 'checking'
+                    ? 'Checking...'
+                    : modelStatus === 'error'
+                      ? 'Error'
+                      : 'Not Loaded'}
           </span>
         </DropdownMenuLabel>
         

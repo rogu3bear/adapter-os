@@ -55,13 +55,15 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'loaded':
+      case 'ready':
+      case 'loaded': // legacy
         return <CheckCircle className="h-5 w-5 text-green-500" />;
       case 'loading':
         return <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />;
       case 'unloading':
         return <RefreshCw className="h-5 w-5 text-orange-500 animate-spin" />;
-      case 'unloaded':
+      case 'no-model':
+      case 'unloaded': // legacy
         return <XCircle className="h-5 w-5 text-gray-500" />;
       case 'error':
         return <AlertTriangle className="h-5 w-5 text-red-500" />;
@@ -72,13 +74,15 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'loaded':
+      case 'ready':
+      case 'loaded': // legacy
         return 'bg-green-50 border-green-200 text-green-800';
       case 'loading':
         return 'bg-blue-50 border-blue-200 text-blue-800';
       case 'unloading':
         return 'bg-orange-50 border-orange-200 text-orange-800';
-      case 'unloaded':
+      case 'no-model':
+      case 'unloaded': // legacy
         return 'bg-gray-50 border-gray-200 text-gray-800';
       case 'error':
         return 'bg-red-50 border-red-200 text-red-800';

@@ -93,6 +93,19 @@ export function AdaptersPage() {
   const totalMemory = data?.totalMemory ?? 0;
   const systemMetrics = data?.systemMetrics;
 
+  const newestAdapterIds = useMemo(() => {
+    const latestByName = new Map<string, { id: string; ts: number }>();
+    adapters.forEach((adapter) => {
+      const key = adapter.name || adapter.adapter_name || adapter.adapter_id || adapter.id;
+      const ts = adapter.created_at ? new Date(adapter.created_at).getTime() : 0;
+      const current = latestByName.get(key);
+      if (!current || ts > current.ts) {
+        latestByName.set(key, { id: adapter.adapter_id || adapter.id, ts });
+      }
+    });
+    return new Set(Array.from(latestByName.values()).map(v => v.id));
+  }, [adapters]);
+
   // Action handlers
   const handleLoad = useCallback((adapterId: string) => {
     loadMutation.mutate(adapterId);
@@ -550,6 +563,7 @@ export function AdaptersPage() {
                 onEvict={handleEvict}
                 onViewHealth={handleViewHealth}
                 onDownloadManifest={handleDownloadManifest}
+                newestAdapterIds={newestAdapterIds}
                 canLoad={canLoad}
                 canUnload={canUnload}
                 canDelete={canDelete}

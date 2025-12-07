@@ -3,6 +3,7 @@
 import * as React from "react";
 import * as SheetPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
+import ModalErrorBoundary from "@/components/ui/modal-error-boundary";
 
 import {
   cn,
@@ -78,14 +79,18 @@ function SheetContent({
         )}
         {...props}
       >
-        {children}
-        <SheetPrimitive.Close className={cn(
-          CLOSE_BUTTON_BASE,
-          "data-[state=open]:bg-secondary"
-        )}>
-          <XIcon className="size-4" />
-          <span className="sr-only">Close</span>
-        </SheetPrimitive.Close>
+        <ModalErrorBoundary context={{ component: 'SheetContent' }}>
+          <>
+            {children}
+            <SheetPrimitive.Close className={cn(
+              CLOSE_BUTTON_BASE,
+              "data-[state=open]:bg-secondary"
+            )}>
+              <XIcon className="size-4" />
+              <span className="sr-only">Close</span>
+            </SheetPrimitive.Close>
+          </>
+        </ModalErrorBoundary>
       </SheetPrimitive.Content>
     </SheetPortal>
   );

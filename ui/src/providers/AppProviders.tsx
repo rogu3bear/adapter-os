@@ -5,6 +5,7 @@ import { FeatureProviders } from './FeatureProviders';
 import { PersistentNotificationProvider } from '@/components/PersistentNotifications';
 import { ErrorStoreProvider } from '@/stores/errorStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { ToastProvider } from '@/components/toast/ToastProvider';
 
 // Create a QueryClient instance with default options
 const queryClient = new QueryClient({
@@ -32,9 +33,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
         <FeatureProviders>
           <TooltipProvider delayDuration={0}>
             <PersistentNotificationProvider>
-              <DevProviders>
-                {children}
-              </DevProviders>
+              <ToastProvider>
+                <DevProviders>
+                  {children}
+                </DevProviders>
+              </ToastProvider>
             </PersistentNotificationProvider>
           </TooltipProvider>
         </FeatureProviders>

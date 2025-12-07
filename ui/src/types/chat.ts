@@ -8,6 +8,11 @@ export interface ChatSession {
   name: string;
   stackId: string;
   stackName?: string;
+  collectionId?: string | null;
+  documentId?: string;
+  documentName?: string;
+  sourceType?: string;
+  metadata?: Record<string, unknown>;
   messages: ChatMessage[];
   createdAt: Date;
   updatedAt: Date;

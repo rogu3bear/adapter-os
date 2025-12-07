@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
@@ -11,8 +11,13 @@ export default function TelemetryViewerPage() {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
   const [params] = useSearchParams();
+  const location = useLocation();
 
   const requestId = useMemo(() => params.get('requestId') || undefined, [params]);
+  const sourceType = useMemo(() => {
+    const hash = location.hash?.replace('#', '');
+    return params.get('source_type') || (hash?.startsWith('source_type=') ? hash.split('=')[1] : undefined);
+  }, [params, location.hash]);
 
   return (
     <DensityProvider pageKey="telemetry-viewer">
@@ -25,6 +30,7 @@ export default function TelemetryViewerPage() {
           <TelemetryViewer
             initialRequestId={requestId}
             tenantId={selectedTenant || user?.tenant_id}
+            sourceType={sourceType}
           />
         </SectionErrorBoundary>
       </FeatureLayout>

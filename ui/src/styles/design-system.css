@@ -72,6 +72,7 @@
   /* ===== LAYOUT SYSTEM ===== */
   --grid-unit: var(--space-2); /* 8px rhythm */
   --layout-container-padding-inline: var(--space-2); /* 2 × base per side */
+  /* Layout content widths shared by RootLayout, PageWrapper, and FeatureLayout */
   --layout-content-width-sm: 30rem; /* 480px */
   --layout-content-width-md: 48rem; /* 768px */
   --layout-content-width-lg: 64rem; /* 1024px */

@@ -133,7 +133,7 @@ const appDevStage1: Stage = {
     whatAppears: 'Documentation viewer showing REST API endpoints, request/response schemas, and integration examples',
     why: 'Learn how to integrate AdapterOS into your application via REST API',
     context: 'Initial integration planning and API exploration',
-    route: '/help',
+    route: '/dashboard',
     mentalModelExplanation: 'The API exposes all core entities: create **Tenants**, register **Adapters**, build **Stacks**, run inference, and query **Telemetry**.'
   }
 };
@@ -145,7 +145,7 @@ const appDevStage2: Stage = {
     whatAppears: 'Documentation for REST API client setup in various languages (curl, Python, Node.js)',
     why: 'Get started with API integration using your preferred language',
     context: 'Development environment setup and first API call',
-    route: '/help',
+    route: '/dashboard',
     mentalModelExplanation: 'Client SDKs wrap the REST API to create **Tenants**, manage **Adapters**, and run inference requests. The API uses JWT auth with role-based permissions.'
   }
 };

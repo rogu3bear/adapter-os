@@ -95,6 +95,8 @@ export interface Adapter {
   current_state?: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
   lifecycle_state?: string;        // Release lifecycle state (draft/active/...)
   runtime_state?: string;          // Memory/runtime status
+  kv_consistent?: boolean;         // SQL+KV alignment
+  kv_message?: string;             // Reason when inconsistent
   pinned?: boolean;
   memory_bytes?: number;
   last_activated?: string;

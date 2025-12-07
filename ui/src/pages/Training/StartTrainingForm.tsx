@@ -100,8 +100,8 @@ export function StartTrainingForm({
   // Check if a base model is loaded (from runtime status)
   const isModelLoaded = useMemo(() => {
     if (!baseModelStatus) return false;
-    return baseModelStatus.status === 'loaded' ||
-           baseModelStatus.status === 'ready' ||
+    return baseModelStatus.status === 'ready' ||
+           baseModelStatus.status === 'loaded' || // legacy
            baseModelStatus.is_loaded === true;
   }, [baseModelStatus]);
 

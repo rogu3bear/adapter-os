@@ -52,7 +52,7 @@ export function ActiveModelCard({
 
   // Find the currently loaded model
   const loadedModel = useMemo(() => {
-    return models.find((m) => m.status === 'loaded');
+    return models.find((m) => m.status === 'ready' || m.status === 'loaded');
   }, [models]);
 
   // Calculate memory usage estimate

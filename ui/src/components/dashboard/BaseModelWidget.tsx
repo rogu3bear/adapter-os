@@ -248,8 +248,8 @@ export function BaseModelWidget() {
     showStatus('Model download is not yet available. Please use the CLI to export models.', 'info');
   };
 
-  const canLoad = status && ['unloaded', 'error'].includes(status.status);
-  const canUnload = status && status.status === 'loaded';
+  const canLoad = status && ['no-model', 'error'].includes(status.status);
+  const canUnload = status && status.status === 'ready';
   const disableDownload = !status?.model_id || isActionLoading || !isAdmin;
 
   return (

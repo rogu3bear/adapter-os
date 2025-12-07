@@ -55,7 +55,7 @@ const statusConfig: Record<
     variant: 'secondary',
     icon: <Loader2 className="h-3 w-3 animate-spin" />,
   },
-  'loaded': {
+  'ready': {
     label: 'Ready',
     variant: 'default',
     icon: <CheckCircle className="h-3 w-3" />,
@@ -156,7 +156,7 @@ export function ModelStatusBar({ tenantId }: ModelStatusBarProps) {
               {config.label}
             </Badge>
 
-            {memoryUsageMb !== null && status === 'loaded' && (
+            {memoryUsageMb !== null && status === 'ready' && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -226,7 +226,7 @@ export function ModelStatusBar({ tenantId }: ModelStatusBarProps) {
         </div>
 
         {/* Load/Unload button */}
-        {status === 'loaded' || status === 'unloading' ? (
+        {status === 'ready' || status === 'unloading' ? (
           <Button
             variant="outline"
             size="sm"

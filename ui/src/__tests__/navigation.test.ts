@@ -22,7 +22,7 @@ vi.mock('@/config/routes_manifest', () => {
       '/security/audit',
       '/security/compliance',
       '/_dev/routes',
-      '/dev/errors',
+      '/dev/api-errors',
     ],
   };
 });
@@ -57,7 +57,7 @@ vi.mock('@/config/routes', () => {
     {
       path: '/router-config',
       navGroup: 'Build',
-      navTitle: 'Routing Config',
+      navTitle: 'Router Config',
       navIcon: () => null,
       navOrder: 3,
       cluster: 'Build',
@@ -168,7 +168,7 @@ vi.mock('@/config/routes', () => {
       cluster: 'Build',
     },
     {
-      path: '/dev/errors',
+      path: '/dev/api-errors',
       navGroup: 'Verify',
       navTitle: 'Error Inspector',
       navIcon: () => null,
@@ -237,7 +237,7 @@ describe('generateNavigationGroups', () => {
     const adminGroups = generateNavigationGroups('admin', []);
     const build = adminGroups.find(group => group.title === 'Build');
     expect(build?.items.map(item => item.label)).toEqual(
-      expect.arrayContaining(['Onboarding', 'Adapters', 'Training', 'Routing Config']),
+      expect.arrayContaining(['Onboarding', 'Adapters', 'Training', 'Router Config']),
     );
   });
 

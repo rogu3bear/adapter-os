@@ -2,6 +2,7 @@ import React, { Component, createContext, useContext, useState, useCallback, use
 import { AlertCircle, X, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { logUIError } from '@/lib/logUIError';
 
 // Types
 export interface PageError {
@@ -145,6 +146,7 @@ export class PageErrorBoundary extends Component<ErrorBoundaryProps, ErrorBounda
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('[PageErrorBoundary] Caught error:', error, errorInfo);
     this.props.onError?.(error, errorInfo);
+    logUIError(error, { scope: 'page', component: 'PageErrorBoundary' });
   }
 
   render() {

@@ -47,7 +47,7 @@ export default function WorkerIncidentsModal({ workerId, open, onClose }: Worker
         </Button>
       }
     >
-      <ScrollArea className="h-[600px]">
+      <ScrollArea className="h-[calc(var(--base-unit)*150)]">
         {isLoading ? (
           <div className="space-y-4 p-4">
             {[...Array(5)].map((_, i) => (

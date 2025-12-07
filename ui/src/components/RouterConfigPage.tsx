@@ -6,8 +6,10 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
+import { RouterConfigSkeleton } from '@/components/skeletons/RouterConfigSkeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import apiClient from '@/api/client';
+import { toast } from 'sonner';
 import { RouterAdapterSummary, RouterConfigView, RoutingPolicy } from '@/api/types';
 import { logger } from '@/utils/logger';
 
@@ -109,6 +111,7 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
     } catch (err) {
       const parsed = err instanceof Error ? err : new Error('Failed to load router configuration');
       setError(parsed);
+      toast.error('Failed to load router configuration');
       logger.error('Failed to load router configuration', {
         component: 'RouterConfigPage',
         tenant: selectedTenant,
@@ -164,17 +167,7 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
       )}
 
       {isLoading && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Loading router configuration…</CardTitle>
-            <CardDescription>Fetching manifest-backed router settings.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="h-4 w-1/3" />
-            <Skeleton className="h-4 w-1/4" />
-          </CardContent>
-        </Card>
+        <RouterConfigSkeleton />
       )}
 
       {isEmpty && (
@@ -224,11 +217,80 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
                 <InfoRow label="K-sparse (top-k)" value={config.router.k_sparse} />
                 <InfoRow label="Tau (temperature)" value={config.router.tau} />
                 <InfoRow label="Entropy floor" value={config.router.entropy_floor} />
-                <InfoRow label="Gate quantization" value={config.router.gate_quant} />
+                <InfoRow
+                  label="Gate quantization"
+                  value={`${config.router.gate_quant} (backend-fixed, Q15 only)`}
+                />
                 <InfoRow label="Sample full tokens" value={config.router.sample_tokens_full} />
                 <InfoRow label="Algorithm" value={config.router.algorithm} />
                 <InfoRow label="Warmup enabled" value={config.router.warmup ? 'Yes' : 'No'} />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Routing Matrix</CardTitle>
+              <CardDescription>Stack, adapter weight, active status, and policy signals.</CardDescription>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Stack</TableHead>
+                    <TableHead>Adapter</TableHead>
+                    <TableHead>Weight</TableHead>
+                    <TableHead>Active</TableHead>
+                    <TableHead>Policy</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Env</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {config.adapters.map((adapter) => {
+                    const policy = config.routing_policy;
+                    const isDenied = policy?.denied_adapter_ids?.includes(adapter.adapter_id) ?? false;
+                    const isAllowed = policy?.allowed_adapter_ids
+                      ? policy.allowed_adapter_ids.includes(adapter.adapter_id)
+                      : true;
+                    const policySourceLabel = policy ? 'Tenant policy' : 'Manifest defaults';
+                    const envLabel = import.meta.env.MODE || 'development';
+                    return (
+                      <TableRow key={adapter.adapter_id}>
+                        <TableCell className="text-sm">
+                          {config.stack?.stack_id || 'default'}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          <div className="flex flex-col">
+                            <span className="font-medium">{adapter.name || adapter.adapter_id}</span>
+                            <span className="text-xs text-muted-foreground">{adapter.adapter_id}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {adapter.alpha ?? '—'}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={adapter.in_default_stack ? 'default' : 'outline'}>
+                            {adapter.in_default_stack ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="space-x-2">
+                          {isAllowed && <Badge variant="secondary" title="Adapter is permitted by policy or defaults">allowed</Badge>}
+                          {isDenied && <Badge variant="destructive" title="Adapter denied by policy">denied</Badge>}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" title={policy ? 'Tenant routing policy in effect' : 'Fallback to manifest routing'}>
+                            {policySourceLabel}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{envLabel}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
 

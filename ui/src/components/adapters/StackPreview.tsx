@@ -766,6 +766,16 @@ export const StackPreview: React.FC<StackPreviewProps> = ({
                         <span className="font-medium">
                           {item.adapter.name}
                         </span>
+                        {item.adapter.version && (
+                          <Badge variant="outline" className="text-[10px]">
+                            v{item.adapter.version}
+                          </Badge>
+                        )}
+                        {item.adapter.hash_b3 && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            b3 {item.adapter.hash_b3.slice(0, 8)}…
+                          </Badge>
+                        )}
                         <span className="text-xs text-muted-foreground ml-auto">
                           rank:{item.adapter.rank} tier:{item.adapter.tier}
                         </span>
@@ -928,6 +938,15 @@ export const StackPreview: React.FC<StackPreviewProps> = ({
                     <p className="font-medium text-sm">
                       {item.order}. {item.adapter.name}
                     </p>
+                    <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground mt-1">
+                      {item.adapter.version && (
+                        <Badge variant="outline">v{item.adapter.version}</Badge>
+                      )}
+                      {item.adapter.hash_b3 && (
+                        <Badge variant="secondary">b3 {item.adapter.hash_b3.slice(0, 8)}…</Badge>
+                      )}
+                      <span className="truncate max-w-[220px]">{item.adapter.adapter_id}</span>
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       Rank: {item.adapter.rank} | Tier:{' '}
                       {item.adapter.tier} | State:{' '}

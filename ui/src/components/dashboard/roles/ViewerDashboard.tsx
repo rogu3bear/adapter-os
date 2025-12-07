@@ -24,7 +24,6 @@ import {
   MessageSquare,
   Layers,
   BookOpen,
-  HelpCircle,
   CheckCircle,
   Activity,
   Eye,
@@ -80,10 +79,10 @@ export default function ViewerDashboard() {
       description: 'Access user documentation',
     },
     {
-      label: 'Help',
-      icon: HelpCircle,
-      onClick: () => navigate('/help'),
-      description: 'Get help and support',
+      label: 'Telemetry Viewer',
+      icon: Eye,
+      onClick: () => navigate('/telemetry/viewer'),
+      description: 'Inspect per-session routing and tokens',
     },
   ];
 
@@ -278,17 +277,17 @@ export default function ViewerDashboard() {
                     3
                   </div>
                   <div className="flex-1">
-                    <h4 className="font-medium text-sm mb-1">Learn More</h4>
+                    <h4 className="font-medium text-sm mb-1">View Telemetry</h4>
                     <p className="text-xs text-muted-foreground">
-                      Read documentation to understand adapters, stacks, and policies
+                      Inspect routing and token timelines for recent sessions
                     </p>
                     <Button
                       variant="link"
                       size="sm"
                       className="px-0 mt-1"
-                      onClick={() => navigate('/help')}
+                      onClick={() => navigate('/telemetry/viewer')}
                     >
-                      View Documentation →
+                      Open Telemetry Viewer →
                     </Button>
                   </div>
                 </div>
@@ -447,7 +446,7 @@ export default function ViewerDashboard() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <HelpCircle className="h-5 w-5" />
+                <BookOpen className="h-5 w-5" />
                 Help & Resources
               </CardTitle>
               <CardDescription>
@@ -460,10 +459,10 @@ export default function ViewerDashboard() {
                   variant="outline"
                   size="sm"
                   className="w-full justify-start"
-                  onClick={() => navigate('/help')}
+                  onClick={() => window.open('https://docs.adapteros.local', '_blank')}
                 >
                   <BookOpen className="h-4 w-4 mr-2" />
-                  User Guide
+                  Documentation
                 </Button>
                 <Button
                   variant="outline"
@@ -471,7 +470,7 @@ export default function ViewerDashboard() {
                   className="w-full justify-start"
                   onClick={() => window.open('https://docs.adapteros.local/faq', '_blank')}
                 >
-                  <HelpCircle className="h-4 w-4 mr-2" />
+                  <BookOpen className="h-4 w-4 mr-2" />
                   FAQ
                 </Button>
                 <Button

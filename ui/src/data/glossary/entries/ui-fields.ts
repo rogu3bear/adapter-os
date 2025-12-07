@@ -279,7 +279,7 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     category: 'ui-fields',
     content: {
       brief: 'Available actions for this job based on its status and your permissions.',
-      detailed: 'Training job actions:\n- **Pause**: Suspend running job\n- **Resume**: Continue paused job\n- **Cancel**: Terminate job\n- **Retry**: Rerun failed job\n- **View Logs**: Debug information\n- **Download Adapter**: Get trained weights\n\nActions enabled based on current status.',
+      detailed: 'Training job actions:\n- **Cancel**: Terminate a running job\n- **Retry**: Rerun a failed job\n- **View Logs**: Debug information\n- **Download Adapter**: Get trained weights\n\nActions are enabled based on the current status.',
     },
     relatedTerms: ['training-status', 'status-running'],
     aliases: ['actions', 'operations'],
@@ -291,8 +291,8 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     term: 'Status: Running',
     category: 'ui-fields',
     content: {
-      brief: 'Training is actively in progress. You can pause or stop the job.',
-      detailed: 'Active training state. Available actions: Pause, Cancel, View Real-time Metrics. Monitor loss and throughput to ensure convergence.',
+      brief: 'Training is actively in progress. You can stop the job.',
+      detailed: 'Active training state. Available actions: Cancel and View Real-time Metrics. Monitor loss and throughput to ensure convergence.',
     },
     relatedTerms: ['training-status', 'training-actions'],
     aliases: ['running status'],
@@ -329,17 +329,6 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     },
     relatedTerms: ['training-status'],
     aliases: ['queued status', 'pending'],
-  },
-  {
-    id: 'status-paused',
-    term: 'Status: Paused',
-    category: 'ui-fields',
-    content: {
-      brief: 'Training is temporarily paused. Resume to continue.',
-      detailed: 'Training suspended by user. Checkpoints saved. Resources released. Use Resume to continue from checkpoint. Auto-cancelled if paused >24h.',
-    },
-    relatedTerms: ['training-status', 'training-actions'],
-    aliases: ['paused status'],
   },
   {
     id: 'status-cancelled',
@@ -1066,7 +1055,7 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     term: 'Base Model Status',
     category: 'ui-fields',
     content: {
-      brief: 'Current state of the base model: loaded (ready for inference), loading, unloading, unloaded, or error.',
+      brief: 'Current state of the base model: ready (in memory), loading, unloading, no-model, checking, or error.',
       detailed: 'Base model state:\n- **Loaded**: Ready for inference\n- **Loading**: Initializing (may take 30s-2min)\n- **Unloading**: Freeing memory\n- **Unloaded**: Not in memory\n- **Error**: Load failed (check logs)\n\nOnly Loaded models can process inference.',
     },
     relatedTerms: ['base-model-name', 'base-model-memory'],

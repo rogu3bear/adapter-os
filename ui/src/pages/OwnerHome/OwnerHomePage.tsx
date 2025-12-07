@@ -47,7 +47,7 @@ import { CliConsole } from './components/CliConsole';
 import { useSystemState } from '@/hooks/useSystemState';
 import { useLiveData } from '@/hooks/useLiveData';
 
-const MODEL_STATUS_VALUES = ['loaded', 'available', 'loading', 'error'] as const;
+const MODEL_STATUS_VALUES = ['ready', 'loaded', 'loading', 'error', 'no-model'] as const;
 type ModelStatusValue = (typeof MODEL_STATUS_VALUES)[number];
 
 function parseModelStatus(status?: string | null): ModelStatusValue | undefined {
@@ -55,8 +55,9 @@ function parseModelStatus(status?: string | null): ModelStatusValue | undefined 
     return undefined;
   }
   const normalized = status.trim().toLowerCase();
-  return MODEL_STATUS_VALUES.includes(normalized as ModelStatusValue)
-    ? (normalized as ModelStatusValue)
+  const canonical = normalized === 'loaded' ? 'ready' : normalized;
+  return MODEL_STATUS_VALUES.includes(canonical as ModelStatusValue)
+    ? (canonical as ModelStatusValue)
     : undefined;
 }
 

@@ -135,7 +135,6 @@ export type StartTrainingRequest = z.infer<typeof StartTrainingRequestSchema>;
 export const TrainingJobStatusSchema = z.enum([
   'pending',
   'running',
-  'paused',
   'completed',
   'failed',
   'cancelled',

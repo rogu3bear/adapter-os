@@ -28,7 +28,7 @@ export type AdapterLifecycleState = 'unloaded' | 'cold' | 'warm' | 'hot' | 'resi
 export type ModelStatusState =
   | 'no-model'      // No model configured/imported
   | 'loading'       // Model is loading into memory
-  | 'loaded'        // Model is loaded and ready
+  | 'ready'         // Model is loaded and ready
   | 'unloading'     // Model is being unloaded
   | 'error'         // Model failed to load
   | 'checking';     // Initial status check in progress
@@ -487,7 +487,7 @@ export function isAdapterReady(state: AdapterLifecycleState): boolean {
  * Helper to check if base model is ready
  */
 export function isBaseModelReady(status: ModelStatusState): boolean {
-  return status === 'loaded';
+  return status === 'ready';
 }
 
 /**

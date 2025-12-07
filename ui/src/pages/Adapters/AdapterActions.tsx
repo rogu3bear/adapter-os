@@ -110,7 +110,7 @@ export function AdapterActions({
               title="Activate - load into memory"
             >
               <Power className="mr-2 h-4 w-4" />
-              Activate
+              {adapter.version ? `Activate v${adapter.version}` : 'Activate'}
             </DropdownMenuItem>
           ) : (
             <DropdownMenuItem
@@ -119,7 +119,7 @@ export function AdapterActions({
               title="Deactivate - remove from memory"
             >
               <PowerOff className="mr-2 h-4 w-4" />
-              Deactivate
+              {adapter.version ? `Deactivate v${adapter.version}` : 'Deactivate'}
             </DropdownMenuItem>
           )}
 
@@ -265,7 +265,7 @@ export function InlineAdapterActions({
         className="h-7"
       >
         <PowerOff className="mr-1 h-3 w-3" />
-        Deactivate
+        {adapter.version ? `Deactivate v${adapter.version}` : 'Deactivate'}
       </Button>
     );
   }
@@ -279,7 +279,7 @@ export function InlineAdapterActions({
       className="h-7"
     >
       <Power className="mr-1 h-3 w-3" />
-      Activate
+      {adapter.version ? `Activate v${adapter.version}` : 'Activate'}
     </Button>
   );
 }

@@ -66,7 +66,7 @@ function TelemetryToolbar({
         density={density}
         onDensityChange={onDensityChange}
         showLabel={false}
-        className="min-w-[160px]"
+        className="min-w-[calc(var(--base-unit)*40)]"
       />
       <GlossaryTooltip termId="telemetry-export">
         <ExportMenu

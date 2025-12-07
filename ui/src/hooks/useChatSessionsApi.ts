@@ -10,7 +10,12 @@ import { getStorageKey, type ChatSession as LocalChatSession } from '@/types/cha
 import type { ChatMessage as LocalChatMessage } from '@/components/chat/ChatMessage';
 import { logger } from '@/utils/logger';
 import apiClient from '@/api/client';
-import type { ChatSession, ChatMessage, CreateChatSessionRequest } from '@/api/chat-types';
+import type {
+  ChatSession,
+  ChatMessage,
+  CreateChatSessionRequest,
+  UpdateChatSessionRequest,
+} from '@/api/chat-types';
 import { toast } from 'sonner';
 
 const MIGRATION_KEY_PREFIX = 'chat_sessions_migrated_';
@@ -20,11 +25,32 @@ const SESSION_QUERY_KEY = 'chat-sessions';
  * Convert backend ChatSession to local ChatSession format
  */
 function toLocalSession(backendSession: ChatSession, messages: ChatMessage[]): LocalChatSession {
+  let metadata: Record<string, unknown> | undefined;
+  try {
+    metadata = backendSession.metadata_json ? JSON.parse(backendSession.metadata_json) : undefined;
+  } catch {
+    metadata = undefined;
+  }
+
+  const sourceType =
+    backendSession.source_type ||
+    (typeof metadata?.source_type === 'string' ? (metadata.source_type as string) : undefined);
+  const documentId =
+    backendSession.document_id ||
+    (typeof metadata?.documentId === 'string' ? (metadata.documentId as string) : undefined);
+  const documentName =
+    typeof metadata?.documentName === 'string' ? (metadata.documentName as string) : undefined;
+
   return {
     id: backendSession.id,
     name: backendSession.name,
     stackId: backendSession.stack_id || '',
-    stackName: undefined, // Backend doesn't store stack name
+    stackName: (metadata?.stackName as string | undefined) || undefined,
+    collectionId: backendSession.collection_id ?? null,
+    documentId,
+    documentName,
+    sourceType,
+    metadata,
     messages: messages.map(toLocalMessage),
     createdAt: new Date(backendSession.created_at),
     updatedAt: new Date(backendSession.last_activity_at),
@@ -186,18 +212,43 @@ async function migrateLocalStorageSessions(tenantId: string): Promise<number> {
   }
 }
 
-export function useChatSessionsApi(tenantId: string) {
+interface UseChatSessionsOptions {
+  sourceType?: string;
+  documentId?: string;
+  documentName?: string;
+  collectionId?: string | null;
+  tenantId?: string;
+}
+
+export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOptions = {}) {
   const queryClient = useQueryClient();
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const [sessions, setSessions] = useState<LocalChatSession[]>([]);
   const migrationAttempted = useRef(false);
 
+  const matchesOptions = useCallback(
+    (session: LocalChatSession) => {
+      if (options.sourceType && session.sourceType !== options.sourceType) {
+        return false;
+      }
+      if (options.documentId && session.documentId !== options.documentId) {
+        return false;
+      }
+      return true;
+    },
+    [options.documentId, options.sourceType]
+  );
+
   // Fetch sessions from backend
   const { data: backendSessions = [], isLoading: isLoadingSessions } = useQuery({
-    queryKey: [SESSION_QUERY_KEY, tenantId],
+    queryKey: [SESSION_QUERY_KEY, tenantId, options.sourceType, options.documentId],
     queryFn: async () => {
       try {
-        return await apiClient.listChatSessions({ limit: 100 });
+        return await apiClient.listChatSessions({
+          limit: 100,
+          source_type: options.sourceType,
+          document_id: options.documentId,
+        });
       } catch (error) {
         logger.error('Failed to fetch sessions from backend', {
           component: 'useChatSessionsApi',
@@ -276,7 +327,7 @@ export function useChatSessionsApi(tenantId: string) {
             }
           })
         );
-        setSessions(sessionsWithMessages);
+        setSessions(sessionsWithMessages.filter(matchesOptions));
       } catch (error) {
         logger.error('Failed to load sessions with messages', {
           component: 'useChatSessionsApi',
@@ -287,21 +338,57 @@ export function useChatSessionsApi(tenantId: string) {
     };
 
     loadSessionsWithMessages();
-  }, [backendSessions, isLoadingSessions, tenantId]);
+  }, [backendSessions, isLoadingSessions, tenantId, matchesOptions]);
 
   // Create session mutation
+  type CreateSessionParams = {
+    name: string;
+    stackId: string;
+    stackName?: string;
+    collectionId?: string | null;
+    documentContext?: { documentId: string; documentName?: string };
+    sourceType?: string;
+  };
+
   const createSessionMutation = useMutation({
-    mutationFn: async (params: { name: string; stackId: string; stackName?: string; collectionId?: string }) => {
+    mutationFn: async (params: CreateSessionParams) => {
+      const metadata: Record<string, unknown> = {};
+      if (params.stackName) {
+        metadata.stackName = params.stackName;
+      }
+      const sourceType = params.sourceType ?? options.sourceType;
+      if (sourceType) {
+        metadata.source_type = sourceType;
+      }
+      const documentId = params.documentContext?.documentId ?? options.documentId;
+      const documentName = params.documentContext?.documentName ?? options.documentName;
+      if (documentId) {
+        metadata.documentId = documentId;
+      }
+      if (documentName) {
+        metadata.documentName = documentName;
+      }
+
       const req: CreateChatSessionRequest = {
         name: params.name,
+        title: params.name,
+        tenant_id: options.tenantId ?? tenantId,
         stack_id: params.stackId || undefined,
-        collection_id: params.collectionId || undefined,
-        metadata: params.stackName ? { stackName: params.stackName } : undefined,
+        collection_id: params.collectionId ?? options.collectionId ?? undefined,
+        document_id: documentId,
+        document_name: documentName,
+        source_type: sourceType,
+        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       };
-      return await apiClient.createChatSession(req);
+      const created = await apiClient.createChatSession(req);
+      const session = await apiClient.getChatSession(created.session_id);
+      const messages = await apiClient.getChatMessages(created.session_id);
+      return toLocalSession(session, messages);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [SESSION_QUERY_KEY, tenantId] });
+    onSuccess: (session) => {
+      if (matchesOptions(session)) {
+        setSessions((prev) => [session, ...prev.filter((s) => s.id !== session.id)]);
+      }
     },
   });
 
@@ -377,62 +464,99 @@ export function useChatSessionsApi(tenantId: string) {
   });
 
   const createSession = useCallback(
-    (name: string, stackId: string, stackName?: string, collectionId?: string): LocalChatSession => {
-      // Create optimistic local session
-      const newSession: LocalChatSession = {
-        id: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        name,
-        stackId,
-        stackName,
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        tenantId,
-      };
-      setSessions((prev) => [newSession, ...prev]);
-
-      // Trigger backend creation
-      createSessionMutation.mutate(
-        { name, stackId, stackName, collectionId },
-        {
-          onSuccess: (response) => {
-            // Replace temp session with backend session
-            setSessions((prev) =>
-              prev.map((session) =>
-                session.id === newSession.id
-                  ? { ...session, id: response.session_id }
-                  : session
-              )
-            );
-          },
-          onError: (error) => {
-            logger.error('Failed to create session on backend', {
-              component: 'useChatSessionsApi',
-              operation: 'createSession',
-            }, error as Error);
-            // Remove optimistic session
-            setSessions((prev) => prev.filter((session) => session.id !== newSession.id));
-            toast.error('Failed to create chat session');
-          },
-        }
-      );
-
-      return newSession;
+    async (
+      name: string,
+      stackId: string,
+      stackName?: string,
+      collectionId?: string,
+      documentContext?: { documentId: string; documentName?: string },
+      sourceType?: string
+    ): Promise<LocalChatSession> => {
+      try {
+        return await createSessionMutation.mutateAsync({
+          name,
+          stackId,
+          stackName,
+          collectionId,
+          documentContext,
+          sourceType,
+        });
+      } catch (error) {
+        logger.error('Failed to create session on backend', {
+          component: 'useChatSessionsApi',
+          operation: 'createSession',
+        }, error as Error);
+        toast.error('Failed to create chat session');
+        throw error;
+      }
     },
-    [tenantId, createSessionMutation]
+    [createSessionMutation]
   );
 
-  const updateSession = useCallback((sessionId: string, updates: Partial<LocalChatSession>) => {
-    setSessions((prev) =>
-      prev.map((session) =>
-        session.id === sessionId
-          ? { ...session, ...updates, updatedAt: new Date() }
-          : session
-      )
-    );
-    // Note: Backend doesn't have an update session endpoint yet
-    // This only updates local state for now
-  }, []);
+  const updateSession = useCallback(
+    async (sessionId: string, updates: Partial<LocalChatSession>) => {
+      const collectionId =
+        updates.collectionId !== undefined ? updates.collectionId : undefined;
+      const payload: UpdateChatSessionRequest = {};
+      if (updates.name) {
+        payload.name = updates.name;
+        payload.title = updates.name;
+      }
+      if (updates.stackId !== undefined) {
+        payload.stack_id = updates.stackId || null;
+      }
+      if (collectionId !== undefined) {
+        payload.collection_id = collectionId;
+      }
+      if (updates.documentId !== undefined) {
+        payload.document_id = updates.documentId || null;
+      }
+      if (updates.sourceType) {
+        payload.source_type = updates.sourceType;
+      }
+      if (updates.metadata) {
+        payload.metadata_json = JSON.stringify(updates.metadata);
+      }
+
+      // Optimistically update local cache
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === sessionId
+            ? {
+                ...session,
+                ...updates,
+                collectionId: collectionId ?? session.collectionId,
+                updatedAt: new Date(),
+              }
+            : session
+        )
+      );
+
+      try {
+        const updated = await apiClient.updateChatSession(sessionId, payload);
+        // Rehydrate session fields but keep existing messages to avoid refetch storm
+        setSessions((prev) =>
+          prev.map((session) =>
+            session.id === sessionId
+              ? {
+                  ...session,
+                  ...toLocalSession(updated, session.messages),
+                  messages: session.messages,
+                }
+              : session
+          )
+        );
+      } catch (error) {
+        logger.error('Failed to update chat session', {
+          component: 'useChatSessionsApi',
+          operation: 'updateSession',
+          sessionId,
+        }, error as Error);
+        toast.error('Failed to update chat session');
+      }
+    },
+    []
+  );
 
   const addMessage = useCallback(
     (sessionId: string, message: LocalChatMessage) => {

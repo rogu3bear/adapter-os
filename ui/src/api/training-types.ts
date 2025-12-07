@@ -64,7 +64,7 @@ export interface TrainingJob {
   source_documents_json?: string;
 }
 
-export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
+export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface TrainingConfig {
   adapter_id?: string;
@@ -507,7 +507,7 @@ export interface LayerDivergence {
 // Training session for real-time monitoring
 export interface TrainingSession {
   session_id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'paused';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   adapter_id?: string;
   adapter_name?: string;
   dataset_id?: string;

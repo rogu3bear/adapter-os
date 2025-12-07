@@ -1,6 +1,6 @@
 // Federation Status Page - View federation health, node sync status, and quarantine management
 import React, { useState, useCallback } from 'react';
-import FeatureLayout from '@/layout/FeatureLayout';
+import PageWrapper from '@/layout/PageWrapper';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiClient } from '@/api/client';
 import { FederationStatusResponse, FederationAuditResponse, QuarantineStatusResponse, PeerListResponse } from '@/api/federation-types';
-import { DensityProvider, useDensity } from '@/contexts/DensityContext';
+import { useDensity } from '@/contexts/DensityContext';
 import { PeerSyncStatusCard } from '@/components/federation/PeerSyncStatusCard';
 import { derivePeerSyncInfoList } from '@/utils/peerSync';
 import { DensityControls } from '@/components/ui/density-controls';
@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
+import PageTable from '@/components/ui/PageTable';
 
 const LoadingSpinner = () => (
   <div className="flex justify-center py-8">
@@ -309,7 +310,7 @@ function HostChainsTable({ chains }: { chains: FederationAuditResponse['host_cha
   return (
     <div className="mt-6">
       <h3 className="mb-4 text-lg font-semibold">Host Chains</h3>
-      <div className="overflow-x-auto">
+      <PageTable minWidth="md">
         <Table>
           <TableHeader>
             <TableRow>
@@ -330,7 +331,7 @@ function HostChainsTable({ chains }: { chains: FederationAuditResponse['host_cha
             ))}
           </TableBody>
         </Table>
-      </div>
+      </PageTable>
     </div>
   );
 }
@@ -443,15 +444,18 @@ function FederationPageInner() {
 
   if (!canViewFederation) {
     return (
-      <FeatureLayout
+      <PageWrapper
+        pageKey="federation"
         title="Federation Status"
         description="Cross-node synchronization and health"
+        maxWidth="xl"
+        contentPadding="default"
       >
         <ErrorRecovery
           error="You do not have permission to view federation status. This page requires federation:view or audit:view permission."
           onRetry={() => window.location.reload()}
         />
-      </FeatureLayout>
+      </PageWrapper>
     );
   }
 
@@ -559,9 +563,12 @@ function FederationPageInner() {
   };
 
   return (
-    <FeatureLayout
+    <PageWrapper
+      pageKey="federation"
       title="Federation Status"
       description="Cross-node synchronization and health monitoring"
+      maxWidth="xl"
+      contentPadding="default"
       headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
     >
       <SectionErrorBoundary sectionName="Federation Status">
@@ -615,9 +622,5 @@ function FederationPageInner() {
 }
 
 export default function FederationPage() {
-  return (
-    <DensityProvider pageKey="federation">
-      <FederationPageInner />
-    </DensityProvider>
-  );
+  return <FederationPageInner />;
 }

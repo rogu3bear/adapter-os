@@ -30,6 +30,7 @@ interface TelemetryViewerProps {
   backendName?: string;
   workerId?: string;
   tokenText?: Array<{ index: number; content: string }>;
+  sourceType?: string;
 }
 
 export function TelemetryViewer({
@@ -39,6 +40,7 @@ export function TelemetryViewer({
   backendName,
   workerId,
   tokenText,
+  sourceType,
 }: TelemetryViewerProps) {
   const [manualId, setManualId] = useState(initialRequestId ?? '');
   const {
@@ -63,7 +65,11 @@ export function TelemetryViewer({
     filterRequestId,
     setFilterRequestId,
     adapterMap,
-  } = useSessionTelemetry({ initialRequestId: initialRequestId ?? undefined, tenantId });
+  } = useSessionTelemetry({
+    initialRequestId: initialRequestId ?? undefined,
+    tenantId,
+    sourceType,
+  });
 
   const currentSession = useMemo(
     () => sessions.find((s) => s.requestId === selectedRequestId) ?? null,
@@ -315,7 +321,7 @@ export function TelemetryViewer({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[100px]">Token #</TableHead>
+                    <TableHead className="w-[calc(var(--base-unit)*25)]">Token #</TableHead>
                     <TableHead>Adapters fired</TableHead>
                     <TableHead>Token text</TableHead>
                     <TableHead>Entropy / Tau</TableHead>

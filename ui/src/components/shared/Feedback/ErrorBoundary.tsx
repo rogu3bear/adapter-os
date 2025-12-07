@@ -5,6 +5,7 @@ import { AlertCircle, RefreshCw, Home, Bug } from "lucide-react";
 import { cn } from "@/components/ui/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { logUIError } from "@/lib/logUIError";
 
 export interface ErrorBoundaryFallbackProps {
   error: Error;
@@ -50,6 +51,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
     // Call custom error handler if provided
     this.props.onError?.(error, errorInfo);
+    logUIError(error, { scope: 'global', component: 'GlobalErrorBoundary' });
   }
 
   resetError = () => {

@@ -12,7 +12,7 @@ interface EvidenceItemProps {
     metadata_json?: string | Record<string, unknown>;
   };
   /** Callback when clicking to view the evidence source */
-  onView?: (documentId: string, chunkId?: string, pageNumber?: number) => void;
+  onView?: (documentId: string, chunkId?: string, pageNumber?: number, highlightText?: string) => void;
   /** Whether this evidence item is currently highlighted/active */
   isActive?: boolean;
 }
@@ -38,10 +38,12 @@ function parseDocumentMetadata(item: EvidenceItemProps['item']): {
     metadata = item.metadata_json;
   }
 
-  // Extract IDs from metadata or reference field
-  const documentId = metadata.document_id || metadata.documentId;
-  const chunkId = metadata.chunk_id || metadata.chunkId;
-  const pageNumber = item.page_number ?? metadata.page_number ?? metadata.pageNumber;
+  // Extract IDs from metadata or top-level fields
+  const documentId = (metadata.document_id || metadata.documentId || (item as any).document_id) as
+    | string
+    | undefined;
+  const chunkId = (metadata.chunk_id || metadata.chunkId || (item as any).chunk_id) as string | undefined;
+  const pageNumber = item.page_number ?? (metadata.page_number as number | undefined) ?? (metadata.pageNumber as number | undefined);
 
   // Try to parse reference field if IDs not found (e.g., "doc:123:chunk:456")
   if (!documentId && item.reference) {
@@ -73,7 +75,7 @@ export function EvidenceItem({ item, onView, isActive = false }: EvidenceItemPro
 
   const handleClick = () => {
     if (onView && documentId) {
-      onView(documentId, chunkId, pageNumber);
+      onView(documentId, chunkId, pageNumber, item.text_preview);
     }
   };
 

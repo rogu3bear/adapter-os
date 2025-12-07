@@ -377,7 +377,11 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
               />
               <InfoRow
                 label="Quantization"
-                value={manifest.quantization || 'None'}
+                value={
+                  manifest.quantization
+                    ? `${manifest.quantization} (backend-fixed)`
+                    : 'None (backend-fixed)'
+                }
               />
               <InfoRow
                 label="Data Type"
@@ -439,7 +443,7 @@ function InfoRow({ icon, label, value, truncate }: InfoRowProps) {
         {icon}
         <span className="text-sm">{label}</span>
       </div>
-      <div className={`text-sm font-medium ${truncate ? 'max-w-[200px] truncate' : ''}`}>
+      <div className={`text-sm font-medium ${truncate ? 'max-w-[calc(var(--base-unit)*50)] truncate' : ''}`}>
         {value}
       </div>
     </div>

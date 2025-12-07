@@ -13,7 +13,7 @@ import { logger } from '@/utils/logger';
 export type ModelStatusState = 
   | 'no-model'      // No model configured/imported
   | 'loading'       // Model is loading into memory
-  | 'loaded'        // Model is loaded and ready
+  | 'ready'         // Model is loaded and ready
   | 'unloading'     // Model is being unloaded
   | 'error'         // Model failed to load
   | 'checking';     // Initial status check in progress
@@ -68,9 +68,9 @@ export function useModelStatus(
 
       // Map backend status to our state
       switch (response.status) {
-        case 'loaded':
         case 'ready':
-          setStatus('loaded');
+        case 'loaded':
+          setStatus('ready');
           break;
         case 'loading':
           setStatus('loading');
@@ -81,8 +81,12 @@ export function useModelStatus(
         case 'error':
           setStatus('error');
           break;
+        case 'no-model':
         case 'unloaded':
           setStatus('no-model');
+          break;
+        case 'checking':
+          setStatus('checking');
           break;
         default:
           setStatus('no-model');
@@ -149,7 +153,7 @@ export function useModelStatus(
     modelPath,
     memoryUsageMb,
     errorMessage,
-    isReady: status === 'loaded',
+    isReady: status === 'ready',
     refresh: fetchStatus,
   };
 }

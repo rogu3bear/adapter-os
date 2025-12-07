@@ -238,7 +238,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
               </Select>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground min-w-[80px]">Min Entropy:</span>
+                  <span className="text-sm text-muted-foreground min-w-[calc(var(--base-unit)*20)]">Min Entropy:</span>
                   <Slider
                     value={[minEntropy]}
                     onValueChange={([value]) => setMinEntropy(value)}
@@ -254,7 +254,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
             <div className="flex flex-col sm:flex-row gap-4">
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full sm:w-[200px] justify-start text-left font-normal">
+                  <Button variant="outline" className="w-full sm:w-[calc(var(--base-unit)*50)] justify-start text-left font-normal">
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {sinceDate ? formatDate(sinceDate, 'PPP') : 'Since date'}
                   </Button>
@@ -265,7 +265,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
               </Popover>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full sm:w-[200px] justify-start text-left font-normal">
+                  <Button variant="outline" className="w-full sm:w-[calc(var(--base-unit)*50)] justify-start text-left font-normal">
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {untilDate ? formatDate(untilDate, 'PPP') : 'Until date'}
                   </Button>

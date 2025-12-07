@@ -274,8 +274,8 @@ export function TestingPage() {
               <p>Pass Rate: {testResults.epsilon_comparison.pass_rate}%</p>
               <p>Divergent Layers: {testResults.epsilon_comparison.divergent_layers.length}</p>
               {isPassed && (
-                <Link to="/promotion">
-                  <Button>Proceed to Promotion</Button>
+                <Link to="/replay">
+                  <Button>View run history</Button>
                 </Link>
               )}
             </div>

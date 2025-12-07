@@ -202,7 +202,7 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
                   value={selectedPermission}
                   onValueChange={(value) => setSelectedPermission(value as SharePermission)}
                 >
-                  <SelectTrigger className="w-[140px]">
+                  <SelectTrigger className="w-[calc(var(--base-unit)*35)]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

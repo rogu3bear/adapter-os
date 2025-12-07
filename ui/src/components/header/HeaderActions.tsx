@@ -30,7 +30,7 @@ export function HeaderActions({
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => navigate('/dev/errors')}
+          onClick={() => navigate('/dev/api-errors')}
           className="relative h-10 w-10"
           title="Dev Error Inspector"
         >

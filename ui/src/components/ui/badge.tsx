@@ -41,11 +41,12 @@ function Badge({
   asChild = false,
   ...props
 }: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+  VariantProps<typeof badgeVariants> & { asChild?: boolean }, ref: React.Ref<HTMLSpanElement>) {
   const Comp = asChild ? Slot : "span";
 
   return (
     <Comp
+      ref={ref}
       data-slot="badge"
       className={cn(badgeVariants({ variant }), className)}
       {...props}
@@ -53,4 +54,9 @@ function Badge({
   );
 }
 
-export { Badge, badgeVariants };
+const ForwardedBadge = React.forwardRef<HTMLSpanElement, React.ComponentProps<"span"> &
+  VariantProps<typeof badgeVariants> & { asChild?: boolean }>(Badge);
+
+ForwardedBadge.displayName = "Badge";
+
+export { ForwardedBadge as Badge, badgeVariants };

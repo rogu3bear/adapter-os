@@ -17,7 +17,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, FileText, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -33,9 +33,11 @@ interface DocumentChatParams {
 export default function DocumentChatPage() {
   const { documentId } = useParams<keyof DocumentChatParams>() as DocumentChatParams;
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { data: document, isLoading, error } = useDocument(documentId);
   const mainContentRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
+  const collectionId = searchParams.get('collectionId') || undefined;
 
   // Set page title dynamically
   useEffect(() => {
@@ -150,6 +152,8 @@ export default function DocumentChatPage() {
     );
   }
 
+  const collectionId = document.collection_id ?? undefined;
+
   return (
     <div className="h-full flex flex-col">
       {/* Skip link for keyboard users */}
@@ -208,6 +212,7 @@ export default function DocumentChatPage() {
         <DocumentChatLayout
           document={document}
           tenantId={document.tenant_id}
+          collectionId={collectionId}
         />
       </main>
 

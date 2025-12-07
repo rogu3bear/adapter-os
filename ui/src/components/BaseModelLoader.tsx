@@ -61,7 +61,8 @@ export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
   const getStatusIcon = () => {
     if (!status) return <XCircle className="h-5 w-5 text-gray-400" />;
     switch (status.status) {
-      case 'loaded':
+      case 'ready':
+      case 'loaded': // legacy
         return <CheckCircle className="h-5 w-5 text-green-500" />;
       case 'loading':
       case 'unloading':
@@ -71,8 +72,8 @@ export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
     }
   };
 
-  const canLoad = status && ['unloaded', 'error'].includes(status.status);
-  const canUnload = status && ['loaded'].includes(status.status);
+  const canLoad = status && ['no-model', 'error'].includes(status.status);
+  const canUnload = status && status.status === 'ready';
   const isLoading = loadAction.isLoading || unloadAction.isLoading;
 
   return (
@@ -85,7 +86,7 @@ export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
               Base Model Controls
             </CardTitle>
             <Badge variant={status?.is_loaded ? 'default' : 'secondary'}>
-              {status?.is_loaded ? 'Loaded' : 'Unloaded'}
+              {status?.is_loaded ? 'Ready' : 'Not Loaded'}
             </Badge>
           </div>
         </CardHeader>

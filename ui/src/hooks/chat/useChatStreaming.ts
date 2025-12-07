@@ -45,6 +45,9 @@ export interface UseChatStreamingReturn {
   /** Unique ID for the current request (for correlation with router decisions) */
   currentRequestId: string | null;
 
+  /** Ordered chunks received during the current stream */
+  chunks: Array<{ content: string; timestamp: number; index: number }>;
+
   // Actions
   /** Send a message and begin streaming the response */
   sendMessage: (content: string, adapterIds: string[]) => Promise<void>;
@@ -121,6 +124,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
   const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const [tokensReceived, setTokensReceived] = useState(0);
   const [streamDuration, setStreamDuration] = useState<number | null>(null);
+  const [chunks, setChunks] = useState<Array<{ content: string; timestamp: number; index: number }>>([]);
 
   // Refs for cancellation and timing
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -134,6 +138,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
     setCurrentRequestId(null);
     setTokensReceived(0);
     setStreamDuration(null);
+    setChunks([]);
     streamStartTimeRef.current = null;
   }, []);
 
@@ -233,7 +238,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
       temperature: 0.7,
       adapter_stack: adapterIds,
       ...(collectionId && { collection_id: collectionId }),
-      // TODO: Add document_id when API supports it: ...(documentId && { document_id: documentId }),
+      ...(documentId && { document_id: documentId }),
     };
 
     try {
@@ -248,6 +253,14 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
             fullText += token;
             setStreamedText(fullText);
             setTokensReceived(tokenCount);
+            setChunks(prev => [
+              ...prev,
+              {
+                content: token,
+                timestamp: Date.now(),
+                index: tokenCount - 1,
+              },
+            ]);
           },
 
           onComplete: async (completedText: string, finishReason: string | null, metadata?: { unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string }) => {
@@ -350,6 +363,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
     isStreaming,
     streamedText,
     currentRequestId,
+    chunks,
 
     // Actions
     sendMessage,

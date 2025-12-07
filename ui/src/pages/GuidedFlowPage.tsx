@@ -310,7 +310,7 @@ export default function GuidedFlowPage() {
                   ? `Chat is using stack: ${selectedStackName || stackId}.`
                   : 'Chat will use the default stack for this tenant.'}
               </p>
-              <div className="border rounded-lg h-[500px]">
+              <div className="border rounded-lg h-[calc(var(--base-unit)*125)]">
                 <ChatInterface selectedTenant={selectedTenant} initialStackId={stackId} />
               </div>
               <Button variant="ghost" onClick={() => navigate('/chat')}>

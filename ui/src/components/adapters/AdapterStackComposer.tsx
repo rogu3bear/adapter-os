@@ -103,8 +103,14 @@ export const AdapterStackComposer: React.FC<AdapterStackComposerProps> = ({
     const fetchAdapters = async () => {
       setIsLoading(true);
       try {
-        const adapters = await apiClient.listAdapters();
-        setAvailableAdapters(adapters || []);
+        const fetchedAdapters = await apiClient.listAdapters();
+        const sortedAdapters = (fetchedAdapters || []).sort((a, b) => {
+          const aTs = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const bTs = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return bTs - aTs; // last imported first; no semver/lex heuristics
+        });
+        setAvailableAdapters(sortedAdapters);
+        setSelectedAdapter((prev) => prev || sortedAdapters[0]?.adapter_id || '');
       } catch (error: unknown) {
         console.error('Failed to fetch adapters:', error);
       } finally {
@@ -318,7 +324,16 @@ export const AdapterStackComposer: React.FC<AdapterStackComposerProps> = ({
                         key={adapter.adapter_id}
                         value={adapter.adapter_id}
                       >
-                        {adapter.name}
+                      <div className="flex flex-col">
+                        <span className="font-medium">{adapter.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {adapter.version ? `v${adapter.version}` : 'no version'}
+                          {adapter.hash_b3 ? ` • b3 ${adapter.hash_b3.slice(0, 8)}…` : ''}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {adapter.adapter_id}
+                        </span>
+                      </div>
                       </SelectItem>
                     ))}
                   </SelectContent>

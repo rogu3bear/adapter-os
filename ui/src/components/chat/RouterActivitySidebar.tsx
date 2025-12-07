@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
 import { X, Layers, Clock, Zap, AlertCircle, ChevronDown, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '@/api/client';
@@ -152,8 +153,28 @@ export function RouterActivitySidebar({
               </AlertDescription>
             </Alert>
           ) : isLoading ? (
-            <div className="text-center py-8 text-sm text-muted-foreground">
-              Loading router decisions...
+            <div className="space-y-3" aria-label="Loading router activity">
+              {Array.from({ length: 4 }).map((_, idx) => (
+                <Card key={`router-activity-skel-${idx}`} className="p-3">
+                  <CardContent className="p-0 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-4 w-10" />
+                        <Skeleton className="h-4 w-12" />
+                      </div>
+                      <Skeleton className="h-4 w-16" />
+                    </div>
+                    <div className="space-y-1">
+                      <Skeleton className="h-4 w-32" />
+                      <div className="flex gap-2">
+                        <Skeleton className="h-5 w-20" />
+                        <Skeleton className="h-5 w-16" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           ) : allDecisions.length === 0 ? (
             <div className="text-center py-8 text-sm text-muted-foreground">

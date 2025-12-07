@@ -106,7 +106,7 @@ export function TrainingJobsTab({
       },
       status: {
         type: 'select',
-        options: ['pending', 'running', 'completed', 'failed', 'cancelled', 'paused'],
+        options: ['pending', 'running', 'completed', 'failed', 'cancelled'],
       },
       dateRange: {
         type: 'dateRange',

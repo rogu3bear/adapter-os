@@ -15,7 +15,6 @@ import { Send, Loader2, Layers, History, X, ChevronLeft, Plus, Activity, Databas
 import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
 import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
 import { useCollections } from '@/hooks/useCollectionsApi';
-import { useDebouncedCallback } from '@/hooks/useDebouncedValue';
 import type { ExtendedRouterDecision } from '@/api/types';
 import type { ChatSession } from '@/types/chat';
 import { RouterActivitySidebar } from './chat/RouterActivitySidebar';
@@ -54,13 +53,25 @@ interface ChatInterfaceProps {
   };
   /** Callback when user wants to view a document (for evidence navigation) */
   onViewDocument?: (documentId: string, pageNumber?: number, highlightText?: string) => void;
+  /** Streaming render mode (tokens or chunks) */
+  streamMode?: 'tokens' | 'chunks';
+  /** Developer toggle to show raw traces */
+  developerMode?: boolean;
 }
 
-export function ChatInterface({ selectedTenant, initialStackId, sessionId, documentContext, onViewDocument }: ChatInterfaceProps) {
+export function ChatInterface({
+  selectedTenant,
+  initialStackId,
+  sessionId,
+  documentContext,
+  onViewDocument,
+  streamMode = 'tokens',
+  developerMode = false,
+}: ChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [selectedStackId, setSelectedStackId] = useState<string>(initialStackId || '');
-  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(documentContext?.collectionId ?? null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId || null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isRouterActivityOpen, setIsRouterActivityOpen] = useState(false);
@@ -88,6 +99,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   const { data: stacks = [] } = useAdapterStacks();
   const { data: defaultStack } = useGetDefaultStack(selectedTenant);
   const { data: collections = [] } = useCollections();
+  const sessionSourceType = documentContext ? 'document' : 'general';
   const {
     sessions,
     isLoading: isLoadingSessions,
@@ -97,7 +109,12 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     deleteSession,
     getSession,
     updateSessionCollection,
-  } = useChatSessionsApi(tenantId);
+  } = useChatSessionsApi(tenantId, {
+    sourceType: sessionSourceType,
+    documentId: documentContext?.documentId,
+    documentName: documentContext?.documentName,
+    collectionId: documentContext?.collectionId ?? null,
+  });
 
   // Memoize selected stack (needed before hooks)
   const selectedStack = useMemo(
@@ -114,6 +131,13 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     [documentContext?.collectionId, selectedCollectionId]
   );
 
+  // For document chat, keep the collection fixed to the provided context (if any)
+  useEffect(() => {
+    if (documentContext?.collectionId && selectedCollectionId !== documentContext.collectionId) {
+      setSelectedCollectionId(documentContext.collectionId);
+    }
+  }, [documentContext?.collectionId, selectedCollectionId]);
+
   // Chat streaming hook
   const {
     isStreaming,
@@ -121,6 +145,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     currentRequestId,
     sendMessage,
     cancelStream,
+    chunks,
     tokensReceived,
     streamDuration,
   } = useChatStreaming({
@@ -158,6 +183,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
       const evidence = await fetchMessageEvidence(response.id);
       const completedMessage = {
         ...response,
+        id: streamingMessageId || response.id,
         routerDecision: routerDecision as ExtendedRouterDecision | null,
         evidence,
         isVerified: evidence.length > 0,
@@ -166,16 +192,18 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
       };
 
       // Replace streaming message with completed message
-      setMessages(prev => prev.map(msg =>
-        msg.id === streamingMessageId ? completedMessage : msg
-      ));
+      setMessages(prev => {
+        const hasStreamingPlaceholder = prev.some(msg => msg.id === streamingMessageId);
+        if (hasStreamingPlaceholder) {
+          return prev.map(msg => (msg.id === streamingMessageId ? completedMessage : msg));
+        }
+        return [...prev, completedMessage];
+      });
 
       setStreamingMessageId(null);
 
       if (currentSessionId) {
-        debouncedUpdateSession.debouncedFn(currentSessionId, {
-          messages: messages.map(m => m.id === streamingMessageId ? completedMessage : m),
-        });
+        addMessage(currentSessionId, completedMessage);
       }
     },
     onError: (error) => {
@@ -187,6 +215,12 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
       }
     },
   });
+
+  const streamingContent = streamMode === 'tokens'
+    ? (streamedText || '').split(/\s+/).filter(Boolean).join(' ▪ ')
+    : chunks.length > 0
+      ? chunks.map(chunk => chunk.content).join(' | ')
+      : streamedText;
 
   // Adapter state tracking hook (legacy - used when feature flag is off)
   const {
@@ -314,42 +348,38 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
       // Create new session if none exists and stack is selected
       const stack = stacks.find(s => s.id === selectedStackId);
       if (stack) {
-        const newSession = createSession(
-          `Chat with ${stack.name || 'Stack'}`,
-          selectedStackId,
-          stack.name,
-          selectedCollectionId || undefined
-        );
-        setCurrentSessionId(newSession.id);
+        const documentCtx = documentContext
+          ? { documentId: documentContext.documentId, documentName: documentContext.documentName }
+          : undefined;
+        (async () => {
+          try {
+            const newSession = await createSession(
+              `Chat with ${stack.name || 'Stack'}`,
+              selectedStackId,
+              stack.name,
+              effectiveCollectionId,
+              documentCtx,
+              documentCtx ? 'document' : 'general'
+            );
+            setCurrentSessionId(newSession.id);
+            setMessages(newSession.messages);
+          } catch {
+            // error already logged
+          }
+        })();
       }
     }
-  }, [sessionId, currentSessionId, selectedStackId, stacks, isLoadingSessions, getSession, createSession, selectedCollectionId]);
-
-  // Debounced session save to avoid performance issues
-  // Use useRef to avoid dependency issues
-  const updateSessionRef = useRef(updateSession);
-  updateSessionRef.current = updateSession;
-
-  const debouncedUpdateSession = useDebouncedCallback(
-    (sessionId: string, updates: Partial<ChatSession>) => {
-      updateSessionRef.current(sessionId, updates);
-    },
-    500 // 500ms debounce
-  );
-
-  // Save messages to session whenever they change (debounced)
-  useEffect(() => {
-    if (currentSessionId && messages.length > 0) {
-      debouncedUpdateSession.debouncedFn(currentSessionId, { messages });
-    }
-    // Cleanup: flush on unmount to ensure final save
-    return () => {
-      if (currentSessionId && messages.length > 0) {
-        debouncedUpdateSession.flush();
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, currentSessionId]); // debouncedUpdateSession excluded from deps
+  }, [
+    sessionId,
+    currentSessionId,
+    selectedStackId,
+    stacks,
+    isLoadingSessions,
+    getSession,
+    createSession,
+    effectiveCollectionId,
+    documentContext,
+  ]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -399,13 +429,18 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
       return;
     }
 
+    if (!currentSessionId) {
+      toast.error('Preparing chat session. Please wait and try again.');
+      return;
+    }
+
     // Clear input immediately
     const messageContent = input.trim();
     setInput('');
 
     // Send message using the streaming hook
     await sendMessage(messageContent, adapterIds);
-  }, [input, isStreaming, selectedStack, allReady, autoLoadEnabled, newModelLoadingState.adapterStates, adapterStates, sendMessage]);
+  }, [input, isStreaming, selectedStack, allReady, autoLoadEnabled, newModelLoadingState.adapterStates, adapterStates, sendMessage, currentSessionId]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -458,27 +493,40 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
       if (session.stackId) {
         setSelectedStackId(session.stackId);
       }
+      if (session.collectionId !== undefined) {
+        setSelectedCollectionId(session.collectionId);
+      }
       setIsHistoryOpen(false);
     }
   }, [getSession]);
 
-  const handleCreateSession = useCallback(() => {
+  const handleCreateSession = useCallback(async () => {
     if (!selectedStackId) {
       toast.error('Please select a stack first');
       return;
     }
     const selectedStack = stacks.find(s => s.id === selectedStackId);
-    const newSession = createSession(
-      `Session ${new Date().toLocaleString()}`,
-      selectedStackId,
-      selectedStack?.name
-    );
-    setCurrentSessionId(newSession.id);
-    setMessages([]);
-    setNewSessionName('');
-    setIsHistoryOpen(false);
-    toast.success('New session created');
-  }, [selectedStackId, stacks, createSession]);
+    const documentCtx = documentContext
+      ? { documentId: documentContext.documentId, documentName: documentContext.documentName }
+      : undefined;
+    try {
+      const newSession = await createSession(
+        `Session ${new Date().toLocaleString()}`,
+        selectedStackId,
+        selectedStack?.name,
+        effectiveCollectionId,
+        documentCtx,
+        documentCtx ? 'document' : 'general'
+      );
+      setCurrentSessionId(newSession.id);
+      setMessages(newSession.messages);
+      setNewSessionName('');
+      setIsHistoryOpen(false);
+      toast.success('New session created');
+    } catch {
+      // error already surfaced
+    }
+  }, [selectedStackId, stacks, createSession, documentContext, effectiveCollectionId]);
 
   const handleDeleteSession = useCallback((sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -612,12 +660,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
         onContinueAnyway={continueWithUnready}
         isLoading={isCheckingAdapters}
         // Model loading props (when feature flag is enabled)
-        modelStatus={autoLoadEnabled ? (
-          newModelLoadingState.baseModelStatus === 'no-model' ? 'unloaded' :
-          newModelLoadingState.baseModelStatus === 'checking' ? 'loading' :
-          newModelLoadingState.baseModelStatus === 'unloading' ? 'loading' :
-          newModelLoadingState.baseModelStatus
-        ) : undefined}
+        modelStatus={autoLoadEnabled ? newModelLoadingState.baseModelStatus : undefined}
         modelName={autoLoadEnabled ? newModelLoadingState.baseModelName || undefined : undefined}
         isModelLoading={autoLoadEnabled ? newModelLoadingState.baseModelStatus === 'loading' : undefined}
         onLoadAndChat={autoLoadEnabled ? () => newModelLoader.loadModels(selectedStackId) : undefined}
@@ -946,7 +989,11 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
               aria-label="Select adapter stack"
               aria-describedby={stacks.length === 0 ? "no-stacks-hint" : undefined}
             >
-              <SelectTrigger ref={stackSelectorRef} className="w-[300px]">
+              <SelectTrigger
+                ref={stackSelectorRef}
+                className="w-[calc(var(--base-unit)*75)]"
+                aria-label="Select adapter stack"
+              >
                 <SelectValue placeholder="Select a stack" />
               </SelectTrigger>
               <SelectContent>
@@ -996,7 +1043,10 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
               onValueChange={handleCollectionChange}
               aria-label="Select collection"
             >
-              <SelectTrigger className="w-[200px]">
+              <SelectTrigger
+                className="w-[calc(var(--base-unit)*50)]"
+                aria-label="Select collection"
+              >
                 <SelectValue placeholder="No collection" />
               </SelectTrigger>
               <SelectContent>
@@ -1079,7 +1129,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
                   message={
                     // Update streaming message with current streamed text
                     message.id === streamingMessageId
-                      ? { ...message, content: streamedText }
+                      ? { ...message, content: streamingContent }
                       : message
                   }
                   onViewDocument={handleViewDocumentClick}
@@ -1107,8 +1157,8 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
-            className="min-h-[60px] resize-none"
-            disabled={isStreaming || !selectedStackId}
+            className="min-h-[calc(var(--base-unit)*15)] resize-none"
+            disabled={isStreaming || !selectedStackId || !currentSessionId}
             aria-label="Message input"
             aria-describedby={!selectedStackId ? "stack-required-hint" : undefined}
           />
@@ -1130,7 +1180,6 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
           )}
           <Button
             type="submit"
-            onClick={handleSend}
             disabled={isStreaming || !input.trim() || !selectedStackId || (autoLoadEnabled && !allReady)}
             size="lg"
             aria-label={isStreaming ? "Sending message..." : "Send message"}
@@ -1153,6 +1202,24 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
           </div>
         )}
       </div>
+
+      {developerMode && (
+        <div className="mt-4 rounded-md border border-border bg-muted/40 p-3 text-xs font-mono text-foreground">
+          <div className="font-semibold mb-2">Raw JSON traces</div>
+          <pre className="whitespace-pre-wrap break-all text-muted-foreground">
+            {JSON.stringify(
+              {
+                lastDecision,
+                recentDecisions: decisionHistory.slice(-3),
+                sessionId: currentSessionId,
+                stackId: selectedStackId,
+              },
+              null,
+              2
+            )}
+          </pre>
+        </div>
+      )}
 
       {/* Share Dialog */}
       {shareDialogSessionId && (

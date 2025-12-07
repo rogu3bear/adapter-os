@@ -171,7 +171,7 @@ function ResponseComparison({
                 <Copy className="size-3" />
               </Button>
             </div>
-            <div className="bg-muted/50 rounded-md p-3 text-sm font-mono whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto">
+            <div className="bg-muted/50 rounded-md p-3 text-sm font-mono whitespace-pre-wrap break-words max-h-[calc(var(--base-unit)*100)] overflow-y-auto">
               {divergencePosition !== undefined ? highlightedOriginal : original}
             </div>
           </div>
@@ -188,7 +188,7 @@ function ResponseComparison({
                 <Copy className="size-3" />
               </Button>
             </div>
-            <div className="bg-muted/50 rounded-md p-3 text-sm font-mono whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto">
+            <div className="bg-muted/50 rounded-md p-3 text-sm font-mono whitespace-pre-wrap break-words max-h-[calc(var(--base-unit)*100)] overflow-y-auto">
               {divergencePosition !== undefined ? highlightedReplay : replay}
             </div>
           </div>
@@ -216,7 +216,7 @@ function ResponseComparison({
           Show Side-by-Side
         </Button>
       </div>
-      <div className="bg-muted/50 rounded-md p-3 text-sm font-mono whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto">
+      <div className="bg-muted/50 rounded-md p-3 text-sm font-mono whitespace-pre-wrap break-words max-h-[calc(var(--base-unit)*100)] overflow-y-auto">
         {original === replay ? (
           <div className="text-green-600 dark:text-green-400">
             <CheckCircle2 className="inline-block size-4 mr-2" />

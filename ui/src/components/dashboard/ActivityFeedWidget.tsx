@@ -98,7 +98,7 @@ export function ActivityFeedWidget() {
           </CardTitle>
           <div className="flex items-center gap-2">
             <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as EventType)}>
-              <SelectTrigger className="w-[140px]" aria-label="Type filter">
+              <SelectTrigger className="w-[calc(var(--base-unit)*35)]" aria-label="Type filter">
                 <SelectValue placeholder="Type" />
               </SelectTrigger>
               <SelectContent>
@@ -114,7 +114,7 @@ export function ActivityFeedWidget() {
               </SelectContent>
             </Select>
             <Select value={severityFilter} onValueChange={(v) => setSeverityFilter(v as Severity)}>
-              <SelectTrigger className="w-[140px]" aria-label="Severity filter">
+              <SelectTrigger className="w-[calc(var(--base-unit)*35)]" aria-label="Severity filter">
                 <SelectValue placeholder="Severity" />
               </SelectTrigger>
               <SelectContent>

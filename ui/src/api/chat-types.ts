@@ -11,12 +11,20 @@ export interface ChatSession {
   id: string;
   tenant_id: string;
   user_id?: string;
+  created_by?: string;
   stack_id?: string;
   collection_id?: string;
+  document_id?: string;
   name: string;
+  title?: string;
+  source_type?: string;
+  source_ref_id?: string;
   created_at: string; // ISO8601 datetime
+  updated_at?: string;
   last_activity_at: string; // ISO8601 datetime
   metadata_json?: string; // JSON string for additional metadata
+  tags_json?: string;
+  pinned_adapter_ids?: string;
 }
 
 /**
@@ -26,9 +34,12 @@ export interface ChatSession {
 export interface ChatMessage {
   id: string;
   session_id: string;
-  role: 'user' | 'assistant' | 'system';
+  tenant_id: string;
+  role: 'user' | 'assistant' | 'system' | 'tool' | 'owner_system';
   content: string;
-  timestamp: string; // ISO8601 datetime
+  timestamp: string; // ISO8601 datetime (fallback)
+  created_at: string;
+  sequence: number;
   metadata_json?: string; // JSON string for router decisions, evidence, etc.
 }
 
@@ -50,8 +61,16 @@ export interface ChatSessionTrace {
  */
 export interface CreateChatSessionRequest {
   name: string;
+  tenant_id?: string;
   stack_id?: string;
   collection_id?: string;
+  /** Optional document context for document chat sessions */
+  document_id?: string;
+  document_name?: string;
+  source_type?: string;
+  title?: string;
+  source_ref_id?: string;
+  tags_json?: string;
   metadata?: Record<string, unknown>; // Will be JSON.stringify'd to metadata_json
 }
 
@@ -91,6 +110,8 @@ export interface SessionSummary {
 export interface ListSessionsQuery {
   user_id?: string;
   limit?: number;
+  source_type?: string;
+  document_id?: string;
 }
 
 /**
@@ -99,6 +120,21 @@ export interface ListSessionsQuery {
  */
 export interface UpdateSessionCollectionRequest {
   collection_id: string | null;
+}
+
+/**
+ * Request to update a chat session (title, bindings, metadata)
+ * PUT /v1/chat/sessions/:session_id
+ */
+export interface UpdateChatSessionRequest {
+  name?: string;
+  title?: string;
+  stack_id?: string | null;
+  collection_id?: string | null;
+  document_id?: string | null;
+  source_type?: string;
+  metadata_json?: string | null;
+  tags_json?: string | null;
 }
 
 // =============================================================================

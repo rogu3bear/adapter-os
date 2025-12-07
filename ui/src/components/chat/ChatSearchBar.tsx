@@ -208,7 +208,7 @@ export function ChatSearchBar({
 
       {/* Search results dropdown */}
       {shouldShowDropdown && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-popover border border-border rounded-md shadow-lg z-50 max-h-[400px] overflow-hidden">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-popover border border-border rounded-md shadow-lg z-50 max-h-[calc(var(--base-unit)*100)] overflow-hidden">
           <Command className="rounded-md">
             <CommandList>
               {/* Loading state */}
@@ -233,7 +233,7 @@ export function ChatSearchBar({
 
               {/* Results */}
               {!isSearching && !isPending && results.length > 0 && (
-                <ScrollArea className="max-h-[350px]">
+                <ScrollArea className="max-h-[calc(var(--base-unit)*87.5)]">
                   <CommandGroup heading={`${results.length} result${results.length === 1 ? '' : 's'}`}>
                     {results.map((result, index) => (
                       <CommandItem
@@ -249,7 +249,7 @@ export function ChatSearchBar({
                             ) : (
                               <MessageSquare className="h-4 w-4 text-muted-foreground" />
                             )}
-                            <span className="font-medium text-sm truncate max-w-[300px]">
+                            <span className="font-medium text-sm truncate max-w-[calc(var(--base-unit)*75)]">
                               {result.session_name}
                             </span>
                           </div>

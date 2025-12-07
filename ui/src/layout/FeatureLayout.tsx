@@ -79,15 +79,15 @@ interface FeatureLayoutProps {
 }
 
 const paddingClassMap: Record<ContentPadding, string> = {
-  default: 'px-4 py-6 sm:p-[var(--space-6)]',
-  compact: 'px-4 py-4 sm:p-[var(--space-4)]',
+  default: 'px-[var(--space-4)] py-[var(--space-6)] sm:p-[var(--space-6)]',
+  compact: 'px-[var(--space-4)] py-[var(--space-4)] sm:p-[var(--space-4)]',
   none: 'p-0',
 };
 
 const maxWidthClassMap: Record<MaxWidth, string> = {
-  md: 'max-w-4xl',
-  lg: 'max-w-5xl',
-  xl: 'max-w-[1440px]',
+  md: 'max-w-[var(--layout-content-width-md)]',
+  lg: 'max-w-[var(--layout-content-width-lg)]',
+  xl: 'max-w-[var(--layout-content-width-xl)]',
   full: 'max-w-none',
 };
 
@@ -221,33 +221,36 @@ export default function FeatureLayout({
   };
 
   return (
-    <div className={cn('min-h-0 min-w-0', paddingClassMap[contentPadding])}>
-      <div className={cn('mx-auto', maxWidthClassMap[maxWidth])}>
-        <header className="mb-[var(--section-gap)]">
-          {customHeader ?? (
-            <PageHeader
-              title={prefixedTitle}
-              description={description}
-              primaryAction={primaryAction}
-              secondaryActions={secondaryActions}
-              badges={badges}
-              termId={termId}
-              brief={brief}
-            >
-              {headerActions}
-            </PageHeader>
-          )}
-        </header>
+    <>
+      {/* Scroll strategy: outer layout stays non-scrolling; panel bodies manage their own overflow when needed. */}
+      <div className={cn('min-h-0 min-w-0', paddingClassMap[contentPadding])}>
+        <div className={cn('mx-auto', maxWidthClassMap[maxWidth])}>
+          <header className="mb-[var(--section-gap)]">
+            {customHeader ?? (
+              <PageHeader
+                title={prefixedTitle}
+                description={description}
+                primaryAction={primaryAction}
+                secondaryActions={secondaryActions}
+                badges={badges}
+                termId={termId}
+                brief={brief}
+              >
+                {headerActions}
+              </PageHeader>
+            )}
+          </header>
 
-        <main
-          className={cn(
-            'grid gap-[var(--space-4)] border-t border-[var(--gray-300)] pt-[var(--space-6)]',
-            hasSplitPanels ? 'min-h-[480px]' : undefined,
-          )}
-        >
-          {renderPanels()}
-        </main>
+          <main
+            className={cn(
+              'grid gap-[var(--space-4)] border-t border-[var(--gray-300)] pt-[var(--space-6)]',
+              hasSplitPanels ? 'min-h-[calc(var(--base-unit)*120)]' : undefined,
+            )}
+          >
+            {renderPanels()}
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Progress } from '@/components/ui/progress';
+import ResponsiveStatGrid from '@/components/ui/responsive-stat-grid';
 import {
   ChartContainer,
   ChartTooltip,
@@ -194,7 +195,7 @@ export default function ProductManagerUsageAnalytics() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <ResponsiveStatGrid>
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -239,7 +240,7 @@ export default function ProductManagerUsageAnalytics() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </ResponsiveStatGrid>
 
       {/* Request Volume Chart */}
       <Card>
@@ -400,7 +401,7 @@ export default function ProductManagerUsageAnalytics() {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <div className="min-w-[600px]">
+            <div className="w-full">
               {/* Hour labels */}
               <div className="flex mb-2 ml-12">
                 {Array.from({ length: 24 }, (_, i) => (

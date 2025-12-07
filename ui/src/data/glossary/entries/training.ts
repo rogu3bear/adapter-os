@@ -743,7 +743,7 @@ Each template defines:
     term: 'Quantization',
     category: 'training',
     content: {
-      brief: 'Reduces numerical precision of model weights to save memory and increase speed. Common formats: float16 (half precision), int8 (8-bit), int4 (4-bit). Trade-off: memory vs quality.',
+      brief: 'Reduces numerical precision of model weights to save memory and increase speed. Backend-fixed (no per-token precision overrides). Common formats: float16, int8, int4.',
       detailed: `Quantization compresses model weights from high-precision formats to lower-precision representations, dramatically reducing memory usage with minimal quality loss.
 
 **Precision Formats:**
@@ -800,10 +800,10 @@ Each template defines:
 - Acceptable quality trade-off
 
 **AdapterOS Support:**
-- Automatic format detection
-- Dynamic quantization during loading
+- Backend-fixed quantization: Metal/CoreML run fp16/bf16 kernels; MLX uses model-packaged weights (int4/int8/fp16)
+- No per-request or per-token precision overrides
 - Mixed-precision training (float16)
-- Quantized inference (int8/int4)`,
+- Quantized inference via model-packaged formats (int8/int4)`,
     },
     relatedTerms: ['data-type', 'batch-size', 'max-seq-length'],
     aliases: ['weight-quantization', 'precision', 'compression'],

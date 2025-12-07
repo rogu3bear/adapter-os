@@ -3,18 +3,37 @@ import { apiClient } from '@/api/client';
 import type { User } from '@/api/types';
 import type { LoginRequest, LoginResponse } from '@/api/auth-types';
 import { logger, toError } from '@/utils/logger';
+import { ThemeProvider as AosThemeProvider } from '@/theme/ThemeProvider';
+import { tryDevBypassLogin } from '@/auth/authBootstrap';
 
 const SELECTED_TENANT_KEY = 'selectedTenant';
 const TENANT_BOOTSTRAP_KEY = 'aos-tenant-bootstrap';
 const AUTH_SESSION_KEY = 'aos-auth-active';
 export const SESSION_EXPIRED_FLAG_KEY = 'aos-session-expired';
 export const TENANT_SELECTION_REQUIRED_KEY = 'aos-tenant-selection-required';
+const DEVICE_ID_KEY = 'aos-device-id';
+
+function ensureDeviceId(): string {
+  try {
+    const existing = localStorage.getItem(DEVICE_ID_KEY);
+    if (existing) return existing;
+    const generated =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `device-${Date.now()}`;
+    localStorage.setItem(DEVICE_ID_KEY, generated);
+    return generated;
+  } catch {
+    return 'device-unknown';
+  }
+}
 
 // Auth Context
 interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
   authError: Error | null;
+  accessToken: string | null;
   login: (credentials: LoginRequest) => Promise<LoginResponse>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -30,25 +49,6 @@ export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within CoreProviders');
-  }
-  return context;
-}
-
-// Theme Context
-type Theme = 'light' | 'dark' | 'system';
-
-interface ThemeContextValue {
-  theme: Theme;
-  toggleTheme: () => void;
-  setTheme: (theme: Theme) => void;
-}
-
-const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
-
-export function useTheme(): ThemeContextValue {
-  const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error('useTheme must be used within CoreProviders');
   }
   return context;
 }
@@ -94,6 +94,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<Error | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const isRefreshingRef = useRef(false);
 
   const clearAuthError = useCallback(() => {
@@ -119,6 +120,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         last_login_at: userInfo.last_login_at,
         mfa_enabled: userInfo.mfa_enabled,
         token_last_rotated_at: userInfo.token_last_rotated_at,
+        admin_tenants: userInfo.admin_tenants,
       });
       setAuthError(null);
       try {
@@ -154,7 +156,12 @@ function AuthProvider({ children }: { children: ReactNode }) {
         operation: 'login',
         username: credentials.username,
       });
-      const response = await apiClient.login(credentials);
+      const response = await apiClient.login({
+        ...credentials,
+        device_id: ensureDeviceId(),
+      });
+      apiClient.setToken(response.token);
+      setAccessToken(response.token);
       logger.info('Login successful', {
         component: 'AuthProvider',
         operation: 'login',
@@ -178,6 +185,12 @@ function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch {
         // ignore storage errors
+      }
+
+      const latestToken = apiClient.getToken ? apiClient.getToken() : response.token;
+      if (latestToken) {
+        apiClient.setToken(latestToken);
+        setAccessToken(latestToken);
       }
 
       // Cache tenant context immediately to avoid blank state during initial load
@@ -214,6 +227,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         role: response.role as User['role'],
         tenant_id: resolvedTenantId,
         permissions: [], // refreshed below
+        admin_tenants: response.admin_tenants,
       });
 
       // Best-effort hydration from /auth/me
@@ -236,6 +250,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       logger.error('Logout error', { component: 'AuthProvider' }, toError(error));
     } finally {
       setUser(null);
+      setAccessToken(null);
       setAuthError(null); // Clear auth error on logout
       try {
         localStorage.removeItem(SELECTED_TENANT_KEY);
@@ -253,6 +268,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await apiClient.refreshSession();
       await refreshUser();
+      setAccessToken(apiClient.getToken ? apiClient.getToken() ?? null : null);
       try {
         sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
         sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
@@ -278,6 +294,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       await apiClient.logoutAllSessions();
       setUser(null);
       setAuthError(null); // Clear auth error on logout
+      setAccessToken(null);
     } catch (error) {
       logger.error('Logout all sessions error', { component: 'AuthProvider' }, toError(error));
     } finally {
@@ -305,11 +322,44 @@ function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshUser]);
 
   useEffect(() => {
-    // Only attempt to refresh user if we have an auth token (cookie-based auth)
-    // Check if we might be authenticated by looking for existing session indicators
-    // This prevents 401 errors on initial page load before login
+    // Bootstrap auth on first load:
+    // 1) If server is in dev bypass, /auth/me returns admin + wildcard tenants.
+    // 2) Otherwise, fall back to normal refreshUser flow (may 401).
     const checkAuth = async () => {
       try {
+        const devClaims = await tryDevBypassLogin();
+        if (devClaims) {
+          logger.debug('AuthProvider: using dev-bypass claims from /auth/me', {
+            component: 'AuthProvider',
+          });
+          const normalizedRole = typeof devClaims.role === 'string' ? devClaims.role.toLowerCase() : undefined;
+          const allowedRoles = ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'] as const;
+          const resolvedRole = (allowedRoles as readonly string[]).includes(normalizedRole ?? '')
+            ? (normalizedRole as User['role'])
+            : 'viewer';
+
+          setUser({
+            id: devClaims.user_id,
+            email: devClaims.email,
+            display_name: devClaims.display_name || devClaims.email,
+            role: resolvedRole,
+            tenant_id: devClaims.tenant_id || '',
+            permissions: devClaims.permissions || [],
+            last_login_at: devClaims.last_login_at,
+            mfa_enabled: devClaims.mfa_enabled,
+            token_last_rotated_at: devClaims.token_last_rotated_at,
+            admin_tenants: devClaims.admin_tenants,
+          });
+          setAuthError(null);
+          try {
+            sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+            sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+          } catch {
+            // ignore storage errors
+          }
+          return;
+        }
+
         // Attempt to get current user - if 401, we're not authenticated
         await refreshUser();
       } catch {
@@ -326,6 +376,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
     user,
     isLoading,
     authError,
+    accessToken,
     login,
     logout,
     refreshUser,
@@ -336,89 +387,6 @@ function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-// Theme Provider Component
-function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    try {
-      const stored = localStorage.getItem('theme');
-      if (stored === 'light' || stored === 'dark' || stored === 'system') {
-        return stored;
-      }
-    } catch (error) {
-      logger.warn('Failed to read theme from localStorage', { component: 'ThemeProvider' });
-    }
-    return 'system';
-  });
-
-  // Apply theme immediately and listen to system preference changes
-  useEffect(() => {
-    const applyTheme = () => {
-      const root = document.documentElement;
-      const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)')?.matches);
-      
-      if (isDark) {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
-    };
-
-    applyTheme();
-
-    // Listen to system preference changes when theme is 'system'
-    if (theme === 'system' && typeof window !== 'undefined' && window.matchMedia) {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      if (!mediaQuery) return;
-
-      const handleChange = () => applyTheme();
-
-      // Modern browsers
-      if (mediaQuery.addEventListener) {
-        mediaQuery.addEventListener('change', handleChange);
-        return () => mediaQuery.removeEventListener('change', handleChange);
-      }
-      // Fallback for older browsers
-      else if (mediaQuery.addListener) {
-        mediaQuery.addListener(handleChange);
-        return () => mediaQuery.removeListener(handleChange);
-      }
-    }
-  }, [theme]);
-
-  const toggleTheme = useCallback(() => {
-    setThemeState((prev) => {
-      const next = prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light';
-      try {
-        localStorage.setItem('theme', next);
-      } catch (error) {
-        logger.warn('Failed to save theme to localStorage', { component: 'ThemeProvider' });
-      }
-      return next;
-    });
-  }, []);
-
-  const setTheme = useCallback((newTheme: Theme) => {
-    if (newTheme !== 'light' && newTheme !== 'dark' && newTheme !== 'system') {
-      logger.warn('Invalid theme value', { component: 'ThemeProvider', theme: newTheme });
-      return;
-    }
-    setThemeState(newTheme);
-    try {
-      localStorage.setItem('theme', newTheme);
-    } catch (error) {
-      logger.warn('Failed to save theme to localStorage', { component: 'ThemeProvider' });
-    }
-  }, []);
-
-  const value: ThemeContextValue = {
-    theme,
-    toggleTheme,
-    setTheme,
-  };
-
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 // Resize Provider Component
@@ -480,11 +448,13 @@ function ResizeProvider({ children }: { children: ReactNode }) {
 export function CoreProviders({ children }: { children: ReactNode }) {
   return (
     <AuthProvider>
-      <ThemeProvider>
+      <AosThemeProvider>
         <ResizeProvider>
           {children}
         </ResizeProvider>
-      </ThemeProvider>
+      </AosThemeProvider>
     </AuthProvider>
   );
 }
+
+export { useTheme } from '@/theme/ThemeProvider';

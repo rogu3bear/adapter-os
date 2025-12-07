@@ -1,8 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTenant } from '@/providers/FeatureProviders';
-import FeatureLayout from '@/layout/FeatureLayout';
+import PageWrapper from '@/layout/PageWrapper';
 import { RouterConfigPage as RouterConfig } from '@/components/RouterConfigPage';
-import { DensityProvider } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
@@ -21,10 +20,14 @@ export default function RouterConfigPage() {
   };
 
   return (
-    <DensityProvider pageKey="router-config">
-      <FeatureLayout title="Router Configuration" description="Configure K-sparse LoRA routing parameters">
-        <RouterConfig selectedTenant={selectedTenant} focusAdapterId={adapterId} onClearFocus={handleClearFocus} />
-      </FeatureLayout>
-    </DensityProvider>
+    <PageWrapper
+      pageKey="router-config"
+      title="Router Configuration"
+      description="Configure K-sparse LoRA routing parameters"
+      maxWidth="xl"
+      contentPadding="default"
+    >
+      <RouterConfig selectedTenant={selectedTenant} focusAdapterId={adapterId} onClearFocus={handleClearFocus} />
+    </PageWrapper>
   );
 }

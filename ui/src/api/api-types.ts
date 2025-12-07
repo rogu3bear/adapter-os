@@ -150,7 +150,7 @@ export interface BaseModelStatus {
   model_id: string;
   model_name: string;
   model_path?: string | null;
-  status: 'loading' | 'error' | 'unloaded' | 'ready' | 'loaded' | 'unloading';
+  status: 'no-model' | 'loading' | 'ready' | 'unloading' | 'error' | 'checking';
   loaded_at?: string | null;
   unloaded_at?: string | null;
   error_message?: string | null;
@@ -849,7 +849,7 @@ export interface Alert {
 export interface ModelStatusResponse {
   schema_version: string; // Required by backend API
   model_id: string;
-  status: 'loading' | 'ready' | 'error' | 'unloaded' | 'loaded' | 'unloading';
+  status: 'no-model' | 'loading' | 'ready' | 'unloading' | 'error' | 'checking';
   memory_usage_mb?: number;
   last_inference?: string;
   error?: string;
@@ -1355,6 +1355,7 @@ export interface RoutingDecisionFilters {
   tenant_id?: string;
   anomalies_only?: boolean;
   request_id?: string;
+   source_type?: string;
 }
 
 export interface AdapterFired {

@@ -34,6 +34,8 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import LayoutDebugOverlay from '@/components/dev/LayoutDebugOverlay';
+import { useLayoutDebug } from '@/hooks/useLayoutDebug';
 
 const COLLAPSED_GROUPS_KEY = 'aos_sidebar_collapsed_groups';
 
@@ -48,6 +50,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
   const navigate = useNavigate();
   const { openPalette } = useCommandPalette();
   const { isMobile } = useSidebar();
+  const { enabled: layoutDebugEnabled, toggle: toggleLayoutDebug } = useLayoutDebug();
 
   const [helpCenterOpen, setHelpCenterOpen] = useState(false);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
@@ -136,7 +139,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
                     onClick={() => toggleGroup(group.title)}
                     className={cn(
                       'flex items-center justify-between w-full cursor-pointer',
-                      isMobile && 'min-h-[44px] px-3 py-3'
+                      isMobile && 'min-h-[calc(var(--base-unit)*11)] px-[var(--space-3)] py-[var(--space-3)]'
                     )}
                     aria-expanded={!isCollapsed}
                     aria-label={`Toggle ${group.title} menu`}
@@ -178,7 +181,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
         </SidebarContent>
       </Sidebar>
 
-      {/* Main content area */}
+      {/* Main content area — SidebarInset owns the primary vertical scroll. Inner panels should only scroll when truly overflowed. */}
       <SidebarInset>
         {/* Header */}
         <header className="flex items-center border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10">
@@ -199,8 +202,19 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
         </header>
 
         {/* Content */}
-        <main id="main-content" className="flex-1 p-4 md:p-6" role="main" tabIndex={-1}>
-          <div className="mx-auto max-w-[1440px]">
+        <main
+          id="main-content"
+          className="flex-1"
+          role="main"
+          tabIndex={-1}
+          style={{
+            paddingLeft: 'max(var(--space-4), env(safe-area-inset-left, 0px))',
+            paddingRight: 'max(var(--space-4), env(safe-area-inset-right, 0px))',
+            paddingTop: 'var(--space-4)',
+            paddingBottom: 'var(--space-4)',
+          }}
+        >
+          <div className="mx-auto w-full" style={{ maxWidth: 'var(--layout-content-width-xl)' }}>
             <SectionErrorBoundary sectionName="Page Content">
               <Outlet />
             </SectionErrorBoundary>
@@ -218,6 +232,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
       <CommandPalette />
       <NotificationCenter open={notificationCenterOpen} onOpenChange={setNotificationCenterOpen} />
       <HelpCenter open={helpCenterOpen} onOpenChange={setHelpCenterOpen} />
+      <LayoutDebugOverlay enabled={layoutDebugEnabled} onToggle={toggleLayoutDebug} />
     </>
   );
 }
@@ -329,12 +344,12 @@ export default function RootLayout() {
             </SidebarContent>
           </Sidebar>
           <SidebarInset>
-            <header className="flex items-center gap-2 border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10 px-2 h-12">
+            <header className="flex items-center gap-2 border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10 px-[var(--space-2)] h-[calc(var(--base-unit)*12)]">
               <Lock className="h-4 w-4 text-primary animate-pulse" />
               <span className="font-medium text-sm text-muted-foreground">Loading...</span>
             </header>
-            <main id="main-content" className="flex-1 p-4 md:p-6" role="main" tabIndex={-1}>
-              <div className="mx-auto max-w-[1440px]">
+            <main id="main-content" className="flex-1 p-[var(--space-4)] md:p-[var(--space-6)]" role="main" tabIndex={-1}>
+              <div className="mx-auto max-w-[var(--layout-content-width-xl)]">
                 <Outlet />
               </div>
             </main>

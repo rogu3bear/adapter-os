@@ -42,7 +42,7 @@ export function HashChainView({ manifestHash, kernelHash, policyHash, verified }
 
 function HashBlock({ label, hash }: { label: string; hash: string }) {
   return (
-    <div className="flex flex-col items-center gap-1 p-3 border rounded bg-muted/30 min-w-[200px]">
+    <div className="flex flex-col items-center gap-1 p-3 border rounded bg-muted/30 w-full max-w-[240px]">
       <div className="text-xs text-muted-foreground font-medium">{label}</div>
       <code className="text-xs font-mono break-all text-center">{hash.substring(0, 16)}...</code>
       <button 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -14,6 +14,7 @@ import { usePolling } from '@/hooks/usePolling';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
+import { AdapterListSkeleton } from '@/components/skeletons/AdapterListSkeleton';
 import { Code, MemoryStick, Activity, Clock, Pin, ArrowUp, Trash2, MoreHorizontal, Upload, Power, PowerOff } from 'lucide-react';
 import {
   DropdownMenu,
@@ -64,6 +65,19 @@ function AdaptersPageContent() {
   const adapters = data?.adapters ?? [];
   const totalMemory = data?.totalMemory ?? 0;
 
+  const newestAdapterIds = useMemo(() => {
+    const latestByName = new Map<string, { id: string; ts: number }>();
+    adapters.forEach((adapter) => {
+      const key = adapter.name || adapter.adapter_name || adapter.adapter_id || adapter.id;
+      const ts = adapter.created_at ? new Date(adapter.created_at).getTime() : 0;
+      const current = latestByName.get(key);
+      if (!current || ts > current.ts) {
+        latestByName.set(key, { id: adapter.adapter_id || adapter.id, ts });
+      }
+    });
+    return new Set(Array.from(latestByName.values()).map(v => v.id));
+  }, [adapters]);
+
   // Progressive hints
   const hints = getPageHints('adapters').map(hint => ({
     ...hint,
@@ -110,6 +124,12 @@ function AdaptersPageContent() {
       logger.debug('Adapters: showing loading state', { component: 'AdaptersPage' });
     }
   }, [loading]);
+
+  useEffect(() => {
+    if (error) {
+      toast.error('Unable to load adapter data');
+    }
+  }, [error]);
 
   useEffect(() => {
     if (!loading && adapters.length === 0) {
@@ -245,6 +265,103 @@ function AdaptersPageContent() {
         />
       </div>
 
+      {/* Adapter Cards with quick actions */}
+      {adapters.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {adapters.map((adapter) => {
+            const status = adapter.current_state || adapter.lifecycle_state || 'pending';
+            const statusLabel = (() => {
+              if (status === 'resident' || status === 'active') return 'Active';
+              if (status === 'loading' || status === 'training') return 'Training';
+              return 'Pending';
+            })();
+            const statusVariant =
+              statusLabel === 'Active'
+                ? 'default'
+                : statusLabel === 'Training'
+                  ? 'secondary'
+                  : 'outline';
+            const memoryMb = adapter.memory_bytes
+              ? (adapter.memory_bytes / 1024 / 1024).toFixed(1)
+              : '—';
+
+            return (
+              <Card
+                key={`adapter-card-${adapter.id}`}
+                className="border-border/70 transition-shadow duration-200 hover:shadow-lg"
+              >
+                <CardHeader className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <CardTitle className="text-base leading-tight">{adapter.name}</CardTitle>
+                      <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                        {adapter.version && <Badge variant="outline">v{adapter.version}</Badge>}
+                        {adapter.hash_b3 && <Badge variant="secondary">b3 {adapter.hash_b3.slice(0, 8)}…</Badge>}
+                        <span className="truncate max-w-[200px]">{adapter.id}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={statusVariant}>{statusLabel}</Badge>
+                      {newestAdapterIds.has(adapter.adapter_id || adapter.id) && (
+                        <Badge variant="default">Newest</Badge>
+                      )}
+                      {adapter.pinned && <Pin className="h-4 w-4 text-muted-foreground" />}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <Badge variant="outline">{adapter.tier || 'tier_1'}</Badge>
+                    <Badge variant="secondary">{adapter.category || 'general'}</Badge>
+                    <Badge variant="outline">Rank {adapter.rank ?? 'n/a'}</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Memory</span>
+                    <span>{memoryMb} MB</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Activations</span>
+                    <span>{adapter.activation_count ?? 0}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigate(`/adapters/${adapter.id}`)}
+                    >
+                      View
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigate(`/router-config?adapterId=${adapter.id}`)}
+                    >
+                      Configure
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={!canLoad && !canUnload}
+                      onClick={() => {
+                        if (adapter.current_state === 'resident') {
+                          unloadAdapter?.(adapter.id);
+                        } else {
+                          loadAdapter?.(adapter.id);
+                        }
+                      }}
+                    >
+                      {adapter.current_state === 'resident'
+                        ? `Deactivate${adapter.version ? ` v${adapter.version}` : ''}`
+                        : `Activate${adapter.version ? ` v${adapter.version}` : ''}`}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
       {/* Adapter Table */}
       <Card>
         <CardHeader>
@@ -255,12 +372,7 @@ function AdaptersPageContent() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <LoadingState
-              title="Loading adapters"
-              description="Fetching adapter fleet status and usage metrics."
-              skeletonLines={4}
-              size="sm"
-            />
+            <AdapterListSkeleton />
           ) : adapters.length === 0 ? (
             <EmptyState
               icon={Code}
@@ -308,7 +420,20 @@ function AdaptersPageContent() {
               <TableBody>
                 {adapters.map(adapter => (
                   <TableRow key={adapter.id}>
-                    <TableCell className="font-medium">{adapter.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex flex-col gap-1">
+                        <span>{adapter.name}</span>
+                        <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                          {adapter.version && (
+                            <Badge variant="outline">v{adapter.version}</Badge>
+                          )}
+                          {adapter.hash_b3 && (
+                            <Badge variant="secondary">b3 {adapter.hash_b3.slice(0, 8)}…</Badge>
+                          )}
+                          <span className="truncate max-w-[200px]">{adapter.id}</span>
+                        </div>
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline">{adapter.tier || 'tier_1'}</Badge>
                     </TableCell>
@@ -341,7 +466,7 @@ function AdaptersPageContent() {
                             title={!canLoad ? 'Requires adapter:load permission' : 'Load adapter into memory'}
                           >
                             <Power className="mr-2 h-4 w-4" />
-                            Load
+                            {`Load${adapter.version ? ` v${adapter.version}` : ''}`}
                             <GlossaryTooltip brief="Load adapter weights into GPU memory for inference" />
                           </DropdownMenuItem>
                           <DropdownMenuItem
@@ -350,7 +475,7 @@ function AdaptersPageContent() {
                             title={!canUnload ? 'Requires adapter:unload permission' : 'Unload adapter from memory'}
                           >
                             <PowerOff className="mr-2 h-4 w-4" />
-                            Unload
+                            {`Unload${adapter.version ? ` v${adapter.version}` : ''}`}
                             <GlossaryTooltip brief="Remove adapter from GPU memory (can be reloaded)" />
                           </DropdownMenuItem>
 

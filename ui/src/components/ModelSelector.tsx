@@ -56,7 +56,7 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
   });
   const [selectedModelId, setSelectedModelId] = React.useState<string | undefined>(value);
   const [isLoadingModel, setIsLoadingModel] = React.useState(false);
-  const [modelStatus, setModelStatus] = React.useState<'loaded' | 'unloaded' | 'loading' | 'unloading'>('unloaded');
+  const [modelStatus, setModelStatus] = React.useState<'ready' | 'no-model' | 'loading' | 'unloading'>('no-model');
 
   React.useEffect(() => {
     let mounted = true;
@@ -143,7 +143,7 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
     const fetchStatus = async () => {
       try {
         const status = await apiClient.getModelStatus(selectedModelId);
-        setModelStatus(status.is_loaded ? 'loaded' : 'unloaded');
+        setModelStatus(status.is_loaded ? 'ready' : 'no-model');
       } catch {
         // Ignore errors - model might not exist yet
       }
@@ -172,11 +172,11 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
     try {
       await apiClient.loadBaseModel(selectedModelId);
       toast.success(`Model "${selectedModelId}" loaded successfully`);
-      setModelStatus('loaded');
+      setModelStatus('ready');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       toast.error(`Failed to load model: ${errorMsg}`);
-      setModelStatus('unloaded');
+      setModelStatus('no-model');
       logger.error('Failed to load model', {
         component: 'ModelSelector',
         modelId: selectedModelId,
@@ -195,11 +195,11 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
     try {
       await apiClient.unloadBaseModel(selectedModelId);
       toast.success(`Model "${selectedModelId}" unloaded`);
-      setModelStatus('unloaded');
+      setModelStatus('no-model');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       toast.error(`Failed to unload model: ${errorMsg}`);
-      setModelStatus('loaded');
+      setModelStatus('ready');
       logger.error('Failed to unload model', {
         component: 'ModelSelector',
         modelId: selectedModelId,
@@ -307,7 +307,7 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
     return generateDownloadCommands(model.name || model.id);
   };
 
-  const isModelLoaded = modelStatus === 'loaded';
+  const isModelLoaded = modelStatus === 'ready';
   const isModelBusy = modelStatus === 'loading' || modelStatus === 'unloading';
 
   return (

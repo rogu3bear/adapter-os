@@ -50,7 +50,7 @@ export interface PreChatAdapterPromptProps {
   // ---- Model Loading Support ----
 
   /** Model status (if undefined, no model section shown) */
-  modelStatus?: 'loaded' | 'loading' | 'unloaded' | 'error';
+  modelStatus?: 'no-model' | 'loading' | 'ready' | 'unloading' | 'error' | 'checking';
 
   /** Name of the base model */
   modelName?: string;
@@ -122,7 +122,7 @@ export function PreChatAdapterPrompt({
   const notReadyAdapters = adapters.filter((a) => !isReady(a.state));
 
   // Check if model needs loading
-  const modelNeedsLoading = modelStatus && modelStatus !== 'loaded';
+  const modelNeedsLoading = modelStatus && modelStatus !== 'ready';
   const showModelSection = modelStatus !== undefined;
 
   // Calculate total estimated load time (include model if needed)
@@ -163,16 +163,17 @@ export function PreChatAdapterPrompt({
               <div
                 className={cn(
                   'flex items-center justify-between px-3 py-2 rounded-md border',
-                  modelStatus === 'loaded' && 'bg-green-50 border-green-200',
-                  modelStatus === 'loading' && 'bg-blue-50 border-blue-200',
-                  modelStatus === 'unloaded' && 'bg-amber-50 border-amber-200',
+                  modelStatus === 'ready' && 'bg-green-50 border-green-200',
+                  (modelStatus === 'loading' || modelStatus === 'unloading' || modelStatus === 'checking') &&
+                    'bg-blue-50 border-blue-200',
+                  modelStatus === 'no-model' && 'bg-amber-50 border-amber-200',
                   modelStatus === 'error' && 'bg-red-50 border-red-200'
                 )}
               >
                 <div className="flex items-center gap-2">
-                  {modelStatus === 'loaded' ? (
+                  {modelStatus === 'ready' ? (
                     <CheckCircle className="h-4 w-4 text-green-600" />
-                  ) : modelStatus === 'loading' || isModelLoading ? (
+                  ) : modelStatus === 'loading' || modelStatus === 'unloading' || modelStatus === 'checking' || isModelLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                   ) : (
                     <Server className="h-4 w-4 text-amber-600" />
@@ -184,15 +185,16 @@ export function PreChatAdapterPrompt({
                     variant="outline"
                     className={cn(
                       'text-xs',
-                      modelStatus === 'loaded' && 'text-green-700 border-green-300',
-                      modelStatus === 'loading' && 'text-blue-700 border-blue-300',
-                      modelStatus === 'unloaded' && 'text-amber-700 border-amber-300',
+                      modelStatus === 'ready' && 'text-green-700 border-green-300',
+                      (modelStatus === 'loading' || modelStatus === 'unloading' || modelStatus === 'checking') &&
+                        'text-blue-700 border-blue-300',
+                      modelStatus === 'no-model' && 'text-amber-700 border-amber-300',
                       modelStatus === 'error' && 'text-red-700 border-red-300'
                     )}
                   >
-                    {modelStatus === 'loading' || isModelLoading ? 'Loading...' : modelStatus}
+                    {modelStatus === 'loading' || modelStatus === 'unloading' || modelStatus === 'checking' || isModelLoading ? 'Loading...' : modelStatus}
                   </Badge>
-                  {modelStatus === 'unloaded' && !isModelLoading && (
+                  {modelStatus === 'no-model' && !isModelLoading && (
                     <span className="text-xs text-muted-foreground">Est. ~30s</span>
                   )}
                 </div>

@@ -111,6 +111,7 @@
         "build": "tsc --noEmit && vite build",
         "build:service-panel": "tsc --noEmit && vite build --config vite.config.service-panel.ts",
         "build:test": "tsc --noEmit && pnpm test",
+        "gen:api-types": "node scripts/generate-types.mjs",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
         "preview": "vite preview",
         "test": "vitest",

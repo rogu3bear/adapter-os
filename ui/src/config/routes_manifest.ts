@@ -79,7 +79,6 @@ const STATUS_OVERRIDES: Record<string, RouteStatus> = {
   // Zombie pages from old PRs
   '/personas': 'draft',           // Product tour - partially implemented
   '/federation': 'draft',         // Future feature
-  '/code-intelligence': 'draft',  // Experimental
 };
 
 /**
@@ -235,18 +234,15 @@ function inferComponentFile(route: RouteConfig): string {
     '/trainer': 'pages/TrainerPage.tsx',
     '/create-adapter': 'pages/CreateAdapterPage.tsx',
     '/adapters/new': 'pages/Adapters/AdapterRegisterPage.tsx',
-    '/reports': 'pages/ReportsPage.tsx',
     '/base-models': 'pages/BaseModelsPage.tsx',
     '/router-config': 'pages/RouterConfigPage.tsx',
     '/federation': 'pages/FederationPage.tsx',
-    '/code-intelligence': 'pages/CodeIntelligencePage.tsx',
-    '/metrics/advanced': 'pages/AdvancedMetricsPage.tsx',
-    '/help': 'pages/HelpCenterPage.tsx',
+    // legacy/redirected routes intentionally omitted
     '/workflow': 'pages/WorkflowPage.tsx',
     '/management': 'pages/ManagementPage.tsx',
     '/personas': 'pages/PersonasPage.tsx',
     '/flow/lora': 'pages/GuidedFlowPage.tsx',
-    '/dev/errors': 'pages/DevErrorsPage.tsx',
+    '/dev/api-errors': 'pages/DevErrorsPage.tsx',
     '/_dev/routes': 'pages/Dev/RoutesDebugPage.tsx',
   };
 
@@ -423,7 +419,7 @@ export const PRIMARY_SPINE = [
   '/security/audit',
   '/security/compliance',
   '/owner',
-  '/dev/errors',
+  '/dev/api-errors',
   '/_dev/routes',
 ] as const;
 

@@ -49,9 +49,9 @@ export default function DashboardPage() {
       to: '/documents',
     },
     {
-      title: 'Code Intelligence',
-      description: 'Explore code-aware capabilities.',
-      to: '/code-intelligence',
+      title: 'Telemetry Viewer',
+      description: 'Inspect per-session routing and tokens.',
+      to: '/telemetry/viewer',
     },
     {
       title: 'System health',
@@ -155,6 +155,29 @@ export default function DashboardPage() {
         : hasTrafficData
           ? 'ready'
           : 'empty';
+
+  const kvCounters = useMemo(() => {
+    const counters = metricsSnapshot?.counters || metricsSnapshot?.metrics || {};
+    return {
+      fallbacks: counters['kv.fallbacks_total'],
+      errors: counters['kv.errors_total'],
+      drift: counters['kv.drift_detections_total'],
+      degraded: counters['kv.degraded_events_total'],
+    };
+  }, [metricsSnapshot]);
+
+  const kvState = snapshotError
+    ? 'error'
+    : snapshotLoading
+      ? 'loading'
+      : hasUsableMetric([
+          kvCounters.fallbacks,
+          kvCounters.errors,
+          kvCounters.drift,
+          kvCounters.degraded,
+        ])
+        ? 'ready'
+        : 'empty';
 
   const handleRetryHealth = () => {
     void Promise.all([refetchMetrics(), refetchSnapshot()]);
@@ -278,6 +301,55 @@ export default function DashboardPage() {
                 <div>Tokens/sec: {formatMetricValue(trafficSummary?.tps, { decimals: 1 })}</div>
                 <div>
                   Error rate: {formatMetricValue(trafficErrorRatePercent, { decimals: 2, suffix: '%' })}
+                </div>
+              </div>
+            )}
+          </CardFooter>
+        </Card>
+        <Card className="h-full">
+          <CardHeader>
+            <CardTitle>KV health</CardTitle>
+            <CardDescription>Fallbacks, errors, drift, degraded</CardDescription>
+          </CardHeader>
+          <CardFooter className="flex w-full">
+            {kvState === 'loading' ? (
+              <div className="flex w-full items-center gap-3" role="status">
+                <Skeleton className="h-16 w-full" />
+                <span className="sr-only">Loading KV metrics</span>
+              </div>
+            ) : kvState === 'error' ? (
+              <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
+                <div>
+                  <div className="font-medium text-foreground">Unable to load KV metrics</div>
+                  <div className="text-xs">Retry or open KV runbook.</div>
+                </div>
+                <Button size="sm" variant="secondary" onClick={handleRetryTraffic}>
+                  Retry
+                </Button>
+              </div>
+            ) : kvState === 'empty' ? (
+              <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
+                <span>No KV signals yet</span>
+                <Button asChild size="sm" variant="link">
+                  <Link to="/monitoring">Open monitoring</Link>
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 text-sm w-full">
+                <div>
+                  Fallbacks:{' '}
+                  {formatMetricValue(kvCounters.fallbacks, { decimals: 0, placeholder: '—' })}
+                </div>
+                <div>
+                  Errors: {formatMetricValue(kvCounters.errors, { decimals: 0, placeholder: '—' })}
+                </div>
+                <div>
+                  Drift detections:{' '}
+                  {formatMetricValue(kvCounters.drift, { decimals: 0, placeholder: '—' })}
+                </div>
+                <div>
+                  Degraded events:{' '}
+                  {formatMetricValue(kvCounters.degraded, { decimals: 0, placeholder: '—' })}
                 </div>
               </div>
             )}

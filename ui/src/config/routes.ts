@@ -1,4 +1,5 @@
-import { lazy } from 'react';
+import { createElement, lazy } from 'react';
+import LegacyRedirectNotice from '@/components/LegacyRedirectNotice';
 import type { UserRole } from '@/api/types';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -34,9 +35,7 @@ import {
   PlusCircle,
   MessageSquare,
   Crown,
-  HelpCircle,
   Network,
-  Globe,
   Bug,
   Map,
 } from 'lucide-react';
@@ -82,7 +81,6 @@ const AdminPage = lazy(() => import('@/pages/AdminPage'));
 const AdminStacksPage = lazy(() => import('@/pages/Admin/AdapterStacksTab').then(m => ({ default: m.AdapterStacksTab })));
 const AdminPluginsPage = lazy(() => import('@/pages/Admin/PluginsPage'));
 const AdminSettingsPage = lazy(() => import('@/pages/Admin/SettingsPage'));
-const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const TrainerPage = lazy(() => import('@/pages/TrainerPage'));
 const PersonasPage = lazy(() => import('@/pages/PersonasPage'));
 const ManagementPage = lazy(() => import('@/pages/ManagementPage'));
@@ -91,17 +89,16 @@ const SystemNodesPage = lazy(() => import('@/pages/System/NodesTab'));
 const SystemWorkersPage = lazy(() => import('@/pages/System/WorkersTab'));
 const SystemMemoryPage = lazy(() => import('@/pages/System/MemoryTab'));
 const SystemMetricsPage = lazy(() => import('@/pages/System/MetricsTab'));
-const CodeIntelligencePage = lazy(() => import('@/pages/CodeIntelligencePage'));
-const AdvancedMetricsPage = lazy(() => import('@/pages/AdvancedMetricsPage'));
 const GuidedFlowPage = lazy(() => import('@/pages/GuidedFlowPage'));
 const DocumentLibraryPage = lazy(() => import('@/pages/DocumentLibrary'));
 const DocumentChatPage = lazy(() => import('@/pages/DocumentLibrary/DocumentChatPage'));
-const HelpCenterPage = lazy(() => import('@/pages/HelpCenterPage'));
 const RouterConfigPage = lazy(() => import('@/pages/RouterConfigPage'));
 const FederationPage = lazy(() => import('@/pages/FederationPage'));
 const DevErrorsPage = lazy(() => import('@/pages/DevErrorsPage'));
 const RoutesDebugPage = lazy(() => import('@/pages/Dev/RoutesDebugPage'));
 const TelemetryShellPage = lazy(() => import('@/pages/Telemetry/TelemetryShell'));
+
+const redirectTo = (to: string, label?: string) => () => createElement(LegacyRedirectNotice, { to, label });
 
 export type RouteCluster = 'Build' | 'Run' | 'Observe' | 'Verify';
 
@@ -127,13 +124,9 @@ export interface RouteConfig {
 export const routes: RouteConfig[] = [
   {
     path: '/owner',
-    component: OwnerHomePage,
+    component: redirectTo('/dashboard', 'Dashboard'),
     requiresAuth: true,
     requiredRoles: ['admin'],
-    navGroup: 'Verify',
-    navTitle: 'Owner Home (Legacy)',
-    navIcon: Crown,
-    navOrder: 99,
     skeletonVariant: 'dashboard',
     breadcrumb: 'Owner Home (Legacy)',
     cluster: 'Verify',
@@ -155,7 +148,7 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: management panel retained for compatibility; hidden from nav
     path: '/management',
-    component: ManagementPage,
+    component: redirectTo('/dashboard', 'Dashboard'),
     requiresAuth: true,
     skeletonVariant: 'dashboard',
     breadcrumb: 'Management',
@@ -164,12 +157,8 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/workflow',
-    component: WorkflowPage,
+    component: redirectTo('/training', 'Training'),
     requiresAuth: true,
-    navGroup: 'Build',
-    navTitle: 'Onboarding',
-    navIcon: Compass,
-    navOrder: 0,
     breadcrumb: 'Onboarding',
     cluster: 'Build',
     roleVisibility: ['admin'],
@@ -177,7 +166,7 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: personas tour retained; hidden from nav
     path: '/personas',
-    component: PersonasPage,
+    component: redirectTo('/dashboard', 'Dashboard'),
     requiresAuth: false,
     skeletonVariant: 'default',
     breadcrumb: 'Personas',
@@ -187,7 +176,7 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: guided flow retained; hidden from nav
     path: '/flow/lora',
-    component: GuidedFlowPage,
+    component: redirectTo('/training', 'Training'),
     requiresAuth: true,
     skeletonVariant: 'default',
     breadcrumb: 'Guided Setup',
@@ -197,7 +186,7 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: quick training retained; hidden from nav
     path: '/trainer',
-    component: TrainerPage,
+    component: redirectTo('/training/jobs', 'Training Jobs'),
     requiresAuth: true,
     skeletonVariant: 'form',
     breadcrumb: 'Trainer',
@@ -206,10 +195,9 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/create-adapter',
-    component: CreateAdapterPage,
+    component: redirectTo('/adapters#register', 'Adapters'),
     requiresAuth: true,
     requiredPermissions: ['adapter.register', 'training.start'],
-    navGroup: 'Build',
     skeletonVariant: 'form',
     breadcrumb: 'Create Adapter',
     cluster: 'Build',
@@ -307,7 +295,7 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: promotion flow retained; hidden from nav
     path: '/promotion',
-    component: PromotionPage,
+    component: redirectTo('/training', 'Training'),
     requiresAuth: true,
     skeletonVariant: 'default',
     breadcrumb: 'Promotion',
@@ -709,12 +697,8 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/reports',
-    component: ReportsPage,
+    component: redirectTo('/metrics', 'Metrics'),
     requiresAuth: true,
-    navGroup: 'Observe',
-    navTitle: 'Reports',
-    navIcon: BarChart3,
-    navOrder: 5,
     skeletonVariant: 'dashboard',
     breadcrumb: 'Reports',
     cluster: 'Observe',
@@ -735,12 +719,8 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/code-intelligence',
-    component: CodeIntelligencePage,
+    component: redirectTo('/telemetry/viewer?source_type=code_intelligence', 'Telemetry Viewer'),
     requiresAuth: true,
-    navGroup: 'Run',
-    navTitle: 'Code Intelligence',
-    navIcon: FileCode,
-    navOrder: 4,
     skeletonVariant: 'table',
     breadcrumb: 'Code Intelligence',
     cluster: 'Run',
@@ -748,11 +728,8 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/metrics/advanced',
-    component: AdvancedMetricsPage,
+    component: redirectTo('/metrics', 'Metrics'),
     requiresAuth: true,
-    navGroup: 'Observe',
-    navIcon: BarChart3,
-    navOrder: 4,
     skeletonVariant: 'dashboard',
     breadcrumb: 'Advanced Metrics',
     cluster: 'Observe',
@@ -760,12 +737,8 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/help',
-    component: HelpCenterPage,
+    component: redirectTo('/dashboard', 'Dashboard'),
     requiresAuth: false,
-    navGroup: 'Observe',
-    navTitle: 'Help Center',
-    navIcon: HelpCircle,
-    navOrder: 6,
     skeletonVariant: 'default',
     breadcrumb: 'Help Center',
     cluster: 'Observe',
@@ -776,11 +749,11 @@ export const routes: RouteConfig[] = [
     requiresAuth: true,
     requiredRoles: ['admin', 'operator', 'sre'],
     navGroup: 'Build',
-    navTitle: 'Routing Config',
+    navTitle: 'Router Config',
     navIcon: Network,
     navOrder: 3,
     skeletonVariant: 'form',
-    breadcrumb: 'Router Configuration',
+    breadcrumb: 'Router Config',
     cluster: 'Build',
     roleVisibility: ['admin', 'operator', 'sre'],
   },
@@ -790,9 +763,6 @@ export const routes: RouteConfig[] = [
     component: FederationPage,
     requiresAuth: true,
     requiredRoles: ['admin'],
-    navGroup: 'Build', // IA-EXTRA: federation not in IA spec
-    navIcon: Globe,
-    navOrder: 7,
     skeletonVariant: 'table',
     breadcrumb: 'Federation',
     cluster: 'Build',
@@ -803,27 +773,19 @@ export const routes: RouteConfig[] = [
     ? [
         {
           // IA-EXTRA: dev-only route, excluded from production IA
-          path: '/dev/errors',
+          path: '/dev/api-errors',
           component: DevErrorsPage,
           requiresAuth: false,
-          navGroup: 'Verify', // IA-EXTRA: dev-only
-          navTitle: 'Error Inspector',
-          navIcon: Bug,
-          navOrder: 1,
           skeletonVariant: 'default' as const,
-          breadcrumb: 'Error Inspector',
+          breadcrumb: 'API Error Inspector',
           cluster: 'Verify' as const,
           roleVisibility: ['admin'] as UserRole[],
         },
         {
           // IA-EXTRA: dev-only route, excluded from production IA
           path: '/_dev/routes',
-          component: RoutesDebugPage,
+          component: redirectTo('/dashboard', 'Dashboard'),
           requiresAuth: false,
-          navGroup: 'Verify', // IA-EXTRA: dev-only
-          navTitle: 'Routes Manifest',
-          navIcon: Map,
-          navOrder: 2,
           skeletonVariant: 'table' as const,
           breadcrumb: 'Routes Manifest',
           cluster: 'Verify' as const,

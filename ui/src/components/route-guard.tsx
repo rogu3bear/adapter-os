@@ -8,6 +8,8 @@ import { canAccessRoute } from '@/config/routes';
 import { PageSkeleton } from '@/components/ui/page-skeleton';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import ServerErrorPage from '@/pages/ServerErrorPage';
+import { logUIError } from '@/lib/logUIError';
 
 interface ErrorFallbackProps {
   error: Error;
@@ -15,20 +17,7 @@ interface ErrorFallbackProps {
 }
 
 function ErrorFallback({ error, resetErrorBoundary }: ErrorFallbackProps) {
-  return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="max-w-md w-full p-6 text-center">
-        <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
-        <h2 className="text-lg font-semibold mb-2">Failed to load page</h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          {error.message || 'An unexpected error occurred while loading this page.'}
-        </p>
-        <Button onClick={resetErrorBoundary}>
-          Try Again
-        </Button>
-      </Card>
-    </div>
-  );
+  return <ServerErrorPage onRetry={resetErrorBoundary} />;
 }
 
 interface RouteGuardProps {
@@ -72,7 +61,10 @@ export function RouteGuard({ route, children, fallbackPath = '/dashboard' }: Rou
   }
 
   return (
-    <ErrorBoundary FallbackComponent={ErrorFallback}>
+    <ErrorBoundary
+      FallbackComponent={ErrorFallback}
+      onError={(error) => logUIError(error, { scope: 'page', component: 'RouteGuard', route: route.path })}
+    >
       <Suspense fallback={<PageSkeleton variant={route.skeletonVariant || 'default'} />}>
         <Component />
       </Suspense>

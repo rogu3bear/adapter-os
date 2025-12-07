@@ -411,7 +411,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                     <span>Status</span>
                   </GlossaryTooltip>
                 </TableHead>
-                <TableHead className="w-[100px]">
+                <TableHead className="w-[calc(var(--base-unit)*25)]">
                   <GlossaryTooltip termId="policy-actions">
                     <span>Actions</span>
                   </GlossaryTooltip>

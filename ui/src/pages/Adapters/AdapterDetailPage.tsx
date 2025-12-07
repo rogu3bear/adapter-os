@@ -3,12 +3,22 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, MoreHorizontal, Power, PowerOff, Pin, Trash2, Radio, Layers } from 'lucide-react';
+import { ArrowLeft, RefreshCw, MoreHorizontal, Power, PowerOff, Pin, Trash2, Radio, Layers, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,8 +49,9 @@ import { TrainingSnapshotPanel } from '@/components/adapters/TrainingSnapshotPan
 import { AddToStackModal } from '@/components/AddToStackModal';
 import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
 import type { PolicyPreflightResponse } from '@/api/policyTypes';
+import { useAdapters } from '@/hooks/useAdaptersApi';
 
-type TabValue = 'overview' | 'activations' | 'lineage' | 'manifest' | 'lifecycle' | 'provenance';
+type TabValue = 'overview' | 'evidence' | 'events' | 'activations' | 'lineage' | 'manifest' | 'lifecycle' | 'provenance';
 
 export default function AdapterDetailPage() {
   const { adapterId } = useParams<{ adapterId: string }>();
@@ -61,6 +72,10 @@ export default function AdapterDetailPage() {
     lifecycleState?: string;
     isPinned?: boolean;
   } | null>(null);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [baseVersion, setBaseVersion] = useState('');
+  const [newVersion, setNewVersion] = useState('');
+  const [defaultVersion, setDefaultVersion] = useState<string | null>(null);
 
   // Ref to store refetch function for use in streaming callback
   const refetchRef = React.useRef<(() => void) | null>(null);
@@ -223,6 +238,8 @@ export default function AdapterDetailPage() {
     onShowPreflight: handleShowPreflight,
   });
 
+  const { data: adaptersList = [] } = useAdapters();
+
   // Permission checks
   const canLoad = can('adapter:load');
   const canUnload = can('adapter:unload');
@@ -347,6 +364,9 @@ export default function AdapterDetailPage() {
   // Extract adapter info - merge with streaming state for real-time updates
   const adapterData = adapter?.adapter;
   const adapterName = adapterData?.name || adapterData?.adapter_name || adapterId;
+  const adapterVersion = adapterData?.version;
+  const adapterHash = adapterData?.hash_b3 || adapter?.hash_b3 || adapter?.content_hash_b3;
+  const adapterPrimaryId = adapterData?.adapter_id || adapterId || '';
   // Streaming state takes precedence for real-time fields
   const currentState =
     streamingState?.currentState ||
@@ -361,6 +381,62 @@ export default function AdapterDetailPage() {
     adapterData?.lifecycle_state ||
     'active';
   const isPinned = streamingState?.isPinned ?? adapterData?.pinned ?? false;
+  const kvConsistent = adapterData?.kv_consistent ?? false;
+  const kvMessage = adapterData?.kv_message;
+
+  const siblingVersions = useMemo(() => {
+    if (!adapterName) return [];
+    return (adaptersList || [])
+      .filter(a => (a.name || a.adapter_name || a.adapter_id) === adapterName)
+      .sort((a, b) => {
+        const aTs = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTs = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bTs - aTs;
+      });
+  }, [adapterName, adaptersList]);
+
+  const newestSiblingId = siblingVersions[0]?.adapter_id;
+  const isNewestAdapter = newestSiblingId === adapterPrimaryId;
+
+  useEffect(() => {
+    if (siblingVersions.length > 0) {
+      setBaseVersion(prev => prev || siblingVersions[0].version || adapterVersion || '');
+    } else if (adapterVersion) {
+      setBaseVersion(prev => prev || adapterVersion);
+    }
+  }, [adapterVersion, siblingVersions]);
+
+  useEffect(() => {
+    if (!adapterName || !adapterVersion) return;
+    const storageKey = `adapter-default-version:${adapterName}`;
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      setDefaultVersion(stored);
+    }
+  }, [adapterName, adapterVersion]);
+
+  const handleSetDefaultVersion = () => {
+    if (!adapterName || !adapterVersion) {
+      toast.error('No version information available to set default');
+      return;
+    }
+    const storageKey = `adapter-default-version:${adapterName}`;
+    localStorage.setItem(storageKey, adapterVersion);
+    setDefaultVersion(adapterVersion);
+    toast.success(`Default version for new jobs set to v${adapterVersion}`);
+  };
+
+  const handleDuplicateSubmit = () => {
+    if (!newVersion.trim()) {
+      toast.error('Enter a new version to duplicate');
+      return;
+    }
+    toast.info('Prepared duplicate request', {
+      description: `Base version ${baseVersion || 'current'} → new version ${newVersion}`,
+    });
+    setShowDuplicateModal(false);
+    setNewVersion('');
+  };
 
   return (
     <FeatureLayout
@@ -383,12 +459,31 @@ export default function AdapterDetailPage() {
                 {lifecycleState}
               </Badge>
               <Badge variant="outline">{currentState}</Badge>
+              {isNewestAdapter && (
+                <Badge variant="default">
+                  Newest
+                </Badge>
+              )}
+                {adapterVersion && (
+                  <Badge variant="outline">
+                    v{adapterVersion}
+                  </Badge>
+                )}
+                {adapterHash && (
+                  <Badge variant="secondary">
+                    b3 {adapterHash.slice(0, 8)}…
+                  </Badge>
+                )}
               {isPinned && (
                 <Badge variant="secondary">
                   <Pin className="h-3 w-3 mr-1" />
                   Protected
                 </Badge>
               )}
+              <Badge variant={kvConsistent ? 'outline' : 'destructive'}>
+                {kvConsistent ? 'KV Ready' : 'KV Stale'}
+                {!kvConsistent && kvMessage ? `: ${kvMessage}` : ''}
+              </Badge>
               {/* Streaming indicator */}
               <Badge variant={streamConnected ? 'default' : 'outline'} className="flex items-center gap-1">
                 <Radio className={`h-3 w-3 ${streamConnected ? 'text-green-400 animate-pulse' : 'text-muted-foreground'}`} />
@@ -422,6 +517,22 @@ export default function AdapterDetailPage() {
             >
               <Layers className="h-4 w-4 mr-2" />
               Add to Stack
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDuplicateModal(true)}
+              disabled={!adapterVersion}
+            >
+              Duplicate from latest
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSetDefaultVersion}
+              disabled={!adapterVersion}
+            >
+              {defaultVersion === adapterVersion ? 'Default for new jobs (current)' : 'Set as default for new jobs'}
             </Button>
 
             <DropdownMenu>
@@ -497,8 +608,10 @@ export default function AdapterDetailPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-8">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="evidence">Evidence</TabsTrigger>
+            <TabsTrigger value="events">Events</TabsTrigger>
             <TabsTrigger value="activations">Activations</TabsTrigger>
             <TabsTrigger value="lineage">Lineage</TabsTrigger>
             <TabsTrigger value="manifest">Manifest</TabsTrigger>
@@ -511,6 +624,52 @@ export default function AdapterDetailPage() {
               adapter={adapter}
               health={health}
               isLoading={isLoadingDetail}
+            />
+          </TabsContent>
+
+          <TabsContent value="evidence" className="mt-6 space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Policy pack and manifest</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <EvidenceRow
+                  label="Policy pack version"
+                  value={adapter?.adapter?.policy_pack_version || 'unknown'}
+                  tooltip="Policy pack applied during admission and routing."
+                />
+                <EvidenceRow
+                  label="Manifest hash (B3)"
+                  value={manifest?.manifest_hash || adapter?.adapter?.manifest_hash || 'unavailable'}
+                  copyValue={manifest?.manifest_hash || adapter?.adapter?.manifest_hash || undefined}
+                  tooltip="Adapter manifest integrity hash (BLAKE3)."
+                />
+                <EvidenceRow
+                  label="Signature"
+                  value={manifest?.signature || 'not provided'}
+                  copyValue={manifest?.signature || undefined}
+                  tooltip="Signature accompanying the manifest payload."
+                />
+              </CardContent>
+            </Card>
+            <AdapterManifest
+              adapterId={adapterId}
+              manifest={manifest}
+              isLoading={isLoading}
+            />
+          </TabsContent>
+
+          <TabsContent value="events" className="mt-6 space-y-4">
+            <AdapterLineage
+              adapterId={adapterId}
+              lineage={lineage}
+              isLoading={isLoading}
+            />
+            <AdapterActivations
+              adapterId={adapterId}
+              activations={activations}
+              isLoading={isLoading}
+              onRefresh={refetch}
             />
           </TabsContent>
 
@@ -565,6 +724,52 @@ export default function AdapterDetailPage() {
         />
       )}
 
+      {/* Duplicate from latest Modal */}
+      <Dialog open={showDuplicateModal} onOpenChange={setShowDuplicateModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Duplicate adapter from latest</DialogTitle>
+            <DialogDescription>
+              Choose a base version and specify the new version to create.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Base version</Label>
+              <Select value={baseVersion} onValueChange={setBaseVersion}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select base version" />
+                </SelectTrigger>
+                <SelectContent>
+                  {siblingVersions.map((sibling) => (
+                    <SelectItem key={sibling.adapter_id} value={sibling.version || sibling.adapter_id}>
+                      {sibling.version ? `v${sibling.version}` : 'unnamed'} • {sibling.adapter_id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-version">New version</Label>
+              <Input
+                id="new-version"
+                value={newVersion}
+                onChange={(e) => setNewVersion(e.target.value)}
+                placeholder="e.g., 1.3.0"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowDuplicateModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleDuplicateSubmit}>
+                Duplicate (prepare)
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Policy Preflight Dialog */}
       {preflightResult && (
         <PolicyPreflightDialog
@@ -581,5 +786,41 @@ export default function AdapterDetailPage() {
         />
       )}
     </FeatureLayout>
+  );
+}
+
+interface EvidenceRowProps {
+  label: string;
+  value: React.ReactNode;
+  copyValue?: string;
+  tooltip?: string;
+}
+
+function EvidenceRow({ label, value, copyValue, tooltip }: EvidenceRowProps) {
+  const handleCopy = async () => {
+    if (!copyValue) return;
+    try {
+      await navigator.clipboard.writeText(copyValue);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error('Failed to copy');
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2 text-foreground">
+        <Badge variant="secondary">{label}</Badge>
+        {tooltip && <GlossaryTooltip brief={tooltip} />}
+      </div>
+      <div className="flex items-center gap-2 text-foreground">
+        <span className="text-sm font-medium break-all">{value}</span>
+        {copyValue && (
+          <Button variant="ghost" size="icon" onClick={handleCopy} aria-label={`Copy ${label}`}>
+            <Copy className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }

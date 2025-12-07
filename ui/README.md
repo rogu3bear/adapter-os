@@ -45,6 +45,11 @@ Core M0 Routes:
 
 Entry: `src/main.tsx` mounts `BrowserRouter` → `LayoutProvider` → `RootLayout` with `<Outlet>`.
 
+## Legacy routes (MVP)
+
+- Legacy pages (owner/management/personas/flow/lora/trainer/promotion/federation/dev-only) now hard redirect to the core flows (dashboard/training/router-config/system).
+- Navigation surfaces only MVP paths: dashboard, adapters, training, router-config, inference, chat, documents, telemetry, routing, replay, testing/golden, metrics/system/observability, base-models, admin/settings.
+
 ## Layouts
 
 - `src/layout/RootLayout.tsx` – global shell, safe-area paddings, Toaster at z-40
@@ -114,7 +119,7 @@ The dev server runs on http://localhost:3200 and proxies API requests to the bac
 - Install MLX: `brew install mlx` (or set `MLX_PATH`/`MLX_INCLUDE_DIR`/`MLX_LIB_DIR`).
 - Build backend: `make build-mlx` (features: `multi-backend,mlx`).
 - Test/bench: `make test-mlx` / `make bench-mlx`.
-- Model: `./scripts/download_model.sh --format mlx --size 7b --quantized`; then `export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx`.
+- Model: `./scripts/download_model.sh --format mlx --size 32b`; then `export AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit` and `export AOS_MANIFEST_HASH=756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e`.
 - More detail: `docs/MLX_INSTALLATION_GUIDE.md`, `docs/MLX_INTEGRATION.md`.
 
 ### Environment Variables
@@ -314,4 +319,4 @@ cargo build --release --bin mplora-server
 
 Same as parent project (MIT OR Apache-2.0).
 
-MLNavigator Inc 2025-12-05.
+MLNavigator Inc 2025-12-07.

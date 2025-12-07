@@ -609,7 +609,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       ],
       relatedPages: [
         { label: 'Policies', route: '/security/policies', description: 'Policy audit' },
-        { label: 'Reports', route: '/reports', description: 'Audit reports' }
+        { label: 'Replay', route: '/replay', description: 'Run history' }
       ]
     },
     viewer: {
@@ -1167,77 +1167,6 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     compliance: { title: '', tips: [], relatedPages: [] },
     auditor: { title: '', tips: [], relatedPages: [] },
     viewer: { title: '', tips: [], relatedPages: [] }
-  },
-  '/reports': {
-    admin: {
-      title: 'System Reports',
-      tips: [
-        'Generate comprehensive system reports',
-        'Export reports for analysis',
-        'Schedule automated reports',
-        'Review system-wide metrics and trends'
-      ],
-      relatedPages: [
-        { label: 'Dashboard', route: '/dashboard', description: 'System overview' },
-        { label: 'Metrics', route: '/metrics', description: 'Detailed metrics' }
-      ]
-    },
-    operator: {
-      title: 'Operational Reports',
-      tips: [
-        'Generate adapter performance reports',
-        'Export training reports',
-        'Review operational metrics'
-      ],
-      relatedPages: [
-        { label: 'Adapters', route: '/adapters', description: 'Adapter data' },
-        { label: 'Training', route: '/training', description: 'Training data' }
-      ]
-    },
-    sre: {
-      title: 'Infrastructure Reports',
-      tips: [
-        'Generate system performance reports',
-        'Export infrastructure metrics',
-        'Review system health trends'
-      ],
-      relatedPages: [
-        { label: 'Metrics', route: '/metrics', description: 'Performance metrics' },
-        { label: 'Observability', route: '/observability', description: 'System data' }
-      ]
-    },
-    compliance: {
-      title: 'Compliance Reports',
-      tips: [
-        'Generate compliance reports',
-        'Export compliance data for audit',
-        'Review policy compliance trends'
-      ],
-      relatedPages: [
-        { label: 'Policies', route: '/security/policies', description: 'Policy data' },
-        { label: 'Audit', route: '/security/audit', description: 'Audit data' }
-      ]
-    },
-    auditor: {
-      title: 'Audit Reports',
-      tips: [
-        'Generate comprehensive audit reports',
-        'Export audit data for analysis',
-        'Review audit trends and patterns'
-      ],
-      relatedPages: [
-        { label: 'Audit', route: '/security/audit', description: 'Audit trails' }
-      ]
-    },
-    viewer: {
-      title: 'Report Overview',
-      tips: [
-        'View available reports',
-        'Review report summaries',
-        'Access read-only reports'
-      ],
-      relatedPages: []
-    }
   },
   '/trainer': {
     operator: {

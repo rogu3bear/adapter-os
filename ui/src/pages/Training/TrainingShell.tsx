@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import FeatureLayout from '@/layout/FeatureLayout';
+import PageWrapper from '@/layout/PageWrapper';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TrainingPage from '@/pages/Training/TrainingPage';
 import TrainingJobsPage from '@/pages/Training/TrainingJobsPage';
@@ -34,10 +34,12 @@ export default function TrainingShell() {
   const tabPath = (tab: TrainingTab) => trainingTabToPath(tab);
 
   return (
-    <FeatureLayout
+    <PageWrapper
+      pageKey="training-shell"
       title="Training"
       description="Manage training jobs, datasets, templates, and artifacts"
       maxWidth="xl"
+      contentPadding="default"
     >
       <Tabs
         value={activeTab}
@@ -86,7 +88,7 @@ export default function TrainingShell() {
           <TrainingSettingsTab />
         </TabsContent>
       </Tabs>
-    </FeatureLayout>
+    </PageWrapper>
   );
 }
 

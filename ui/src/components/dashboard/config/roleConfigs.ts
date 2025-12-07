@@ -351,12 +351,12 @@ export const operatorConfig: RoleDashboardConfig = {
     },
     {
       id: 'scan-code',
-      label: 'Scan Repository',
-      icon: 'GitBranch',
+      label: 'Open Telemetry Viewer',
+      icon: 'Eye',
       variant: 'secondary',
-      action: 'navigate:/code-intelligence',
-      permissions: ['CodeScan'],
-      description: 'Scan code repository for intelligence',
+      action: 'navigate:/telemetry/viewer',
+      permissions: ['MetricsView'],
+      description: 'Inspect per-session routing and tokens',
     },
     {
       id: 'chat-interface',

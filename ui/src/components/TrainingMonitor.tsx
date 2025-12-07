@@ -8,9 +8,7 @@ import { Alert, AlertDescription } from './ui/alert';
 import { ScrollArea } from './ui/scroll-area';
 import {
   Activity,
-  Pause,
   Square,
-  Play,
   Zap,
   Target,
   Cpu,
@@ -68,8 +66,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
   const [logs, setLogs] = useState<string[]>([]);
   const [artifacts, setArtifacts] = useState<TrainingArtifactsResponse | null>(null);
   const [error, setError] = useState<Error | null>(null);
-  const [pauseError, setPauseError] = useState<Error | null>(null);
-  const [resumeError, setResumeError] = useState<Error | null>(null);
   const [stopError, setStopError] = useState<Error | null>(null);
   const [isPolling, setIsPolling] = useState(true);
   const logScrollRef = useRef<HTMLDivElement>(null);
@@ -273,85 +269,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
     }
   }, [adapters, shouldPollAdapters, job]);
 
-  const handlePause = async () => {
-    if (!sessionId) {
-      toast.error('Pause is only available for training sessions');
-      return;
-    }
-    
-    setPauseError(null);
-    try {
-
-      logger.info('Pausing training session', {
-        component: 'TrainingMonitor',
-        operation: 'handlePause',
-        sessionId
-      });
-
-      await apiClient.pauseTrainingSession(sessionId);
-      setIsPolling(false);
-      toast.success('Training paused successfully');
-      
-      // Refresh to get updated status
-      await refreshTraining();
-
-      logger.info('Training session paused', {
-        component: 'TrainingMonitor',
-        operation: 'handlePause',
-        sessionId
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to pause training');
-      logger.error('Failed to pause training', {
-        component: 'TrainingMonitor',
-        operation: 'handlePause',
-        sessionId,
-        error: error.message
-      });
-      setPauseError(error);
-      toast.error(`Failed to pause training: ${error.message}`);
-    }
-  };
-
-  const handleResume = async () => {
-    if (!sessionId) {
-      toast.error('Resume is only available for training sessions');
-      return;
-    }
-    
-    setResumeError(null);
-    try {
-      logger.info('Resuming training session', {
-        component: 'TrainingMonitor',
-        operation: 'handleResume',
-        sessionId
-      });
-
-      await apiClient.resumeTrainingSession(sessionId);
-      setIsPolling(true);
-      toast.success('Training resumed successfully');
-      
-      // Refresh to get updated status
-      await refreshTraining();
-
-      logger.info('Training session resumed', {
-        component: 'TrainingMonitor',
-        operation: 'handleResume',
-        sessionId
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to resume training');
-      logger.error('Failed to resume training', {
-        component: 'TrainingMonitor',
-        operation: 'handleResume',
-        sessionId,
-        error: error.message
-      });
-      setResumeError(error);
-      toast.error(`Failed to resume training: ${error.message}`);
-    }
-  };
-
   const handleStop = async () => {
     if (!jobId) {
       toast.error('Stop is only available for training jobs');
@@ -391,7 +308,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'running': return <Activity className="h-4 w-4 text-blue-600 animate-pulse" />;
-      case 'paused': return <Pause className="h-4 w-4 text-yellow-600" />;
       case 'completed': return <CheckCircle className="h-4 w-4 text-green-600" />;
       case 'failed': return <XCircle className="h-4 w-4 text-red-600" />;
       case 'cancelled': return <AlertTriangle className="h-4 w-4 text-yellow-600" />;
@@ -404,7 +320,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
   const getStatusBadge = (status: string) => {
     const variants = {
       running: 'bg-blue-100 text-blue-800',
-      paused: 'bg-yellow-100 text-yellow-800',
       completed: 'bg-green-100 text-green-800',
       failed: 'bg-red-100 text-red-800',
       cancelled: 'bg-yellow-100 text-yellow-800',
@@ -424,7 +339,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
 
   const formatETA = (startTime: string, progress: number, jobStatus?: string) => {
     if (progress === 0) return 'Calculating...';
-    if (jobStatus === 'paused') return 'Paused';
 
     const etaSeconds = calculateTrainingETA(progress, startTime, undefined, jobStatus);
     if (etaSeconds === null) return 'Calculating...';
@@ -452,15 +366,7 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
 
   return (
     <div className="space-y-6">
-      {/* Error Recovery for pause/resume/stop operations */}
-      {pauseError && errorRecoveryTemplates.genericError(
-        `Failed to pause training: ${pauseError.message}`,
-        handlePause
-      )}
-      {resumeError && errorRecoveryTemplates.genericError(
-        `Failed to resume training: ${resumeError.message}`,
-        handleResume
-      )}
+      {/* Error Recovery for stop operations */}
       {stopError && errorRecoveryTemplates.genericError(
         `Failed to stop training: ${stopError.message}`,
         handleStop
@@ -493,7 +399,7 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
               </Badge>
               <span>•</span>
               <span>Running for {formatDuration(startTime)}</span>
-              {(status === 'running' || status === 'paused') && progress > 0 && (
+                {status === 'running' && progress > 0 && (
                 <>
                   <span>•</span>
                   <span>ETA: {formatETA(startTime, progress, status)}</span>
@@ -505,18 +411,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
         </div>
         
         <div className="flex space-x-2">
-          {isSessionMode && status === 'running' && (
-            <Button variant="outline" size="sm" onClick={handlePause}>
-              <Pause className="h-4 w-4 mr-1" />
-              Pause
-            </Button>
-          )}
-          {isSessionMode && status === 'paused' && (
-            <Button variant="outline" size="sm" onClick={handleResume}>
-              <Play className="h-4 w-4 mr-1" />
-              Resume
-            </Button>
-          )}
           {!isSessionMode && status === 'running' && (
             <Button variant="outline" size="sm" onClick={handleStop}>
               <Square className="h-4 w-4 mr-1" />

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/utils";
 import type { ModalProps, ModalSize } from "./types";
 import { MODAL_SIZE_CLASSES } from "./types";
+import ModalErrorBoundary from "@/components/ui/modal-error-boundary";
 
 /**
  * Base Modal component built on Radix Dialog primitives.
@@ -97,38 +98,45 @@ export function Modal({
           onEscapeKeyDown={handleEscapeKeyDown}
           onPointerDownOutside={handlePointerDownOutside}
         >
-          {/* Header */}
-          {(header || title || description) && (
-            <ModalHeader>
-              {header || (
-                <>
-                  {title && <ModalTitle>{title}</ModalTitle>}
-                  {description && (
-                    <ModalDescription>{description}</ModalDescription>
+          <ModalErrorBoundary
+            context={{ component: 'ModalContent' }}
+            onClose={preventClose ? undefined : () => handleOpenChange(false)}
+          >
+            <>
+              {/* Header */}
+              {(header || title || description) && (
+                <ModalHeader>
+                  {header || (
+                    <>
+                      {title && <ModalTitle>{title}</ModalTitle>}
+                      {description && (
+                        <ModalDescription>{description}</ModalDescription>
+                      )}
+                    </>
                   )}
-                </>
+                </ModalHeader>
               )}
-            </ModalHeader>
-          )}
 
-          {/* Body */}
-          {children && <ModalBody>{children}</ModalBody>}
+              {/* Body */}
+              {children && <ModalBody>{children}</ModalBody>}
 
-          {/* Footer */}
-          {footer && <ModalFooter>{footer}</ModalFooter>}
+              {/* Footer */}
+              {footer && <ModalFooter>{footer}</ModalFooter>}
 
-          {/* Close Button */}
-          {showCloseButton && !preventClose && (
-            <DialogPrimitive.Close
-              className={cn(
-                CLOSE_BUTTON_BASE,
-                "data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+              {/* Close Button */}
+              {showCloseButton && !preventClose && (
+                <DialogPrimitive.Close
+                  className={cn(
+                    CLOSE_BUTTON_BASE,
+                    "data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+                  )}
+                >
+                  <XIcon />
+                  <span className="sr-only">Close</span>
+                </DialogPrimitive.Close>
               )}
-            >
-              <XIcon />
-              <span className="sr-only">Close</span>
-            </DialogPrimitive.Close>
-          )}
+            </>
+          </ModalErrorBoundary>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

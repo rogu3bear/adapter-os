@@ -327,6 +327,11 @@ export type ErrorResponse = z.infer<typeof errorResponseSchema>;
 export const LoginFormSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
   email: z.string().email('Invalid email address').max(254, 'Email must not exceed 254 characters'),
+  totp: z
+    .string()
+    .trim()
+    .optional()
+    .refine((val) => !val || (val.length >= 6 && val.length <= 10), 'TOTP must be 6-10 digits'),
 });
 
 export type LoginFormData = z.infer<typeof LoginFormSchema>;

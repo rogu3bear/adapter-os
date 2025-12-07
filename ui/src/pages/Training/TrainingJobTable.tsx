@@ -18,13 +18,9 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  AlertTriangle,
-  Pause,
   Square,
-  Play,
   Eye,
   RefreshCw,
-  Trash2,
 } from 'lucide-react';
 import type { TrainingJob, TrainingStatus } from '@/api/training-types';
 import { formatDurationSeconds, formatTimestamp } from '@/utils/format';
@@ -67,11 +63,6 @@ const STATUS_CONFIG: Record<TrainingStatus, {
     icon: Square,
     className: 'text-gray-500',
     description: 'Training was cancelled by user',
-  },
-  paused: {
-    icon: Pause,
-    className: 'text-orange-500',
-    description: 'Training is temporarily paused',
   },
 };
 
@@ -119,7 +110,8 @@ export function TrainingJobTable({
   }
 
   return (
-    <div className="max-h-[600px] overflow-auto" data-virtual-container>
+    <PageTable minWidth="md">
+      <div className="max-h-[calc(var(--base-unit)*150)] overflow-auto" data-virtual-container>
       <Table role="table" aria-label="Training jobs">
         <TableHeader>
           <TableRow role="row">
@@ -154,25 +146,25 @@ export function TrainingJobTable({
             {(job) => {
               const typedJob = job as TrainingJob;
               const isJobCancelling = isCancelling.has(typedJob.id);
-              const isActive = typedJob.status === 'running' || typedJob.status === 'paused';
+              const isActive = typedJob.status === 'running';
               const isTerminal = typedJob.status === 'completed' || typedJob.status === 'failed' || typedJob.status === 'cancelled';
 
               return (
                 <TableRow key={typedJob.id} role="row">
                   <TableCell className="font-medium">
                     <div className="flex flex-col">
-                      <span className="truncate max-w-[200px]" title={typedJob.adapter_name || typedJob.id}>
+                      <span className="truncate max-w-[calc(var(--base-unit)*50)]" title={typedJob.adapter_name || typedJob.id}>
                         {typedJob.adapter_name || typedJob.id.slice(0, 8)}
                       </span>
                       {typedJob.adapter_name && (
-                        <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                        <span className="text-xs text-muted-foreground truncate max-w-[calc(var(--base-unit)*50)]">
                           {typedJob.id.slice(0, 8)}...
                         </span>
                       )}
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    <span className="truncate max-w-[150px] block" title={typedJob.dataset_id || '-'}>
+                    <span className="truncate max-w-[calc(var(--base-unit)*37.5)] block" title={typedJob.dataset_id || '-'}>
                       {typedJob.dataset_id ? typedJob.dataset_id.slice(0, 12) + '...' : '-'}
                     </span>
                   </TableCell>
@@ -180,12 +172,12 @@ export function TrainingJobTable({
                     <StatusBadge status={typedJob.status} />
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2 min-w-[120px]">
+                    <div className="flex items-center gap-2 min-w-[calc(var(--base-unit)*30)]">
                       <Progress
                         value={typedJob.progress_pct ?? typedJob.progress ?? 0}
                         className="w-20 h-2"
                       />
-                      <span className="text-sm text-muted-foreground min-w-[36px]">
+                      <span className="text-sm text-muted-foreground min-w-[calc(var(--base-unit)*9)]">
                         {typedJob.progress_pct ?? typedJob.progress ?? 0}%
                       </span>
                     </div>
@@ -269,6 +261,7 @@ export function TrainingJobTable({
           </VirtualizedTableRows>
         </TableBody>
       </Table>
-    </div>
+      </div>
+    </PageTable>
   );
 }

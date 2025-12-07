@@ -33,6 +33,8 @@ export interface ApiError extends Error {
   code?: string;
   status?: number;
   details?: Record<string, unknown>;
+  detail?: string;
+  requestId?: string;
 }
 
 const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
@@ -113,7 +115,11 @@ class ApiClient {
       }
 
       try {
-        await resp.json();
+        const body = await resp.json();
+        if (body && typeof body === 'object' && 'token' in body && typeof (body as { token?: unknown }).token === 'string') {
+          // Keep bearer token in memory synchronized with refreshed session
+          this.token = (body as { token: string }).token;
+        }
       } catch {
         // If parsing fails, still proceed; cookies were refreshed by the server
       }
@@ -216,6 +222,18 @@ class ApiClient {
     const method = options.method || 'GET';
     const body = options.body || '';
     const requestId = await this.computeRequestId(method, path, body.toString());
+    const readCookie = (name: string): string | undefined => {
+      if (typeof document === 'undefined') return undefined;
+      const cookies = document.cookie?.split(';') ?? [];
+      const prefix = `${name}=`;
+      for (const raw of cookies) {
+        const trimmed = raw.trim();
+        if (trimmed.startsWith(prefix)) {
+          return decodeURIComponent(trimmed.slice(prefix.length));
+        }
+      }
+      return undefined;
+    };
 
     const hasAuthHeader = (() => {
       if (!options.headers) return false;
@@ -234,6 +252,13 @@ class ApiClient {
       ...(this.token && !hasAuthHeader ? { Authorization: `Bearer ${this.token}` } : {}),
       ...options.headers,
     };
+    const unsafeMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
+    if (unsafeMethod) {
+      const csrfToken = readCookie('csrf_token');
+      if (csrfToken && !(headers as Record<string, string>)['X-CSRF-Token']) {
+        (headers as Record<string, string>)['X-CSRF-Token'] = csrfToken;
+      }
+    }
 
     // Store in local audit buffer
     this.logRequest(requestId, method, path);
@@ -307,16 +332,47 @@ class ApiClient {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
       let errorCode: string | undefined;
       let errorDetails: Record<string, unknown> = {};
+      let errorDetail: string | undefined;
+      let correlatedRequestId: string | undefined = returnedId || requestId;
 
       try {
-        const error: types.ErrorResponse = await response.json();
-        errorMessage = error.error || errorMessage;
-        errorCode = error.code;
-        // Convert string details to Record if needed
-        if (typeof error.details === 'string') {
-          errorDetails = { message: error.details };
-        } else {
-          errorDetails = {};
+        const parsed = await response.json();
+        if (parsed && typeof parsed === 'object') {
+          const envelope = parsed as {
+            code?: unknown;
+            message?: unknown;
+            detail?: unknown;
+            request_id?: unknown;
+            requestId?: unknown;
+            error?: unknown;
+            details?: unknown;
+          };
+
+          if (typeof envelope.message === 'string') {
+            errorMessage = envelope.message;
+          } else if (typeof envelope.error === 'string') {
+            errorMessage = envelope.error;
+          }
+
+          if (typeof envelope.code === 'string') {
+            errorCode = envelope.code;
+          } else if (typeof envelope.error === 'string') {
+            errorCode = envelope.error;
+          }
+
+          if (typeof envelope.detail === 'string') {
+            errorDetail = envelope.detail;
+          } else if (typeof envelope.details === 'string') {
+            errorDetail = envelope.details;
+          } else if (envelope.details && typeof envelope.details === 'object') {
+            errorDetails = envelope.details as Record<string, unknown>;
+          }
+
+          if (typeof envelope.request_id === 'string') {
+            correlatedRequestId = envelope.request_id;
+          } else if (typeof envelope.requestId === 'string') {
+            correlatedRequestId = envelope.requestId;
+          }
         }
       } catch (parseErr) {
         if (import.meta.env.DEV) {
@@ -330,6 +386,8 @@ class ApiClient {
       originalError.code = errorCode;
       originalError.status = response.status;
       originalError.details = errorDetails;
+      originalError.detail = errorDetail;
+      originalError.requestId = correlatedRequestId;
 
       // Extract context from request for better error messages
       const context: Record<string, unknown> = {
@@ -381,7 +439,22 @@ class ApiClient {
       }
 
       // Enhance error with user-friendly messaging
+      const requestIdForLog = correlatedRequestId || returnedId || requestId;
       const enhancedError = enhanceError(originalError, context);
+      enhancedError.requestId = requestIdForLog;
+
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console -- intentional dev-mode logging
+        console.error('API error', {
+          path,
+          method,
+          status: response.status,
+          code: errorCode,
+          requestId: requestIdForLog,
+          detail: errorDetail,
+          details: Object.keys(errorDetails).length ? errorDetails : undefined,
+        });
+      }
 
       // Log both original and enhanced error details with network context
       logger.networkError('API request failed', {
@@ -389,13 +462,14 @@ class ApiClient {
         operation: 'request',
         method,
         path,
-        requestId,
+        requestId: requestIdForLog,
         status: response.status,
         statusText: response.statusText,
         errorCode,
         userFriendlyTitle: enhancedError.userFriendly.title,
         isTransient: isTransientError(enhancedError),
         userJourney: (context.operation as string | undefined) || 'api_request',
+        detail: errorDetail,
         ...context // Include extracted context like adapterId, fileSize, etc.
       }, {
         status: response.status,
@@ -412,8 +486,9 @@ class ApiClient {
           component: 'ApiClient',
           operation: `${method} ${path}`,
           extra: {
-            requestId,
+            requestId: requestIdForLog,
             status: response.status,
+            detail: errorDetail,
             ...context,
           },
         });
@@ -518,6 +593,7 @@ class ApiClient {
         tenant_id: validated.tenant_id,
         email: credentials.email,
       });
+      this.token = validated.token;
       return validated as authTypes.LoginResponse;
     } catch (validationError) {
       const error = toError(validationError);
@@ -559,6 +635,7 @@ class ApiClient {
         user_id: validated.user_id,
         tenant_id: validated.tenant_id,
       });
+      this.token = validated.token;
       return validated as authTypes.LoginResponse;
     } catch (validationError) {
       const error = toError(validationError);
@@ -590,6 +667,7 @@ class ApiClient {
       operation: 'refreshSession',
     });
     const resp = await this.request<authTypes.RefreshResponse>('/v1/auth/refresh', { method: 'POST' });
+    this.token = resp.token;
     return this.getCurrentUser();
   }
 
@@ -618,6 +696,9 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ tenant_id: tenantId }),
     });
+    if (resp?.token) {
+      this.token = resp.token;
+    }
     return resp;
   }
 
@@ -2296,12 +2377,12 @@ class ApiClient {
 
   async pauseTrainingSession(sessionId: string): Promise<{
     session_id: string;
-    status: 'paused';
+    status: 'running' | 'cancelled';
     message: string;
   }> {
-    return this.request(`/v1/training/sessions/${sessionId}/pause`, {
-      method: 'POST',
-    });
+    return Promise.reject(
+      new Error('Training pause/resume is not supported in this build')
+    );
   }
 
   async resumeTrainingSession(sessionId: string): Promise<{
@@ -2309,9 +2390,9 @@ class ApiClient {
     status: 'running';
     message: string;
   }> {
-    return this.request(`/v1/training/sessions/${sessionId}/resume`, {
-      method: 'POST',
-    });
+    return Promise.reject(
+      new Error('Training pause/resume is not supported in this build')
+    );
   }
 
   // Telemetry methods
@@ -2644,6 +2725,9 @@ class ApiClient {
     }
     if (filters?.anomalies_only) {
       params.append('anomalies_only', 'true');
+    }
+    if (filters?.source_type) {
+      params.append('source_type', filters.source_type);
     }
 
     const query = `?${params.toString()}`;
@@ -4441,18 +4525,62 @@ class ApiClient {
       operation: 'createChatSession',
       name: req.name,
       stack_id: req.stack_id,
+      collection_id: req.collection_id,
+      document_id: req.document_id,
+      source_type: req.source_type,
     });
+
+    // Build metadata, including document context when provided (backend stores in metadata_json)
+    const metadata = {
+      ...(req.metadata || {}),
+      ...(req.source_type ? { source_type: req.source_type } : {}),
+      ...(req.document_id ? { documentId: req.document_id } : {}),
+      ...(req.document_name ? { documentName: req.document_name } : {}),
+    };
 
     // Convert metadata object to JSON string if present
     const payload = {
       name: req.name,
+      title: req.title,
+      tenant_id: req.tenant_id,
       stack_id: req.stack_id,
-      metadata_json: req.metadata ? JSON.stringify(req.metadata) : undefined,
+      collection_id: req.collection_id,
+      document_id: req.document_id,
+      document_name: req.document_name,
+      source_type: req.source_type,
+      source_ref_id: req.source_ref_id,
+      metadata_json: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : undefined,
+      tags_json: req.tags_json,
     };
 
     return this.request<chatTypes.CreateChatSessionResponse>('/v1/chat/sessions', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * Update an existing chat session
+   *
+   * PUT /v1/chat/sessions/:session_id
+   */
+  async updateChatSession(
+    sessionId: string,
+    req: chatTypes.UpdateChatSessionRequest
+  ): Promise<chatTypes.ChatSession> {
+    logger.info('Updating chat session', {
+      component: 'ApiClient',
+      operation: 'updateChatSession',
+      sessionId,
+      stack_id: req.stack_id,
+      collection_id: req.collection_id,
+      document_id: req.document_id,
+      source_type: req.source_type,
+    });
+
+    return this.request<chatTypes.ChatSession>(`/v1/chat/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(req),
     });
   }
 
@@ -4468,6 +4596,8 @@ class ApiClient {
     const params = new URLSearchParams();
     if (query?.user_id) params.append('user_id', query.user_id);
     if (query?.limit) params.append('limit', query.limit.toString());
+    if (query?.source_type) params.append('source_type', query.source_type);
+    if (query?.document_id) params.append('document_id', query.document_id);
 
     const queryString = params.toString();
     return this.requestList<chatTypes.ChatSession>(`/v1/chat/sessions${queryString ? `?${queryString}` : ''}`);

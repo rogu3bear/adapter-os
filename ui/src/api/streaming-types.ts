@@ -46,7 +46,7 @@ export interface TrainingProgressEvent {
 export interface TrainingSessionEvent {
   session_id: string;
   job_id?: string;
-  action: 'created' | 'started' | 'paused' | 'resumed' | 'completed' | 'cancelled';
+  action: 'created' | 'started' | 'completed' | 'cancelled';
   timestamp: string;
   user_id?: string;
   reason?: string;

@@ -93,7 +93,7 @@ Scores are stored as Q15 (15-bit fixed point) to reduce memory and computation o
     term: 'Gate Quantization',
     category: 'routing',
     content: {
-      brief: 'Reduces gate precision to save compute. Q15 uses 15-bit fixed point for router gates.',
+      brief: 'Reduces gate precision to save compute. Q15 uses 15-bit fixed point for router gates (backend-fixed, no per-token precision plan).',
       detailed: `Gate quantization converts floating-point gate values to fixed-point representations, reducing memory usage and computational overhead while maintaining sufficient precision for routing decisions.
 
 **Q15 format:**

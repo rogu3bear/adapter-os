@@ -60,7 +60,7 @@ function TrainingPageContent({ preselectedAdapterId, preselectedDatasetId }: { p
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full max-w-[800px] grid-cols-4">
+        <TabsList className="grid w-full max-w-[calc(var(--base-unit)*200)] grid-cols-4">
           <TabsTrigger value="jobs" className="flex items-center gap-2">
             <Brain className="h-4 w-4" />
             Training Jobs

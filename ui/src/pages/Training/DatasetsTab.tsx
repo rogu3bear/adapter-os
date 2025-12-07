@@ -155,10 +155,10 @@ const DatasetTableRow = ({
   <TableRow>
     <TableCell className="font-medium">
       <div className="flex flex-col">
-        <span className="max-w-[200px] truncate" title={dataset.name}>
+        <span className="max-w-[calc(var(--base-unit)*50)] truncate" title={dataset.name}>
           {dataset.name}
         </span>
-        <span className="max-w-[200px] truncate text-xs text-muted-foreground">{dataset.id.slice(0, 8)}...</span>
+        <span className="max-w-[calc(var(--base-unit)*50)] truncate text-xs text-muted-foreground">{dataset.id.slice(0, 8)}...</span>
       </div>
     </TableCell>
     <TableCell>
@@ -228,7 +228,7 @@ const DatasetsTable = ({
   onValidate: (id: string) => void;
   onDelete: (id: string) => void;
 }) => (
-  <div className="max-h-[600px] overflow-auto">
+  <div className="max-h-[calc(var(--base-unit)*150)] overflow-auto">
     <Table>
       <TableHeader>
         <TableRow>

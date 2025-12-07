@@ -28,6 +28,7 @@ import {
 import type { Adapter, AdapterState } from '@/api/adapter-types';
 import { Link } from 'react-router-dom';
 import { AdapterActions } from './AdapterActions';
+import PageTable from '@/components/ui/PageTable';
 
 interface AdapterTableProps {
   adapters: Adapter[];
@@ -42,6 +43,7 @@ interface AdapterTableProps {
   onEvict?: (adapterId: string) => void;
   onViewHealth?: (adapterId: string) => void;
   onDownloadManifest?: (adapterId: string) => void;
+  newestAdapterIds?: Set<string>;
   canLoad?: boolean;
   canUnload?: boolean;
   canDelete?: boolean;
@@ -61,6 +63,7 @@ export function AdapterTable({
   onEvict,
   onViewHealth,
   onDownloadManifest,
+  newestAdapterIds,
   canLoad = true,
   canUnload = true,
   canDelete = true,
@@ -100,57 +103,87 @@ export function AdapterTable({
   }
 
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {onSelectionChange && (
-              <TableHead className="w-12">
-                <Checkbox
-                  checked={allSelected}
-                  ref={(el) => {
-                    if (el) {
-                      (el as HTMLButtonElement & { indeterminate?: boolean }).indeterminate = someSelected;
-                    }
-                  }}
-                  onCheckedChange={toggleSelectAll}
-                  aria-label="Select all adapters"
-                />
-              </TableHead>
-            )}
-            <TableHead className="min-w-[200px]">Name</TableHead>
-            <TableHead className="w-[100px]">Status</TableHead>
-            <TableHead className="w-[80px]">Tier</TableHead>
-            <TableHead className="w-[100px]">Usage Frequency</TableHead>
-            <TableHead className="w-[100px]">Memory</TableHead>
-            <TableHead className="w-[100px]">Category</TableHead>
-            <TableHead className="w-[60px] text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {adapters.map(adapter => (
-            <AdapterTableRow
-              key={adapter.adapter_id}
-              adapter={adapter}
-              isSelected={selectedAdapters.includes(adapter.adapter_id)}
-              onSelect={onSelectionChange ? () => toggleSelectOne(adapter.adapter_id) : undefined}
-              onLoad={onLoad}
-              onUnload={onUnload}
-              onDelete={onDelete}
-              onPin={onPin}
-              onPromote={onPromote}
-              onEvict={onEvict}
-              onViewHealth={onViewHealth}
-              onDownloadManifest={onDownloadManifest}
-              canLoad={canLoad}
-              canUnload={canUnload}
-              canDelete={canDelete}
-              totalMemory={totalMemory}
-            />
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+    <>
+      {/* Card layout (mobile/compact) */}
+      <div className="grid gap-3 sm:hidden">
+        {adapters.map(adapter => (
+          <AdapterCard
+            key={adapter.adapter_id}
+            adapter={adapter}
+            isNewest={newestAdapterIds?.has(adapter.adapter_id)}
+            isSelected={selectedAdapters.includes(adapter.adapter_id)}
+            onSelect={onSelectionChange ? () => toggleSelectOne(adapter.adapter_id) : undefined}
+            onLoad={onLoad}
+            onUnload={onUnload}
+            onDelete={onDelete}
+            onPin={onPin}
+            onPromote={onPromote}
+            onEvict={onEvict}
+            onViewHealth={onViewHealth}
+            onDownloadManifest={onDownloadManifest}
+            isNewest={newestAdapterIds?.has(adapter.adapter_id)}
+            canLoad={canLoad}
+            canUnload={canUnload}
+            canDelete={canDelete}
+            totalMemory={totalMemory}
+          />
+        ))}
+      </div>
+
+      {/* Table layout (desktop) */}
+      <PageTable className="hidden sm:block rounded-md border" minWidth="md">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {onSelectionChange && (
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) {
+                        (el as HTMLButtonElement & { indeterminate?: boolean }).indeterminate = someSelected;
+                      }
+                    }}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Select all adapters"
+                  />
+                </TableHead>
+              )}
+            <TableHead className="min-w-[calc(var(--base-unit)*50)]">Name</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*25)]">Status</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*20)]">Tier</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*25)]">Usage Frequency</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*25)]">Memory</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*25)]">Category</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*15)] text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {adapters.map(adapter => (
+              <AdapterTableRow
+                key={adapter.adapter_id}
+                adapter={adapter}
+                isNewest={newestAdapterIds?.has(adapter.adapter_id)}
+                isSelected={selectedAdapters.includes(adapter.adapter_id)}
+                onSelect={onSelectionChange ? () => toggleSelectOne(adapter.adapter_id) : undefined}
+                onLoad={onLoad}
+                onUnload={onUnload}
+                onDelete={onDelete}
+                onPin={onPin}
+                onPromote={onPromote}
+                onEvict={onEvict}
+                onViewHealth={onViewHealth}
+                onDownloadManifest={onDownloadManifest}
+                canLoad={canLoad}
+                canUnload={canUnload}
+                canDelete={canDelete}
+                totalMemory={totalMemory}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </PageTable>
+    </>
   );
 }
 
@@ -166,6 +199,7 @@ interface AdapterTableRowProps {
   onEvict?: (adapterId: string) => void;
   onViewHealth?: (adapterId: string) => void;
   onDownloadManifest?: (adapterId: string) => void;
+  isNewest?: boolean;
   canLoad?: boolean;
   canUnload?: boolean;
   canDelete?: boolean;
@@ -184,6 +218,7 @@ function AdapterTableRow({
   onEvict,
   onViewHealth,
   onDownloadManifest,
+  isNewest = false,
   canLoad = true,
   canUnload = true,
   canDelete = true,
@@ -192,7 +227,6 @@ function AdapterTableRow({
   const memoryMB = adapter.memory_bytes / (1024 * 1024);
   const memoryPercent = totalMemory > 0 ? (adapter.memory_bytes / totalMemory) * 100 : 0;
 
-  // Calculate activation percentage (placeholder - would come from metrics)
   const activationPercent = Math.min(100, (adapter.activation_count / 100) * 100);
 
   return (
@@ -217,11 +251,25 @@ function AdapterTableRow({
               {adapter.pinned && (
                 <Pin className="h-3 w-3 text-muted-foreground" />
               )}
+              {isNewest && (
+                <Badge variant="default" className="text-[10px]">
+                  Newest
+                </Badge>
+              )}
+                {adapter.version && (
+                  <Badge variant="outline" className="text-[10px]">
+                    v{adapter.version}
+                  </Badge>
+                )}
+                {adapter.hash_b3 && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    b3 {adapter.hash_b3.slice(0, 8)}…
+                  </Badge>
+                )}
             </div>
             <div className="text-xs text-muted-foreground">
               {adapter.adapter_id}
-              {adapter.framework && ` - ${adapter.framework}`}
-              {adapter.version && ` v${adapter.version}`}
+                {adapter.framework && ` - ${adapter.framework}`}
             </div>
           </div>
         </div>
@@ -285,6 +333,116 @@ function AdapterTableRow({
   );
 }
 
+function AdapterCard({
+  adapter,
+  isSelected = false,
+  onSelect,
+  onLoad,
+  onUnload,
+  onDelete,
+  onPin,
+  onPromote,
+  onEvict,
+  onViewHealth,
+  onDownloadManifest,
+  isNewest = false,
+  canLoad = true,
+  canUnload = true,
+  canDelete = true,
+  totalMemory = 0,
+}: AdapterTableRowProps) {
+  const memoryMB = adapter.memory_bytes / (1024 * 1024);
+  const memoryPercent = totalMemory > 0 ? (adapter.memory_bytes / totalMemory) * 100 : 0;
+  const activationPercent = Math.min(100, (adapter.activation_count / 100) * 100);
+
+  return (
+    <div className="rounded-lg border bg-card/50 p-4 shadow-sm transition hover:shadow-md focus-within:ring-2 focus-within:ring-primary/70">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          {onSelect && (
+            <Checkbox
+              checked={isSelected}
+              onCheckedChange={onSelect}
+              aria-label={`Select ${adapter.name}`}
+              className="mt-1"
+            />
+          )}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              {getCategoryIcon(adapter.category)}
+              <Link to={`/adapters/${adapter.adapter_id}`} className="font-semibold hover:underline">
+                {adapter.name}
+              </Link>
+              {adapter.pinned && <Pin className="h-3 w-3 text-muted-foreground" />}
+              {isNewest && (
+                <Badge variant="default" className="text-[10px]">
+                  Newest
+                </Badge>
+              )}
+              {adapter.version && (
+                <Badge variant="outline" className="text-[10px]">
+                  v{adapter.version}
+                </Badge>
+              )}
+              {adapter.hash_b3 && (
+                <Badge variant="secondary" className="text-[10px]">
+                  b3 {adapter.hash_b3.slice(0, 8)}…
+                </Badge>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground flex flex-wrap gap-2">
+              <Badge variant={getStateBadgeVariant(adapter.current_state)} className="capitalize">
+                {getStateDisplayName(adapter.current_state)}
+              </Badge>
+              <Badge variant="outline">{getTierDisplayName(adapter.tier)}</Badge>
+              <Badge variant="secondary" className="flex items-center gap-1">
+                {getCategoryIcon(adapter.category, 'h-3 w-3')}
+                {adapter.category}
+              </Badge>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {adapter.adapter_id}
+              {adapter.framework && ` • ${adapter.framework}`}
+            </div>
+          </div>
+        </div>
+        <AdapterActions
+          adapter={adapter}
+          onLoad={onLoad}
+          onUnload={onUnload}
+          onDelete={onDelete}
+          onPin={onPin}
+          onPromote={onPromote}
+          onEvict={onEvict}
+          onViewHealth={onViewHealth}
+          onDownloadManifest={onDownloadManifest}
+          canLoad={canLoad}
+          canUnload={canUnload}
+          canDelete={canDelete}
+        />
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-muted-foreground">
+        <div>
+          <div className="flex items-center gap-1 text-sm text-foreground">
+            <MemoryStick className="h-3 w-3 text-muted-foreground" />
+            <span>{memoryMB.toFixed(1)} MB</span>
+          </div>
+          {totalMemory > 0 && <div className="text-xs">({memoryPercent.toFixed(1)}% of total)</div>}
+        </div>
+        <div>
+          <div className="flex items-center justify-between text-xs text-foreground">
+            <span>Activations</span>
+            <span className="text-muted-foreground">{activationPercent.toFixed(0)}%</span>
+          </div>
+          <Progress value={activationPercent} className="h-2" />
+          <div className="text-xs text-muted-foreground mt-1">{adapter.activation_count}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdapterTableSkeleton() {
   return (
     <div className="rounded-md border">
@@ -294,13 +452,13 @@ function AdapterTableSkeleton() {
             <TableHead className="w-12">
               <Skeleton className="h-4 w-4" />
             </TableHead>
-            <TableHead className="min-w-[200px]">Name</TableHead>
-            <TableHead className="w-[100px]">Status</TableHead>
-            <TableHead className="w-[80px]">Tier</TableHead>
-            <TableHead className="w-[100px]">Usage Frequency</TableHead>
-            <TableHead className="w-[100px]">Memory</TableHead>
-            <TableHead className="w-[100px]">Category</TableHead>
-            <TableHead className="w-[60px]">Actions</TableHead>
+            <TableHead className="min-w-[calc(var(--base-unit)*50)]">Name</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*25)]">Status</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*20)]">Tier</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*25)]">Usage Frequency</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*25)]">Memory</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*25)]">Category</TableHead>
+            <TableHead className="w-[calc(var(--base-unit)*15)]">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

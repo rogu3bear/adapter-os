@@ -1,6 +1,6 @@
 // Audit Page - Security and system audit events with RBAC and real-time polling
 import React, { useState, useEffect, useCallback } from 'react';
-import FeatureLayout from '@/layout/FeatureLayout';
+import PageWrapper from '@/layout/PageWrapper';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiClient } from '@/api/client';
 import { TelemetryEvent } from '@/api/types';
-import { DensityProvider, useDensity } from '@/contexts/DensityContext';
+import { useDensity } from '@/contexts/DensityContext';
 import { DensityControls } from '@/components/ui/density-controls';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from '@/components/ui/advanced-filter';
 import { useRBAC } from '@/hooks/useRBAC';
@@ -19,6 +19,7 @@ import { Download, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatTimestamp } from '@/utils/format';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { Link } from 'react-router-dom';
+import PageTable from '@/components/ui/PageTable';
 
 type BadgeVariant = NonNullable<React.ComponentProps<typeof Badge>['variant']>;
 
@@ -30,12 +31,12 @@ const LoadingSpinner = () => (
 
 function PermissionDeniedView() {
   return (
-    <FeatureLayout title="Audit Log" description="Security and system audit events">
+    <PageWrapper pageKey="audit-log" title="Audit Log" description="Security and system audit events">
       <ErrorRecovery
         error="You do not have permission to view audit logs. This page requires the audit:view permission (Admin, SRE, or Compliance role)."
         onRetry={() => window.location.reload()}
       />
-    </FeatureLayout>
+    </PageWrapper>
   );
 }
 
@@ -157,7 +158,7 @@ function AuditTableContent({
   getSeverityColor: (level: string) => BadgeVariant;
 }) {
   return (
-    <div className="overflow-x-auto">
+    <PageTable minWidth="md">
       <Table>
         <TableHeader>
           <TableRow>
@@ -174,7 +175,7 @@ function AuditTableContent({
           ))}
         </TableBody>
       </Table>
-    </div>
+    </PageTable>
   );
 }
 
@@ -505,9 +506,12 @@ function AuditPageInner() {
   }, [filteredAuditLogs, allAuditLogs]);
 
   return (
-    <FeatureLayout
+    <PageWrapper
+      pageKey="audit"
       title="Audit Log"
       description="Security and system audit events"
+      contentPadding="default"
+      maxWidth="xl"
       headerActions={
         <div className="flex items-center gap-2">
           <DensityControls density={density} onDensityChange={setDensity} />
@@ -549,14 +553,10 @@ function AuditPageInner() {
           />
         </div>
       </SectionErrorBoundary>
-    </FeatureLayout>
+    </PageWrapper>
   );
 }
 
 export default function AuditPage() {
-  return (
-    <DensityProvider pageKey="audit">
-      <AuditPageInner />
-    </DensityProvider>
-  );
+  return <AuditPageInner />;
 }

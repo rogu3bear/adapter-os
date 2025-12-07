@@ -27,6 +27,7 @@ interface UseSessionTelemetryOptions {
   tenantId?: string;
   pageSize?: number;
   initialFilter?: string;
+  sourceType?: string;
 }
 
 interface UseSessionTelemetryResult {
@@ -84,7 +85,7 @@ function flattenMetrics(series: MetricsSeriesResponse[] | undefined): MetricPoin
 }
 
 export function useSessionTelemetry(options: UseSessionTelemetryOptions = {}): UseSessionTelemetryResult {
-  const { initialRequestId, tenantId, pageSize = 25, initialFilter = '' } = options;
+  const { initialRequestId, tenantId, pageSize = 25, initialFilter = '', sourceType } = options;
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(initialRequestId ?? null);
   const [page, setPage] = useState<number>(1);
@@ -97,13 +98,14 @@ export function useSessionTelemetry(options: UseSessionTelemetryOptions = {}): U
     error: sessionsErrorRaw,
     refetch: refetchSessions,
   } = useQuery({
-    queryKey: ['session-telemetry', 'sessions', tenantId, page, pageSize, filterRequestId],
+    queryKey: ['session-telemetry', 'sessions', tenantId, page, pageSize, filterRequestId, sourceType],
     queryFn: async () =>
       apiClient.getRoutingDecisions({
         limit: pageSize,
         offset: (page - 1) * pageSize,
         tenant_id: tenantId,
         request_id: filterRequestId || undefined,
+        source_type: sourceType || undefined,
       }),
     staleTime: 30_000,
   });
