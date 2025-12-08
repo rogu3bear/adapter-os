@@ -248,6 +248,7 @@ impl Generator {
                     framework: None,
                     languages: vec![0], // Default language
                     tier: "persistent".to_string(),
+                    ..Default::default()
                 })
                 .collect();
             let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);

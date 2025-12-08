@@ -101,6 +101,7 @@ pub struct Adapter {
     pub tier: AdapterTier,
     pub rank: u32,
     pub alpha: f32,
+    pub lora_strength: Option<f32>,
     pub target_modules: Vec<String>,
     #[serde(default)]
     pub ttl: Option<u32>,

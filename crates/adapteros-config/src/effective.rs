@@ -191,6 +191,10 @@ pub struct ModelSection {
     pub path: Option<PathBuf>,
     /// Model backend: auto, coreml, metal, mlx
     pub backend: String,
+    /// Canonical base model identifier
+    pub base_id: Option<String>,
+    /// Root directory containing base models
+    pub cache_root: Option<PathBuf>,
     /// Tokenizer path
     pub tokenizer_path: Option<PathBuf>,
     /// Manifest path
@@ -720,6 +724,8 @@ impl EffectiveConfig {
                 .get("model.backend")
                 .cloned()
                 .unwrap_or_else(|| "auto".to_string()),
+            base_id: config.get("base_model.id").cloned(),
+            cache_root: config.get("base_model.cache_root").map(PathBuf::from),
             tokenizer_path: config.get("tokenizer.path").map(PathBuf::from),
             manifest_path: config.get("manifest.path").map(PathBuf::from),
         }
@@ -926,6 +932,8 @@ mod tests {
             "/var/lib/adapteros/documents".to_string(),
         );
         prod_abs_values.insert("log.file".to_string(), "/var/log/adapteros".to_string());
+        prod_abs_values.insert("security.jwt.secret".to_string(), "prod-secret".to_string());
+        prod_abs_values.insert("inference.backend.profile".to_string(), "metal".to_string());
 
         let prod_abs_config = DeterministicConfig::new_for_test(prod_abs_values);
         let prod_abs_effective = EffectiveConfig::from_deterministic(prod_abs_config);
@@ -950,6 +958,8 @@ mod tests {
             "paths.documents.root".to_string(),
             "var/documents".to_string(),
         );
+        prod_rel_values.insert("security.jwt.secret".to_string(), "prod-secret".to_string());
+        prod_rel_values.insert("inference.backend.profile".to_string(), "metal".to_string());
 
         let prod_rel_config = DeterministicConfig::new_for_test(prod_rel_values);
         let prod_rel_effective = EffectiveConfig::from_deterministic(prod_rel_config);

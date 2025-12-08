@@ -8,6 +8,16 @@ use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+const IS_REAL_MLX: bool = cfg!(feature = "mlx");
+
+fn backend_device_label() -> String {
+    if IS_REAL_MLX {
+        "MLX FFI (Apple Silicon)".to_string()
+    } else {
+        "MLX FFI (stub build)".to_string()
+    }
+}
+
 /// Resilience configuration for MLX backend
 #[derive(Debug, Clone)]
 pub struct MLXResilienceConfig {
@@ -121,10 +131,16 @@ impl MLXFFIBackend {
         let memory_pool_config = MLXMemoryPoolConfig::default();
         let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
 
+        if !IS_REAL_MLX {
+            tracing::warn!(
+                "MLX backend built without real MLX support (stub FFI); determinism attestation disabled"
+            );
+        }
+
         Self {
             model: Arc::new(model),
             adapters: ArcSwap::from_pointee(HashMap::new()),
-            device: "MLX FFI (Apple Silicon)".to_string(),
+            device: backend_device_label(),
             resilience_config: config,
             health_status: Arc::new(RwLock::new(BackendHealth {
                 operational: true,
@@ -179,10 +195,16 @@ impl MLXFFIBackend {
         let memory_pool_config = MLXMemoryPoolConfig::default();
         let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
 
+        if !IS_REAL_MLX {
+            tracing::warn!(
+                "MLX backend built without real MLX support (stub FFI); determinism attestation disabled"
+            );
+        }
+
         Ok(Self {
             model: Arc::new(model),
             adapters: ArcSwap::from_pointee(HashMap::new()),
-            device: "MLX FFI (Apple Silicon)".to_string(),
+            device: backend_device_label(),
             resilience_config: config,
             health_status: Arc::new(RwLock::new(BackendHealth {
                 operational: true,
@@ -229,10 +251,16 @@ impl MLXFFIBackend {
         let memory_pool_config = MLXMemoryPoolConfig::default();
         let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
 
+        if !IS_REAL_MLX {
+            tracing::warn!(
+                "MLX backend built without real MLX support (stub FFI); determinism attestation disabled"
+            );
+        }
+
         Self {
             model,
             adapters: ArcSwap::from_pointee(HashMap::new()),
-            device: "MLX FFI (Apple Silicon)".to_string(),
+            device: backend_device_label(),
             resilience_config: config,
             health_status: Arc::new(RwLock::new(BackendHealth {
                 operational: true,
@@ -292,10 +320,16 @@ impl MLXFFIBackend {
         let memory_pool_config = MLXMemoryPoolConfig::default();
         let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
 
+        if !IS_REAL_MLX {
+            tracing::warn!(
+                "MLX backend built without real MLX support (stub FFI); determinism attestation disabled"
+            );
+        }
+
         Ok(Self {
             model,
             adapters: ArcSwap::from_pointee(HashMap::new()),
-            device: "MLX FFI (Apple Silicon)".to_string(),
+            device: backend_device_label(),
             resilience_config: config,
             health_status: Arc::new(RwLock::new(BackendHealth {
                 operational: true,
@@ -663,6 +697,7 @@ impl FusedKernels for MLXFFIBackend {
         }
 
         // Check circuit breaker state for stub fallback
+        const STUB_FALLBACK_THRESHOLD: u32 = 3;
         let use_stub_fallback = {
             let health = self.health_status.read();
             health.stub_fallback_active && self.resilience_config.enable_stub_fallback
@@ -691,12 +726,14 @@ impl FusedKernels for MLXFFIBackend {
                 health.last_failure = Some(std::time::Instant::now());
 
                 // Check if we should enable stub fallback
-                if health.current_failure_streak >= 3 && self.resilience_config.enable_stub_fallback
+                if health.current_failure_streak >= STUB_FALLBACK_THRESHOLD
+                    && self.resilience_config.enable_stub_fallback
                 {
                     health.stub_fallback_active = true;
                     tracing::warn!(
-                        "MLX backend switching to stub fallback after {} failures",
-                        health.current_failure_streak
+                        "MLX backend switching to stub fallback after {} failures (threshold = {})",
+                        health.current_failure_streak.max(STUB_FALLBACK_THRESHOLD),
+                        STUB_FALLBACK_THRESHOLD
                     );
                 }
 
@@ -749,12 +786,11 @@ impl FusedKernels for MLXFFIBackend {
         use adapteros_lora_kernel_api::attestation::*;
 
         // Check if backend is properly seeded with manifest hash
-        let (rng_method, deterministic) = if self.manifest_hash.is_some() {
-            // HKDF-seeded with manifest hash - deterministic
-            (RngSeedingMethod::HkdfSeeded, true)
+        let seeded = self.manifest_hash.is_some();
+        let rng_method = if seeded {
+            RngSeedingMethod::HkdfSeeded
         } else {
-            // No manifest hash - using system entropy, not deterministic
-            (RngSeedingMethod::SystemEntropy, false)
+            RngSeedingMethod::SystemEntropy
         };
 
         // Check stub fallback state
@@ -774,7 +810,7 @@ impl FusedKernels for MLXFFIBackend {
             rng_seed_method: rng_method,
             floating_point_mode: float_mode,
             compiler_flags: vec![],
-            deterministic: deterministic && !is_stub_active,
+            deterministic: seeded && !is_stub_active && IS_REAL_MLX,
         };
 
         tracing::info!(
@@ -782,6 +818,7 @@ impl FusedKernels for MLXFFIBackend {
             rng_method = ?report.rng_seed_method,
             has_manifest_hash = self.manifest_hash.is_some(),
             stub_active = is_stub_active,
+            real_build = IS_REAL_MLX,
             "MLX backend determinism attestation"
         );
 

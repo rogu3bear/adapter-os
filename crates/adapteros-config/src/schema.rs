@@ -19,7 +19,9 @@
 //! assert!(validate_value(&port_var, "99999").is_err());
 //! ```
 
-use crate::path_resolver::{DEV_MANIFEST_PATH, DEV_MODEL_PATH};
+use crate::path_resolver::{
+    DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT, DEV_MANIFEST_PATH, DEV_MODEL_PATH,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -691,6 +693,28 @@ pub fn default_schema() -> ConfigSchema {
     // ========================================================================
     // MODEL Configuration
     // ========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_BASE_MODEL_ID")
+            .config_type(ConfigType::String)
+            .default_value(DEFAULT_BASE_MODEL_ID)
+            .description("Canonical base model identifier used across server and CLI")
+            .category("MODEL")
+            .config_key("base_model.id")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_MODEL_CACHE_DIR")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value(DEFAULT_MODEL_CACHE_ROOT)
+            .description(
+                "Root directory for cached base models (default: ./var/model-cache/models)",
+            )
+            .category("MODEL")
+            .config_key("base_model.cache_root")
+            .build(),
+    );
 
     schema.add_variable(
         ConfigVariable::new("AOS_MODEL_PATH")
@@ -1385,7 +1409,8 @@ pub fn default_schema() -> ConfigSchema {
     schema.add_variable(
         ConfigVariable::new("AOS_MODEL_CACHE_DIR")
             .config_type(ConfigType::Path { must_exist: false })
-            .default_value("var/model-cache")
+            // Keep in sync with `DEFAULT_MODEL_CACHE_ROOT` in path_resolver (canonical default)
+            .default_value(DEFAULT_MODEL_CACHE_ROOT)
             .description("Directory for downloaded models from HuggingFace Hub")
             .category("MODEL_HUB")
             .build(),

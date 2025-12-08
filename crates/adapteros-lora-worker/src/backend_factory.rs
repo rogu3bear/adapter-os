@@ -13,12 +13,12 @@
 
 use crate::model_handle_cache::{ModelHandle, ModelHandleCache};
 use crate::model_key::ModelKey;
-use adapteros_config::{BackendPreference, ModelConfig};
+use adapteros_config::{model, BackendPreference, ModelConfig};
 use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::FusedKernels;
 use once_cell::sync::Lazy;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -253,8 +253,9 @@ fn is_apple_silicon() -> bool {
 
 /// Automatic backend selection with fallback chain
 ///
-/// Selection order: CoreML (ANE) -> Metal -> MLX
-/// This prioritizes power efficiency while maintaining determinism guarantees.
+/// Selection order: CoreML (ANE) -> MLX -> Metal
+/// This prioritizes production paths per ADR: CoreML (ANE) first, MLX second,
+/// Metal as the deterministic legacy fallback.
 pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<BackendChoice> {
     // Priority 1: CoreML with ANE (most power efficient)
     if capabilities.has_coreml && capabilities.has_ane {
@@ -262,19 +263,19 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
         return Ok(BackendChoice::CoreML);
     }
 
-    // Priority 2: Metal (production, guaranteed determinism)
+    // Priority 2: MLX (production/training when enabled)
+    if capabilities.has_mlx {
+        info!("Auto-selected MLX backend (production)");
+        return Ok(BackendChoice::Mlx);
+    }
+
+    // Priority 3: Metal (legacy deterministic fallback)
     if capabilities.has_metal {
         info!(
             device = ?capabilities.metal_device_name,
             "Auto-selected Metal backend"
         );
         return Ok(BackendChoice::Metal);
-    }
-
-    // Priority 3: MLX (experimental)
-    if capabilities.has_mlx {
-        info!("Auto-selected MLX backend (experimental)");
-        return Ok(BackendChoice::Mlx);
     }
 
     Err(AosError::Config(
@@ -325,7 +326,10 @@ pub fn create_backend_from_config(config: &ModelConfig) -> Result<KernelBox> {
 /// use std::path::Path;
 /// use adapteros_lora_worker::backend_factory::{BackendChoice, create_backend_with_model};
 ///
-/// let backend = create_backend_with_model(BackendChoice::Mlx, Path::new("./var/model-cache/models/qwen2.5-7b-instruct-bf16"))?;
+/// let backend = create_backend_with_model(
+///     BackendChoice::Mlx,
+///     Path::new("${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}"),
+/// )?;
 /// # Ok::<(), adapteros_core::AosError>(())
 /// ```
 pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Result<KernelBox> {
@@ -452,12 +456,19 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
         mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
     };
 
+    let model_path = validate_mlx_model_dir(model_path)?;
     let model_path_str = model_path.to_string_lossy();
     info!(
         model_path = %model_path_str,
         has_manifest_hash = manifest_hash.is_some(),
         "Creating MLX FFI kernel backend"
     );
+
+    if manifest_hash.is_none() {
+        warn!(
+            "MLX backend created without manifest hash; determinism attestation will be disabled"
+        );
+    }
 
     // Ensure MLX runtime is initialized
     if !mlx_runtime_is_initialized() {
@@ -466,17 +477,17 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
     }
 
     // Create cache key - prefer manifest hash when available for canonical identity
-    let cache_key = ModelKey::from_manifest_or_path(BackendType::Mlx, manifest_hash, model_path)?;
+    let cache_key = ModelKey::from_manifest_or_path(BackendType::Mlx, manifest_hash, &model_path)?;
     let model_arc = MODEL_CACHE
         .get_or_load(&cache_key, || {
-            let model = MLXFFIModel::load(&*model_path_str).map_err(|e| {
+            let model = MLXFFIModel::load(&model_path).map_err(|e| {
                 AosError::Config(format!(
                     "Failed to load MLX model from '{}': {}",
                     model_path_str, e
                 ))
             })?;
             // Estimate memory: use config if available, otherwise estimate from architecture
-            let memory_bytes = estimate_mlx_model_memory(model_path);
+            let memory_bytes = estimate_mlx_model_memory(&model_path);
             Ok((ModelHandle::Mlx(Arc::new(model)), memory_bytes))
         })?
         .as_mlx_model()?;
@@ -618,6 +629,37 @@ fn create_metal_backend(_model_path: &Path, _manifest_hash: Option<&B3Hash>) -> 
     Err(AosError::Config("Metal backend requires macOS".to_string()))
 }
 
+fn validate_mlx_model_dir(model_path: &Path) -> Result<PathBuf> {
+    if !model_path.exists() {
+        return Err(AosError::Config(format!(
+            "MLX model path '{}' does not exist. Set AOS_MODEL_PATH to a directory containing MLX config.json and weights.",
+            model_path.display()
+        )));
+    }
+
+    if !model_path.is_dir() {
+        return Err(AosError::Config(format!(
+            "MLX model path '{}' is not a directory. Set AOS_MODEL_PATH to the MLX model directory.",
+            model_path.display()
+        )));
+    }
+
+    let config_path = model_path.join("config.json");
+    if !config_path.exists() {
+        return Err(AosError::Config(format!(
+            "config.json not found at '{}'. Set AOS_MODEL_PATH to a model directory containing config.json.",
+            config_path.display()
+        )));
+    }
+
+    Ok(model_path.to_path_buf())
+}
+
+fn resolve_mlx_model_path_from_env() -> Result<PathBuf> {
+    let model_path = model::get_model_path_with_fallback()?;
+    validate_mlx_model_dir(&model_path)
+}
+
 /// Create a kernel backend based on the choice (backward-compatible)
 ///
 /// This function maintains backward compatibility for code that doesn't need model paths.
@@ -680,14 +722,8 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
             }
         }
         BackendChoice::Mlx => {
-            // For backward compatibility, read model path from environment variable
-            let model_path = std::env::var("AOS_MODEL_PATH").map_err(|_| {
-                AosError::Config(
-                    "MLX backend requires model path. Set AOS_MODEL_PATH environment variable \
-                     or use create_backend_with_model()/create_backend_from_config() instead."
-                        .to_string(),
-                )
-            })?;
+            // For backward compatibility, read model path from environment variable (validated)
+            let model_path = resolve_mlx_model_path_from_env()?;
 
             #[cfg(feature = "multi-backend")]
             {
@@ -695,7 +731,7 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
                     mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
                 };
 
-                info!(model_path = %model_path, "Creating MLX FFI kernel backend");
+                info!(model_path = %model_path.display(), "Creating MLX FFI kernel backend");
 
                 // Ensure MLX runtime is initialized
                 if !mlx_runtime_is_initialized() {
@@ -708,7 +744,8 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
                 let model = MLXFFIModel::load(&model_path).map_err(|e| {
                     AosError::Config(format!(
                         "Failed to load MLX model from '{}': {}",
-                        model_path, e
+                        model_path.display(),
+                        e
                     ))
                 })?;
 

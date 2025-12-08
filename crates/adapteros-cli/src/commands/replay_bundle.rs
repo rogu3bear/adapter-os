@@ -203,10 +203,21 @@ async fn verify_determinism(in_bundle: &Path, runs: u32, output: &OutputWriter) 
     });
 
     if output.is_json() {
+        let summaries: Vec<_> = results
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "verified_ops": r.verified_ops,
+                    "total_events": r.total_events,
+                    "is_complete": r.is_complete,
+                    "progress_percent": r.progress_percent,
+                })
+            })
+            .collect();
         output.json(&serde_json::json!({
             "deterministic": all_identical,
             "runs": runs,
-            "results": results,
+            "results": summaries,
         }))?;
     } else {
         output.section("Verification Results");

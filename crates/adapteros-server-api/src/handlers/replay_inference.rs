@@ -22,6 +22,7 @@ use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook
 use crate::security::check_tenant_access;
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_core::SeedMode;
 use adapteros_db::{CreateReplayExecutionParams, UpdateReplayExecutionParams};
 use adapteros_policy::hooks::PolicyHook;
 use axum::{
@@ -87,6 +88,22 @@ pub fn compute_match_status(original: &str, replay: &str) -> ReplayMatchStatus {
         } else {
             ReplayMatchStatus::Divergent
         }
+    }
+}
+
+/// Determine replay mode based on document availability and truncation flags.
+pub fn determine_replay_mode(
+    missing_doc_count: usize,
+    rag_score: f32,
+    prompt_truncated: i32,
+    response_truncated: i32,
+) -> &'static str {
+    if missing_doc_count == 0 && prompt_truncated == 0 && response_truncated == 0 {
+        "exact"
+    } else if rag_score > 0.5 {
+        "degraded"
+    } else {
+        "approximate"
     }
 }
 
@@ -187,6 +204,13 @@ pub async fn check_availability(
         .as_ref()
         .and_then(|j| serde_json::from_str(j).ok());
 
+    let base_only = metadata.base_only.unwrap_or(false);
+    let adapter_ids = if base_only {
+        Some(adapter_ids.unwrap_or_default())
+    } else {
+        adapter_ids
+    };
+
     let rag_doc_ids: Option<Vec<String>> = metadata
         .rag_doc_ids_json
         .as_ref()
@@ -280,6 +304,7 @@ pub async fn check_availability(
         sampling_algorithm_version: metadata.sampling_algorithm_version,
         rag_snapshot_hash: metadata.rag_snapshot_hash,
         adapter_ids,
+        base_only: metadata.base_only,
     };
 
     let can_replay_exact = status == ReplayStatus::Available;
@@ -432,6 +457,30 @@ pub async fn execute_replay(
         .as_ref()
         .and_then(|j| serde_json::from_str(j).ok());
 
+    let base_only = metadata.base_only.unwrap_or(false);
+    if base_only
+        && adapter_ids
+            .as_ref()
+            .map(|ids| !ids.is_empty())
+            .unwrap_or(false)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(
+                    "Replay metadata is marked base-only but includes adapter IDs; cannot replay with adapters",
+                )
+                .with_code("BASE_ONLY_MISMATCH"),
+            ),
+        ));
+    }
+
+    let adapter_ids = if base_only {
+        Some(Vec::new())
+    } else {
+        adapter_ids
+    };
+
     let rag_doc_ids: Option<Vec<String>> = metadata
         .rag_doc_ids_json
         .as_ref()
@@ -507,16 +556,12 @@ pub async fn execute_replay(
     };
 
     // Determine replay mode
-    let replay_mode = if missing_doc_ids.is_empty()
-        && metadata.prompt_truncated == 0
-        && metadata.response_truncated == 0
-    {
-        "exact"
-    } else if rag_score > 0.5 {
-        "degraded"
-    } else {
-        "approximate"
-    };
+    let replay_mode = determine_replay_mode(
+        missing_doc_ids.len(),
+        rag_score,
+        metadata.prompt_truncated,
+        metadata.response_truncated,
+    );
 
     // Check if approximate replay is allowed
     if replay_mode != "exact" && !req.allow_approximate {
@@ -562,12 +607,20 @@ pub async fn execute_replay(
 
     // Build InferenceRequestInternal from replay metadata (PRD-02)
     let determinism_ctx = DeterminismContext::from_replay_metadata(&metadata).map_err(|e| {
+        warn!(
+            inference_id = %inference_id,
+            replay_id = %replay_id,
+            error = %e,
+            "Replay rejected due to missing determinism seeds"
+        );
         (
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new(&e.to_string())
-                    .with_code("REPLAY_SEED_ERROR")
-                    .with_string_details("Unable to reconstruct determinism seeds from metadata"),
+                ErrorResponse::new(
+                    "Replay metadata missing request_seed; legacy seed derivation is no longer supported",
+                )
+                .with_code("LEGACY_REPLAY_UNSUPPORTED")
+                .with_string_details("Please re-record the inference to capture determinism seeds"),
             ),
         )
     })?;
@@ -585,8 +638,12 @@ pub async fn execute_replay(
         stack_id: None,
         stack_version: None,
         stack_determinism_mode: None,
-        effective_adapter_ids: None,
+        stack_routing_determinism_mode: None,
+        domain_hint: None,
+        effective_adapter_ids: if base_only { Some(Vec::new()) } else { None },
         determinism_mode: None,
+        routing_determinism_mode: None,
+        adapter_strength_overrides: None,
         seed_mode: None,
         request_seed: Some(determinism_ctx.request_seed()),
         backend_profile: None,
@@ -604,6 +661,24 @@ pub async fn execute_replay(
         created_at: std::time::Instant::now(),
         worker_auth_token: None,
     };
+
+    if base_only
+        && inference_request
+            .effective_adapter_ids
+            .as_ref()
+            .map(|ids| !ids.is_empty())
+            .unwrap_or(true)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(
+                    "Replay metadata is base-only but replay request is not base-only (adapters present)",
+                )
+                .with_code("BASE_ONLY_MISMATCH"),
+            ),
+        ));
+    }
 
     // Build replay context with manifest/backend constraints (PRD-02)
     let replay_context = ReplayContext {
@@ -971,6 +1046,12 @@ mod tests {
     fn test_compute_match_status_empty() {
         let status = compute_match_status("", "");
         assert_eq!(status, ReplayMatchStatus::Exact);
+    }
+
+    #[test]
+    fn test_determine_replay_mode_base_only_exact() {
+        let mode = determine_replay_mode(0, 1.0, 0, 0);
+        assert_eq!(mode, "exact");
     }
 
     #[test]

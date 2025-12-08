@@ -20,6 +20,18 @@
 
 use serde::{Deserialize, Serialize};
 
+/// LoRA adapter tier for routing and UI badges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoraTier {
+    /// Minimal footprint adapters
+    Micro,
+    /// Balanced/default adapters
+    Standard,
+    /// Maximum capacity adapters
+    Max,
+}
+
 /// Training job state machine
 ///
 /// Represents the complete lifecycle of a training job from creation to completion.
@@ -223,6 +235,15 @@ pub struct TrainingJob {
     /// Framework version (for framework adapters)
     #[serde(rename = "framework_version", skip_serializing_if = "Option::is_none")]
     pub framework_version: Option<String>,
+    /// Marketing/operational tier for routing (micro/standard/max)
+    #[serde(rename = "lora_tier", skip_serializing_if = "Option::is_none")]
+    pub lora_tier: Option<LoraTier>,
+    /// Optional adapter strength multiplier [0.0, 1.0]
+    #[serde(rename = "lora_strength", skip_serializing_if = "Option::is_none")]
+    pub lora_strength: Option<f32>,
+    /// Logical scope for adapter visibility (e.g., project, tenant)
+    #[serde(rename = "scope", skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 
     /// API patterns to focus on (for framework adapters) - JSON array
     #[serde(rename = "api_patterns_json", skip_serializing_if = "Option::is_none")]
@@ -262,6 +283,9 @@ pub struct TrainingJob {
     /// Reason/notes for backend selection or fallback
     #[serde(rename = "backend_reason", skip_serializing_if = "Option::is_none")]
     pub backend_reason: Option<String>,
+    /// Hardware/device identifier for the selected backend (if available)
+    #[serde(rename = "backend_device", skip_serializing_if = "Option::is_none")]
+    pub backend_device: Option<String>,
     /// Determinism mode (e.g., hkdf_seeded, nondet_fallback)
     #[serde(rename = "determinism_mode", skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
@@ -292,7 +316,10 @@ pub struct TrainingJob {
     )]
     pub throughput_examples_per_sec: Option<f32>,
     /// Average GPU utilization percentage
-    #[serde(rename = "gpu_utilization_pct", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "gpu_utilization_pct",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub gpu_utilization_pct: Option<f32>,
     /// Peak GPU memory usage (MB)
     #[serde(rename = "peak_gpu_memory_mb", skip_serializing_if = "Option::is_none")]
@@ -309,7 +336,10 @@ pub struct TrainingJob {
     #[serde(rename = "manifest_rank", skip_serializing_if = "Option::is_none")]
     pub manifest_rank: Option<u32>,
     /// Adapter manifest base model (if available)
-    #[serde(rename = "manifest_base_model", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "manifest_base_model",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub manifest_base_model: Option<String>,
     /// Whether per-layer hashes are present in manifest
     #[serde(
@@ -363,6 +393,9 @@ impl TrainingJob {
             symbol_targets_json: None,
             framework_id: None,
             framework_version: None,
+            lora_tier: None,
+            lora_strength: None,
+            scope: None,
             api_patterns_json: None,
             repo_scope: None,
             file_patterns_json: None,
@@ -374,6 +407,7 @@ impl TrainingJob {
             // Backend/determinism defaults
             backend: None,
             backend_reason: None,
+            backend_device: None,
             determinism_mode: None,
             training_seed: None,
             require_gpu: None,
@@ -611,6 +645,26 @@ pub struct TrainingConfig {
     )]
     pub gradient_accumulation_steps: Option<u32>,
 
+    /// Preferred training backend (coreml, mlx, metal, cpu). None = auto.
+    #[serde(
+        rename = "preferred_backend",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub preferred_backend: Option<String>,
+
+    /// Require GPU acceleration (error if no GPU backend can be initialized)
+    #[serde(rename = "require_gpu", default)]
+    pub require_gpu: bool,
+
+    /// Maximum GPU memory to use in MB (0/unset = unlimited, best-effort)
+    #[serde(
+        rename = "max_gpu_memory_mb",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub max_gpu_memory_mb: Option<u64>,
+
     /// Advanced weight group configuration (optional, format TBD)
     #[serde(
         rename = "weight_group_config",
@@ -679,6 +733,9 @@ impl TrainingConfig {
             min_delta: Some(0.001),
             checkpoint_frequency: Some(5),
             max_checkpoints: Some(3),
+            preferred_backend: None,
+            require_gpu: false,
+            max_gpu_memory_mb: None,
         }
     }
 
@@ -707,6 +764,9 @@ impl TrainingConfig {
             min_delta: None,
             checkpoint_frequency: None,
             max_checkpoints: None,
+            preferred_backend: None,
+            require_gpu: false,
+            max_gpu_memory_mb: None,
         }
     }
 
@@ -740,6 +800,9 @@ impl TrainingConfig {
             min_delta: Some(0.0001),
             checkpoint_frequency: Some(2),
             max_checkpoints: Some(5),
+            preferred_backend: None,
+            require_gpu: false,
+            max_gpu_memory_mb: None,
         }
     }
 }

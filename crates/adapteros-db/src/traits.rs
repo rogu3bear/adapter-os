@@ -7,6 +7,7 @@
 use adapteros_core::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use sqlx::Sqlite;
 
 /// Adapter record from database
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -49,6 +50,7 @@ pub struct AdapterRecord {
     pub fork_reason: Option<String>,
     pub version: String,
     pub lifecycle_state: String,
+    pub lora_strength: Option<f32>,
     // Archive/GC state (from migration 0138)
     pub archived_at: Option<String>,
     pub archived_by: Option<String>,
@@ -75,10 +77,67 @@ pub struct StackRecord {
     /// Determinism mode for this stack (strict, besteffort, relaxed)
     /// If not specified, uses global config
     pub determinism_mode: Option<String>,
+    /// Routing determinism mode for adapter selection
+    pub routing_determinism_mode: Option<String>,
 }
 
 fn default_version() -> i64 {
     1
+}
+
+/// Per-adapter strength override for packages
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterStrengthOverride {
+    pub adapter_id: String,
+    pub strength: Option<f32>,
+}
+
+/// Package record from database
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PackageRecord {
+    pub id: String,
+    pub tenant_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub stack_id: String,
+    pub tags_json: Option<String>,
+    pub domain: Option<String>,
+    pub scope_path: Option<String>,
+    pub adapter_strengths_json: Option<String>,
+    pub determinism_mode: Option<String>,
+    pub routing_determinism_mode: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Request to create a new package
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePackageRequest {
+    pub tenant_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub stack_id: String,
+    pub tags: Option<Vec<String>>,
+    pub domain: Option<String>,
+    pub scope_path: Option<String>,
+    pub adapter_strengths: Option<Vec<AdapterStrengthOverride>>,
+    pub determinism_mode: Option<String>,
+    pub routing_determinism_mode: Option<String>,
+}
+
+/// Request to update an existing package
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdatePackageRequest {
+    pub tenant_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub stack_id: String,
+    pub tags: Option<Vec<String>>,
+    pub domain: Option<String>,
+    pub scope_path: Option<String>,
+    pub adapter_strengths: Option<Vec<AdapterStrengthOverride>>,
+    pub determinism_mode: Option<String>,
+    pub routing_determinism_mode: Option<String>,
 }
 
 /// Request to create a new adapter stack
@@ -92,6 +151,8 @@ pub struct CreateStackRequest {
     /// Determinism mode for this stack (strict, besteffort, relaxed)
     /// If not specified, uses global config
     pub determinism_mode: Option<String>,
+    /// Routing determinism mode for adapter selection (deterministic/adaptive)
+    pub routing_determinism_mode: Option<String>,
 }
 
 /// Database backend abstraction trait

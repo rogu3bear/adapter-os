@@ -4,8 +4,8 @@
 //! The trained adapter is automatically registered and set for owner chat.
 
 use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
+use adapteros_config::resolve_base_model_location;
 use adapteros_core::{AosError, Result};
-use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::Db;
 use adapteros_ingest_docs::{
     generate_training_data_from_documents, load_tokenizer, ChunkingOptions, DocumentIngestor,
@@ -17,23 +17,16 @@ use adapteros_lora_worker::training::{
 use clap::{ArgGroup, Args};
 use glob::glob;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Train adapter on documentation markdown files
 #[derive(Args, Debug)]
 #[command(
     group(
-        ArgGroup::new("scenario_group")
-            .args(&["scenario"])
-            .multiple(false)
-            .required(false)
-    ),
-    group(
-        ArgGroup::new("explicit_group")
-            .args(&["tenant_id", "base_model_id"])
+        ArgGroup::new("register_mode")
+            .args(&["scenario", "tenant_id"])
             .multiple(false)
             .required(false)
     )
@@ -54,16 +47,24 @@ pub struct TrainDocsArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Adapter ID to use (otherwise auto-generated)
+    #[arg(long)]
+    adapter_id: Option<String>,
+
     /// Scenario profile name (configs/scenarios/<NAME>.toml)
-    #[arg(long, conflicts_with_all = ["tenant_id", "base_model_id"])]
+    #[arg(
+        long,
+        group = "register_mode",
+        conflicts_with_all = ["tenant_id", "base_model_id"]
+    )]
     scenario: Option<String>,
 
     /// Tenant ID (explicit mode)
-    #[arg(long, requires = "base_model_id", conflicts_with = "scenario")]
+    #[arg(long, group = "register_mode", conflicts_with = "scenario")]
     tenant_id: Option<String>,
 
     /// Base model ID (explicit mode)
-    #[arg(long, requires = "tenant_id", conflicts_with = "scenario")]
+    #[arg(long, conflicts_with = "scenario")]
     base_model_id: Option<String>,
 
     /// Register the trained adapter (requires scenario or explicit tenant+model)
@@ -133,6 +134,19 @@ struct RegistrationContext {
     base_model_id: String,
 }
 
+#[derive(Debug)]
+enum RegistrationMode<'a> {
+    Scenario(&'a str),
+    Explicit {
+        tenant_id: &'a str,
+        base_model_id: &'a str,
+    },
+}
+
+const REGISTER_SHAPE_ERROR: &str =
+    "--register requires either --scenario or both --tenant-id and --base-model-id";
+const BASE_MODEL_REQUIRED_ERROR: &str = "--base-model-id is required when --scenario is not set";
+
 impl TrainDocsArgs {
     /// Resolve output path, honoring env override when no CLI override is provided.
     fn resolved_output_dir(&self) -> PathBuf {
@@ -143,28 +157,57 @@ impl TrainDocsArgs {
         adapteros_core::paths::get_default_adapters_root().join("docs-assistant")
     }
 
-    fn resolve_registration_context(&self) -> Result<Option<RegistrationContext>> {
+    fn validate_register_shape(&self) -> Result<Option<RegistrationMode<'_>>> {
         if !self.register {
             return Ok(None);
         }
 
-        // Scenario mode
-        if let Some(name) = &self.scenario {
-            let resolved = Self::load_scenario_config(name)?;
-            return Ok(Some(resolved));
+        if let Some(name) = self.scenario.as_deref() {
+            return Ok(Some(RegistrationMode::Scenario(name)));
         }
 
-        // Explicit mode
-        match (self.tenant_id.as_ref(), self.base_model_id.as_ref()) {
-            (Some(tenant), Some(model)) => Ok(Some(RegistrationContext {
-                tenant_id: tenant.clone(),
-                base_model_id: model.clone(),
+        match (self.tenant_id.as_deref(), self.base_model_id.as_deref()) {
+            (Some(tenant_id), Some(base_model_id)) => Ok(Some(RegistrationMode::Explicit {
+                tenant_id,
+                base_model_id,
             })),
-            _ => Err(AosError::Validation(
-                "--register requires either --scenario or both --tenant-id and --base-model-id"
-                    .to_string(),
-            )),
+            _ => Err(AosError::Validation(REGISTER_SHAPE_ERROR.to_string())),
         }
+    }
+
+    fn resolve_registration_context(&self) -> Result<Option<RegistrationContext>> {
+        match self.validate_register_shape()? {
+            None => Ok(None),
+            Some(RegistrationMode::Scenario(name)) => {
+                let resolved = Self::load_scenario_config(name)?;
+                Ok(Some(resolved))
+            }
+            Some(RegistrationMode::Explicit {
+                tenant_id,
+                base_model_id,
+            }) => Ok(Some(RegistrationContext {
+                tenant_id: tenant_id.to_string(),
+                base_model_id: base_model_id.to_string(),
+            })),
+        }
+    }
+
+    fn resolve_base_model_id(
+        &self,
+        registration_ctx: Option<&RegistrationContext>,
+    ) -> Result<String> {
+        if let Some(ctx) = registration_ctx {
+            return Ok(ctx.base_model_id.clone());
+        }
+
+        if let Some(id) = self.base_model_id.clone() {
+            return Ok(id);
+        }
+
+        // Fall back to canonical resolver to avoid drift when not provided explicitly
+        resolve_base_model_location(None, None, false)
+            .map(|loc| loc.id)
+            .map_err(|e| AosError::Validation(format!("{} ({})", BASE_MODEL_REQUIRED_ERROR, e)))
     }
 
     fn load_scenario_config(name: &str) -> Result<RegistrationContext> {
@@ -216,11 +259,9 @@ impl TrainDocsArgs {
 
         // Resolve registration context first to surface errors early
         let registration_ctx = self.resolve_registration_context()?;
-        let base_model_id = registration_ctx
-            .as_ref()
-            .map(|c| c.base_model_id.clone())
-            .or_else(|| self.base_model_id.clone())
-            .unwrap_or_else(|| "qwen2.5-7b".to_string());
+        let base_model_id = self.resolve_base_model_id(registration_ctx.as_ref())?;
+        let base_model_location = resolve_base_model_location(Some(&base_model_id), None, true)
+            .map_err(|e| AosError::Validation(e.to_string()))?;
 
         // Validate docs directory
         if !self.docs_dir.exists() {
@@ -239,14 +280,34 @@ impl TrainDocsArgs {
         }
 
         info!("Found {} markdown files to process", doc_paths.len());
+        info!(
+            "Using base model '{}' at {}",
+            base_model_location.id,
+            base_model_location.full_path.display()
+        );
 
         // Generate revision
         let revision = self
             .revision
             .clone()
             .unwrap_or_else(|| chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string());
-        let adapter_id = format!("system/docs/adapteros/{}", revision);
+        let adapter_id = self
+            .adapter_id
+            .clone()
+            .unwrap_or_else(|| format!("system/docs/adapteros/{}", revision));
         let output_dir = self.resolved_output_dir();
+        let tenant_for_path = registration_ctx
+            .as_ref()
+            .map(|ctx| ctx.tenant_id.as_str())
+            .or_else(|| self.tenant_id.as_deref())
+            .unwrap_or("default");
+
+        if let Some(ctx) = registration_ctx.as_ref() {
+            info!(
+                "Training scenario adapter {}/{} for base model {}",
+                ctx.tenant_id, adapter_id, base_model_id
+            );
+        }
 
         // Dry run mode
         if self.dry_run {
@@ -439,12 +500,8 @@ impl TrainDocsArgs {
         let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
         let packager = AdapterPackager::new(&output_dir);
         let safe_adapter_id = adapter_id.replace('/', "_");
-        let tenant_for_path = registration_ctx
-            .as_ref()
-            .map(|ctx| ctx.tenant_id.as_str())
-            .unwrap_or("default");
         let packaged = packager
-            .package_aos(
+            .package_aos_for_tenant(
                 tenant_for_path,
                 &safe_adapter_id,
                 &quantized,
@@ -533,14 +590,31 @@ impl TrainDocsArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_core::paths::AOS_ADAPTERS_DIR_ENV;
+    use adapteros_config::DEFAULT_BASE_MODEL_ID;
+    use adapteros_core::paths::{AOS_ADAPTERS_DIR_ENV, DEFAULT_ADAPTERS_DIR};
+    use clap::Parser;
     use serial_test::serial;
     use std::path::PathBuf;
+
+    #[derive(Debug, Parser)]
+    struct TrainDocsTestCmd {
+        #[command(flatten)]
+        args: TrainDocsArgs,
+    }
+
+    fn parse_args(args: &[&str]) -> TrainDocsArgs {
+        let mut argv = vec!["train-docs-test".to_string()];
+        argv.extend(args.iter().map(|s| s.to_string()));
+        TrainDocsTestCmd::try_parse_from(argv)
+            .expect("cli args should parse")
+            .args
+    }
 
     #[test]
     #[serial]
     fn default_output_respects_env() {
         let tmp = tempfile::tempdir().unwrap();
+        std::env::remove_var(adapteros_core::paths::AOS_ADAPTERS_ROOT_ENV);
         std::env::set_var(AOS_ADAPTERS_DIR_ENV, tmp.path());
 
         let resolved = TrainDocsArgs::default_output_dir();
@@ -557,11 +631,91 @@ mod tests {
     #[test]
     #[serial]
     fn default_output_falls_back_to_var() {
+        std::env::remove_var(adapteros_core::paths::AOS_ADAPTERS_ROOT_ENV);
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
         let resolved = TrainDocsArgs::default_output_dir();
         assert_eq!(
             resolved,
-            PathBuf::from("var").join("adapters").join("docs-assistant")
+            PathBuf::from(DEFAULT_ADAPTERS_DIR).join("docs-assistant")
         );
+    }
+
+    #[test]
+    fn register_with_scenario_is_allowed_shape() {
+        let args = parse_args(&["--register", "--scenario", "docs"]);
+        let mode = args
+            .validate_register_shape()
+            .expect("shape should validate")
+            .expect("registration mode expected");
+
+        match mode {
+            RegistrationMode::Scenario(name) => assert_eq!(name, "docs"),
+            other => panic!("unexpected mode: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn register_with_explicit_ids_is_allowed_shape() {
+        let args = parse_args(&["--register", "--tenant-id", "t1", "--base-model-id", "m1"]);
+        let mode = args
+            .validate_register_shape()
+            .expect("shape should validate")
+            .expect("registration mode expected");
+
+        match mode {
+            RegistrationMode::Explicit {
+                tenant_id,
+                base_model_id,
+            } => {
+                assert_eq!(tenant_id, "t1");
+                assert_eq!(base_model_id, "m1");
+            }
+            other => panic!("unexpected mode: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn register_alone_is_rejected_with_stable_message() {
+        let args = parse_args(&["--register"]);
+        let err = args
+            .validate_register_shape()
+            .expect_err("should reject missing context");
+
+        match err {
+            AosError::Validation(msg) => assert_eq!(msg, REGISTER_SHAPE_ERROR),
+            other => panic!("unexpected error: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn register_with_tenant_only_is_rejected_with_stable_message() {
+        let args = parse_args(&["--register", "--tenant-id", "t-only"]);
+        let err = args
+            .validate_register_shape()
+            .expect_err("should reject incomplete explicit shape");
+
+        match err {
+            AosError::Validation(msg) => assert_eq!(msg, REGISTER_SHAPE_ERROR),
+            other => panic!("unexpected error: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn base_model_defaults_from_resolver_when_missing() {
+        let args = parse_args(&[]);
+        let resolved = args
+            .resolve_base_model_id(None)
+            .expect("default base model should resolve");
+
+        assert_eq!(resolved, DEFAULT_BASE_MODEL_ID);
+    }
+
+    #[test]
+    fn base_model_is_taken_from_cli_when_set() {
+        let args = parse_args(&["--base-model-id", "m-cli"]);
+        let resolved = args
+            .resolve_base_model_id(None)
+            .expect("cli base model should resolve");
+        assert_eq!(resolved, "m-cli");
     }
 }

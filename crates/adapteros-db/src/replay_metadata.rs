@@ -35,6 +35,8 @@ pub struct InferenceReplayMetadata {
     pub rag_snapshot_hash: Option<String>,
     /// JSON array of adapter IDs used (null if none)
     pub adapter_ids_json: Option<String>,
+    /// Whether this inference was executed in base-only mode (no adapters)
+    pub base_only: Option<bool>,
     /// Original prompt text (may be truncated)
     pub prompt_text: String,
     /// Whether prompt was truncated (0 = no, 1 = yes)
@@ -81,6 +83,8 @@ pub struct CreateReplayMetadataParams {
     pub rag_snapshot_hash: Option<String>,
     /// JSON-serializable list of adapter IDs
     pub adapter_ids: Option<Vec<String>>,
+    /// Whether the inference was base-only (no adapters)
+    pub base_only: Option<bool>,
     pub prompt_text: String,
     pub prompt_truncated: bool,
     pub response_text: Option<String>,
@@ -134,6 +138,7 @@ impl Db {
             .replay_status
             .clone()
             .unwrap_or_else(|| "available".to_string());
+        let base_only = params.base_only.map(|b| if b { 1 } else { 0 });
         let prompt_truncated = if params.prompt_truncated { 1 } else { 0 };
         let response_truncated = if params.response_truncated { 1 } else { 0 };
         let fallback_triggered = if params.fallback_triggered { 1 } else { 0 };
@@ -143,14 +148,16 @@ impl Db {
             INSERT INTO inference_replay_metadata (
                 id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                 sampling_params_json, backend, backend_version, sampling_algorithm_version,
-                rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
+                rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                 response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                 replay_status, latency_ms, tokens_generated, determinism_mode,
                 fallback_triggered, replay_guarantee, execution_policy_id,
                 execution_policy_version, created_at
             )
             VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 datetime('now')
             )
             "#,
@@ -167,6 +174,7 @@ impl Db {
         .bind(&sampling_algorithm_version)
         .bind(&params.rag_snapshot_hash)
         .bind(&adapter_ids_json)
+        .bind(base_only)
         .bind(&params.prompt_text)
         .bind(prompt_truncated)
         .bind(&params.response_text)
@@ -196,6 +204,7 @@ impl Db {
                     {
                         if fetched.manifest_hash != kv_meta.manifest_hash
                             || fetched.sampling_params_json != kv_meta.sampling_params_json
+                            || fetched.base_only != kv_meta.base_only
                         {
                             record_replay_drift("replay_metadata_mismatch");
                         }
@@ -235,7 +244,7 @@ impl Db {
                                 r#"
                                 SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                                        sampling_params_json, backend, backend_version, sampling_algorithm_version,
-                                       rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
+                                       rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, replay_guarantee, execution_policy_id,
@@ -253,6 +262,7 @@ impl Db {
                                     || sql_rec.sampling_params_json != record.sampling_params_json
                                     || sql_rec.backend != record.backend
                                     || sql_rec.replay_status != record.replay_status
+                                    || sql_rec.base_only != record.base_only
                                 {
                                     record_replay_drift("replay_metadata_drift_dual_write");
                                 }
@@ -288,7 +298,7 @@ impl Db {
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                    sampling_params_json, backend, backend_version, sampling_algorithm_version,
-                   rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
+                   rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, replay_guarantee, execution_policy_id,
@@ -321,7 +331,7 @@ impl Db {
                                 r#"
                                 SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                                        sampling_params_json, backend, backend_version, sampling_algorithm_version,
-                                       rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
+                                       rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, replay_guarantee, execution_policy_id,
@@ -339,6 +349,7 @@ impl Db {
                                     || sql_rec.sampling_params_json != record.sampling_params_json
                                     || sql_rec.backend != record.backend
                                     || sql_rec.replay_status != record.replay_status
+                                    || sql_rec.base_only != record.base_only
                                 {
                                     record_replay_drift("replay_metadata_drift_dual_write");
                                 }
@@ -370,7 +381,7 @@ impl Db {
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                    sampling_params_json, backend, backend_version, sampling_algorithm_version,
-                   rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
+                   rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, replay_guarantee, execution_policy_id,
@@ -435,7 +446,7 @@ impl Db {
                                 r#"
                                 SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                                        sampling_params_json, backend, backend_version, sampling_algorithm_version,
-                                       rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
+                                       rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, replay_guarantee, execution_policy_id,
@@ -457,6 +468,7 @@ impl Db {
                                 || sql_records.iter().zip(mapped.iter()).any(|(sql, kv)| {
                                     sql.inference_id != kv.inference_id
                                         || sql.manifest_hash != kv.manifest_hash
+                                        || sql.base_only.map(|v| v != 0) != kv.base_only
                                 })
                             {
                                 record_replay_drift("replay_metadata_list_drift_dual_write");
@@ -487,7 +499,7 @@ impl Db {
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                    sampling_params_json, backend, backend_version, sampling_algorithm_version,
-                   rag_snapshot_hash, adapter_ids_json, prompt_text, prompt_truncated,
+                   rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, replay_guarantee, execution_policy_id,
@@ -524,6 +536,7 @@ struct InferenceReplayMetadataRow {
     sampling_algorithm_version: String,
     rag_snapshot_hash: Option<String>,
     adapter_ids_json: Option<String>,
+    base_only: Option<i32>,
     prompt_text: String,
     prompt_truncated: i32,
     response_text: Option<String>,
@@ -556,6 +569,7 @@ impl From<InferenceReplayMetadataRow> for InferenceReplayMetadata {
             sampling_algorithm_version: row.sampling_algorithm_version,
             rag_snapshot_hash: row.rag_snapshot_hash,
             adapter_ids_json: row.adapter_ids_json,
+            base_only: row.base_only.map(|v| v != 0),
             prompt_text: row.prompt_text,
             prompt_truncated: row.prompt_truncated,
             response_text: row.response_text,
@@ -613,6 +627,7 @@ mod tests {
             sampling_algorithm_version: Some("v1.0.0".to_string()),
             rag_snapshot_hash: Some("rag-hash-789".to_string()),
             adapter_ids: Some(vec!["adapter-1".to_string(), "adapter-2".to_string()]),
+            base_only: None,
             prompt_text: "Test prompt".to_string(),
             prompt_truncated: false,
             response_text: Some("Test response".to_string()),
@@ -685,6 +700,7 @@ mod tests {
             sampling_algorithm_version: None,
             rag_snapshot_hash: None,
             adapter_ids: None,
+            base_only: None,
             prompt_text: "Prompt".to_string(),
             prompt_truncated: false,
             response_text: None,
@@ -736,6 +752,7 @@ mod tests {
                 sampling_algorithm_version: None,
                 rag_snapshot_hash: None,
                 adapter_ids: None,
+                base_only: None,
                 prompt_text: format!("Prompt {}", i),
                 prompt_truncated: false,
                 response_text: Some(format!("Response {}", i)),
@@ -794,6 +811,7 @@ mod tests {
             sampling_algorithm_version: None,
             rag_snapshot_hash: None,
             adapter_ids: None,
+            base_only: None,
             prompt_text: "Very long prompt...".to_string(),
             prompt_truncated: true,
             response_text: Some("Very long response...".to_string()),
@@ -839,6 +857,7 @@ mod tests {
             sampling_algorithm_version: None,
             rag_snapshot_hash: None,
             adapter_ids: Some(vec!["adapter-fb".to_string()]),
+            base_only: None,
             prompt_text: "prompt".to_string(),
             prompt_truncated: false,
             response_text: Some("resp".to_string()),

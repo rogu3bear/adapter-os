@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let packager = AdapterPackager::new(&output_dir);
     let packaged = packager
-        .package_aos(
+        .package_aos_for_tenant(
             "default",
             &result.adapter_id,
             &quantized,

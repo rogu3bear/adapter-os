@@ -484,6 +484,7 @@ mod tests {
             // Code intelligence fields
             category: adapteros_manifest::AdapterCategory::Code,
             scope: adapteros_manifest::AdapterScope::Global,
+            lora_strength: None,
             framework_id: None,
             framework_version: None,
             repo_id: None,

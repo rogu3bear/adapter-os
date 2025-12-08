@@ -244,6 +244,7 @@ fn test_router_produces_valid_decisions() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            ..Default::default()
         })
         .collect();
     let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);

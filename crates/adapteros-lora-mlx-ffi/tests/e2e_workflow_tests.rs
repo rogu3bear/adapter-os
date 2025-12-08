@@ -7,9 +7,10 @@
 //! - Deterministic execution verification
 //! - Token-by-token streaming generation
 //!
-//! These tests operate in stub mode and do not require real MLX to be installed.
+//! These tests exercise the real MLX path; stub builds compile an ignored
+//! placeholder so CI does not require MLX assets.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "mlx"))]
 mod e2e_workflow_tests {
     use adapteros_core::{derive_seed, B3Hash};
     use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
@@ -1152,4 +1153,12 @@ mod e2e_workflow_tests {
             report.deterministic
         );
     }
+}
+
+#[cfg(all(test, not(feature = "mlx")))]
+mod e2e_workflow_stub {
+    /// Stub marker so CI sees this suite but does not attempt to run it without MLX.
+    #[test]
+    #[ignore = "requires --features mlx to run real MLX e2e workflows"]
+    fn e2e_workflows_require_real_mlx() {}
 }

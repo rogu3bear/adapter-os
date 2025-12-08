@@ -16,6 +16,8 @@ pub struct CreateStackRequest {
     pub adapter_ids: Vec<String>,
     pub workflow_type: Option<WorkflowType>,
     pub metadata: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing_determinism_mode: Option<String>,
 }
 
 /// Response for adapter stack operations
@@ -35,6 +37,8 @@ pub struct StackResponse {
     pub lifecycle_state: String,
     #[serde(default)]
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub routing_determinism_mode: Option<String>,
 }
 
 /// Workflow type for adapter stacks
@@ -342,6 +346,7 @@ async fn create_stack(
         adapter_ids: adapters.to_vec(),
         workflow_type,
         metadata: None,
+        routing_determinism_mode: None,
     };
 
     let client = reqwest::Client::new();

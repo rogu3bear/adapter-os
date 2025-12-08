@@ -124,6 +124,7 @@ async fn test_insert_stack_with_proper_name_format() {
         adapter_ids: vec!["adapter-001".to_string(), "adapter-002".to_string()],
         workflow_type: Some("Sequential".to_string()),
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
 
     let stack_id = db
@@ -181,6 +182,7 @@ async fn test_update_training_job_result_ids() {
         adapter_ids: vec!["adapter-update-001".to_string()],
         workflow_type: None,
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
     let stack_id = db
         .insert_stack(&stack_req)
@@ -306,6 +308,7 @@ async fn test_create_chat_session_with_stack() {
         adapter_ids: vec!["adapter-chat-001".to_string()],
         workflow_type: None,
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
     let stack_id = db
         .insert_stack(&stack_req)

@@ -4,7 +4,7 @@
 //! with the MicroLoRATrainer to track loss curves, gradients, and learning rates.
 
 use super::metrics::{MetricsConfig, TrainingMetrics};
-use super::trainer::{MicroLoRATrainer, TrainingExample};
+use super::trainer::{EpochMetrics, MicroLoRATrainer, TrainingExample};
 use adapteros_core::Result;
 use tracing::{info, warn};
 
@@ -35,9 +35,10 @@ impl TrainerMetricsExt for MicroLoRATrainer {
 
         // Train using the callback mechanism to capture metrics
         let result = self
-            .train_with_callback(examples, |epoch, epoch_loss| {
+            .train_with_callback(examples, |epoch_metrics: EpochMetrics| {
                 // This callback is called after each epoch
-                metrics.record_epoch_loss(epoch - 1, epoch_loss);
+                let epoch_idx = epoch_metrics.epoch.saturating_sub(1) as usize;
+                metrics.record_epoch_loss(epoch_idx, epoch_metrics.loss);
                 metrics.record_learning_rate(learning_rate);
 
                 // Check stability
@@ -46,7 +47,7 @@ impl TrainerMetricsExt for MicroLoRATrainer {
                 }
 
                 // Export metrics periodically
-                if epoch % export_interval == 0 {
+                if export_interval > 0 && epoch_metrics.epoch % export_interval as u32 == 0 {
                     if let Err(e) = metrics.export_to_telemetry() {
                         warn!("Failed to export metrics to telemetry: {}", e);
                     }

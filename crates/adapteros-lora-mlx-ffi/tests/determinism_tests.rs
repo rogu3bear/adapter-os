@@ -672,26 +672,28 @@ mod determinism_tests {
         let report = backend
             .attest_determinism()
             .expect("Attestation should succeed");
+        assert!(
+            !report.deterministic,
+            "Backend without manifest hash should not be marked deterministic"
+        );
 
-        // In stub mode, should not be deterministic
-        // In mlx mode, should be deterministic with HKDF seeding
+        let manifest_hash = B3Hash::hash(b"attestation-hash");
+        let backend_seeded = create_test_backend_with_seed(manifest_hash);
+        let report_seeded = backend_seeded
+            .attest_determinism()
+            .expect("Seeded attestation should succeed");
+
         #[cfg(not(feature = "mlx"))]
-        {
-            assert!(
-                !report.deterministic,
-                "Stub backend should not claim to be deterministic"
-            );
-            println!("Backend attestation correctly reports non-deterministic in stub mode");
-        }
+        assert!(
+            !report_seeded.deterministic,
+            "Stub build must never claim determinism even with manifest hash"
+        );
 
         #[cfg(feature = "mlx")]
-        {
-            // With real MLX, determinism depends on proper HKDF seeding
-            println!(
-                "Backend attestation reported deterministic={}",
-                report.deterministic
-            );
-        }
+        assert!(
+            report_seeded.deterministic,
+            "Real MLX build with manifest hash should report determinism"
+        );
     }
 
     #[test]

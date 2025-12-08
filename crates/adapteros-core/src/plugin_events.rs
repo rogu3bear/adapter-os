@@ -79,6 +79,77 @@ pub struct AdapterEvent {
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
+impl AdapterEvent {
+    /// Attach backend/segment context without changing the schema
+    pub fn with_load_context(
+        mut self,
+        backend: Option<String>,
+        scope_path: Option<String>,
+        domain: Option<String>,
+        group: Option<String>,
+        scope: Option<String>,
+        operation: Option<String>,
+        lora_tier: Option<String>,
+        segment_id: Option<u32>,
+        lora_strength: Option<f32>,
+        determinism_mode: Option<String>,
+    ) -> Self {
+        if let Some(backend) = backend {
+            self.metadata
+                .insert("backend".to_string(), serde_json::Value::String(backend));
+        }
+        if let Some(scope_path) = scope_path {
+            self.metadata.insert(
+                "scope_path".to_string(),
+                serde_json::Value::String(scope_path),
+            );
+        }
+        if let Some(domain) = domain {
+            self.metadata
+                .insert("domain".to_string(), serde_json::Value::String(domain));
+        }
+        if let Some(group) = group {
+            self.metadata
+                .insert("group".to_string(), serde_json::Value::String(group));
+        }
+        if let Some(scope) = scope {
+            self.metadata
+                .insert("scope".to_string(), serde_json::Value::String(scope));
+        }
+        if let Some(operation) = operation {
+            self.metadata.insert(
+                "operation".to_string(),
+                serde_json::Value::String(operation),
+            );
+        }
+        if let Some(lora_tier) = lora_tier {
+            self.metadata.insert(
+                "lora_tier".to_string(),
+                serde_json::Value::String(lora_tier),
+            );
+        }
+        if let Some(segment_id) = segment_id {
+            self.metadata.insert(
+                "segment_id".to_string(),
+                serde_json::Value::from(segment_id),
+            );
+        }
+        if let Some(lora_strength) = lora_strength {
+            self.metadata.insert(
+                "lora_strength".to_string(),
+                serde_json::Value::from(lora_strength as f64),
+            );
+        }
+        if let Some(determinism_mode) = determinism_mode {
+            self.metadata.insert(
+                "determinism_mode".to_string(),
+                serde_json::Value::String(determinism_mode),
+            );
+        }
+        self
+    }
+}
+
 /// Audit event payload
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {
@@ -162,6 +233,32 @@ pub struct InferenceEvent {
     pub timestamp: String,
     /// Additional metadata
     pub metadata: HashMap<String, serde_json::Value>,
+}
+
+impl InferenceEvent {
+    /// Attach per-adapter metadata (backend, scope_path, etc.) under `metadata.adapters`
+    pub fn with_adapter_metadata(mut self, adapters: HashMap<String, serde_json::Value>) -> Self {
+        let mut adapter_map = serde_json::Map::new();
+        for (k, v) in adapters {
+            adapter_map.insert(k, v);
+        }
+        self.metadata.insert(
+            "adapters".to_string(),
+            serde_json::Value::Object(adapter_map),
+        );
+        self
+    }
+
+    /// Attach determinism mode for the request into metadata
+    pub fn with_determinism_mode(mut self, determinism_mode: Option<String>) -> Self {
+        if let Some(mode) = determinism_mode {
+            self.metadata.insert(
+                "determinism_mode".to_string(),
+                serde_json::Value::String(mode),
+            );
+        }
+        self
+    }
 }
 
 /// Policy violation event payload

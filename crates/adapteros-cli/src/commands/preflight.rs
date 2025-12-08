@@ -11,6 +11,9 @@
 //! Copyright: © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
 use crate::output::OutputWriter;
+use adapteros_config::{
+    resolve_base_model_location, DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT,
+};
 use anyhow::{Context, Result};
 use clap::Args;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
@@ -43,7 +46,7 @@ pub struct PreflightCommand {
     #[arg(long, env = "AOS_DATABASE_URL")]
     pub database_url: Option<String>,
 
-    /// Model path to check (defaults to AOS_MODEL_PATH env var)
+    /// Model path to check (overrides AOS_MODEL_CACHE_DIR/AOS_BASE_MODEL_ID resolver)
     #[arg(long, env = "AOS_MODEL_PATH")]
     pub model_path: Option<String>,
 
@@ -255,17 +258,11 @@ async fn attempt_fixes(
 
             "Model Directory" | "Model" => {
                 // Model download
-                let model_path = cmd
-                    .model_path
-                    .as_ref()
-                    .map(PathBuf::from)
-                    .or_else(|| std::env::var("AOS_MODEL_PATH").ok().map(PathBuf::from))
-                    .or_else(|| std::env::var("AOS_MLX_FFI_MODEL").ok().map(PathBuf::from))
-                    .unwrap_or_else(|| {
-                        PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16")
-                    });
-
-                Some(download_model(model_path))
+                if let Ok(model_path) = resolve_model_path_from_inputs(cmd) {
+                    Some(download_model(model_path))
+                } else {
+                    None
+                }
             }
 
             "Database" | "Database Connection" | "Database Migrations" => {
@@ -310,14 +307,19 @@ async fn attempt_fixes(
 
 /// Check model availability and configuration
 async fn check_model(cmd: &PreflightCommand) -> CheckResult {
-    // Determine model path
-    let model_path = cmd
-        .model_path
-        .as_ref()
-        .map(PathBuf::from)
-        .or_else(|| std::env::var("AOS_MODEL_PATH").ok().map(PathBuf::from))
-        .or_else(|| std::env::var("AOS_MLX_FFI_MODEL").ok().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"));
+    // Determine model path using canonical resolver
+    let model_path = match resolve_model_path_from_inputs(cmd) {
+        Ok(path) => path,
+        Err(e) => {
+            return CheckResult::fail(
+                "Model",
+                &format!("Failed to resolve model path: {}", e),
+                Some(
+                    "Set AOS_BASE_MODEL_ID/AOS_MODEL_CACHE_DIR or provide --model-path".to_string(),
+                ),
+            )
+        }
+    };
 
     // Check if model directory exists
     if !model_path.exists() {
@@ -368,6 +370,24 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
     }
 
     CheckResult::pass("Model", &format!("Model ready at {}", model_path.display()))
+}
+
+fn resolve_model_path_from_inputs(cmd: &PreflightCommand) -> Result<PathBuf> {
+    if let Some(path) = cmd.model_path.as_ref() {
+        return Ok(PathBuf::from(path));
+    }
+
+    if let Ok(path) = std::env::var("AOS_MODEL_PATH") {
+        return Ok(PathBuf::from(path));
+    }
+
+    if let Ok(path) = std::env::var("AOS_MLX_FFI_MODEL") {
+        return Ok(PathBuf::from(path));
+    }
+
+    resolve_base_model_location(None, None, false)
+        .map(|loc| loc.full_path)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
 
 /// Check database initialization and migrations
@@ -479,20 +499,28 @@ async fn check_environment_variables() -> Vec<CheckResult> {
         ));
     }
 
-    // Check model path
-    let has_model_path =
-        std::env::var("AOS_MODEL_PATH").is_ok() || std::env::var("AOS_MLX_FFI_MODEL").is_ok();
+    // Check canonical model resolution knobs
+    let has_model_path = std::env::var("AOS_MODEL_PATH").is_ok()
+        || std::env::var("AOS_MLX_FFI_MODEL").is_ok()
+        || std::env::var("AOS_BASE_MODEL_ID").is_ok()
+        || std::env::var("AOS_MODEL_CACHE_DIR").is_ok();
 
     if has_model_path {
         results.push(CheckResult::pass(
             "Env: MODEL_PATH",
-            "Model path configured",
+            "Model path configured via env/config",
         ));
     } else {
         results.push(CheckResult::warning(
             "Env: MODEL_PATH",
-            "No model path set (will use default: ./var/model-cache/models/qwen2.5-7b-instruct-bf16)",
-            Some("export AOS_MODEL_PATH=./var/model-cache/models/qwen2.5-7b-instruct-bf16".to_string()),
+            &format!(
+                "No model path set (resolver will default to {}/{}). Configure AOS_MODEL_CACHE_DIR/AOS_BASE_MODEL_ID or pass --model-path.",
+                DEFAULT_MODEL_CACHE_ROOT, DEFAULT_BASE_MODEL_ID
+            ),
+            Some(format!(
+                "export AOS_BASE_MODEL_ID={} && export AOS_MODEL_CACHE_DIR={}",
+                DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT
+            )),
         ));
     }
 

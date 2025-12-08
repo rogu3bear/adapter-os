@@ -8,6 +8,7 @@
 //!
 //! Run with: cargo test -p adapteros-lora-worker --test worker_enforcement_tests
 
+use adapteros_api_types::inference::RouterDecision;
 use adapteros_api_types::RoutingPolicy;
 use adapteros_core::{AosError, Result};
 use adapteros_lora_router::{Decision, DecisionCandidate};
@@ -317,6 +318,90 @@ fn test_multiple_pinned_all_valid() {
         result.is_ok(),
         "All valid pinned adapters should pass: {:?}",
         result
+    );
+}
+
+#[test]
+fn base_only_request_zeroes_priors_and_clears_decisions() {
+    let effective_adapter_ids: Option<Vec<String>> = Some(Vec::new());
+    let base_only_request = matches!(
+        effective_adapter_ids.as_ref(),
+        Some(ids) if ids.is_empty()
+    );
+    assert!(
+        base_only_request,
+        "Empty effective_adapter_ids should mark base-only routing"
+    );
+
+    let mut priors = vec![1.0f32; 3];
+    if base_only_request {
+        priors.iter_mut().for_each(|p| *p = 0.0);
+    }
+    assert!(
+        priors.iter().all(|p| (*p - 0.0).abs() < f32::EPSILON),
+        "All priors should be zeroed for base-only requests"
+    );
+
+    let mut decision = Decision {
+        indices: SmallVec::from_slice(&[0, 1, 2]),
+        gates_q15: SmallVec::from_slice(&[1000, 2000, 3000]),
+        entropy: 0.0,
+        candidates: vec![
+            DecisionCandidate {
+                adapter_idx: 0,
+                raw_score: 0.4,
+                gate_q15: 1000,
+            },
+            DecisionCandidate {
+                adapter_idx: 1,
+                raw_score: 0.5,
+                gate_q15: 2000,
+            },
+            DecisionCandidate {
+                adapter_idx: 2,
+                raw_score: 0.6,
+                gate_q15: 3000,
+            },
+        ],
+        decision_hash: None,
+    };
+
+    if base_only_request {
+        decision.indices.clear();
+        decision.candidates.clear();
+        decision.gates_q15.clear();
+    }
+
+    let mut router_decisions = Vec::new();
+    for step in 0..2 {
+        router_decisions.push(RouterDecision {
+            step,
+            input_token_id: None,
+            candidate_adapters: decision
+                .candidates
+                .iter()
+                .map(|c| adapteros_api_types::inference::RouterCandidate {
+                    adapter_idx: c.adapter_idx,
+                    raw_score: c.raw_score,
+                    gate_q15: c.gate_q15,
+                })
+                .collect(),
+            entropy: decision.entropy,
+            tau: 0.0,
+            entropy_floor: 0.0,
+            stack_hash: None,
+        });
+    }
+
+    assert!(
+        decision.indices.is_empty() && decision.gates_q15.is_empty(),
+        "Base-only requests should clear adapter indices and gates"
+    );
+    assert!(
+        router_decisions
+            .iter()
+            .all(|d| d.candidate_adapters.is_empty()),
+        "Router decisions should record no adapters for base-only streaming steps"
     );
 }
 

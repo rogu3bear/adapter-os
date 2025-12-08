@@ -281,6 +281,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     request_type: RequestType::PatchProposal(patch_req.clone()),
                     stack_id: None,
                     stack_version: None,
+                    domain_hint: None,
                     // Sampling params (use defaults for patch proposal)
                     temperature: None,
                     top_k: None,
@@ -292,7 +293,9 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     backend_profile: None,
                     pinned_adapter_ids: None,
                     strict_mode: true,
+                    adapter_strength_overrides: None,
                     determinism_mode: "strict".to_string(), // Patch proposals use strict mode
+                    routing_determinism_mode: None,
                     effective_adapter_ids: None,
                     placement: None,
                     routing_policy: None,

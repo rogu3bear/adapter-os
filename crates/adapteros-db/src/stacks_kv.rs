@@ -6,13 +6,24 @@
 use adapteros_core::{AosError, Result};
 use adapteros_storage::entities::stack::{AdapterStackKv, LifecycleState, WorkflowType};
 use adapteros_storage::KvBackend;
+use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json;
+use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use crate::traits::{CreateStackRequest, StackRecord};
+
+fn parse_routing_mode(mode: &Option<String>) -> Option<RoutingDeterminismMode> {
+    mode.as_ref()
+        .and_then(|m| RoutingDeterminismMode::from_str(m).ok())
+}
+
+fn routing_mode_to_string(mode: &Option<RoutingDeterminismMode>) -> Option<String> {
+    mode.as_ref().map(|m| m.as_str().to_string())
+}
 
 /// Stack operations trait for KV backend
 ///
@@ -365,6 +376,7 @@ impl StackKvOps for StackKvRepository {
             .workflow_type
             .as_ref()
             .and_then(|wt| WorkflowType::from_str(wt));
+        let routing_determinism_mode = parse_routing_mode(&req.routing_determinism_mode);
 
         let stack = AdapterStackKv {
             id: id.clone(),
@@ -375,6 +387,8 @@ impl StackKvOps for StackKvRepository {
             lifecycle_state: LifecycleState::Active,
             adapter_ids: req.adapter_ids.clone(),
             workflow_type,
+            determinism_mode: req.determinism_mode.clone(),
+            routing_determinism_mode,
             created_by: None,
             created_at: now,
             updated_at: now,
@@ -459,6 +473,8 @@ impl StackKvOps for StackKvRepository {
             .workflow_type
             .as_ref()
             .and_then(|wt| WorkflowType::from_str(wt));
+        let routing_determinism_mode = parse_routing_mode(&req.routing_determinism_mode)
+            .or(old_stack.routing_determinism_mode.clone());
 
         let updated_stack = AdapterStackKv {
             id: id.to_string(),
@@ -469,6 +485,11 @@ impl StackKvOps for StackKvRepository {
             lifecycle_state: old_stack.lifecycle_state,
             adapter_ids: req.adapter_ids.clone(),
             workflow_type,
+            determinism_mode: req
+                .determinism_mode
+                .clone()
+                .or(old_stack.determinism_mode.clone()),
+            routing_determinism_mode,
             created_by: old_stack.created_by.clone(),
             created_at: old_stack.created_at,
             updated_at: Utc::now(),
@@ -759,6 +780,8 @@ pub fn stack_record_to_kv(record: &StackRecord) -> Result<AdapterStackKv> {
         .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
         .unwrap_or_else(Utc::now);
 
+    let routing_determinism_mode = parse_routing_mode(&record.routing_determinism_mode);
+
     Ok(AdapterStackKv {
         id: record.id.clone(),
         tenant_id: record.tenant_id.clone(),
@@ -768,9 +791,11 @@ pub fn stack_record_to_kv(record: &StackRecord) -> Result<AdapterStackKv> {
         lifecycle_state,
         adapter_ids,
         workflow_type,
+        determinism_mode: record.determinism_mode.clone(),
         created_by: record.created_by.clone(),
         created_at,
         updated_at,
+        routing_determinism_mode,
     })
 }
 
@@ -786,6 +811,8 @@ pub fn kv_to_stack_record(kv: &AdapterStackKv) -> Result<StackRecord> {
 
     let version = kv.version.parse::<i64>().unwrap_or(1);
 
+    let routing_determinism_mode = routing_mode_to_string(&kv.routing_determinism_mode);
+
     Ok(StackRecord {
         id: kv.id.clone(),
         tenant_id: kv.tenant_id.clone(),
@@ -798,7 +825,8 @@ pub fn kv_to_stack_record(kv: &AdapterStackKv) -> Result<StackRecord> {
         updated_at,
         created_by: kv.created_by.clone(),
         version,
-        determinism_mode: None, // KV stacks don't support determinism_mode yet
+        determinism_mode: kv.determinism_mode.clone(),
+        routing_determinism_mode,
     })
 }
 
@@ -821,6 +849,7 @@ mod tests {
             created_by: Some("user-1".to_string()),
             version: 1,
             determinism_mode: None,
+            routing_determinism_mode: None,
         };
 
         let kv = stack_record_to_kv(&record).unwrap();
@@ -843,6 +872,8 @@ mod tests {
             adapter_ids: vec!["adapter-1".to_string(), "adapter-2".to_string()],
             workflow_type: Some(WorkflowType::Sequential),
             created_by: Some("user-1".to_string()),
+            determinism_mode: None,
+            routing_determinism_mode: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -886,6 +917,8 @@ mod tests {
                 adapter_ids: vec![],
                 workflow_type: None,
                 created_by: None,
+                determinism_mode: None,
+                routing_determinism_mode: None,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             },
@@ -899,6 +932,8 @@ mod tests {
                 adapter_ids: vec![],
                 workflow_type: None,
                 created_by: None,
+                determinism_mode: None,
+                routing_determinism_mode: None,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             },

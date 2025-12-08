@@ -14,6 +14,7 @@ default = []
 # Serialization (required for API boundaries)
 serde = { workspace = true }
 serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["sqlite"] }
 
 # Core types
 chrono = { workspace = true }

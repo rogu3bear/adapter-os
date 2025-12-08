@@ -164,8 +164,12 @@ fn test_inference_request_internal_with_pinned_adapters() {
         stack_id: None,
         stack_version: None,
         stack_determinism_mode: None,
+        stack_routing_determinism_mode: None,
+        domain_hint: None,
         effective_adapter_ids: None,
         determinism_mode: None,
+        routing_determinism_mode: None,
+        adapter_strength_overrides: None,
         seed_mode: None,
         request_seed: None,
         backend_profile: None,
@@ -207,6 +211,7 @@ fn test_inference_result_with_unavailable_pinned_adapters() {
         router_decisions: vec![],
         router_decision_chain: None,
         rag_evidence: None,
+        citations: vec![],
         latency_ms: 100,
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: Some(unavailable.clone()),
@@ -233,6 +238,7 @@ fn test_inference_result_without_unavailable_pinned_adapters() {
         router_decisions: vec![],
         router_decision_chain: None,
         rag_evidence: None,
+        citations: vec![],
         latency_ms: 100,
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: None,
@@ -266,6 +272,7 @@ fn test_inference_result_all_pins_unavailable_stack_only_fallback() {
         router_decisions: vec![],
         router_decision_chain: None,
         rag_evidence: None,
+        citations: vec![],
         latency_ms: 100,
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: Some(unavailable.clone()),
@@ -298,6 +305,7 @@ fn test_inference_result_partial_pins_unavailable() {
         router_decisions: vec![],
         router_decision_chain: None,
         rag_evidence: None,
+        citations: vec![],
         latency_ms: 100,
         request_id: "req-1".to_string(),
         unavailable_pinned_adapters: Some(unavailable.clone()),
@@ -624,6 +632,7 @@ fn test_inference_event_done_serializes_pinned_fields() {
         latency_ms: 1234,
         unavailable_pinned_adapters: Some(vec!["missing-1".to_string(), "missing-2".to_string()]),
         pinned_routing_fallback: Some("partial".to_string()),
+        citations: None,
     };
 
     let json = serde_json::to_string(&event).expect("Failed to serialize");
@@ -655,6 +664,7 @@ fn test_inference_event_done_skips_none_fields() {
         latency_ms: 500,
         unavailable_pinned_adapters: None,
         pinned_routing_fallback: None,
+        citations: None,
     };
 
     let json = serde_json::to_string(&event).expect("Failed to serialize");

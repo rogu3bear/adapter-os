@@ -5,11 +5,18 @@
 //! 2. Changed sampling params produce updated evidence and different replay
 //! 3. RAG degradation is reported with missing document details
 
-use adapteros_db::{CreateReplayMetadataParams, Db};
+use adapteros_core::{B3Hash, SeedMode};
+use adapteros_db::{CreateReplayMetadataParams, Db, InferenceReplayMetadata};
+use adapteros_server_api::determinism_context::DeterminismContext;
+use adapteros_server_api::handlers::replay_inference::execute_replay;
 use adapteros_server_api::types::{
-    DivergenceDetails, ReplayKey, ReplayMatchStatus, ReplayStatus, SamplingParams,
-    MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
+    DivergenceDetails, ErrorResponse, ReplayKey, ReplayMatchStatus, ReplayRequest, ReplayStatus,
+    SamplingParams, MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
 };
+use axum::{extract::State, http::StatusCode, Extension, Json};
+
+mod common;
+use common::{setup_state, test_admin_claims};
 
 /// Helper to create test replay metadata
 async fn create_test_metadata(db: &Db, inference_id: &str, tenant_id: &str) -> String {
@@ -25,6 +32,7 @@ async fn create_test_metadata(db: &Db, inference_id: &str, tenant_id: &str) -> S
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: Some("rag-snapshot-hash-789".to_string()),
         adapter_ids: Some(vec!["adapter-1".to_string()]),
+        base_only: None,
         prompt_text: "Test prompt for deterministic replay".to_string(),
         prompt_truncated: false,
         response_text: Some("Test response for comparison".to_string()),
@@ -55,6 +63,224 @@ async fn setup_test_tenant(db: &Db) -> String {
     }
 }
 
+#[test]
+fn replay_request_seed_hex_round_trips() {
+    let manifest = B3Hash::hash(b"manifest");
+    let mut request = adapteros_server_api::types::InferenceRequestInternal::new(
+        "tenant-1".to_string(),
+        "p".to_string(),
+    );
+    request.request_id = "req-1".to_string();
+
+    let ctx_from_request = DeterminismContext::from_request(
+        &request,
+        Some(&manifest),
+        &B3Hash::hash(b"global"),
+        SeedMode::BestEffort,
+        7,
+    )
+    .expect("derive");
+
+    let sampling_params = SamplingParams {
+        request_seed_hex: Some(hex::encode(ctx_from_request.request_seed())),
+        ..Default::default()
+    };
+
+    let metadata = InferenceReplayMetadata {
+        id: "meta-rr".to_string(),
+        inference_id: request.request_id.clone(),
+        tenant_id: request.cpid.clone(),
+        manifest_hash: manifest.to_hex(),
+        base_model_id: None,
+        router_seed: None,
+        sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
+        backend: "Metal".to_string(),
+        backend_version: Some("v1.0.0".to_string()),
+        sampling_algorithm_version: "v1".to_string(),
+        rag_snapshot_hash: None,
+        adapter_ids_json: None,
+        base_only: None,
+        prompt_text: "p".to_string(),
+        prompt_truncated: 0,
+        response_text: None,
+        response_truncated: 0,
+        rag_doc_ids_json: None,
+        chat_context_hash: None,
+        replay_status: "available".to_string(),
+        latency_ms: None,
+        tokens_generated: None,
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: Some(false),
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
+        created_at: "now".to_string(),
+    };
+
+    let ctx_from_replay = DeterminismContext::from_replay_metadata(&metadata).expect("replay ctx");
+    assert_eq!(
+        ctx_from_request.request_seed(),
+        ctx_from_replay.request_seed(),
+        "Request seed must round-trip via replay metadata"
+    );
+}
+
+#[test]
+fn replay_seed_field_expands_for_compatibility() {
+    let manifest = B3Hash::hash(b"manifest");
+    let sampling_params = SamplingParams {
+        seed: Some(99),
+        ..Default::default()
+    };
+    let metadata = InferenceReplayMetadata {
+        id: "meta-seed".to_string(),
+        inference_id: "inf-seed".to_string(),
+        tenant_id: "tenant-1".to_string(),
+        manifest_hash: manifest.to_hex(),
+        base_model_id: None,
+        router_seed: None,
+        sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
+        backend: "Metal".to_string(),
+        backend_version: None,
+        sampling_algorithm_version: "v1".to_string(),
+        rag_snapshot_hash: None,
+        adapter_ids_json: None,
+        base_only: None,
+        prompt_text: "p".to_string(),
+        prompt_truncated: 0,
+        response_text: None,
+        response_truncated: 0,
+        rag_doc_ids_json: None,
+        chat_context_hash: None,
+        replay_status: "available".to_string(),
+        latency_ms: None,
+        tokens_generated: None,
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: Some(false),
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
+        created_at: "now".to_string(),
+    };
+
+    let ctx = DeterminismContext::from_replay_metadata(&metadata).expect("ctx");
+    assert_eq!(
+        ctx.request_seed_low64(),
+        99,
+        "u64 seed should map into low 64 bits when expanded"
+    );
+    assert_eq!(
+        ctx.source(),
+        &adapteros_server_api::determinism_context::DeterminismSource::SeedU64Expanded
+    );
+}
+
+#[test]
+fn replay_seedless_metadata_is_rejected() {
+    let manifest = B3Hash::hash(b"manifest");
+    let sampling_params = SamplingParams {
+        ..Default::default()
+    };
+    let metadata = InferenceReplayMetadata {
+        id: "meta-legacy".to_string(),
+        inference_id: "legacy-inference".to_string(),
+        tenant_id: "tenant-legacy".to_string(),
+        manifest_hash: manifest.to_hex(),
+        base_model_id: None,
+        router_seed: None,
+        sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
+        backend: "Metal".to_string(),
+        backend_version: None,
+        sampling_algorithm_version: "v1".to_string(),
+        rag_snapshot_hash: None,
+        adapter_ids_json: None,
+        base_only: None,
+        prompt_text: "p".to_string(),
+        prompt_truncated: 0,
+        response_text: None,
+        response_truncated: 0,
+        rag_doc_ids_json: None,
+        chat_context_hash: None,
+        replay_status: "available".to_string(),
+        latency_ms: None,
+        tokens_generated: None,
+        determinism_mode: Some("besteffort".to_string()),
+        fallback_triggered: Some(false),
+        replay_guarantee: Some("approximate".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
+        created_at: "now".to_string(),
+    };
+
+    let err = DeterminismContext::from_replay_metadata(&metadata)
+        .expect_err("seedless replay should be rejected");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("missing request_seed"),
+        "error should describe missing seeds; got {msg}"
+    );
+}
+
+#[tokio::test]
+async fn replay_handler_rejects_seedless_metadata() {
+    let state = setup_state(None).await.expect("state");
+    let claims = test_admin_claims();
+    let inference_id = "seedless-handler";
+
+    let sampling_params = SamplingParams::default();
+    let metadata_params = CreateReplayMetadataParams {
+        inference_id: inference_id.to_string(),
+        tenant_id: claims.tenant_id.clone(),
+        manifest_hash: "manifest-seedless".to_string(),
+        base_model_id: Some("base-model".to_string()),
+        router_seed: None,
+        sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
+        backend: "CoreML".to_string(),
+        backend_version: Some("v1.0.0".to_string()),
+        sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
+        rag_snapshot_hash: None,
+        adapter_ids: None,
+        base_only: None,
+        prompt_text: "prompt".to_string(),
+        prompt_truncated: false,
+        response_text: Some("response".to_string()),
+        response_truncated: false,
+        rag_doc_ids: None,
+        chat_context_hash: None,
+        replay_status: Some("available".to_string()),
+        latency_ms: None,
+        tokens_generated: None,
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: false,
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
+    };
+
+    state
+        .db
+        .create_replay_metadata(metadata_params)
+        .await
+        .expect("metadata should be created");
+
+    let request = ReplayRequest {
+        inference_id: Some(inference_id.to_string()),
+        replay_key: None,
+        prompt: None,
+        allow_approximate: true,
+        skip_rag: false,
+    };
+
+    let err = execute_replay(State(state.clone()), Extension(claims), Json(request))
+        .await
+        .expect_err("seedless replay should be rejected");
+
+    let (status, Json(body)): (StatusCode, Json<ErrorResponse>) = err;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body.code, "LEGACY_REPLAY_UNSUPPORTED");
+    assert!(body.error.contains("request_seed"));
+}
+
 // ============================================================================
 // Acceptance Test 1: Deterministic Replay Key Structure
 // ============================================================================
@@ -81,6 +307,7 @@ fn test_replay_key_includes_all_required_fields() {
         sampling_algorithm_version: "v1.0.0".to_string(),
         rag_snapshot_hash: Some("rag-hash-456".to_string()),
         adapter_ids: Some(vec!["adapter-1".to_string()]),
+        base_only: None,
     };
 
     // Verify all fields are accessible and serializable
@@ -374,6 +601,7 @@ async fn test_truncated_flags_stored_correctly() {
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: None,
         adapter_ids: None,
+        base_only: None,
         prompt_text: "truncated prompt".to_string(),
         prompt_truncated: true, // Flag set
         response_text: Some("truncated response".to_string()),
@@ -432,6 +660,7 @@ async fn test_rag_doc_ids_stored_and_retrieved() {
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: Some("rag-hash".to_string()),
         adapter_ids: None,
+        base_only: None,
         prompt_text: "prompt".to_string(),
         prompt_truncated: false,
         response_text: Some("response".to_string()),
@@ -460,6 +689,209 @@ async fn test_rag_doc_ids_stored_and_retrieved() {
     let stored_doc_ids: Vec<String> =
         serde_json::from_str(&metadata.rag_doc_ids_json.unwrap()).unwrap();
     assert_eq!(stored_doc_ids, rag_doc_ids);
+}
+
+#[tokio::test]
+async fn test_base_only_metadata_sets_flag_and_empty_adapters() {
+    use adapteros_server_api::handlers::replay_inference::compute_match_status;
+
+    let db = Db::new_in_memory().await.unwrap();
+    let tenant_id = setup_test_tenant(&db).await;
+    let inference_id = "base-only-inference-001";
+
+    let params = CreateReplayMetadataParams {
+        inference_id: inference_id.to_string(),
+        tenant_id: tenant_id.clone(),
+        manifest_hash: "manifest-base-only".to_string(),
+        base_model_id: None,
+        router_seed: None,
+        sampling_params_json: "{}".to_string(),
+        backend: "CoreML".to_string(),
+        backend_version: None,
+        sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
+        rag_snapshot_hash: None,
+        adapter_ids: Some(Vec::new()),
+        base_only: Some(true),
+        prompt_text: "prompt".to_string(),
+        prompt_truncated: false,
+        response_text: Some("response".to_string()),
+        response_truncated: false,
+        rag_doc_ids: None,
+        chat_context_hash: None,
+        replay_status: Some("available".to_string()),
+        latency_ms: Some(12),
+        tokens_generated: Some(3),
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: false,
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
+    };
+
+    db.create_replay_metadata(params).await.unwrap();
+
+    let metadata = db
+        .get_replay_metadata_by_inference(inference_id)
+        .await
+        .unwrap()
+        .expect("metadata should exist");
+
+    assert_eq!(metadata.base_only, Some(true));
+    assert_eq!(metadata.adapter_ids_json.as_deref(), Some("[]"));
+
+    let adapters: Vec<String> =
+        serde_json::from_str(metadata.adapter_ids_json.as_ref().unwrap()).unwrap();
+    assert!(
+        adapters.is_empty(),
+        "base-only metadata should store empty adapter list"
+    );
+
+    let match_status = compute_match_status(
+        metadata.response_text.as_deref().unwrap_or_default(),
+        metadata.response_text.as_deref().unwrap_or_default(),
+    );
+    assert_eq!(match_status, ReplayMatchStatus::Exact);
+}
+
+#[tokio::test]
+async fn test_legacy_metadata_without_base_only_remains_non_base() {
+    let db = Db::new_in_memory().await.unwrap();
+    let tenant_id = setup_test_tenant(&db).await;
+
+    let params = CreateReplayMetadataParams {
+        inference_id: "legacy-base-compat".to_string(),
+        tenant_id: tenant_id.clone(),
+        manifest_hash: "manifest-legacy".to_string(),
+        base_model_id: None,
+        router_seed: None,
+        sampling_params_json: "{}".to_string(),
+        backend: "Metal".to_string(),
+        backend_version: None,
+        sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
+        rag_snapshot_hash: None,
+        adapter_ids: Some(vec!["adapter-legacy".to_string()]),
+        base_only: None,
+        prompt_text: "prompt".to_string(),
+        prompt_truncated: false,
+        response_text: Some("response".to_string()),
+        response_truncated: false,
+        rag_doc_ids: None,
+        chat_context_hash: None,
+        replay_status: Some("available".to_string()),
+        latency_ms: Some(7),
+        tokens_generated: Some(2),
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: false,
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
+    };
+
+    db.create_replay_metadata(params).await.unwrap();
+
+    let metadata = db
+        .get_replay_metadata_by_inference("legacy-base-compat")
+        .await
+        .unwrap()
+        .expect("metadata should exist");
+
+    assert_eq!(metadata.base_only.unwrap_or(false), false);
+    let adapters: Vec<String> =
+        serde_json::from_str(metadata.adapter_ids_json.as_ref().unwrap()).unwrap();
+    assert_eq!(adapters, vec!["adapter-legacy"]);
+}
+
+#[tokio::test]
+async fn test_base_only_replay_enforces_empty_adapter_list() {
+    let db = Db::new_in_memory().await.unwrap();
+    let tenant_id = setup_test_tenant(&db).await;
+    let inference_id = "base-only-replay-guard";
+
+    let params = CreateReplayMetadataParams {
+        inference_id: inference_id.to_string(),
+        tenant_id: tenant_id.clone(),
+        manifest_hash: "manifest-base-only-guard".to_string(),
+        base_model_id: Some("base-model-guard".to_string()),
+        router_seed: Some("router-seed-guard".to_string()),
+        sampling_params_json: "{}".to_string(),
+        backend: "Metal".to_string(),
+        backend_version: None,
+        sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
+        rag_snapshot_hash: None,
+        adapter_ids: Some(Vec::new()),
+        base_only: Some(true),
+        prompt_text: "prompt".to_string(),
+        prompt_truncated: false,
+        response_text: Some("response".to_string()),
+        response_truncated: false,
+        rag_doc_ids: None,
+        chat_context_hash: None,
+        replay_status: Some("available".to_string()),
+        latency_ms: Some(5),
+        tokens_generated: Some(2),
+        determinism_mode: Some("strict".to_string()),
+        fallback_triggered: false,
+        replay_guarantee: Some("exact".to_string()),
+        execution_policy_id: None,
+        execution_policy_version: None,
+    };
+
+    db.create_replay_metadata(params).await.unwrap();
+
+    let metadata = db
+        .get_replay_metadata_by_inference(inference_id)
+        .await
+        .unwrap()
+        .expect("metadata should exist");
+
+    assert_eq!(metadata.base_only, Some(true));
+    let adapters: Vec<String> = serde_json::from_str(
+        metadata
+            .adapter_ids_json
+            .as_ref()
+            .unwrap_or(&"[]".to_string()),
+    )
+    .unwrap();
+    assert!(
+        adapters.is_empty(),
+        "base-only metadata should store an empty adapter list"
+    );
+
+    let replay_request_adapters = Some(vec!["adapter-not-allowed".to_string()]);
+    assert!(
+        replay_request_adapters
+            .as_ref()
+            .map(|ids| !ids.is_empty())
+            .unwrap_or(false),
+        "test precondition: replay request adapters should be non-empty"
+    );
+
+    let base_only = metadata.base_only.unwrap_or(false);
+    let rejection = base_only
+        && replay_request_adapters
+            .as_ref()
+            .map(|ids| !ids.is_empty())
+            .unwrap_or(false);
+    assert!(
+        rejection,
+        "base-only replay must reject adapter-backed replay attempts"
+    );
+
+    let enforced_adapter_ids = if base_only {
+        Some(Vec::new())
+    } else {
+        replay_request_adapters.clone()
+    };
+    assert_eq!(
+        enforced_adapter_ids.as_ref().map(|v| v.len()),
+        Some(0),
+        "base-only replays should force an empty adapter list"
+    );
+    assert_eq!(
+        metadata.replay_guarantee.as_deref(),
+        Some("exact"),
+        "base-only guard should preserve exact replay guarantee"
+    );
 }
 
 // ============================================================================
@@ -569,6 +1001,7 @@ async fn test_replay_with_golden_policy_enforcement() {
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: None,
         adapter_ids: Some(vec!["adapter-1".to_string(), "adapter-2".to_string()]),
+        base_only: None,
         prompt_text: "Test prompt for golden policy replay".to_string(),
         prompt_truncated: false,
         response_text: Some("Test response for comparison".to_string()),
@@ -730,6 +1163,7 @@ async fn test_replay_metadata_supports_drift_detection() {
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: None,
         adapter_ids: Some(vec!["adapter-a".to_string()]),
+        base_only: None,
         prompt_text: "Drift test prompt".to_string(),
         prompt_truncated: false,
         response_text: Some("Original response".to_string()),

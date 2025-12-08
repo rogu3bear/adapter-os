@@ -7,11 +7,12 @@
 #![allow(clippy::manual_strip)]
 #![allow(clippy::redundant_closure)]
 
+use adapteros_config::resolve_database_url;
 use adapteros_core::{AosError, Result};
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 // Query constants for SELECT column lists
 pub mod constants;
@@ -40,8 +41,9 @@ pub mod traits;
 // Re-export commonly used types
 pub use factory::{DbFactory, StorageBackend as DbStorageBackend};
 pub use traits::{
-    AdapterRecord, CreateStackRequest, DatabaseBackend, DatabaseBackendType, DatabaseConfig,
-    StackRecord,
+    AdapterRecord, AdapterStrengthOverride, CreatePackageRequest, CreateStackRequest,
+    DatabaseBackend, DatabaseBackendType, DatabaseConfig, PackageRecord, StackRecord,
+    UpdatePackageRequest,
 };
 
 // Re-export KV backend types
@@ -575,7 +577,13 @@ impl Db {
     pub async fn connect(path: &str) -> Result<Self> {
         use std::time::Duration;
 
-        let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path))?
+        let database_url = if path.starts_with("sqlite:") {
+            path.to_string()
+        } else {
+            format!("sqlite://{}", path)
+        };
+
+        let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
@@ -592,8 +600,13 @@ impl Db {
 
     /// Connect to SQLite database using DATABASE_URL environment variable
     pub async fn connect_env() -> Result<Self> {
-        let database_url =
-            std::env::var("DATABASE_URL").unwrap_or_else(|_| "./var/cp.db".to_string());
+        let resolved = resolve_database_url();
+        let database_url = resolved.path.to_string_lossy().to_string();
+        info!(
+            database_url = %database_url,
+            source = %resolved.source,
+            "Connecting to database from environment/default"
+        );
         Self::connect(&database_url).await
     }
 
@@ -637,9 +650,8 @@ impl Db {
         use tracing::info;
 
         // Read database URL from environment
-        let database_url = std::env::var("AOS_DATABASE_URL")
-            .or_else(|_| std::env::var("DATABASE_URL"))
-            .unwrap_or_else(|_| "./var/cp.db".to_string());
+        let resolved_db = resolve_database_url();
+        let database_url = resolved_db.path.to_string_lossy().to_string();
 
         // Read storage mode from environment
         let storage_mode_str = std::env::var("AOS_STORAGE_BACKEND")
@@ -650,6 +662,7 @@ impl Db {
 
         info!(
             database_url = %database_url,
+            database_source = %resolved_db.source,
             storage_mode = %requested_mode,
             "Initializing database from configuration"
         );
@@ -1224,7 +1237,7 @@ impl Db {
         };
         let rows = sqlx::query_as::<_, StackRecord>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -1259,7 +1272,7 @@ impl Db {
         };
         let row = sqlx::query_as::<_, StackRecord>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode
             FROM adapter_stacks
             WHERE tenant_id = ? AND id = ?
             "#,
@@ -1322,7 +1335,7 @@ impl Db {
                 let result = sqlx::query(
                     r#"
                     UPDATE adapter_stacks
-                    SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?, updated_at = datetime('now')
+                    SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?, determinism_mode = ?, routing_determinism_mode = ?, updated_at = datetime('now')
                     WHERE id = ?
                     "#,
                 )
@@ -1330,6 +1343,8 @@ impl Db {
                 .bind(&stack.description)
                 .bind(&adapter_ids_json)
                 .bind(&workflow_type_str)
+                .bind(&stack.determinism_mode)
+                .bind(&stack.routing_determinism_mode)
                 .bind(id)
                 .execute(pool)
                 .await
@@ -1352,6 +1367,343 @@ impl Db {
         }
 
         Ok(updated)
+    }
+
+    /// Create a new adapter package (SQL only)
+    pub async fn create_package(&self, req: &CreatePackageRequest) -> Result<String> {
+        if !self.storage_mode().write_to_sql() {
+            return Err(AosError::Database(
+                "SQL backend unavailable for create_package".to_string(),
+            ));
+        }
+
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL pool not configured for create_package".to_string())
+        })?;
+
+        let tags_json = req
+            .tags
+            .as_ref()
+            .map(|t| serde_json::to_string(t).map_err(AosError::Serialization))
+            .transpose()?;
+        let strengths_json = req
+            .adapter_strengths
+            .as_ref()
+            .map(|s| serde_json::to_string(s).map_err(AosError::Serialization))
+            .transpose()?;
+
+        let id = uuid::Uuid::now_v7().to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO adapter_packages (
+                id, tenant_id, name, description, stack_id, tags_json, domain, scope_path,
+                adapter_strengths_json, determinism_mode, routing_determinism_mode, created_at, updated_at
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now')
+            )
+            "#,
+        )
+        .bind(&id)
+        .bind(&req.tenant_id)
+        .bind(&req.name)
+        .bind(&req.description)
+        .bind(&req.stack_id)
+        .bind(&tags_json)
+        .bind(&req.domain)
+        .bind(&req.scope_path)
+        .bind(&strengths_json)
+        .bind(&req.determinism_mode)
+        .bind(&req.routing_determinism_mode)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert package: {}", e)))?;
+
+        Ok(id)
+    }
+
+    /// List packages for a tenant
+    pub async fn list_packages_for_tenant(&self, tenant_id: &str) -> Result<Vec<PackageRecord>> {
+        let pool = match self.pool_opt() {
+            Some(p) => p,
+            None => return Ok(Vec::new()),
+        };
+
+        let rows = sqlx::query_as::<_, PackageRecord>(
+            r#"
+            SELECT id, tenant_id, name, description, stack_id, tags_json, domain, scope_path,
+                   adapter_strengths_json, determinism_mode, routing_determinism_mode, created_at, updated_at
+            FROM adapter_packages
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list packages: {}", e)))?;
+
+        Ok(rows)
+    }
+
+    /// Get a package by ID and tenant
+    pub async fn get_package(&self, tenant_id: &str, id: &str) -> Result<Option<PackageRecord>> {
+        let pool = match self.pool_opt() {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+
+        let row = sqlx::query_as::<_, PackageRecord>(
+            r#"
+            SELECT id, tenant_id, name, description, stack_id, tags_json, domain, scope_path,
+                   adapter_strengths_json, determinism_mode, routing_determinism_mode, created_at, updated_at
+            FROM adapter_packages
+            WHERE tenant_id = ? AND id = ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch package: {}", e)))?;
+
+        Ok(row)
+    }
+
+    /// Update an existing package
+    pub async fn update_package(&self, id: &str, req: &UpdatePackageRequest) -> Result<bool> {
+        if !self.storage_mode().write_to_sql() {
+            return Err(AosError::Database(
+                "SQL backend unavailable for update_package".to_string(),
+            ));
+        }
+
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL pool not configured for update_package".to_string())
+        })?;
+
+        let tags_json = req
+            .tags
+            .as_ref()
+            .map(|t| serde_json::to_string(t).map_err(AosError::Serialization))
+            .transpose()?;
+        let strengths_json = req
+            .adapter_strengths
+            .as_ref()
+            .map(|s| serde_json::to_string(s).map_err(AosError::Serialization))
+            .transpose()?;
+
+        let result = sqlx::query(
+            r#"
+            UPDATE adapter_packages
+            SET name = ?,
+                description = ?,
+                stack_id = ?,
+                tags_json = ?,
+                domain = ?,
+                scope_path = ?,
+                adapter_strengths_json = ?,
+                determinism_mode = ?,
+                routing_determinism_mode = ?,
+                updated_at = datetime('now')
+            WHERE tenant_id = ? AND id = ?
+            "#,
+        )
+        .bind(&req.name)
+        .bind(&req.description)
+        .bind(&req.stack_id)
+        .bind(&tags_json)
+        .bind(&req.domain)
+        .bind(&req.scope_path)
+        .bind(&strengths_json)
+        .bind(&req.determinism_mode)
+        .bind(&req.routing_determinism_mode)
+        .bind(&req.tenant_id)
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update package: {}", e)))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Delete a package
+    pub async fn delete_package(&self, tenant_id: &str, id: &str) -> Result<bool> {
+        if !self.storage_mode().write_to_sql() {
+            return Err(AosError::Database(
+                "SQL backend unavailable for delete_package".to_string(),
+            ));
+        }
+
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL pool not configured for delete_package".to_string())
+        })?;
+
+        let result = sqlx::query(
+            r#"
+            DELETE FROM adapter_packages
+            WHERE tenant_id = ? AND id = ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to delete package: {}", e)))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Check if a package is installed for a tenant
+    pub async fn package_install_timestamp(
+        &self,
+        tenant_id: &str,
+        package_id: &str,
+    ) -> Result<Option<String>> {
+        let pool = match self.pool_opt() {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+
+        let installed_at = sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT installed_at
+            FROM tenant_package_installs
+            WHERE tenant_id = ? AND package_id = ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(package_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to read package install state: {}", e)))?;
+
+        Ok(installed_at)
+    }
+
+    /// Install (enable) a package for a tenant
+    pub async fn install_package_for_tenant(
+        &self,
+        tenant_id: &str,
+        package_id: &str,
+    ) -> Result<()> {
+        if !self.storage_mode().write_to_sql() {
+            return Err(AosError::Database(
+                "SQL backend unavailable for install_package_for_tenant".to_string(),
+            ));
+        }
+
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database("SQL pool not configured for install_package_for_tenant".to_string())
+        })?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO tenant_package_installs (tenant_id, package_id)
+            VALUES (?, ?)
+            ON CONFLICT(tenant_id, package_id) DO NOTHING
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(package_id)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to install package: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Uninstall (disable) a package for a tenant
+    pub async fn uninstall_package_for_tenant(
+        &self,
+        tenant_id: &str,
+        package_id: &str,
+    ) -> Result<()> {
+        if !self.storage_mode().write_to_sql() {
+            return Err(AosError::Database(
+                "SQL backend unavailable for uninstall_package_for_tenant".to_string(),
+            ));
+        }
+
+        let pool = self.pool_opt().ok_or_else(|| {
+            AosError::Database(
+                "SQL pool not configured for uninstall_package_for_tenant".to_string(),
+            )
+        })?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM tenant_package_installs
+            WHERE tenant_id = ? AND package_id = ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(package_id)
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to uninstall package: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// List packages for a tenant with install status (installed_at when enabled)
+    pub async fn list_packages_with_install_status(
+        &self,
+        tenant_id: &str,
+        domain: Option<&str>,
+    ) -> Result<Vec<(PackageRecord, Option<String>)>> {
+        let mut packages = self.list_packages_for_tenant(tenant_id).await?;
+        if let Some(domain_filter) = domain {
+            packages.retain(|p| p.domain.as_deref() == Some(domain_filter));
+        }
+
+        let mut results = Vec::with_capacity(packages.len());
+        for pkg in packages {
+            let installed_at = self.package_install_timestamp(tenant_id, &pkg.id).await?;
+            results.push((pkg, installed_at));
+        }
+
+        Ok(results)
+    }
+
+    /// List installed packages for a tenant filtered by domain (if provided)
+    pub async fn list_installed_packages_for_domain(
+        &self,
+        tenant_id: &str,
+        domain: Option<&str>,
+    ) -> Result<Vec<PackageRecord>> {
+        let pool = match self.pool_opt() {
+            Some(p) => p,
+            None => return Ok(Vec::new()),
+        };
+
+        let mut query = String::from(
+            r#"
+            SELECT p.id, p.tenant_id, p.name, p.description, p.stack_id, p.tags_json,
+                   p.domain, p.scope_path, p.adapter_strengths_json, p.determinism_mode,
+                   p.routing_determinism_mode, p.created_at, p.updated_at
+            FROM tenant_package_installs tpi
+            INNER JOIN adapter_packages p ON p.id = tpi.package_id
+            WHERE tpi.tenant_id = ?
+            "#,
+        );
+
+        if domain.is_some() {
+            query.push_str(" AND p.domain = ?");
+        }
+
+        query.push_str(" ORDER BY p.created_at DESC");
+
+        let mut stmt = sqlx::query_as::<_, PackageRecord>(&query).bind(tenant_id);
+        if let Some(domain_filter) = domain {
+            stmt = stmt.bind(domain_filter);
+        }
+
+        let packages = stmt
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list installed packages: {}", e)))?;
+
+        Ok(packages)
     }
 
     /// Activate a stack by setting lifecycle_state to 'active' (SQL + KV)
@@ -1696,8 +2048,8 @@ impl Db {
             if let Some(pool) = self.pool_opt() {
                 sqlx::query(
                     r#"
-                    INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'))
+                    INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, determinism_mode, routing_determinism_mode)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'), ?, ?)
                     "#,
                 )
                 .bind(&id)
@@ -1706,6 +2058,8 @@ impl Db {
                 .bind(description)
                 .bind(&adapter_ids_json)
                 .bind(workflow_type)
+                .bind(&req.determinism_mode)
+                .bind(&req.routing_determinism_mode)
                 .execute(pool)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to insert stack: {}", e)))?;

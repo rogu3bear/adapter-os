@@ -507,6 +507,9 @@ impl From<AosError> for ApiError {
             | AosError::DatabaseError { .. }
             | AosError::Routing(_)
             | AosError::Federation(_)
+            | AosError::SegmentHashMismatch { .. }
+            | AosError::MissingSegment { .. }
+            | AosError::MissingCanonicalSegment
             | AosError::CacheCorruption { .. }
             | AosError::Other(_) => {
                 error!("Internal error: {}", err);

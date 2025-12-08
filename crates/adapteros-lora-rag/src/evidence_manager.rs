@@ -7,7 +7,7 @@ use crate::{
     chunking::CodeChunker,
     fts_index::{DocIndexImpl, IndexedDoc, IndexedTest, SymbolIndexImpl, TestIndexImpl},
     retrieval::{EvidenceSpan, EvidenceType},
-    DocMetadata, TenantIndex,
+    DocMetadata, IndexNamespaceId, TenantIndex,
 };
 use adapteros_codegraph::types::{Language, SymbolNode};
 use adapteros_core::{B3Hash, Result};
@@ -89,7 +89,7 @@ pub trait EmbeddingModel: Send + Sync {
 /// Evidence index manager
 pub struct EvidenceIndexManager {
     #[allow(dead_code)]
-    tenant_id: String,
+    tenant_id: IndexNamespaceId,
     symbol_index: Arc<RwLock<SymbolIndexImpl>>,
     test_index: Arc<RwLock<TestIndexImpl>>,
     doc_index: Arc<RwLock<DocIndexImpl>>,
@@ -102,7 +102,7 @@ impl EvidenceIndexManager {
     /// Create a new evidence index manager for a tenant
     pub async fn new(
         indices_root: PathBuf,
-        tenant_id: String,
+        tenant_id: IndexNamespaceId,
         embedding_model: Option<Arc<dyn EmbeddingModel>>,
     ) -> Result<Self> {
         let tenant_path = indices_root.join(&tenant_id);

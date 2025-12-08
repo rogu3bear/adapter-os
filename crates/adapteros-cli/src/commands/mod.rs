@@ -59,6 +59,7 @@ pub mod registry;
 // pub mod registry_migrate;  // Consolidated into registry.rs
 // pub mod sync_registry;     // Consolidated into registry.rs
 pub mod replay;
+pub mod replay_bundle;
 pub mod report;
 pub mod rollback;
 pub mod router;

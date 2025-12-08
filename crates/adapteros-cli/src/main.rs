@@ -313,11 +313,11 @@ Examples:
   # Import Qwen2.5-7B model
   aosctl import-model \\
     --name qwen2.5-7b \\
-    --weights var/model-cache/models/qwen2.5-7b-instruct-bf16/weights.safetensors \\
-    --config var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json \\
-    --tokenizer var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json \\
-    --tokenizer-cfg var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer_config.json \\
-    --license var/model-cache/models/qwen2.5-7b-instruct-bf16/LICENSE
+    --weights ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/weights.safetensors \\
+    --config ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/config.json \\
+    --tokenizer ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/tokenizer.json \\
+    --tokenizer-cfg ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/tokenizer_config.json \\
+    --license ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/LICENSE
 ")]
     ModelImport {
         /// Model name
@@ -550,7 +550,7 @@ Examples:
   aosctl audit-determinism --format json
 
   # Audit MLX backend (requires --features multi-backend)
-  aosctl audit-determinism --backend mlx --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16
+  aosctl audit-determinism --backend mlx --model-path ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}
 ")]
     AuditDeterminism {
         #[command(flatten)]

@@ -507,6 +507,7 @@ mod tests {
             sampling_algorithm_version: Some("v1.0.0".to_string()),
             rag_snapshot_hash: None,
             adapter_ids: Some(vec!["adapter1".to_string()]),
+            base_only: None,
             prompt_text: "prompt".to_string(),
             prompt_truncated: false,
             response_text: Some("response".to_string()),

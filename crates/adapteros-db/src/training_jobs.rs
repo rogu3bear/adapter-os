@@ -318,6 +318,36 @@ impl Db {
         Ok(job)
     }
 
+    /// Get a training job by adapter ID (tenant-scoped)
+    pub async fn get_training_job_by_adapter(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+    ) -> Result<Option<TrainingJobRecord>> {
+        if !self.storage_mode().read_from_sql() {
+            return Ok(None);
+        }
+
+        let job = sqlx::query_as::<_, TrainingJobRecord>(
+            "SELECT id, repo_id, training_config_json, status, progress_json,
+                    started_at, completed_at, created_by, adapter_name, template_id,
+                    created_at, metadata_json, config_hash_b3,
+                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    retryable, retry_of_job_id, stack_id, adapter_id
+             FROM repository_training_jobs
+             WHERE adapter_id = ? AND tenant_id = ?
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(adapter_id)
+        .bind(tenant_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok(job)
+    }
+
     /// Update training job progress
     ///
     /// Evidence: migrations/0013_git_repository_integration.sql:25-40

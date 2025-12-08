@@ -360,7 +360,8 @@ impl RuntimeConfig {
 
     /// Get model backend preference
     pub fn model_backend(&self) -> &str {
-        self.get_string("AOS_MODEL_BACKEND").unwrap_or("auto")
+        // Schema default is "mlx" (canonical)
+        self.get_string("AOS_MODEL_BACKEND").unwrap_or("mlx")
     }
 
     /// Get database URL

@@ -6,6 +6,8 @@ pub mod boot_state;
 pub mod cab_workflow;
 pub mod caching;
 pub mod chat_context;
+pub mod chat_session_config;
+pub mod citations;
 pub mod compression;
 pub mod config;
 pub mod determinism_context;

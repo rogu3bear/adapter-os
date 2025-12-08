@@ -19,6 +19,7 @@ pub struct AdapterKv {
     pub hash_b3: String,
     pub rank: i32,
     pub alpha: f64,
+    pub lora_strength: Option<f32>,
     pub targets_json: String,
     pub acl_json: Option<String>,
     pub adapter_id: Option<String>,
@@ -52,6 +53,10 @@ pub struct AdapterKv {
     // .aos file support (from migration 0045)
     pub aos_file_path: Option<String>,
     pub aos_file_hash: Option<String>,
+
+    // Arbitrary adapter metadata for search/filtering
+    #[serde(default)]
+    pub metadata_json: Option<String>,
 
     // Semantic naming (from migration 0061)
     pub adapter_name: Option<String>,

@@ -247,8 +247,8 @@ async fn test_progressive_training_loss_improvement() {
     let mut losses = Vec::new();
 
     let result = trainer
-        .train_with_callback(&examples, |_epoch, loss| {
-            losses.push(loss);
+        .train_with_callback(&examples, |metrics| {
+            losses.push(metrics.loss);
         })
         .await;
 
@@ -304,4 +304,44 @@ fn test_training_seed_determinism() {
         trainer2.training_seed(),
         "Trainers with same config should have deterministic seeds"
     );
+}
+
+#[tokio::test]
+async fn test_tokens_and_throughput_metrics_tracked() {
+    let mut config = adapteros_lora_worker::training::TrainingConfig::default();
+    config.epochs = 2;
+    config.batch_size = 2;
+    let requested_epochs = config.epochs;
+    let mut trainer = adapteros_lora_worker::training::MicroLoRATrainer::new(config).unwrap();
+
+    let examples = create_examples(3);
+    let mut epoch_tokens = Vec::new();
+
+    let result = trainer
+        .train_with_callback(&examples, |metrics| {
+            epoch_tokens.push(metrics.tokens_in_epoch);
+        })
+        .await
+        .expect("training should succeed");
+
+    let tokens_per_epoch: u64 = examples
+        .iter()
+        .map(|ex| (ex.input.len() + ex.target.len()) as u64)
+        .sum();
+    let completed_epochs = result
+        .stopped_at_epoch
+        .unwrap_or(requested_epochs as u32) as u64;
+    let expected_tokens = tokens_per_epoch * completed_epochs;
+
+    assert_eq!(
+        result.tokens_processed.unwrap(),
+        expected_tokens,
+        "total tokens processed should accumulate across epochs"
+    );
+    assert_eq!(epoch_tokens.len(), completed_epochs as usize);
+
+    let perf = trainer.get_performance_metrics();
+    assert_eq!(perf.total_tokens_processed, expected_tokens);
+    assert!(result.tokens_per_sec >= 0.0);
+    assert!(result.examples_per_sec >= 0.0);
 }

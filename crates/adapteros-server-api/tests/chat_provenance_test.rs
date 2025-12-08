@@ -156,6 +156,7 @@ async fn create_test_stack_with_adapters(
         adapter_ids,
         workflow_type: Some("inference".to_string()),
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
 
     let stack_id = db.insert_stack(&req).await?;
@@ -550,6 +551,7 @@ async fn test_provenance_handler_happy_path() {
         adapter_ids: vec![adapter_id.to_string()],
         workflow_type: None,
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
     let stack_id = match state.db.insert_stack(&req).await {
         Ok(id) => id,

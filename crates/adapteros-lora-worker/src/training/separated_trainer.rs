@@ -5,6 +5,7 @@
 
 use super::dataset::TrainingExample;
 use super::trainer::{LoRAWeights, TrainingConfig};
+use adapteros_config::resolve_telemetry_dir;
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use adapteros_single_file_adapter::{
     format::{AdapterWeights, CombinationStrategy, WeightGroup, WeightGroupType, WeightMetadata},
@@ -79,9 +80,14 @@ impl SeparatedLoRATrainer {
         ]);
 
         // Initialize telemetry writer with default settings
-        let telemetry_dir =
-            std::env::var("AOS_TELEMETRY_DIR").unwrap_or_else(|_| "./var/telemetry".to_string());
-        let _telemetry = TelemetryWriter::new(&telemetry_dir, 10_000, 10 * 1024 * 1024)?;
+        let telemetry_dir = resolve_telemetry_dir();
+        let _ = std::fs::create_dir_all(&telemetry_dir.path);
+        let _telemetry = TelemetryWriter::new(&telemetry_dir.path, 10_000, 10 * 1024 * 1024)?;
+        info!(
+            path = %telemetry_dir.path.display(),
+            source = %telemetry_dir.source,
+            "Initialized telemetry writer for separated trainer"
+        );
 
         Ok(Self {
             config,

@@ -89,6 +89,8 @@ pub struct TrainingConfig {
     pub docs_path: Option<String>,
     #[serde(default)]
     pub register_after_train: bool,
+    #[serde(default)]
+    pub adapter_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -99,6 +101,10 @@ pub struct ChatConfig {
     pub determinism_mode: Option<String>,
     #[serde(default)]
     pub backend_profile: Option<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub expected_text: Option<String>,
     #[serde(default)]
     pub probe_prompt: Option<String>,
     #[serde(default)]

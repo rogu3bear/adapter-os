@@ -55,6 +55,7 @@ fn test_router_ordering_and_q15_gates_are_stable() {
             framework: None,
             languages: vec![0],
             tier: "persistent".to_string(),
+            ..Default::default()
         })
         .collect();
 
@@ -143,6 +144,7 @@ async fn test_replay_metadata_round_trip() {
         sampling_algorithm_version: Some("v1.0.0-test".to_string()),
         rag_snapshot_hash: Some("rag-snapshot-xyz".to_string()),
         adapter_ids: Some(adapter_ids.clone()),
+        base_only: None,
         prompt_text: "prompt determinism".to_string(),
         prompt_truncated: false,
         response_text: Some("response determinism".to_string()),

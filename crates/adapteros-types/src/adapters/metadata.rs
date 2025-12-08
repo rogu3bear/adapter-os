@@ -1,6 +1,47 @@
 //! Core adapter metadata types
 
+use crate::training::LoraTier;
 use serde::{Deserialize, Serialize};
+use std::{fmt, str::FromStr};
+
+/// Routing determinism mode (UI toggle)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "TEXT", rename_all = "snake_case")]
+pub enum RoutingDeterminismMode {
+    /// Deterministic routing with stable tie-breaking
+    Deterministic,
+    /// Adaptive routing that allows relaxed tie-breaking
+    Adaptive,
+}
+
+impl RoutingDeterminismMode {
+    /// Return the canonical string value for this mode.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Deterministic => "deterministic",
+            Self::Adaptive => "adaptive",
+        }
+    }
+}
+
+impl fmt::Display for RoutingDeterminismMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for RoutingDeterminismMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "deterministic" => Ok(Self::Deterministic),
+            "adaptive" => Ok(Self::Adaptive),
+            other => Err(format!("invalid routing_determinism_mode: {}", other)),
+        }
+    }
+}
 
 /// Core adapter metadata (canonical representation)
 ///
@@ -43,6 +84,42 @@ pub struct AdapterMetadata {
     /// Last update timestamp (ISO 8601)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+
+    /// Logical domain for routing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+
+    /// Logical group (purpose) for routing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+
+    /// Logical scope (legacy)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+
+    /// Adapter strength multiplier [0.0, 1.0]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lora_strength: Option<f32>,
+
+    /// Operation identifier inside the scope
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation: Option<String>,
+
+    /// Derived scope path: domain/group/scope/operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_path: Option<String>,
+
+    /// LoRA tier (micro/standard/max)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lora_tier: Option<LoraTier>,
+
+    /// Backend tag for selected segment
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_tag: Option<String>,
+
+    /// Segment identifier from .aos index
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segment_id: Option<u32>,
 }
 
 impl AdapterMetadata {
@@ -65,6 +142,15 @@ impl AdapterMetadata {
             version: None,
             created_at: None,
             updated_at: None,
+            domain: None,
+            group: None,
+            scope: None,
+            lora_strength: None,
+            operation: None,
+            scope_path: None,
+            lora_tier: None,
+            backend_tag: None,
+            segment_id: None,
         }
     }
 

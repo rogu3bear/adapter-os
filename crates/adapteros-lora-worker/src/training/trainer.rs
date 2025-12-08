@@ -9,6 +9,7 @@ pub use super::dataset::TrainingExample;
 use adapteros_core::{derive_seed, AosError, Result};
 use adapteros_db::{Db, TrainingMetricRow};
 use adapteros_lora_kernel_api::FusedKernels;
+use adapteros_lora_router::ROUTER_GATE_Q15_MAX;
 use adapteros_telemetry::TelemetryWriter;
 use chrono::Utc;
 use parking_lot::RwLock;
@@ -39,6 +40,24 @@ pub struct TrainingPerformanceMetrics {
     pub total_batches: u64,
     /// Throughput (examples per second)
     pub throughput_examples_per_sec: f32,
+    /// Total tokens processed (input + target)
+    pub total_tokens_processed: u64,
+    /// Total examples processed
+    pub total_examples_processed: u64,
+}
+
+/// Per-epoch training metrics passed to callbacks and UI
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EpochMetrics {
+    pub epoch: u32,
+    pub loss: f32,
+    pub duration_us: u64,
+    pub examples_in_epoch: u64,
+    pub tokens_in_epoch: u64,
+    pub tokens_per_sec: f32,
+    pub examples_per_sec: f32,
+    pub total_tokens_processed: u64,
+    pub total_examples_processed: u64,
 }
 
 /// GPU backend choice for training acceleration
@@ -72,6 +91,16 @@ impl TrainingBackend {
             TrainingBackend::Cpu => "CPU",
         }
     }
+
+    /// Canonical short tag for manifest/metadata
+    pub fn tag(&self) -> &'static str {
+        match self {
+            TrainingBackend::CoreML => "coreml",
+            TrainingBackend::Mlx => "mlx",
+            TrainingBackend::Metal => "metal",
+            TrainingBackend::Cpu => "cpu",
+        }
+    }
 }
 
 /// Micro-LoRA trainer with multi-backend GPU support.
@@ -83,12 +112,18 @@ pub struct MicroLoRATrainer {
     kernels: Option<crate::backend_factory::KernelBox>,
     /// Selected backend for this training session
     selected_backend: Option<TrainingBackend>,
+    /// Selected device description (Metal/MLX/ANE)
+    backend_device: Option<String>,
     /// Telemetry writer for training events
     telemetry: TelemetryWriter,
     /// Training seed for deterministic RNG
     training_seed: u64,
     /// Performance metrics for GPU utilization tracking
     performance_metrics: Arc<RwLock<TrainingPerformanceMetrics>>,
+    /// Cumulative token counter for the current run
+    total_tokens_processed: u64,
+    /// Cumulative example counter for the current run
+    total_examples_processed: u64,
     /// Optional checkpoint manager for saving/resuming training
     checkpoint_manager: Option<CheckpointManager>,
     /// Cancellation token - set to true to request training stop
@@ -189,6 +224,19 @@ impl TrainingConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BackendAvailability {
+    coreml: bool,
+    mlx: bool,
+    metal: bool,
+}
+
+impl BackendAvailability {
+    fn any_gpu(&self) -> bool {
+        self.coreml || self.mlx || self.metal
+    }
+}
+
 /// Training result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingResult {
@@ -207,6 +255,24 @@ pub struct TrainingResult {
     /// Total examples processed before stopping
     #[serde(default)]
     pub examples_processed: Option<u64>,
+    /// Total tokens processed before stopping
+    #[serde(default)]
+    pub tokens_processed: Option<u64>,
+    /// Average tokens per second across the run
+    #[serde(default)]
+    pub tokens_per_sec: f32,
+    /// Average examples per second across the run
+    #[serde(default)]
+    pub examples_per_sec: f32,
+    /// Backend name used for training (if any)
+    #[serde(default)]
+    pub backend: Option<String>,
+    /// Device string for the backend (if any)
+    #[serde(default)]
+    pub backend_device: Option<String>,
+    /// Whether GPU acceleration was used
+    #[serde(default)]
+    pub using_gpu: bool,
 }
 
 impl TrainingResult {
@@ -254,6 +320,7 @@ impl MicroLoRATrainer {
             config,
             kernels: None,
             selected_backend: None,
+            backend_device: None,
             telemetry,
             training_seed,
             performance_metrics: Arc::new(RwLock::new(TrainingPerformanceMetrics {
@@ -265,7 +332,11 @@ impl MicroLoRATrainer {
                 peak_gpu_memory_mb: 0.0,
                 total_batches: 0,
                 throughput_examples_per_sec: 0.0,
+                total_tokens_processed: 0,
+                total_examples_processed: 0,
             })),
+            total_tokens_processed: 0,
+            total_examples_processed: 0,
             checkpoint_manager: None,
             cancel_token: None,
             job_id: None,
@@ -273,52 +344,132 @@ impl MicroLoRATrainer {
         })
     }
 
+    /// Detect backend availability using runtime capability detection
+    fn detect_backend_availability() -> BackendAvailability {
+        #[cfg(any(test, debug_assertions))]
+        if let Some(forced) = Self::forced_backend_override() {
+            return forced;
+        }
+
+        let caps = crate::backend_factory::detect_capabilities();
+        BackendAvailability {
+            coreml: caps.has_coreml && caps.has_ane,
+            mlx: caps.has_mlx,
+            metal: caps.has_metal,
+        }
+    }
+
+    /// Allow tests/dev builds to force backend availability via env
+    #[cfg(any(test, debug_assertions))]
+    fn forced_backend_override() -> Option<BackendAvailability> {
+        if let Ok(value) = std::env::var("AOS_FORCE_GPU_BACKEND") {
+            let val = value.to_ascii_lowercase();
+            let forced = match val.as_str() {
+                "coreml" | "ane" => BackendAvailability {
+                    coreml: true,
+                    mlx: false,
+                    metal: false,
+                },
+                "mlx" => BackendAvailability {
+                    coreml: false,
+                    mlx: true,
+                    metal: false,
+                },
+                "metal" => BackendAvailability {
+                    coreml: false,
+                    mlx: false,
+                    metal: true,
+                },
+                "all" => BackendAvailability {
+                    coreml: true,
+                    mlx: true,
+                    metal: true,
+                },
+                "none" | "cpu" => BackendAvailability {
+                    coreml: false,
+                    mlx: false,
+                    metal: false,
+                },
+                _ => return None,
+            };
+
+            tracing::info!(
+                forced = %val,
+                "Forcing backend availability via AOS_FORCE_GPU_BACKEND (test/dev only)"
+            );
+            return Some(forced);
+        }
+
+        None
+    }
+
     /// Detect available GPU backends and select optimal one
-    fn detect_available_backends() -> Vec<(TrainingBackend, &'static str)> {
+    #[allow(dead_code)]
+    fn detect_available_backends() -> Vec<(TrainingBackend, String)> {
+        let availability = Self::detect_backend_availability();
         let mut backends = Vec::new();
 
-        // Check backend availability in priority order
-        // Priority: CoreML (ANE) -> Metal -> MLX -> CPU
-        #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-        {
-            backends.push((TrainingBackend::CoreML, "CoreML with ANE available"));
+        if availability.coreml {
+            backends.push((
+                TrainingBackend::CoreML,
+                "CoreML with ANE available".to_string(),
+            ));
         }
 
-        #[cfg(target_os = "macos")]
-        {
-            backends.push((TrainingBackend::Metal, "Metal GPU available"));
+        if availability.mlx {
+            backends.push((TrainingBackend::Mlx, "MLX backend available".to_string()));
         }
 
-        #[cfg(feature = "multi-backend")]
-        {
-            backends.push((TrainingBackend::Mlx, "MLX backend available"));
+        if availability.metal {
+            backends.push((TrainingBackend::Metal, "Metal GPU available".to_string()));
         }
 
-        backends.push((TrainingBackend::Cpu, "CPU-only training"));
+        backends.push((TrainingBackend::Cpu, "CPU-only training".to_string()));
 
         backends
     }
 
     /// Get a description of available backends
     pub fn describe_available_backends() -> String {
-        let backends = Self::detect_available_backends();
+        let availability = Self::detect_backend_availability();
         let mut desc = String::from("Available training backends:\n");
-        for (backend, reason) in backends {
-            desc.push_str(&format!("  - {}: {}\n", backend.name(), reason));
-        }
+
+        desc.push_str(&format!(
+            "  - CoreML (ANE): {}\n",
+            if availability.coreml {
+                "available"
+            } else {
+                "unavailable (missing ANE or feature)"
+            }
+        ));
+        desc.push_str(&format!(
+            "  - MLX: {}\n",
+            if availability.mlx {
+                "available"
+            } else {
+                "unavailable (feature/runtime)"
+            }
+        ));
+        desc.push_str(&format!(
+            "  - Metal: {}\n",
+            if availability.metal {
+                "available"
+            } else {
+                "unavailable (no macOS Metal device)"
+            }
+        ));
+        desc.push_str("  - CPU: always available\n");
+
         desc
     }
 
     /// Validate GPU requirements and provide actionable error messages
-    fn validate_gpu_requirements(&self) -> Result<()> {
+    fn validate_gpu_requirements(&self, availability: &BackendAvailability) -> Result<()> {
         if !self.config.require_gpu {
             return Ok(());
         }
 
-        let available = Self::detect_available_backends();
-        let has_gpu = available.iter().any(|(b, _)| b.requires_gpu());
-
-        if !has_gpu {
+        if !availability.any_gpu() {
             let available_desc = Self::describe_available_backends();
             error!(
                 "GPU acceleration required but no GPU backends available\n{}",
@@ -330,125 +481,212 @@ impl MicroLoRATrainer {
             )));
         }
 
+        if self.config.preferred_backend == Some(TrainingBackend::Cpu) {
+            return Err(AosError::Config(
+                "GPU acceleration required but preferred backend is CPU".to_string(),
+            ));
+        }
+
         Ok(())
     }
 
-    /// Select optimal GPU backend based on availability and preference
-    fn select_optimal_backend(&self) -> (TrainingBackend, &'static str) {
-        // If user specified preferred backend, try to use it
+    /// Determine if a backend is available given detected capabilities
+    fn backend_is_available(backend: TrainingBackend, availability: &BackendAvailability) -> bool {
+        match backend {
+            TrainingBackend::CoreML => availability.coreml,
+            TrainingBackend::Mlx => availability.mlx,
+            TrainingBackend::Metal => availability.metal,
+            TrainingBackend::Cpu => true,
+        }
+    }
+
+    /// Build the candidate backend list according to policy and availability
+    fn build_backend_candidates(
+        &self,
+        availability: &BackendAvailability,
+    ) -> Result<Vec<TrainingBackend>> {
+        let mut candidates: Vec<TrainingBackend> = Vec::new();
+
+        // Handle preferred backend first
         if let Some(preferred) = self.config.preferred_backend {
-            if preferred.requires_gpu() {
-                return (preferred, "user-specified backend");
+            if Self::backend_is_available(preferred, availability) {
+                candidates.push(preferred);
+            } else {
+                warn!(
+                    "Preferred backend {} unavailable, applying policy fallback",
+                    preferred.name()
+                );
             }
         }
 
-        // Auto-select best available GPU backend
-        let available = Self::detect_available_backends();
-        for (backend, reason) in available {
-            if backend.requires_gpu() {
-                return (backend, reason);
+        // ADR priority: CoreML (ANE) -> MLX -> Metal
+        for backend in [
+            TrainingBackend::CoreML,
+            TrainingBackend::Mlx,
+            TrainingBackend::Metal,
+        ] {
+            if Self::backend_is_available(backend, availability) && !candidates.contains(&backend) {
+                candidates.push(backend);
             }
         }
 
-        // Fallback to CPU
-        (TrainingBackend::Cpu, "no GPU available, using CPU")
+        // CPU only if GPU is optional
+        if !self.config.require_gpu {
+            candidates.push(TrainingBackend::Cpu);
+        }
+
+        if self.config.require_gpu && candidates.is_empty() {
+            let available_desc = Self::describe_available_backends();
+            return Err(AosError::Config(format!(
+                "GPU required but no backends available. {}",
+                available_desc
+            )));
+        }
+
+        if candidates.is_empty() {
+            candidates.push(TrainingBackend::Cpu);
+        }
+
+        Ok(candidates)
     }
 
     /// Initialize GPU kernels for training with automatic backend selection
     ///
-    /// This method attempts to initialize GPU acceleration for training using the
-    /// best available backend. It follows this priority:
-    /// 1. User-specified backend (if provided)
-    /// 2. CoreML with ANE (best power efficiency)
-    /// 3. Metal GPU (deterministic, production)
-    /// 4. MLX (research/training)
-    /// 5. CPU (fallback)
-    ///
-    /// # Arguments
-    /// * `plan_bytes` - Compiled model plan in backend-specific format
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - GPU is required (`config.require_gpu=true`) but no GPU backend is available
-    /// - Plan loading fails on the selected backend
-    /// - Memory constraints are violated
+    /// Selection policy (ADR-aligned):
+    /// 1. Preferred backend if available
+    /// 2. CoreML (ANE) → MLX → Metal
+    /// 3. CPU only when GPU is optional
     pub fn init_kernels(&mut self, plan_bytes: &[u8]) -> Result<()> {
+        let availability = Self::detect_backend_availability();
+
         // Validate GPU requirements first
-        self.validate_gpu_requirements()?;
+        self.validate_gpu_requirements(&availability)?;
 
-        // Select optimal backend
-        let (backend, reason) = self.select_optimal_backend();
-        self.selected_backend = Some(backend);
+        let candidates = self.build_backend_candidates(&availability)?;
+        let mut errors: Vec<String> = Vec::new();
 
-        info!(
-            "Initializing {} kernels for training: {}",
-            backend.name(),
-            reason
-        );
-
-        // Log backend selection
-        self.telemetry
-            .log(
-                "training.backend_selected",
-                serde_json::json!({
-                    "backend": backend.name(),
-                    "reason": reason,
-                    "plan_size": plan_bytes.len(),
-                    "seed": self.training_seed,
-                    "require_gpu": self.config.require_gpu
-                }),
-            )
-            .ok();
-
-        // Return early for CPU-only training (no kernel initialization needed)
-        if backend == TrainingBackend::Cpu {
-            info!("Training will run on CPU (GPU not available or not required)");
-            return Ok(());
-        }
-
-        // Attempt GPU backend initialization
-        match self.init_gpu_backend(backend, plan_bytes) {
-            Ok(()) => {
-                info!(
-                    "Successfully initialized {} backend for training",
-                    backend.name()
-                );
-                Ok(())
+        for backend in candidates {
+            // Return early for CPU-only training (no kernel initialization needed)
+            if backend == TrainingBackend::Cpu {
+                self.selected_backend = Some(TrainingBackend::Cpu);
+                self.backend_device = self.resolve_backend_device(TrainingBackend::Cpu);
+                self.kernels = None;
+                info!("Training will run on CPU (GPU not selected or unavailable)");
+                self.telemetry
+                    .log(
+                        "training.backend_selected",
+                        serde_json::json!({
+                            "backend": backend.name(),
+                            "reason": "cpu-fallback-or-preference",
+                            "plan_size": plan_bytes.len(),
+                            "seed": self.training_seed,
+                            "require_gpu": self.config.require_gpu,
+                            "backend_device": self.backend_device,
+                            "job_id": self.job_id,
+                        }),
+                    )
+                    .ok();
+                return Ok(());
             }
-            Err(e) => {
-                if self.config.require_gpu {
-                    // GPU was required but initialization failed
-                    error!(
-                        "Failed to initialize required GPU backend {}: {}",
-                        backend.name(),
-                        e
-                    );
-                    Err(e)
-                } else {
-                    // GPU was optional, fall back to CPU with warning
-                    warn!(
-                        "Failed to initialize {} backend: {}, falling back to CPU training",
-                        backend.name(),
-                        e
-                    );
-                    self.selected_backend = Some(TrainingBackend::Cpu);
-                    self.kernels = None;
 
-                    self.telemetry
-                        .log(
-                            "training.gpu_fallback",
-                            serde_json::json!({
-                                "original_backend": backend.name(),
-                                "reason": e.to_string(),
-                                "using_cpu": true
-                            }),
-                        )
-                        .ok();
+            let reason = if self.config.preferred_backend == Some(backend) {
+                "user-specified backend"
+            } else {
+                "policy-selected backend"
+            };
 
-                    Ok(())
+            info!(
+                "Initializing {} kernels for training: {}",
+                backend.name(),
+                reason
+            );
+
+            self.backend_device = self.resolve_backend_device(backend);
+
+            self.telemetry
+                .log(
+                    "training.backend_selected",
+                    serde_json::json!({
+                        "backend": backend.name(),
+                        "reason": reason,
+                        "plan_size": plan_bytes.len(),
+                        "seed": self.training_seed,
+                        "require_gpu": self.config.require_gpu,
+                        "backend_device": self.backend_device,
+                        "job_id": self.job_id,
+                    }),
+                )
+                .ok();
+
+            match self.init_gpu_backend(backend, plan_bytes) {
+                Ok(()) => {
+                    self.selected_backend = Some(backend);
+                    self.backend_device = self
+                        .backend_device
+                        .clone()
+                        .or_else(|| self.resolve_backend_device(backend));
+                    info!(
+                        "Successfully initialized {} backend for training",
+                        backend.name()
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    errors.push(format!("{}: {}", backend.name(), e));
+                    if self.config.require_gpu {
+                        warn!(
+                            "Failed to initialize required GPU backend {}: {}, trying next candidate if available",
+                            backend.name(),
+                            e
+                        );
+                        continue;
+                    } else {
+                        warn!(
+                            "Failed to initialize {} backend: {}, attempting fallback",
+                            backend.name(),
+                            e
+                        );
+                        self.telemetry
+                            .log(
+                                "training.gpu_fallback",
+                                serde_json::json!({
+                                    "original_backend": backend.name(),
+                                    "reason": e.to_string(),
+                                    "using_cpu": false,
+                                    "job_id": self.job_id,
+                                }),
+                            )
+                            .ok();
+                        continue;
+                    }
                 }
             }
         }
+
+        if self.config.require_gpu {
+            return Err(AosError::Config(format!(
+                "Failed to initialize GPU backend(s): {}",
+                errors.join("; ")
+            )));
+        }
+
+        // Optional GPU: final fallback to CPU
+        self.selected_backend = Some(TrainingBackend::Cpu);
+        self.backend_device = self.resolve_backend_device(TrainingBackend::Cpu);
+        self.kernels = None;
+        self.telemetry
+            .log(
+                "training.gpu_fallback",
+                serde_json::json!({
+                    "original_backend": "all GPU candidates",
+                    "reason": errors.join("; "),
+                    "using_cpu": true,
+                    "job_id": self.job_id,
+                }),
+            )
+            .ok();
+        info!("GPU optional and all candidates failed, using CPU training");
+        Ok(())
     }
 
     /// Initialize a specific GPU backend
@@ -486,9 +724,8 @@ impl MicroLoRATrainer {
 
             #[cfg(feature = "multi-backend")]
             TrainingBackend::Mlx => {
-                return Err(AosError::Config(
-                    "MLX backend requires explicit model path for training".to_string(),
-                ));
+                info!("Creating MLX backend for training (requires AOS_MODEL_PATH)");
+                BackendChoice::Mlx
             }
             #[cfg(not(feature = "multi-backend"))]
             TrainingBackend::Mlx => {
@@ -540,6 +777,37 @@ impl MicroLoRATrainer {
             .ok();
 
         Ok(())
+    }
+
+    /// Resolve a human-readable device name for telemetry/metrics
+    fn resolve_backend_device(&self, backend: TrainingBackend) -> Option<String> {
+        match backend {
+            TrainingBackend::Metal => {
+                let caps = crate::backend_factory::detect_capabilities();
+                caps.metal_device_name
+            }
+            TrainingBackend::CoreML => Some("Apple Neural Engine".to_string()),
+            TrainingBackend::Mlx => {
+                #[cfg(feature = "multi-backend")]
+                {
+                    adapteros_lora_mlx_ffi::mlx_get_backend_capabilities()
+                        .ok()
+                        .and_then(|c| {
+                            let name = c.device_name_str().to_string();
+                            if name.is_empty() {
+                                None
+                            } else {
+                                Some(name)
+                            }
+                        })
+                }
+                #[cfg(not(feature = "multi-backend"))]
+                {
+                    None
+                }
+            }
+            TrainingBackend::Cpu => Some("CPU".to_string()),
+        }
     }
 
     /// Get information about the selected training backend
@@ -608,6 +876,7 @@ impl MicroLoRATrainer {
         step: u64,
         loss: f32,
         examples_count: u64,
+        tokens_count: u64,
         epoch_duration_us: u64,
     ) {
         let (job_id, db) = match (&self.job_id, &self.db) {
@@ -617,8 +886,12 @@ impl MicroLoRATrainer {
 
         let timestamp = Utc::now().to_rfc3339();
         let tokens_per_sec = if epoch_duration_us > 0 {
-            // Rough estimate: examples * ~100 tokens per example / time
-            (examples_count as f64 * 100.0) / (epoch_duration_us as f64 / 1_000_000.0)
+            (tokens_count as f64) / (epoch_duration_us as f64 / 1_000_000.0)
+        } else {
+            0.0
+        };
+        let examples_per_sec = if epoch_duration_us > 0 {
+            (examples_count as f64) / (epoch_duration_us as f64 / 1_000_000.0)
         } else {
             0.0
         };
@@ -641,6 +914,24 @@ impl MicroLoRATrainer {
                 metric_name: "tokens_per_sec".to_string(),
                 metric_value: tokens_per_sec,
                 metric_timestamp: Some(timestamp),
+            },
+            TrainingMetricRow {
+                id: Uuid::now_v7().to_string(),
+                training_job_id: job_id.clone(),
+                step: step as i64,
+                epoch: Some(epoch as i64),
+                metric_name: "examples_per_sec".to_string(),
+                metric_value: examples_per_sec,
+                metric_timestamp: Some(Utc::now().to_rfc3339()),
+            },
+            TrainingMetricRow {
+                id: Uuid::now_v7().to_string(),
+                training_job_id: job_id.clone(),
+                step: step as i64,
+                epoch: Some(epoch as i64),
+                metric_name: "tokens_processed".to_string(),
+                metric_value: tokens_count as f64,
+                metric_timestamp: Some(Utc::now().to_rfc3339()),
             },
         ];
 
@@ -726,7 +1017,7 @@ impl MicroLoRATrainer {
     /// For more control, use `train_with_callback` instead.
     pub async fn train(&mut self, examples: &[TrainingExample]) -> Result<TrainingResult> {
         // Backward-compatible behavior: no external progress callback
-        self.train_with_callback(examples, |_epoch, _loss| {}).await
+        self.train_with_callback(examples, |_| {}).await
     }
 
     /// Train with automatic checkpoint resume
@@ -739,7 +1030,7 @@ impl MicroLoRATrainer {
         on_epoch: C,
     ) -> Result<TrainingResult>
     where
-        C: FnMut(usize, f32),
+        C: FnMut(EpochMetrics),
     {
         // Try to resume from checkpoint
         let resume_state = self.try_resume_from_checkpoint().await;
@@ -765,8 +1056,17 @@ impl MicroLoRATrainer {
         mut on_epoch: C,
     ) -> Result<TrainingResult>
     where
-        C: FnMut(usize, f32),
+        C: FnMut(EpochMetrics),
     {
+        if self.selected_backend.is_none() {
+            self.selected_backend = Some(TrainingBackend::Cpu);
+        }
+        if self.backend_device.is_none() {
+            if let Some(backend) = self.selected_backend {
+                self.backend_device = self.resolve_backend_device(backend);
+            }
+        }
+
         let backend_name = self.backend_info().unwrap_or("CPU");
 
         info!(
@@ -799,7 +1099,11 @@ impl MicroLoRATrainer {
         // Training loop starting from resume point with cancellation support
         let mut final_loss = 0.0;
         let mut completed_epochs: u32 = start_epoch as u32;
-        let mut examples_processed: u64 = 0;
+        let mut examples_processed: u64 = (start_epoch as u64) * examples.len() as u64;
+        let tokens_per_epoch = self.tokens_per_epoch(examples);
+        let mut tokens_processed: u64 = (start_epoch as u64) * tokens_per_epoch;
+        self.total_tokens_processed = tokens_processed;
+        self.total_examples_processed = examples_processed;
         let mut was_cancelled = false;
 
         for epoch in start_epoch..self.config.epochs {
@@ -835,6 +1139,9 @@ impl MicroLoRATrainer {
             final_loss = epoch_loss;
             completed_epochs = (epoch + 1) as u32;
             examples_processed += examples.len() as u64;
+            tokens_processed += tokens_per_epoch;
+            self.total_tokens_processed = tokens_processed;
+            self.total_examples_processed = examples_processed;
 
             info!("Epoch {} loss: {:.4}", epoch + 1, epoch_loss);
 
@@ -844,6 +1151,7 @@ impl MicroLoRATrainer {
                 examples_processed,
                 epoch_loss,
                 examples.len() as u64,
+                tokens_per_epoch,
                 epoch_duration_us,
             )
             .await;
@@ -853,11 +1161,43 @@ impl MicroLoRATrainer {
                 serde_json::json!({
                     "epoch": epoch + 1,
                     "loss": epoch_loss,
-                    "adapter_id": adapter_id
+                    "adapter_id": adapter_id,
+                    "tokens_in_epoch": tokens_per_epoch,
+                    "tokens_per_sec": if epoch_duration_us > 0 {
+                        (tokens_per_epoch as f32) / (epoch_duration_us as f32 / 1_000_000.0)
+                    } else {
+                        0.0
+                    },
+                    "examples_per_sec": if epoch_duration_us > 0 {
+                        (examples.len() as f32) / (epoch_duration_us as f32 / 1_000_000.0)
+                    } else {
+                        0.0
+                    },
+                    "total_tokens_processed": self.total_tokens_processed,
+                    "total_examples_processed": self.total_examples_processed,
                 }),
             )?;
 
-            on_epoch(epoch + 1, epoch_loss);
+            let epoch_metrics = EpochMetrics {
+                epoch: (epoch + 1) as u32,
+                loss: epoch_loss,
+                duration_us: epoch_duration_us,
+                examples_in_epoch: examples.len() as u64,
+                tokens_in_epoch: tokens_per_epoch,
+                tokens_per_sec: if epoch_duration_us > 0 {
+                    (tokens_per_epoch as f32) / (epoch_duration_us as f32 / 1_000_000.0)
+                } else {
+                    0.0
+                },
+                examples_per_sec: if epoch_duration_us > 0 {
+                    (examples.len() as f32) / (epoch_duration_us as f32 / 1_000_000.0)
+                } else {
+                    0.0
+                },
+                total_tokens_processed: self.total_tokens_processed,
+                total_examples_processed: self.total_examples_processed,
+            };
+            on_epoch(epoch_metrics);
 
             // Save checkpoint if configured
             if let Some(ref manager) = self.checkpoint_manager {
@@ -902,6 +1242,23 @@ impl MicroLoRATrainer {
         }
 
         let training_time_us = start.elapsed().as_micros() as u64;
+        let examples_per_second = if training_time_us > 0 {
+            (examples_processed as f32) / (training_time_us as f32 / 1_000_000.0)
+        } else {
+            0.0
+        };
+        let tokens_per_second = if training_time_us > 0 {
+            (tokens_processed as f32) / (training_time_us as f32 / 1_000_000.0)
+        } else {
+            0.0
+        };
+        {
+            let mut perf = self.performance_metrics.write();
+            perf.throughput_examples_per_sec = examples_per_second;
+            perf.total_tokens_processed = tokens_processed;
+            perf.total_examples_processed = examples_processed;
+        }
+        let backend_name = self.backend_info().unwrap_or("CPU").to_string();
 
         Ok(TrainingResult {
             adapter_id,
@@ -911,6 +1268,12 @@ impl MicroLoRATrainer {
             cancelled: was_cancelled,
             stopped_at_epoch: Some(completed_epochs),
             examples_processed: Some(examples_processed),
+            tokens_processed: Some(tokens_processed),
+            tokens_per_sec: tokens_per_second,
+            examples_per_sec: examples_per_second,
+            backend: Some(backend_name),
+            backend_device: self.backend_device.clone(),
+            using_gpu: self.using_gpu(),
         })
     }
 
@@ -929,8 +1292,17 @@ impl MicroLoRATrainer {
         mut on_epoch: C,
     ) -> Result<TrainingResult>
     where
-        C: FnMut(usize, f32),
+        C: FnMut(EpochMetrics),
     {
+        if self.selected_backend.is_none() {
+            self.selected_backend = Some(TrainingBackend::Cpu);
+        }
+        if self.backend_device.is_none() {
+            if let Some(backend) = self.selected_backend {
+                self.backend_device = self.resolve_backend_device(backend);
+            }
+        }
+
         let backend_name = self.backend_info().unwrap_or("CPU");
         let using_gpu = self.using_gpu();
 
@@ -973,6 +1345,10 @@ impl MicroLoRATrainer {
         let mut final_loss = 0.0;
         let mut completed_epochs: u32 = 0;
         let mut examples_processed: u64 = 0;
+        let tokens_per_epoch = self.tokens_per_epoch(examples);
+        let mut tokens_processed: u64 = 0;
+        self.total_tokens_processed = 0;
+        self.total_examples_processed = 0;
         let mut was_cancelled = false;
 
         for epoch in 0..self.config.epochs {
@@ -1008,6 +1384,9 @@ impl MicroLoRATrainer {
             final_loss = epoch_loss;
             completed_epochs = (epoch + 1) as u32;
             examples_processed += examples.len() as u64;
+            tokens_processed += tokens_per_epoch;
+            self.total_tokens_processed = tokens_processed;
+            self.total_examples_processed = examples_processed;
 
             info!("Epoch {} loss: {:.4}", epoch + 1, epoch_loss);
 
@@ -1017,6 +1396,7 @@ impl MicroLoRATrainer {
                 examples_processed,
                 epoch_loss,
                 examples.len() as u64,
+                tokens_per_epoch,
                 epoch_duration_us,
             )
             .await;
@@ -1027,12 +1407,44 @@ impl MicroLoRATrainer {
                 serde_json::json!({
                     "epoch": epoch + 1,
                     "loss": epoch_loss,
-                    "adapter_id": adapter_id
+                    "adapter_id": adapter_id,
+                    "tokens_in_epoch": tokens_per_epoch,
+                    "tokens_per_sec": if epoch_duration_us > 0 {
+                        (tokens_per_epoch as f32) / (epoch_duration_us as f32 / 1_000_000.0)
+                    } else {
+                        0.0
+                    },
+                    "examples_per_sec": if epoch_duration_us > 0 {
+                        (examples.len() as f32) / (epoch_duration_us as f32 / 1_000_000.0)
+                    } else {
+                        0.0
+                    },
+                    "total_tokens_processed": self.total_tokens_processed,
+                    "total_examples_processed": self.total_examples_processed,
                 }),
             )?;
 
             // Notify orchestrator/UI via callback
-            on_epoch(epoch + 1, epoch_loss);
+            let epoch_metrics = EpochMetrics {
+                epoch: (epoch + 1) as u32,
+                loss: epoch_loss,
+                duration_us: epoch_duration_us,
+                examples_in_epoch: examples.len() as u64,
+                tokens_in_epoch: tokens_per_epoch,
+                tokens_per_sec: if epoch_duration_us > 0 {
+                    (tokens_per_epoch as f32) / (epoch_duration_us as f32 / 1_000_000.0)
+                } else {
+                    0.0
+                },
+                examples_per_sec: if epoch_duration_us > 0 {
+                    (examples.len() as f32) / (epoch_duration_us as f32 / 1_000_000.0)
+                } else {
+                    0.0
+                },
+                total_tokens_processed: self.total_tokens_processed,
+                total_examples_processed: self.total_examples_processed,
+            };
+            on_epoch(epoch_metrics);
 
             // Save checkpoint if configured
             if let Some(ref manager) = self.checkpoint_manager {
@@ -1104,10 +1516,21 @@ impl MicroLoRATrainer {
 
         // Calculate throughput metrics
         let examples_per_second = if training_time_us > 0 {
-            (examples.len() as f32) / ((training_time_us as f32) / 1_000_000.0)
+            (examples_processed as f32) / ((training_time_us as f32) / 1_000_000.0)
         } else {
             0.0
         };
+        let tokens_per_second = if training_time_us > 0 {
+            (tokens_processed as f32) / ((training_time_us as f32) / 1_000_000.0)
+        } else {
+            0.0
+        };
+        {
+            let mut perf = self.performance_metrics.write();
+            perf.throughput_examples_per_sec = examples_per_second;
+            perf.total_tokens_processed = tokens_processed;
+            perf.total_examples_processed = examples_processed;
+        }
 
         let backend_name = self.backend_info().unwrap_or("CPU");
 
@@ -1137,13 +1560,16 @@ impl MicroLoRATrainer {
                 "training_time_ms": training_time_ms,
                 "seed": self.training_seed,
                 "backend": backend_name,
+                "backend_device": self.backend_device,
                 "using_gpu": using_gpu,
                 "cancelled": was_cancelled,
                 "stopped_at_epoch": completed_epochs,
                 "examples_processed": examples_processed,
                 "performance": {
                     "examples_per_second": examples_per_second,
-                    "total_examples": examples.len(),
+                    "tokens_per_second": tokens_per_second,
+                    "total_examples": examples_processed,
+                    "total_tokens": tokens_processed,
                     "total_epochs": self.config.epochs,
                     "rank": self.config.rank,
                     "hidden_dim": self.config.hidden_dim
@@ -1159,6 +1585,12 @@ impl MicroLoRATrainer {
             cancelled: was_cancelled,
             stopped_at_epoch: Some(completed_epochs),
             examples_processed: Some(examples_processed),
+            tokens_processed: Some(tokens_processed),
+            tokens_per_sec: tokens_per_second,
+            examples_per_sec: examples_per_second,
+            backend: Some(backend_name.to_string()),
+            backend_device: self.backend_device.clone(),
+            using_gpu,
         })
     }
 
@@ -1266,8 +1698,34 @@ impl MicroLoRATrainer {
     ) -> Result<f32> {
         // Check if GPU kernels are available
         if self.kernels.is_some() {
-            // GPU-accelerated training path
-            self.train_batch_gpu(weights, batch, rng)
+            // GPU-accelerated training path with fallback-on-failure when GPU optional
+            match self.train_batch_gpu(weights, batch, rng) {
+                Ok(loss) => Ok(loss),
+                Err(e) => {
+                    if self.config.require_gpu {
+                        return Err(e);
+                    }
+
+                    warn!(
+                        "GPU batch failed ({}), falling back to CPU for remaining training",
+                        e
+                    );
+                    self.telemetry
+                        .log(
+                            "training.gpu_fallback",
+                            serde_json::json!({
+                                "original_backend": self.backend_info().unwrap_or("unknown"),
+                                "reason": e.to_string(),
+                                "using_cpu": true,
+                                "phase": "mid-training"
+                            }),
+                        )
+                        .ok();
+                    self.kernels = None;
+                    self.selected_backend = Some(TrainingBackend::Cpu);
+                    self.train_batch_cpu(weights, batch, rng)
+                }
+            }
         } else {
             // CPU-only training path (fallback)
             self.train_batch_cpu(weights, batch, rng)
@@ -1288,11 +1746,12 @@ impl MicroLoRATrainer {
         let vocab_size = self.config.vocab_size;
 
         let mut gpu_time_us = 0u64;
+        let batch_tokens = self.tokens_in_batch(batch);
 
         for example in batch {
             // Prepare router ring for GPU kernel (using all available adapters)
             let mut ring = RouterRing::new(1); // K=1 for training (single adapter)
-            ring.set(&[0], &[32767]); // Max Q15 gate value for training
+            ring.set(&[0], &[ROUTER_GATE_Q15_MAX]); // Max Q15 gate value for training
 
             // Prepare IO buffers for GPU inference
             let mut io = IoBuffers::new(vocab_size);
@@ -1344,6 +1803,8 @@ impl MicroLoRATrainer {
             metrics.total_gpu_time_ms += gpu_time_us / 1000;
             metrics.total_cpu_time_ms += cpu_time_us / 1000;
             metrics.gpu_operations += batch.len() as u64;
+            metrics.total_examples_processed += batch.len() as u64;
+            metrics.total_tokens_processed += batch_tokens;
             metrics.total_batches += 1;
 
             // Running average of GPU utilization
@@ -1371,6 +1832,7 @@ impl MicroLoRATrainer {
     ) -> Result<f32> {
         let batch_start = Instant::now();
         let mut batch_loss = 0.0;
+        let batch_tokens = self.tokens_in_batch(batch);
 
         for example in batch {
             // CPU forward pass
@@ -1397,6 +1859,8 @@ impl MicroLoRATrainer {
             let mut metrics = self.performance_metrics.write();
             metrics.total_cpu_time_ms += cpu_time_ms;
             metrics.cpu_operations += batch.len() as u64;
+            metrics.total_examples_processed += batch.len() as u64;
+            metrics.total_tokens_processed += batch_tokens;
             metrics.total_batches += 1;
         }
 
@@ -1425,7 +1889,25 @@ impl MicroLoRATrainer {
             peak_gpu_memory_mb: 0.0,
             total_batches: 0,
             throughput_examples_per_sec: 0.0,
+            total_tokens_processed: 0,
+            total_examples_processed: 0,
         };
+    }
+
+    /// Tokens processed in a full epoch (input + target)
+    fn tokens_per_epoch(&self, examples: &[TrainingExample]) -> u64 {
+        examples
+            .iter()
+            .map(|ex| (ex.input.len() + ex.target.len()) as u64)
+            .sum()
+    }
+
+    /// Tokens processed within a single batch
+    fn tokens_in_batch(&self, batch: &[TrainingExample]) -> u64 {
+        batch
+            .iter()
+            .map(|ex| (ex.input.len() + ex.target.len()) as u64)
+            .sum()
     }
 
     /// Forward pass with LoRA injection
@@ -1668,6 +2150,56 @@ mod tests {
     fn test_training_config_with_max_gpu_memory() {
         let config = TrainingConfig::default().with_max_gpu_memory(2048);
         assert_eq!(config.max_gpu_memory_mb, 2048);
+    }
+
+    #[test]
+    fn test_backend_candidates_priority_order() {
+        let trainer = MicroLoRATrainer::new(TrainingConfig::default()).unwrap();
+        let availability = BackendAvailability {
+            coreml: true,
+            mlx: true,
+            metal: true,
+        };
+
+        let candidates = trainer.build_backend_candidates(&availability).unwrap();
+        assert_eq!(candidates[0], TrainingBackend::CoreML);
+        assert_eq!(candidates[1], TrainingBackend::Mlx);
+        assert_eq!(candidates[2], TrainingBackend::Metal);
+        assert_eq!(candidates.last(), Some(&TrainingBackend::Cpu));
+    }
+
+    #[test]
+    fn test_backend_candidates_preferred_fallback() {
+        let config = TrainingConfig {
+            preferred_backend: Some(TrainingBackend::Metal),
+            ..Default::default()
+        };
+        let trainer = MicroLoRATrainer::new(config).unwrap();
+        let availability = BackendAvailability {
+            coreml: false,
+            mlx: true,
+            metal: false,
+        };
+
+        let candidates = trainer.build_backend_candidates(&availability).unwrap();
+        assert_eq!(candidates[0], TrainingBackend::Mlx);
+        assert!(candidates.contains(&TrainingBackend::Cpu));
+    }
+
+    #[test]
+    fn test_backend_candidates_require_gpu_error_when_none() {
+        let config = TrainingConfig {
+            require_gpu: true,
+            ..Default::default()
+        };
+        let trainer = MicroLoRATrainer::new(config).unwrap();
+        let availability = BackendAvailability {
+            coreml: false,
+            mlx: false,
+            metal: false,
+        };
+
+        assert!(trainer.build_backend_candidates(&availability).is_err());
     }
 
     #[test]
@@ -1918,12 +2450,13 @@ mod tests {
         };
         let trainer = MicroLoRATrainer::new(config).unwrap();
 
-        let (selected, _reason) = trainer.select_optimal_backend();
-        // If user specifies Metal and it's available on macOS, it should be selected
-        #[cfg(target_os = "macos")]
-        {
-            assert_eq!(selected, TrainingBackend::Metal);
-        }
+        let availability = BackendAvailability {
+            coreml: false,
+            mlx: false,
+            metal: true,
+        };
+        let candidates = trainer.build_backend_candidates(&availability).unwrap();
+        assert_eq!(candidates[0], TrainingBackend::Metal);
     }
 
     // ========================================================================

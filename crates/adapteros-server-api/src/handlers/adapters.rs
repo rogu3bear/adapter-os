@@ -486,6 +486,7 @@ pub struct AdapterDetailResponse {
     pub hash_b3: String,
     pub rank: i32,
     pub alpha: f64,
+    pub lora_strength: Option<f32>,
     pub category: String,
     pub scope: String,
     pub framework: Option<String>,
@@ -503,6 +504,12 @@ pub struct AdapterDetailResponse {
     pub created_at: String,
     pub updated_at: String,
     pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct UpdateAdapterStrengthRequest {
+    /// Runtime LoRA strength multiplier (scales adapter effect)
+    pub lora_strength: f32,
 }
 
 impl From<Adapter> for AdapterDetailResponse {
@@ -533,6 +540,7 @@ impl From<Adapter> for AdapterDetailResponse {
             hash_b3: adapter.hash_b3,
             rank: adapter.rank,
             alpha: adapter.alpha,
+            lora_strength: adapter.lora_strength,
             category: adapter.category,
             scope: adapter.scope,
             framework: adapter.framework,
@@ -620,6 +628,105 @@ pub async fn get_adapter_detail(
     }
 
     Ok(Json(response))
+}
+
+/// Update runtime LoRA strength multiplier for an adapter
+#[utoipa::path(
+    patch,
+    path = "/v1/adapters/{adapter_id}/strength",
+    request_body = UpdateAdapterStrengthRequest,
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter strength updated", body = AdapterDetailResponse),
+        (status = 400, description = "Invalid strength value", body = ErrorResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
+pub async fn update_adapter_strength(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+    Json(req): Json<UpdateAdapterStrengthRequest>,
+) -> Result<Json<AdapterDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    if !(0.0..=2.0).contains(&req.lora_strength) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("lora_strength must be between 0.0 and 2.0")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            error!(adapter_id = %adapter_id, error = %e, "Failed to fetch adapter");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
+    state
+        .db
+        .update_adapter_strength(&adapter_id, req.lora_strength)
+        .await
+        .map_err(|e| {
+            error!(adapter_id = %adapter_id, error = %e, "Failed to update adapter strength");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update adapter strength")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let updated = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            error!(adapter_id = %adapter_id, error = %e, "Failed to reload adapter");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    Ok(Json(AdapterDetailResponse::from(updated)))
 }
 
 // ============================================================================
@@ -1933,6 +2040,9 @@ pub async fn import_adapter(
             framework: existing.framework,
             category: Some(existing.category),
             scope: Some(existing.scope),
+            lora_tier: None,
+            lora_strength: existing.lora_strength,
+            lora_scope: None,
             framework_id: existing.framework_id,
             framework_version: existing.framework_version,
             repo_id: existing.repo_id,
@@ -1979,57 +2089,22 @@ pub async fn import_adapter(
         ));
     }
 
-    // Check for AOS3 magic bytes
-    if &data[0..4] != b"AOS3" {
-        let _ = tokio::fs::remove_file(&temp_path).await;
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("invalid AOS file format: missing AOS3 magic bytes")
-                    .with_code("INVALID_FORMAT"),
-            ),
-        ));
-    }
-
-    // Parse AOS header (64 bytes)
-    let weights_offset = u64::from_le_bytes([
-        data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
-    ]) as usize;
-    let weights_size = u64::from_le_bytes([
-        data[16], data[17], data[18], data[19], data[20], data[21], data[22], data[23],
-    ]) as usize;
-    let manifest_offset = u64::from_le_bytes([
-        data[24], data[25], data[26], data[27], data[28], data[29], data[30], data[31],
-    ]) as usize;
-    let manifest_size = u64::from_le_bytes([
-        data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39],
-    ]) as usize;
-
-    // Validate offsets
-    if manifest_offset + manifest_size > data.len() {
-        let _ = tokio::fs::remove_file(&temp_path).await;
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("invalid AOS file: manifest offset out of bounds")
-                    .with_code("INVALID_FORMAT"),
-            ),
-        ));
-    }
-
-    if weights_offset + weights_size > data.len() {
-        let _ = tokio::fs::remove_file(&temp_path).await;
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("invalid AOS file: weights offset out of bounds")
-                    .with_code("INVALID_FORMAT"),
-            ),
-        ));
-    }
+    let file_view = match adapteros_aos::open_aos(&data) {
+        Ok(view) => view,
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!("invalid AOS file: {}", e))
+                        .with_code("INVALID_FORMAT"),
+                ),
+            ));
+        }
+    };
 
     // Extract and parse manifest JSON
-    let manifest_bytes = &data[manifest_offset..manifest_offset + manifest_size];
+    let manifest_bytes = file_view.manifest_bytes;
     let manifest_str = std::str::from_utf8(manifest_bytes).map_err(|_| {
         let _ = std::fs::remove_file(&temp_path);
         (
@@ -2054,6 +2129,61 @@ pub async fn import_adapter(
             ),
         )
     })?;
+
+    let metadata_obj = manifest.get("metadata").and_then(|m| m.as_object());
+    let scope_path = match metadata_obj
+        .and_then(|m| m.get("scope_path"))
+        .and_then(|v| v.as_str())
+    {
+        Some(path) => path,
+        None => {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("invalid AOS file: missing scope_path in metadata")
+                        .with_code("INVALID_FORMAT"),
+                ),
+            ));
+        }
+    };
+    let scope_hash = adapteros_aos::compute_scope_hash(scope_path);
+    let domain = metadata_obj
+        .and_then(|m| m.get("domain").and_then(|v| v.as_str()))
+        .unwrap_or("unspecified")
+        .to_string();
+    let group = metadata_obj
+        .and_then(|m| m.get("group").and_then(|v| v.as_str()))
+        .unwrap_or("unspecified")
+        .to_string();
+    let scope_value = manifest
+        .get("scope")
+        .and_then(|v| v.as_str())
+        .unwrap_or("project")
+        .to_string();
+    let _operation = metadata_obj
+        .and_then(|m| m.get("operation").and_then(|v| v.as_str()))
+        .map(|s| s.to_string());
+
+    let canonical_segment = match file_view
+        .segments
+        .iter()
+        .find(|seg| seg.scope_hash == scope_hash)
+        .or_else(|| file_view.segments.iter().next())
+    {
+        Some(seg) => seg,
+        None => {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("invalid AOS file: missing canonical segment")
+                        .with_code("INVALID_FORMAT"),
+                ),
+            ));
+        }
+    };
+    let weights_data = canonical_segment.payload;
 
     // === PRD-ART-01: ARTIFACT HARDENING VALIDATIONS ===
 
@@ -2133,7 +2263,7 @@ pub async fn import_adapter(
     }
 
     // D. Hash Integrity Cross-Check (weights hash from manifest vs computed)
-    let weights_data = &data[weights_offset..weights_offset + weights_size];
+    let weights_data = canonical_segment.payload;
     let computed_weights_hash = B3Hash::hash(weights_data).to_hex().to_string();
     if let Some(manifest_weights_hash) = manifest.get("weights_hash").and_then(|v| v.as_str()) {
         if manifest_weights_hash != computed_weights_hash {
@@ -2259,6 +2389,9 @@ pub async fn import_adapter(
         .hash_b3(&weights_hash)
         .rank(rank)
         .tier(tier)
+        .scope(&scope_value)
+        .domain(Some(domain))
+        .purpose(Some(group))
         .aos_file_path(Some(&file_path_str))
         .aos_file_hash(Some(&file_hash)) // Store whole-file hash separately from weights hash
         // PRD-ART-01: Artifact hardening fields
@@ -2363,6 +2496,9 @@ pub async fn import_adapter(
         framework: None,
         category: None,
         scope: None,
+        lora_tier: None,
+        lora_strength: Some(1.0),
+        lora_scope: None,
         framework_id: None,
         framework_version: None,
         repo_id: None,

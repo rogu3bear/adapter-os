@@ -29,6 +29,8 @@ use tokio::sync::mpsc::Sender as MpscSender;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time::{sleep, Duration};
 
+const SYSTEM_TENANT: &str = "system";
+
 #[derive(Debug, Clone)]
 pub struct Stack {
     pub generation: u64,
@@ -843,21 +845,21 @@ pub type HotSwapManagerNoKernel = HotSwapManager<()>;
 
 impl Default for HotSwapManagerNoKernel {
     fn default() -> Self {
-        Self::new()
+        Self::new(SYSTEM_TENANT)
     }
 }
 
 impl HotSwapManagerNoKernel {
     /// Create new hot-swap manager without kernel backend (metadata only)
     ///
-    /// For backward compatibility. Equivalent to new_metadata_only().
-    pub fn new() -> Self {
+    /// Requires explicit tenant id to keep adapter provenance clear.
+    pub fn new<T: Into<String>>(tenant_id: T) -> Self {
         let repo_root = RepoAdapterPaths::from_env_and_config(None).repo_root;
         Self {
             table: Arc::new(AdapterTable::new()),
             kernels: None,
             repo_root,
-            tenant_id: "default".to_string(),
+            tenant_id: tenant_id.into(),
         }
     }
 }
@@ -990,54 +992,20 @@ where
                         ))
                     })?;
 
-                    // Parse AOS2 format to extract SafeTensors payload
-                    // Format: [0-3] manifest_offset, [4-7] manifest_len, [offset] manifest, [weights_offset] safetensors
-                    if adapter_bytes.len() < 8 {
-                        return Err(AosError::Validation(
-                            "Invalid .aos file: too small".to_string(),
-                        ));
-                    }
-
-                    let manifest_offset = u32::from_le_bytes([
-                        adapter_bytes[0],
-                        adapter_bytes[1],
-                        adapter_bytes[2],
-                        adapter_bytes[3],
-                    ]) as usize;
-                    let manifest_len = u32::from_le_bytes([
-                        adapter_bytes[4],
-                        adapter_bytes[5],
-                        adapter_bytes[6],
-                        adapter_bytes[7],
-                    ]) as usize;
-
-                    if adapter_bytes.len() < manifest_offset + manifest_len {
-                        return Err(AosError::Validation(
-                            "Invalid .aos file: manifest out of bounds".to_string(),
-                        ));
-                    }
-
-                    let manifest_bytes =
-                        &adapter_bytes[manifest_offset..manifest_offset + manifest_len];
-                    let manifest: serde_json::Value = serde_json::from_slice(manifest_bytes)
-                        .map_err(|e| AosError::Parse(format!("Invalid AOS manifest: {}", e)))?;
-
-                    // Extract weights offset from manifest
-                    let weights_offset = manifest
-                        .get("weights_offset")
-                        .and_then(|v: &serde_json::Value| v.as_u64())
+                    let file_view = adapteros_aos::open_aos(&adapter_bytes)?;
+                    let _manifest: serde_json::Value =
+                        serde_json::from_slice(file_view.manifest_bytes)
+                            .map_err(|e| AosError::Parse(format!("Invalid AOS manifest: {}", e)))?;
+                    let canonical_segment = file_view
+                        .segments
+                        .iter()
+                        .find(|seg| seg.backend_tag == adapteros_aos::BackendTag::Canonical)
                         .ok_or_else(|| {
-                            AosError::Validation("Missing weights_offset in manifest".to_string())
-                        })? as usize;
-
-                    if adapter_bytes.len() < weights_offset {
-                        return Err(AosError::Validation(
-                            "Invalid .aos file: weights out of bounds".to_string(),
-                        ));
-                    }
+                            AosError::Validation("Missing canonical segment".to_string())
+                        })?;
 
                     // Extract SafeTensors payload
-                    let weights = &adapter_bytes[weights_offset..];
+                    let weights = canonical_segment.payload;
 
                     // Get adapter ID as u16 (deterministic BLAKE3 hash)
                     let adapter_id_u16 = adapter_id_to_u16(&adapter_id);
@@ -1393,6 +1361,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_preload_and_swap() {
@@ -1492,6 +1461,29 @@ mod tests {
             assert_eq!(rca.load(Ordering::Relaxed), 0);
         }
         // Note: background would unload, but in test we don't wait
+    }
+
+    #[test]
+    fn resolve_adapter_file_respects_tenant_directory() {
+        let tmp = tempdir().expect("tempdir should be created");
+        let repo_root = tmp.path();
+        let tenant = "tenant_a";
+        let adapter_id = "adapter_x";
+
+        // Correct tenant location
+        let tenant_dir = repo_root.join(tenant);
+        fs::create_dir_all(&tenant_dir).expect("tenant dir should exist");
+        let expected = tenant_dir.join(format!("{adapter_id}.aos"));
+        fs::write(&expected, b"ok").expect("should write expected adapter file");
+
+        // Another tenant with same adapter id should not be chosen
+        let other_dir = repo_root.join("other_tenant");
+        fs::create_dir_all(&other_dir).expect("other tenant dir should exist");
+        fs::write(other_dir.join(format!("{adapter_id}.aos")), b"wrong")
+            .expect("should write other adapter file");
+
+        let resolved = resolve_adapter_file(repo_root, tenant, adapter_id);
+        assert_eq!(resolved, expected);
     }
 
     #[cfg(feature = "loom")]

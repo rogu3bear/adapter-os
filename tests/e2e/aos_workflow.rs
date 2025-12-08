@@ -8,13 +8,19 @@ use std::process::Command;
 use tokio::time::{sleep, Duration};
 use anyhow::Result;
 use tempfile::TempDir;
+use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 
 #[tokio::test]
 async fn test_aos_complete_workflow() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let manifest_path = "training/datasets/base/code/adapteros/manifest.json";
     let tokenizer_path = std::env::var("AOS_TOKENIZER_PATH")
-        .unwrap_or_else(|_| "var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json".to_string());
+        .unwrap_or_else(|_| {
+            format!(
+                "{}/{}/tokenizer.json",
+                DEFAULT_MODEL_CACHE_ROOT, DEFAULT_BASE_MODEL_ID
+            )
+        });
     let output_dir = temp_dir.path().join("adapters");
     
     // 1. Train and package as .aos

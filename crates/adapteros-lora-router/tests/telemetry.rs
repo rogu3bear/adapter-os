@@ -21,6 +21,8 @@ fn test_router_emits_telemetry_on_decision() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
@@ -78,6 +80,7 @@ fn test_router_increments_step_counter() {
                 framework: None,
                 languages: vec![],
                 tier: "warm".to_string(),
+                ..Default::default()
             })
             .collect();
         router.route_with_adapter_info(&features, &priors, &adapter_info);
@@ -112,6 +115,8 @@ fn test_router_propagates_stack_hash() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     router.route_with_adapter_info(&features, &priors, &adapter_info);
@@ -146,6 +151,8 @@ fn test_router_without_telemetry_writer_works() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
@@ -170,6 +177,8 @@ fn test_telemetry_writer_bounded_channel_drops_on_overflow() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     router.route_with_adapter_info(&features, &priors, &adapter_info); // Event 0
@@ -179,6 +188,7 @@ fn test_telemetry_writer_bounded_channel_drops_on_overflow() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            ..Default::default()
         })
         .collect();
     router.route_with_adapter_info(&features, &priors, &adapter_info); // Event 1
@@ -190,6 +200,7 @@ fn test_telemetry_writer_bounded_channel_drops_on_overflow() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            ..Default::default()
         })
         .collect();
     router.route_with_adapter_info(&features, &priors, &adapter_info); // Event 2 (dropped)
@@ -199,6 +210,7 @@ fn test_telemetry_writer_bounded_channel_drops_on_overflow() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            ..Default::default()
         })
         .collect();
     router.route_with_adapter_info(&features, &priors, &adapter_info); // Event 3 (dropped)
@@ -234,6 +246,8 @@ fn test_entropy_values_match() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);

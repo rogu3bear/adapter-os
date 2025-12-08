@@ -763,6 +763,7 @@ mod tests {
             require_evidence: true,
             stack_id: Some("stack-42".to_string()),
             stack_version: Some(7),
+            domain_hint: Some("aerospace".to_string()),
             temperature: 0.7,
             top_k: Some(5),
             top_p: Some(0.9),
@@ -772,11 +773,17 @@ mod tests {
             request_seed: None,
             backend_profile: None,
             determinism_mode: Some("strict".to_string()),
+            routing_determinism_mode: Some(
+                adapteros_types::adapters::metadata::RoutingDeterminismMode::Deterministic,
+            ),
             pinned_adapter_ids: Some(vec!["adapter-a".to_string(), "adapter-b".to_string()]),
             strict_mode: Some(true),
             effective_adapter_ids: Some(vec!["eff-1".to_string(), "eff-2".to_string()]),
             routing_policy: None,
             placement: None,
+            adapter_strength_overrides: Some(
+                [("adapter-a".to_string(), 0.8_f32)].into_iter().collect(),
+            ),
         };
 
         let serialized =
@@ -799,6 +806,7 @@ mod tests {
         assert_eq!(request.request_seed, deserialized.request_seed);
         assert_eq!(request.backend_profile, deserialized.backend_profile);
         assert_eq!(request.determinism_mode, deserialized.determinism_mode);
+        assert_eq!(request.domain_hint, deserialized.domain_hint);
         assert_eq!(request.pinned_adapter_ids, deserialized.pinned_adapter_ids);
         assert_eq!(request.strict_mode, deserialized.strict_mode);
         assert_eq!(

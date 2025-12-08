@@ -65,7 +65,6 @@ pub struct IngestDocsArgs {
 
     /// Path to embedding model (sentence-transformer format)
     /// If not provided, falls back to simple feature-based embeddings
-    #[arg(long, env = "AOS_EMBEDDING_MODEL_PATH")]
     embedding_model: Option<PathBuf>,
 
     /// Tokenizer configuration
@@ -177,9 +176,21 @@ impl IngestDocsArgs {
 
         let tenant_id = self.tenant.as_ref().unwrap();
 
+        let embedding_resolution = adapteros_config::resolve_embedding_model_path_with_override(
+            self.embedding_model.as_deref(),
+        );
+        let embedding_model_path = embedding_resolution.path;
+        let tokenizer_path = embedding_model_path.join("tokenizer.json");
+        info!(
+            path = %embedding_model_path.display(),
+            tokenizer_path = %tokenizer_path.display(),
+            source = %embedding_resolution.source,
+            "Resolved embedding model path for RAG ingest"
+        );
+
         // Create embedding model - use ProductionEmbeddingModel which will try MLX first
         let embedding_model: Arc<dyn EmbeddingModel> = Arc::new(ProductionEmbeddingModel::load(
-            self.embedding_model.as_ref(),
+            Some(&embedding_model_path),
             tokenizer.clone(),
         ));
 

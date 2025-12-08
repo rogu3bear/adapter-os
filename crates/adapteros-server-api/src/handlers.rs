@@ -8,9 +8,11 @@ use crate::state::AppState;
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
-use adapteros_core::AosError;
+use adapteros_core::tenant_snapshot::TenantStateSnapshot;
+use adapteros_core::{AosError, B3Hash};
 use adapteros_lora_lifecycle::GpuIntegrityReport;
-use sqlx::Row;
+use adapteros_types::training::LoraTier;
+use sqlx::{Row, Sqlite, Transaction};
 // System metrics integration
 use adapteros_system_metrics;
 use adapteros_system_metrics::monitoring_types::{
@@ -21,6 +23,7 @@ use adapteros_system_metrics::monitoring_types::{
 use axum::response::Response;
 use chrono::Utc;
 use serde_json::json;
+use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -62,6 +65,7 @@ pub mod node_detail;
 pub mod notifications;
 pub mod owner_chat;
 pub mod owner_cli;
+pub mod packages;
 pub mod plugins;
 pub mod promotion;
 pub mod rag_common;
@@ -249,17 +253,17 @@ pub async fn upsert_directory_adapter(
             )
         })?;
         // Use centralized adapter path resolution (ENV > Config > Default)
-        use adapteros_core::paths::AdapterPaths;
-        // adapters_root is String, convert to Option<&str> for from_config
+        use adapteros_core::adapter_repo_paths::AdapterPaths;
+        // adapters_root is String, convert to Option<String> for from_env_and_config
         let config_value = if config.paths.adapters_root.is_empty() {
             None
         } else {
-            Some(config.paths.adapters_root.as_str())
+            Some(config.paths.adapters_root.clone())
         };
-        let adapters_paths = AdapterPaths::from_config(config_value);
+        let adapters_paths = AdapterPaths::from_env_and_config(config_value);
         (
             config.directory_analysis_timeout_secs,
-            adapters_paths.root().to_path_buf(),
+            adapters_paths.repo_root.clone(),
         )
     };
 
@@ -800,14 +804,6 @@ pub struct IndexHashesResponse {
     pub tenant_id: String,
     pub hashes: std::collections::HashMap<String, String>,
 }
-use adapteros_core::tenant_snapshot::TenantStateSnapshot;
-use adapteros_core::B3Hash;
-use serde_json::Value;
-use sqlx::Sqlite;
-use sqlx::Transaction; // assume sqlite
-
-// In the function, replace from line ~917
-
 #[utoipa::path(
     tag = "system",
     post,
@@ -5312,6 +5308,39 @@ pub async fn create_process_monitoring_report(
 }
 // ===== Adapter Management Endpoints =====
 
+fn lora_tier_from_provenance(provenance_json: &Option<String>) -> Option<LoraTier> {
+    provenance_json
+        .as_ref()
+        .and_then(|json| serde_json::from_str::<Value>(json).ok())
+        .and_then(|v| {
+            v.get("lora_tier")
+                .and_then(|t| t.as_str())
+                .map(str::to_string)
+        })
+        .and_then(|s| match s.as_str() {
+            "micro" => Some(LoraTier::Micro),
+            "standard" => Some(LoraTier::Standard),
+            "max" => Some(LoraTier::Max),
+            _ => None,
+        })
+}
+
+fn lora_scope_from_provenance(
+    provenance_json: &Option<String>,
+    fallback_scope: Option<String>,
+) -> Option<String> {
+    provenance_json
+        .as_ref()
+        .and_then(|json| serde_json::from_str::<Value>(json).ok())
+        .and_then(|v| {
+            v.get("lora_scope")
+                .or_else(|| v.get("scope"))
+                .and_then(|s| s.as_str())
+                .map(str::to_string)
+        })
+        .or(fallback_scope)
+}
+
 /// List all adapters
 #[utoipa::path(
     tag = "system",
@@ -5389,6 +5418,9 @@ pub async fn list_adapters(
             0.0
         };
 
+        let lora_tier = lora_tier_from_provenance(&adapter.provenance_json);
+        let lora_scope =
+            lora_scope_from_provenance(&adapter.provenance_json, Some(adapter.scope.clone()));
         let languages: Vec<String> = adapter
             .languages_json
             .as_ref()
@@ -5412,6 +5444,9 @@ pub async fn list_adapters(
             repo_id: adapter.repo_id.clone(),
             commit_sha: adapter.commit_sha.clone(),
             intent: adapter.intent.clone(),
+            lora_tier,
+            lora_strength: adapter.lora_strength,
+            lora_scope,
             created_at: adapter.created_at.clone(),
             updated_at: Some(adapter.updated_at.clone()),
             stats: Some(AdapterStats {
@@ -5486,6 +5521,10 @@ pub async fn get_adapter(
         0.0
     };
 
+    let lora_tier = lora_tier_from_provenance(&adapter.provenance_json);
+    let lora_scope =
+        lora_scope_from_provenance(&adapter.provenance_json, Some(adapter.scope.clone()));
+
     let languages: Vec<String> = adapter
         .languages_json
         .as_ref()
@@ -5512,6 +5551,9 @@ pub async fn get_adapter(
         repo_id: adapter.repo_id.clone(),
         commit_sha: adapter.commit_sha.clone(),
         intent: adapter.intent.clone(),
+        lora_tier,
+        lora_strength: adapter.lora_strength,
+        lora_scope,
         created_at: adapter.created_at.clone(),
         updated_at: Some(adapter.updated_at.clone()),
         stats: Some(AdapterStats {
@@ -5775,6 +5817,9 @@ pub async fn register_adapter(
             framework: req.framework,
             category: Some(req.category.clone()),
             scope: req.scope.clone(),
+            lora_tier: None,
+            lora_strength: Some(1.0),
+            lora_scope: req.scope.clone(),
             framework_id: None,
             framework_version: None,
             repo_id: None,
@@ -6110,6 +6155,10 @@ pub async fn load_adapter(
         0.0
     };
 
+    let lora_tier = lora_tier_from_provenance(&adapter.provenance_json);
+    let lora_scope =
+        lora_scope_from_provenance(&adapter.provenance_json, Some(adapter.scope.clone()));
+
     let adapter_id_val = adapter
         .adapter_id
         .clone()
@@ -6129,6 +6178,9 @@ pub async fn load_adapter(
         framework: adapter.framework,
         category: Some(adapter.category),
         scope: Some(adapter.scope),
+        lora_tier,
+        lora_strength: adapter.lora_strength,
+        lora_scope,
         framework_id: adapter.framework_id,
         framework_version: adapter.framework_version,
         repo_id: adapter.repo_id,
@@ -6626,6 +6678,7 @@ pub async fn download_adapter_manifest(
         hash_b3: adapter.hash_b3,
         rank: adapter.rank,
         tier: adapter.tier.clone(),
+        lora_strength: adapter.lora_strength,
         framework: adapter.framework,
         languages_json: adapter.languages_json,
         category: Some(adapter.category),
@@ -7230,6 +7283,7 @@ pub async fn debug_routing(
                 framework: adapter.framework.clone(),
                 languages,
                 tier: adapter.tier.clone(),
+                ..Default::default()
             }
         })
         .collect();
@@ -8622,6 +8676,8 @@ pub async fn create_training_session(
             Some(claims.role.clone()),      // initiated_by_role
             req.base_model_id,              // base_model_id
             req.collection_id,              // collection_id
+            req.scope.clone(),              // scope
+            req.lora_tier,                  // lora_tier
             // Category metadata
             req.category,
             req.description,
@@ -8741,6 +8797,9 @@ pub async fn get_training_metrics(
         current_epoch: job.current_epoch,
         total_epochs: job.total_epochs,
         progress_pct: job.progress_pct,
+        backend: job.backend.clone(),
+        backend_device: job.backend_device.clone(),
+        using_gpu: job.backend.as_ref().map(|b| b != "CPU"),
         examples_processed: job.examples_processed,
         tokens_processed: job.tokens_processed,
         training_time_ms: job.training_time_ms,
@@ -8938,7 +8997,10 @@ pub async fn get_training_artifacts(
                     .to_string(),
                 artifact_type: "package".to_string(),
                 size_bytes: 0, // TODO: populate size when available
-                hash_b3: job.package_hash_b3.clone().or_else(|| job.weights_hash_b3.clone()),
+                hash_b3: job
+                    .package_hash_b3
+                    .clone()
+                    .or_else(|| job.weights_hash_b3.clone()),
                 path: aos_path.clone(),
                 created_at: job.created_at.clone(),
             });

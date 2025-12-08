@@ -3,6 +3,7 @@
 //! Writes a JSON snapshot of AdapterOS state to `/var/run/adapteros_status.json`
 //! for consumption by the macOS menu bar app.
 
+use adapteros_config::resolve_status_path;
 use adapteros_server_api::AppState;
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -225,27 +226,38 @@ async fn check_deterministic_mode() -> Option<bool> {
 async fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
     let json = serde_json::to_string_pretty(status).context("Failed to serialize status")?;
 
+    let resolved_status = resolve_status_path();
+    let status_path = resolved_status.path.clone();
+    let temp_path = status_path.with_extension("json.tmp");
+
     // Ensure directory exists
-    let status_dir = Path::new("/var/run");
-    if !status_dir.exists() {
-        // Try to create, but don't fail if we can't (might not have perms)
-        if let Err(e) = tokio::fs::create_dir_all(status_dir).await {
-            warn!("Could not create /var/run: {}, trying local path", e);
-            // Fall back to local directory
-            return write_status_file_local(status).await;
+    if let Some(parent) = status_path.parent() {
+        if !parent.exists() {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                warn!(
+                    error = %e,
+                    path = %parent.display(),
+                    source = %resolved_status.source,
+                    "Could not create status directory, falling back to local path"
+                );
+                return write_status_file_local(status).await;
+            }
         }
     }
 
-    let status_path = "/var/run/adapteros_status.json";
-    let temp_path = "/var/run/adapteros_status.json.tmp";
+    tracing::info!(
+        path = %status_path.display(),
+        source = %resolved_status.source,
+        "Writing status file"
+    );
 
     // Write to temp file first
-    tokio::fs::write(temp_path, json)
+    tokio::fs::write(&temp_path, json)
         .await
         .context("Failed to write temp status file")?;
 
     // Atomic rename
-    tokio::fs::rename(temp_path, status_path)
+    tokio::fs::rename(&temp_path, &status_path)
         .await
         .context("Failed to rename status file")?;
 
@@ -253,12 +265,16 @@ async fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = tokio::fs::metadata(status_path).await?.permissions();
+        let mut perms = tokio::fs::metadata(&status_path).await?.permissions();
         perms.set_mode(0o644);
-        tokio::fs::set_permissions(status_path, perms).await?;
+        tokio::fs::set_permissions(&status_path, perms).await?;
     }
 
-    debug!("Status written to {}", status_path);
+    debug!(
+        path = %status_path.display(),
+        source = %resolved_status.source,
+        "Status written"
+    );
     Ok(())
 }
 
@@ -274,6 +290,11 @@ async fn write_status_file_local(status: &AdapterOSStatus) -> Result<()> {
 
     let status_path = "var/adapteros_status.json";
     let temp_path = "var/adapteros_status.json.tmp";
+
+    tracing::info!(
+        path = %status_path,
+        "Writing status file to local fallback path"
+    );
 
     tokio::fs::write(temp_path, json).await?;
     tokio::fs::rename(temp_path, status_path).await?;

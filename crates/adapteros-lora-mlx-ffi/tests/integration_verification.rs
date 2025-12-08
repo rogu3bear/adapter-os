@@ -1,6 +1,8 @@
+#![cfg(all(test, feature = "mlx"))]
 //! Integration verification tests for MLX FFI
 //!
-//! These tests verify that all major components work correctly together.
+//! These tests verify that all major components work correctly together and
+//! require real MLX (`--features mlx`).
 
 use adapteros_lora_mlx_ffi::{
     kv_cache::{KVCacheConfig, MLXKVCache},

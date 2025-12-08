@@ -94,6 +94,7 @@ impl QwenTokenizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 
     #[test]
     #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored"]
@@ -101,7 +102,10 @@ mod tests {
         let tokenizer_path = std::env::var("AOS_TOKENIZER_PATH")
             .or_else(|_| std::env::var("AOS_MODEL_PATH").map(|p| format!("{}/tokenizer.json", p)))
             .unwrap_or_else(|_| {
-                "var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json".to_string()
+                format!(
+                    "{}/{}/tokenizer.json",
+                    DEFAULT_MODEL_CACHE_ROOT, DEFAULT_BASE_MODEL_ID
+                )
             });
         let tokenizer = QwenTokenizer::from_file(&tokenizer_path)
             .expect("Test tokenizer loading should succeed");

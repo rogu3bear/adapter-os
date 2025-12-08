@@ -24,18 +24,21 @@ fn test_per_adapter_scores_differ() {
             framework: None,
             languages: vec![0], // Python (index 0)
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
         AdapterInfo {
             id: "rust-adapter".to_string(),
             framework: None,
             languages: vec![1], // Rust (index 1)
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
         AdapterInfo {
             id: "js-adapter".to_string(),
             framework: None,
             languages: vec![3], // JavaScript (index 3)
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
     ];
 
@@ -98,18 +101,21 @@ fn test_features_affect_ranking_with_varied_priors() {
             framework: None,
             languages: vec![0], // Python
             tier: "tier_2".to_string(),
+            ..Default::default()
         },
         AdapterInfo {
             id: "rust-medium-prior".to_string(),
             framework: Some("axum".to_string()),
             languages: vec![1], // Rust
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
         AdapterInfo {
             id: "js-high-prior".to_string(),
             framework: None,
             languages: vec![3], // JavaScript
             tier: "tier_0".to_string(),
+            ..Default::default()
         },
     ];
 
@@ -196,24 +202,28 @@ fn test_orthogonality_penalty_reduces_similar_selection() {
             framework: None,
             languages: vec![0],
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
         AdapterInfo {
             id: "adapter-1".to_string(),
             framework: None,
             languages: vec![0],
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
         AdapterInfo {
             id: "adapter-2".to_string(),
             framework: None,
             languages: vec![0],
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
         AdapterInfo {
             id: "adapter-3".to_string(),
             framework: None,
             languages: vec![0],
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
     ];
 
@@ -269,12 +279,14 @@ fn test_framework_matching_boosts_score() {
             framework: Some("django".to_string()),
             languages: vec![0], // Python
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
         AdapterInfo {
             id: "generic-python-adapter".to_string(),
             framework: None,
             languages: vec![0], // Python
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
     ];
 
@@ -322,18 +334,21 @@ fn test_tier_boosts() {
             framework: None,
             languages: vec![],
             tier: "tier_0".to_string(),
+            ..Default::default()
         },
         AdapterInfo {
             id: "tier-1-adapter".to_string(),
             framework: None,
             languages: vec![],
             tier: "tier_1".to_string(),
+            ..Default::default()
         },
         AdapterInfo {
             id: "tier-2-adapter".to_string(),
             framework: None,
             languages: vec![],
             tier: "tier_2".to_string(),
+            ..Default::default()
         },
     ];
 

@@ -52,6 +52,8 @@ pub struct GenerationConfig {
     pub eos_token: u32,
     /// Enable KV cache
     pub use_cache: bool,
+    /// Number of transformer layers for KV cache sizing (required when cache is enabled)
+    pub kv_num_layers: Option<usize>,
 }
 
 impl GenerationConfig {
@@ -71,6 +73,7 @@ impl Default for GenerationConfig {
             repetition_penalty: 1.0,
             eos_token: 151645, // Qwen2.5 <|im_end|>
             use_cache: true,
+            kv_num_layers: None,
         }
     }
 }
@@ -158,6 +161,7 @@ impl KVCache {
 }
 
 /// Token generator with deterministic sampling
+#[derive(Debug)]
 pub struct MLXGenerator {
     /// Random number generator (seeded via HKDF)
     rng: rand::rngs::StdRng,
@@ -175,15 +179,21 @@ impl MLXGenerator {
     /// # Arguments
     /// * `base_seed` - Base seed (typically model hash)
     /// * `config` - Generation configuration
-    pub fn new(base_seed: B3Hash, config: GenerationConfig) -> Self {
+    pub fn new(base_seed: B3Hash, config: GenerationConfig) -> Result<Self> {
         // Derive RNG seed from base seed
         let rng_seed = derive_seed(&base_seed, "mlx-sampling");
         let rng = rand::rngs::StdRng::from_seed(rng_seed);
 
         let cache = if config.use_cache {
+            let num_layers = config.kv_num_layers.ok_or_else(|| {
+                AosError::Config(
+                    "KV cache requires num_layers (set GenerationConfig.kv_num_layers)".to_string(),
+                )
+            })?;
+
             Some(crate::kv_cache::MLXKVCache::new(
                 crate::kv_cache::KVCacheConfig {
-                    num_layers: 32,
+                    num_layers,
                     max_seq_length: 2048, // Default max cache size
                     ..Default::default()
                 },
@@ -192,12 +202,12 @@ impl MLXGenerator {
             None
         };
 
-        Self {
+        Ok(Self {
             rng,
             config,
             cache,
             base_seed,
-        }
+        })
     }
 
     /// Generate text from prompt
@@ -539,6 +549,11 @@ impl MLXGenerator {
         self.cache.as_ref().map_or(0, |c| c.get_size())
     }
 
+    /// Inspect configured KV cache layer count (if cache exists)
+    pub fn cache_num_layers(&self) -> Option<usize> {
+        self.cache.as_ref().map(|c| c.num_layers())
+    }
+
     /// Clear generation cache
     pub fn clear_cache(&mut self) {
         if let Some(cache) = &self.cache {
@@ -576,9 +591,15 @@ impl MLXGenerator {
 
         // Create KV cache if not already present
         if self.cache.is_none() {
+            let num_layers = self.config.kv_num_layers.ok_or_else(|| {
+                AosError::Config(
+                    "KV cache requires num_layers (set GenerationConfig.kv_num_layers)".to_string(),
+                )
+            })?;
+
             self.cache = Some(crate::kv_cache::MLXKVCache::new(
                 crate::kv_cache::KVCacheConfig {
-                    num_layers: 32, // TODO: get from model config
+                    num_layers,
                     max_seq_length: max_tokens + prompt_len,
                     ..Default::default()
                 },
@@ -695,6 +716,19 @@ impl MLXGenerator {
 mod tests {
     use super::*;
 
+    fn config_no_cache() -> GenerationConfig {
+        GenerationConfig {
+            use_cache: false,
+            ..Default::default()
+        }
+    }
+
+    fn config_with_layers(layers: usize) -> GenerationConfig {
+        let mut cfg = GenerationConfig::default();
+        cfg.kv_num_layers = Some(layers);
+        cfg
+    }
+
     #[test]
     fn test_generation_config_default() {
         let config = GenerationConfig::default();
@@ -702,6 +736,7 @@ mod tests {
         assert_eq!(config.temperature, 1.0);
         assert_eq!(config.repetition_penalty, 1.0);
         assert!(config.use_cache);
+        assert!(config.kv_num_layers.is_none());
     }
 
     #[test]
@@ -777,10 +812,25 @@ mod tests {
     }
 
     #[test]
+    fn test_generator_requires_kv_layers_when_cache_enabled() {
+        let base_seed = B3Hash::hash(b"missing-layers");
+        let err = MLXGenerator::new(base_seed, GenerationConfig::default()).unwrap_err();
+        assert!(matches!(err, AosError::Config(_)));
+    }
+
+    #[test]
+    fn test_generator_uses_configured_kv_layers() {
+        let base_seed = B3Hash::hash(b"kv-layers");
+        let config = config_with_layers(12);
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
+        assert_eq!(generator.cache_num_layers(), Some(12));
+    }
+
+    #[test]
     fn test_softmax_computation() {
         let base_seed = B3Hash::hash(b"test");
-        let config = GenerationConfig::default();
-        let generator = MLXGenerator::new(base_seed, config);
+        let config = config_no_cache();
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         let logits = vec![1.0, 2.0, 3.0];
         let probs = generator.softmax(&logits);
@@ -797,8 +847,8 @@ mod tests {
     #[test]
     fn test_top_k_filtering() {
         let base_seed = B3Hash::hash(b"test");
-        let config = GenerationConfig::default();
-        let generator = MLXGenerator::new(base_seed, config);
+        let config = config_no_cache();
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         let probs = vec![0.1, 0.2, 0.3, 0.25, 0.15];
         let filtered = generator.apply_top_k(&probs, 2);
@@ -815,8 +865,8 @@ mod tests {
     #[test]
     fn test_top_p_filtering() {
         let base_seed = B3Hash::hash(b"test");
-        let config = GenerationConfig::default();
-        let generator = MLXGenerator::new(base_seed, config);
+        let config = config_no_cache();
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         let probs = vec![0.4, 0.3, 0.2, 0.05, 0.05];
         let filtered = generator.apply_top_p(&probs, 0.8);
@@ -830,9 +880,9 @@ mod tests {
     #[test]
     fn test_repetition_penalty() {
         let base_seed = B3Hash::hash(b"test");
-        let mut config = GenerationConfig::default();
+        let mut config = config_no_cache();
         config.repetition_penalty = 1.2;
-        let generator = MLXGenerator::new(base_seed, config);
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         let logits = vec![1.0, 2.0, 3.0, 4.0];
         let tokens = vec![0, 0, 1]; // Token 0 appears twice
@@ -853,8 +903,8 @@ mod tests {
     #[test]
     fn test_deterministic_step_seeds() {
         let base_seed = B3Hash::hash(b"test");
-        let config = GenerationConfig::default();
-        let generator = MLXGenerator::new(base_seed, config);
+        let config = config_no_cache();
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         // Same step should produce same seed
         let seed1 = generator.derive_step_seed(5);
@@ -869,8 +919,8 @@ mod tests {
     #[test]
     fn test_greedy_sampling_basic() {
         let base_seed = B3Hash::hash(b"greedy-test");
-        let config = GenerationConfig::default();
-        let generator = MLXGenerator::new(base_seed, config);
+        let config = config_no_cache();
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         // Simple probability distribution: [0.1, 0.3, 0.2, 0.4]
         // Should select token 3 (highest probability)
@@ -882,8 +932,8 @@ mod tests {
     #[test]
     fn test_greedy_sampling_clear_winner() {
         let base_seed = B3Hash::hash(b"greedy-clear");
-        let config = GenerationConfig::default();
-        let generator = MLXGenerator::new(base_seed, config);
+        let config = config_no_cache();
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         // Clear winner
         let probs = vec![0.01, 0.01, 0.97, 0.01];
@@ -894,8 +944,8 @@ mod tests {
     #[test]
     fn test_greedy_sampling_first_max() {
         let base_seed = B3Hash::hash(b"greedy-first");
-        let config = GenerationConfig::default();
-        let generator = MLXGenerator::new(base_seed, config);
+        let config = config_no_cache();
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         // Multiple equal probabilities - max_by returns last max element
         let probs = vec![0.5, 0.5, 0.0];
@@ -906,9 +956,9 @@ mod tests {
     #[test]
     fn test_greedy_sampling_deterministic() {
         let base_seed = B3Hash::hash(b"greedy-determinism");
-        let config = GenerationConfig::default();
-        let generator1 = MLXGenerator::new(base_seed, config.clone());
-        let generator2 = MLXGenerator::new(base_seed, config);
+        let config = config_no_cache();
+        let generator1 = MLXGenerator::new(base_seed, config.clone()).unwrap();
+        let generator2 = MLXGenerator::new(base_seed, config).unwrap();
 
         let probs = vec![0.1, 0.2, 0.3, 0.25, 0.15];
 
@@ -925,16 +975,16 @@ mod tests {
         // Greedy configuration (temperature = 0)
         let greedy_config = GenerationConfig {
             temperature: 0.0,
-            ..Default::default()
+            ..config_no_cache()
         };
-        let generator_greedy = MLXGenerator::new(base_seed, greedy_config);
+        let generator_greedy = MLXGenerator::new(base_seed, greedy_config).unwrap();
 
         // Stochastic configuration (temperature > 0)
         let stochastic_config = GenerationConfig {
             temperature: 0.8,
-            ..Default::default()
+            ..config_no_cache()
         };
-        let _generator_stochastic = MLXGenerator::new(base_seed, stochastic_config);
+        let _generator_stochastic = MLXGenerator::new(base_seed, stochastic_config).unwrap();
 
         let probs = vec![0.1, 0.2, 0.3, 0.25, 0.15];
 
@@ -953,9 +1003,9 @@ mod tests {
         let config = GenerationConfig {
             temperature: 0.0,
             top_k: Some(2),
-            ..Default::default()
+            ..config_no_cache()
         };
-        let generator = MLXGenerator::new(base_seed, config);
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         // Original: [0.1, 0.2, 0.3, 0.25, 0.15]
         let probs = vec![0.1, 0.2, 0.3, 0.25, 0.15];
@@ -976,9 +1026,9 @@ mod tests {
         let config = GenerationConfig {
             temperature: 0.0,
             top_p: Some(0.7),
-            ..Default::default()
+            ..config_no_cache()
         };
-        let generator = MLXGenerator::new(base_seed, config);
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         // Original: [0.4, 0.3, 0.2, 0.05, 0.05] (cumsum at 0.9 reaches threshold)
         let probs = vec![0.4, 0.3, 0.2, 0.05, 0.05];
@@ -1000,10 +1050,10 @@ mod tests {
             temperature: 0.0, // Forces greedy
             top_k: Some(3),
             top_p: Some(0.95),
-            ..Default::default()
+            ..config_no_cache()
         };
 
-        let generator = MLXGenerator::new(base_seed, config);
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         // This should:
         // 1. Apply temperature (no-op for 0)
@@ -1018,8 +1068,8 @@ mod tests {
     #[test]
     fn test_greedy_sampling_uniform_distribution() {
         let base_seed = B3Hash::hash(b"greedy-uniform");
-        let config = GenerationConfig::default();
-        let generator = MLXGenerator::new(base_seed, config);
+        let config = config_no_cache();
+        let generator = MLXGenerator::new(base_seed, config).unwrap();
 
         // Uniform distribution - max_by returns last max element
         let probs = vec![0.25, 0.25, 0.25, 0.25];

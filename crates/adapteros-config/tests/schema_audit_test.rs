@@ -6,6 +6,7 @@
 //! 3. Runtime validation works correctly
 //! 4. Type coercion functions work as expected
 
+use adapteros_config::path_resolver::DEFAULT_MODEL_CACHE_ROOT;
 use adapteros_config::runtime::RuntimeConfig;
 use adapteros_config::schema::{default_schema, ConfigType};
 
@@ -246,11 +247,10 @@ fn test_model_cache_dir_default() {
     let config = RuntimeConfig::from_env().expect("Config");
     let cache_dir = config.model_cache_dir();
 
-    // Should default to var/model-cache
-    assert!(
-        cache_dir.ends_with("model-cache"),
-        "Model cache dir should end with model-cache, got: {:?}",
-        cache_dir
+    assert_eq!(
+        cache_dir,
+        std::path::PathBuf::from(DEFAULT_MODEL_CACHE_ROOT),
+        "Model cache dir should match canonical default"
     );
 }
 

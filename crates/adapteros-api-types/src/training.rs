@@ -1,6 +1,6 @@
 //! Training types
 
-use adapteros_types::training::{TrainingConfig, TrainingJob, TrainingTemplate};
+use adapteros_types::training::{LoraTier, TrainingConfig, TrainingJob, TrainingTemplate};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -44,6 +44,15 @@ pub struct TrainingConfigRequest {
     pub warmup_steps: Option<u32>,
     pub max_seq_length: Option<u32>,
     pub gradient_accumulation_steps: Option<u32>,
+    /// Optional GPU backend preference (coreml, mlx, metal, cpu)
+    #[serde(default)]
+    pub preferred_backend: Option<String>,
+    /// Require GPU acceleration (error if no GPU backend can be initialized)
+    #[serde(default)]
+    pub require_gpu: Option<bool>,
+    /// Maximum GPU memory in MB (best-effort, 0/unset = unlimited)
+    #[serde(default)]
+    pub max_gpu_memory_mb: Option<u64>,
 }
 
 /// Start training request
@@ -59,6 +68,13 @@ pub struct StartTrainingRequest {
     pub base_model_id: Option<String>,
     /// Document collection ID for provenance tracking
     pub collection_id: Option<String>,
+    /// Marketing/operational tier for routing and UI badges (micro/standard/max)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub lora_tier: Option<LoraTier>,
+    /// Logical scope for adapter visibility (e.g., project, tenant)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 
     // Category & metadata
     /// Adapter category: code, framework, codebase, docs, domain
@@ -141,6 +157,13 @@ pub struct TrainingJobResponse {
     pub framework_id: Option<String>,
     /// Framework version
     pub framework_version: Option<String>,
+    /// Marketing/operational tier for routing and UI badges (micro/standard/max)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub lora_tier: Option<LoraTier>,
+    /// Logical scope for adapter visibility (e.g., project, tenant)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 
     // Training progress
     pub status: String,
@@ -161,6 +184,8 @@ pub struct TrainingJobResponse {
     pub backend: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_device: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -220,6 +245,8 @@ impl From<TrainingJob> for TrainingJobResponse {
             language: job.language,
             framework_id: job.framework_id,
             framework_version: job.framework_version,
+            lora_tier: job.lora_tier,
+            scope: job.scope,
             // Training progress
             status: job.status.to_string(),
             progress_pct: job.progress_pct,
@@ -236,6 +263,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             // Backend/determinism
             backend: job.backend,
             backend_reason: job.backend_reason,
+            backend_device: job.backend_device,
             determinism_mode: job.determinism_mode,
             training_seed: job.training_seed,
             require_gpu: job.require_gpu,
@@ -296,6 +324,9 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             min_delta: Some(0.001),
             checkpoint_frequency: Some(5),
             max_checkpoints: Some(3),
+            preferred_backend: req.preferred_backend,
+            require_gpu: req.require_gpu.unwrap_or(false),
+            max_gpu_memory_mb: req.max_gpu_memory_mb,
         }
     }
 }
@@ -342,6 +373,12 @@ pub struct TrainingMetricsResponse {
     pub gpu_utilization_pct: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peak_gpu_memory_mb: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_device: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub using_gpu: Option<bool>,
 }
 
 // ===== Dataset Types =====

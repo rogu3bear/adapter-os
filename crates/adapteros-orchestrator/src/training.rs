@@ -5,9 +5,10 @@
 
 use adapteros_core::AosError;
 use adapteros_deterministic_exec::spawn_deterministic;
+use adapteros_lora_worker::training::trainer::EpochMetrics as WorkerEpochMetrics;
 use adapteros_lora_worker::training::{
-    MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
-    TrainingExample as WorkerTrainingExample,
+    MicroLoRATrainer as WorkerTrainer, TrainingBackend as WorkerTrainingBackend,
+    TrainingConfig as WorkerTrainingConfig, TrainingExample as WorkerTrainingExample,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -19,7 +20,7 @@ use tracing::{error, info, warn};
 
 // Re-export canonical types from adapteros_types
 pub use adapteros_types::training::{
-    TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate,
+    LoraTier, TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate,
 };
 
 /// Training service for managing jobs
@@ -52,6 +53,9 @@ impl TrainingService {
                 config: TrainingConfig {
                     rank: 16,
                     alpha: 32,
+                    preferred_backend: None,
+                    require_gpu: false,
+                    max_gpu_memory_mb: None,
                     ..Default::default()
                 },
             },
@@ -68,6 +72,9 @@ impl TrainingService {
                 config: TrainingConfig {
                     rank: 12,
                     alpha: 24,
+                    preferred_backend: None,
+                    require_gpu: false,
+                    max_gpu_memory_mb: None,
                     ..Default::default()
                 },
             },
@@ -84,6 +91,9 @@ impl TrainingService {
                     rank: 24,
                     alpha: 48,
                     epochs: 4,
+                    preferred_backend: None,
+                    require_gpu: false,
+                    max_gpu_memory_mb: None,
                     ..Default::default()
                 },
             },
@@ -108,6 +118,9 @@ impl TrainingService {
                         "v_proj".to_string(),
                         "o_proj".to_string(),
                     ],
+                    preferred_backend: None,
+                    require_gpu: false,
+                    max_gpu_memory_mb: None,
                     ..Default::default()
                 },
             },
@@ -168,6 +181,8 @@ impl TrainingService {
         initiated_by_role: Option<String>,
         base_model_id: Option<String>,
         collection_id: Option<String>,
+        scope: Option<String>,
+        lora_tier: Option<LoraTier>,
         // Category metadata
         category: Option<String>,
         description: Option<String>,
@@ -180,6 +195,7 @@ impl TrainingService {
         retry_of_job_id: Option<String>,
     ) -> Result<TrainingJob> {
         let job_id = format!("train-{}", uuid::Uuid::new_v4());
+        let scope_value = scope.clone().unwrap_or_else(|| "project".to_string());
 
         // Compute config hash for reproducibility tracking
         let config_params = adapteros_db::training_jobs::TrainingConfigParams {
@@ -215,6 +231,8 @@ impl TrainingService {
         job.language = language;
         job.framework_id = framework_id;
         job.framework_version = framework_version;
+        job.lora_tier = lora_tier;
+        job.scope = Some(scope_value.clone());
         job.post_actions_json = post_actions_json.clone();
         job.retry_of_job_id = retry_of_job_id.clone();
 
@@ -737,6 +755,133 @@ fn default_tier() -> String {
     "warm".to_string()
 }
 
+/// Map API/DB preferred backend string into the worker enum
+fn map_preferred_backend(preferred: Option<&str>) -> Option<WorkerTrainingBackend> {
+    preferred.and_then(|p| match p.to_ascii_lowercase().as_str() {
+        "coreml" | "ane" => Some(WorkerTrainingBackend::CoreML),
+        "mlx" => Some(WorkerTrainingBackend::Mlx),
+        "metal" => Some(WorkerTrainingBackend::Metal),
+        "cpu" => Some(WorkerTrainingBackend::Cpu),
+        _ => {
+            warn!(
+                backend = p,
+                "Unknown preferred backend, falling back to auto-select"
+            );
+            None
+        }
+    })
+}
+
+/// Load plan/model bytes for GPU initialization.
+///
+/// - Uses `AOS_MODEL_PATH` (or legacy fallbacks) to find model assets.
+/// - Returns path bytes for CoreML `.mlpackage` bundles.
+/// - Returns safetensors bytes for Metal/CPU/MLX.
+/// - When GPU is optional and assets are missing, returns an empty Vec so CPU can proceed.
+fn load_plan_bytes_for_training(require_gpu: bool, job_id: &str) -> Result<Vec<u8>> {
+    let model_path = match adapteros_config::model::get_model_path_with_fallback() {
+        Ok(path) => path,
+        Err(e) => {
+            if require_gpu {
+                return Err(anyhow::anyhow!(
+                    "GPU initialization requested but model path is not configured: {}",
+                    e
+                ));
+            }
+
+            warn!(
+                job_id = %job_id,
+                error = %e,
+                "No model path configured; GPU init will be skipped and CPU will be used"
+            );
+            return Ok(Vec::new());
+        }
+    };
+
+    fn read_plan_bytes(model_path: &Path) -> Result<Vec<u8>> {
+        let is_mlpackage = model_path
+            .extension()
+            .map(|ext| ext == "mlpackage" || ext == "mlmodel")
+            .unwrap_or(false);
+
+        if is_mlpackage {
+            return Ok(model_path.to_string_lossy().into_owned().into_bytes());
+        }
+
+        if model_path.is_file() {
+            return std::fs::read(model_path).map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to read model plan from '{}': {}",
+                    model_path.display(),
+                    e
+                )
+            });
+        }
+
+        if model_path.is_dir() {
+            let safetensors_path = model_path.join("model.safetensors");
+            if safetensors_path.exists() {
+                return std::fs::read(&safetensors_path).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to read model.safetensors at '{}': {}",
+                        safetensors_path.display(),
+                        e
+                    )
+                });
+            }
+
+            if let Ok(entries) = std::fs::read_dir(model_path) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = entry.file_name().to_string_lossy().to_string();
+
+                    // Sharded safetensors first shard
+                    if name.starts_with("model-00001-of-") && name.ends_with(".safetensors") {
+                        return std::fs::read(&path).map_err(|e| {
+                            anyhow::anyhow!(
+                                "Failed to read sharded model file '{}': {}",
+                                path.display(),
+                                e
+                            )
+                        });
+                    }
+
+                    // CoreML bundle inside the directory
+                    if path
+                        .extension()
+                        .map(|ext| ext == "mlpackage")
+                        .unwrap_or(false)
+                    {
+                        return Ok(path.to_string_lossy().into_owned().into_bytes());
+                    }
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Model assets not found under '{}'. Provide model.safetensors or a .mlpackage path.",
+            model_path.display()
+        ))
+    }
+
+    match read_plan_bytes(&model_path) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) => {
+            if require_gpu {
+                Err(e)
+            } else {
+                warn!(
+                    job_id = %job_id,
+                    path = %model_path.display(),
+                    error = %e,
+                    "Plan bytes unavailable; GPU init will be skipped and CPU will be used"
+                );
+                Ok(Vec::new())
+            }
+        }
+    }
+}
+
 /// Background runner for a single training job. Converts orchestrator config into worker trainer
 /// config, runs training with per-epoch callback, packages weights, registers adapter, and
 /// updates the shared job map with artifact metadata.
@@ -761,6 +906,10 @@ async fn run_training_job(
     use adapteros_lora_worker::training::{
         AdapterPackager, LoRAQuantizer, TrainingConfig as WorkerTrainingConfigType,
     };
+
+    // GPU init policy: honor preferred_backend/require_gpu, resolve plan bytes from AOS_MODEL_PATH,
+    // call init_kernels() before entering the training loop, and fall back to CPU when GPU is
+    // optional or unavailable (see docs/GPU_TRAINING_INTEGRATION.md).
 
     // Parse post-actions configuration (defaults if not provided or invalid)
     let post_actions: PostActions = post_actions_json
@@ -795,6 +944,7 @@ async fn run_training_job(
     }
 
     // Map orchestrator config to worker trainer config
+    let preferred_backend = map_preferred_backend(orchestrator_cfg.preferred_backend.as_deref());
     let worker_cfg = WorkerTrainingConfig {
         rank: orchestrator_cfg.rank as usize,
         alpha: orchestrator_cfg.alpha as f32,
@@ -803,9 +953,9 @@ async fn run_training_job(
         epochs: orchestrator_cfg.epochs as usize,
         hidden_dim: 768, // default; can be made configurable via orchestrator config later
         vocab_size: 32000, // default LLaMA/Mistral vocab size
-        preferred_backend: None, // auto-select
-        require_gpu: false,
-        max_gpu_memory_mb: 0,         // unlimited
+        preferred_backend,
+        require_gpu: orchestrator_cfg.require_gpu,
+        max_gpu_memory_mb: orchestrator_cfg.max_gpu_memory_mb.unwrap_or(0),
         checkpoint_interval: Some(5), // Save checkpoint every 5 epochs
         warmup_steps: orchestrator_cfg.warmup_steps,
         max_seq_length: orchestrator_cfg.max_seq_length,
@@ -862,11 +1012,9 @@ async fn run_training_job(
         }
     }
 
-    // Wire cancel token into trainer - checked at epoch boundaries
-    trainer.set_cancel_token(cancel_token);
-
-    // Wire job_id and DB for metrics persistence
+    // Wire job_id and DB for metrics persistence (before GPU init so telemetry carries job_id)
     trainer.set_job_id(job_id.clone());
+    trainer.set_cancel_token(cancel_token);
     if let Some(database) = db.clone() {
         trainer.set_db(database);
         info!(job_id = %job_id, "Trainer configured with DB for metrics persistence");
@@ -903,43 +1051,70 @@ async fn run_training_job(
     // Run with per-epoch callback to update progress (with checkpoint resume support)
     let job_id_clone = job_id.clone();
     let jobs_ref_clone = jobs_ref.clone();
-    let result = trainer
-        .train_with_resume(&examples, move |epoch, loss| {
-            let jobs_ref_inner = jobs_ref_clone.clone();
-            let job_id_inner = job_id_clone.clone();
-            // Deterministic progress update (part of training execution)
-            let jobs_ref_for_det = jobs_ref_inner.clone();
-            let job_id_for_det = job_id_inner.clone();
-            let jobs_ref_for_fallback = jobs_ref_inner.clone();
-            let job_id_for_fallback = job_id_inner.clone();
-            if let Err(e) = spawn_deterministic(
-                format!("training-progress:{}:epoch-{}", job_id_for_det, epoch),
-                async move {
-                    let mut jobs = jobs_ref_for_det.write().await;
-                    if let Some(job) = jobs.get_mut(&job_id_for_det) {
-                        job.current_epoch = epoch as u32;
-                        job.current_loss = loss;
-                        if job.total_epochs > 0 {
-                            job.progress_pct = (epoch as f32 / job.total_epochs as f32) * 100.0;
+    let require_gpu = worker_cfg.require_gpu;
+    let result = async {
+        let plan_bytes = load_plan_bytes_for_training(require_gpu, &job_id)?;
+        if plan_bytes.is_empty() && !require_gpu {
+            info!(
+                job_id = %job_id,
+                "Proceeding without plan bytes; GPU init will be skipped and CPU will be used"
+            );
+        }
+
+        trainer.init_kernels(&plan_bytes)?;
+
+        trainer
+            .train_with_resume(&examples, move |metrics: WorkerEpochMetrics| {
+                let jobs_ref_inner = jobs_ref_clone.clone();
+                let job_id_inner = job_id_clone.clone();
+                // Deterministic progress update (part of training execution)
+                let jobs_ref_for_det = jobs_ref_inner.clone();
+                let job_id_for_det = job_id_inner.clone();
+                let jobs_ref_for_fallback = jobs_ref_inner.clone();
+                let job_id_for_fallback = job_id_inner.clone();
+                if let Err(e) = spawn_deterministic(
+                    format!(
+                        "training-progress:{}:epoch-{}",
+                        job_id_for_det, metrics.epoch
+                    ),
+                    async move {
+                        let mut jobs = jobs_ref_for_det.write().await;
+                        if let Some(job) = jobs.get_mut(&job_id_for_det) {
+                            job.current_epoch = metrics.epoch;
+                            job.current_loss = metrics.loss;
+                            job.tokens_per_second = metrics.tokens_per_sec;
+                            job.examples_processed = Some(metrics.total_examples_processed);
+                            job.tokens_processed = Some(metrics.total_tokens_processed);
+                            job.throughput_examples_per_sec = Some(metrics.examples_per_sec);
+                            if job.total_epochs > 0 {
+                                job.progress_pct =
+                                    (metrics.epoch as f32 / job.total_epochs as f32) * 100.0;
+                            }
                         }
-                    }
-                },
-            ) {
-                // Fallback: use tokio::spawn if deterministic executor not available
-                tracing::warn!("Failed to spawn deterministic progress update: {}", e);
-                tokio::spawn(async move {
-                    let mut jobs = jobs_ref_for_fallback.write().await;
-                    if let Some(job) = jobs.get_mut(&job_id_for_fallback) {
-                        job.current_epoch = epoch as u32;
-                        job.current_loss = loss;
-                        if job.total_epochs > 0 {
-                            job.progress_pct = (epoch as f32 / job.total_epochs as f32) * 100.0;
+                    },
+                ) {
+                    // Fallback: use tokio::spawn if deterministic executor not available
+                    tracing::warn!("Failed to spawn deterministic progress update: {}", e);
+                    tokio::spawn(async move {
+                        let mut jobs = jobs_ref_for_fallback.write().await;
+                        if let Some(job) = jobs.get_mut(&job_id_for_fallback) {
+                            job.current_epoch = metrics.epoch;
+                            job.current_loss = metrics.loss;
+                            job.tokens_per_second = metrics.tokens_per_sec;
+                            job.examples_processed = Some(metrics.total_examples_processed);
+                            job.tokens_processed = Some(metrics.total_tokens_processed);
+                            job.throughput_examples_per_sec = Some(metrics.examples_per_sec);
+                            if job.total_epochs > 0 {
+                                job.progress_pct =
+                                    (metrics.epoch as f32 / job.total_epochs as f32) * 100.0;
+                            }
                         }
-                    }
-                });
-            }
-        })
-        .await;
+                    });
+                }
+            })
+            .await
+    }
+    .await;
 
     match result {
         Ok(training_result) => {
@@ -948,18 +1123,29 @@ async fn run_training_job(
             let perf = trainer.get_performance_metrics();
             let training_time_ms = training_result.training_time_ms();
             let examples_processed = training_result.examples_processed.unwrap_or(0);
+            let tokens_processed = training_result.tokens_processed.unwrap_or(0);
+            let tokens_per_second = training_result.tokens_per_sec;
+            let examples_per_sec = training_result.examples_per_sec;
 
             {
                 let mut jobs = jobs_ref.write().await;
                 if let Some(job) = jobs.get_mut(&job_id) {
                     job.backend = backend_selected.clone();
-                    job.determinism_mode = job.determinism_mode.clone().or(Some("hkdf_seeded".to_string()));
+                    job.backend_device = training_result.backend_device.clone();
+                    job.determinism_mode = job
+                        .determinism_mode
+                        .clone()
+                        .or(Some("hkdf_seeded".to_string()));
                     job.training_seed = job.training_seed.or(Some(trainer.training_seed()));
                     job.examples_processed = Some(examples_processed);
-                    job.tokens_processed = Some(examples_processed); // Approximate tokens until token-level metric exists
+                    job.tokens_processed = Some(tokens_processed);
                     job.training_time_ms = Some(training_time_ms);
-                    job.throughput_examples_per_sec =
-                        Some(perf.throughput_examples_per_sec);
+                    job.throughput_examples_per_sec = Some(if examples_per_sec > 0.0 {
+                        examples_per_sec
+                    } else {
+                        perf.throughput_examples_per_sec
+                    });
+                    job.tokens_per_second = tokens_per_second;
                     job.gpu_utilization_pct = Some(perf.avg_gpu_utilization);
                     job.peak_gpu_memory_mb = Some(perf.peak_gpu_memory_mb);
                     job.require_gpu = job.require_gpu.or(Some(worker_cfg.require_gpu));
@@ -976,6 +1162,8 @@ async fn run_training_job(
                 let timestamp = chrono::Utc::now().to_rfc3339();
                 let step = training_result.examples_processed.unwrap_or(0) as i64;
                 let epoch = training_result.stopped_at_epoch.map(|e| e as i64);
+                let tokens_processed = training_result.tokens_processed.unwrap_or(0) as f64;
+                let tokens_per_second = training_result.tokens_per_sec as f64;
 
                 let final_metrics = vec![
                     TrainingMetricRow {
@@ -1004,6 +1192,24 @@ async fn run_training_job(
                         metric_name: "examples_processed".to_string(),
                         metric_value: training_result.examples_processed.unwrap_or(0) as f64,
                         metric_timestamp: Some(timestamp),
+                    },
+                    TrainingMetricRow {
+                        id: Uuid::now_v7().to_string(),
+                        training_job_id: job_id.clone(),
+                        step,
+                        epoch,
+                        metric_name: "tokens_processed".to_string(),
+                        metric_value: tokens_processed,
+                        metric_timestamp: Some(chrono::Utc::now().to_rfc3339()),
+                    },
+                    TrainingMetricRow {
+                        id: Uuid::now_v7().to_string(),
+                        training_job_id: job_id.clone(),
+                        step,
+                        epoch,
+                        metric_name: "tokens_per_sec_final".to_string(),
+                        metric_value: tokens_per_second,
+                        metric_timestamp: Some(chrono::Utc::now().to_rfc3339()),
                     },
                 ];
 
@@ -1084,6 +1290,16 @@ async fn run_training_job(
             let quantized_weights = LoRAQuantizer::quantize_to_q15(&training_result.weights);
 
             // Build packaging metadata for auditability
+            let (scope_value, lora_tier_meta) = {
+                let jobs = jobs_ref.read().await;
+                let scope_val = jobs
+                    .get(&job_id)
+                    .and_then(|j| j.scope.clone())
+                    .unwrap_or_else(|| "project".to_string());
+                let tier_val = jobs.get(&job_id).and_then(|j| j.lora_tier);
+                (scope_val, tier_val)
+            };
+
             let mut package_metadata = HashMap::new();
             package_metadata.insert("training_job_id".to_string(), job_id.clone());
             package_metadata.insert("adapter_name".to_string(), adapter_name.clone());
@@ -1093,16 +1309,24 @@ async fn run_training_job(
             if let Some(ref tid) = tenant_id {
                 package_metadata.insert("tenant_id".to_string(), tid.clone());
             }
+            package_metadata.insert("scope".to_string(), scope_value.clone());
+            // Allow downstream consumers to treat lora_scope separately if needed
+            package_metadata.insert("lora_scope".to_string(), scope_value.clone());
             if let Some(ref base_model) = base_model_id {
                 package_metadata.insert("base_model_id".to_string(), base_model.clone());
             }
             if let Some(ref cat) = category {
                 package_metadata.insert("category".to_string(), cat.clone());
             }
-            let backend_label = trainer
-                .backend_info()
-                .unwrap_or("CPU")
-                .to_ascii_lowercase();
+            if let Some(tier) = lora_tier_meta {
+                let tier_label = match tier {
+                    LoraTier::Micro => "micro",
+                    LoraTier::Standard => "standard",
+                    LoraTier::Max => "max",
+                };
+                package_metadata.insert("lora_tier".to_string(), tier_label.to_string());
+            }
+            let backend_label = trainer.backend_info().unwrap_or("CPU").to_ascii_lowercase();
             package_metadata.insert("training_backend".to_string(), backend_label);
             package_metadata.insert(
                 "determinism".to_string(),
@@ -1228,6 +1452,16 @@ async fn run_training_job(
 
                 // Use category from request or default to "trained"
                 let adapter_category = category.as_deref().unwrap_or("code");
+                let meta = &packaged.manifest.metadata;
+                let domain = meta
+                    .get("domain")
+                    .cloned()
+                    .unwrap_or_else(|| "unspecified".to_string());
+                let group = meta
+                    .get("group")
+                    .cloned()
+                    .unwrap_or_else(|| "unspecified".to_string());
+                let scope_value = packaged.manifest.scope.clone();
 
                 let reg_params = AdapterRegistrationBuilder::new()
                     .tenant_id(tenant_id.as_deref().unwrap_or("default"))
@@ -1238,8 +1472,13 @@ async fn run_training_job(
                     .tier(&post_actions.tier)
                     .alpha(orchestrator_cfg.alpha as f64)
                     .category(adapter_category)
-                    .scope("global")
+                    .scope(&scope_value)
+                    .domain(Some(domain))
+                    .purpose(Some(group))
                     .base_model_id(base_model_id.as_deref())
+                    .manifest_schema_version(Some(packaged.manifest.version.clone()))
+                    .content_hash_b3(Some(packaged.hash_b3.clone()))
+                    .provenance_json(serde_json::to_string(&packaged.manifest.metadata).ok())
                     .build()
                     .map_err(|e| anyhow::anyhow!("Failed to build registration params: {}", e))?;
 
@@ -1300,6 +1539,7 @@ async fn run_training_job(
                                 adapter_ids: vec![packaged.adapter_id.clone()],
                                 workflow_type: Some("Sequential".to_string()),
                                 determinism_mode: None, // Use global default
+                                routing_determinism_mode: None,
                             };
 
                             match database.insert_stack(&stack_request).await {
@@ -1426,13 +1666,13 @@ async fn run_training_job(
                     job.artifact_path = Some(packaged.weights_path.to_string_lossy().to_string());
                     job.adapter_id = Some(packaged.adapter_id.clone());
                     job.weights_hash_b3 = Some(packaged.hash_b3.clone());
-                            job.aos_path = Some(packaged.weights_path.to_string_lossy().to_string());
-                            job.package_hash_b3 = Some(packaged.hash_b3.clone());
-                            job.manifest_rank = Some(packaged.manifest.rank as u32);
-                            job.manifest_base_model = Some(packaged.manifest.base_model.clone());
-                            job.manifest_per_layer_hashes =
-                                Some(packaged.manifest.per_layer_hashes.is_some());
-                            job.signature_status = Some("signed".to_string());
+                    job.aos_path = Some(packaged.weights_path.to_string_lossy().to_string());
+                    job.package_hash_b3 = Some(packaged.hash_b3.clone());
+                    job.manifest_rank = Some(packaged.manifest.rank as u32);
+                    job.manifest_base_model = Some(packaged.manifest.base_model.clone());
+                    job.manifest_per_layer_hashes =
+                        Some(packaged.manifest.per_layer_hashes.is_some());
+                    job.signature_status = Some("signed".to_string());
 
                     // Extract audit context for logging
                     (
@@ -1564,6 +1804,7 @@ async fn run_training_job(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_create_and_list_jobs() {
@@ -1582,6 +1823,8 @@ mod tests {
                 None,
                 None, // base_model_id
                 None, // collection_id
+                None, // scope
+                None, // lora_tier
                 None, // category
                 None, // description
                 None, // language
@@ -1617,6 +1860,8 @@ mod tests {
                 None,
                 None, // base_model_id
                 None, // collection_id
+                None, // scope
+                None, // lora_tier
                 None, // category
                 None, // description
                 None, // language
@@ -1653,6 +1898,8 @@ mod tests {
                 None,
                 None, // base_model_id
                 None, // collection_id
+                None, // scope
+                None, // lora_tier
                 None, // category
                 None, // description
                 None, // language
@@ -1683,5 +1930,168 @@ mod tests {
         assert!(templates.len() >= 4);
         assert!(templates.iter().any(|t| t.id == "general-code"));
         assert!(templates.iter().any(|t| t.id == "framework-specific"));
+    }
+
+    fn cpu_only_config() -> TrainingConfig {
+        let mut cfg = TrainingConfig::default();
+        cfg.epochs = 1;
+        cfg.batch_size = 1;
+        cfg.learning_rate = 0.0001;
+        cfg.preferred_backend = None;
+        cfg.require_gpu = false;
+        cfg.max_gpu_memory_mb = None;
+        cfg
+    }
+
+    fn gpu_required_config() -> TrainingConfig {
+        let mut cfg = cpu_only_config();
+        cfg.require_gpu = true;
+        cfg
+    }
+
+    fn no_package_actions() -> Option<String> {
+        Some(
+            serde_json::json!({
+                "package": false,
+                "register": false,
+                "create_stack": false,
+                "activate_stack": false
+            })
+            .to_string(),
+        )
+    }
+
+    #[tokio::test]
+    async fn cpu_training_succeeds_without_gpu_init() {
+        std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
+        let jobs = Arc::new(RwLock::new(HashMap::new()));
+        let job_id = "cpu-job".to_string();
+        let config = cpu_only_config();
+        let job = TrainingJob::new(job_id.clone(), "adapter-cpu".to_string(), config.clone());
+        jobs.write().await.insert(job_id.clone(), job);
+
+        let result = run_training_job(
+            jobs.clone(),
+            job_id.clone(),
+            "adapter-cpu".to_string(),
+            config,
+            None,
+            None,
+            None,
+            None,
+            None,
+            no_package_actions(),
+            None,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+
+        assert!(result.is_ok(), "CPU training should succeed");
+        let jobs_guard = jobs.read().await;
+        let finished = jobs_guard.get(&job_id).unwrap();
+        assert_eq!(finished.status, TrainingJobStatus::Completed);
+        assert_eq!(finished.require_gpu, Some(false));
+        assert_eq!(
+            finished
+                .backend
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_lowercase(),
+            "cpu"
+        );
+        std::env::remove_var("AOS_FORCE_GPU_BACKEND");
+    }
+
+    #[tokio::test]
+    async fn gpu_optional_falls_back_when_init_fails() {
+        std::env::set_var("AOS_FORCE_GPU_BACKEND", "metal");
+        let temp_model = TempDir::new().unwrap();
+        let model_path = temp_model.path().join("model.safetensors");
+        std::fs::write(&model_path, b"not-a-real-model").unwrap();
+        std::env::set_var("AOS_MODEL_PATH", temp_model.path());
+
+        let jobs = Arc::new(RwLock::new(HashMap::new()));
+        let job_id = "gpu-fallback-job".to_string();
+        let mut config = cpu_only_config();
+        config.preferred_backend = Some("metal".to_string());
+        let job = TrainingJob::new(
+            job_id.clone(),
+            "adapter-gpu-fallback".to_string(),
+            config.clone(),
+        );
+        jobs.write().await.insert(job_id.clone(), job);
+
+        let result = run_training_job(
+            jobs.clone(),
+            job_id.clone(),
+            "adapter-gpu-fallback".to_string(),
+            config,
+            None,
+            None,
+            None,
+            None,
+            None,
+            no_package_actions(),
+            None,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "Optional GPU init should fall back to CPU even if GPU init fails"
+        );
+        let jobs_guard = jobs.read().await;
+        let finished = jobs_guard.get(&job_id).unwrap();
+        assert_eq!(finished.status, TrainingJobStatus::Completed);
+        assert_eq!(
+            finished
+                .backend
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_lowercase(),
+            "cpu"
+        );
+
+        std::env::remove_var("AOS_FORCE_GPU_BACKEND");
+        std::env::remove_var("AOS_MODEL_PATH");
+    }
+
+    #[tokio::test]
+    async fn gpu_required_errors_when_unavailable() {
+        std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
+        let jobs = Arc::new(RwLock::new(HashMap::new()));
+        let job_id = "gpu-required-job".to_string();
+        let mut config = gpu_required_config();
+        config.epochs = 1;
+        let job = TrainingJob::new(
+            job_id.clone(),
+            "adapter-gpu-required".to_string(),
+            config.clone(),
+        );
+        jobs.write().await.insert(job_id.clone(), job);
+
+        let result = run_training_job(
+            jobs.clone(),
+            job_id.clone(),
+            "adapter-gpu-required".to_string(),
+            config,
+            None,
+            None,
+            None,
+            None,
+            None,
+            no_package_actions(),
+            None,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+
+        assert!(result.is_err(), "GPU-required job should error without GPU");
+        let jobs_guard = jobs.read().await;
+        let failed = jobs_guard.get(&job_id).unwrap();
+        assert_eq!(failed.status, TrainingJobStatus::Failed);
+        assert_eq!(failed.require_gpu, Some(true));
+        std::env::remove_var("AOS_FORCE_GPU_BACKEND");
     }
 }

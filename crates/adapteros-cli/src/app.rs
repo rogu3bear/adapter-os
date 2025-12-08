@@ -1,6 +1,6 @@
 //! AdapterOS CLI tool (aosctl)
 
-use adapteros_config::{BackendPreference, ModelConfig};
+use adapteros_config::{BackendPreference, ModelConfig, DEFAULT_BASE_MODEL_ID};
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -396,11 +396,11 @@ pub enum Commands {
   # Import Qwen2.5-7B model
   aosctl import-model \
     --name qwen2.5-7b \
-    --weights var/model-cache/models/qwen2.5-7b-instruct-bf16/weights.safetensors \
-    --config var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json \
-    --tokenizer var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json \
-    --tokenizer-cfg var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer_config.json \
-    --license var/model-cache/models/qwen2.5-7b-instruct-bf16/LICENSE
+    --weights ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/weights.safetensors \
+    --config ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/config.json \
+    --tokenizer ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/tokenizer.json \
+    --tokenizer-cfg ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/tokenizer_config.json \
+    --license ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/LICENSE
 "#)]
     ModelImport {
         /// Model name
@@ -702,7 +702,7 @@ pub enum Commands {
   aosctl audit-determinism --format json
 
   # Audit MLX backend (requires --features mlx-ffi-backend)
-  aosctl audit-determinism --backend mlx --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16
+  aosctl audit-determinism --backend mlx --model-path ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}
 "#)]
     AuditDeterminism {
         #[command(flatten)]
@@ -1083,9 +1083,9 @@ pub enum Commands {
     #[command(after_help = r#"Examples:
   # Quantize a directory of .safetensors into artifacts/qwen2_5_7b_int4
   aosctl quantize-qwen \
-    --input ./var/model-cache/models/qwen2.5-7b-instruct-bf16 \
+    --input ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID} \
     --output ./artifacts/qwen2_5_7b_int4 \
-    --model-name qwen2.5-7b-instruct
+    --model-name ${AOS_BASE_MODEL_ID}
 
   # Emit JSON manifest to stdout
   aosctl quantize-qwen --input ./fp16.safetensors --output ./artifacts --json
@@ -1100,7 +1100,7 @@ pub enum Commands {
         output: PathBuf,
 
         /// Model name for manifest metadata
-        #[arg(long, default_value = "qwen2.5-7b-instruct")]
+        #[arg(long, default_value = DEFAULT_BASE_MODEL_ID)]
         model_name: String,
 
         /// Optional block size for stats (currently unused)
@@ -1141,7 +1141,7 @@ pub enum Commands {
 
   # Train with custom manifest and tokenizer
   aosctl train-base-adapter --manifest training/datasets/my_manifest.json \
-    --tokenizer var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json
+    --tokenizer ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}/tokenizer.json
 
   # Train and output as .aos file
   aosctl train-base-adapter --output-format aos --adapter-id my_adapter

@@ -514,6 +514,9 @@ pub async fn train_repository_adapter(
         min_delta: None,
         checkpoint_frequency: None,
         max_checkpoints: None,
+        preferred_backend: None,
+        require_gpu: false,
+        max_gpu_memory_mb: None,
     };
 
     let training_job = state
@@ -529,6 +532,8 @@ pub async fn train_repository_adapter(
             Some(claims.role.clone()),      // initiated_by_role (8th parameter)
             None,                           // base_model_id
             None,                           // collection_id
+            None,                           // scope
+            None,                           // lora_tier
             Some("codebase".to_string()),   // category
             None,                           // description
             None,                           // language

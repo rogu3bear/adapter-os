@@ -18,14 +18,14 @@
 ///
 /// Used across adapter listing, detail, and search operations.
 pub const ADAPTER_COLUMNS: &str =
-    "id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, \
+    "id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, \
      languages_json, framework, category, scope, framework_id, framework_version, \
      repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, \
      activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash, \
      adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, \
      version, lifecycle_state, \
      archived_at, archived_by, archive_reason, purged_at, \
-     base_model_id, manifest_schema_version, content_hash_b3, provenance_json, \
+     base_model_id, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, \
      created_at, updated_at, active";
 
 /// Training dataset table columns for SELECT queries

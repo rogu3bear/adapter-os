@@ -1,8 +1,11 @@
 //! Hot-swap adapter loading and unloading
 
-use adapteros_aos::{AosWriter, AOS_MAGIC, HEADER_SIZE};
+use adapteros_aos::{
+    compute_scope_hash, open_aos, AosWriter, BackendTag, HEADER_SIZE, INDEX_ENTRY_SIZE,
+};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_single_file_adapter::format::AosSignature;
+use adapteros_types::training::LoraTier;
 use memmap2::Mmap;
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
@@ -44,6 +47,43 @@ pub struct AdapterMetadata {
     pub rank: Option<usize>,
     /// Target modules (detected from tensor names)
     pub target_modules: Vec<String>,
+    /// Optional tier provided by manifest (e.g., micro/standard/tier_1)
+    pub lora_tier: Option<LoraTier>,
+    /// Optional LoRA strength multiplier [0.0, 1.0]
+    pub lora_strength: Option<f32>,
+    /// Optional scope provided by manifest (e.g., project/global)
+    pub scope: Option<String>,
+    /// Optional domain derived from manifest metadata
+    pub domain: Option<String>,
+    /// Optional group derived from manifest metadata
+    pub group: Option<String>,
+    /// Optional operation derived from manifest metadata
+    pub operation: Option<String>,
+    /// Derived scope path: domain/group/scope/operation
+    pub scope_path: Option<String>,
+    /// Backend tag for the selected segment ("canonical" | backend name)
+    pub backend_tag: Option<String>,
+    /// Segment identifier from the .aos index (if present)
+    pub segment_id: Option<u32>,
+}
+
+impl Default for AdapterMetadata {
+    fn default() -> Self {
+        Self {
+            num_parameters: 0,
+            rank: None,
+            target_modules: Vec::new(),
+            lora_tier: None,
+            lora_strength: None,
+            scope: None,
+            domain: None,
+            group: None,
+            operation: None,
+            scope_path: None,
+            backend_tag: None,
+            segment_id: None,
+        }
+    }
 }
 
 /// Canonical logical layer identifier used for per-layer hashing
@@ -99,6 +139,66 @@ fn canonical_layer_id(tensor_name: &str) -> String {
     }
 
     segments.join(".")
+}
+
+fn derive_scope_path(
+    domain: &Option<String>,
+    group: &Option<String>,
+    scope: &Option<String>,
+    operation: &Option<String>,
+) -> Option<String> {
+    match (
+        domain.as_deref(),
+        group.as_deref(),
+        scope.as_deref(),
+        operation.as_deref(),
+    ) {
+        (Some(d), Some(g), Some(s), Some(o)) => Some(format!("{}/{}/{}/{}", d, g, s, o)),
+        _ => None,
+    }
+}
+
+fn select_segment_for_backend<'a>(
+    segments: &'a [adapteros_aos::SegmentView<'a>],
+    backend: &str,
+    scope_hash: [u8; 16],
+) -> Option<&'a adapteros_aos::SegmentView<'a>> {
+    let normalized = backend.to_ascii_lowercase();
+    let preferred = match normalized.as_str() {
+        "mlx" => Some(BackendTag::Mlx),
+        "metal" => Some(BackendTag::Metal),
+        "coreml" => Some(BackendTag::Coreml),
+        "canonical" => Some(BackendTag::Canonical),
+        _ => None, // auto or unknown -> canonical fallback
+    };
+
+    let zero_scope = [0u8; 16];
+    let find_match = |tag: BackendTag, hash: [u8; 16]| {
+        segments
+            .iter()
+            .find(|seg| seg.backend_tag == tag && seg.scope_hash == hash)
+    };
+
+    if let Some(tag) = preferred {
+        if tag != BackendTag::Canonical {
+            if scope_hash != zero_scope {
+                if let Some(seg) = find_match(tag, scope_hash) {
+                    return Some(seg);
+                }
+            }
+            if let Some(seg) = find_match(tag, zero_scope) {
+                return Some(seg);
+            }
+        }
+    }
+
+    if scope_hash != zero_scope {
+        if let Some(seg) = find_match(BackendTag::Canonical, scope_hash) {
+            return Some(seg);
+        }
+    }
+
+    find_match(BackendTag::Canonical, zero_scope)
 }
 
 /// Adapter loader for hot-swap operations
@@ -192,6 +292,16 @@ impl AdapterLoader {
 
     /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
     pub fn load_adapter(&mut self, adapter_id: u16, adapter_name: &str) -> Result<AdapterHandle> {
+        self.load_adapter_for_backend(adapter_id, adapter_name, "auto")
+    }
+
+    /// Load an adapter for a specific backend tag ("mlx", "metal", "coreml", or "canonical"/"auto")
+    pub fn load_adapter_for_backend(
+        &mut self,
+        adapter_id: u16,
+        adapter_name: &str,
+        backend: &str,
+    ) -> Result<AdapterHandle> {
         let (aos_path, safetensors_path) = resolve_adapter_paths(&self.base_path, adapter_name);
 
         let (adapter_path, weights_data, metadata) = if aos_path.exists() {
@@ -200,7 +310,7 @@ impl AdapterLoader {
                 path = %aos_path.display(),
                 "Loading from .aos file"
             );
-            let (data, meta) = self.load_from_aos(&aos_path)?;
+            let (data, meta) = self.load_from_aos(&aos_path, backend)?;
             (aos_path, data, meta)
         } else if safetensors_path.exists() {
             tracing::debug!(
@@ -262,9 +372,20 @@ impl AdapterLoader {
         adapter_id: u16,
         adapter_name: &str,
     ) -> Result<AdapterHandle> {
+        self.load_adapter_async_for_backend(adapter_id, adapter_name, "auto")
+            .await
+    }
+
+    pub async fn load_adapter_async_for_backend(
+        &mut self,
+        adapter_id: u16,
+        adapter_name: &str,
+        backend: &str,
+    ) -> Result<AdapterHandle> {
         let base_path = self.base_path.clone();
         let expected_hash = self.expected_hash(adapter_name)?;
         let adapter_name_owned = adapter_name.to_string();
+        let backend_owned = backend.to_string();
 
         let (handle, weights_data) = tokio::task::spawn_blocking(move || {
             let (aos_path, safetensors_path) =
@@ -277,7 +398,7 @@ impl AdapterLoader {
                     "Loading from .aos file (async)"
                 );
                 // Load from .aos file
-                let (data, meta) = AdapterLoader::load_from_aos_static(&aos_path)?;
+                let (data, meta) = AdapterLoader::load_from_aos_static(&aos_path, &backend_owned)?;
                 (aos_path, data, meta)
             } else if safetensors_path.exists() {
                 tracing::debug!(
@@ -417,7 +538,8 @@ impl AdapterLoader {
         let tensors = SafeTensors::deserialize(&mmap)
             .map_err(|e| AosError::Lifecycle(format!("Failed to parse SafeTensors: {}", e)))?;
 
-        let metadata = Self::extract_metadata(&tensors);
+        let mut metadata = Self::extract_metadata(&tensors);
+        metadata.backend_tag = Some("canonical".to_string());
 
         // Keep data in memory for hashing and potential GPU upload
         let weights_data = mmap.to_vec();
@@ -436,12 +558,16 @@ impl AdapterLoader {
     /// # Security
     /// This method verifies Ed25519 signatures on .aos files when `require_signatures` is true.
     /// In debug builds, unsigned adapters log a warning; in release builds, they fail.
-    fn load_from_aos(&self, aos_path: &PathBuf) -> Result<(LoadedWeights, AdapterMetadata)> {
+    fn load_from_aos(
+        &self,
+        aos_path: &PathBuf,
+        backend: &str,
+    ) -> Result<(LoadedWeights, AdapterMetadata)> {
         // First verify the signature if .aos format supports it
         self.verify_aos_signature(aos_path)?;
 
         // Then load the weights
-        Self::load_from_aos_static(aos_path)
+        Self::load_from_aos_static(aos_path, backend)
     }
 
     /// Verify the Ed25519 signature on an .aos file
@@ -541,7 +667,10 @@ impl AdapterLoader {
     }
 
     /// Static helper for loading .aos files (used in both sync and async contexts)
-    fn load_from_aos_static(aos_path: &PathBuf) -> Result<(LoadedWeights, AdapterMetadata)> {
+    fn load_from_aos_static(
+        aos_path: &PathBuf,
+        backend: &str,
+    ) -> Result<(LoadedWeights, AdapterMetadata)> {
         // Open and memory-map the .aos file
         let file = File::open(aos_path)
             .map_err(|e| AosError::Lifecycle(format!("Failed to open .aos file: {}", e)))?;
@@ -549,58 +678,65 @@ impl AdapterLoader {
         let mmap = unsafe { Mmap::map(&file) }
             .map_err(|e| AosError::Lifecycle(format!("Failed to mmap .aos file: {}", e)))?;
 
-        // Validate minimum file size for header
-        if mmap.len() < HEADER_SIZE {
-            return Err(AosError::Validation(format!(
-                "AOS file too small: {} bytes (minimum {} bytes for header)",
-                mmap.len(),
-                HEADER_SIZE
-            )));
-        }
+        let file_view = open_aos(&mmap)?;
 
-        // Validate magic bytes (4 bytes at offset 0)
-        if &mmap[0..4] != &AOS_MAGIC {
-            return Err(AosError::Validation(format!(
-                "Invalid AOS magic bytes: expected {:?}, got {:?}",
-                AOS_MAGIC,
-                &mmap[0..4]
-            )));
-        }
-
-        // Read header fields to locate weights and manifest sections
-        let weights_offset = u64::from_le_bytes(mmap[8..16].try_into().unwrap()) as usize;
-        let weights_size = u64::from_le_bytes(mmap[16..24].try_into().unwrap()) as usize;
-        let manifest_offset = u64::from_le_bytes(mmap[24..32].try_into().unwrap()) as usize;
-        let manifest_size = u64::from_le_bytes(mmap[32..40].try_into().unwrap()) as usize;
-
-        // Validate weights section bounds
-        if manifest_offset + manifest_size > mmap.len() {
-            return Err(AosError::Validation(format!(
-                "Manifest extends beyond file: offset {} + size {} > file size {}",
-                manifest_offset,
-                manifest_size,
-                mmap.len()
-            )));
-        }
-        if weights_offset + weights_size > mmap.len() {
-            return Err(AosError::Validation(format!(
-                "Weights extend beyond file: offset {} + size {} > file size {}",
-                weights_offset,
-                weights_size,
-                mmap.len()
-            )));
+        if !file_view
+            .segments
+            .iter()
+            .any(|seg| seg.backend_tag == BackendTag::Canonical)
+        {
+            return Err(AosError::MissingCanonicalSegment);
         }
 
         // Extract manifest for integrity checks
-        let manifest_bytes = &mmap[manifest_offset..manifest_offset + manifest_size];
-        let manifest: ManifestForVerify = serde_json::from_slice(manifest_bytes)
+        let manifest: ManifestForVerify = serde_json::from_slice(file_view.manifest_bytes)
             .map_err(|e| AosError::Parse(format!("Failed to parse adapter manifest: {}", e)))?;
 
-        // Extract the SafeTensors weights section
-        let weights_data = &mmap[weights_offset..weights_offset + weights_size];
+        let metadata_map = manifest.metadata.clone().unwrap_or_default();
+        let domain = manifest
+            .domain
+            .clone()
+            .or_else(|| metadata_map.get("domain").cloned());
+        let group = manifest
+            .group
+            .clone()
+            .or_else(|| metadata_map.get("group").cloned());
+        let operation = manifest
+            .operation
+            .clone()
+            .or_else(|| metadata_map.get("operation").cloned());
+        let explicit_scope_path = metadata_map
+            .get("scope_path")
+            .cloned()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                AosError::Validation(
+                    "Corrupted / needs retrain: missing scope_path in manifest metadata"
+                        .to_string(),
+                )
+            })?;
+        if let Some(derived_scope_path) =
+            derive_scope_path(&domain, &group, &manifest.scope, &operation)
+        {
+            if derived_scope_path != explicit_scope_path {
+                tracing::warn!(
+                    adapter_id = ?manifest.adapter_id,
+                    derived_scope_path = %derived_scope_path,
+                    metadata_scope_path = %explicit_scope_path,
+                    "Derived scope_path differs from manifest metadata; using manifest value"
+                );
+            }
+        }
+        let scope_hash = compute_scope_hash(&explicit_scope_path);
+
+        let selected_segment = select_segment_for_backend(&file_view.segments, backend, scope_hash)
+            .ok_or_else(|| AosError::MissingSegment {
+                backend: backend.to_string(),
+                scope_path: explicit_scope_path.clone(),
+            })?;
 
         // Parse SafeTensors to extract metadata
-        let tensors = SafeTensors::deserialize(weights_data).map_err(|e| {
+        let tensors = SafeTensors::deserialize(selected_segment.payload).map_err(|e| {
             AosError::Lifecycle(format!("Failed to parse SafeTensors from .aos: {}", e))
         })?;
 
@@ -619,7 +755,7 @@ impl AdapterLoader {
             let expected = B3Hash::from_hex(expected_hex).map_err(|e| {
                 AosError::InvalidHash(format!("Invalid manifest weights_hash: {}", e))
             })?;
-            let actual = B3Hash::hash(weights_data);
+            let actual = B3Hash::hash(selected_segment.payload);
             if actual != expected {
                 return Err(AosError::AdapterHashMismatch {
                     adapter_id: adapter_name.clone(),
@@ -629,15 +765,25 @@ impl AdapterLoader {
             }
         }
 
-        let metadata = Self::extract_metadata(&tensors);
+        let mut metadata = Self::extract_metadata(&tensors);
+        metadata.lora_tier = manifest.lora_tier;
+        metadata.lora_strength = manifest.lora_strength;
+        metadata.scope = manifest.scope.clone();
+        metadata.domain = domain;
+        metadata.group = group;
+        metadata.operation = operation;
+        metadata.scope_path = Some(explicit_scope_path);
+        metadata.backend_tag = Some(selected_segment.backend_tag.as_str().to_string());
+        metadata.segment_id = Some(selected_segment.segment_id);
 
         // Copy weights data for hashing and potential GPU upload
-        let weights_vec = weights_data.to_vec();
+        let weights_vec = selected_segment.payload.to_vec();
 
         tracing::debug!(
             path = %aos_path.display(),
-            weights_offset = weights_offset,
-            weights_size = weights_size,
+            backend = %selected_segment.backend_tag.as_str(),
+            segment_id = selected_segment.segment_id,
+            weights_size = selected_segment.payload.len(),
             num_tensors = tensors.len(),
             "Extracted SafeTensors from .aos file"
         );
@@ -734,6 +880,15 @@ impl AdapterLoader {
             num_parameters,
             rank: detected_rank,
             target_modules,
+            lora_tier: None,
+            lora_strength: None,
+            scope: None,
+            domain: None,
+            group: None,
+            operation: None,
+            scope_path: None,
+            backend_tag: None,
+            segment_id: None,
         }
     }
 
@@ -822,6 +977,20 @@ struct ManifestForVerify {
     weights_hash: Option<String>,
     #[serde(default)]
     per_layer_hashes: Option<HashMap<String, LayerHashEntry>>,
+    #[serde(default)]
+    lora_tier: Option<LoraTier>,
+    #[serde(default)]
+    lora_strength: Option<f32>,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    metadata: Option<HashMap<String, String>>,
+    #[serde(default)]
+    domain: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
+    #[serde(default)]
+    operation: Option<String>,
 }
 
 /// Per-layer hash entry keyed by canonical logical layer id. Accepts either the
@@ -1089,6 +1258,7 @@ mod tests {
             weights_hash: Option<String>,
             per_layer_hashes: Option<HashMap<String, LayerHashEntry>>,
             training_config: Option<serde_json::Value>,
+            metadata: Option<HashMap<String, String>>,
         }
 
         let manifest = TestManifest {
@@ -1105,19 +1275,33 @@ mod tests {
             weights_hash: Some(B3Hash::hash(&serialized).to_hex()),
             per_layer_hashes: Some(per_layer_hashes),
             training_config: None,
+            metadata: Some(HashMap::from([(
+                "scope_path".to_string(),
+                "domain/group/scope/op".to_string(),
+            )])),
         };
 
         let aos_path = temp_dir.join("test_adapter.aos");
-        AosWriter::new()
-            .write_archive(&aos_path, &manifest, &serialized)
+        let mut writer = AosWriter::new();
+        writer
+            .add_segment(BackendTag::Canonical, None, &serialized)
+            .expect("add canonical segment");
+        writer
+            .write_archive(&aos_path, &manifest)
             .expect("write archive");
 
         // Corrupt a single byte in the first tensor's data (after safetensors header)
         let mut aos_bytes = std::fs::read(&aos_path).expect("read aos");
-        let header_len = HEADER_SIZE;
+        let index_offset = HEADER_SIZE;
+        let entry = &aos_bytes[index_offset..index_offset + INDEX_ENTRY_SIZE];
+        let payload_offset = u64::from_le_bytes(entry[8..16].try_into().unwrap()) as usize;
         let header_size = u64::from_le_bytes(serialized[0..8].try_into().unwrap()) as usize;
         let data_offset = 8 + header_size;
-        let corrupt_index = header_len + data_offset;
+        let corrupt_index = payload_offset + data_offset;
+        assert!(
+            corrupt_index < aos_bytes.len(),
+            "Corruption index within segment bounds"
+        );
         aos_bytes[corrupt_index] ^= 0xFF;
         std::fs::write(&aos_path, &aos_bytes).expect("write corrupted aos");
 

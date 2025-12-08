@@ -190,7 +190,7 @@ if [ -n "$TOKEN" ]; then
         print_info "Start worker with:"
         echo "  AOS_DEV_SKIP_METALLIB_CHECK=1 cargo run -p adapteros-lora-worker --bin aos-worker -- \\"
         echo "    --manifest manifests/qwen7b-mlx.yaml \\"
-        echo "    --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16 \\"
+        echo "    --model-path \${AOS_MODEL_CACHE_DIR:-./var/model-cache/models}/\${AOS_BASE_MODEL_ID:-qwen2.5-7b-mlx} \\"
         echo "    --uds-path ./var/run/worker.sock"
     elif [ "$INFER_HTTP_CODE" = "501" ]; then
         print_info "Inference returned 501 - Worker not initialized"

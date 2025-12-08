@@ -4,9 +4,16 @@
 use adapteros_config::precedence::ConfigBuilder;
 use adapteros_config::types::{ConfigSchema, FieldDefinition};
 
+fn empty_schema() -> ConfigSchema {
+    ConfigSchema {
+        version: "test".to_string(),
+        fields: std::collections::HashMap::new(),
+    }
+}
+
 #[test]
 fn test_ip_address_validation_ipv4_valid() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "server.host".to_string(),
         FieldDefinition {
@@ -33,7 +40,7 @@ fn test_ip_address_validation_ipv4_valid() {
 
 #[test]
 fn test_ip_address_validation_ipv6_valid() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "server.host".to_string(),
         FieldDefinition {
@@ -60,7 +67,7 @@ fn test_ip_address_validation_ipv6_valid() {
 
 #[test]
 fn test_ip_address_validation_localhost_valid() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "server.host".to_string(),
         FieldDefinition {
@@ -87,7 +94,7 @@ fn test_ip_address_validation_localhost_valid() {
 
 #[test]
 fn test_ip_address_validation_invalid() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "server.host".to_string(),
         FieldDefinition {
@@ -121,7 +128,7 @@ fn test_ip_address_validation_invalid() {
 
 #[test]
 fn test_url_validation_https_valid() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "api.url".to_string(),
         FieldDefinition {
@@ -148,7 +155,7 @@ fn test_url_validation_https_valid() {
 
 #[test]
 fn test_url_validation_http_valid() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "api.url".to_string(),
         FieldDefinition {
@@ -175,7 +182,7 @@ fn test_url_validation_http_valid() {
 
 #[test]
 fn test_url_validation_sqlite_valid_absolute_path() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "database.url".to_string(),
         FieldDefinition {
@@ -202,7 +209,7 @@ fn test_url_validation_sqlite_valid_absolute_path() {
 
 #[test]
 fn test_url_validation_sqlite_valid() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "database.url".to_string(),
         FieldDefinition {
@@ -229,7 +236,7 @@ fn test_url_validation_sqlite_valid() {
 
 #[test]
 fn test_url_validation_invalid() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "api.url".to_string(),
         FieldDefinition {
@@ -263,7 +270,7 @@ fn test_url_validation_invalid() {
 
 #[test]
 fn test_range_validation_integer_valid_lower_bound() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "server.port".to_string(),
         FieldDefinition {
@@ -290,7 +297,7 @@ fn test_range_validation_integer_valid_lower_bound() {
 
 #[test]
 fn test_range_validation_integer_valid_upper_bound() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "server.port".to_string(),
         FieldDefinition {
@@ -317,7 +324,7 @@ fn test_range_validation_integer_valid_upper_bound() {
 
 #[test]
 fn test_range_validation_integer_valid_middle() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "server.port".to_string(),
         FieldDefinition {
@@ -344,7 +351,7 @@ fn test_range_validation_integer_valid_middle() {
 
 #[test]
 fn test_range_validation_integer_below_min() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "server.port".to_string(),
         FieldDefinition {
@@ -378,7 +385,7 @@ fn test_range_validation_integer_below_min() {
 
 #[test]
 fn test_range_validation_integer_above_max() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "server.port".to_string(),
         FieldDefinition {
@@ -412,7 +419,7 @@ fn test_range_validation_integer_above_max() {
 
 #[test]
 fn test_enum_validation_string_valid_first() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "logging.level".to_string(),
         FieldDefinition {
@@ -439,7 +446,7 @@ fn test_enum_validation_string_valid_first() {
 
 #[test]
 fn test_enum_validation_string_valid_middle() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "logging.level".to_string(),
         FieldDefinition {
@@ -466,7 +473,7 @@ fn test_enum_validation_string_valid_middle() {
 
 #[test]
 fn test_enum_validation_string_valid_last() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "logging.level".to_string(),
         FieldDefinition {
@@ -493,7 +500,7 @@ fn test_enum_validation_string_valid_last() {
 
 #[test]
 fn test_enum_validation_string_invalid() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "logging.level".to_string(),
         FieldDefinition {
@@ -527,7 +534,7 @@ fn test_enum_validation_string_invalid() {
 
 #[test]
 fn test_enum_validation_string_case_sensitive() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "logging.level".to_string(),
         FieldDefinition {
@@ -554,7 +561,7 @@ fn test_enum_validation_string_case_sensitive() {
 
 #[test]
 fn test_multiple_validation_rules_string_min_length_and_enum() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "logging.format".to_string(),
         FieldDefinition {
@@ -587,7 +594,7 @@ fn test_multiple_validation_rules_string_min_length_and_enum() {
 
 #[test]
 fn test_range_validation_with_negative_numbers() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "threshold".to_string(),
         FieldDefinition {
@@ -614,7 +621,7 @@ fn test_range_validation_with_negative_numbers() {
 
 #[test]
 fn test_workers_range_validation() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "server.workers".to_string(),
         FieldDefinition {
@@ -641,7 +648,7 @@ fn test_workers_range_validation() {
 
 #[test]
 fn test_enum_validation_json_format() {
-    let mut schema = ConfigSchema::default();
+    let mut schema = empty_schema();
     schema.fields.insert(
         "logging.format".to_string(),
         FieldDefinition {

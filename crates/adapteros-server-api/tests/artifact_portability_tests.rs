@@ -11,77 +11,64 @@
 
 mod common;
 
+use adapteros_aos::{open_aos, AosWriter, BackendTag, HEADER_SIZE};
 use adapteros_core::B3Hash;
 use common::{setup_state, test_admin_claims};
+use tempfile::NamedTempFile;
 
 // ============================================================================
 // AOS File Construction Helpers
 // ============================================================================
 
-/// AOS file format constants (from format.rs)
-const AOS_MAGIC: &[u8; 4] = b"AOS3";
-const AOS_HEADER_SIZE: usize = 64;
-
 /// Creates a minimal valid .aos binary file for testing
 ///
-/// AOS3 format:
-/// - Bytes 0-3: Magic "AOS3"
-/// - Bytes 4-7: Format version (u32 LE)
-/// - Bytes 8-15: Weights offset (u64 LE)
-/// - Bytes 16-23: Weights size (u64 LE)
-/// - Bytes 24-31: Manifest offset (u64 LE)
-/// - Bytes 32-39: Manifest size (u64 LE)
-/// - Bytes 40-63: Reserved/padding
-/// - [manifest_offset..]: JSON manifest
-/// - [weights_offset..]: Binary weights data
 fn create_test_aos_file(manifest: &serde_json::Value, weights: &[u8]) -> Vec<u8> {
-    let manifest_bytes = serde_json::to_vec(manifest).unwrap();
+    let mut manifest_enriched = manifest.clone();
+    let scope = manifest_enriched
+        .get("scope")
+        .and_then(|v| v.as_str())
+        .unwrap_or("project");
+    let scope_path = format!("unspecified/unspecified/{}/test", scope);
 
-    // Calculate offsets (header, then manifest, then weights)
-    let manifest_offset = AOS_HEADER_SIZE as u64;
-    let manifest_size = manifest_bytes.len() as u64;
-    let weights_offset = manifest_offset + manifest_size;
-    let weights_size = weights.len() as u64;
+    {
+        let manifest_obj = manifest_enriched
+            .as_object_mut()
+            .expect("manifest should be an object");
+        let metadata_entry = manifest_obj
+            .entry("metadata".to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        let metadata = metadata_entry
+            .as_object_mut()
+            .expect("metadata must be object");
+        metadata
+            .entry("domain".to_string())
+            .or_insert(serde_json::json!("unspecified"));
+        metadata
+            .entry("group".to_string())
+            .or_insert(serde_json::json!("unspecified"));
+        metadata
+            .entry("operation".to_string())
+            .or_insert(serde_json::json!("test"));
+        metadata
+            .entry("scope_path".to_string())
+            .or_insert(serde_json::json!(scope_path.clone()));
+    }
 
-    let mut file = Vec::with_capacity(AOS_HEADER_SIZE + manifest_bytes.len() + weights.len());
-
-    // Header
-    file.extend_from_slice(AOS_MAGIC); // 0-3: Magic
-    file.extend_from_slice(&1u32.to_le_bytes()); // 4-7: Format version
-    file.extend_from_slice(&weights_offset.to_le_bytes()); // 8-15: Weights offset
-    file.extend_from_slice(&weights_size.to_le_bytes()); // 16-23: Weights size
-    file.extend_from_slice(&manifest_offset.to_le_bytes()); // 24-31: Manifest offset
-    file.extend_from_slice(&manifest_size.to_le_bytes()); // 32-39: Manifest size
-    file.extend_from_slice(&[0u8; 24]); // 40-63: Reserved
-
-    // Manifest
-    file.extend_from_slice(&manifest_bytes);
-
-    // Weights
-    file.extend_from_slice(weights);
-
-    file
+    let mut writer = AosWriter::new();
+    writer
+        .add_segment(BackendTag::Canonical, Some(scope_path), weights)
+        .unwrap();
+    let temp = NamedTempFile::new().unwrap();
+    writer
+        .write_archive(temp.path(), &manifest_enriched)
+        .expect("write test aos");
+    std::fs::read(temp.path()).expect("read test aos")
 }
 
 /// Extracts manifest JSON from an .aos file (for verification)
 fn extract_manifest_from_aos(data: &[u8]) -> Option<serde_json::Value> {
-    if data.len() < AOS_HEADER_SIZE || &data[0..4] != AOS_MAGIC {
-        return None;
-    }
-
-    let manifest_offset = u64::from_le_bytes([
-        data[24], data[25], data[26], data[27], data[28], data[29], data[30], data[31],
-    ]) as usize;
-    let manifest_size = u64::from_le_bytes([
-        data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39],
-    ]) as usize;
-
-    if manifest_offset + manifest_size > data.len() {
-        return None;
-    }
-
-    let manifest_bytes = &data[manifest_offset..manifest_offset + manifest_size];
-    serde_json::from_slice(manifest_bytes).ok()
+    let view = open_aos(data).ok()?;
+    serde_json::from_slice(view.manifest_bytes).ok()
 }
 
 // ============================================================================
@@ -106,8 +93,7 @@ async fn test_aos_file_roundtrip() {
     let aos_file = create_test_aos_file(&manifest, &weights);
 
     // Verify file structure
-    assert_eq!(&aos_file[0..4], AOS_MAGIC);
-    assert!(aos_file.len() > AOS_HEADER_SIZE);
+    assert!(aos_file.len() > HEADER_SIZE);
 
     // Extract and verify manifest
     let extracted = extract_manifest_from_aos(&aos_file).expect("should parse");
@@ -229,28 +215,13 @@ async fn test_weights_hash_computation() {
     let stored_hash = extracted.get("weights_hash").unwrap().as_str().unwrap();
 
     // Recompute from extracted weights
-    let weights_offset = u64::from_le_bytes([
-        aos_file[8],
-        aos_file[9],
-        aos_file[10],
-        aos_file[11],
-        aos_file[12],
-        aos_file[13],
-        aos_file[14],
-        aos_file[15],
-    ]) as usize;
-    let weights_size = u64::from_le_bytes([
-        aos_file[16],
-        aos_file[17],
-        aos_file[18],
-        aos_file[19],
-        aos_file[20],
-        aos_file[21],
-        aos_file[22],
-        aos_file[23],
-    ]) as usize;
-
-    let extracted_weights = &aos_file[weights_offset..weights_offset + weights_size];
+    let view = open_aos(&aos_file).expect("valid aos file");
+    let extracted_weights = view
+        .segments
+        .iter()
+        .find(|s| s.backend_tag == BackendTag::Canonical)
+        .map(|s| s.payload)
+        .expect("canonical segment present");
     let recomputed_hash = B3Hash::hash(extracted_weights).to_hex().to_string();
 
     assert_eq!(

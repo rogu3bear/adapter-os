@@ -3,6 +3,7 @@
 //! Verifies the full training pipeline works: config → examples → train → quantize → package → verify
 //! These tests run on CPU backend only (no GPU required) and prove the training code actually executes.
 
+use adapteros_lora_router::ROUTER_GATE_Q15_DENOM;
 use adapteros_lora_worker::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingBackend, TrainingConfig,
     TrainingExample,
@@ -94,9 +95,44 @@ async fn test_e2e_full_pipeline() {
     // Step 3: Package
     let packager = AdapterPackager::new(temp.path());
     let packaged = packager
-        .package_aos("default", "e2e_test", &quantized, &config, "base-model")
+        .package_aos_for_tenant("default", "e2e_test", &quantized, &config, "base-model")
         .await
         .expect("packaging should succeed");
+
+    // Verify manifest metadata was populated
+    assert_eq!(
+        packaged.manifest.training_backend.as_deref(),
+        Some("cpu"),
+        "training_backend should be carried into manifest"
+    );
+    assert_eq!(
+        packaged.manifest.quantization.as_deref(),
+        Some("q15"),
+        "quantization format should be recorded"
+    );
+    assert_eq!(
+        packaged.manifest.gate_q15_denominator,
+        Some(ROUTER_GATE_Q15_DENOM as u32),
+        "gate denominator should match router constant"
+    );
+    let determinism_mode = if cfg!(feature = "deterministic-only") {
+        "deterministic-only"
+    } else {
+        "best-effort"
+    };
+    assert_eq!(
+        packaged.manifest.determinism, determinism_mode,
+        "determinism mode should be stamped into manifest"
+    );
+    assert_eq!(
+        packaged
+            .manifest
+            .metadata
+            .get("training_backend")
+            .map(String::as_str),
+        Some("cpu"),
+        "metadata should also record training_backend"
+    );
 
     // Step 4: Verify output
     assert!(

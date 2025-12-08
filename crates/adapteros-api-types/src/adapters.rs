@@ -1,5 +1,6 @@
 //! Adapter management types
 
+use adapteros_types::training::LoraTier;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -64,6 +65,16 @@ pub struct AdapterResponse {
     /// Adapter scope: 'global', 'tenant', 'repo', or 'commit'
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// Marketing/operational tier for routing (micro/standard/max)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub lora_tier: Option<LoraTier>,
+    /// Runtime strength multiplier (scales LoRA application without changing alpha)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lora_strength: Option<f32>,
+    /// Logical scope for routing (may mirror scope)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lora_scope: Option<String>,
     /// Framework identifier for code intelligence
     #[serde(skip_serializing_if = "Option::is_none")]
     pub framework_id: Option<String>,
@@ -149,6 +160,9 @@ pub struct AdapterManifest {
     pub rank: i32,
     /// Storage tier: 'persistent', 'warm', or 'ephemeral'
     pub tier: String,
+    /// LoRA strength multiplier [0.0, 1.0]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lora_strength: Option<f32>,
     pub framework: Option<String>,
     pub languages_json: Option<String>,
     pub category: Option<String>,

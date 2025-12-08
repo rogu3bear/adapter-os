@@ -136,6 +136,7 @@ impl Db {
         }
     }
 
+    #[allow(dead_code)]
     fn meta_to_kv(meta: &CodeGraphMetadata) -> CodeGraphMetadataKv {
         CodeGraphMetadataKv {
             id: meta.id.clone(),
@@ -174,6 +175,7 @@ impl Db {
         }
     }
 
+    #[allow(dead_code)]
     fn scan_to_kv(job: &ScanJob) -> ScanJobKv {
         ScanJobKv {
             id: job.id.clone(),

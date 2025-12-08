@@ -4,9 +4,11 @@
 
 use super::quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
 use super::trainer::TrainingConfig;
-use adapteros_aos::AosWriter;
+use adapteros_aos::{AosWriter, BackendTag};
 use adapteros_core::{AosError, RepoAdapterPaths, Result};
 use adapteros_crypto::Keypair;
+use adapteros_lora_router::ROUTER_GATE_Q15_DENOM;
+use adapteros_types::training::LoraTier;
 use safetensors::tensor::TensorView;
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
@@ -40,8 +42,26 @@ pub struct AdapterManifest {
     pub training_config: TrainingConfig,
     pub created_at: String,
     pub weights_hash: String,
+    #[serde(default = "default_category")]
+    pub category: String,
+    #[serde(default = "default_tier")]
+    pub tier: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub per_layer_hashes: Option<std::collections::HashMap<String, LayerHash>>,
+    #[serde(default)]
+    pub training_backend: Option<String>,
+    #[serde(default = "default_determinism_mode")]
+    pub determinism: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lora_tier: Option<LoraTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lora_strength: Option<f32>,
+    #[serde(default = "default_scope")]
+    pub scope: String,
+    #[serde(default)]
+    pub quantization: Option<String>,
+    #[serde(default)]
+    pub gate_q15_denominator: Option<u32>,
     pub metadata: std::collections::HashMap<String, String>,
 }
 
@@ -51,6 +71,44 @@ pub struct LayerHash {
     pub hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tensor_name: Option<String>,
+}
+
+fn default_determinism_mode() -> String {
+    if cfg!(feature = "deterministic-only") {
+        "deterministic-only".to_string()
+    } else {
+        "best-effort".to_string()
+    }
+}
+
+fn default_category() -> String {
+    "domain-adapter".to_string()
+}
+
+fn default_tier() -> String {
+    "warm".to_string()
+}
+
+fn default_scope() -> String {
+    "project".to_string()
+}
+
+fn parse_lora_tier(metadata: &HashMap<String, String>) -> Option<LoraTier> {
+    metadata.get("lora_tier").and_then(|v| match v.as_str() {
+        "micro" => Some(LoraTier::Micro),
+        "standard" => Some(LoraTier::Standard),
+        "max" => Some(LoraTier::Max),
+        _ => None,
+    })
+}
+
+fn default_strength_for_tier(tier: Option<LoraTier>) -> Option<f32> {
+    match tier {
+        Some(LoraTier::Micro) => Some(0.25),
+        Some(LoraTier::Standard) => Some(0.5),
+        Some(LoraTier::Max) => Some(1.0),
+        None => None,
+    }
 }
 
 impl AdapterPackager {
@@ -81,6 +139,63 @@ impl AdapterPackager {
                 .repo_root
                 .to_path_buf(),
         }
+    }
+
+    /// Enrich metadata with deterministic defaults and backend/quantization hints.
+    fn build_manifest_metadata(
+        metadata: HashMap<String, String>,
+        config: &TrainingConfig,
+        scope: &str,
+    ) -> (HashMap<String, String>, Option<String>, String, String) {
+        let mut manifest_metadata = metadata;
+
+        // runtime-only knob; exclude from persisted .aos metadata
+        manifest_metadata.remove("routing_determinism_mode");
+
+        // Standard quantization + determinism annotations
+        manifest_metadata
+            .entry("quantization".to_string())
+            .or_insert_with(|| "q15".to_string());
+        manifest_metadata
+            .entry("gate_q15_denominator".to_string())
+            .or_insert_with(|| ROUTER_GATE_Q15_DENOM.to_string());
+
+        let determinism = manifest_metadata
+            .entry("determinism".to_string())
+            .or_insert_with(default_determinism_mode)
+            .clone();
+
+        // Prefer caller-provided backend, otherwise derive from config preference
+        let training_backend = config
+            .preferred_backend
+            .map(|b| b.tag().to_string())
+            .or_else(|| manifest_metadata.get("training_backend").cloned());
+
+        if let Some(ref backend) = training_backend {
+            manifest_metadata
+                .entry("training_backend".to_string())
+                .or_insert_with(|| backend.clone());
+        }
+
+        let domain = manifest_metadata
+            .entry("domain".to_string())
+            .or_insert_with(|| "unspecified".to_string())
+            .clone();
+        let group = manifest_metadata
+            .entry("group".to_string())
+            .or_insert_with(|| "unspecified".to_string())
+            .clone();
+        let operation = manifest_metadata
+            .entry("operation".to_string())
+            .or_insert_with(|| "unspecified".to_string())
+            .clone();
+
+        let scope_path = format!("{}/{}/{}/{}", domain, group, scope, operation);
+        manifest_metadata
+            .entry("scope_path".to_string())
+            .or_insert_with(|| scope_path.clone());
+
+        (manifest_metadata, training_backend, determinism, scope_path)
     }
 
     fn adapter_dir(
@@ -141,6 +256,20 @@ impl AdapterPackager {
         let hash_b3 = blake3::hash(&weights_bytes).to_hex().to_string();
         let per_layer_hashes = Self::compute_per_layer_hashes_from_bytes(&weights_bytes)?;
 
+        let scope_value = metadata.get("scope").cloned().unwrap_or_else(default_scope);
+        let (metadata, training_backend, determinism, _scope_path) =
+            Self::build_manifest_metadata(metadata, config, &scope_value);
+        let lora_tier = parse_lora_tier(&metadata);
+        let lora_strength = metadata
+            .get("lora_strength")
+            .and_then(|v| v.parse::<f32>().ok())
+            .or_else(|| default_strength_for_tier(lora_tier));
+        let category = metadata
+            .get("category")
+            .cloned()
+            .unwrap_or_else(default_category);
+        let tier = metadata.get("tier").cloned().unwrap_or_else(default_tier);
+
         // Create manifest
         let manifest = AdapterManifest {
             version: "1.0.0".to_string(),
@@ -149,7 +278,16 @@ impl AdapterPackager {
             training_config: config.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: hash_b3.clone(),
+            category,
+            tier,
             per_layer_hashes: Some(per_layer_hashes),
+            training_backend,
+            determinism,
+            lora_tier,
+            lora_strength,
+            scope: scope_value,
+            quantization: Some("q15".to_string()),
+            gate_q15_denominator: Some(ROUTER_GATE_Q15_DENOM as u32),
             metadata,
         };
 
@@ -177,11 +315,11 @@ impl AdapterPackager {
         })
     }
 
-    /// Package adapter as single .aos archive file
+    /// Package adapter as single .aos archive file for a specific tenant.
     ///
     /// Creates a single-file .aos archive containing manifest + weights.
     /// This is the preferred format for distribution and loading into Worker.
-    pub async fn package_aos(
+    pub async fn package_aos_for_tenant(
         &self,
         tenant_id: &str,
         adapter_id: &str,
@@ -198,6 +336,21 @@ impl AdapterPackager {
             HashMap::new(),
         )
         .await
+    }
+
+    /// Package adapter as single .aos archive file (legacy wrapper).
+    ///
+    /// Uses the default tenant ("default") to preserve compatibility with
+    /// existing call sites that are not yet tenant-aware.
+    pub async fn package_aos(
+        &self,
+        adapter_id: &str,
+        weights: &QuantizedLoRAWeights,
+        config: &TrainingConfig,
+        base_model: &str,
+    ) -> Result<PackagedAdapter> {
+        self.package_aos_for_tenant("default", adapter_id, weights, config, base_model)
+            .await
     }
 
     /// Package adapter as single .aos archive file with metadata
@@ -226,6 +379,20 @@ impl AdapterPackager {
         let hash_b3 = blake3::hash(&weights_data).to_hex().to_string();
         let per_layer_hashes = Self::compute_per_layer_hashes_from_bytes(&weights_data)?;
 
+        let scope_value = metadata.get("scope").cloned().unwrap_or_else(default_scope);
+        let (metadata, training_backend, determinism, scope_path) =
+            Self::build_manifest_metadata(metadata, config, &scope_value);
+        let lora_tier = parse_lora_tier(&metadata);
+        let lora_strength = metadata
+            .get("lora_strength")
+            .and_then(|v| v.parse::<f32>().ok())
+            .or_else(|| default_strength_for_tier(lora_tier));
+        let category = metadata
+            .get("category")
+            .cloned()
+            .unwrap_or_else(default_category);
+        let tier = metadata.get("tier").cloned().unwrap_or_else(default_tier);
+
         // Create manifest
         let manifest = AdapterManifest {
             version: "2.0".to_string(), // AOS 2.0 format
@@ -234,14 +401,28 @@ impl AdapterPackager {
             training_config: config.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: hash_b3.clone(),
+            category,
+            tier,
             per_layer_hashes: Some(per_layer_hashes),
+            training_backend,
+            determinism,
+            lora_tier,
+            lora_strength,
+            scope: scope_value.clone(),
+            quantization: Some("q15".to_string()),
+            gate_q15_denominator: Some(ROUTER_GATE_Q15_DENOM as u32),
             metadata,
         };
 
         // Write .aos archive
         let aos_path = adapter_dir.join(format!("{}.aos", adapter_id));
-        let writer = AosWriter::new();
-        writer.write_archive(&aos_path, &manifest, &weights_data)?;
+        let mut writer = AosWriter::new();
+        writer.add_segment(
+            BackendTag::Canonical,
+            Some(scope_path.clone()),
+            &weights_data,
+        )?;
+        writer.write_archive(&aos_path, &manifest)?;
 
         // Deterministic signature for the archive to allow reproducible verification
         self.sign_archive(&aos_path, adapter_id).await?;
@@ -631,7 +812,16 @@ mod tests {
             training_config: TrainingConfig::default(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: "test_hash".to_string(),
+            category: default_category(),
+            tier: default_tier(),
             per_layer_hashes: None,
+            training_backend: Some("cpu".to_string()),
+            determinism: default_determinism_mode(),
+            lora_tier: None,
+            lora_strength: None,
+            scope: default_scope(),
+            quantization: Some("q15".to_string()),
+            gate_q15_denominator: Some(ROUTER_GATE_Q15_DENOM as u32),
             metadata: std::collections::HashMap::new(),
         };
 

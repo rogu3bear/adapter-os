@@ -103,6 +103,12 @@ pub struct SecurityConfig {
     /// JWT algorithm mode (eddsa or hs256)
     #[serde(default)]
     pub jwt_mode: Option<String>,
+    /// Additional Ed25519 public keys (PEM) accepted for JWT verification
+    #[serde(default)]
+    pub jwt_additional_ed25519_public_keys: Option<Vec<String>>,
+    /// Additional HMAC secrets accepted for JWT verification
+    #[serde(default)]
+    pub jwt_additional_hmac_secrets: Option<Vec<String>>,
     /// Cookie SameSite policy: "Lax", "Strict", or "None" (default: Lax)
     #[serde(default = "default_cookie_same_site")]
     pub cookie_same_site: String,
@@ -300,5 +306,61 @@ impl Config {
         let contents = fs::read_to_string(path)?;
         let config: Config = toml::from_str(&contents)?;
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_additional_jwt_keys() {
+        let contents = r#"
+[server]
+port = 8080
+
+[db]
+path = "var/aos-cp.sqlite3"
+
+[security]
+jwt_secret = "secret"
+jwt_additional_ed25519_public_keys = ["pem-1", "pem-2"]
+jwt_additional_hmac_secrets = ["hmac-1", "hmac-2"]
+
+[paths]
+artifacts_root = "var/artifacts"
+bundles_root = "var/bundles"
+
+[rate_limits]
+requests_per_minute = 100
+burst_size = 50
+inference_per_minute = 100
+
+[metrics]
+enabled = true
+bearer_token = "token"
+include_histogram = false
+histogram_buckets = [0.1, 0.5, 1.0]
+
+[alerting]
+enabled = false
+alert_dir = "var/alerts"
+max_alerts_per_file = 10
+rotate_size_mb = 5
+        "#;
+
+        let cfg: Config = toml::from_str(contents).expect("config parses");
+
+        assert_eq!(
+            cfg.security
+                .jwt_additional_ed25519_public_keys
+                .as_deref()
+                .unwrap(),
+            ["pem-1", "pem-2"]
+        );
+        assert_eq!(
+            cfg.security.jwt_additional_hmac_secrets.as_deref().unwrap(),
+            ["hmac-1", "hmac-2"]
+        );
     }
 }

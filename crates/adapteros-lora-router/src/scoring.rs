@@ -56,6 +56,7 @@ impl ScoringFunction for WeightedScorer {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
         self.router

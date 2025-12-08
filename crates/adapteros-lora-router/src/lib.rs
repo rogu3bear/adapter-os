@@ -16,9 +16,14 @@ pub mod path_routing;
 pub mod scoring;
 
 use adapteros_core::{B3Hash, Result};
+use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::collections::HashSet;
+
+/// Q15 gate constants for router outputs (deterministic, non-negative gates)
+pub const ROUTER_GATE_Q15_DENOM: f32 = 32767.0;
+pub const ROUTER_GATE_Q15_MAX: i16 = 32767;
 
 /// Router determinism configuration
 ///
@@ -233,6 +238,8 @@ pub struct Router {
     // Determinism controls
     /// Determinism configuration for reproducible routing
     determinism_config: RouterDeterminismConfig,
+    /// Whether adaptive (non-deterministic tie-break) routing is enabled
+    adaptive_routing: bool,
 
     // Abstain thresholds
     /// Entropy threshold above which to abstain (high uncertainty)
@@ -263,6 +270,7 @@ impl Router {
             telemetry_writer: None,
             step_counter: 0,
             determinism_config: RouterDeterminismConfig::default(),
+            adaptive_routing: false,
             abstain_entropy_threshold: None,
             abstain_confidence_threshold: None,
             abstain_telemetry_writer: None,
@@ -314,6 +322,7 @@ impl Router {
             telemetry_writer: None,
             step_counter: 0,
             determinism_config: RouterDeterminismConfig::default(),
+            adaptive_routing: false,
             abstain_entropy_threshold: policy_config.abstain_entropy_threshold,
             abstain_confidence_threshold: policy_config.abstain_confidence_threshold,
             abstain_telemetry_writer: None,
@@ -351,6 +360,11 @@ impl Router {
     /// Set determinism configuration
     pub fn set_determinism_config(&mut self, config: RouterDeterminismConfig) {
         self.determinism_config = config;
+    }
+
+    /// Configure routing determinism (adaptive enables non-deterministic tie-breaks)
+    pub fn set_routing_determinism_mode(&mut self, adaptive: bool) {
+        self.adaptive_routing = adaptive;
     }
 
     /// Get current determinism configuration
@@ -738,6 +752,16 @@ impl Router {
         };
         score += tier_boost;
 
+        if let Some(ref lora_tier) = adapter_info.lora_tier {
+            let tier_bonus = match lora_tier.as_str() {
+                "max" => 0.12,
+                "standard" => 0.06,
+                "micro" => 0.0,
+                _ => 0.0,
+            };
+            score += tier_bonus;
+        }
+
         score
     }
 
@@ -1037,18 +1061,51 @@ impl Router {
         priors: &[f32],
         adapter_info: &[AdapterInfo],
     ) -> Decision {
-        if priors.len() != adapter_info.len() {
+        self.route_with_adapter_info_and_scope(features, priors, adapter_info, None)
+    }
+
+    /// Scope-aware routing that filters adapters by scope_path when provided.
+    /// If no adapters match the scope hint, routing falls back to the original priors.
+    pub fn route_with_adapter_info_and_scope(
+        &mut self,
+        features: &[f32],
+        priors: &[f32],
+        adapter_info: &[AdapterInfo],
+        scope_hint: Option<&str>,
+    ) -> Decision {
+        let mut filtered_priors: Option<Vec<f32>> = None;
+        if let Some(hint) = scope_hint {
+            let mut priors_copy = priors.to_vec();
+            let mut matched = false;
+            for (prior, info) in priors_copy.iter_mut().zip(adapter_info.iter()) {
+                if info.scope_path.as_deref() == Some(hint) {
+                    matched = true;
+                } else {
+                    *prior = f32::NEG_INFINITY;
+                }
+            }
+            if matched {
+                filtered_priors = Some(priors_copy);
+            }
+        }
+
+        let priors_for_routing: &[f32] = filtered_priors
+            .as_ref()
+            .map(|v| v.as_slice())
+            .unwrap_or(priors);
+
+        if priors_for_routing.len() != adapter_info.len() {
             tracing::warn!(
                 "Priors length ({}) != adapter_info length ({}), falling back to basic route",
-                priors.len(),
+                priors_for_routing.len(),
                 adapter_info.len()
             );
             #[allow(deprecated)] // Intentional fallback to deprecated method
-            return self.route(features, priors);
+            return self.route(features, priors_for_routing);
         }
 
         // Compute scores for each adapter with per-adapter feature scoring and penalties
-        let mut scores: Vec<(usize, f32)> = priors
+        let mut scores: Vec<(usize, f32)> = priors_for_routing
             .iter()
             .enumerate()
             .map(|(i, &prior)| {
@@ -1066,11 +1123,28 @@ impl Router {
             })
             .collect();
 
-        // Sort by score descending, then by index for determinism
+        // Prepare adaptive tie-breakers when adaptive routing is enabled
+        let tie_breakers: Vec<u64> = if self.adaptive_routing {
+            let mut rng = thread_rng();
+            (0..adapter_info.len()).map(|_| rng.gen()).collect()
+        } else {
+            Vec::new()
+        };
+
+        // Sort by score descending, then by deterministic/adaptive tie-break
         scores.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(&b.0))
+                .then_with(|| {
+                    if self.adaptive_routing && (a.1 - b.1).abs() <= f32::EPSILON {
+                        tie_breakers
+                            .get(b.0)
+                            .unwrap_or(&0)
+                            .cmp(tie_breakers.get(a.0).unwrap_or(&0))
+                    } else {
+                        a.0.cmp(&b.0)
+                    }
+                })
         });
 
         // Take top K
@@ -1092,12 +1166,12 @@ impl Router {
             *g /= sum_gates;
         }
 
-        // Quantize to Q15 (denominator 32767.0) so identical inputs keep the same per-token gates across runs
+        // Quantize to Q15 so identical inputs keep the same per-token gates across runs
         let gates_q15: SmallVec<[i16; 8]> = gates
             .iter()
             .map(|&g| {
-                let q = (g * 32767.0).round() as i16;
-                q.max(0)
+                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
+                q.max(0).min(ROUTER_GATE_Q15_MAX)
             })
             .collect();
 
@@ -1131,7 +1205,7 @@ impl Router {
         // Compute decision hash if enabled
         let decision_hash = if self.determinism_config.enable_decision_hashing {
             let feature_vec: Vec<f32> = features.to_vec();
-            Some(self.compute_decision_hash(&feature_vec, priors, &indices, &gates_q15))
+            Some(self.compute_decision_hash(&feature_vec, priors_for_routing, &indices, &gates_q15))
         } else {
             None
         };
@@ -1437,12 +1511,14 @@ impl ScoringExplanation {
 }
 
 /// Adapter information for routing
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AdapterInfo {
     pub id: String,
     pub framework: Option<String>,
     pub languages: Vec<usize>, // Language indices
     pub tier: String,
+    pub scope_path: Option<String>,
+    pub lora_tier: Option<String>,
 }
 
 impl AdapterInfo {
@@ -1541,6 +1617,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
 
@@ -1566,6 +1643,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
 
@@ -1591,18 +1669,21 @@ mod tests {
                 framework: None,
                 languages: vec![0], // Python index
                 tier: "persistent".to_string(),
+                ..Default::default()
             },
             AdapterInfo {
                 id: "django-specific".to_string(),
                 framework: Some("django".to_string()),
                 languages: vec![0], // Python index
                 tier: "persistent".to_string(),
+                ..Default::default()
             },
             AdapterInfo {
                 id: "rust-general".to_string(),
                 framework: None,
                 languages: vec![1], // Rust index
                 tier: "persistent".to_string(),
+                ..Default::default()
             },
         ];
 
@@ -1786,6 +1867,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
 
@@ -1828,6 +1910,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
 
@@ -1890,6 +1973,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
 
@@ -1949,6 +2033,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
 
@@ -2004,6 +2089,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
         let features = vec![0.0f32; 3];
@@ -2038,6 +2124,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
 
@@ -2088,6 +2175,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
 
@@ -2141,6 +2229,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
 
@@ -2180,6 +2269,7 @@ mod tests {
                 framework: None,
                 languages: vec![],
                 tier: "default".to_string(),
+                ..Default::default()
             })
             .collect();
 
@@ -2228,5 +2318,42 @@ mod tests {
 
         assert_eq!(router.abstain_entropy_threshold, Some(0.85));
         assert_eq!(router.abstain_confidence_threshold, Some(0.25));
+    }
+
+    #[test]
+    fn test_scope_hint_filters_non_matching_adapters() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 0.02);
+        let features = vec![0.0; 4];
+        let priors = vec![0.8, 0.8];
+        let scope_hint = "domain/group/scope/op";
+
+        let adapter_info = vec![
+            AdapterInfo {
+                id: "scoped".to_string(),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+                scope_path: Some(scope_hint.to_string()),
+                ..Default::default()
+            },
+            AdapterInfo {
+                id: "other".to_string(),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+                scope_path: Some("other/scope".to_string()),
+                ..Default::default()
+            },
+        ];
+
+        let decision = router.route_with_adapter_info_and_scope(
+            &features,
+            &priors,
+            &adapter_info,
+            Some(scope_hint),
+        );
+
+        assert_eq!(decision.indices.len(), 1);
+        assert_eq!(decision.indices[0], 0);
     }
 }

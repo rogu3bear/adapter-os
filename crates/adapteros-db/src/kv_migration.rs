@@ -532,6 +532,7 @@ impl Db {
             rank: adapter.rank,
             tier: adapter.tier.clone(),
             alpha: adapter.alpha,
+            lora_strength: adapter.lora_strength,
             targets_json: adapter.targets_json.clone(),
             acl_json: adapter.acl_json.clone(),
             languages_json: adapter.languages_json.clone(),
@@ -557,7 +558,8 @@ impl Db {
             base_model_id: None,           // Not available during KV migration
             manifest_schema_version: None, // Not available during KV migration
             content_hash_b3: None,         // Not available during KV migration
-            provenance_json: None,         // Not available during KV migration
+            metadata_json: adapter.metadata_json.clone(),
+            provenance_json: None, // Not available during KV migration
         };
 
         // Register in KV

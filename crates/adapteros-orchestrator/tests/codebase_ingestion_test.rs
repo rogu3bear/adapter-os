@@ -3,11 +3,18 @@
 //! These tests require external dependencies (tokenizers, models) and are marked as ignored.
 //! Run with: cargo test --test codebase_ingestion_test -- --ignored
 
+use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_lora_worker::training::TrainingConfig;
 use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
 use std::io::Write;
 use std::path::PathBuf;
 use tempfile::TempDir;
+
+fn canonical_tokenizer_path() -> PathBuf {
+    PathBuf::from(DEFAULT_MODEL_CACHE_ROOT)
+        .join(DEFAULT_BASE_MODEL_ID)
+        .join("tokenizer.json")
+}
 
 /// Test end-to-end codebase ingestion pipeline
 /// TODO: Requires tokenizer and model files, skipped in CI
@@ -15,8 +22,7 @@ use tempfile::TempDir;
 #[ignore = "Requires tokenizer and model files not available in CI"]
 async fn test_codebase_ingestion_end_to_end() {
     // Skip if tokenizer is not available
-    let tokenizer_path =
-        PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json");
+    let tokenizer_path = canonical_tokenizer_path();
     if !tokenizer_path.exists() {
         eprintln!("Skipping test: tokenizer not found at {:?}", tokenizer_path);
         return;
@@ -132,8 +138,7 @@ It contains basic math utilities.
 #[ignore = "Requires tokenizer and model files not available in CI"]
 async fn test_determinism() {
     // Skip if tokenizer is not available
-    let tokenizer_path =
-        PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json");
+    let tokenizer_path = canonical_tokenizer_path();
     if !tokenizer_path.exists() {
         eprintln!("Skipping test: tokenizer not found at {:?}", tokenizer_path);
         return;
@@ -221,8 +226,7 @@ pub fn square(n: i32) -> i32 {{
 #[tokio::test]
 #[ignore = "Requires tokenizer and model files not available in CI"]
 async fn test_no_documentation() {
-    let tokenizer_path =
-        PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json");
+    let tokenizer_path = canonical_tokenizer_path();
     if !tokenizer_path.exists() {
         eprintln!("Skipping test: tokenizer not found");
         return;

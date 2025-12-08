@@ -6,6 +6,11 @@ use super::trainer::LoRAWeights;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+/// Q15 constants for LoRA weight quantization
+pub const LORA_Q15_MAX: f32 = 32767.0;
+pub const LORA_Q15_MIN: f32 = -32768.0;
+pub const LORA_Q15_DENOM: f32 = 32768.0;
+
 /// LoRA quantizer for Q15 format
 pub struct LoRAQuantizer;
 
@@ -99,7 +104,7 @@ impl LoRAQuantizer {
 
         // Compute scale to map max_abs to Q15 range
         let scale = if max_abs > 0.0 {
-            max_abs / 32767.0
+            max_abs / LORA_Q15_MAX
         } else {
             1.0
         };
@@ -120,7 +125,7 @@ impl LoRAQuantizer {
             return 0;
         }
         let normalized = value / scale;
-        let quantized = (normalized * 32768.0).clamp(-32768.0, 32767.0);
+        let quantized = (normalized * LORA_Q15_DENOM).clamp(LORA_Q15_MIN, LORA_Q15_MAX);
         quantized as i16
     }
 
@@ -142,7 +147,7 @@ impl LoRAQuantizer {
 
     /// Dequantize a single i16 Q15 value to f32
     fn dequantize_value(value: i16, scale: f32) -> f32 {
-        let normalized = value as f32 / 32768.0;
+        let normalized = value as f32 / LORA_Q15_DENOM;
         normalized * scale
     }
 

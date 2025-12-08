@@ -182,6 +182,11 @@ impl MLXKVCache {
         }
     }
 
+    /// Get configured transformer layer count
+    pub fn num_layers(&self) -> usize {
+        self.config.num_layers
+    }
+
     /// Update cache with new key/value tensors for a layer
     ///
     /// # Arguments

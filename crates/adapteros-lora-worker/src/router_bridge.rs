@@ -16,7 +16,7 @@
 
 use adapteros_core::AosError;
 use adapteros_lora_kernel_api::RouterRing;
-use adapteros_lora_router::Decision;
+use adapteros_lora_router::{Decision, ROUTER_GATE_Q15_MAX};
 use tracing::{debug, warn};
 
 /// Convert router Decision to canonical RouterRing format
@@ -114,6 +114,21 @@ pub fn decision_to_router_ring_with_active_ids(
     active_adapter_ids: &[u16],
     position: usize,
 ) -> Result<RouterRing, AosError> {
+    decision_to_router_ring_with_active_ids_and_strengths(
+        decision,
+        active_adapter_ids,
+        None,
+        position,
+    )
+}
+
+/// Convert Decision to RouterRing and apply per-adapter strength scaling
+pub fn decision_to_router_ring_with_active_ids_and_strengths(
+    decision: &Decision,
+    active_adapter_ids: &[u16],
+    strengths: Option<&[f32]>,
+    position: usize,
+) -> Result<RouterRing, AosError> {
     let mapped_indices: Vec<u16> = decision
         .indices
         .iter()
@@ -138,6 +153,26 @@ pub fn decision_to_router_ring_with_active_ids(
         decision.gates_q15.as_slice(),
         u16::MAX,
     );
+
+    if let Some(strengths) = strengths {
+        if strengths.len() != active_adapter_ids.len() {
+            return Err(AosError::Routing(format!(
+                "Strengths length {} does not match active adapters {}",
+                strengths.len(),
+                active_adapter_ids.len()
+            )));
+        }
+
+        for (slot, active_idx) in decision.indices.iter().enumerate() {
+            let strength = strengths
+                .get(*active_idx as usize)
+                .copied()
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            let scaled = (ring.gates_q15[slot] as f32 * strength).round() as i16;
+            ring.gates_q15[slot] = scaled.clamp(-ROUTER_GATE_Q15_MAX, ROUTER_GATE_Q15_MAX);
+        }
+    }
 
     Ok(ring)
 }

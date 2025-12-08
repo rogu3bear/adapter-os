@@ -267,6 +267,8 @@ mod tests {
     use adapteros_core::B3Hash;
     use std::path::PathBuf;
     use std::sync::Arc;
+    use tokenizers::models::wordlevel::WordLevel;
+    use tokenizers::pre_tokenizers::whitespace::Whitespace;
     use tokenizers::Tokenizer;
 
     #[test]
@@ -364,12 +366,16 @@ mod tests {
     }
 
     fn fixture_tokenizer() -> Arc<Tokenizer> {
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let repo_root = manifest_dir
-            .parent()
-            .and_then(|p| p.parent())
-            .expect("Failed to locate workspace root");
-        let tokenizer_path = repo_root.join("models/test-model/tokenizer.json");
-        crate::load_tokenizer(&tokenizer_path).expect("Failed to load tokenizer")
+        let vocab = [("[UNK]".to_string(), 0u32), ("[PAD]".to_string(), 1u32)]
+            .into_iter()
+            .collect();
+        let model = WordLevel::builder()
+            .vocab(vocab)
+            .unk_token("[UNK]".to_string())
+            .build()
+            .expect("wordlevel model");
+        let mut tokenizer = Tokenizer::new(model);
+        tokenizer.with_pre_tokenizer(Whitespace::default());
+        Arc::new(tokenizer)
     }
 }

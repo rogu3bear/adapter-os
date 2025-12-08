@@ -6,6 +6,7 @@ version = 4
 name = "adapter-os"
 version = "0.1.0"
 dependencies = [
+ "adapteros-aos",
  "adapteros-api",
  "adapteros-api-types",
  "adapteros-artifacts",
@@ -35,9 +36,11 @@ dependencies = [
  "adapteros-registry",
  "adapteros-replay",
  "adapteros-sbom",
+ "adapteros-scenarios",
  "adapteros-server-api",
  "adapteros-telemetry",
  "adapteros-trace",
+ "adapteros-types",
  "adapteros-verify",
  "anyhow",
  "axum 0.8.7",
@@ -433,10 +436,12 @@ name = "adapteros-db"
 version = "0.1.0"
 dependencies = [
  "adapteros-api-types",
+ "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-storage",
  "adapteros-telemetry",
+ "adapteros-types",
  "anyhow",
  "argon2",
  "async-trait",
@@ -605,6 +610,7 @@ dependencies = [
 name = "adapteros-ingest-docs"
 version = "0.1.0"
 dependencies = [
+ "adapteros-config",
  "adapteros-core",
  "adapteros-db",
  "adapteros-lora-mlx-ffi",
@@ -649,6 +655,7 @@ dependencies = [
 name = "adapteros-lora-kernel-coreml"
 version = "0.1.0"
 dependencies = [
+ "adapteros-config",
  "adapteros-core",
  "adapteros-lora-kernel-api",
  "adapteros-memory",
@@ -724,6 +731,7 @@ dependencies = [
  "adapteros-profiler",
  "adapteros-single-file-adapter",
  "adapteros-telemetry",
+ "adapteros-types",
  "chrono",
  "criterion",
  "futures",
@@ -872,6 +880,7 @@ dependencies = [
  "adapteros-secure-fs",
  "adapteros-single-file-adapter",
  "adapteros-telemetry",
+ "adapteros-types",
  "anyhow",
  "async-trait",
  "blake3",
@@ -1057,6 +1066,7 @@ dependencies = [
  "adapteros-federation",
  "adapteros-ingest-docs",
  "adapteros-lora-lifecycle",
+ "adapteros-lora-router",
  "adapteros-lora-worker",
  "adapteros-manifest",
  "adapteros-platform",
@@ -1312,6 +1322,7 @@ dependencies = [
 name = "adapteros-server-api"
 version = "0.1.0"
 dependencies = [
+ "adapteros-aos",
  "adapteros-api-types",
  "adapteros-client",
  "adapteros-codegraph",
@@ -1473,6 +1484,7 @@ dependencies = [
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-telemetry",
+ "adapteros-types",
  "async-trait",
  "bincode",
  "chrono",
@@ -1494,6 +1506,7 @@ version = "0.1.0"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
+ "adapteros-lora-mlx-ffi",
  "adapteros-manifest",
  "adapteros-policy",
  "adapteros-telemetry",
@@ -1639,6 +1652,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "sqlx",
  "uuid",
 ]
 

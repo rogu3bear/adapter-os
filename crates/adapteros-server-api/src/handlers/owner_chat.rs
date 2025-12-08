@@ -12,6 +12,7 @@ use crate::audit_helper::log_action;
 use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_config::resolve_worker_socket_for_cp;
 use adapteros_core::B3Hash;
 use adapteros_db::chat_sessions::{AddMessageParams, CreateChatSessionParams};
 use axum::{extract::State, http::StatusCode, response::Json, Extension};
@@ -474,6 +475,7 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         require_evidence: false,
         stack_id: None,
         stack_version: None,
+        domain_hint: None,
         temperature: 0.7,
         top_k: None,
         top_p: None,
@@ -484,10 +486,12 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         backend_profile: None,
         strict_mode: Some(false),
         determinism_mode: None,
+        routing_determinism_mode: None,
         pinned_adapter_ids: None,
         effective_adapter_ids: None,
         placement: None,
         routing_policy: None,
+        adapter_strength_overrides: None,
     };
 
     // Send inference request via UDS
@@ -535,16 +539,24 @@ async fn get_worker_uds_path(state: &AppState) -> Option<std::path::PathBuf> {
 
     // Fallback to environment variable
     if let Ok(socket_path) = std::env::var("AOS_WORKER_SOCKET") {
-        let path = std::path::PathBuf::from(socket_path);
+        let path = std::path::PathBuf::from(&socket_path);
         if path.exists() {
+            info!(
+                path = %path.display(),
+                "Using worker socket from AOS_WORKER_SOCKET for owner chat"
+            );
             return Some(path);
         }
     }
 
-    // Final fallback to default path
-    let default_path = std::path::PathBuf::from("/var/run/adapteros.sock");
-    if default_path.exists() {
-        return Some(default_path);
+    let resolved = resolve_worker_socket_for_cp();
+    if resolved.path.exists() {
+        info!(
+            path = %resolved.path.display(),
+            source = %resolved.source,
+            "Using resolved worker socket fallback for owner chat"
+        );
+        return Some(resolved.path);
     }
 
     None

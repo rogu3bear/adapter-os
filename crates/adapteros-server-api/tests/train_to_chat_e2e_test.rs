@@ -92,6 +92,7 @@ async fn create_test_stack(db: &Db, tenant_id: &str, stack_name: &str) -> Result
         adapter_ids: vec!["adapter-1".to_string(), "adapter-2".to_string()],
         workflow_type: Some("inference".to_string()),
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
 
     let stack_id = db.insert_stack(&req).await?;

@@ -208,6 +208,15 @@ pub enum AosError {
         actual: B3Hash,
     },
 
+    #[error("Segment hash mismatch for {segment_id}")]
+    SegmentHashMismatch { segment_id: u32 },
+
+    #[error("Missing segment for backend '{backend}' and scope '{scope_path}'")]
+    MissingSegment { backend: String, scope_path: String },
+
+    #[error("Missing canonical segment (corrupted / needs retrain)")]
+    MissingCanonicalSegment,
+
     #[error(
         "Per-layer hash mismatch for {adapter_id} at {layer_id}: expected {expected}, got {actual}"
     )]

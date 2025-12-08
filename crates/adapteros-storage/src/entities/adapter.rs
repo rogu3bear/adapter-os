@@ -31,6 +31,7 @@ pub struct AdapterKv {
     pub hash_b3: String,
     pub rank: i32,
     pub alpha: f64,
+    pub lora_strength: Option<f32>,
     pub tier: String, // persistent | warm | ephemeral
 
     // Configuration
@@ -82,6 +83,8 @@ pub struct AdapterKv {
     // File references
     pub aos_file_path: Option<String>,
     pub aos_file_hash: Option<String>,
+    #[serde(default)]
+    pub metadata_json: Option<String>,
 
     // Archive/GC state (from migration 0138)
     pub archived_at: Option<DateTime<Utc>>,
@@ -143,6 +146,7 @@ mod tests {
             hash_b3: "abc123".to_string(),
             rank: 8,
             alpha: 16.0,
+            lora_strength: None,
             tier: "warm".to_string(),
             targets: vec!["q_proj".to_string(), "v_proj".to_string()],
             acl: None,
@@ -176,6 +180,7 @@ mod tests {
             expires_at: None,
             aos_file_path: Some("/var/adapters/test.aos".to_string()),
             aos_file_hash: None,
+            metadata_json: None,
             archived_at: None,
             archived_by: None,
             archive_reason: None,
@@ -197,6 +202,7 @@ mod tests {
             hash_b3: "abc123".to_string(),
             rank: 8,
             alpha: 16.0,
+            lora_strength: None,
             tier: "ephemeral".to_string(),
             targets: vec![],
             acl: None,
@@ -230,6 +236,7 @@ mod tests {
             expires_at: None,
             aos_file_path: None,
             aos_file_hash: None,
+            metadata_json: None,
             archived_at: None,
             archived_by: None,
             archive_reason: None,

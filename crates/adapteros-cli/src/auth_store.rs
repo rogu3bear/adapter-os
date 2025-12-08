@@ -3,8 +3,6 @@ use anyhow::{Context, Result};
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use std::{env, fs, path::PathBuf};
-use tracing::warn;
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuthStore {
     pub base_url: String,
@@ -54,6 +52,28 @@ pub fn clear_auth() -> Result<()> {
     Ok(())
 }
 
+/// Set an environment variable, scoping the unsafe call narrowly.
+fn set_env(key: &str, value: &str) {
+    // Safety: invoked during CLI initialization/tests; no concurrent env mutation.
+    unsafe { env::set_var(key, value) };
+}
+
+/// Remove an environment variable, scoping the unsafe call narrowly.
+#[cfg(test)]
+fn remove_env(key: &str) {
+    // Safety: invoked in single-threaded test setup/teardown.
+    unsafe { env::remove_var(key) };
+}
+
+/// Set an environment variable only if it is currently unset.
+/// On some targets (e.g., WASI) `env::set_var` is marked `unsafe`; we scope the
+/// unsafe block narrowly and use it only during CLI startup.
+fn set_env_if_absent(key: &str, value: &str) {
+    if env::var(key).is_err() {
+        set_env(key, value);
+    }
+}
+
 /// Preload environment variables from stored login for CLI defaults.
 /// This allows clap `env` defaults (AOS_TOKEN, AOS_SERVER_URL, AOS_TENANT_ID)
 /// to pick up persisted credentials without explicit flags.
@@ -63,15 +83,9 @@ pub fn preload_env_from_store() {
     }
 
     if let Ok(Some(store)) = load_auth() {
-        if env::var("AOS_TOKEN").is_err() {
-            env::set_var("AOS_TOKEN", &store.token);
-        }
-        if env::var("AOS_SERVER_URL").is_err() {
-            env::set_var("AOS_SERVER_URL", &store.base_url);
-        }
-        if env::var("AOS_TENANT_ID").is_err() {
-            env::set_var("AOS_TENANT_ID", &store.tenant_id);
-        }
+        set_env_if_absent("AOS_TOKEN", &store.token);
+        set_env_if_absent("AOS_SERVER_URL", &store.base_url);
+        set_env_if_absent("AOS_TENANT_ID", &store.tenant_id);
     }
 }
 
@@ -93,13 +107,12 @@ pub fn warn_if_tenant_mismatch(request_tenant: Option<&str>, output: &OutputWrit
 mod tests {
     use super::*;
     use serial_test::serial;
-    use std::env;
     use tempfile::TempDir;
 
     fn with_temp_store() -> (TempDir, PathBuf) {
         let dir = TempDir::new().expect("tmpdir");
         let path = dir.path().join("auth.json");
-        env::set_var("AOSCTL_AUTH_PATH", &path);
+        set_env("AOSCTL_AUTH_PATH", path.to_string_lossy().as_ref());
         (dir, path)
     }
 
@@ -117,7 +130,7 @@ mod tests {
         let loaded = load_auth().expect("load").expect("some");
         assert_eq!(store, loaded);
         assert!(path.exists());
-        env::remove_var("AOSCTL_AUTH_PATH");
+        remove_env("AOSCTL_AUTH_PATH");
     }
 
     #[test]
@@ -132,18 +145,18 @@ mod tests {
         };
         save_auth(&store).expect("save");
 
-        env::remove_var("AOS_TOKEN");
-        env::remove_var("AOS_SERVER_URL");
-        env::remove_var("AOS_TENANT_ID");
+        remove_env("AOS_TOKEN");
+        remove_env("AOS_SERVER_URL");
+        remove_env("AOS_TENANT_ID");
 
         preload_env_from_store();
 
         assert_eq!(env::var("AOS_TOKEN").unwrap(), "token-env");
         assert_eq!(env::var("AOS_SERVER_URL").unwrap(), "http://env.example");
         assert_eq!(env::var("AOS_TENANT_ID").unwrap(), "tenant-env");
-        env::remove_var("AOS_TOKEN");
-        env::remove_var("AOS_SERVER_URL");
-        env::remove_var("AOS_TENANT_ID");
-        env::remove_var("AOSCTL_AUTH_PATH");
+        remove_env("AOS_TOKEN");
+        remove_env("AOS_SERVER_URL");
+        remove_env("AOS_TENANT_ID");
+        remove_env("AOSCTL_AUTH_PATH");
     }
 }

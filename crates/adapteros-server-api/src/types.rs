@@ -1,5 +1,6 @@
 use adapteros_config::PlacementWeights as ConfigPlacementWeights;
 use adapteros_core::{BackendProfile, SeedMode};
+use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1014,6 +1015,9 @@ pub struct WorkerInferRequest {
     /// Stack version for telemetry correlation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack_version: Option<i64>,
+    /// Domain hint used for routing/package selection
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_hint: Option<String>,
     /// Sampling temperature (0.0 = deterministic, higher = more random)
     #[serde(default)]
     pub temperature: f32,
@@ -1046,6 +1050,10 @@ pub struct WorkerInferRequest {
     /// Determinism mode to apply in the worker (strict, besteffort, relaxed)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
+    /// Routing determinism mode for adapter selection (deterministic/adaptive)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
     /// Pinned adapter IDs that receive prior boost in routing (CHAT-PIN-02)
     ///
     /// These adapters receive PINNED_BOOST (0.3) added to their prior scores
@@ -1069,6 +1077,12 @@ pub struct WorkerInferRequest {
     /// Placement override for deterministic replay
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placement: Option<PlacementReplay>,
+
+    /// Per-adapter strength overrides (session/request scoped)
+    ///
+    /// Values multiply the adapter's configured lora_strength (default 1.0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_strength_overrides: Option<std::collections::HashMap<String, f32>>,
 }
 
 /// Placement decision trace entry (per token)
@@ -1091,6 +1105,9 @@ pub struct WorkerInferResponse {
     /// Backend used to execute the request (e.g., metal, coreml, mlx)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_used: Option<String>,
+    /// Backend version/build identifier
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_version: Option<String>,
     /// Whether backend fallback occurred during execution
     #[serde(default)]
     pub fallback_triggered: bool,
@@ -1839,45 +1856,15 @@ pub fn training_config_from_request(
         min_delta: None,
         checkpoint_frequency: None,
         max_checkpoints: None,
+        preferred_backend: req.preferred_backend,
+        require_gpu: req.require_gpu.unwrap_or(false),
+        max_gpu_memory_mb: req.max_gpu_memory_mb,
     }
 }
 
 /// Convert orchestrator TrainingJob to TrainingJobResponse
 pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> TrainingJobResponse {
-    // Calculate estimated completion time for running jobs
-    let estimated_completion = calculate_estimated_completion(&job);
-
-    TrainingJobResponse {
-        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        id: job.id,
-        adapter_name: job.adapter_name,
-        template_id: job.template_id,
-        repo_id: job.repo_id,
-        dataset_id: job.dataset_id,
-        status: format!("{:?}", job.status).to_lowercase(),
-        progress_pct: job.progress_pct,
-        current_epoch: job.current_epoch,
-        total_epochs: job.total_epochs,
-        current_loss: job.current_loss,
-        learning_rate: job.learning_rate,
-        tokens_per_second: job.tokens_per_second,
-        created_at: job.created_at,
-        started_at: job.started_at,
-        completed_at: job.completed_at,
-        error_message: job.error_message,
-        estimated_completion,
-        base_model_id: None,
-        collection_id: None,
-        build_id: None,
-        config_hash_b3: None,
-        adapter_id: None,
-        weights_hash_b3: None,
-        category: None,
-        description: None,
-        language: None,
-        framework_id: None,
-        framework_version: None,
-    }
+    TrainingJobResponse::from(job)
 }
 
 /// Calculate estimated completion time for a training job
@@ -2634,14 +2621,24 @@ pub struct InferenceRequestInternal {
     ///
     /// References a stack in the DB; resolved to adapter IDs before sending to the worker.
     pub stack_id: Option<String>,
+    /// Optional domain hint for routing/package selection
+    pub domain_hint: Option<String>,
     /// Stack version for telemetry/audit (populated when stack_id resolves)
     pub stack_version: Option<i64>,
     /// Determinism mode configured on the resolved stack (if any)
     pub stack_determinism_mode: Option<String>,
+    /// Routing determinism mode configured on the resolved stack (if any)
+    pub stack_routing_determinism_mode: Option<RoutingDeterminismMode>,
     /// Effective adapter IDs after control plane resolution
     pub effective_adapter_ids: Option<Vec<String>>,
+    /// Per-adapter strength overrides (session/request scoped)
+    ///
+    /// Values multiply the adapter's configured lora_strength. Defaults to 1.0.
+    pub adapter_strength_overrides: Option<std::collections::HashMap<String, f32>>,
     /// Resolved determinism mode applied to this request
     pub determinism_mode: Option<String>,
+    /// Routing determinism mode applied to this request (deterministic/adaptive)
+    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
     /// Seed mode requested for per-request RNG derivation
     pub seed_mode: Option<SeedMode>,
     /// Request-scoped seed derived by control plane
@@ -2711,10 +2708,14 @@ impl InferenceRequestInternal {
             adapter_stack: None,
             adapters: None,
             stack_id: None,
+            domain_hint: None,
             stack_version: None,
             stack_determinism_mode: None,
+            stack_routing_determinism_mode: None,
             effective_adapter_ids: None,
+            adapter_strength_overrides: None,
             determinism_mode: None,
+            routing_determinism_mode: None,
             seed_mode: None,
             request_seed: None,
             backend_profile: None,
@@ -2767,6 +2768,9 @@ pub struct InferenceResult {
         Option<Vec<adapteros_api_types::inference::RouterDecisionChainEntry>>,
     /// RAG evidence if RAG was used
     pub rag_evidence: Option<RagEvidence>,
+    /// Source citations derived from training files or RAG
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub citations: Vec<adapteros_api_types::inference::Citation>,
     /// Total latency in milliseconds
     pub latency_ms: u64,
     /// Request ID for correlation
@@ -2966,10 +2970,14 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             adapter_stack: req.adapter_stack.clone(),
             adapters: req.adapters.clone(),
             stack_id: req.stack_id.clone(),
+            domain_hint: req.domain.clone(),
             stack_version: None,
             stack_determinism_mode: None,
+            stack_routing_determinism_mode: None,
             effective_adapter_ids: None, // Computed in InferenceCore
+            adapter_strength_overrides: None,
             determinism_mode: None,
+            routing_determinism_mode: req.routing_determinism_mode.clone(),
             seed_mode: None,
             request_seed: None,
             backend_profile: None,
@@ -3011,6 +3019,7 @@ impl From<InferenceResult> for InferResponse {
             finish_reason: result.finish_reason,
             latency_ms: result.latency_ms,
             adapters_used: result.adapters_used.clone(),
+            citations: result.citations,
             trace: InferenceTrace {
                 adapters_used: result.adapters_used,
                 router_decisions: result
@@ -3189,6 +3198,9 @@ pub struct ReplayKey {
     /// Adapter IDs selected by router
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapter_ids: Option<Vec<String>>,
+    /// Whether the inference ran in base-only mode (no adapters)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_only: Option<bool>,
 }
 
 /// Replay availability status

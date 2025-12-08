@@ -7,6 +7,9 @@
 //!   aos-worker --uds-path ./var/run/worker.sock --manifest manifests/qwen32b-coder-mlx.yaml \
 //!              --model-path ./var/models/Qwen2.5-7B-Instruct-4bit --manifest-hash <HASH>
 
+use adapteros_config::{
+    resolve_manifest_cache_dir, resolve_telemetry_dir, resolve_worker_socket_for_worker,
+};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_worker::{
     backend_coordinator::BackendCoordinator,
@@ -203,14 +206,24 @@ fn fetch_manifest_from_cp(cp_url: &str, tenant_id: &str, manifest_hash: &B3Hash)
 
 /// Cache manifest locally for reuse
 fn cache_manifest(manifest_hash: &B3Hash, manifest_json: &str) {
-    let cache_dir = PathBuf::from("./var/manifest-cache");
+    let resolved_cache = resolve_manifest_cache_dir();
+    let cache_dir = resolved_cache.path;
     if fs::create_dir_all(&cache_dir).is_ok() {
         let cache_path = cache_dir.join(format!("{}.json", manifest_hash.to_hex()));
+        info!(
+            path = %cache_path.display(),
+            source = %resolved_cache.source,
+            "Writing manifest cache entry"
+        );
         if let Err(e) = fs::write(&cache_path, manifest_json) {
             warn!(error = %e, path = %cache_path.display(), "Failed to write manifest cache");
         }
     } else {
-        warn!("Failed to create manifest cache directory at ./var/manifest-cache");
+        warn!(
+            path = %cache_dir.display(),
+            source = %resolved_cache.source,
+            "Failed to create manifest cache directory"
+        );
     }
 }
 
@@ -434,26 +447,14 @@ async fn main() -> Result<()> {
     info!(worker_id = %worker_id, cp_url = %args.cp_url, "Panic hook installed for fatal error reporting");
 
     // Resolve UDS path with fallback logic
-    let uds_path = args.uds_path.unwrap_or_else(|| {
-        // Try production path first: /var/run/aos/{tenant_id}/worker.sock
-        let prod_path = PathBuf::from(format!("/var/run/aos/{}/worker.sock", args.tenant_id));
-        if let Some(parent) = prod_path.parent() {
-            if parent.exists() || std::fs::create_dir_all(parent).is_ok() {
-                return prod_path;
-            }
-        }
-        // Fallback to development path: ./var/run/worker.sock (relative to cwd)
-        let dev_path = PathBuf::from("./var/run/worker.sock");
-        if let Some(parent) = dev_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        dev_path
-    });
+    let resolved_uds = resolve_worker_socket_for_worker(&args.tenant_id, args.uds_path.as_deref());
+    let uds_path = resolved_uds.path.clone();
 
     info!(
         tenant_id = %args.tenant_id,
         plan_id = %args.plan_id,
         uds_path = %uds_path.display(),
+        uds_source = %resolved_uds.source,
         "Starting aos-worker"
     );
 
@@ -636,12 +637,24 @@ async fn main() -> Result<()> {
     };
 
     // Create telemetry writer - use env var or ./var/telemetry
-    let telemetry_dir =
-        std::env::var("AOS_TELEMETRY_DIR").unwrap_or_else(|_| "./var/telemetry".to_string());
-    std::fs::create_dir_all(&telemetry_dir).ok();
-    let telemetry = TelemetryWriter::new(&telemetry_dir, 10000, 100_000_000).map_err(|e| {
-        adapteros_core::AosError::Worker(format!("Failed to create telemetry writer: {}", e))
-    })?;
+    let resolved_telemetry = resolve_telemetry_dir();
+    if let Err(e) = std::fs::create_dir_all(&resolved_telemetry.path) {
+        warn!(
+            error = %e,
+            path = %resolved_telemetry.path.display(),
+            source = %resolved_telemetry.source,
+            "Failed to create telemetry directory; continuing"
+        );
+    }
+    let telemetry =
+        TelemetryWriter::new(&resolved_telemetry.path, 10000, 100_000_000).map_err(|e| {
+            adapteros_core::AosError::Worker(format!("Failed to create telemetry writer: {}", e))
+        })?;
+    info!(
+        path = %resolved_telemetry.path.display(),
+        source = %resolved_telemetry.source,
+        "Telemetry writer initialized"
+    );
 
     // Create worker
     info!("Creating worker instance");
@@ -744,9 +757,9 @@ async fn main() -> Result<()> {
     let _serve_span_guard = serve_span.enter();
 
     // Run server with drain handling
-    let mut shutdown_signal = signal::ctrl_c();
+    let shutdown_signal = signal::ctrl_c();
     tokio::pin!(shutdown_signal);
-    let mut serve_fut = server.serve();
+    let serve_fut = server.serve();
     tokio::pin!(serve_fut);
     tokio::select! {
         res = &mut serve_fut => res,

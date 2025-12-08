@@ -563,6 +563,7 @@ impl InferencePipeline {
                     framework: None,
                     languages: vec![0], // Default language
                     tier: "persistent".to_string(),
+                    ..Default::default()
                 })
                 .collect();
 
@@ -962,6 +963,7 @@ mod tests {
                 framework: None,
                 languages: vec![0],
                 tier: "persistent".to_string(),
+                ..Default::default()
             })
             .collect();
         let priors = vec![1.0, 2.0, 3.0];
@@ -983,6 +985,7 @@ mod tests {
                 framework: None,
                 languages: vec![0],
                 tier: "persistent".to_string(),
+                ..Default::default()
             })
             .collect();
         let priors = vec![1.0];

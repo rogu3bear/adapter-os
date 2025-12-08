@@ -165,18 +165,88 @@ impl DeterministicConfig {
                                     actual_value: value.to_string(),
                                 });
                             }
+                        } else if rule.starts_with("enum:") {
+                            let options: Vec<&str> =
+                                rule.trim_start_matches("enum:").split(',').collect();
+                            if !options.iter().any(|opt| opt == &value) {
+                                return Err(ConfigValidationError {
+                                    key: key.to_string(),
+                                    message: format!("Value must be one of: {}", options.join(",")),
+                                    expected_type: "enum".to_string(),
+                                    actual_value: value.to_string(),
+                                });
+                            }
+                        } else if rule == "ip_address" {
+                            let is_localhost = value.eq_ignore_ascii_case("localhost");
+                            let parsed = value.parse::<std::net::IpAddr>();
+                            if !is_localhost && parsed.is_err() {
+                                return Err(ConfigValidationError {
+                                    key: key.to_string(),
+                                    message: "Invalid IP address".to_string(),
+                                    expected_type: "ip_address".to_string(),
+                                    actual_value: value.to_string(),
+                                });
+                            }
+                        } else if rule == "url" {
+                            let allowed_prefixes =
+                                ["http://", "https://", "file://", "unix://", "sqlite://"];
+                            if !allowed_prefixes
+                                .iter()
+                                .any(|prefix| value.starts_with(prefix))
+                            {
+                                return Err(ConfigValidationError {
+                                    key: key.to_string(),
+                                    message: "Invalid URL".to_string(),
+                                    expected_type: "url".to_string(),
+                                    actual_value: value.to_string(),
+                                });
+                            }
                         }
                     }
                 }
             }
             "integer" => {
-                if value.parse::<i64>().is_err() {
-                    return Err(ConfigValidationError {
-                        key: key.to_string(),
-                        message: "Invalid integer value".to_string(),
-                        expected_type: "integer".to_string(),
-                        actual_value: value.to_string(),
-                    });
+                let parsed = match value.parse::<i64>() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        return Err(ConfigValidationError {
+                            key: key.to_string(),
+                            message: "Invalid integer value".to_string(),
+                            expected_type: "integer".to_string(),
+                            actual_value: value.to_string(),
+                        })
+                    }
+                };
+
+                if let Some(rules) = &field_def.validation_rules {
+                    for rule in rules {
+                        if let Some(range) = rule.strip_prefix("range:") {
+                            let mut parts = range.splitn(2, '-');
+                            let min = parts.next().and_then(|s| s.parse::<i64>().ok());
+                            let max = parts.next().and_then(|s| s.parse::<i64>().ok());
+
+                            if let Some(min) = min {
+                                if parsed < min {
+                                    return Err(ConfigValidationError {
+                                        key: key.to_string(),
+                                        message: format!("Value below minimum range: {}", min),
+                                        expected_type: "integer".to_string(),
+                                        actual_value: value.to_string(),
+                                    });
+                                }
+                            }
+                            if let Some(max) = max {
+                                if parsed > max {
+                                    return Err(ConfigValidationError {
+                                        key: key.to_string(),
+                                        message: format!("Value above maximum range: {}", max),
+                                        expected_type: "integer".to_string(),
+                                        actual_value: value.to_string(),
+                                    });
+                                }
+                            }
+                        }
+                    }
                 }
             }
             "boolean" => {

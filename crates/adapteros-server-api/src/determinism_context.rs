@@ -5,6 +5,17 @@ use adapteros_db::InferenceReplayMetadata;
 use blake3::Hasher;
 use hkdf::Hkdf;
 use sha2::Sha256;
+use tracing::warn;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeterminismSource {
+    /// request_seed_hex provided explicitly
+    RequestSeedHex,
+    /// seed (u64) expanded via HKDF
+    SeedU64Expanded,
+    /// Derived from live request context
+    DerivedFromRequest,
+}
 
 /// Canonical determinism context derived from a request or replay metadata.
 ///
@@ -15,6 +26,7 @@ pub struct DeterminismContext {
     request_seed: [u8; 32],
     request_seed_low64: u64,
     router_seed_hex: String,
+    source: DeterminismSource,
 }
 
 impl DeterminismContext {
@@ -57,6 +69,7 @@ impl DeterminismContext {
             request_seed,
             request_seed_low64,
             router_seed_hex,
+            source: DeterminismSource::DerivedFromRequest,
         })
     }
 
@@ -72,21 +85,27 @@ impl DeterminismContext {
                 ))
             })?;
 
-        let request_seed = if let Some(hex_seed) = sampling_params.request_seed_hex {
+        let (request_seed, source) = if let Some(hex_seed) = sampling_params.request_seed_hex {
             let bytes = hex::decode(hex_seed).map_err(|e| {
                 InferenceError::ValidationError(format!(
                     "Invalid request_seed_hex in replay metadata: {}",
                     e
                 ))
             })?;
-            bytes.try_into().map_err(|_| {
+            let seed_bytes: [u8; 32] = bytes.try_into().map_err(|_| {
                 InferenceError::ValidationError("request_seed_hex must be 32 bytes".to_string())
-            })?
+            })?;
+            (seed_bytes, DeterminismSource::RequestSeedHex)
         } else if let Some(seed64) = sampling_params.seed {
-            expand_u64_seed(seed64)
+            (expand_u64_seed(seed64), DeterminismSource::SeedU64Expanded)
         } else {
+            warn!(
+                inference_id = %metadata.inference_id,
+                "Replay metadata missing determinism seed; rejecting legacy/seedless replay"
+            );
             return Err(InferenceError::ValidationError(
-                "Replay metadata missing request_seed_hex and seed".to_string(),
+                "Replay metadata missing request_seed; legacy seed derivation is no longer supported—please re-record the replay"
+                    .to_string(),
             ));
         };
 
@@ -98,6 +117,7 @@ impl DeterminismContext {
             inference_id = %metadata.inference_id,
             router_seed = %router_seed_hex,
             request_seed_hex = %hex::encode(request_seed),
+            source = ?source,
             "DeterminismContext reconstructed from replay metadata"
         );
 
@@ -105,6 +125,7 @@ impl DeterminismContext {
             request_seed,
             request_seed_low64,
             router_seed_hex,
+            source,
         })
     }
 
@@ -126,6 +147,10 @@ impl DeterminismContext {
     /// Derive per-step sampler seed following the canonical rule.
     pub fn sampler_seed(&self, step: u64) -> [u8; 32] {
         derive_sampler_seed(&self.request_seed, step)
+    }
+
+    pub fn source(&self) -> &DeterminismSource {
+        &self.source
     }
 }
 
@@ -159,8 +184,8 @@ fn expand_u64_seed(seed: u64) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_core::SeedMode;
     use adapteros_core::B3Hash;
+    use adapteros_core::SeedMode;
     use adapteros_db::InferenceReplayMetadata;
 
     #[test]
@@ -168,7 +193,8 @@ mod tests {
         let manifest = B3Hash::hash(b"manifest");
         let global = B3Hash::hash(b"global");
 
-        let mut request = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+        let mut request =
+            InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
         request.request_id = "req-123".to_string();
 
         let ctx_from_request = DeterminismContext::from_request(
@@ -205,6 +231,7 @@ mod tests {
             sampling_algorithm_version: "v1".to_string(),
             rag_snapshot_hash: None,
             adapter_ids_json: None,
+            base_only: None,
             prompt_text: "p".to_string(),
             prompt_truncated: 0,
             response_text: Some("r".to_string()),
@@ -222,8 +249,8 @@ mod tests {
             created_at: "now".to_string(),
         };
 
-        let ctx_from_replay =
-            DeterminismContext::from_replay_metadata(&metadata).expect("replay context should derive");
+        let ctx_from_replay = DeterminismContext::from_replay_metadata(&metadata)
+            .expect("replay context should derive");
 
         assert_eq!(
             ctx_from_request.request_seed(),
@@ -239,6 +266,125 @@ mod tests {
             ctx_from_request.sampler_seed(3),
             ctx_from_replay.sampler_seed(3),
             "Sampler seeds must be stable per step"
+        );
+        assert_eq!(
+            ctx_from_replay.source(),
+            &DeterminismSource::RequestSeedHex,
+            "Replay path should respect explicit request_seed_hex"
+        );
+    }
+
+    #[test]
+    fn replay_seed_expands_from_u64_seed() {
+        let manifest = B3Hash::hash(b"manifest");
+        let sampling_params = SamplingParams {
+            temperature: 0.0,
+            top_k: Some(4),
+            top_p: Some(0.9),
+            max_tokens: 16,
+            seed: Some(42),
+            seed_mode: Some(SeedMode::BestEffort),
+            backend_profile: None,
+            request_seed_hex: None,
+            placement: None,
+        };
+
+        let metadata = InferenceReplayMetadata {
+            id: "meta-2".to_string(),
+            inference_id: "replay-seed-u64".to_string(),
+            tenant_id: "tenant-1".to_string(),
+            manifest_hash: manifest.to_hex(),
+            base_model_id: None,
+            router_seed: None,
+            sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
+            backend: "Metal".to_string(),
+            backend_version: None,
+            sampling_algorithm_version: "v1".to_string(),
+            rag_snapshot_hash: None,
+            adapter_ids_json: None,
+            base_only: None,
+            prompt_text: "p".to_string(),
+            prompt_truncated: 0,
+            response_text: None,
+            response_truncated: 0,
+            rag_doc_ids_json: None,
+            chat_context_hash: None,
+            replay_status: "available".to_string(),
+            latency_ms: None,
+            tokens_generated: None,
+            determinism_mode: Some("strict".to_string()),
+            fallback_triggered: Some(false),
+            replay_guarantee: Some("exact".to_string()),
+            execution_policy_id: None,
+            execution_policy_version: None,
+            created_at: "now".to_string(),
+        };
+
+        let ctx = DeterminismContext::from_replay_metadata(&metadata).expect("derive ctx");
+        assert_eq!(
+            ctx.source(),
+            &DeterminismSource::SeedU64Expanded,
+            "Should expand from legacy seed field"
+        );
+        assert_eq!(
+            ctx.request_seed_low64(),
+            42u64,
+            "Lower 64 bits should mirror seed when expanded"
+        );
+    }
+
+    #[test]
+    fn seedless_replay_metadata_is_rejected() {
+        let manifest = B3Hash::hash(b"manifest");
+        let sampling_params = SamplingParams {
+            temperature: 0.0,
+            top_k: None,
+            top_p: None,
+            max_tokens: 8,
+            seed: None,
+            seed_mode: None,
+            backend_profile: None,
+            request_seed_hex: None,
+            placement: None,
+        };
+
+        let metadata = InferenceReplayMetadata {
+            id: "meta-legacy".to_string(),
+            inference_id: "legacy-inference".to_string(),
+            tenant_id: "tenant-1".to_string(),
+            manifest_hash: manifest.to_hex(),
+            base_model_id: None,
+            router_seed: None,
+            sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
+            backend: "Metal".to_string(),
+            backend_version: None,
+            sampling_algorithm_version: "v1".to_string(),
+            rag_snapshot_hash: None,
+            adapter_ids_json: None,
+            base_only: None,
+            prompt_text: "p".to_string(),
+            prompt_truncated: 0,
+            response_text: None,
+            response_truncated: 0,
+            rag_doc_ids_json: None,
+            chat_context_hash: None,
+            replay_status: "available".to_string(),
+            latency_ms: None,
+            tokens_generated: None,
+            determinism_mode: Some("besteffort".to_string()),
+            fallback_triggered: Some(false),
+            replay_guarantee: Some("approximate".to_string()),
+            execution_policy_id: None,
+            execution_policy_version: None,
+            created_at: "now".to_string(),
+        };
+
+        let err = DeterminismContext::from_replay_metadata(&metadata)
+            .expect_err("seedless replay metadata must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("missing request_seed"),
+            "error should explain missing seeds; got {msg}"
         );
     }
 }

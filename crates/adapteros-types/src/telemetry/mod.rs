@@ -46,7 +46,7 @@ pub struct TelemetryEvent {
     /// User ID (if applicable)
     pub user_id: Option<String>,
 
-    /// Additional metadata as JSON
+    /// Additional metadata as JSON (e.g., backend, scope_path, segment_id, lora_strength, determinism_mode)
     pub metadata: Option<serde_json::Value>,
 
     /// Trace ID for distributed tracing

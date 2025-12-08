@@ -7,6 +7,7 @@ license.workspace = true
 
 [features]
 default = []
+deterministic-only = []
 telemetry-sysinfo = ["dep:sysinfo"]
 
 # Backend feature flags
@@ -56,6 +57,7 @@ adapteros-memory = { path = "../adapteros-memory" }
 adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-platform = { path = "../adapteros-platform" }
+adapteros-types = { path = "../adapteros-types" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
 tokio = { workspace = true }

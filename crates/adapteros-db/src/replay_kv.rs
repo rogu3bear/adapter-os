@@ -60,6 +60,7 @@ impl Db {
                 .adapter_ids
                 .as_ref()
                 .map(|ids| serde_json::to_string(ids).unwrap_or_default()),
+            base_only: params.base_only,
             prompt_text: params.prompt_text.clone(),
             prompt_truncated: params.prompt_truncated as i32,
             response_text: params.response_text.clone(),
@@ -101,6 +102,7 @@ impl Db {
             sampling_algorithm_version: meta.sampling_algorithm_version,
             rag_snapshot_hash: meta.rag_snapshot_hash,
             adapter_ids_json: meta.adapter_ids_json,
+            base_only: meta.base_only,
             prompt_text: meta.prompt_text,
             prompt_truncated: meta.prompt_truncated,
             response_text: meta.response_text,

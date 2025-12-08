@@ -14,6 +14,7 @@
 
 use crate::auth::{Claims, JWT_ISSUER};
 use crate::chat_context::build_chat_prompt;
+use crate::citations::collect_citations_for_adapters;
 use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence};
 use crate::inference_core::InferenceCore;
 use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
@@ -23,6 +24,7 @@ use crate::types::*;
 use crate::uds_client::UdsClient;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_policy::hooks::PolicyHook;
+use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use axum::{
     extract::{Extension, State},
     http::StatusCode,
@@ -50,9 +52,16 @@ pub struct StreamingInferRequest {
     /// Model identifier (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Per-request override for router determinism (deterministic/adaptive)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
     /// Adapter stack identifier to use for inference
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack_id: Option<String>,
+    /// Optional domain hint to bias adapter/package selection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
     /// Maximum number of tokens to generate
     #[serde(default = "default_max_tokens")]
     pub max_tokens: usize,
@@ -77,6 +86,9 @@ pub struct StreamingInferRequest {
     /// Random seed for reproducibility
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
+    /// Per-adapter strength overrides (session scoped)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_strength_overrides: Option<std::collections::HashMap<String, f32>>,
     /// Require evidence in response
     #[serde(default)]
     pub require_evidence: bool,
@@ -104,10 +116,14 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             adapter_stack: req.adapter_stack.clone(),
             adapters: req.adapters.clone(),
             stack_id: req.stack_id.clone(),
+            stack_routing_determinism_mode: None,
+            domain_hint: req.domain.clone(),
             stack_version: None,
             stack_determinism_mode: None,
             effective_adapter_ids: None, // Computed inside InferenceCore
+            adapter_strength_overrides: req.adapter_strength_overrides.clone(),
             determinism_mode: None,
+            routing_determinism_mode: req.routing_determinism_mode,
             seed_mode: None,
             request_seed: None,
             backend_profile: None,
@@ -214,6 +230,9 @@ pub enum InferenceEvent {
         /// Routing fallback mode
         #[serde(skip_serializing_if = "Option::is_none")]
         pinned_routing_fallback: Option<String>,
+        /// Citations attached to the response
+        #[serde(skip_serializing_if = "Option::is_none")]
+        citations: Option<Vec<adapteros_api_types::inference::Citation>>,
     },
     /// Error occurred
     Error { message: String, recoverable: bool },
@@ -1050,6 +1069,16 @@ impl LoadingStreamState {
                         self.phase = LoadingPhase::Complete;
                         let latency_ms = self.start_time.elapsed().as_millis() as u64;
 
+                        // Collect citations (best-effort, non-blocking if empty)
+                        let citations = collect_citations_for_adapters(
+                            &self.state,
+                            &self.tenant_id,
+                            &[self.adapter_id.clone()],
+                            &self.request.prompt,
+                            3,
+                        )
+                        .await;
+
                         // Fire OnAfterInference hook at stream completion
                         // NOTE: For streaming, this is fire-and-forget audit logging only.
                         // Tokens have already been sent to the client, so we cannot block
@@ -1100,6 +1129,11 @@ impl LoadingStreamState {
                             latency_ms,
                             unavailable_pinned_adapters: self.unavailable_pinned_adapters.clone(),
                             pinned_routing_fallback: self.pinned_routing_fallback.clone(),
+                            citations: if citations.is_empty() {
+                                None
+                            } else {
+                                Some(citations)
+                            },
                         })
                     }
                     Err(e) => {
@@ -1255,6 +1289,7 @@ impl LoadingStreamState {
                         num_parameters: 0,
                         rank: None,
                         target_modules: vec![],
+                        ..Default::default()
                     },
                 })
             })
@@ -1557,10 +1592,13 @@ impl StreamState {
             adapter_stack: None,
             adapters: self.adapters.clone(),
             stack_id: None,
+            domain_hint: None,
             stack_version: None,
             stack_determinism_mode: None,
+            stack_routing_determinism_mode: None,
             effective_adapter_ids: None,
             determinism_mode: None,
+            routing_determinism_mode: None,
             seed_mode: None,
             request_seed: None,
             backend_profile: None,
@@ -1574,6 +1612,7 @@ impl StreamState {
             session_id: self.session_id.clone(),
             pinned_adapter_ids: None, // Pinning not yet exposed in streaming API
             chat_context_hash: self.chat_context_hash.clone(),
+            adapter_strength_overrides: None,
             model: Some(self.model_name.clone()),
             created_at: std::time::Instant::now(),
             worker_auth_token: None,
@@ -1852,6 +1891,7 @@ mod tests {
             latency_ms: 5000,
             unavailable_pinned_adapters: None,
             pinned_routing_fallback: None,
+            citations: None,
         };
 
         let json = serde_json::to_string(&event).unwrap();
@@ -1867,6 +1907,7 @@ mod tests {
             latency_ms: 2500,
             unavailable_pinned_adapters: Some(vec!["pin-1".to_string(), "pin-2".to_string()]),
             pinned_routing_fallback: Some("stack_only".to_string()),
+            citations: None,
         };
 
         let json = serde_json::to_string(&event).unwrap();
@@ -1994,8 +2035,11 @@ mod tests {
             adapter_stack: Some(vec!["adapter1".to_string(), "adapter2".to_string()]),
             adapters: Some(vec!["adapter3".to_string()]),
             seed: Some(12345),
+            adapter_strength_overrides: None,
             require_evidence: true,
             collection_id: Some("test-collection".to_string()),
+            domain: None,
+            routing_determinism_mode: None,
             session_id: Some("test-session".to_string()),
             effective_adapter_ids: None,
         };
@@ -2064,8 +2108,11 @@ mod tests {
             adapter_stack: None,
             adapters: None,
             seed: None,
+            adapter_strength_overrides: None,
             require_evidence: false,
             collection_id: None, // No collection
+            domain: None,
+            routing_determinism_mode: None,
             session_id: None,
             effective_adapter_ids: None,
         };

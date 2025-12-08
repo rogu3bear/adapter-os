@@ -27,6 +27,7 @@ fn test_router_respects_k_sparse_policy() {
             framework: None,
             languages: vec![],
             tier: "default".to_string(),
+            ..Default::default()
         })
         .collect();
 
@@ -243,6 +244,7 @@ fn test_entropy_floor_enforcement() {
             framework: None,
             languages: vec![],
             tier: "default".to_string(),
+            ..Default::default()
         })
         .collect();
 
@@ -337,6 +339,7 @@ fn test_policy_integration_with_telemetry() {
             framework: None,
             languages: vec![],
             tier: "default".to_string(),
+            ..Default::default()
         })
         .collect();
 

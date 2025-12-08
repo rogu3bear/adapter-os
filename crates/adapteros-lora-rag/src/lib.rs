@@ -33,11 +33,14 @@ pub struct DocMetadata {
     pub superseded_by: Option<String>,
 }
 
+/// Namespace identifier for RAG indices (currently tenant_id).
+pub type IndexNamespaceId = String;
+
 /// RAG system with per-tenant indices
 #[derive(Clone)]
 pub struct RagSystem {
     root: PathBuf,
-    indices: HashMap<String, TenantIndex>,
+    indices: HashMap<IndexNamespaceId, TenantIndex>,
     embedding_model_hash: B3Hash,
 }
 
@@ -55,11 +58,11 @@ impl RagSystem {
     }
 
     /// Get or create tenant index
-    pub fn get_tenant_index(&mut self, tenant_id: &str) -> Result<&mut TenantIndex> {
+    pub fn get_tenant_index(&mut self, tenant_id: &IndexNamespaceId) -> Result<&mut TenantIndex> {
         if !self.indices.contains_key(tenant_id) {
             let index_path = self.root.join(tenant_id);
             let index = TenantIndex::new(index_path, self.embedding_model_hash)?;
-            self.indices.insert(tenant_id.to_string(), index);
+            self.indices.insert(tenant_id.clone(), index);
         }
 
         self.indices.get_mut(tenant_id).ok_or_else(|| {
@@ -70,20 +73,20 @@ impl RagSystem {
     /// Add document to tenant index
     pub fn add_document(
         &mut self,
-        tenant_id: &str,
+        tenant_id: &IndexNamespaceId,
         doc_id: String,
         text: String,
         embedding: Vec<f32>,
         metadata: DocMetadata,
     ) -> Result<()> {
-        let index = self.get_tenant_index(tenant_id)?;
+        let index = self.get_tenant_index(&tenant_id)?;
         index.add_document(doc_id, text, embedding, metadata)
     }
 
     /// Retrieve documents
     pub fn retrieve(
         &mut self,
-        tenant_id: &str,
+        tenant_id: &IndexNamespaceId,
         query_embedding: &[f32],
         top_k: usize,
     ) -> Result<Vec<EvidenceSpan>> {
@@ -116,13 +119,14 @@ impl RagSystem {
         top_k: usize,
     ) -> Result<Vec<RetrievalResult>> {
         // Get tenant from collection_id (assuming format: tenant_id/collection_name)
-        let tenant_id = collection_id
+        let tenant_id: IndexNamespaceId = collection_id
             .split('/')
             .next()
-            .ok_or_else(|| AosError::Rag("Invalid collection_id format".to_string()))?;
+            .ok_or_else(|| AosError::Rag("Invalid collection_id format".to_string()))?
+            .to_string();
 
         // Get evidence spans from tenant index
-        let index = self.get_tenant_index(tenant_id)?;
+        let index = self.get_tenant_index(&tenant_id)?;
         let evidence_spans = index.retrieve(query_embedding, top_k * 2)?; // Get more for filtering
 
         // Filter to collection documents (for now, accept all - would need DB query to filter by collection)
@@ -203,4 +207,70 @@ pub struct RetrievalResult {
     pub rank: i32,
     #[serde(skip)]
     chunk_index: i32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn namespace_layout_creates_per_tenant_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let hash = B3Hash::hash(b"ns-hash");
+        let mut rag = RagSystem::new(tmp.path(), hash).expect("rag init should succeed");
+
+        let tenant_a: IndexNamespaceId = "tenant-a".to_string();
+        let tenant_b: IndexNamespaceId = "tenant-b".to_string();
+
+        rag.get_tenant_index(&tenant_a)
+            .expect("tenant A index should init");
+        rag.get_tenant_index(&tenant_b)
+            .expect("tenant B index should init");
+
+        assert!(tmp.path().join(&tenant_a).exists());
+        assert!(tmp.path().join(&tenant_b).exists());
+        assert_ne!(tmp.path().join(&tenant_a), tmp.path().join(&tenant_b));
+    }
+
+    #[test]
+    fn rag_results_are_namespace_isolated() {
+        let tmp = TempDir::new().unwrap();
+        let hash = B3Hash::hash(b"ns-hash");
+        let mut rag = RagSystem::new(tmp.path(), hash).expect("rag init should succeed");
+
+        let tenant_a: IndexNamespaceId = "tenant-a".to_string();
+        let tenant_b: IndexNamespaceId = "tenant-b".to_string();
+
+        let metadata = DocMetadata {
+            doc_id: "doc-a".to_string(),
+            rev: "r1".to_string(),
+            effectivity: "current".to_string(),
+            source_type: "test".to_string(),
+            superseded_by: None,
+        };
+
+        rag.add_document(
+            &tenant_a,
+            "doc-a".to_string(),
+            "hello world".to_string(),
+            vec![1.0, 0.0],
+            metadata,
+        )
+        .expect("add doc should succeed");
+
+        let query = vec![1.0, 0.0];
+        let a_results = rag
+            .retrieve(&tenant_a, &query, 5)
+            .expect("tenant A retrieval should succeed");
+        assert_eq!(a_results.len(), 1, "tenant A should see its document");
+
+        let b_results = rag
+            .retrieve(&tenant_b, &query, 5)
+            .expect("tenant B retrieval should succeed");
+        assert!(
+            b_results.is_empty(),
+            "tenant B should see no documents from tenant A"
+        );
+    }
 }

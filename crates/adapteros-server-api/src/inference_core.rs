@@ -24,6 +24,8 @@
 //! For replay, pass a `ReplayContext` to enforce manifest/backend compatibility
 //! and skip metadata capture for the replay itself.
 
+use crate::chat_session_config::ChatSessionConfig;
+use crate::citations::collect_citations_for_adapters;
 use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence, RagContextResult};
 use crate::state::AppState;
 use crate::types::{
@@ -37,8 +39,10 @@ use adapteros_config::PlacementConfig;
 use adapteros_core::{identity::IdentityEnvelope, B3Hash};
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
+use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use hex;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 use tracing::{debug, error, info, info_span, warn};
 
@@ -60,6 +64,9 @@ fn validate_pinned_within_effective_set(
     pinned_adapter_ids: &Option<Vec<String>>,
 ) -> Result<(), InferenceError> {
     if let (Some(effective), Some(pinned)) = (effective_adapter_ids, pinned_adapter_ids) {
+        if effective.is_empty() {
+            return Ok(());
+        }
         for pinned_id in pinned {
             if !effective.iter().any(|id| id == pinned_id) {
                 return Err(InferenceError::ValidationError(format!(
@@ -422,6 +429,27 @@ impl<'a> InferenceCore<'a> {
             None
         };
 
+        // 0.25 Apply chat session config (stack, routing determinism, strength overrides)
+        if let Some(ref session) = session {
+            if let Some(config) = ChatSessionConfig::from_metadata(session.metadata_json.as_deref())
+            {
+                if request.stack_id.is_none() {
+                    request.stack_id = config.stack_id.clone();
+                }
+                if request.routing_determinism_mode.is_none() {
+                    request.routing_determinism_mode = config.routing_determinism_mode;
+                }
+                if request.adapter_strength_overrides.is_none() {
+                    request.adapter_strength_overrides = config.adapter_strength_overrides;
+                }
+            }
+        }
+
+        // Default routing determinism to deterministic when unset
+        if request.routing_determinism_mode.is_none() {
+            request.routing_determinism_mode = Some(RoutingDeterminismMode::Deterministic);
+        }
+
         // 0.5 Resolve effective adapter set and stack metadata
         self.resolve_effective_adapters(&mut request, session.as_ref())
             .await?;
@@ -639,6 +667,7 @@ impl<'a> InferenceCore<'a> {
             require_evidence: request.require_evidence,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
+            domain_hint: request.domain_hint.clone(),
             temperature: request.temperature,
             top_k: request.top_k,
             top_p: request.top_p,
@@ -650,9 +679,11 @@ impl<'a> InferenceCore<'a> {
             pinned_adapter_ids: pinned_adapter_ids.clone(),
             strict_mode: Some(strict_mode),
             determinism_mode: request.determinism_mode.clone(),
+            routing_determinism_mode: request.routing_determinism_mode.clone(),
             effective_adapter_ids: request.effective_adapter_ids.clone(),
             routing_policy: execution_policy.routing.clone(),
             placement: None,
+            adapter_strength_overrides: request.adapter_strength_overrides.clone(),
         };
 
         // 4. Call worker via UDS
@@ -735,6 +766,7 @@ impl<'a> InferenceCore<'a> {
             .backend_used
             .clone()
             .or_else(|| self.state.backend_name.clone());
+        let backend_version = worker_response.backend_version.clone();
         let fallback_triggered = worker_response.fallback_triggered;
 
         if let Some(ref backend_name) = backend_used {
@@ -798,7 +830,7 @@ impl<'a> InferenceCore<'a> {
                 &augmented_prompt,
                 &response_text,
                 backend_used.as_deref(),
-                backend_used.clone(),
+                backend_version.as_deref(),
                 base_model_id.clone(),
                 &rag_evidence,
                 latency_ms,
@@ -904,6 +936,16 @@ impl<'a> InferenceCore<'a> {
             }
         }
 
+        // 9.5 Build citations from training datasets (best-effort)
+        let citations = collect_citations_for_adapters(
+            self.state,
+            &request.cpid,
+            &worker_response.trace.router_summary.adapters_used,
+            &request.prompt,
+            3,
+        )
+        .await;
+
         // 10. Build and return result
         Ok(InferenceResult {
             text: worker_response.text.unwrap_or_default(),
@@ -913,6 +955,7 @@ impl<'a> InferenceCore<'a> {
             router_decisions,
             router_decision_chain,
             rag_evidence,
+            citations,
             latency_ms,
             request_id: request.request_id,
             unavailable_pinned_adapters: unavailable_pinned,
@@ -1014,9 +1057,8 @@ impl<'a> InferenceCore<'a> {
         // 1. Explicit adapters take precedence
         if let Some(adapters) = request.adapters.as_ref() {
             if adapters.is_empty() {
-                return Err(InferenceError::ValidationError(
-                    "adapters cannot be empty".to_string(),
-                ));
+                request.effective_adapter_ids = Some(Vec::new());
+                return Ok(());
             }
             request.effective_adapter_ids = Some(adapters.clone());
             return Ok(());
@@ -1025,9 +1067,8 @@ impl<'a> InferenceCore<'a> {
         // 1b. Legacy adapter_stack acts as explicit adapter list
         if let Some(stack_list) = request.adapter_stack.as_ref() {
             if stack_list.is_empty() {
-                return Err(InferenceError::ValidationError(
-                    "adapter_stack cannot be empty".to_string(),
-                ));
+                request.effective_adapter_ids = Some(Vec::new());
+                return Ok(());
             }
             // Prefer explicit stack_id going forward; adapter_stack is deprecated
             request.effective_adapter_ids = Some(stack_list.clone());
@@ -1078,17 +1119,106 @@ impl<'a> InferenceCore<'a> {
                 })?;
 
             if adapter_ids.is_empty() {
-                return Err(InferenceError::ValidationError(format!(
-                    "Stack '{}' has no adapters configured",
-                    stack_id
-                )));
+                request.stack_id = Some(stack_id);
+                request.stack_version = Some(stack.version);
+                request.stack_determinism_mode = stack.determinism_mode.clone();
+                request.stack_routing_determinism_mode =
+                    parse_routing_mode(&stack.routing_determinism_mode);
+                request.effective_adapter_ids = Some(Vec::new());
+                return Ok(());
             }
 
             request.stack_id = Some(stack_id);
             request.stack_version = Some(stack.version);
             request.stack_determinism_mode = stack.determinism_mode.clone();
+            request.stack_routing_determinism_mode =
+                parse_routing_mode(&stack.routing_determinism_mode);
             request.effective_adapter_ids = Some(adapter_ids);
             return Ok(());
+        }
+
+        // 2b. Domain package preference when no explicit stack/adapters provided
+        if request.effective_adapter_ids.is_none() {
+            if let Some(domain_hint) = request.domain_hint.as_deref() {
+                let installed_packages = self
+                    .state
+                    .db
+                    .list_installed_packages_for_domain(&request.cpid, Some(domain_hint))
+                    .await
+                    .map_err(|e| {
+                        InferenceError::AdapterNotFound(format!(
+                            "Failed to list installed packages for tenant {}: {}",
+                            request.cpid, e
+                        ))
+                    })?;
+
+                if !installed_packages.is_empty() {
+                    let mut adapter_ids: Vec<String> = Vec::new();
+                    let mut stack_id_hint: Option<String> = None;
+                    let mut stack_version_hint: Option<i64> = None;
+                    let mut stack_det_hint: Option<String> = None;
+                    let mut routing_det_hint: Option<String> = None;
+
+                    for pkg in installed_packages {
+                        let stack = self
+                            .state
+                            .db
+                            .get_stack(&pkg.tenant_id, &pkg.stack_id)
+                            .await
+                            .map_err(|e| {
+                                InferenceError::AdapterNotFound(format!(
+                                    "Failed to load stack {} for package {}: {}",
+                                    pkg.stack_id, pkg.id, e
+                                ))
+                            })?
+                            .ok_or_else(|| {
+                                InferenceError::AdapterNotFound(format!(
+                                    "Stack {} for package {} not found",
+                                    pkg.stack_id, pkg.id
+                                ))
+                            })?;
+
+                        let ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json)
+                            .map_err(|e| {
+                                InferenceError::ValidationError(format!(
+                                    "Invalid adapter_ids_json for package {} stack {}: {}",
+                                    pkg.id, stack.id, e
+                                ))
+                            })?;
+
+                        if stack_id_hint.is_none() {
+                            stack_id_hint = Some(stack.id.clone());
+                            stack_version_hint = Some(stack.version);
+                            stack_det_hint = stack.determinism_mode.clone();
+                            routing_det_hint = stack.routing_determinism_mode.clone();
+                        }
+
+                        adapter_ids.extend(ids);
+                    }
+
+                    if let Some(pins) = request.pinned_adapter_ids.as_ref() {
+                        for pin in pins {
+                            if !adapter_ids.contains(pin) {
+                                adapter_ids.push(pin.clone());
+                            }
+                        }
+                    }
+
+                    if !adapter_ids.is_empty() {
+                        adapter_ids.sort();
+                        adapter_ids.dedup();
+                        request.effective_adapter_ids = Some(adapter_ids);
+                        if request.stack_id.is_none() {
+                            request.stack_id = stack_id_hint;
+                            request.stack_version = stack_version_hint;
+                            request.stack_determinism_mode = stack_det_hint;
+                            request.stack_routing_determinism_mode =
+                                parse_routing_mode(&routing_det_hint);
+                        }
+                        return Ok(());
+                    }
+                }
+            }
         }
 
         // 3. Tenant default stack fallback (persisted routing configuration)
@@ -1139,15 +1269,20 @@ impl<'a> InferenceCore<'a> {
                     })?;
 
                 if adapter_ids.is_empty() {
-                    return Err(InferenceError::ValidationError(format!(
-                        "Default stack '{}' has no adapters configured",
-                        default_stack_id
-                    )));
+                    request.stack_id = Some(default_stack_id.clone());
+                    request.stack_version = Some(stack.version);
+                    request.stack_determinism_mode = stack.determinism_mode.clone();
+                    request.stack_routing_determinism_mode =
+                        parse_routing_mode(&stack.routing_determinism_mode);
+                    request.effective_adapter_ids = Some(Vec::new());
+                    return Ok(());
                 }
 
                 request.stack_id = Some(default_stack_id.clone());
                 request.stack_version = Some(stack.version);
                 request.stack_determinism_mode = stack.determinism_mode.clone();
+                request.stack_routing_determinism_mode =
+                    parse_routing_mode(&stack.routing_determinism_mode);
                 request.effective_adapter_ids = Some(adapter_ids);
 
                 // Cache active stack mapping for telemetry/routing hints
@@ -1766,6 +1901,8 @@ impl<'a> InferenceCore<'a> {
         prompt_text: &str,
         response_text: &str,
         backend_used: Option<&str>,
+        backend_version: Option<&str>,
+        base_model_id: Option<String>,
         rag_evidence: &Option<RagEvidence>,
         latency_ms: u64,
         prompt_truncated: bool,
@@ -1790,6 +1927,7 @@ impl<'a> InferenceCore<'a> {
             .map(|s| s.to_string())
             .or_else(|| self.state.backend_name.clone())
             .unwrap_or_else(|| "unknown".to_string());
+        let backend_version = backend_version.map(|s| s.to_string());
 
         let replay_guarantee_str = match replay_guarantee {
             ReplayGuarantee::Exact => "exact",
@@ -1886,6 +2024,10 @@ impl<'a> InferenceCore<'a> {
             .effective_adapter_ids
             .clone()
             .or_else(|| request.adapters.clone());
+        let base_only = matches!(
+            request.effective_adapter_ids.as_ref(),
+            Some(ids) if ids.is_empty()
+        );
 
         // Determine replay status based on truncation
         let replay_status = if prompt_truncated || response_truncated {
@@ -1902,14 +2044,15 @@ impl<'a> InferenceCore<'a> {
             inference_id: request.request_id.clone(),
             tenant_id: request.cpid.clone(),
             manifest_hash,
-            base_model_id: base_model_id.clone(),
+            base_model_id,
             router_seed: request.router_seed.clone(),
             sampling_params_json,
             backend,
-            backend_version: backend_used.clone(),
+            backend_version,
             sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
             rag_snapshot_hash,
             adapter_ids,
+            base_only: if base_only { Some(true) } else { None },
             prompt_text: prompt_for_storage,
             prompt_truncated,
             response_text: Some(response_for_storage),
@@ -1940,6 +2083,11 @@ impl<'a> InferenceCore<'a> {
             );
         }
     }
+}
+
+fn parse_routing_mode(raw: &Option<String>) -> Option<RoutingDeterminismMode> {
+    raw.as_deref()
+        .and_then(|s| RoutingDeterminismMode::from_str(s).ok())
 }
 
 #[cfg(test)]
@@ -2002,6 +2150,7 @@ mod tests {
             adapter_ids: adapter_ids.iter().map(|s| s.to_string()).collect(),
             workflow_type: None,
             determinism_mode: None,
+            routing_determinism_mode: None,
         };
         db.insert_stack(&req).await.expect("insert stack")
     }
@@ -2312,6 +2461,7 @@ mod tests {
             adapter_ids: vec!["stack-a".to_string(), "stack-b".to_string()],
             workflow_type: None,
             determinism_mode: None,
+            routing_determinism_mode: None,
         };
         let stack_id = state.db.insert_stack(&stack_req).await.unwrap();
 
@@ -2341,6 +2491,7 @@ mod tests {
             adapter_ids: vec!["default-a".to_string(), "default-b".to_string()],
             workflow_type: None,
             determinism_mode: None,
+            routing_determinism_mode: None,
         };
         let stack_id = state.db.insert_stack(&stack_req).await.unwrap();
         state
@@ -2381,6 +2532,7 @@ mod tests {
             adapter_ids: vec!["stack-a".to_string(), "stack-b".to_string()],
             workflow_type: None,
             determinism_mode: None,
+            routing_determinism_mode: None,
         };
         let stack_id = state.db.insert_stack(&stack_req).await.unwrap();
 
@@ -2408,6 +2560,7 @@ mod tests {
             adapter_ids: vec!["s1".to_string(), "s2".to_string()],
             workflow_type: None,
             determinism_mode: None,
+            routing_determinism_mode: None,
         };
         let stack_id = state.db.insert_stack(&stack_req).await.unwrap();
 
@@ -2462,6 +2615,7 @@ mod tests {
             adapter_ids: vec!["s1".to_string()],
             workflow_type: None,
             determinism_mode: None,
+            routing_determinism_mode: None,
         };
         let stack_id = state.db.insert_stack(&stack_req).await.unwrap();
 

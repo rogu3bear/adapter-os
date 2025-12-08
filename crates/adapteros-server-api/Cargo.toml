@@ -12,6 +12,7 @@ adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-db = { path = "../adapteros-db", features = ["utoipa"] }
 adapteros-api-types = { path = "../adapteros-api-types" }
+adapteros-aos = { path = "../adapteros-aos" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
 adapteros-git = { path = "../adapteros-git" }
 adapteros-manifest = { path = "../adapteros-manifest" }
@@ -29,6 +30,7 @@ adapteros-federation = { path = "../adapteros-federation" }
 adapteros-verify = { path = "../adapteros-verify" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-types = { path = "../adapteros-types" }
 dashmap = "5.5"
 parking_lot = "0.12"
 lru = "0.12"
@@ -96,7 +98,6 @@ hkdf = { workspace = true }
 nix = { version = "0.29", features = ["signal"] }
 
 [dev-dependencies]
-adapteros-types = { path = "../adapteros-types" }
 criterion = { workspace = true }
 futures = "0.3"
 axum-test = { version = "16" }

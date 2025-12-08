@@ -6,11 +6,15 @@ use adapteros_orchestrator::TrainingService;
 use adapteros_types::training::{TrainingConfig, TrainingJobStatus};
 
 /// End-to-end pipeline: start training → package .aos → register adapter → materialize artifact.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn training_pipeline_produces_registered_aos() {
     let temp_dir = tempfile::TempDir::new().unwrap();
     let db_path = temp_dir.path().join("cp.sqlite3");
-    std::env::set_var("AOS_ALLOW_NONDET_TRAINING", "1");
+    // SAFETY: This test runs on a single-threaded Tokio runtime, so no other
+    // threads read or write environment variables concurrently.
+    unsafe {
+        std::env::set_var("AOS_ALLOW_NONDET_TRAINING", "1");
+    }
 
     let db = adapteros_db::Db::connect(db_path.to_str().unwrap())
         .await
@@ -83,6 +87,8 @@ async fn training_pipeline_produces_registered_aos() {
             Some("admin".into()),            // initiated_by_role
             Some("qwen2.5-7b".into()),       // base_model_id
             None,                            // collection_id
+            None,                            // scope
+            None,                            // lora_tier
             None,                            // category
             None,                            // description
             None,                            // language

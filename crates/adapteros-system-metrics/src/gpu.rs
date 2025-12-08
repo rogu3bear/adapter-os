@@ -5,7 +5,12 @@
 
 use crate::GpuMetrics;
 use adapteros_core::Result;
-use tracing::debug;
+use tracing::{debug, warn};
+
+#[cfg(feature = "mlx")]
+use adapteros_lora_mlx_ffi::{
+    memory, mlx_get_backend_capabilities, mlx_runtime_init, mlx_runtime_is_initialized,
+};
 
 #[cfg(target_os = "macos")]
 use metal::Device;
@@ -16,8 +21,10 @@ pub struct GpuMetricsCollector {
     metal_device: Option<Device>,
     #[cfg(target_os = "macos")]
     counters_available: bool,
-    // MLX integration would go here when available
-    // mlx_device: Option<MlxDevice>,
+    #[cfg(feature = "mlx")]
+    mlx_available: bool,
+    #[cfg(feature = "mlx")]
+    mlx_device_name: Option<String>,
 }
 
 impl GpuMetricsCollector {
@@ -43,27 +50,41 @@ impl GpuMetricsCollector {
             Self {
                 metal_device,
                 counters_available,
+                #[cfg(feature = "mlx")]
+                mlx_available: false,
+                #[cfg(feature = "mlx")]
+                mlx_device_name: None,
             }
         }
 
         #[cfg(not(target_os = "macos"))]
         {
             warn!("GPU metrics collection not supported on this platform");
-            Self {}
+            Self {
+                #[cfg(feature = "mlx")]
+                mlx_available: false,
+                #[cfg(feature = "mlx")]
+                mlx_device_name: None,
+            }
         }
+        .with_mlx_probe()
     }
 
     /// Collect GPU metrics
     pub fn collect_metrics(&self) -> GpuMetrics {
-        #[cfg(target_os = "macos")]
-        {
-            self.collect_metal_metrics()
-        }
+        let metrics = {
+            #[cfg(target_os = "macos")]
+            {
+                self.collect_metal_metrics()
+            }
 
-        #[cfg(not(target_os = "macos"))]
-        {
-            GpuMetrics::default()
-        }
+            #[cfg(not(target_os = "macos"))]
+            {
+                GpuMetrics::default()
+            }
+        };
+
+        self.collect_mlx_metrics(metrics)
     }
 
     #[cfg(target_os = "macos")]
@@ -105,6 +126,66 @@ impl GpuMetricsCollector {
         }
 
         metrics
+    }
+
+    #[cfg(feature = "mlx")]
+    fn collect_mlx_metrics(&self, mut metrics: GpuMetrics) -> GpuMetrics {
+        if !self.mlx_available {
+            return metrics;
+        }
+
+        // Memory usage via MLX FFI (works in stub and real modes)
+        let used_bytes = memory::memory_usage() as u64;
+        metrics.mlx_memory_used = Some(used_bytes);
+
+        // If total memory is unknown from Metal path, try to populate from MLX capabilities
+        if metrics.memory_total.is_none() {
+            if let Ok(caps) = mlx_get_backend_capabilities() {
+                if caps.max_buffer_size > 0 {
+                    metrics.memory_total = Some(caps.max_buffer_size as u64);
+                }
+                if metrics.mlx_utilization.is_none() && caps.gpu_available {
+                    // Utilization not yet exposed by MLX; remain None to signal absence
+                    metrics.mlx_utilization = None;
+                }
+            }
+        }
+
+        // If general memory_used is still empty, reuse MLX reading as a best-effort proxy
+        if metrics.memory_used.is_none() {
+            metrics.memory_used = Some(used_bytes);
+        }
+
+        metrics
+    }
+
+    #[cfg(not(feature = "mlx"))]
+    fn collect_mlx_metrics(&self, metrics: GpuMetrics) -> GpuMetrics {
+        metrics
+    }
+
+    #[cfg(feature = "mlx")]
+    fn with_mlx_probe(mut self) -> Self {
+        // Initialize MLX runtime if available; ignore errors to avoid breaking non-MLX hosts
+        let initialized = mlx_runtime_is_initialized() || mlx_runtime_init().is_ok();
+        self.mlx_available = initialized;
+
+        if initialized {
+            if let Ok(caps) = mlx_get_backend_capabilities() {
+                if !caps.device_name_str().is_empty() {
+                    self.mlx_device_name = Some(caps.device_name_str().to_string());
+                }
+            }
+        } else {
+            warn!("MLX runtime not initialized; MLX GPU metrics will be skipped");
+        }
+
+        self
+    }
+
+    #[cfg(not(feature = "mlx"))]
+    fn with_mlx_probe(self) -> Self {
+        self
     }
 
     #[cfg(target_os = "macos")]
@@ -314,6 +395,18 @@ mod tests {
         if let Some(info) = device_info {
             assert!(!info.name.is_empty());
             assert!(!info.vendor.is_empty());
+        }
+    }
+
+    #[cfg(feature = "mlx")]
+    #[test]
+    fn test_mlx_metrics_collection_best_effort() {
+        let collector = GpuMetricsCollector::new();
+        let metrics = collector.collect_metrics();
+
+        // When MLX runtime is available (real or stub), memory usage should be populated
+        if metrics.mlx_memory_used.is_some() {
+            assert!(metrics.mlx_memory_used.unwrap() > 0);
         }
     }
 }

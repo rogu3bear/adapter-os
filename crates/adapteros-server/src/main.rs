@@ -1,8 +1,11 @@
 mod assets;
 
+const DEFAULT_MANIFEST_HASH: &str =
+    "756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e";
+
 use adapteros_config::{
-    init_effective_config, resolve_manifest_path, try_effective_config, ConfigLoader,
-    ConfigSnapshot,
+    init_effective_config, resolve_base_model_location, resolve_manifest_path,
+    try_effective_config, ConfigLoader, ConfigSnapshot,
 };
 use adapteros_core::{derive_seed, AosError, B3Hash, BackendProfile, SeedMode};
 use adapteros_db::{kv_metrics, Db, DbFactory, DbStorageBackend, RuntimeSession};
@@ -170,6 +173,15 @@ async fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
+
+    // Validate base model path early to avoid drift across server/CLI
+    if let Err(e) = resolve_base_model_location(None, None, true) {
+        eprintln!(
+            "FATAL: Base model path missing or invalid: {}. Set AOS_MODEL_CACHE_DIR/AOS_BASE_MODEL_ID or update config.",
+            e
+        );
+        std::process::exit(1);
+    }
 
     // Initialize tracing with config-based settings
     let _guard = {
@@ -478,6 +490,11 @@ async fn main() -> Result<()> {
                 key_file_path: cfg.security.key_file_path.clone(),
                 jwt_issuer: cfg.security.jwt_issuer.clone(),
                 jwt_audience: cfg.security.jwt_audience.clone(),
+                jwt_additional_ed25519_public_keys: cfg
+                    .security
+                    .jwt_additional_ed25519_public_keys
+                    .clone(),
+                jwt_additional_hmac_secrets: cfg.security.jwt_additional_hmac_secrets.clone(),
                 dev_login_enabled: cfg.security.dev_login_enabled,
                 require_mfa: cfg.security.require_mfa,
                 token_ttl_seconds: cfg.security.token_ttl_seconds,
@@ -801,6 +818,8 @@ async fn main() -> Result<()> {
                 key_file_path: None,
                 jwt_issuer: String::new(),
                 jwt_audience: None,
+                jwt_additional_ed25519_public_keys: None,
+                jwt_additional_hmac_secrets: None,
                 dev_login_enabled: false,
                 require_mfa: None,
                 token_ttl_seconds: None,
@@ -894,6 +913,8 @@ async fn main() -> Result<()> {
                 key_file_path: None,
                 jwt_issuer: String::new(),
                 jwt_audience: None,
+                jwt_additional_ed25519_public_keys: None,
+                jwt_additional_hmac_secrets: None,
                 dev_login_enabled: false,
                 require_mfa: None,
                 token_ttl_seconds: None,
@@ -1037,8 +1058,11 @@ async fn main() -> Result<()> {
                 token_ttl_seconds: cfg.security.token_ttl_seconds,
                 access_token_ttl_seconds: Some(cfg.security.access_token_ttl_seconds),
                 session_ttl_seconds: Some(cfg.security.session_ttl_seconds),
-                jwt_additional_ed25519_public_keys: None,
-                jwt_additional_hmac_secrets: None,
+                jwt_additional_ed25519_public_keys: cfg
+                    .security
+                    .jwt_additional_ed25519_public_keys
+                    .clone(),
+                jwt_additional_hmac_secrets: cfg.security.jwt_additional_hmac_secrets.clone(),
                 require_mfa: cfg.security.require_mfa,
                 require_pf_deny: cfg.security.require_pf_deny,
                 dev_login_enabled: cfg.security.dev_login_enabled,
@@ -1523,11 +1547,28 @@ async fn main() -> Result<()> {
     .with_federation(federation_daemon_for_state);
 
     // Require manifest hash to keep worker routing aligned
-    let manifest_hash = std::env::var("AOS_MANIFEST_HASH").map_err(|_| {
-        AosError::Config(
-            "AOS_MANIFEST_HASH must be set to enable manifest-bound routing".to_string(),
-        )
-    })?;
+    let manifest_hash = match std::env::var("AOS_MANIFEST_HASH") {
+        Ok(val) => val,
+        Err(_) => {
+            let is_production = api_config
+                .read()
+                .map(|c| c.server.production_mode)
+                .unwrap_or(false);
+
+            if is_production {
+                return Err(AosError::Config(
+                    "AOS_MANIFEST_HASH must be set to enable manifest-bound routing".to_string(),
+                )
+                .into());
+            }
+
+            warn!(
+                default_hash = DEFAULT_MANIFEST_HASH,
+                "AOS_MANIFEST_HASH not set; using default manifest hash (development only)"
+            );
+            DEFAULT_MANIFEST_HASH.to_string()
+        }
+    };
     let backend_name = std::env::var("AOS_MODEL_BACKEND").unwrap_or_else(|_| "mlx".to_string());
     state = state.with_manifest_info(manifest_hash, backend_name);
 
@@ -1537,14 +1578,19 @@ async fn main() -> Result<()> {
 
     // Initialize Registry for adapter management
     {
-        let adapters_root = {
+        let adapters_root: PathBuf = {
             let cfg = api_config
                 .read()
                 .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
-            cfg.paths.adapters_root.clone()
+            let paths = adapteros_core::paths::AdapterPaths::from_config(Some(
+                cfg.paths.adapters_root.as_str(),
+            ));
+            let root = paths.root().to_path_buf();
+            info!(path = %root.display(), "Resolved adapters root");
+            root
         };
 
-        let registry_path = PathBuf::from(&adapters_root).join("registry.db");
+        let registry_path = adapters_root.join("registry.db");
 
         // Create adapters directory if it doesn't exist
         if let Some(parent) = registry_path.parent() {
@@ -1582,17 +1628,24 @@ async fn main() -> Result<()> {
         use adapteros_server_api::state::RagStatus;
         use std::path::Path;
 
-        let embedding_model_path = std::env::var("AOS_EMBEDDING_MODEL_PATH")
-            .unwrap_or_else(|_| "./var/model-cache/models/bge-small-en-v1.5".to_string());
+        let embedding_model = adapteros_config::resolve_embedding_model_path();
+        let embedding_model_path = embedding_model.path;
+        let tokenizer_path = embedding_model_path.join("tokenizer.json");
+        info!(
+            path = %embedding_model_path.display(),
+            tokenizer_path = %tokenizer_path.display(),
+            source = %embedding_model.source,
+            dev_fallback = embedding_model.used_dev_fallback,
+            "Resolved embedding model paths for RAG"
+        );
 
-        let tokenizer_path = format!("{}/tokenizer.json", embedding_model_path);
-
-        if Path::new(&tokenizer_path).exists() {
-            match adapteros_ingest_docs::load_tokenizer(Path::new(&tokenizer_path)) {
+        if tokenizer_path.exists() {
+            match adapteros_ingest_docs::load_tokenizer(&tokenizer_path) {
                 Ok(tokenizer) => {
+                    let embedding_model_path_str = embedding_model_path.to_string_lossy();
                     let embedding_model =
                         Arc::new(adapteros_ingest_docs::ProductionEmbeddingModel::load(
-                            Some(&embedding_model_path),
+                            Some(&embedding_model_path_str),
                             tokenizer,
                         ));
 
@@ -1600,7 +1653,8 @@ async fn main() -> Result<()> {
                     let dimension = embedding_model.dimension();
 
                     info!(
-                        path = %embedding_model_path,
+                        path = %embedding_model_path.display(),
+                        source = %embedding_model.source,
                         dimension = dimension,
                         hash = %model_hash,
                         "Loaded embedding model for RAG"
@@ -1618,38 +1672,26 @@ async fn main() -> Result<()> {
 
                     // Use ERROR level in production, WARN in dev
                     if production_mode {
-                        error!(
-                            error = %e,
-                            path = %tokenizer_path,
-                            "Failed to load tokenizer for embedding model, RAG disabled"
-                        );
+                        error!(error = %e, path = %tokenizer_path.display(), "Failed to load tokenizer for embedding model, RAG disabled");
                     } else {
-                        warn!(
-                            error = %e,
-                            path = %tokenizer_path,
-                            "Failed to load tokenizer for embedding model, RAG disabled"
-                        );
+                        warn!(error = %e, path = %tokenizer_path.display(), "Failed to load tokenizer for embedding model, RAG disabled");
                     }
 
                     state = state.with_rag_status(RagStatus::Disabled { reason });
                 }
             }
         } else {
-            let reason = format!("Tokenizer not found at: {}", tokenizer_path);
+            let reason = format!("Tokenizer not found at: {}", tokenizer_path.display());
 
             // Use ERROR level in production, WARN in dev
             if production_mode {
                 error!(
-                    path = %tokenizer_path,
+                    path = %tokenizer_path.display(),
                     "Embedding model tokenizer not found, RAG disabled. \
                      Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model."
                 );
             } else {
-                warn!(
-                    path = %tokenizer_path,
-                    "Embedding model tokenizer not found, RAG disabled. \
-                     Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model."
-                );
+                warn!(path = %tokenizer_path.display(), "Embedding model tokenizer not found, RAG disabled.                      Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model.");
             }
 
             state = state.with_rag_status(RagStatus::Disabled { reason });

@@ -6,6 +6,7 @@
 //! - Production mode enforcement requiring valid manifest
 //! - Domain separation between executor and other components
 
+use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_core::{derive_seed, B3Hash};
 use adapteros_manifest::ManifestV3;
 use std::path::PathBuf;
@@ -16,7 +17,9 @@ fn test_manifest_based_executor_seeding() {
     let manifest_path = std::env::var("AOS_MANIFEST_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json")
+            PathBuf::from(DEFAULT_MODEL_CACHE_ROOT)
+                .join(DEFAULT_BASE_MODEL_ID)
+                .join("config.json")
         });
 
     if !manifest_path.exists() {
@@ -73,7 +76,9 @@ fn test_manifest_vs_default_seed_differ() {
     let manifest_path = std::env::var("AOS_MANIFEST_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json")
+            PathBuf::from(DEFAULT_MODEL_CACHE_ROOT)
+                .join(DEFAULT_BASE_MODEL_ID)
+                .join("config.json")
         });
 
     if !manifest_path.exists() {

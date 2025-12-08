@@ -74,7 +74,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let packager = AdapterPackager::new(&output_dir);
     let base_model = "test-base-model";
     let packaged = packager
-        .package_aos("default", "test_adapter", &quantized, &config, base_model)
+        .package_aos_for_tenant(
+            "default",
+            "test_adapter",
+            &quantized,
+            &config,
+            base_model,
+        )
         .await?;
 
     println!("✓ Created .aos archive:");
@@ -101,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let large_result = large_trainer.train(&examples).await?;
     let large_quantized = quantizer.quantize(&large_result.weights)?;
     let large_packaged = packager
-        .package_aos(
+        .package_aos_for_tenant(
             "default",
             "large_adapter",
             &large_quantized,

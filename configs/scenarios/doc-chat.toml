@@ -9,6 +9,7 @@ id = "qwen2.5-7b-mlx"
 warmup = true
 
 [adapter]
+id = "doc-chat-adapter"
 name = "doc-chat-adapter"
 base_model_id = "qwen2.5-7b-mlx"
 require_loaded = true
@@ -20,11 +21,13 @@ docs_path = "examples/docs/doc-chat"
 register_after_train = true
 
 [chat]
+prompt = "Summarize the document in one sentence."
+expected_text = "Doc chat scenario synthetic summary."
 seed = 42
 determinism_mode = "strict"
 backend_profile = "mlx"
 probe_prompt = "hello"
-probe_max_tokens = 1
+probe_max_tokens = 16
 probe_enabled = false
 
 [replay]

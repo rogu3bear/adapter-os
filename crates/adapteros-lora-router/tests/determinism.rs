@@ -30,6 +30,8 @@ fn test_deterministic_top_k_ordering() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     let decision1 = router.route_with_adapter_info(&[], &priors, &adapter_info);
@@ -64,6 +66,8 @@ fn test_q15_quantization_properties() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
@@ -121,6 +125,8 @@ fn test_gate_normalization_and_entropy_floor() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
@@ -168,6 +174,8 @@ fn test_multiple_calls_deterministic() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     let decision1_1 = router1.route_with_adapter_info(&[], &priors, &adapter_info);
@@ -198,6 +206,8 @@ fn test_q15_range_properties() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
@@ -225,6 +235,8 @@ fn test_router_ring_invariants() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
@@ -249,6 +261,8 @@ fn test_router_ring_invariants() {
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
         })
         .collect();
     let decision_k0 = router_k0.route_with_adapter_info(&[], &priors, &adapter_info);
@@ -291,6 +305,8 @@ proptest! {
                 framework: None,
                 languages: vec![],
                 tier: "warm".to_string(),
+                scope_path: None,
+                lora_tier: None,
             })
             .collect();
         let decision1 = router1.route_with_adapter_info(&[], &priors, &adapter_info);

@@ -11,6 +11,7 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use crate::uds_client::UdsClient;
 use adapteros_api_types::ModelLoadStatus;
+use adapteros_config::{resolve_base_model_location, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_db::users::Role;
 use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;
@@ -306,15 +307,24 @@ pub async fn load_model(
             )
         })?;
 
-    // Get model path from database
+    // Get model path from database; fall back to canonical resolver
     let model_path = model.model_path.clone().unwrap_or_else(|| {
-        // Fallback to var/model-cache if no explicit path
-        format!("var/model-cache/models/{}", model.name)
+        resolve_base_model_location(Some(&model_id), None, false)
+            .map(|loc| loc.full_path.display().to_string())
+            .unwrap_or_else(|_| {
+                PathBuf::from(DEFAULT_MODEL_CACHE_ROOT)
+                    .join(&model_id)
+                    .display()
+                    .to_string()
+            })
     });
 
     // Validate model path exists before invoking the worker
     if !StdPath::new(&model_path).exists() {
-        let err_msg = format!("model path does not exist: {}", model_path);
+        let err_msg = format!(
+            "model path does not exist: {}. Configure AOS_MODEL_CACHE_DIR/AOS_BASE_MODEL_ID or set model.model_path.",
+            model_path
+        );
 
         // Persist error status but do not fail hard if the DB update itself fails
         let _ = state

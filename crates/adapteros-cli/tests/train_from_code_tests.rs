@@ -2,6 +2,7 @@
 
 use adapteros_cli::commands::adapter_train_from_code::{self, TrainFromCodeArgs};
 use adapteros_cli::output::{OutputMode, OutputWriter};
+use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_db::Db;
 use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_single_file_adapter::SingleFileAdapterLoader;
@@ -53,7 +54,9 @@ fn tokenizer_path() -> PathBuf {
             std::env::var("AOS_MODEL_PATH").map(|p| PathBuf::from(p).join("tokenizer.json"))
         })
         .unwrap_or_else(|_| {
-            PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json")
+            PathBuf::from(DEFAULT_MODEL_CACHE_ROOT)
+                .join(DEFAULT_BASE_MODEL_ID)
+                .join("tokenizer.json")
         })
 }
 

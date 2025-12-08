@@ -23,7 +23,7 @@ const ADAPTER_SELECT_FIELDS: &str = ADAPTER_COLUMNS;
 
 /// Adapter columns with table alias `a.` for recursive lineage queries
 const ADAPTER_COLUMNS_ALIAS_A: &str =
-    "a.id, a.tenant_id, a.adapter_id, a.name, a.hash_b3, a.rank, a.alpha, a.tier, \
+    "a.id, a.tenant_id, a.adapter_id, a.name, a.hash_b3, a.rank, a.alpha, a.lora_strength, a.tier, \
      a.targets_json, a.acl_json, a.languages_json, a.framework, a.category, a.scope, \
      a.framework_id, a.framework_version, a.repo_id, a.commit_sha, a.intent, \
      a.current_state, a.pinned, a.memory_bytes, a.last_activated, a.activation_count, \
@@ -31,7 +31,7 @@ const ADAPTER_COLUMNS_ALIAS_A: &str =
      a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, \
      a.fork_type, a.fork_reason, a.version, a.lifecycle_state, a.archived_at, a.archived_by, \
      a.archive_reason, a.purged_at, a.base_model_id, a.manifest_schema_version, \
-     a.content_hash_b3, a.provenance_json, a.created_at, a.updated_at, a.active";
+     a.content_hash_b3, a.metadata_json, a.provenance_json, a.created_at, a.updated_at, a.active";
 
 /// Configuration for atomic dual-write behavior (SQL + KV)
 #[derive(Debug, Clone)]
@@ -89,6 +89,7 @@ pub struct AdapterRegistrationBuilder {
     rank: Option<i32>,
     tier: Option<String>, // 'persistent', 'warm', or 'ephemeral'
     alpha: Option<f64>,
+    lora_strength: Option<f32>,
     targets_json: Option<String>,
     acl_json: Option<String>,
     languages_json: Option<String>,
@@ -118,6 +119,7 @@ pub struct AdapterRegistrationBuilder {
     manifest_schema_version: Option<String>,
     content_hash_b3: Option<String>,
     provenance_json: Option<String>,
+    metadata_json: Option<String>,
 }
 
 /// Parameters for adapter registration
@@ -130,6 +132,7 @@ pub struct AdapterRegistrationParams {
     pub rank: i32,
     pub tier: String, // 'persistent', 'warm', or 'ephemeral'
     pub alpha: f64,
+    pub lora_strength: Option<f32>,
     pub targets_json: String,
     pub acl_json: Option<String>,
     pub languages_json: Option<String>,
@@ -160,6 +163,7 @@ pub struct AdapterRegistrationParams {
     pub manifest_schema_version: Option<String>,
     pub content_hash_b3: Option<String>,
     pub provenance_json: Option<String>,
+    pub metadata_json: Option<String>,
 }
 
 impl AdapterRegistrationBuilder {
@@ -208,6 +212,12 @@ impl AdapterRegistrationBuilder {
     /// Set the alpha parameter (defaults to rank * 2.0 if not set)
     pub fn alpha(mut self, alpha: f64) -> Self {
         self.alpha = Some(alpha);
+        self
+    }
+
+    /// Set the LoRA strength multiplier (0.0-1.0, optional)
+    pub fn lora_strength(mut self, strength: Option<f32>) -> Self {
+        self.lora_strength = strength;
         self
     }
 
@@ -375,6 +385,12 @@ impl AdapterRegistrationBuilder {
         self
     }
 
+    /// Set arbitrary metadata JSON for adapter registration (optional)
+    pub fn metadata_json(mut self, metadata_json: Option<impl Into<String>>) -> Self {
+        self.metadata_json = metadata_json.map(|s| s.into());
+        self
+    }
+
     /// Build the adapter registration parameters
     pub fn build(self) -> Result<AdapterRegistrationParams> {
         let rank = self
@@ -406,6 +422,7 @@ impl AdapterRegistrationBuilder {
             rank,
             tier,
             alpha: self.alpha.unwrap_or_else(|| (rank * 2) as f64),
+            lora_strength: Some(self.lora_strength.unwrap_or(1.0)),
             targets_json: self.targets_json.unwrap_or_else(|| "[]".to_string()),
             acl_json: self.acl_json,
             category: self.category.unwrap_or_else(|| "code".to_string()),
@@ -433,6 +450,7 @@ impl AdapterRegistrationBuilder {
             manifest_schema_version: self.manifest_schema_version,
             content_hash_b3: self.content_hash_b3,
             provenance_json: self.provenance_json,
+            metadata_json: self.metadata_json,
         })
     }
 }
@@ -447,6 +465,7 @@ pub struct Adapter {
     pub hash_b3: String,
     pub rank: i32,
     pub alpha: f64,                 // LoRA alpha parameter (usually rank * 2)
+    pub lora_strength: Option<f32>, // LoRA strength multiplier [0.0,1.0]
     pub targets_json: String,       // JSON array of target modules
     pub acl_json: Option<String>,   // Access control list
     pub adapter_id: Option<String>, // External adapter ID for lookups
@@ -507,6 +526,8 @@ pub struct Adapter {
     // Artifact hardening (from migration 0153)
     pub manifest_schema_version: Option<String>,
     pub content_hash_b3: Option<String>,
+    #[sqlx(default)]
+    pub metadata_json: Option<String>,
     pub provenance_json: Option<String>,
 
     pub created_at: String,
@@ -659,8 +680,8 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
                 sqlx::query(
-                    "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, manifest_schema_version, content_hash_b3, provenance_json, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
+                    "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
                 )
                 .bind(&id)
                 .bind(&params.tenant_id)
@@ -669,6 +690,7 @@ impl Db {
                 .bind(&params.hash_b3)
                 .bind(params.rank)
                 .bind(params.alpha)
+                .bind(&params.lora_strength)
                 .bind(&params.tier)
                 .bind(&params.targets_json)
                 .bind(&params.acl_json)
@@ -695,6 +717,7 @@ impl Db {
                 .bind(&params.base_model_id)
                 .bind(&params.manifest_schema_version)
                 .bind(&params.content_hash_b3)
+                .bind(&params.metadata_json)
                 .bind(&params.provenance_json)
                 .execute(pool)
                 .await
@@ -2130,6 +2153,24 @@ impl Db {
         Ok(())
     }
 
+    /// Update runtime LoRA strength multiplier
+    pub async fn update_adapter_strength(
+        &self,
+        adapter_id: &str,
+        lora_strength: f32,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE adapters SET lora_strength = ?, updated_at = datetime('now') WHERE adapter_id = ?",
+        )
+        .bind(lora_strength)
+        .bind(adapter_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update adapter strength: {}", e)))?;
+
+        Ok(())
+    }
+
     /// Ensure consistency between SQL and KV storage for a single adapter.
     ///
     /// Returns:
@@ -2187,6 +2228,7 @@ impl Db {
                     rank: adapter.rank,
                     tier: adapter.tier.clone(),
                     alpha: adapter.alpha,
+                    lora_strength: adapter.lora_strength,
                     targets_json: adapter.targets_json.clone(),
                     acl_json: adapter.acl_json.clone(),
                     languages_json: adapter.languages_json.clone(),
@@ -2213,6 +2255,7 @@ impl Db {
                     manifest_schema_version: adapter.manifest_schema_version.clone(),
                     content_hash_b3: adapter.content_hash_b3.clone(),
                     provenance_json: adapter.provenance_json.clone(),
+                    metadata_json: adapter.metadata_json.clone(),
                 };
 
                 // Delete old KV entry then re-register and sync state/memory
@@ -2254,6 +2297,7 @@ impl Db {
                     rank: adapter.rank,
                     tier: adapter.tier.clone(),
                     alpha: adapter.alpha,
+                    lora_strength: adapter.lora_strength,
                     targets_json: adapter.targets_json.clone(),
                     acl_json: adapter.acl_json.clone(),
                     languages_json: adapter.languages_json.clone(),
@@ -2280,6 +2324,7 @@ impl Db {
                     manifest_schema_version: adapter.manifest_schema_version.clone(),
                     content_hash_b3: adapter.content_hash_b3.clone(),
                     provenance_json: adapter.provenance_json.clone(),
+                    metadata_json: adapter.metadata_json.clone(),
                 };
 
                 repo.register_adapter_kv(params).await.map_err(|e| {

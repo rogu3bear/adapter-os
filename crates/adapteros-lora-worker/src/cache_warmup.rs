@@ -122,6 +122,7 @@ impl CacheWarmupManager {
                 request_type: RequestType::Normal,
                 stack_id: None,
                 stack_version: None,
+                domain_hint: None,
                 temperature: None,
                 top_k: None,
                 top_p: None,
@@ -132,8 +133,11 @@ impl CacheWarmupManager {
                 backend_profile: None,
                 pinned_adapter_ids: None,
                 determinism_mode: "strict".to_string(),
+                routing_determinism_mode: None,
                 strict_mode: false,
+                adapter_strength_overrides: None,
                 effective_adapter_ids: None,
+                placement: None,
                 routing_policy: None,
             };
 
@@ -189,6 +193,7 @@ impl CacheWarmupManager {
                 request_type: RequestType::Normal,
                 stack_id: None,
                 stack_version: None,
+                domain_hint: None,
                 temperature: None,
                 top_k: None,
                 top_p: None,
@@ -199,8 +204,11 @@ impl CacheWarmupManager {
                 backend_profile: None,
                 pinned_adapter_ids: None,
                 determinism_mode: "strict".to_string(),
+                routing_determinism_mode: None,
                 strict_mode: false,
+                adapter_strength_overrides: None,
                 effective_adapter_ids: None,
+                placement: None,
                 routing_policy: None,
             };
 
@@ -403,6 +411,8 @@ where
             backend_profile: None,
             pinned_adapter_ids: None,
             determinism_mode: "strict".to_string(),
+            routing_determinism_mode: None,
+            adapter_strength_overrides: None,
             effective_adapter_ids: None,
             strict_mode: true,
             routing_policy: None,

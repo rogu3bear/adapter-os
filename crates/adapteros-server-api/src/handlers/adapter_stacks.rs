@@ -5,6 +5,8 @@ use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_types::adapters::metadata::RoutingDeterminismMode;
+use std::str::FromStr;
 
 /// Audit action constants for stack operations
 const ACTION_STACK_CREATE: &str = "stack.create";
@@ -37,6 +39,10 @@ pub struct CreateStackRequest {
     /// If not specified, uses global config
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
+    /// Routing determinism mode for this stack (deterministic/adaptive)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
 }
 
 /// Response for adapter stack operations
@@ -67,6 +73,10 @@ pub struct StackResponse {
     /// If not specified, uses global config
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
+    /// Routing determinism mode for adapter selection
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
 }
 
 fn default_schema_version() -> String {
@@ -221,8 +231,6 @@ pub async fn create_stack(
             ),
         )
     })?;
-    let workflow_type_str = req.workflow_type.as_ref().map(|w| format!("{:?}", w));
-
     let db_req = adapteros_db::traits::CreateStackRequest {
         tenant_id: tenant_id.clone(),
         name: req.name.clone(),
@@ -230,6 +238,7 @@ pub async fn create_stack(
         adapter_ids: req.adapter_ids.clone(),
         workflow_type: req.workflow_type.as_ref().map(|w| format!("{:?}", w)),
         determinism_mode: req.determinism_mode.clone(),
+        routing_determinism_mode: req.routing_determinism_mode.map(|m| m.to_string()),
     };
 
     let id = match state.db.insert_stack(&db_req).await {
@@ -296,6 +305,7 @@ pub async fn create_stack(
         lifecycle_state: "active".to_string(), // New stacks default to active
         warnings,          // Include warnings in response (memory guardrails)
         determinism_mode: req.determinism_mode,
+        routing_determinism_mode: req.routing_determinism_mode,
     });
 
     // Convert to Response with 201 status code
@@ -359,6 +369,7 @@ pub async fn list_stacks(
             lifecycle_state: row.lifecycle_state,
             warnings: vec![], // No warnings for existing stacks
             determinism_mode: row.determinism_mode,
+            routing_determinism_mode: parse_routing_mode(&row.routing_determinism_mode),
         });
     }
 
@@ -427,7 +438,13 @@ pub async fn get_stack(
         lifecycle_state: row.lifecycle_state,
         warnings: vec![], // No warnings for existing stacks
         determinism_mode: row.determinism_mode,
+        routing_determinism_mode: parse_routing_mode(&row.routing_determinism_mode),
     }))
+}
+
+fn parse_routing_mode(raw: &Option<String>) -> Option<RoutingDeterminismMode> {
+    raw.as_deref()
+        .and_then(|s| RoutingDeterminismMode::from_str(s).ok())
 }
 
 /// Delete an adapter stack

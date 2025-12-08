@@ -18,6 +18,7 @@ use super::chunked_upload::{
 };
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
+use crate::citations::build_dataset_index;
 use crate::error_helpers::{bad_request, db_error, internal_error, not_found, payload_too_large};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -442,6 +443,15 @@ pub async fn upload_dataset(
         Some(&dataset_id),
     )
     .await;
+
+    // Build citation index for training files (best-effort)
+    if let Err(e) = build_dataset_index(&state, &dataset_id, &claims.tenant_id).await {
+        warn!(
+            dataset_id = %dataset_id,
+            error = %e,
+            "Failed to build dataset citation index"
+        );
+    }
 
     Ok(Json(UploadDatasetResponse {
         schema_version: "1.0".to_string(),
@@ -1654,6 +1664,15 @@ pub async fn complete_chunked_upload(
     )
     .await;
 
+    // Build citation index for training files (best-effort)
+    if let Err(e) = build_dataset_index(&state, &dataset_id, &claims.tenant_id).await {
+        warn!(
+            dataset_id = %dataset_id,
+            error = %e,
+            "Failed to build dataset citation index (chunked upload)"
+        );
+    }
+
     // Send completion event
     emit_progress(
         state.dataset_progress_tx.as_ref(),
@@ -2114,6 +2133,15 @@ pub async fn create_dataset_from_documents(
         Some(&dataset_id),
     )
     .await;
+
+    // Build citation index for training files (best-effort)
+    if let Err(e) = build_dataset_index(&state, &dataset_id, &claims.tenant_id).await {
+        warn!(
+            dataset_id = %dataset_id,
+            error = %e,
+            "Failed to build dataset citation index (document-derived)"
+        );
+    }
 
     info!(
         dataset_id = %dataset_id,

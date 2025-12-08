@@ -541,8 +541,28 @@ impl MLXFFIModel {
     ) -> Result<Self> {
         let model_path = model_path.as_ref();
 
+        if !model_path.exists() {
+            return Err(AosError::Config(format!(
+                "MLX model path '{}' does not exist. Set AOS_MODEL_PATH to a valid MLX model directory.",
+                model_path.display()
+            )));
+        }
+
+        if !model_path.is_dir() {
+            return Err(AosError::Config(format!(
+                "MLX model path '{}' is not a directory. Set AOS_MODEL_PATH to the MLX model directory containing config.json.",
+                model_path.display()
+            )));
+        }
+
         // Load config
         let config_path = model_path.join("config.json");
+        if !config_path.exists() {
+            return Err(AosError::Config(format!(
+                "config.json not found at '{}'. Set AOS_MODEL_PATH to a directory containing MLX config.json and weights.",
+                config_path.display()
+            )));
+        }
         let config_str = std::fs::read_to_string(&config_path)
             .map_err(|e| AosError::Io(format!("Failed to read config: {}", e)))?;
         let config: ModelConfig = serde_json::from_str(&config_str)
@@ -892,11 +912,12 @@ impl MLXFFIModel {
             repetition_penalty: 1.1,
             eos_token: tokenizer.eos_token_id(),
             use_cache: true,
+            kv_num_layers: Some(self.config.num_hidden_layers),
         };
 
         // Create generator with deterministic seed based on model path
         let base_seed = B3Hash::hash(self.model_path.to_string_lossy().as_bytes());
-        let mut generator = generation::MLXGenerator::new(base_seed, gen_config);
+        let mut generator = generation::MLXGenerator::new(base_seed, gen_config)?;
 
         // Generate text using the generator
         generator.generate_text(self, prompt, tokenizer)
@@ -922,8 +943,13 @@ impl MLXFFIModel {
             )
         })?;
 
+        let mut config = config;
+        if config.use_cache && config.kv_num_layers.is_none() {
+            config.kv_num_layers = Some(self.config.num_hidden_layers);
+        }
+
         let base_seed = B3Hash::hash(self.model_path.to_string_lossy().as_bytes());
-        let mut generator = generation::MLXGenerator::new(base_seed, config);
+        let mut generator = generation::MLXGenerator::new(base_seed, config)?;
 
         generator.generate_text(self, prompt, tokenizer)
     }
@@ -1872,6 +1898,7 @@ mod tests {
             repetition_penalty: 1.2,
             eos_token: 2,
             use_cache: true,
+            kv_num_layers: Some(32),
         };
 
         let result = model.generate_with_config("test prompt", gen_config);

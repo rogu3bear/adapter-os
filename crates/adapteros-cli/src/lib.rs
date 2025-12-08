@@ -3,7 +3,34 @@ use adapteros_core::identity::IdentityEnvelope;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+// Expose the CLI support modules so integration tests can use command plumbing.
+pub mod auth_store;
+pub mod cli_telemetry;
+pub mod commands;
+pub mod error_codes;
 pub mod formatting;
+pub mod output;
+
+/// Backend type selection for inference (mirrors the binary crate definition).
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub enum BackendType {
+    /// Metal backend (macOS GPU)
+    Metal,
+    /// MLX backend (Python/MLX)
+    Mlx,
+    /// CoreML backend (macOS Neural Engine)
+    CoreML,
+}
+
+impl From<BackendType> for adapteros_config::BackendPreference {
+    fn from(bt: BackendType) -> Self {
+        match bt {
+            BackendType::Metal => adapteros_config::BackendPreference::Metal,
+            BackendType::Mlx => adapteros_config::BackendPreference::Mlx,
+            BackendType::CoreML => adapteros_config::BackendPreference::CoreML,
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "aos")]

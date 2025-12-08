@@ -209,7 +209,10 @@ pub async fn policy_enforcement_middleware(
 fn determine_request_type(path: &str) -> RequestType {
     if path.starts_with("/v1/infer") || path.starts_with("/v1/streaming/infer") {
         RequestType::Inference
-    } else if path.starts_with("/v1/adapters") || path.starts_with("/v1/adapter-stacks") {
+    } else if path.starts_with("/v1/adapters")
+        || path.starts_with("/v1/adapter-stacks")
+        || path.starts_with("/v1/packages")
+    {
         RequestType::AdapterOperation
     } else if path.starts_with("/v1/training") || path.starts_with("/v1/datasets") {
         RequestType::TrainingOperation

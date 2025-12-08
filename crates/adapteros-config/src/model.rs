@@ -27,6 +27,11 @@ static DOTENV_INIT: Once = Once::new();
 /// This function is idempotent - it only loads the .env file once,
 /// even if called multiple times.
 pub fn load_dotenv() {
+    // Allow tests to opt out of loading workspace .env (prevents host-specific leakage)
+    if std::env::var("AOS_SKIP_DOTENV").is_ok() {
+        return;
+    }
+
     DOTENV_INIT.call_once(|| {
         // Try to load .env from current directory first
         if dotenvy::dotenv().is_ok() {
@@ -638,6 +643,7 @@ pub fn is_tokenizer_available() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn test_default_config() {
@@ -664,13 +670,14 @@ mod tests {
     #[test]
     fn test_head_dim() {
         let config = ModelConfig::default();
-        assert_eq!(config.head_dim(), 128); // 3584 / 28 = 128
+        assert_eq!(config.head_dim(), 128); // 5120 / 40 = 128
     }
 
     #[test]
     fn test_num_head_groups() {
         let config = ModelConfig::default();
-        assert_eq!(config.num_head_groups(), 7); // 28 / 4 = 7
+        let expected = config.num_attention_heads / config.num_key_value_heads;
+        assert_eq!(config.num_head_groups(), expected); // uses dev fixture defaults
     }
 
     #[test]
@@ -763,16 +770,24 @@ mod tests {
 
     #[test]
     fn test_from_env_with_vars() {
-        std::env::set_var("AOS_MODEL_PATH", "/tmp/test-model");
+        // Skip workspace .env to avoid leakage into expectations
+        std::env::set_var("AOS_SKIP_DOTENV", "1");
+
+        let temp = TempDir::new().unwrap();
+        let model_dir = temp.path().join("test-model");
+        std::fs::create_dir_all(&model_dir).unwrap();
+
+        std::env::set_var("AOS_MODEL_PATH", &model_dir);
         std::env::set_var("AOS_MODEL_BACKEND", "mlx");
 
         let config = ModelConfig::from_env().unwrap();
-        assert_eq!(config.path, PathBuf::from("/tmp/test-model"));
+        assert_eq!(config.path, model_dir);
         assert_eq!(config.backend, BackendPreference::Mlx);
 
         // Clean up
         std::env::remove_var("AOS_MODEL_PATH");
         std::env::remove_var("AOS_MODEL_BACKEND");
+        std::env::remove_var("AOS_SKIP_DOTENV");
     }
 
     #[test]

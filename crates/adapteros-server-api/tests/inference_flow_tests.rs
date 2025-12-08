@@ -148,6 +148,7 @@ async fn ready_model_happy_path_inference_and_routing() {
             router_decision_chain: None,
         },
         backend_used: Some(backend_name.to_string()),
+        backend_version: Some("v-test".to_string()),
         fallback_triggered: false,
         determinism_mode_applied: Some("strict".to_string()),
         unavailable_pinned_adapters: Some(vec!["missing-pin".to_string()]),

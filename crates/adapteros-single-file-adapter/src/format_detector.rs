@@ -7,6 +7,9 @@ use adapteros_core::{AosError, Result};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use tracing::warn;
+
+const LEGACY_AOS_MAGIC: [u8; 4] = *b"AOS\x00";
 
 /// Format version enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +44,20 @@ pub fn detect_format<P: AsRef<Path>>(path: P) -> Result<FormatVersion> {
     let mut magic = [0u8; 4];
     file.read_exact(&mut magic)
         .map_err(|e| AosError::Io(format!("Failed to read magic bytes: {}", e)))?;
+
+    // Explicitly detect legacy AOS v1 magic (AOS\0) and fail with a clear message.
+    if magic == LEGACY_AOS_MAGIC {
+        warn!(
+            code = "LEGACY_AOS_SEEN",
+            path = %path.display(),
+            "Detected unsupported legacy AOS format (AOS\\0 magic bytes)"
+        );
+        return Err(AosError::Parse(format!(
+            "Unsupported legacy AOS 1.x bundle at {} (magic: {:?}); please repackage as AOS2",
+            path.display(),
+            magic
+        )));
+    }
 
     // Check for ZIP format (PK\x03\x04)
     if &magic == b"PK\x03\x04" {
@@ -132,6 +149,24 @@ mod tests {
         let error = result.unwrap_err();
         match error {
             AosError::Parse(msg) => assert!(msg.contains("Unknown file format")),
+            _ => panic!("Expected Parse error, got {:?}", error),
+        }
+    }
+
+    #[test]
+    fn test_detect_legacy_magic_returns_explicit_error() {
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(b"AOS\x00LEGACY").unwrap();
+        file.flush().unwrap();
+
+        let result = detect_format(file.path());
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        match error {
+            AosError::Parse(msg) => {
+                assert!(msg.contains("Unsupported legacy AOS 1.x bundle"));
+                assert!(msg.contains("[65, 79, 83, 0]"));
+            }
             _ => panic!("Expected Parse error, got {:?}", error),
         }
     }

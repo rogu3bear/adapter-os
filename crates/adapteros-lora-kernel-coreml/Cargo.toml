@@ -55,5 +55,6 @@ cc = "1.0"
 blake3 = { workspace = true }
 
 [dev-dependencies]
+adapteros-config = { path = "../adapteros-config" }
 adapteros-memory = { path = "../adapteros-memory" }
 adapteros-testing = { path = "../adapteros-testing" }

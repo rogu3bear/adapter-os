@@ -1,5 +1,6 @@
 //! Inference types
 
+use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -12,9 +13,16 @@ pub struct InferRequest {
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Per-request override for router determinism (e.g., "deterministic", "adaptive")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
     /// Adapter stack identifier to use for inference
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack_id: Option<String>,
+    /// Optional domain hint to bias package/adapters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -72,6 +80,9 @@ pub struct InferResponse {
     pub latency_ms: u64,
     /// Adapters used for this inference (also available in trace)
     pub adapters_used: Vec<String>,
+    /// Source citations for the response
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub citations: Vec<Citation>,
     pub trace: InferenceTrace,
     /// Model used for inference
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,6 +118,24 @@ pub struct InferResponse {
     /// Replay guarantee level for this inference
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replay_guarantee: Option<ReplayGuarantee>,
+}
+
+/// Citation metadata for a response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct Citation {
+    /// Adapter that supplied the knowledge
+    pub adapter_id: String,
+    /// Path of the source file
+    pub file_path: String,
+    /// Chunk identifier within the source
+    pub chunk_id: String,
+    /// Byte offset where the chunk starts
+    pub offset_start: u64,
+    /// Byte offset where the chunk ends
+    pub offset_end: u64,
+    /// Short preview of the chunk text
+    pub preview: String,
 }
 
 /// Replay guarantee level for an inference

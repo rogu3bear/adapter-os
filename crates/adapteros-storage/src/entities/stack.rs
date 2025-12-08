@@ -3,6 +3,7 @@
 //! This module defines the canonical adapter stack entity for key-value storage,
 //! replacing the SQL `adapter_stacks` table.
 
+use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -118,6 +119,8 @@ pub struct AdapterStackKv {
     // Configuration (ordered list of adapter IDs)
     pub adapter_ids: Vec<String>,
     pub workflow_type: Option<WorkflowType>,
+    pub determinism_mode: Option<String>,
+    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
 
     // Audit
     pub created_by: Option<String>,
@@ -200,6 +203,8 @@ impl AdapterStackKv {
             .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
             .unwrap_or_else(Utc::now);
 
+        let routing_determinism_mode = None;
+
         Ok(Self {
             id,
             tenant_id,
@@ -209,6 +214,8 @@ impl AdapterStackKv {
             lifecycle_state,
             adapter_ids,
             workflow_type,
+            determinism_mode: None,
+            routing_determinism_mode,
             created_by,
             created_at,
             updated_at,
@@ -273,6 +280,8 @@ mod tests {
                 "adapter-3".to_string(),
             ],
             workflow_type: Some(WorkflowType::Sequential),
+            determinism_mode: None,
+            routing_determinism_mode: None,
             created_by: Some("user-1".to_string()),
             created_at: Utc::now(),
             updated_at: Utc::now(),

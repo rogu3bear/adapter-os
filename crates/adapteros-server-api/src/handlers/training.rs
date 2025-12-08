@@ -11,6 +11,7 @@ use crate::security::validate_tenant_isolation;
 use crate::services::{DefaultTrainingService, TrainingService};
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_config::resolve_worker_socket_for_cp;
 use adapteros_core::AosError;
 use adapteros_orchestrator::TrainingJobStatus;
 use axum::{
@@ -444,6 +445,8 @@ pub async fn start_training(
             Some(claims.role.clone()),
             request.base_model_id.clone(),
             request.collection_id.clone(),
+            request.scope.clone(),
+            request.lora_tier,
             // Category metadata
             request.category.clone(),
             request.description.clone(),
@@ -595,12 +598,18 @@ pub async fn cancel_training(
 
     // Create UDS client for worker communication
     let uds_client = adapteros_client::UdsClient::default();
-    let socket_path = std::env::var("AOS_WORKER_SOCKET")
-        .unwrap_or_else(|_| "/var/run/adapteros.sock".to_string());
+    let socket_path = resolve_worker_socket_for_cp();
+    let socket_path_str = socket_path.path.to_string_lossy().to_string();
+    info!(
+        job_id = %job_id,
+        socket_path = %socket_path_str,
+        socket_source = %socket_path.source,
+        "Resolved worker socket for training cancel"
+    );
 
     state
         .training_service
-        .cancel_job(&job_id, Some(&uds_client), Some(&socket_path))
+        .cancel_job(&job_id, Some(&uds_client), Some(&socket_path_str))
         .await
         .map_err(|e| {
             error!(job_id = %job_id, error = %e, "Failed to cancel training job");
@@ -741,6 +750,8 @@ pub async fn retry_training(
             Some(claims.role.clone()),
             original_job.base_model_id.clone(),
             original_job.collection_id.clone(),
+            original_job.scope.clone(),
+            original_job.lora_tier,
             original_job.category.clone(),
             original_job.description.clone(),
             original_job.language.clone(),

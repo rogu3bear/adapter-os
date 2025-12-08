@@ -647,56 +647,33 @@ mod invalid_manifest_handling {
             json.get("model_hash").is_none(),
             "Should be missing model_hash"
         );
-        assert!(
-            json.get("weights_offset").is_none(),
-            "Should be missing weights_offset"
-        );
     }
 
     /// Test manifest with invalid types
     #[test]
     fn test_manifest_invalid_types() {
-        let invalid_manifest = r#"{"weights_offset": "not_a_number"}"#;
+        let invalid_manifest = r#"{"rank": "not_a_number"}"#;
 
         let json: serde_json::Value = serde_json::from_str(invalid_manifest).unwrap();
-        let weights_offset = json.get("weights_offset").and_then(|v| v.as_u64());
+        let rank = json.get("rank").and_then(|v| v.as_u64());
 
-        assert!(weights_offset.is_none(), "String should not parse as u64");
+        assert!(rank.is_none(), "String should not parse as u64");
     }
 
     /// Test .aos format validation
     #[test]
     fn test_aos_format_validation() {
-        // Valid .aos header: manifest_offset (4 bytes) + manifest_len (4 bytes) = 8 bytes minimum
         let too_small: [u8; 4] = [0, 0, 0, 8];
-
-        // Check that we detect invalid size
-        assert!(too_small.len() < 8, "Too small for valid .aos file");
-
-        // Create minimal invalid .aos structure
-        let mut invalid_aos: Vec<u8> = vec![0; 16];
-        // Set manifest_offset to 8 (right after header)
-        invalid_aos[0..4].copy_from_slice(&8u32.to_le_bytes());
-        // Set manifest_len to 100 (way too large for our buffer)
-        invalid_aos[4..8].copy_from_slice(&100u32.to_le_bytes());
-
-        // Validate: manifest would be out of bounds
-        let manifest_offset = u32::from_le_bytes([
-            invalid_aos[0],
-            invalid_aos[1],
-            invalid_aos[2],
-            invalid_aos[3],
-        ]) as usize;
-        let manifest_len = u32::from_le_bytes([
-            invalid_aos[4],
-            invalid_aos[5],
-            invalid_aos[6],
-            invalid_aos[7],
-        ]) as usize;
-
         assert!(
-            manifest_offset + manifest_len > invalid_aos.len(),
-            "Should detect manifest out of bounds"
+            adapteros_aos::open_aos(&too_small).is_err(),
+            "Too small for valid AOS2 file"
+        );
+
+        let mut invalid_magic = vec![0u8; adapteros_aos::HEADER_SIZE];
+        invalid_magic[0..4].copy_from_slice(b"BAD!");
+        assert!(
+            adapteros_aos::open_aos(&invalid_magic).is_err(),
+            "Invalid magic should fail"
         );
     }
 }

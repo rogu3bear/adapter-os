@@ -34,7 +34,7 @@ jobs:
         with:
           components: clippy
       - name: Run clippy
-        run: cargo clippy --workspace --exclude adapteros-lora-mlx-ffi -- -D warnings
+        run: cargo clippy --workspace --all-targets --exclude adapteros-lora-mlx-ffi -- -D warnings
 
   test:
     name: Test Suite
@@ -42,8 +42,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
       - name: Run tests
-        run: cargo test --workspace --exclude adapteros-lora-mlx-ffi
+        run: cargo test --workspace --all-targets --exclude adapteros-lora-mlx-ffi
+
+  test-macos:
+    name: Test Suite (macOS, full workspace)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Run tests
+        run: cargo test --workspace --all-targets
 
   kv-primary:
     name: KV Primary Mode
@@ -53,6 +84,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Prepare KV path
         run: mkdir -p /tmp/aos-kv
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
       - name: Detect KV-only coverage readiness
         id: coverage
         run: |

@@ -205,6 +205,7 @@ fn test_inference_result_has_pinned_adapter_fields() {
         router_decisions: vec![],
         router_decision_chain: None,
         rag_evidence: None,
+        citations: vec![],
         latency_ms: 500,
         request_id: "test-request-123".to_string(),
         unavailable_pinned_adapters: Some(vec![
@@ -249,6 +250,7 @@ fn test_inference_result_omits_none_pinned_fields() {
         router_decisions: vec![],
         router_decision_chain: None,
         rag_evidence: None,
+        citations: vec![],
         latency_ms: 250,
         request_id: "test-request-456".to_string(),
         unavailable_pinned_adapters: None,
@@ -353,6 +355,7 @@ fn test_graceful_degradation_http_200_behavior() {
         router_decisions: vec![],
         router_decision_chain: None,
         rag_evidence: None,
+        citations: vec![],
         latency_ms: 1000,
         request_id: "graceful-degradation-test".to_string(),
         unavailable_pinned_adapters: Some(vec!["requested-pin".to_string()]),

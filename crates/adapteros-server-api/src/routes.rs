@@ -1354,6 +1354,26 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapter-stacks/deactivate",
             post(handlers::adapter_stacks::deactivate_stack),
         )
+        // Adapter packages routes
+        .route(
+            "/v1/packages",
+            get(handlers::packages::list_packages).post(handlers::packages::create_package),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/packages",
+            get(handlers::packages::list_packages_for_tenant),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/packages/{package_id}/install",
+            post(handlers::packages::install_package_for_tenant)
+                .delete(handlers::packages::uninstall_package_for_tenant),
+        )
+        .route(
+            "/v1/packages/{id}",
+            get(handlers::packages::get_package)
+                .patch(handlers::packages::update_package)
+                .delete(handlers::packages::delete_package),
+        )
         // Domain adapter routes
         .route(
             "/v1/domain-adapters",

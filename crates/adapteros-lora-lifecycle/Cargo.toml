@@ -21,6 +21,7 @@ adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 adapteros-memory = { path = "../adapteros-memory" }
+adapteros-types = { path = "../adapteros-types" }
 memmap2 = "0.9"
 parking_lot = "0.12"
 safetensors = "0.4"

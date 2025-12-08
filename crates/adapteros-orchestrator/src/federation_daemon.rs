@@ -389,7 +389,6 @@ impl FederationDaemon {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_core::B3Hash;
     use adapteros_crypto::Keypair;
     use tempfile::TempDir;
 

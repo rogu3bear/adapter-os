@@ -17,6 +17,7 @@ pub struct ReplayMetadataKv {
     pub sampling_algorithm_version: String,
     pub rag_snapshot_hash: Option<String>,
     pub adapter_ids_json: Option<String>,
+    pub base_only: Option<bool>,
     pub prompt_text: String,
     pub prompt_truncated: i32,
     pub response_text: Option<String>,

@@ -1,23 +1,83 @@
 //! AOS Archive Writer
 //!
-//! Creates single-file .aos archives with manifest + weights.
-//!
-//! ## Format Specification
+//! Creates single-file `.aos` archives with a manifest and one or more
+//! backend-specific segments described by an index in the header.
 //!
 //! See docs/AOS_FORMAT.md for full specification.
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use serde::Serialize;
+use serde_json::Value;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use tracing::info;
 
 /// Magic bytes identifying an AOS archive (4 bytes)
-pub const AOS_MAGIC: [u8; 4] = *b"AOS\x00";
+pub const AOS_MAGIC: [u8; 4] = *b"AOS2";
 
 /// Current header size in bytes (64-byte aligned for cache efficiency)
 pub const HEADER_SIZE: usize = 64;
+
+/// Fixed size for each segment index entry
+pub const INDEX_ENTRY_SIZE: usize = 80;
+
+/// Bit 0: segment index present (required for AOS2)
+pub const HAS_INDEX_FLAG: u32 = 0x1;
+
+/// Compute the truncated scope hash used in the segment index.
+pub fn compute_scope_hash(scope_path: &str) -> [u8; 16] {
+    let full = B3Hash::hash(scope_path.as_bytes());
+    let mut truncated = [0u8; 16];
+    truncated.copy_from_slice(&full.as_bytes()[..16]);
+    truncated
+}
+
+/// Backend tags for multi-backend UMA artifacts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendTag {
+    Canonical,
+    Mlx,
+    Metal,
+    Coreml,
+}
+
+impl BackendTag {
+    pub fn as_u16(self) -> u16 {
+        match self {
+            BackendTag::Canonical => 0,
+            BackendTag::Mlx => 1,
+            BackendTag::Metal => 2,
+            BackendTag::Coreml => 3,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BackendTag::Canonical => "canonical",
+            BackendTag::Mlx => "mlx",
+            BackendTag::Metal => "metal",
+            BackendTag::Coreml => "coreml",
+        }
+    }
+}
+
+impl TryFrom<u16> for BackendTag {
+    type Error = AosError;
+
+    fn try_from(value: u16) -> Result<Self> {
+        match value {
+            0 => Ok(BackendTag::Canonical),
+            1 => Ok(BackendTag::Mlx),
+            2 => Ok(BackendTag::Metal),
+            3 => Ok(BackendTag::Coreml),
+            other => Err(AosError::Validation(format!(
+                "Unknown backend tag: {}",
+                other
+            ))),
+        }
+    }
+}
 
 /// AOS Writer Options
 #[derive(Debug, Clone)]
@@ -34,12 +94,22 @@ impl Default for WriteOptions {
     }
 }
 
+#[derive(Debug, Clone)]
+struct PendingSegment {
+    segment_id: u32,
+    backend_tag: BackendTag,
+    scope_hash: [u8; 16],
+    weights_hash: B3Hash,
+    payload: Vec<u8>,
+}
+
 /// AOS Archive Writer
 ///
-/// Creates .aos archive files with a 64-byte fixed header.
+/// Creates .aos archive files with a 64-byte fixed header + segment index.
 pub struct AosWriter {
     #[allow(dead_code)]
     options: WriteOptions,
+    segments: Vec<PendingSegment>,
 }
 
 /// Parsed AOS archive header
@@ -48,26 +118,53 @@ pub struct AosWriter {
 /// ```text
 /// | Offset | Size | Field                              |
 /// |--------|------|------------------------------------|
-/// | 0      | 4    | Magic: "AOS\x00"                   |
-/// | 4      | 4    | Flags (u32 LE, reserved)           |
-/// | 8      | 8    | Weights offset (u64 LE)            |
-/// | 16     | 8    | Weights size (u64 LE)              |
+/// | 0      | 4    | Magic: "AOS2"                      |
+/// | 4      | 4    | Flags (u32 LE)                     |
+/// | 8      | 8    | Index offset (u64 LE)              |
+/// | 16     | 8    | Index size (u64 LE)                |
 /// | 24     | 8    | Manifest offset (u64 LE)           |
 /// | 32     | 8    | Manifest size (u64 LE)             |
 /// | 40     | 24   | Reserved (padding)                 |
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct AosHeader {
-    /// Flags (reserved for future use)
+    /// Flags (bit 0 must be set to indicate presence of an index)
     pub flags: u32,
-    /// Offset to weights data
-    pub weights_offset: u64,
-    /// Size of weights data in bytes
-    pub weights_size: u64,
+    /// Offset to segment index
+    pub index_offset: u64,
+    /// Size of segment index in bytes
+    pub index_size: u64,
     /// Offset to manifest JSON
     pub manifest_offset: u64,
     /// Size of manifest JSON in bytes
     pub manifest_size: u64,
+}
+
+/// Parsed descriptor for a segment stored in the archive.
+#[derive(Debug, Clone)]
+pub struct SegmentDescriptor {
+    pub segment_id: u32,
+    pub backend_tag: BackendTag,
+    pub scope_hash: [u8; 16],
+    pub weights_hash: B3Hash,
+    pub offset: usize,
+    pub len: usize,
+}
+
+/// Borrowed view of a segment payload.
+#[derive(Debug, Clone)]
+pub struct SegmentView<'a> {
+    pub segment_id: u32,
+    pub backend_tag: BackendTag,
+    pub scope_hash: [u8; 16],
+    pub payload: &'a [u8],
+}
+
+/// Borrowed view of an .aos file.
+#[derive(Debug, Clone)]
+pub struct AosFileView<'a> {
+    pub manifest_bytes: &'a [u8],
+    pub segments: Vec<SegmentView<'a>>,
 }
 
 impl AosWriter {
@@ -75,50 +172,130 @@ impl AosWriter {
     pub fn new() -> Self {
         Self {
             options: WriteOptions::default(),
+            segments: Vec::new(),
         }
     }
 
     /// Create with custom options
     pub fn with_options(options: WriteOptions) -> Self {
-        Self { options }
+        Self {
+            options,
+            segments: Vec::new(),
+        }
     }
 
-    /// Write adapter archive to file
-    ///
-    /// ## Format (64-byte header)
-    /// ```text
-    /// | Offset | Size | Field                              |
-    /// |--------|------|------------------------------------|
-    /// | 0      | 4    | Magic: "AOS\x00"                   |
-    /// | 4      | 4    | Flags (u32 LE, reserved)           |
-    /// | 8      | 8    | Weights offset (u64 LE)            |
-    /// | 16     | 8    | Weights size (u64 LE)              |
-    /// | 24     | 8    | Manifest offset (u64 LE)           |
-    /// | 32     | 8    | Manifest size (u64 LE)             |
-    /// | 40     | 24   | Reserved (padding)                 |
-    /// [64...]   weights (safetensors format)
-    /// [...]     manifest (JSON)
-    /// ```
-    pub fn write_archive<P, M>(
-        &self,
-        output_path: P,
-        manifest: &M,
-        weights_data: &[u8],
-    ) -> Result<u64>
+    /// Add a segment to the archive. Returns the assigned segment_id.
+    pub fn add_segment(
+        &mut self,
+        backend_tag: BackendTag,
+        scope_path: Option<String>,
+        bytes: &[u8],
+    ) -> Result<u32> {
+        let segment_id = self.segments.len() as u32;
+        let weights_hash = B3Hash::hash(bytes);
+        let scope_hash = scope_path
+            .as_deref()
+            .map(compute_scope_hash)
+            .unwrap_or([0u8; 16]);
+
+        self.segments.push(PendingSegment {
+            segment_id,
+            backend_tag,
+            scope_hash,
+            weights_hash,
+            payload: bytes.to_vec(),
+        });
+
+        Ok(segment_id)
+    }
+
+    /// Clear all pending segments (builder reset)
+    pub fn clear_segments(&mut self) {
+        self.segments.clear();
+    }
+
+    /// Write adapter archive to file using the queued segments
+    pub fn write_archive<P, M>(&self, output_path: P, manifest: &M) -> Result<u64>
     where
         P: AsRef<Path>,
         M: Serialize,
     {
         let output_path = output_path.as_ref();
-        info!(path = %output_path.display(), "Writing AOS archive");
+        if self.segments.is_empty() {
+            return Err(AosError::Validation(
+                "Cannot write .aos archive without segments".to_string(),
+            ));
+        }
+
+        if !self
+            .segments
+            .iter()
+            .any(|seg| seg.backend_tag == BackendTag::Canonical)
+        {
+            return Err(AosError::Validation(
+                "Cannot write .aos archive without canonical segment".to_string(),
+            ));
+        }
+
+        let manifest_value: Value = serde_json::to_value(manifest)?;
+        let scope_path = manifest_value
+            .get("metadata")
+            .and_then(|v| v.get("scope_path"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                AosError::Validation(
+                    "Corrupted / needs retrain: missing scope_path in manifest metadata"
+                        .to_string(),
+                )
+            })?;
+        let manifest_scope_hash = compute_scope_hash(scope_path);
 
         // Serialize manifest to JSON
-        let manifest_json = serde_json::to_vec_pretty(manifest)?;
+        let manifest_json = serde_json::to_vec_pretty(&manifest_value)?;
 
-        // Calculate offsets
-        let weights_offset = HEADER_SIZE as u64;
-        let weights_size = weights_data.len() as u64;
-        let manifest_offset = weights_offset + weights_size;
+        // Layout
+        let index_offset = HEADER_SIZE as u64;
+        let index_size = (self.segments.len() as u64) * INDEX_ENTRY_SIZE as u64;
+        let mut current_offset = index_offset + index_size;
+
+        // Build index bytes and capture payload offsets
+        let mut index_bytes = Vec::with_capacity(index_size as usize);
+        for segment in &self.segments {
+            let offset = current_offset;
+            let len = segment.payload.len() as u64;
+            current_offset = current_offset
+                .checked_add(len)
+                .ok_or_else(|| AosError::Validation("Segment offsets overflow".to_string()))?;
+
+            let actual_hash = B3Hash::hash(&segment.payload);
+            if actual_hash != segment.weights_hash {
+                return Err(AosError::Validation(format!(
+                    "Corrupted / needs retrain: segment {} hash mismatch before write",
+                    segment.segment_id
+                )));
+            }
+
+            if segment.scope_hash != [0u8; 16] && segment.scope_hash != manifest_scope_hash {
+                return Err(AosError::Validation(
+                    "Corrupted / needs retrain: segment scope hash does not match manifest scope_path"
+                        .to_string(),
+                ));
+            }
+
+            let mut entry = [0u8; INDEX_ENTRY_SIZE];
+            entry[0..4].copy_from_slice(&segment.segment_id.to_le_bytes());
+            entry[4..6].copy_from_slice(&segment.backend_tag.as_u16().to_le_bytes());
+            // entry[6..8] reserved zeros
+            entry[8..16].copy_from_slice(&offset.to_le_bytes());
+            entry[16..24].copy_from_slice(&len.to_le_bytes());
+            entry[24..40].copy_from_slice(&manifest_scope_hash);
+            entry[40..72].copy_from_slice(actual_hash.as_bytes());
+            // entry[72..80] reserved zeros
+            index_bytes.extend_from_slice(&entry);
+        }
+
+        let manifest_offset = current_offset;
         let manifest_size = manifest_json.len() as u64;
         let total_size = manifest_offset + manifest_size;
 
@@ -128,47 +305,35 @@ impl AosWriter {
 
         // Write 64-byte header
         let mut header = [0u8; HEADER_SIZE];
-
-        // Magic bytes [0-3]
         header[0..4].copy_from_slice(&AOS_MAGIC);
-
-        // Flags [4-7] - reserved, zeroed
-        header[4..8].copy_from_slice(&0u32.to_le_bytes());
-
-        // Weights offset [8-15]
-        header[8..16].copy_from_slice(&weights_offset.to_le_bytes());
-
-        // Weights size [16-23]
-        header[16..24].copy_from_slice(&weights_size.to_le_bytes());
-
-        // Manifest offset [24-31]
+        header[4..8].copy_from_slice(&HAS_INDEX_FLAG.to_le_bytes());
+        header[8..16].copy_from_slice(&index_offset.to_le_bytes());
+        header[16..24].copy_from_slice(&index_size.to_le_bytes());
         header[24..32].copy_from_slice(&manifest_offset.to_le_bytes());
-
-        // Manifest size [32-39]
         header[32..40].copy_from_slice(&manifest_size.to_le_bytes());
-
-        // Reserved [40-63] - already zeroed
 
         file.write_all(&header)
             .map_err(|e| AosError::Io(format!("Failed to write header: {}", e)))?;
+        file.write_all(&index_bytes)
+            .map_err(|e| AosError::Io(format!("Failed to write index: {}", e)))?;
 
-        // Write weights (safetensors format)
-        file.write_all(weights_data)
-            .map_err(|e| AosError::Io(format!("Failed to write weights: {}", e)))?;
+        for segment in &self.segments {
+            file.write_all(&segment.payload)
+                .map_err(|e| AosError::Io(format!("Failed to write segment: {}", e)))?;
+        }
 
-        // Write manifest (JSON)
         file.write_all(&manifest_json)
             .map_err(|e| AosError::Io(format!("Failed to write manifest: {}", e)))?;
-
         file.flush()
             .map_err(|e| AosError::Io(format!("Failed to flush archive: {}", e)))?;
 
         info!(
             path = %output_path.display(),
             total_size = total_size,
-            weights_size = weights_size,
+            segments = self.segments.len(),
+            index_size = index_size,
             manifest_size = manifest_size,
-            "AOS archive written"
+            "AOS archive written with indexed segments"
         );
 
         Ok(total_size)
@@ -187,25 +352,46 @@ impl AosWriter {
         file.read_exact(&mut header)
             .map_err(|e| AosError::Io(format!("Failed to read header: {}", e)))?;
 
-        // Validate magic bytes (4 bytes)
-        if header[0..4] != AOS_MAGIC {
-            return Err(AosError::Validation(format!(
-                "Invalid magic bytes: expected {:?}, got {:?}",
-                AOS_MAGIC,
-                &header[0..4]
-            )));
+        // Reuse in-memory parser so validation stays consistent
+        AosWriter::parse_header_bytes(&header)
+    }
+
+    /// Parse and validate a header from an in-memory byte slice.
+    pub fn parse_header_bytes(bytes: &[u8]) -> Result<AosHeader> {
+        if bytes.len() < HEADER_SIZE {
+            return Err(AosError::Validation(
+                "Corrupted / needs retrain: file too small for AOS2 header".to_string(),
+            ));
         }
 
-        let flags = u32::from_le_bytes(header[4..8].try_into().unwrap());
-        let weights_offset = u64::from_le_bytes(header[8..16].try_into().unwrap());
-        let weights_size = u64::from_le_bytes(header[16..24].try_into().unwrap());
-        let manifest_offset = u64::from_le_bytes(header[24..32].try_into().unwrap());
-        let manifest_size = u64::from_le_bytes(header[32..40].try_into().unwrap());
+        if bytes[0..4] != AOS_MAGIC {
+            return Err(AosError::Validation(
+                "Corrupted / needs retrain: invalid AOS magic".to_string(),
+            ));
+        }
+
+        let flags = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        let index_offset = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
+        let index_size = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
+        let manifest_offset = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
+        let manifest_size = u64::from_le_bytes(bytes[32..40].try_into().unwrap());
+
+        if index_offset != HEADER_SIZE as u64 {
+            return Err(AosError::Validation(
+                "Corrupted / needs retrain: invalid header layout (index offset)".to_string(),
+            ));
+        }
+
+        if bytes[40..HEADER_SIZE].iter().any(|b| *b != 0) {
+            return Err(AosError::Validation(
+                "Corrupted / needs retrain: reserved header bytes non-zero".to_string(),
+            ));
+        }
 
         Ok(AosHeader {
             flags,
-            weights_offset,
-            weights_size,
+            index_offset,
+            index_size,
             manifest_offset,
             manifest_size,
         })
@@ -218,122 +404,277 @@ impl Default for AosWriter {
     }
 }
 
+/// Parse segment descriptors from an in-memory archive, validating layout and hashes.
+pub fn parse_segments(bytes: &[u8], header: &AosHeader) -> Result<Vec<SegmentDescriptor>> {
+    if header.flags & HAS_INDEX_FLAG == 0 {
+        return Err(AosError::Validation(
+            "Corrupted / needs retrain: missing segment index".to_string(),
+        ));
+    }
+
+    let file_len = bytes.len();
+    let index_offset = header.index_offset as usize;
+    let index_size = header.index_size as usize;
+    let manifest_offset = header.manifest_offset as usize;
+    let manifest_size = header.manifest_size as usize;
+
+    if index_offset < HEADER_SIZE {
+        return Err(AosError::Validation(
+            "Corrupted / needs retrain: index overlaps header".to_string(),
+        ));
+    }
+
+    let index_end = index_offset.checked_add(index_size).ok_or_else(|| {
+        AosError::Validation("Corrupted / needs retrain: index overflow".to_string())
+    })?;
+    if index_end > file_len {
+        return Err(AosError::Validation(
+            "Corrupted / needs retrain: index beyond file".to_string(),
+        ));
+    }
+
+    if index_size % INDEX_ENTRY_SIZE != 0 {
+        return Err(AosError::Validation(
+            "Corrupted / needs retrain: index size not 80-byte aligned".to_string(),
+        ));
+    }
+
+    let manifest_end = manifest_offset.checked_add(manifest_size).ok_or_else(|| {
+        AosError::Validation("Corrupted / needs retrain: manifest overflow".to_string())
+    })?;
+    if manifest_end > file_len {
+        return Err(AosError::Validation(
+            "Corrupted / needs retrain: manifest beyond file".to_string(),
+        ));
+    }
+    if manifest_offset < index_end {
+        return Err(AosError::Validation(
+            "Corrupted / needs retrain: manifest overlaps index/segments".to_string(),
+        ));
+    }
+
+    let entry_count = index_size / INDEX_ENTRY_SIZE;
+    let index_bytes = &bytes[index_offset..index_end];
+    let mut segments = Vec::with_capacity(entry_count);
+
+    for i in 0..entry_count {
+        let entry_start = i * INDEX_ENTRY_SIZE;
+        let entry = &index_bytes[entry_start..entry_start + INDEX_ENTRY_SIZE];
+        let segment_id = u32::from_le_bytes(entry[0..4].try_into().unwrap());
+        let backend_tag_raw = u16::from_le_bytes(entry[4..6].try_into().unwrap());
+        let backend_tag = BackendTag::try_from(backend_tag_raw)?;
+        let offset = u64::from_le_bytes(entry[8..16].try_into().unwrap()) as usize;
+        let len = u64::from_le_bytes(entry[16..24].try_into().unwrap()) as usize;
+        let mut scope_hash = [0u8; 16];
+        scope_hash.copy_from_slice(&entry[24..40]);
+        let mut weights_hash_bytes = [0u8; 32];
+        weights_hash_bytes.copy_from_slice(&entry[40..72]);
+        let weights_hash = B3Hash::from_bytes(weights_hash_bytes);
+
+        let payload_end = offset.checked_add(len).ok_or_else(|| {
+            AosError::Validation("Corrupted / needs retrain: segment overflow".to_string())
+        })?;
+        if offset < index_end {
+            return Err(AosError::Validation(
+                "Corrupted / needs retrain: segment overlaps index".to_string(),
+            ));
+        }
+        if payload_end > manifest_offset {
+            return Err(AosError::Validation(
+                "Corrupted / needs retrain: segment overlaps manifest".to_string(),
+            ));
+        }
+        if payload_end > file_len {
+            return Err(AosError::Validation(
+                "Corrupted / needs retrain: segment beyond file".to_string(),
+            ));
+        }
+
+        let payload = &bytes[offset..payload_end];
+        if B3Hash::hash(payload) != weights_hash {
+            return Err(AosError::Validation(format!(
+                "Corrupted / needs retrain: segment {} hash mismatch",
+                segment_id
+            )));
+        }
+
+        segments.push(SegmentDescriptor {
+            segment_id,
+            backend_tag,
+            scope_hash,
+            weights_hash,
+            offset,
+            len,
+        });
+    }
+
+    Ok(segments)
+}
+
+/// Open an in-memory AOS file, returning manifest bytes and borrowed segments.
+pub fn open_aos<'a>(bytes: &'a [u8]) -> Result<AosFileView<'a>> {
+    let header = AosWriter::parse_header_bytes(bytes)?;
+    let descriptors = parse_segments(bytes, &header)?;
+
+    let mut segments = Vec::with_capacity(descriptors.len());
+    for desc in descriptors {
+        let payload = &bytes[desc.offset..desc.offset + desc.len];
+        segments.push(SegmentView {
+            segment_id: desc.segment_id,
+            backend_tag: desc.backend_tag,
+            scope_hash: desc.scope_hash,
+            payload,
+        });
+    }
+
+    let manifest_start = header.manifest_offset as usize;
+    let manifest_end = (header.manifest_offset + header.manifest_size) as usize;
+    let manifest_bytes = &bytes[manifest_start..manifest_end];
+
+    Ok(AosFileView {
+        manifest_bytes,
+        segments,
+    })
+}
+
+/// Deterministically select a segment by scope hash and backend preference.
+pub fn select_segment<'a>(
+    segments: &'a [SegmentDescriptor],
+    scope_hash: [u8; 16],
+    preferred_backend: Option<BackendTag>,
+) -> Option<&'a SegmentDescriptor> {
+    let scoped: Vec<&SegmentDescriptor> = segments
+        .iter()
+        .filter(|s| s.scope_hash == scope_hash)
+        .collect();
+
+    // Prefer explicit backend within the scoped set
+    if let Some(preferred) = preferred_backend {
+        if let Some(seg) = scoped.iter().find(|s| s.backend_tag == preferred) {
+            return Some(*seg);
+        }
+    }
+
+    // Fallback to canonical for the scoped set
+    if let Some(seg) = scoped
+        .iter()
+        .find(|s| s.backend_tag == BackendTag::Canonical)
+    {
+        return Some(*seg);
+    }
+
+    // If no scoped segments match, allow canonical without scope match
+    if let Some(seg) = segments
+        .iter()
+        .find(|s| s.backend_tag == BackendTag::Canonical)
+    {
+        return Some(seg);
+    }
+
+    // Final fallback: first available segment (deterministic by index order)
+    segments.first()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
     use tempfile::NamedTempFile;
 
     #[derive(Serialize, Deserialize, Debug, PartialEq)]
     struct TestManifest {
         adapter_id: String,
         rank: u32,
+        metadata: HashMap<String, String>,
     }
 
-    /// Generate valid safetensors format data for testing
-    ///
-    /// Safetensors format:
-    /// - [0-7]: header_size (u64, little-endian)
-    /// - [8..8+header_size]: JSON header with tensor metadata
-    /// - [8+header_size..]: raw tensor data
-    fn generate_test_safetensors() -> Vec<u8> {
-        use std::collections::HashMap;
-
-        // Create minimal tensor metadata
-        let mut metadata = HashMap::new();
-
-        // LoRA weight tensor metadata (4x4 float32 = 64 bytes)
-        let tensor_meta = serde_json::json!({
-            "dtype": "F32",
-            "shape": [4, 4],
-            "data_offsets": [0, 64]
-        });
-        metadata.insert("lora_A.weight", tensor_meta);
-
-        // Add __metadata__ for adapter info
-        let file_meta = serde_json::json!({
-            "format": "pt",
-            "framework": "adapteros"
-        });
-        metadata.insert("__metadata__", file_meta);
-
-        // Serialize header to JSON
-        let header_json = serde_json::to_string(&metadata).unwrap();
-        let header_bytes = header_json.as_bytes();
-        let header_size = header_bytes.len() as u64;
-
-        // Build safetensors buffer
-        let mut buffer = Vec::new();
-
-        // Write header size (u64, little-endian)
-        buffer.extend_from_slice(&header_size.to_le_bytes());
-
-        // Write JSON header
-        buffer.extend_from_slice(header_bytes);
-
-        // Write tensor data (4x4 float32 matrix with deterministic values)
-        // Using HKDF-style deterministic values for reproducibility
-        let tensor_data: Vec<f32> = (0..16)
-            .map(|i| (i as f32 * 0.1) - 0.8) // Values from -0.8 to 0.7
-            .collect();
-
-        for val in tensor_data {
-            buffer.extend_from_slice(&val.to_le_bytes());
+    fn fake_bytes(label: &str, len: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(len);
+        let mut seed = B3Hash::hash(label.as_bytes()).to_bytes().to_vec();
+        while out.len() < len {
+            out.extend_from_slice(&seed);
+            seed = B3Hash::hash(&seed).to_bytes().to_vec();
         }
-
-        buffer
+        out.truncate(len);
+        out
     }
 
     #[test]
-    fn test_write_and_read_archive() -> Result<()> {
+    fn test_write_and_read_archive_with_segments() -> Result<()> {
         let temp_file = NamedTempFile::new()
             .map_err(|e| AosError::Io(format!("Failed to create temp file: {}", e)))?;
 
         let manifest = TestManifest {
             adapter_id: "test-adapter".to_string(),
             rank: 4,
+            metadata: HashMap::from([(
+                "scope_path".to_string(),
+                "domain/group/scope/op".to_string(),
+            )]),
         };
 
-        let weights_data = generate_test_safetensors();
+        let canonical_bytes = fake_bytes("canonical", 64);
+        let mlx_bytes = fake_bytes("mlx", 32);
+        let metal_bytes = fake_bytes("metal", 48);
 
-        let writer = AosWriter::new();
-        let total_size = writer.write_archive(temp_file.path(), &manifest, &weights_data)?;
+        let mut writer = AosWriter::new();
+        writer.add_segment(
+            BackendTag::Canonical,
+            Some("domain/group/scope/op".to_string()),
+            &canonical_bytes,
+        )?;
+        writer.add_segment(BackendTag::Mlx, None, &mlx_bytes)?;
+        writer.add_segment(BackendTag::Metal, None, &metal_bytes)?;
+
+        let total_size = writer.write_archive(temp_file.path(), &manifest)?;
 
         // Verify header
         let header = AosWriter::read_header(temp_file.path())?;
-
-        assert_eq!(header.weights_offset, HEADER_SIZE as u64);
-        assert_eq!(header.weights_size, weights_data.len() as u64);
-        assert_eq!(
-            header.manifest_offset,
-            HEADER_SIZE as u64 + weights_data.len() as u64
-        );
+        assert_eq!(header.flags & HAS_INDEX_FLAG, HAS_INDEX_FLAG);
+        assert_eq!(header.index_offset, HEADER_SIZE as u64);
+        assert_eq!(header.index_size, 3 * INDEX_ENTRY_SIZE as u64);
         assert!(header.manifest_size > 0);
+        assert_eq!(header.manifest_offset + header.manifest_size, total_size);
 
-        // Calculate total size from header fields and verify it matches
-        let calculated_total_size = header.manifest_offset + header.manifest_size;
-        assert_eq!(calculated_total_size, total_size);
+        // Parse index manually
+        let data = std::fs::read(temp_file.path()).unwrap();
+        let index_bytes =
+            &data[header.index_offset as usize..(header.index_offset + header.index_size) as usize];
 
-        // Verify safetensors header can be parsed from the archive
-        use std::io::{Read, Seek, SeekFrom};
-        let mut file = File::open(temp_file.path())
-            .map_err(|e| AosError::Io(format!("Failed to open archive: {}", e)))?;
+        for (i, (expected_tag, expected_bytes)) in [
+            (BackendTag::Canonical, &canonical_bytes),
+            (BackendTag::Mlx, &mlx_bytes),
+            (BackendTag::Metal, &metal_bytes),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let entry_start = i * INDEX_ENTRY_SIZE;
+            let entry = &index_bytes[entry_start..entry_start + INDEX_ENTRY_SIZE];
+            let segment_id = u32::from_le_bytes(entry[0..4].try_into().unwrap());
+            let backend_tag_raw = u16::from_le_bytes(entry[4..6].try_into().unwrap());
+            let offset = u64::from_le_bytes(entry[8..16].try_into().unwrap()) as usize;
+            let len = u64::from_le_bytes(entry[16..24].try_into().unwrap()) as usize;
+            let mut scope_hash = [0u8; 16];
+            scope_hash.copy_from_slice(&entry[24..40]);
+            let mut weights_hash = [0u8; 32];
+            weights_hash.copy_from_slice(&entry[40..72]);
 
-        // Skip .aos header (64 bytes)
-        file.seek(SeekFrom::Start(HEADER_SIZE as u64))
-            .map_err(|e| AosError::Io(format!("Failed to seek: {}", e)))?;
+            assert_eq!(segment_id as usize, i);
+            assert_eq!(
+                BackendTag::try_from(backend_tag_raw).unwrap(),
+                *expected_tag
+            );
+            assert_eq!(&data[offset..offset + len], *expected_bytes);
+            let expected_hash = B3Hash::hash(expected_bytes);
+            assert_eq!(expected_hash.as_bytes(), &weights_hash);
 
-        // Read safetensors header size
-        let mut st_header_size_bytes = [0u8; 8];
-        file.read_exact(&mut st_header_size_bytes)
-            .map_err(|e| AosError::Io(format!("Failed to read safetensors header size: {}", e)))?;
-        let st_header_size = u64::from_le_bytes(st_header_size_bytes);
-
-        // Verify header size is reasonable
-        assert!(
-            st_header_size > 0 && st_header_size < 10000,
-            "Safetensors header size should be reasonable"
-        );
+            if i == 0 {
+                // canonical segment had a scope path
+                assert_ne!(scope_hash, [0u8; 16]);
+            }
+        }
 
         Ok(())
     }
@@ -343,11 +684,7 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
 
         // Write invalid magic bytes (file too small for full header)
-        std::fs::write(
-            temp_file.path(),
-            b"BADMAGICBADMAGICBADMAGICBADMAGICBADMAGICBADMAGICBADMAGICBADMAGIC",
-        )
-        .unwrap();
+        std::fs::write(temp_file.path(), b"BAD!").unwrap();
 
         let result = AosWriter::read_header(temp_file.path());
         assert!(result.is_err());
@@ -357,20 +694,5 @@ mod tests {
     #[test]
     fn test_header_size_is_64_bytes() {
         assert_eq!(HEADER_SIZE, 64);
-    }
-
-    #[test]
-    fn test_small_archive() {
-        let writer = AosWriter::new();
-        let manifest = TestManifest {
-            adapter_id: "test".to_string(),
-            rank: 4,
-        };
-
-        let temp_file = NamedTempFile::new().unwrap();
-        let result = writer.write_archive(temp_file.path(), &manifest, b"small");
-
-        // Should succeed for small data
-        assert!(result.is_ok());
     }
 }

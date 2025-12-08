@@ -170,6 +170,26 @@ fn default_schema_version() -> String {
     MANIFEST_SCHEMA_VERSION.to_string()
 }
 
+fn ensure_scope_metadata(metadata: &mut HashMap<String, String>, scope: &str) -> String {
+    let domain = metadata
+        .entry("domain".to_string())
+        .or_insert_with(|| "unspecified".to_string())
+        .clone();
+    let group = metadata
+        .entry("group".to_string())
+        .or_insert_with(|| "unspecified".to_string())
+        .clone();
+    let operation = metadata
+        .entry("operation".to_string())
+        .or_insert_with(|| "unspecified".to_string())
+        .clone();
+    let scope_path = format!("{}/{}/{}/{}", domain, group, scope, operation);
+    metadata
+        .entry("scope_path".to_string())
+        .or_insert_with(|| scope_path.clone());
+    scope_path
+}
+
 /// Full training provenance data for portable adapters
 ///
 /// PRD-ART-01: Embedded in .aos files for complete audit trail across systems
@@ -350,6 +370,10 @@ impl SingleFileAdapter {
         let weights_hash = B3Hash::hash(&serde_json::to_vec(&weights)?).to_hex();
         let training_data_hash = B3Hash::hash(&serde_json::to_vec(&training_data)?).to_hex();
 
+        let mut metadata = HashMap::new();
+        let scope_value = "global".to_string();
+        ensure_scope_metadata(&mut metadata, &scope_value);
+
         let manifest = AdapterManifest {
             format_version: AOS_FORMAT_VERSION,
             schema_version: MANIFEST_SCHEMA_VERSION.to_string(),
@@ -365,7 +389,7 @@ impl SingleFileAdapter {
             backend_family: options.backend_family,
             quantization: options.quantization,
             category: "code".to_string(),
-            scope: "global".to_string(),
+            scope: scope_value,
             tier: "persistent".to_string(),
             target_modules: vec![
                 "q_proj".to_string(),
@@ -379,7 +403,7 @@ impl SingleFileAdapter {
             compression_method: "deflate-fast".to_string(),
             weight_groups: WeightGroupConfig::default(),
             provenance: options.provenance,
-            metadata: HashMap::new(),
+            metadata,
         };
 
         let mut adapter = Self {

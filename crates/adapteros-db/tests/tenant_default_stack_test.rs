@@ -33,6 +33,7 @@ async fn test_set_and_get_default_stack() {
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
     let stack_id = db.insert_stack(&stack_req).await.unwrap();
 
@@ -77,6 +78,7 @@ async fn test_clear_default_stack() {
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
     let stack_id = db.insert_stack(&stack_req).await.unwrap();
     db.set_default_stack(&tenant_id, &stack_id).await.unwrap();
@@ -141,6 +143,7 @@ async fn test_set_default_to_wrong_tenant_stack_fails() {
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
     let stack_id = db.insert_stack(&stack_req).await.unwrap();
 
@@ -176,6 +179,7 @@ async fn test_changing_default_stack() {
         adapter_ids: vec!["adapter1".to_string()],
         workflow_type: Some("Sequential".to_string()),
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
     let stack1_id = db.insert_stack(&stack1_req).await.unwrap();
 
@@ -186,6 +190,7 @@ async fn test_changing_default_stack() {
         adapter_ids: vec!["adapter2".to_string()],
         workflow_type: Some("Sequential".to_string()),
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
     let stack2_id = db.insert_stack(&stack2_req).await.unwrap();
 
@@ -228,6 +233,7 @@ async fn test_activate_stack_sets_lifecycle_active() {
         adapter_ids: vec!["adapter-activate".to_string()],
         workflow_type: Some("Sequential".to_string()),
         determinism_mode: None,
+        routing_determinism_mode: None,
     };
     let stack_id = db.insert_stack(&stack_req).await.unwrap();
 

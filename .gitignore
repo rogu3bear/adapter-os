@@ -307,3 +307,4 @@ aosctl
 training_data/
 ui-test-screenshots/
 .venv-coreml/
+rust_out

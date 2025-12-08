@@ -8,7 +8,7 @@ repository.workspace = true
 description = "System resource monitoring and metrics collection for AdapterOS"
 
 [features]
-mlx = []
+mlx = ["dep:adapteros-lora-mlx-ffi"]
 coreml = []
 
 [dependencies]
@@ -30,6 +30,7 @@ thiserror.workspace = true
 chrono.workspace = true
 hkdf.workspace = true
 sha2.workspace = true
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, default-features = false }
 
 # Note: Metal integration moved to macOS-specific dependencies below
 

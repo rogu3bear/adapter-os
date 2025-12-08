@@ -688,6 +688,9 @@ pub async fn test_domain_adapter(
                 effective_adapter_ids: None,
                 placement: None,
                 routing_policy: None,
+                routing_determinism_mode: None,
+                domain_hint: None,
+                adapter_strength_overrides: None,
             };
 
             match worker_guard.infer(inference_req).await {
@@ -976,6 +979,9 @@ pub async fn execute_domain_adapter(
             effective_adapter_ids: None,
             placement: None,
             routing_policy: None,
+            routing_determinism_mode: None,
+            domain_hint: None,
+            adapter_strength_overrides: None,
         };
 
         match worker_guard.infer(inference_req).await {

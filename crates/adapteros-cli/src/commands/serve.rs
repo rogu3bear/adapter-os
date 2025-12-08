@@ -1,6 +1,8 @@
 //! Start serving
 
-use adapteros_config::ModelConfig;
+use adapteros_config::{
+    resolve_base_model_location, resolve_index_root, resolve_telemetry_dir, ModelConfig,
+};
 use adapteros_policy::egress;
 use anyhow::Result;
 use std::path::Path;
@@ -78,7 +80,7 @@ pub async fn run(
     socket: &Path,
     backend: BackendType,
     dry_run: bool,
-    capture_events: Option<&std::path::PathBuf>,
+    _capture_events: Option<&std::path::PathBuf>,
     model_config: Option<&ModelConfig>,
     output: &OutputWriter,
 ) -> Result<()> {
@@ -178,16 +180,27 @@ pub async fn run(
 
     output.info("Initializing worker...");
 
-    // 1. Load model paths (precedence: CLI/model_config > manifest)
-    let model_path = if let Some(cfg) = model_config {
-        cfg.path.display().to_string()
+    // 1. Load model paths (precedence: CLI/model_config > canonical resolver)
+    let (model_path, model_path_source) = if let Some(cfg) = model_config {
+        (
+            cfg.path.display().to_string(),
+            "cli/model_config".to_string(),
+        )
     } else {
-        format!("./var/model-cache/models/{}", manifest.base.model_id)
+        let resolved = resolve_base_model_location(Some(&manifest.base.model_id), None, false)?;
+        (
+            resolved.full_path.display().to_string(),
+            "AOS_MODEL_CACHE_DIR/AOS_BASE_MODEL_ID".to_string(),
+        )
     };
     let tokenizer_path = format!("{}/tokenizer.json", model_path);
 
     if !std::path::Path::new(&model_path).exists() {
-        return Err(anyhow::anyhow!("Model directory not found: {}", model_path));
+        return Err(anyhow::anyhow!(
+            "Model directory not found: {} (source: {}). Set --model-path or configure AOS_MODEL_CACHE_DIR/AOS_BASE_MODEL_ID.",
+            model_path,
+            model_path_source
+        ));
     }
 
     output.success(format!("Model directory found: {}", model_path));
@@ -196,26 +209,35 @@ pub async fn run(
     }
 
     // 2. Initialize telemetry writer
-    let telemetry_dir = std::path::PathBuf::from("./var/telemetry");
-    std::fs::create_dir_all(&telemetry_dir)?;
+    let telemetry_dir = resolve_telemetry_dir();
+    std::fs::create_dir_all(&telemetry_dir.path)?;
     let telemetry = adapteros_telemetry::TelemetryWriter::new(
-        telemetry_dir,
+        telemetry_dir.path.clone(),
         500_000,           // max_events from policy
         256 * 1024 * 1024, // max_bytes (256MB) from policy
     )?;
 
-    output.success("Telemetry writer initialized");
+    output.success(format!(
+        "Telemetry writer initialized at {} (source: {})",
+        telemetry_dir.path.display(),
+        telemetry_dir.source
+    ));
 
     // 3. Initialize RAG system (optional)
     let rag = if manifest.policies.evidence.require_open_book {
         output.info("Initializing RAG system...");
-        let index_dir = std::path::PathBuf::from(format!("./var/indices/{}", tenant));
+        let index_root = resolve_index_root();
+        let index_dir = index_root.path.join(tenant);
         if index_dir.exists() {
             // Use a placeholder embedding hash - in production this should come from the manifest
             let embedding_hash = adapteros_core::B3Hash::hash(b"placeholder");
             match adapteros_lora_rag::RagSystem::new(index_dir, embedding_hash) {
                 Ok(rag_system) => {
-                    output.success("RAG system initialized");
+                    output.success(format!(
+                        "RAG system initialized (indices at {}, source: {})",
+                        index_root.path.display(),
+                        index_root.source
+                    ));
                     Some(rag_system)
                 }
                 Err(e) => {
@@ -318,7 +340,7 @@ pub async fn run(
         }
     };
 
-    let mut kernels = adapteros_lora_worker::create_backend(backend_choice)
+    let kernels = adapteros_lora_worker::create_backend(backend_choice)
         .map_err(|e| anyhow::anyhow!("Failed to create backend: {}", e))?;
 
     output.success(format!("{:?} backend initialized", backend));

@@ -1,6 +1,7 @@
 //! Adapter lifecycle management commands
 
 use crate::output::OutputWriter;
+use adapteros_aos::{parse_segments, AosWriter};
 use adapteros_api_types::adapters::RegisterAdapterRequest;
 use adapteros_client::{AdapterOSClient, UdsClient};
 use adapteros_core::validation;
@@ -10,6 +11,9 @@ use adapteros_core::Result;
 use adapteros_db::Db;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
+use hex;
+use serde_json::json;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::{error, info};
@@ -315,6 +319,162 @@ async fn send_adapter_command(
     ))
 }
 
+/// Inspect an .aos archive (header, index, manifest metadata).
+fn inspect_aos_archive(path: &Path, output: &OutputWriter) -> Result<()> {
+    let data = fs::read(path).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to read .aos file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    let header = AosWriter::parse_header_bytes(&data)?;
+    let segments = parse_segments(&data, &header)?;
+
+    let manifest_start = header.manifest_offset as usize;
+    let manifest_end = manifest_start
+        .checked_add(header.manifest_size as usize)
+        .ok_or_else(|| {
+            AosError::Validation("Corrupted / needs retrain: manifest overflow".to_string())
+        })?;
+    if manifest_end > data.len() {
+        return Err(AosError::Validation(
+            "Corrupted / needs retrain: manifest beyond file".to_string(),
+        ));
+    }
+
+    let manifest_slice = &data[manifest_start..manifest_end];
+    let manifest_json: serde_json::Value = serde_json::from_slice(manifest_slice).map_err(|e| {
+        AosError::Validation(format!(
+            "Corrupted / needs retrain: manifest parse failed ({})",
+            e
+        ))
+    })?;
+    let metadata_obj = manifest_json.get("metadata").and_then(|v| v.as_object());
+    let meta_lookup = |key: &str| {
+        metadata_obj
+            .and_then(|m| m.get(key))
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+    };
+    let manifest_lookup = |key: &str| {
+        manifest_json
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+    };
+
+    let adapter_id = manifest_lookup("adapter_id");
+    let version = manifest_lookup("version");
+    let base_model = manifest_lookup("base_model");
+    let category = manifest_lookup("category").or_else(|| meta_lookup("category"));
+    let scope = manifest_lookup("scope").or_else(|| meta_lookup("scope"));
+    let tier = manifest_lookup("tier").or_else(|| meta_lookup("tier"));
+    let lora_tier = manifest_lookup("lora_tier").or_else(|| meta_lookup("lora_tier"));
+    let domain = manifest_lookup("domain").or_else(|| meta_lookup("domain"));
+    let group = manifest_lookup("group").or_else(|| meta_lookup("group"));
+    let operation = manifest_lookup("operation").or_else(|| meta_lookup("operation"));
+    let scope_path = meta_lookup("scope_path");
+
+    let header_json = json!({
+        "flags": header.flags,
+        "index_offset": header.index_offset,
+        "index_size": header.index_size,
+        "manifest_offset": header.manifest_offset,
+        "manifest_size": header.manifest_size,
+    });
+
+    let segments_json: Vec<serde_json::Value> = segments
+        .iter()
+        .map(|seg| {
+            json!({
+                "segment_id": seg.segment_id,
+                "backend_tag": seg.backend_tag.as_str(),
+                "offset": seg.offset,
+                "len": seg.len,
+                "scope_hash": hex::encode(seg.scope_hash),
+            })
+        })
+        .collect();
+
+    let manifest_summary = json!({
+        "adapter_id": adapter_id,
+        "version": version,
+        "base_model": base_model,
+        "category": category,
+        "scope": scope,
+        "tier": tier,
+        "lora_tier": lora_tier,
+        "domain": domain,
+        "group": group,
+        "operation": operation,
+        "scope_path": scope_path,
+        "metadata": metadata_obj,
+    });
+
+    let summary = json!({
+        "magic": "AOS2",
+        "header": header_json,
+        "segments": segments_json,
+        "manifest": manifest_summary,
+    });
+
+    if output.is_json() {
+        output.json(&summary)?;
+        return Ok(());
+    }
+
+    output.section("Header");
+    output.kv("magic", "AOS2");
+    output.kv("index_offset", &header.index_offset.to_string());
+    output.kv("index_size", &header.index_size.to_string());
+    output.kv("manifest_offset", &header.manifest_offset.to_string());
+    output.kv("manifest_size", &header.manifest_size.to_string());
+
+    output.section("Segments");
+    output.kv("count", &segments.len().to_string());
+    for seg in &segments {
+        output.print(format!(
+            "[{}] backend={} offset={} len={} scope_hash={}",
+            seg.segment_id,
+            seg.backend_tag.as_str(),
+            seg.offset,
+            seg.len,
+            hex::encode(seg.scope_hash)
+        ));
+    }
+
+    output.section("Manifest");
+    if let Some(id) = adapter_id.as_ref() {
+        output.kv("adapter_id", &id);
+    }
+    if let Some(v) = version.as_ref() {
+        output.kv("version", &v);
+    }
+    if let Some(model) = base_model.as_ref() {
+        output.kv("base_model", &model);
+    }
+    if let Some(cat) = category.as_ref() {
+        output.kv("category", &cat);
+    }
+    if let Some(tier) = tier.as_ref() {
+        output.kv("tier", &tier);
+    }
+    if let Some(tier) = lora_tier.as_ref() {
+        output.kv("lora_tier", &tier);
+    }
+
+    output.section("Scope");
+    output.kv("scope_path", scope_path.as_deref().unwrap_or("-"));
+    output.kv("scope", scope.as_deref().unwrap_or("-"));
+    output.kv("domain", domain.as_deref().unwrap_or("-"));
+    output.kv("group", group.as_deref().unwrap_or("-"));
+    output.kv("operation", operation.as_deref().unwrap_or("-"));
+
+    Ok(())
+}
+
 #[derive(Debug, Subcommand, Clone)]
 pub enum AdapterCommand {
     /// List all adapters with their states
@@ -571,6 +731,13 @@ pub enum AdapterCommand {
         adapter_id: String,
     },
 
+    /// Inspect an .aos archive (header, segments, manifest metadata)
+    Inspect {
+        /// Path to .aos file
+        #[arg()]
+        path: PathBuf,
+    },
+
     /// List pinned adapters for a tenant
     #[command(
         after_help = "Examples:\n  aosctl adapter list-pinned --tenant dev\n  aosctl adapter list-pinned --tenant dev --json"
@@ -639,6 +806,7 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::Register { .. } => "adapter_register".to_string(),
         AdapterCommand::Swap { .. } => "adapter_swap".to_string(),
         AdapterCommand::Info { .. } => "adapter_info".to_string(),
+        AdapterCommand::Inspect { .. } => "adapter_inspect".to_string(),
         AdapterCommand::ListPinned { .. } => "adapter_list_pinned".to_string(),
         AdapterCommand::Export { .. } => "adapter_export".to_string(),
         AdapterCommand::Import { .. } => "adapter_import".to_string(),
@@ -662,6 +830,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::Register { .. } => None,        // No tenant parameter
         AdapterCommand::Swap { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::Info { .. } => None, // No tenant parameter
+        AdapterCommand::Inspect { .. } => None, // No tenant parameter
         AdapterCommand::ListPinned { tenant } => Some(tenant.clone()),
         AdapterCommand::Export { .. } => None, // Export uses auth context
         AdapterCommand::Import { tenant, .. } => Some(tenant.clone()),
@@ -755,6 +924,7 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
         AdapterCommand::Info { adapter_id } => crate::commands::adapter_info::run(&adapter_id)
             .await
             .map_err(|e| adapteros_core::AosError::Other(e.to_string())),
+        AdapterCommand::Inspect { path } => inspect_aos_archive(&path, output),
         AdapterCommand::ListPinned { tenant } => {
             let db = adapteros_db::Db::connect_env().await?;
             crate::commands::pin::list_pinned(&db, &tenant, output)

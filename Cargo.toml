@@ -341,6 +341,7 @@ adapteros-manifest = { path = "crates/adapteros-manifest" }
 adapteros-chat = { path = "crates/adapteros-chat" }
 adapteros-lora-plan = { path = "crates/adapteros-lora-plan" }
 adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
+adapteros-aos = { path = "crates/adapteros-aos" }
 adapteros-telemetry = { path = "crates/adapteros-telemetry", version = "0.1" }
 adapteros-policy = { path = "crates/adapteros-policy" }
 adapteros-lora-router = { path = "crates/adapteros-lora-router" }
@@ -349,6 +350,8 @@ adapteros-lora-quant = { path = "crates/adapteros-lora-quant" }
 # Examples and integration tests
 adapteros-verify = { path = "crates/adapteros-verify" }
 adapteros-api-types = { path = "crates/adapteros-api-types" }
+adapteros-scenarios = { path = "crates/adapteros-scenarios" }
+adapteros-types = { path = "crates/adapteros-types" }
 reqwest = { workspace = true }
 futures-util = { workspace = true }
 # adapteros-server = { path = "crates/adapteros-server" }  # Temporarily excluded

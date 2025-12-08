@@ -43,7 +43,7 @@ pub async fn run(args: PackLoraArgs) -> Result<()> {
     // Package
     let packager = adapteros_lora_worker::training::AdapterPackager::new(&args.output_dir);
     let packaged = packager
-        .package(&args.adapter_id, &quant, &cfg, &args.base_model)
+        .package("default", &args.adapter_id, &quant, &cfg, &args.base_model)
         .await
         .context("packaging adapter")?;
 

@@ -1,6 +1,7 @@
 //! Enhanced telemetry events for router and policy decisions
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// RNG state snapshot for deterministic replay
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +66,14 @@ pub struct InferenceEvent {
     /// Stack version for telemetry correlation
     #[serde(default)]
     pub stack_version: Option<i64>,
+
+    /// Determinism mode active for the request (if any)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub determinism_mode: Option<String>,
+
+    /// Optional per-adapter metadata (backend, scope_path, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_metadata: Option<HashMap<String, AdapterInferenceMetadata>>,
 }
 
 impl InferenceEvent {
@@ -99,6 +108,8 @@ impl InferenceEvent {
             worker_id: 0,
             stack_id: None,
             stack_version: None,
+            determinism_mode: None,
+            adapter_metadata: None,
         }
     }
 
@@ -151,6 +162,38 @@ impl InferenceEvent {
         self.stack_version = stack_version;
         self
     }
+
+    /// Attach determinism mode for this inference (e.g., "strict", "debug")
+    pub fn with_determinism_mode(mut self, determinism_mode: Option<String>) -> Self {
+        self.determinism_mode = determinism_mode;
+        self
+    }
+
+    /// Attach per-adapter metadata such as backend and scope_path
+    pub fn with_adapter_metadata(
+        mut self,
+        adapter_metadata: HashMap<String, AdapterInferenceMetadata>,
+    ) -> Self {
+        self.adapter_metadata = Some(adapter_metadata);
+        self
+    }
+}
+
+/// Metadata captured for each adapter involved in an inference
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AdapterInferenceMetadata {
+    /// Backend tag used to serve the adapter (canonical/metal/mlx/coreml)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    /// Scope path derived from domain/group/scope/operation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_path: Option<String>,
+    /// Selected segment identifier (if segmented adapter)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment_id: Option<u32>,
+    /// Effective LoRA strength used for this adapter (0.0-1.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lora_strength: Option<f32>,
 }
 
 /// Canonical `router.decision` payload that must remain frozen (tests assert the exact shape).

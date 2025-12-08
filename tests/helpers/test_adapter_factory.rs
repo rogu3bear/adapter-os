@@ -67,9 +67,11 @@ pub async fn create_minimal_test_adapter(rank: usize, alpha: f32) -> Result<Vec<
 
     let packaged = packager
         .package(
+            "default",
             &adapter_id,
             &quantized,
             &config,
+            "test_model",
         )
         .await?;
 

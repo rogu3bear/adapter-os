@@ -15,7 +15,7 @@ This guide provides web-based tools (curl) to test the AdapterOS inference pipel
    ```bash
    AOS_DEV_SKIP_METALLIB_CHECK=1 cargo run -p adapteros-lora-worker --bin aos-worker -- \
      --manifest manifests/qwen7b-mlx.yaml \
-     --model-path ./var/model-cache/models/qwen2.5-7b-instruct-bf16 \
+    --model-path ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID} \
      --uds-path ./var/run/worker.sock
    ```
 

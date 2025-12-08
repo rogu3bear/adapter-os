@@ -50,8 +50,8 @@ impl DatabaseBackend for SqliteBackend {
         let description = req.description.as_deref().unwrap_or("");
 
         let row = sqlx::query(
-            "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'))
+            "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, determinism_mode, routing_determinism_mode)
+             VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'), ?, ?)
              RETURNING id"
         )
         .bind(&id)
@@ -60,6 +60,8 @@ impl DatabaseBackend for SqliteBackend {
         .bind(description)
         .bind(&adapter_ids_json)
         .bind(workflow_type)
+        .bind(&req.determinism_mode)
+        .bind(&req.routing_determinism_mode)
         .fetch_one(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert stack: {}", e)))?;
@@ -68,8 +70,8 @@ impl DatabaseBackend for SqliteBackend {
     }
 
     async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
-        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, i64, String, String, String, Option<String>, Option<String>)>(
-            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
+        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, i64, String, String, String, Option<String>, Option<String>, Option<String>)>(
+            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode
              FROM adapter_stacks WHERE tenant_id = ? AND id = ?"
         )
         .bind(tenant_id)
@@ -91,26 +93,28 @@ impl DatabaseBackend for SqliteBackend {
             updated_at: r.9,
             created_by: r.10,
             determinism_mode: r.11,
+            routing_determinism_mode: r.12,
         }))
     }
 
     async fn list_stacks(&self) -> Result<Vec<StackRecord>> {
         let rows = sqlx::query_as::<_, (
-            String,           // tenant_id
-            String,           // id
-            String,           // name
-            Option<String>,   // description
-            String,           // adapter_ids_json
-            Option<String>,   // workflow_type
-            i64,              // version
-            String,           // lifecycle_state
-            String,           // created_at
-            String,           // updated_at
-            Option<String>,   // created_by
-            Option<String>,   // determinism_mode
+            String,                         // tenant_id
+            String,                         // id
+            String,                         // name
+            Option<String>,                 // description
+            String,                         // adapter_ids_json
+            Option<String>,                 // workflow_type
+            i64,                            // version
+            String,                         // lifecycle_state
+            String,                         // created_at
+            String,                         // updated_at
+            Option<String>,                 // created_by
+            Option<String>,                 // determinism_mode
+            Option<String>, // routing_determinism_mode
         )>(
             r#"
-            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode
+            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode
             FROM adapter_stacks
             ORDER BY created_at DESC
             "#
@@ -134,6 +138,7 @@ impl DatabaseBackend for SqliteBackend {
                 updated_at: r.9,
                 created_by: r.10,
                 determinism_mode: r.11,
+                routing_determinism_mode: r.12,
             })
             .collect())
     }
@@ -175,6 +180,8 @@ impl DatabaseBackend for SqliteBackend {
                 description = ?,
                 adapter_ids_json = ?,
                 workflow_type = ?,
+                determinism_mode = ?,
+                routing_determinism_mode = ?,
                 version = CASE
                     WHEN adapter_ids_json != ? OR workflow_type != ?
                     THEN version + 1
@@ -188,6 +195,8 @@ impl DatabaseBackend for SqliteBackend {
         .bind(description)
         .bind(&adapter_ids_json)
         .bind(workflow_type)
+        .bind(&stack.determinism_mode)
+        .bind(&stack.routing_determinism_mode)
         .bind(&adapter_ids_json) // For comparison
         .bind(workflow_type) // For comparison
         .bind(tenant_id)
@@ -255,7 +264,7 @@ impl DatabaseBackend for SqliteBackend {
 
         let row = sqlx::query_as::<_, AdapterRecord>(
             r#"
-            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state, archived_at, archived_by, archive_reason, purged_at
+            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state, lora_strength, archived_at, archived_by, archive_reason, purged_at
             FROM adapters
             WHERE tenant_id = ? AND id = ?
             "#,
@@ -273,7 +282,7 @@ impl DatabaseBackend for SqliteBackend {
         let rows = sqlx::query(
             r#"
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
-                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by
+                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -298,7 +307,8 @@ impl DatabaseBackend for SqliteBackend {
                 created_at: r.get(8),
                 updated_at: r.get(9),
                 created_by: r.get::<Option<String>, _>(10),
-                determinism_mode: None, // TODO: Add to SELECT query when column exists
+                determinism_mode: r.get::<Option<String>, _>(11),
+                routing_determinism_mode: r.get::<Option<String>, _>(12),
             })
             .collect())
     }

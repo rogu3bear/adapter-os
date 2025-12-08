@@ -45,6 +45,7 @@ async fn main() {
                             num_parameters: 1000,
                             rank: Some(8),
                             target_modules: vec!["q_proj".to_string(), "v_proj".to_string()],
+                            ..Default::default()
                         },
                     })
                 })

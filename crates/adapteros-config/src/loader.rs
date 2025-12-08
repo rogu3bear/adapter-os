@@ -304,11 +304,39 @@ impl Default for ConfigLoader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
+    struct EnvGuard {
+        snapshot: HashMap<String, String>,
+    }
+
+    impl EnvGuard {
+        fn new() -> Self {
+            let snapshot = std::env::vars().collect();
+            // Prevent workspace .env from polluting test expectations
+            std::env::set_var("AOS_SKIP_DOTENV", "1");
+            Self { snapshot }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (key, _) in std::env::vars() {
+                if !self.snapshot.contains_key(&key) {
+                    std::env::remove_var(key);
+                }
+            }
+            for (key, value) in self.snapshot.iter() {
+                std::env::set_var(key, value);
+            }
+        }
+    }
+
     #[test]
     fn test_load_manifest() {
+        let _env = EnvGuard::new();
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(
             temp_file,
@@ -344,6 +372,7 @@ strict_mode = true
 
     #[test]
     fn test_precedence_order() {
+        let _env = EnvGuard::new();
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(
             temp_file,
@@ -378,6 +407,7 @@ url = "sqlite://manifest.db"
 
     #[test]
     fn test_config_freeze() {
+        let _env = EnvGuard::new();
         // Required field for validation
         std::env::set_var("ADAPTEROS_DATABASE_URL", "sqlite://test.db");
 
@@ -393,6 +423,7 @@ url = "sqlite://manifest.db"
 
     #[test]
     fn test_aos_model_path_env() {
+        let _env = EnvGuard::new();
         // Test that AOS_MODEL_PATH maps to model.path
         std::env::set_var("AOS_MODEL_PATH", "/path/to/custom/model");
         std::env::set_var("AOS_MODEL_BACKEND", "mlx");
@@ -420,6 +451,7 @@ url = "sqlite://manifest.db"
 
     #[test]
     fn test_aos_model_path_precedence() {
+        let _env = EnvGuard::new();
         // Test that CLI > ENV > manifest precedence is maintained
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(
@@ -467,6 +499,7 @@ url = "sqlite://manifest.db"
 
     #[test]
     fn test_aos_prefix_takes_precedence_over_adapteros() {
+        let _env = EnvGuard::new();
         // ADAPTEROS_ prefix is deprecated and should not override canonical AOS_
         std::env::set_var("AOS_MODEL_PATH", "/aos/path");
         std::env::set_var("ADAPTEROS_MODEL_PATH", "/adapteros/path");
@@ -487,6 +520,7 @@ url = "sqlite://manifest.db"
 
     #[test]
     fn test_adapteros_prefix_used_when_aos_missing() {
+        let _env = EnvGuard::new();
         // Legacy ADAPTEROS_ variables still map when no AOS_ is provided
         std::env::set_var("ADAPTEROS_MODEL_PATH", "/adapteros/only/path");
         // Required field for validation
@@ -507,6 +541,7 @@ url = "sqlite://manifest.db"
 
     #[test]
     fn test_all_aos_env_vars_loaded() {
+        let _env = EnvGuard::new();
         // Test that ALL AOS_* env vars are loaded, not just AOS_MODEL_*
         std::env::set_var("AOS_SERVER_PORT", "9999");
         std::env::set_var("AOS_SERVER_HOST", "0.0.0.0");
@@ -534,6 +569,7 @@ url = "sqlite://manifest.db"
 
     #[test]
     fn test_toml_key_mapping() {
+        let _env = EnvGuard::new();
         // Test that TOML keys are mapped to config_key via schema's toml_key field
         // cp.toml uses db.path, but schema uses database.url
         let mut temp_file = NamedTempFile::new().unwrap();

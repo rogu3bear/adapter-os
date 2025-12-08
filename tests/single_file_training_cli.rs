@@ -5,6 +5,7 @@
 //! Tests the `aos train` command with individual files of all supported types
 //! (txt, md, rs, py, js, ts, json) to verify single-file processing works correctly.
 
+use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_lora_worker::training::LoRAWeights;
 use adapteros_single_file_adapter::{
     detect_format, AdapterWeights, FormatVersion, LineageInfo, SingleFileAdapter,
@@ -29,7 +30,29 @@ fn check_tokenizer_available() -> bool {
         return PathBuf::from(model_path).join("tokenizer.json").exists();
     }
     // Default path
-    PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json").exists()
+    canonical_tokenizer_path().exists()
+}
+
+fn canonical_tokenizer_path() -> PathBuf {
+    PathBuf::from(DEFAULT_MODEL_CACHE_ROOT)
+        .join(DEFAULT_BASE_MODEL_ID)
+        .join("tokenizer.json")
+}
+
+fn tokenizer_missing_warning() -> String {
+    format!(
+        "⚠️  Skipping test: tokenizer file not found at {}",
+        canonical_tokenizer_path().display()
+    )
+}
+
+fn skip_if_missing_tokenizer() -> bool {
+    if !check_tokenizer_available() {
+        eprintln!("{}", tokenizer_missing_warning());
+        true
+    } else {
+        false
+    }
 }
 
 /// Helper function to run the aos train command
@@ -331,10 +354,7 @@ fn verify_aos_format_detection(aos_path: &Path) -> Result<(), Box<dyn std::error
 #[tokio::test]
 async fn test_train_single_txt_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
-    if !check_tokenizer_available() {
-        eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
-        );
+    if skip_if_missing_tokenizer() {
         return Ok(());
     }
 
@@ -417,9 +437,7 @@ The third paragraph provides additional context for training. We want to ensure 
 async fn test_train_single_md_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
     if !check_tokenizer_available() {
-        eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
-        );
+        eprintln!("{}", tokenizer_missing_warning());
         return Ok(());
     }
 
@@ -507,10 +525,7 @@ Another section with different content.
 #[tokio::test]
 async fn test_train_single_rs_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
-    if !check_tokenizer_available() {
-        eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
-        );
+    if skip_if_missing_tokenizer() {
         return Ok(());
     }
 
@@ -604,10 +619,7 @@ impl Calculator {
 #[tokio::test]
 async fn test_train_single_py_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
-    if !check_tokenizer_available() {
-        eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
-        );
+    if skip_if_missing_tokenizer() {
         return Ok(());
     }
 
@@ -697,10 +709,7 @@ class Calculator:
 #[tokio::test]
 async fn test_train_single_js_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
-    if !check_tokenizer_available() {
-        eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
-        );
+    if skip_if_missing_tokenizer() {
         return Ok(());
     }
 
@@ -794,10 +803,7 @@ export { add, subtract, Calculator, multiply };"#;
 #[tokio::test]
 async fn test_train_single_ts_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
-    if !check_tokenizer_available() {
-        eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
-        );
+    if skip_if_missing_tokenizer() {
         return Ok(());
     }
 
@@ -895,10 +901,7 @@ export { add, subtract, Calculator, CalculatorImpl, multiply };"#;
 #[tokio::test]
 async fn test_train_single_json_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
-    if !check_tokenizer_available() {
-        eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
-        );
+    if skip_if_missing_tokenizer() {
         return Ok(());
     }
 
@@ -993,10 +996,7 @@ async fn test_train_single_json_file() -> Result<(), Box<dyn std::error::Error>>
 #[tokio::test]
 async fn test_train_empty_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
-    if !check_tokenizer_available() {
-        eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
-        );
+    if skip_if_missing_tokenizer() {
         return Ok(());
     }
 
@@ -1087,10 +1087,7 @@ async fn test_train_invalid_file() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn test_packaging_workflow() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
-    if !check_tokenizer_available() {
-        eprintln!(
-            "⚠️  Skipping test: tokenizer file not found at var/model-cache/models/qwen2.5-7b-instruct-bf16/tokenizer.json"
-        );
+    if skip_if_missing_tokenizer() {
         return Ok(());
     }
 

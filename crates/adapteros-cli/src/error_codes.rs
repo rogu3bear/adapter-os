@@ -709,6 +709,9 @@ impl From<&adapteros_core::AosError> for ExitCode {
             }
             AosError::KernelLayoutMismatch { .. } => ExitCode::KernelLayoutMismatch,
             AosError::RngError { .. } => ExitCode::RngError,
+            AosError::SegmentHashMismatch { .. } => ExitCode::Validation,
+            AosError::MissingSegment { .. } => ExitCode::Validation,
+            AosError::MissingCanonicalSegment => ExitCode::Validation,
 
             // Auth errors (70-79)
             AosError::Auth(_) => ExitCode::Auth,
@@ -759,6 +762,7 @@ impl From<&adapteros_core::AosError> for ExitCode {
             AosError::Platform(_) => ExitCode::Platform,
             AosError::AdapterNotInManifest { .. } => ExitCode::Validation,
             AosError::AdapterNotInEffectiveSet { .. } => ExitCode::Validation,
+            _ => ExitCode::Other,
         }
     }
 }

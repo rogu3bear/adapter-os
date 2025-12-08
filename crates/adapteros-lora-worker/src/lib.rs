@@ -50,10 +50,10 @@ use crate::adapter_hotswap::adapter_id_to_u16;
 use crate::device_placement::{
     DeviceKind, LaneDescriptor, PlacementDecision, PlacementEngine, TelemetryCollector,
 };
-use crate::router_bridge::decision_to_router_ring_with_active_ids;
+use crate::router_bridge::decision_to_router_ring_with_active_ids_and_strengths;
 use crate::routing_policy_filter::filter_decision_by_policy;
 use adapteros_api_types::{RouterDecisionChainEntry, RouterDecisionHash};
-use adapteros_config::{PlacementConfig, PlacementMode, PlacementWeights};
+use adapteros_config::{resolve_index_root, PlacementConfig, PlacementMode, PlacementWeights};
 use adapteros_core::{AosError, B3Hash, BackendProfile, RepoAdapterPaths, Result, SeedMode};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
@@ -63,6 +63,7 @@ use adapteros_lora_router::{
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
+use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -500,6 +501,9 @@ pub struct InferenceRequest {
     /// Stack version for telemetry correlation
     #[serde(default)]
     pub stack_version: Option<i64>,
+    /// Optional domain hint for routing/package preference
+    #[serde(default)]
+    pub domain_hint: Option<String>,
     /// Sampling temperature (0.0 = deterministic, higher = more random)
     /// Defaults to manifest setting if not provided
     #[serde(default)]
@@ -537,9 +541,15 @@ pub struct InferenceRequest {
     /// Controls router behavior for reproducibility vs performance tradeoffs
     #[serde(default = "default_determinism_mode")]
     pub determinism_mode: String,
+    /// Routing determinism mode (deterministic|adaptive)
+    #[serde(default)]
+    pub routing_determinism_mode: Option<RoutingDeterminismMode>,
     /// Strict mode flag (disables backend fallback when true)
     #[serde(default)]
     pub strict_mode: bool,
+    /// Per-adapter strength overrides (multiplier applied to manifest lora_strength)
+    #[serde(default)]
+    pub adapter_strength_overrides: Option<std::collections::HashMap<String, f32>>,
     /// Effective adapter IDs (control-plane gate)
     #[serde(default)]
     pub effective_adapter_ids: Option<Vec<String>>,
@@ -610,6 +620,9 @@ pub struct InferenceResponse {
     /// Backend used to execute the request (e.g., metal, coreml, mlx)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_used: Option<String>,
+    /// Backend version/build identifier (e.g., crate/FFI version)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_version: Option<String>,
     /// Whether backend fallback occurred during execution
     #[serde(default)]
     pub fallback_triggered: bool,
@@ -697,6 +710,87 @@ pub struct EvidenceRef {
 pub struct RouterSummary {
     pub adapters_used: Vec<String>,
     pub avg_activations: Vec<f32>,
+}
+
+/// Summarize router usage for telemetry and replay.
+///
+/// Base-only requests produce empty adapter usage to make it explicit that the
+/// base model handled the request without any adapter contribution.
+pub fn summarize_router_usage(
+    base_only_request: bool,
+    active_ids: &[String],
+    k_sparse: usize,
+    router_decisions: Option<&Vec<adapteros_api_types::inference::RouterDecision>>,
+) -> RouterSummary {
+    if base_only_request {
+        return RouterSummary {
+            adapters_used: Vec::new(),
+            avg_activations: Vec::new(),
+        };
+    }
+
+    if let Some(decisions) = router_decisions {
+        let mut used: Vec<String> = decisions
+            .iter()
+            .flat_map(|d| d.candidate_adapters.iter())
+            .filter_map(|c| active_ids.get(c.adapter_idx as usize))
+            .cloned()
+            .collect();
+        used.sort();
+        used.dedup();
+        if !used.is_empty() {
+            let take = used.len().min(k_sparse);
+            return RouterSummary {
+                adapters_used: used.into_iter().take(take).collect(),
+                avg_activations: vec![0.33; take],
+            };
+        }
+    }
+
+    let adapters_used: Vec<String> = active_ids.iter().take(k_sparse).cloned().collect();
+    let activation_len = adapters_used.len();
+    RouterSummary {
+        adapters_used,
+        avg_activations: if activation_len == 0 {
+            Vec::new()
+        } else {
+            vec![0.33; activation_len]
+        },
+    }
+}
+
+#[cfg(test)]
+mod router_summary_tests {
+    use super::summarize_router_usage;
+    use adapteros_api_types::inference::{RouterCandidate, RouterDecision};
+
+    #[test]
+    fn base_only_summary_is_empty() {
+        let summary = summarize_router_usage(true, &[], 2, Some(&Vec::new()));
+        assert!(summary.adapters_used.is_empty());
+        assert!(summary.avg_activations.is_empty());
+    }
+
+    #[test]
+    fn summarize_uses_active_ids_when_present() {
+        let decisions = vec![RouterDecision {
+            step: 0,
+            input_token_id: None,
+            candidate_adapters: vec![RouterCandidate {
+                adapter_idx: 1,
+                raw_score: 0.2,
+                gate_q15: 1000,
+            }],
+            entropy: 0.0,
+            tau: 0.0,
+            entropy_floor: 0.0,
+            stack_hash: None,
+        }];
+        let active_ids = vec!["adapter-a".to_string(), "adapter-b".to_string()];
+        let summary = summarize_router_usage(false, &active_ids, 2, Some(&decisions));
+        assert_eq!(summary.adapters_used, vec!["adapter-b".to_string()]);
+        assert_eq!(summary.avg_activations.len(), 1);
+    }
 }
 
 /// Request to cancel a training job
@@ -798,6 +892,7 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
     policy: PolicyEngine,
     router: Router,
     rag: Option<RagSystem>,
+    tenant_namespace: adapteros_lora_rag::IndexNamespaceId,
     /// Kernels wrapped in Arc<Mutex<>> for shared access with workflows
     kernels: Arc<tokio::sync::Mutex<K>>,
     memory_monitor: MemoryMonitor,
@@ -890,14 +985,22 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let evidence_retriever = if let Some(ref _rag_system) = rag {
             use crate::evidence::*;
             use adapteros_lora_rag::EvidenceIndexManager;
-            use std::path::PathBuf;
 
             // Create evidence index manager for the tenant
-            let indices_root = PathBuf::from("var/indices");
+            let index_root = resolve_index_root();
+            let indices_root = index_root.path.join(tenant_id);
+            if let Some(parent) = indices_root.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            tracing::info!(
+                path = %indices_root.display(),
+                source = %index_root.source,
+                "Initializing evidence index manager"
+            );
             let evidence_manager = Arc::new(Mutex::new(
                 EvidenceIndexManager::new(
                     indices_root,
-                    "default".to_string(),
+                    tenant_id.to_string(),
                     Some(embedding_model.clone()),
                 )
                 .await?,
@@ -991,6 +1094,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             policy,
             router,
             rag,
+            tenant_namespace: tenant_id.to_string(),
             kernels: kernels_arc.clone(),
             memory_monitor,
             tokenizer,
@@ -1240,6 +1344,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             })?;
         }
 
+        let base_only_request = matches!(
+            request.effective_adapter_ids.as_ref(),
+            Some(ids) if ids.is_empty()
+        );
+
         // Validate effective adapter gate (if provided)
         let allowed_indices = self.validate_effective_adapter_gate(&request)?;
 
@@ -1296,12 +1405,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let query_emb = self.compute_embedding(&request.prompt)?;
 
             if let Some(ref mut rag) = self.rag {
+                let namespace = self.tenant_namespace.clone();
                 let spans = rag
-                    .retrieve(
-                        "default_tenant",
-                        &query_emb,
-                        self.manifest.policies.rag.topk,
-                    )
+                    .retrieve(&namespace, &query_emb, self.manifest.policies.rag.topk)
                     .map_err(|e| AosError::Rag(format!("Evidence retrieval failed: {}", e)))?;
 
                 evidence = spans
@@ -1326,6 +1432,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             kernels.fallback_triggered(),
                         )
                     };
+                    let backend_version = adapteros_core::version::VERSION.to_string();
 
                     return Ok(InferenceResponse {
                         text: None,
@@ -1350,6 +1457,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         stack_id: request.stack_id.clone(),
                         stack_version: request.stack_version,
                         backend_used: Some(backend_used),
+                        backend_version: Some(backend_version),
                         fallback_triggered,
                         determinism_mode_applied: Some(request.determinism_mode.clone()),
                         unavailable_pinned_adapters: unavailable_pinned_adapters.clone(),
@@ -1365,8 +1473,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         if let Some(seed_bytes) = request.request_seed {
             self.generator.set_seed_bytes(seed_bytes);
             // Avoid overriding master request seed with low-entropy seed
-            self.generator
-                .apply_request_params(request.temperature, request.top_k, request.top_p, None);
+            self.generator.apply_request_params(
+                request.temperature,
+                request.top_k,
+                request.top_p,
+                None,
+            );
         }
         if request.request_seed.is_none() {
             self.generator.apply_request_params(
@@ -1438,6 +1550,19 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let active_hashed: Vec<u16> = active_ids.iter().map(|id| adapter_id_to_u16(id)).collect();
         let active_manifest_indices: Vec<usize> =
             active_entries.iter().map(|(idx, _)| *idx).collect();
+        let strength_overrides = request.adapter_strength_overrides.as_ref();
+        let active_strengths: Vec<f32> = active_entries
+            .iter()
+            .map(|(_, adapter)| {
+                let base = adapter.lora_strength.unwrap_or(1.0);
+                let mult = strength_overrides
+                    .and_then(|m| m.get(&adapter.id))
+                    .copied()
+                    .unwrap_or(1.0)
+                    .clamp(0.0, 2.0);
+                base * mult
+            })
+            .collect();
 
         // Map manifest index -> active position
         let mut manifest_to_active: HashMap<usize, usize> = HashMap::new();
@@ -1453,17 +1578,31 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         );
 
         // Configure router determinism mode from request (PRD-06: determinism configuration)
-        // Parse the request's determinism_mode and apply corresponding router configuration
-        let router_config = match request.determinism_mode.as_str() {
-            "relaxed" => RouterDeterminismConfig {
+        // Parse routing_determinism_mode (deterministic|adaptive) and determinism_mode (strict/besteffort/relaxed)
+        let adaptive_routing = matches!(
+            request.routing_determinism_mode,
+            Some(RoutingDeterminismMode::Adaptive)
+        );
+        self.router.set_routing_determinism_mode(adaptive_routing);
+
+        let router_config = if adaptive_routing {
+            // Adaptive mode: allow non-deterministic tie-breaking and disable hashing
+            RouterDeterminismConfig {
                 ieee754_deterministic: false,
                 enable_decision_hashing: false,
-            },
-            "besteffort" => RouterDeterminismConfig {
-                ieee754_deterministic: true,
-                enable_decision_hashing: false,
-            },
-            _ => RouterDeterminismConfig::default(), // "strict" or unknown defaults to strict
+            }
+        } else {
+            match request.determinism_mode.as_str() {
+                "relaxed" => RouterDeterminismConfig {
+                    ieee754_deterministic: false,
+                    enable_decision_hashing: false,
+                },
+                "besteffort" => RouterDeterminismConfig {
+                    ieee754_deterministic: true,
+                    enable_decision_hashing: false,
+                },
+                _ => RouterDeterminismConfig::default(), // "strict" or unknown defaults to strict
+            }
         };
         self.router.set_determinism_config(router_config);
 
@@ -1484,7 +1623,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             });
 
         if let Some(ref allowed) = allowed_active_indices {
-            if allowed.is_empty() {
+            if allowed.is_empty() && !base_only_request {
                 return Err(AosError::Worker(
                     "Effective adapter set has no overlap with active stack".to_string(),
                 ));
@@ -1521,11 +1660,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 framework: None,    // Manifest adapters don't have framework info
                 languages: vec![0], // Default language
                 tier: format!("{:?}", adapter.tier).to_lowercase(),
+                ..Default::default()
             })
             .collect();
 
         let mut priors = vec![1.0f32; adapter_info.len()];
-        if let Some(ref allowed) = allowed_active_indices {
+        if base_only_request {
+            priors.iter_mut().for_each(|p| *p = 0.0);
+        } else if let Some(ref allowed) = allowed_active_indices {
             for (idx, prior) in priors.iter_mut().enumerate() {
                 if !allowed.contains(&idx) {
                     *prior = 0.0;
@@ -1537,11 +1679,13 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         for (pos, id) in active_ids.iter().enumerate() {
             id_to_active.insert(id.as_str(), pos);
         }
-        if let Some(ref pinned_ids) = request.pinned_adapter_ids {
-            for pinned in pinned_ids {
-                if let Some(pos) = id_to_active.get(pinned.as_str()) {
-                    if let Some(prior) = priors.get_mut(*pos) {
-                        *prior += PINNED_BOOST;
+        if !base_only_request {
+            if let Some(ref pinned_ids) = request.pinned_adapter_ids {
+                for pinned in pinned_ids {
+                    if let Some(pos) = id_to_active.get(pinned.as_str()) {
+                        if let Some(prior) = priors.get_mut(*pos) {
+                            *prior += PINNED_BOOST;
+                        }
                     }
                 }
             }
@@ -1585,8 +1729,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 .router
                 .route_with_adapter_info(&features, &priors, &adapter_info);
 
-            let decision =
+            let mut decision =
                 self.apply_routing_policy_to_decision(decision, request.routing_policy.as_ref())?;
+
+            if base_only_request {
+                decision.indices.clear();
+                decision.candidates.clear();
+                decision.gates_q15.clear();
+            }
 
             // Collect router decision for control plane transmission
             let input_token_id = if step == 0 {
@@ -1728,8 +1878,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             // Convert Decision to RouterRing
-            let router_ring =
-                decision_to_router_ring_with_active_ids(&decision, &active_hashed, step)?;
+            let router_ring = decision_to_router_ring_with_active_ids_and_strengths(
+                &decision,
+                &active_hashed,
+                Some(&active_strengths),
+                step,
+            )?;
 
             // Execute kernels through Metal and measure latency per adapter
             let mut io_buffers = IoBuffers {
@@ -1824,6 +1978,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 kernels.fallback_triggered(),
             )
         };
+        let backend_version = adapteros_core::version::VERSION.to_string();
 
         if let Some(profile) = request.backend_profile {
             let expected = profile.as_str();
@@ -1850,12 +2005,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 generated_tokens.len(),
                 Some(router_decisions_collected),
                 router_decision_chain_opt,
+                &active_ids,
+                base_only_request,
             ),
             refusal: None,
             patch_proposal: None,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
             backend_used: Some(backend_used),
+            backend_version: Some(backend_version),
             fallback_triggered,
             determinism_mode_applied: Some(request.determinism_mode.clone()),
             unavailable_pinned_adapters,
@@ -1889,10 +2047,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         };
 
         if effective_ids.is_empty() {
-            return Err(AosError::AdapterNotInEffectiveSet {
-                adapter_id: "(empty)".to_string(),
-                effective_set: vec![],
-            });
+            return Ok(Some(HashSet::new()));
         }
 
         let mut allowed_indices = HashSet::new();
@@ -2179,7 +2334,20 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         Ok(InferenceResponse {
             text,
             status,
-            trace: self.build_trace(&request.cpid, &evidence_refs, 0, None, None),
+            trace: self.build_trace(
+                &request.cpid,
+                &evidence_refs,
+                0,
+                None,
+                None,
+                &self
+                    .manifest
+                    .adapters
+                    .iter()
+                    .map(|a| a.id.clone())
+                    .collect::<Vec<_>>(),
+                false,
+            ),
             refusal: if !validation_result.is_valid {
                 Some(RefusalResponse {
                     status: "failed".to_string(),
@@ -2199,6 +2367,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
             backend_used: Some(self.kernels.lock().await.device_name().to_string()),
+            backend_version: Some(adapteros_core::version::VERSION.to_string()),
             fallback_triggered: false,
             determinism_mode_applied: Some(request.determinism_mode.clone()),
             unavailable_pinned_adapters,
@@ -2311,21 +2480,31 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         router_decision_chain: Option<
             Vec<adapteros_api_types::inference::RouterDecisionChainEntry>,
         >,
+        active_ids: &[String],
+        base_only_request: bool,
     ) -> ResponseTrace {
+        let active_pool: Vec<String> = if active_ids.is_empty() {
+            self.manifest
+                .adapters
+                .iter()
+                .map(|a| a.id.clone())
+                .collect()
+        } else {
+            active_ids.to_vec()
+        };
+
+        let router_summary = summarize_router_usage(
+            base_only_request,
+            &active_pool,
+            self.manifest.router.k_sparse,
+            router_decisions.as_ref(),
+        );
+
         ResponseTrace {
             cpid: cpid.to_string(),
             plan_id: self.generate_plan_id(cpid),
             evidence: evidence.to_vec(),
-            router_summary: RouterSummary {
-                adapters_used: self
-                    .manifest
-                    .adapters
-                    .iter()
-                    .take(self.manifest.router.k_sparse)
-                    .map(|a| a.id.clone())
-                    .collect(),
-                avg_activations: vec![0.33; self.manifest.router.k_sparse],
-            },
+            router_summary,
             token_count,
             router_decisions,
             router_decision_chain,

@@ -1,3 +1,4 @@
+use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_core::Result;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_kernel_coreml::{init_coreml, ComputeUnits, CoreMLBackend, CoreMLModelParams};
@@ -22,8 +23,10 @@ fn main() -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
 
-    let default_model =
-        repo_root.join("var/model-cache/models/qwen2.5-7b-instruct-fp16-512.mlpackage");
+    let default_model = repo_root
+        .join(DEFAULT_MODEL_CACHE_ROOT)
+        .join(DEFAULT_BASE_MODEL_ID)
+        .join("model.mlpackage");
     let model_path = env::var("AOS_COREML_MLMODEL")
         .map(PathBuf::from)
         .unwrap_or(default_model);
@@ -31,8 +34,10 @@ fn main() -> Result<()> {
         .canonicalize()
         .unwrap_or_else(|_| model_path.clone());
 
-    let default_config =
-        repo_root.join("var/model-cache/models/qwen2.5-7b-instruct-bf16/config.json");
+    let default_config = repo_root
+        .join(DEFAULT_MODEL_CACHE_ROOT)
+        .join(DEFAULT_BASE_MODEL_ID)
+        .join("config.json");
     let config_path = env::var("AOS_COREML_CONFIG")
         .ok()
         .map(PathBuf::from)

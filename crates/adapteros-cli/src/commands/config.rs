@@ -1584,7 +1584,7 @@ fn collect_effective_config(args: &ShowArgs, should_redact: bool) -> Result<Vec<
         (
             "AOS_MODEL_PATH",
             "model",
-            "./var/model-cache/models/qwen2.5-7b-instruct-bf16",
+            "${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}",
         ),
         ("AOS_MODEL_BACKEND", "model", "auto"),
         ("AOS_MODEL_ARCHITECTURE", "model", ""),

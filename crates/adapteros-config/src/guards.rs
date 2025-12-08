@@ -340,6 +340,7 @@ impl ConfigGuards {
                 .map_err(|_| AosError::Config("Failed to acquire guard state lock".to_string()))?;
             state.frozen = false;
             state.violations.clear();
+            state.stack_traces = true;
         }
         Ok(())
     }
@@ -456,6 +457,22 @@ impl FeatureFlags {
     pub fn is_initialized() -> bool {
         FEATURE_FLAGS.get().is_some()
     }
+
+    /// Reset feature flags for tests (clears registry and environment/tenant context)
+    #[cfg(test)]
+    pub fn reset_for_testing() -> Result<()> {
+        if let Some(registry) = FEATURE_FLAGS.get() {
+            let mut flags = registry
+                .write()
+                .map_err(|_| AosError::Config("Failed to acquire feature flag lock".to_string()))?;
+            *flags = FeatureFlagRegistry::new();
+            return Ok(());
+        }
+
+        FEATURE_FLAGS
+            .set(RwLock::new(FeatureFlagRegistry::new()))
+            .map_err(|_| AosError::Config("Feature flag system already initialized".to_string()))
+    }
 }
 
 /// Safe environment variable access that respects freeze
@@ -522,22 +539,29 @@ pub fn strict_env_var(key: &str) -> Result<String> {
 mod tests {
     use super::*;
 
+    fn reset_state() {
+        ConfigGuards::reset_for_testing().unwrap();
+        FeatureFlags::reset_for_testing().unwrap();
+        ConfigGuards::initialize().unwrap();
+        FeatureFlags::initialize().unwrap();
+    }
+
     #[test]
     fn test_guard_initialization() {
-        ConfigGuards::initialize().unwrap();
+        reset_state();
         assert!(!ConfigGuards::is_frozen());
     }
 
     #[test]
     fn test_guard_freeze() {
-        ConfigGuards::initialize().unwrap();
+        reset_state();
         ConfigGuards::freeze().unwrap();
         assert!(ConfigGuards::is_frozen());
     }
 
     #[test]
     fn test_violation_recording() {
-        ConfigGuards::initialize().unwrap();
+        reset_state();
         ConfigGuards::freeze().unwrap();
 
         ConfigGuards::record_violation("test_operation", "test_message").unwrap();
@@ -550,8 +574,7 @@ mod tests {
 
     #[test]
     fn test_safe_env_access() {
-        ConfigGuards::reset_for_testing().unwrap();
-        ConfigGuards::initialize().unwrap();
+        reset_state();
 
         // Should work before freeze
         let result = safe_env_var("PATH");
@@ -567,7 +590,7 @@ mod tests {
 
     #[test]
     fn test_clear_violations() {
-        ConfigGuards::initialize().unwrap();
+        reset_state();
         ConfigGuards::freeze().unwrap();
 
         ConfigGuards::record_violation("test", "message").unwrap();
@@ -579,8 +602,7 @@ mod tests {
 
     #[test]
     fn test_violation_recorded_after_freeze() {
-        ConfigGuards::reset_for_testing().unwrap();
-        ConfigGuards::initialize().unwrap();
+        reset_state();
         ConfigGuards::freeze().unwrap();
 
         let result = safe_env_var("PATH");
@@ -588,13 +610,13 @@ mod tests {
 
         let violations = ConfigGuards::get_violations().unwrap();
         assert!(!violations.is_empty());
-        assert_eq!(violations[0].attempted_operation, "env_var_access");
+        // `safe_env_var` records the underlying std::env operation name
+        assert_eq!(violations[0].attempted_operation, "std::env::var");
     }
 
     #[test]
     fn test_assert_no_violations() {
-        ConfigGuards::reset_for_testing().unwrap();
-        ConfigGuards::initialize().unwrap();
+        reset_state();
 
         // No violations initially
         assert!(ConfigGuards::assert_no_violations().is_ok());
@@ -608,13 +630,13 @@ mod tests {
 
     #[test]
     fn test_feature_flag_initialization() {
-        FeatureFlags::initialize().unwrap();
+        reset_state();
         assert!(FeatureFlags::is_initialized());
     }
 
     #[test]
     fn test_feature_flag_registration() {
-        FeatureFlags::initialize().unwrap();
+        reset_state();
 
         let flag = FeatureFlag {
             name: "test_feature".to_string(),
@@ -630,7 +652,7 @@ mod tests {
 
     #[test]
     fn test_feature_flag_disabled() {
-        FeatureFlags::initialize().unwrap();
+        reset_state();
 
         let flag = FeatureFlag {
             name: "disabled_feature".to_string(),
@@ -645,7 +667,7 @@ mod tests {
 
     #[test]
     fn test_feature_flag_environment_condition() {
-        FeatureFlags::initialize().unwrap();
+        reset_state();
 
         let flag = FeatureFlag {
             name: "prod_only_feature".to_string(),
@@ -673,7 +695,7 @@ mod tests {
 
     #[test]
     fn test_feature_flag_tenant_condition() {
-        FeatureFlags::initialize().unwrap();
+        reset_state();
 
         let flag = FeatureFlag {
             name: "tenant_specific_feature".to_string(),
@@ -704,7 +726,7 @@ mod tests {
 
     #[test]
     fn test_feature_flag_get_all() {
-        FeatureFlags::initialize().unwrap();
+        reset_state();
 
         let flag1 = FeatureFlag {
             name: "feature_1".to_string(),
@@ -729,7 +751,7 @@ mod tests {
 
     #[test]
     fn test_feature_flag_remove() {
-        FeatureFlags::initialize().unwrap();
+        reset_state();
 
         let flag = FeatureFlag {
             name: "removable_feature".to_string(),
