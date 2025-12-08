@@ -375,6 +375,33 @@ function TrainingJobDetailContent() {
                   <dd className="font-mono text-sm">{job.template_id || '-'}</dd>
                 </div>
                 <div>
+                  <dt className="text-sm text-muted-foreground">Backend</dt>
+                  <dd className="text-sm">
+                    {job.backend || 'unknown'}
+                    {job.backend_reason && (
+                      <span className="text-muted-foreground"> — {job.backend_reason}</span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">Determinism</dt>
+                  <dd className="text-sm">
+                    {job.determinism_mode || 'n/a'}
+                    {job.training_seed !== undefined && (
+                      <span className="font-mono text-xs text-muted-foreground ml-2">seed {job.training_seed}</span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">GPU Requirements</dt>
+                  <dd className="text-sm">
+                    {job.require_gpu ? 'GPU required' : 'GPU optional'}
+                    {job.max_gpu_memory_mb !== undefined && (
+                      <span className="text-muted-foreground ml-2">{job.max_gpu_memory_mb} MB max</span>
+                    )}
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-sm text-muted-foreground">Created</dt>
                   <dd className="text-sm">
                     {job.created_at ? new Date(job.created_at).toLocaleString() : '-'}
@@ -396,6 +423,35 @@ function TrainingJobDetailContent() {
                   <dt className="text-sm text-muted-foreground">Output Path</dt>
                   <dd className="font-mono text-sm truncate" title={job.output_path || '-'}>
                     {job.output_path || '-'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">Package (.aos)</dt>
+                  <dd className="font-mono text-sm truncate" title={job.aos_path || '-'}>
+                    {job.aos_path || '-'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">Package Hash</dt>
+                  <dd className="font-mono text-sm truncate" title={job.package_hash_b3 || job.weights_hash_b3 || '-'}>
+                    {job.package_hash_b3 || job.weights_hash_b3 || '-'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">Manifest</dt>
+                  <dd className="text-sm">
+                    {job.manifest_rank !== undefined ? `rank ${job.manifest_rank}` : 'rank n/a'}
+                    {job.manifest_base_model && (
+                      <span className="text-muted-foreground ml-2">{job.manifest_base_model}</span>
+                    )}
+                    {job.manifest_per_layer_hashes !== undefined && (
+                      <span className="text-muted-foreground ml-2">
+                        {job.manifest_per_layer_hashes ? 'per-layer hashes' : 'no per-layer hashes'}
+                      </span>
+                    )}
+                    {job.signature_status && (
+                      <span className="text-muted-foreground ml-2">{job.signature_status}</span>
+                    )}
                   </dd>
                 </div>
               </dl>

@@ -454,10 +454,26 @@ impl TrainingService {
 
         // Also send cancel to worker via UDS with 5s timeout (for jobs running in separate workers)
         let worker_confirmed = if let Some(client) = uds_client {
-            let socket = socket_path.unwrap_or("/var/run/adapteros.sock");
+            let socket_buf = if let Some(socket) = socket_path {
+                info!(
+                    job_id = %job_id,
+                    socket_path = socket,
+                    "Using provided worker socket for cancel"
+                );
+                std::path::PathBuf::from(socket)
+            } else {
+                let resolved = adapteros_config::resolve_worker_socket_for_cp();
+                info!(
+                    job_id = %job_id,
+                    socket_path = %resolved.path.display(),
+                    socket_source = %resolved.source,
+                    "Resolved worker socket for cancel"
+                );
+                resolved.path
+            };
             match tokio::time::timeout(
                 std::time::Duration::from_secs(5),
-                client.cancel_training_job(Path::new(socket), job_id, None),
+                client.cancel_training_job(socket_buf.as_path(), job_id, None),
             )
             .await
             {
@@ -835,6 +851,17 @@ async fn run_training_job(
 
     let mut trainer = WorkerTrainer::new(worker_cfg.clone())?;
 
+    // Record determinism/backends expectations on job snapshot
+    {
+        let mut jobs = jobs_ref.write().await;
+        if let Some(job) = jobs.get_mut(&job_id) {
+            job.determinism_mode = Some("hkdf_seeded".to_string());
+            job.training_seed = Some(trainer.training_seed());
+            job.require_gpu = Some(worker_cfg.require_gpu);
+            job.max_gpu_memory_mb = Some(worker_cfg.max_gpu_memory_mb);
+        }
+    }
+
     // Wire cancel token into trainer - checked at epoch boundaries
     trainer.set_cancel_token(cancel_token);
 
@@ -916,6 +943,31 @@ async fn run_training_job(
 
     match result {
         Ok(training_result) => {
+            // Capture backend selection and performance metrics after training
+            let backend_selected = trainer.backend_info().map(|b| b.to_string());
+            let perf = trainer.get_performance_metrics();
+            let training_time_ms = training_result.training_time_ms();
+            let examples_processed = training_result.examples_processed.unwrap_or(0);
+
+            {
+                let mut jobs = jobs_ref.write().await;
+                if let Some(job) = jobs.get_mut(&job_id) {
+                    job.backend = backend_selected.clone();
+                    job.determinism_mode = job.determinism_mode.clone().or(Some("hkdf_seeded".to_string()));
+                    job.training_seed = job.training_seed.or(Some(trainer.training_seed()));
+                    job.examples_processed = Some(examples_processed);
+                    job.tokens_processed = Some(examples_processed); // Approximate tokens until token-level metric exists
+                    job.training_time_ms = Some(training_time_ms);
+                    job.throughput_examples_per_sec =
+                        Some(perf.throughput_examples_per_sec);
+                    job.gpu_utilization_pct = Some(perf.avg_gpu_utilization);
+                    job.peak_gpu_memory_mb = Some(perf.peak_gpu_memory_mb);
+                    job.require_gpu = job.require_gpu.or(Some(worker_cfg.require_gpu));
+                    job.max_gpu_memory_mb =
+                        job.max_gpu_memory_mb.or(Some(worker_cfg.max_gpu_memory_mb));
+                }
+            }
+
             // Persist final summary metrics to database
             if let Some(database) = &db {
                 use adapteros_db::TrainingMetricRow;
@@ -1047,6 +1099,24 @@ async fn run_training_job(
             if let Some(ref cat) = category {
                 package_metadata.insert("category".to_string(), cat.clone());
             }
+            let backend_label = trainer
+                .backend_info()
+                .unwrap_or("CPU")
+                .to_ascii_lowercase();
+            package_metadata.insert("training_backend".to_string(), backend_label);
+            package_metadata.insert(
+                "determinism".to_string(),
+                if cfg!(feature = "deterministic-only") {
+                    "deterministic-only".to_string()
+                } else {
+                    "best-effort".to_string()
+                },
+            );
+            package_metadata.insert("quantization".to_string(), "q15".to_string());
+            package_metadata.insert(
+                "gate_q15_denominator".to_string(),
+                adapteros_lora_router::ROUTER_GATE_Q15_DENOM.to_string(),
+            );
 
             // Step 2: Package the adapter
             // Use adapters_root (already resolved with ENV > Config > Default precedence)
@@ -1061,9 +1131,9 @@ async fn run_training_job(
                 epochs: worker_cfg.epochs,
                 hidden_dim: worker_cfg.hidden_dim,
                 vocab_size: worker_cfg.vocab_size,
-                preferred_backend: None,
-                require_gpu: false,
-                max_gpu_memory_mb: 0,
+                preferred_backend: worker_cfg.preferred_backend,
+                require_gpu: worker_cfg.require_gpu,
+                max_gpu_memory_mb: worker_cfg.max_gpu_memory_mb,
                 checkpoint_interval: worker_cfg.checkpoint_interval,
                 warmup_steps: worker_cfg.warmup_steps,
                 max_seq_length: worker_cfg.max_seq_length,
@@ -1136,6 +1206,13 @@ async fn run_training_job(
                             Some(packaged.weights_path.to_string_lossy().to_string());
                         job.adapter_id = Some(packaged.adapter_id.clone());
                         job.weights_hash_b3 = Some(packaged.hash_b3.clone());
+                        job.aos_path = Some(packaged.weights_path.to_string_lossy().to_string());
+                        job.package_hash_b3 = Some(packaged.hash_b3.clone());
+                        job.manifest_rank = Some(packaged.manifest.rank as u32);
+                        job.manifest_base_model = Some(packaged.manifest.base_model.clone());
+                        job.manifest_per_layer_hashes =
+                            Some(packaged.manifest.per_layer_hashes.is_some());
+                        job.signature_status = Some("signed".to_string());
                     }
                     drop(jobs); // Release lock before DB call
 
@@ -1349,6 +1426,13 @@ async fn run_training_job(
                     job.artifact_path = Some(packaged.weights_path.to_string_lossy().to_string());
                     job.adapter_id = Some(packaged.adapter_id.clone());
                     job.weights_hash_b3 = Some(packaged.hash_b3.clone());
+                            job.aos_path = Some(packaged.weights_path.to_string_lossy().to_string());
+                            job.package_hash_b3 = Some(packaged.hash_b3.clone());
+                            job.manifest_rank = Some(packaged.manifest.rank as u32);
+                            job.manifest_base_model = Some(packaged.manifest.base_model.clone());
+                            job.manifest_per_layer_hashes =
+                                Some(packaged.manifest.per_layer_hashes.is_some());
+                            job.signature_status = Some("signed".to_string());
 
                     // Extract audit context for logging
                     (

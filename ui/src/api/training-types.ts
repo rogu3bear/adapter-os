@@ -40,6 +40,24 @@ export interface TrainingJob {
   build_id?: string;
   config_hash_b3?: string;
   weights_hash_b3?: string;
+  backend?: string;
+  backend_reason?: string;
+  determinism_mode?: string;
+  training_seed?: number;
+  require_gpu?: boolean;
+  max_gpu_memory_mb?: number;
+  examples_processed?: number;
+  tokens_processed?: number;
+  training_time_ms?: number;
+  throughput_examples_per_sec?: number;
+  gpu_utilization_pct?: number;
+  peak_gpu_memory_mb?: number;
+  aos_path?: string;
+  package_hash_b3?: string;
+  manifest_rank?: number;
+  manifest_base_model?: string;
+  manifest_per_layer_hashes?: boolean;
+  signature_status?: string;
 
   // Category metadata
   category?: string;
@@ -193,6 +211,10 @@ export interface TrainingMetrics {
   current_epoch?: number;
   total_epochs?: number;
   validation_loss?: number;
+  examples_processed?: number;
+  training_time_ms?: number;
+  throughput_examples_per_sec?: number;
+  peak_gpu_memory_mb?: number;
 }
 
 export interface Dataset {

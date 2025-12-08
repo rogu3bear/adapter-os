@@ -155,6 +155,48 @@ pub struct TrainingJobResponse {
     pub completed_at: Option<String>,
     pub error_message: Option<String>,
     pub estimated_completion: Option<String>,
+
+    // Backend and determinism
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub determinism_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub training_seed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub require_gpu: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_gpu_memory_mb: Option<u64>,
+
+    // Extended metrics
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub examples_processed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_processed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub training_time_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub throughput_examples_per_sec: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_utilization_pct: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peak_gpu_memory_mb: Option<f32>,
+
+    // Packaging summary
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aos_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub package_hash_b3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_rank: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_base_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_per_layer_hashes: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature_status: Option<String>,
 }
 
 impl From<TrainingJob> for TrainingJobResponse {
@@ -191,6 +233,27 @@ impl From<TrainingJob> for TrainingJobResponse {
             completed_at: job.completed_at,
             error_message: job.error_message,
             estimated_completion: None, // Calculate if needed
+            // Backend/determinism
+            backend: job.backend,
+            backend_reason: job.backend_reason,
+            determinism_mode: job.determinism_mode,
+            training_seed: job.training_seed,
+            require_gpu: job.require_gpu,
+            max_gpu_memory_mb: job.max_gpu_memory_mb,
+            // Extended metrics
+            examples_processed: job.examples_processed,
+            tokens_processed: job.tokens_processed,
+            training_time_ms: job.training_time_ms,
+            throughput_examples_per_sec: job.throughput_examples_per_sec,
+            gpu_utilization_pct: job.gpu_utilization_pct,
+            peak_gpu_memory_mb: job.peak_gpu_memory_mb,
+            // Packaging summary
+            aos_path: job.aos_path,
+            package_hash_b3: job.package_hash_b3,
+            manifest_rank: job.manifest_rank,
+            manifest_base_model: job.manifest_base_model,
+            manifest_per_layer_hashes: job.manifest_per_layer_hashes,
+            signature_status: job.signature_status,
         }
     }
 }
@@ -267,6 +330,18 @@ pub struct TrainingMetricsResponse {
     pub current_epoch: u32,
     pub total_epochs: u32,
     pub progress_pct: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub examples_processed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_processed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub training_time_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub throughput_examples_per_sec: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_utilization_pct: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peak_gpu_memory_mb: Option<f32>,
 }
 
 // ===== Dataset Types =====

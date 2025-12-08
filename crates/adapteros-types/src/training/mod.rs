@@ -254,6 +254,72 @@ pub struct TrainingJob {
     /// If this is a retry, the original job ID
     #[serde(rename = "retry_of_job_id", skip_serializing_if = "Option::is_none")]
     pub retry_of_job_id: Option<String>,
+
+    // Backend and determinism (new)
+    /// Backend selected by trainer (CoreML (ANE), Metal, MLX, CPU)
+    #[serde(rename = "backend", skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    /// Reason/notes for backend selection or fallback
+    #[serde(rename = "backend_reason", skip_serializing_if = "Option::is_none")]
+    pub backend_reason: Option<String>,
+    /// Determinism mode (e.g., hkdf_seeded, nondet_fallback)
+    #[serde(rename = "determinism_mode", skip_serializing_if = "Option::is_none")]
+    pub determinism_mode: Option<String>,
+    /// 64-bit deterministic training seed (audit)
+    #[serde(rename = "training_seed", skip_serializing_if = "Option::is_none")]
+    pub training_seed: Option<u64>,
+    /// Whether GPU was required for this run
+    #[serde(rename = "require_gpu", skip_serializing_if = "Option::is_none")]
+    pub require_gpu: Option<bool>,
+    /// Max GPU memory budget in MB (0 = unlimited)
+    #[serde(rename = "max_gpu_memory_mb", skip_serializing_if = "Option::is_none")]
+    pub max_gpu_memory_mb: Option<u64>,
+
+    // Extended metrics (new)
+    /// Total examples processed
+    #[serde(rename = "examples_processed", skip_serializing_if = "Option::is_none")]
+    pub examples_processed: Option<u64>,
+    /// Total tokens processed (if available)
+    #[serde(rename = "tokens_processed", skip_serializing_if = "Option::is_none")]
+    pub tokens_processed: Option<u64>,
+    /// Wall-clock training time (ms)
+    #[serde(rename = "training_time_ms", skip_serializing_if = "Option::is_none")]
+    pub training_time_ms: Option<u64>,
+    /// Examples/second throughput
+    #[serde(
+        rename = "throughput_examples_per_sec",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub throughput_examples_per_sec: Option<f32>,
+    /// Average GPU utilization percentage
+    #[serde(rename = "gpu_utilization_pct", skip_serializing_if = "Option::is_none")]
+    pub gpu_utilization_pct: Option<f32>,
+    /// Peak GPU memory usage (MB)
+    #[serde(rename = "peak_gpu_memory_mb", skip_serializing_if = "Option::is_none")]
+    pub peak_gpu_memory_mb: Option<f32>,
+
+    // Packaging summary (new)
+    /// Path to .aos archive (if packaged)
+    #[serde(rename = "aos_path", skip_serializing_if = "Option::is_none")]
+    pub aos_path: Option<String>,
+    /// Hash of packaged archive (BLAKE3)
+    #[serde(rename = "package_hash_b3", skip_serializing_if = "Option::is_none")]
+    pub package_hash_b3: Option<String>,
+    /// Adapter manifest rank (if available)
+    #[serde(rename = "manifest_rank", skip_serializing_if = "Option::is_none")]
+    pub manifest_rank: Option<u32>,
+    /// Adapter manifest base model (if available)
+    #[serde(rename = "manifest_base_model", skip_serializing_if = "Option::is_none")]
+    pub manifest_base_model: Option<String>,
+    /// Whether per-layer hashes are present in manifest
+    #[serde(
+        rename = "manifest_per_layer_hashes",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub manifest_per_layer_hashes: Option<bool>,
+    /// Signature verification status for package
+    #[serde(rename = "signature_status", skip_serializing_if = "Option::is_none")]
+    pub signature_status: Option<String>,
 }
 
 impl TrainingJob {
@@ -305,6 +371,27 @@ impl TrainingJob {
             // Retry metadata
             retryable: None,
             retry_of_job_id: None,
+            // Backend/determinism defaults
+            backend: None,
+            backend_reason: None,
+            determinism_mode: None,
+            training_seed: None,
+            require_gpu: None,
+            max_gpu_memory_mb: None,
+            // Extended metrics defaults
+            examples_processed: None,
+            tokens_processed: None,
+            training_time_ms: None,
+            throughput_examples_per_sec: None,
+            gpu_utilization_pct: None,
+            peak_gpu_memory_mb: None,
+            // Packaging defaults
+            aos_path: None,
+            package_hash_b3: None,
+            manifest_rank: None,
+            manifest_base_model: None,
+            manifest_per_layer_hashes: None,
+            signature_status: None,
         }
     }
 

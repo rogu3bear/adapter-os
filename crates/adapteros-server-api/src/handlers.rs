@@ -8741,6 +8741,12 @@ pub async fn get_training_metrics(
         current_epoch: job.current_epoch,
         total_epochs: job.total_epochs,
         progress_pct: job.progress_pct,
+        examples_processed: job.examples_processed,
+        tokens_processed: job.tokens_processed,
+        training_time_ms: job.training_time_ms,
+        throughput_examples_per_sec: job.throughput_examples_per_sec,
+        gpu_utilization_pct: job.gpu_utilization_pct,
+        peak_gpu_memory_mb: job.peak_gpu_memory_mb,
     }))
 }
 
@@ -8916,8 +8922,24 @@ pub async fn get_training_artifacts(
                 name: format!("{}.safetensors", adapter_id),
                 artifact_type: "weights".to_string(),
                 size_bytes: 0, // Size would come from actual file
-                hash_b3: None,
+                hash_b3: job.weights_hash_b3.clone(),
                 path: format!("/v1/adapters/{}/download", adapter_id),
+                created_at: job.created_at.clone(),
+            });
+        }
+
+        // Add packaged .aos artifact if available
+        if let Some(ref aos_path) = job.aos_path {
+            artifacts.push(TrainingArtifact {
+                name: aos_path
+                    .split('/')
+                    .last()
+                    .unwrap_or("adapter.aos")
+                    .to_string(),
+                artifact_type: "package".to_string(),
+                size_bytes: 0, // TODO: populate size when available
+                hash_b3: job.package_hash_b3.clone().or_else(|| job.weights_hash_b3.clone()),
+                path: aos_path.clone(),
                 created_at: job.created_at.clone(),
             });
         }

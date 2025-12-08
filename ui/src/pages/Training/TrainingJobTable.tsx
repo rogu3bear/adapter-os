@@ -169,7 +169,14 @@ export function TrainingJobTable({
                     </span>
                   </TableCell>
                   <TableCell>
-                    <StatusBadge status={typedJob.status} />
+                    <div className="flex flex-col gap-1">
+                      <StatusBadge status={typedJob.status} />
+                      {(typedJob.backend || typedJob.determinism_mode) && (
+                        <span className="text-xs text-muted-foreground">
+                          {typedJob.backend || 'backend n/a'} · {typedJob.determinism_mode || 'determinism n/a'}
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2 min-w-[calc(var(--base-unit)*30)]">
