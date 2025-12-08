@@ -30,6 +30,8 @@ Cargo.lock
 .env
 .env.local
 /.env.local
+.envrc
+.direnv/
 
 # SSH Keys (never commit these!)
 id_ed25519
@@ -74,6 +76,8 @@ grafana-*/
 /ui/.env.production.local
 /ui/build/
 /ui/node_modules/
+ui/.turbo/
+ui/.eslintcache
 
 # Server static assets (generated from UI build)
 /crates/adapteros-server/static/
@@ -107,6 +111,8 @@ package-lock.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.turbo/
+.eslintcache
 
 # Temporary
 tmp/
