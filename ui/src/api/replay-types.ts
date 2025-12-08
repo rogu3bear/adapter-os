@@ -49,6 +49,8 @@ export interface ReplayKey {
   rag_snapshot_hash?: string;
   /** Adapter IDs selected by router */
   adapter_ids?: string[];
+  /** Whether the inference ran in base-only mode (no adapters) */
+  base_only?: boolean;
 }
 
 // ============================================================================

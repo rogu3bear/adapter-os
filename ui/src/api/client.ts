@@ -27,6 +27,7 @@ import { handleBlobResponse, getFilenameFromResponse, extractArrayFromResponse }
 import { retryWithBackoff, RetryConfig, RetryResult, createRetryWrapper } from '@/utils/retry';
 import { LoginResponseSchema } from '@/schemas/common.schema';
 import { captureException } from '@/stores/errorStore';
+import { markSessionExpired } from '@/auth/session';
 
 // Type-safe API error with extended properties
 export interface ApiError extends Error {
@@ -108,6 +109,7 @@ class ApiClient {
 
       if (!resp.ok) {
         this.token = undefined;
+        markSessionExpired();
         const err = new Error('Session expired') as ApiError;
         err.code = 'SESSION_EXPIRED';
         err.status = resp.status;
@@ -325,6 +327,9 @@ class ApiClient {
           const err = toError(refreshError) as ApiError;
           err.code = err.code || 'SESSION_EXPIRED';
           err.status = err.status || 401;
+          if (err.code === 'SESSION_EXPIRED') {
+            markSessionExpired();
+          }
           throw err;
         }
       }
@@ -586,6 +591,7 @@ class ApiClient {
     // Runtime validation of login response structure
     try {
       const validated = LoginResponseSchema.parse(response);
+      validated.session_mode = validated.session_mode ?? 'normal';
       logger.info('User authentication successful', {
         component: 'ApiClient',
         operation: 'login',
@@ -629,6 +635,7 @@ class ApiClient {
     // Runtime validation of devBypass response structure
     try {
       const validated = LoginResponseSchema.parse(response);
+      validated.session_mode = validated.session_mode ?? 'dev_bypass';
       logger.info('Dev bypass authentication successful', {
         component: 'ApiClient',
         operation: 'devBypass',
@@ -1065,6 +1072,13 @@ class ApiClient {
 
   async getAdapterDetail(adapterId: string): Promise<types.AdapterDetailResponse> {
     return this.request<types.AdapterDetailResponse>(`/v1/adapters/${adapterId}/detail`);
+  }
+
+  async updateAdapterStrength(adapterId: string, loraStrength: number): Promise<types.AdapterDetailResponse> {
+    return this.request<types.AdapterDetailResponse>(`/v1/adapters/${adapterId}/strength`, {
+      method: 'PATCH',
+      body: JSON.stringify({ lora_strength: loraStrength }),
+    });
   }
 
   async getAdapterLineage(adapterId: string): Promise<types.AdapterLineageResponse> {
@@ -1769,7 +1783,7 @@ class ApiClient {
     data: types.StreamingInferRequest,
     callbacks: {
       onToken: (token: string, chunk: types.StreamingChunk) => void;
-      onComplete: (fullText: string, finishReason: string | null, metadata?: { unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string }) => void;
+      onComplete: (fullText: string, finishReason: string | null, metadata?: { unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string, citations?: types.Citation[] }) => void;
       onError: (error: Error) => void;
     },
     cancelToken?: AbortSignal
@@ -1821,6 +1835,7 @@ class ApiClient {
       let finishReason: string | null = null;
       let unavailablePinnedAdapters: string[] | undefined = undefined;
       let pinnedRoutingFallback: string | undefined = undefined;
+      let citations: types.Citation[] | undefined = undefined;
       let buffer = '';
 
       while (true) {
@@ -1852,9 +1867,10 @@ class ApiClient {
 
             // Check for stream termination
             if (data === '[DONE]') {
-              const metadata = (unavailablePinnedAdapters || pinnedRoutingFallback) ? {
+              const metadata = (unavailablePinnedAdapters || pinnedRoutingFallback || citations) ? {
                 unavailable_pinned_adapters: unavailablePinnedAdapters,
                 pinned_routing_fallback: pinnedRoutingFallback,
+                citations,
               } : undefined;
               callbacks.onComplete(fullText, finishReason, metadata);
               return;
@@ -1887,10 +1903,11 @@ class ApiClient {
             } catch (parseError) {
               // Try parsing as a Done event with pinned adapter metadata
               try {
-                const event = JSON.parse(data) as { event?: string; unavailable_pinned_adapters?: string[]; pinned_routing_fallback?: string };
+                const event = JSON.parse(data) as { event?: string; unavailable_pinned_adapters?: string[]; pinned_routing_fallback?: string; citations?: types.Citation[] };
                 if (event.event === 'Done') {
                   unavailablePinnedAdapters = event.unavailable_pinned_adapters;
                   pinnedRoutingFallback = event.pinned_routing_fallback;
+                  citations = event.citations;
                 }
               } catch {
                 // Not a Done event, log the original parse error
@@ -1906,9 +1923,10 @@ class ApiClient {
       }
 
       // Stream ended normally (without [DONE])
-      const metadata = (unavailablePinnedAdapters || pinnedRoutingFallback) ? {
+      const metadata = (unavailablePinnedAdapters || pinnedRoutingFallback || citations) ? {
         unavailable_pinned_adapters: unavailablePinnedAdapters,
         pinned_routing_fallback: pinnedRoutingFallback,
+        citations,
       } : undefined;
       callbacks.onComplete(fullText, finishReason, metadata);
     } catch (error) {
@@ -2175,6 +2193,67 @@ class ApiClient {
     return this.request<policyTypes.StackPoliciesResponse>(
       `/v1/adapter-stacks/${encodeURIComponent(stackId)}/policies`
     );
+  }
+
+  // Packages API
+  async listPackages(params?: { tenantId?: string; domain?: string }): Promise<types.AdapterPackage[]> {
+    const qs = new URLSearchParams();
+    if (params?.domain) {
+      qs.append('domain', params.domain);
+    }
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    const basePath = params?.tenantId
+      ? `/v1/tenants/${encodeURIComponent(params.tenantId)}/packages`
+      : '/v1/packages';
+
+    const response = await this.request<types.PackageListResponse>(`${basePath}${query}`);
+    if ('packages' in response && Array.isArray((response as types.PackageListResponse).packages)) {
+      return (response as types.PackageListResponse).packages;
+    }
+    return [];
+  }
+
+  async createPackage(payload: types.CreatePackageRequest): Promise<types.AdapterPackage> {
+    const response = await this.request<types.PackageResponse>('/v1/packages', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return response.package;
+  }
+
+  async getPackage(id: string): Promise<types.AdapterPackage> {
+    const response = await this.request<types.PackageResponse>(`/v1/packages/${id}`);
+    return response.package;
+  }
+
+  async updatePackage(id: string, payload: types.UpdatePackageRequest): Promise<types.AdapterPackage> {
+    const response = await this.request<types.PackageResponse>(`/v1/packages/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    return response.package;
+  }
+
+  async deletePackage(id: string): Promise<void> {
+    return this.request<void>(`/v1/packages/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async installTenantPackage(tenantId: string, packageId: string): Promise<types.AdapterPackage> {
+    const response = await this.request<types.PackageResponse>(
+      `/v1/tenants/${encodeURIComponent(tenantId)}/packages/${encodeURIComponent(packageId)}/install`,
+      { method: 'POST' }
+    );
+    return response.package;
+  }
+
+  async uninstallTenantPackage(tenantId: string, packageId: string): Promise<types.AdapterPackage> {
+    const response = await this.request<types.PackageResponse>(
+      `/v1/tenants/${encodeURIComponent(tenantId)}/packages/${encodeURIComponent(packageId)}/install`,
+      { method: 'DELETE' }
+    );
+    return response.package;
   }
 
   async getDefaultAdapterStack(tenantId: string = 'default'): Promise<types.AdapterStack | null> {

@@ -30,12 +30,13 @@ interface TooltipProps extends React.ComponentProps<typeof TooltipPrimitive.Root
 
 function Tooltip({
   open: controlledOpen,
-  onOpenChange: controlledOnOpenChange,
+  defaultOpen = false,
+  onOpenChange: consumerOnOpenChange,
   closeDelayMs = DEFAULT_CLOSE_DELAY_MS,
   delayDuration = 0,
   ...props
 }: TooltipProps) {
-  const [internalOpen, setInternalOpen] = React.useState(false);
+  const [internalOpen, setInternalOpen] = React.useState(defaultOpen);
   const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isControlled = controlledOpen !== undefined;
@@ -48,38 +49,34 @@ function Tooltip({
     }
   }, []);
 
+  const notifyOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      consumerOnOpenChange?.(nextOpen);
+      if (!isControlled) {
+        setInternalOpen(nextOpen);
+      }
+    },
+    [consumerOnOpenChange, isControlled],
+  );
+
   const handleOpenChange = React.useCallback(
     (nextOpen: boolean) => {
       clearCloseTimer();
 
       if (nextOpen) {
-        // Opening: apply immediately
-        if (isControlled) {
-          controlledOnOpenChange?.(true);
-        } else {
-          setInternalOpen(true);
-        }
+        notifyOpenChange(true);
+        return;
+      }
+
+      if (closeDelayMs > 0) {
+        closeTimerRef.current = setTimeout(() => {
+          notifyOpenChange(false);
+        }, closeDelayMs);
       } else {
-        // Closing: apply after delay (timeout after hover ends)
-        if (closeDelayMs > 0) {
-          closeTimerRef.current = setTimeout(() => {
-            if (isControlled) {
-              controlledOnOpenChange?.(false);
-            } else {
-              setInternalOpen(false);
-            }
-          }, closeDelayMs);
-        } else {
-          // Instant close
-          if (isControlled) {
-            controlledOnOpenChange?.(false);
-          } else {
-            setInternalOpen(false);
-          }
-        }
+        notifyOpenChange(false);
       }
     },
-    [isControlled, controlledOnOpenChange, clearCloseTimer, closeDelayMs]
+    [clearCloseTimer, closeDelayMs, notifyOpenChange],
   );
 
   React.useEffect(() => {

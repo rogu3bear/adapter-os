@@ -114,9 +114,12 @@ describe('Accessibility Tests', () => {
         <PageSkeleton variant="dashboard" />
       );
 
-      const skeletonElement = screen.getByRole('status');
-      expect(skeletonElement).toBeTruthy();
-      expect(skeletonElement.getAttribute('aria-label')).toBe('Loading page content');
+      const skeletonElements = screen.getAllByRole('status');
+      expect(skeletonElements.length).toBeGreaterThan(0);
+
+      // The first status element is the PageSkeleton wrapper
+      const pageSkeletonElement = skeletonElements[0];
+      expect(pageSkeletonElement.getAttribute('aria-label')).toBe('Loading page content');
     });
   });
 

@@ -6,7 +6,7 @@
  * with adapter-specific operations (load, unload, pin, evict, promote, etc.)
  */
 
-import { useMutation, useQueryClient, UseMutationOptions } from '@tanstack/react-query';
+import { useMutation, useQueryClient, UseMutationOptions, type QueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { createResourceHooks } from './factories/createApiHooks';
 import type {
@@ -15,6 +15,8 @@ import type {
   AdapterStateResponse,
   LifecycleTransitionResponse,
 } from '@/api/adapter-types';
+import { QUERY_FAST } from '@/api/queryOptions';
+import { invalidateDashboard } from '@/api/queryInvalidation';
 
 // Create base resource hooks using the factory
 const baseHooks = createResourceHooks<
@@ -31,7 +33,7 @@ const baseHooks = createResourceHooks<
     delete: (id: string) => apiClient.deleteAdapter(id),
     // Note: There's no generic update endpoint for adapters
   },
-  staleTime: 10000, // 10 seconds - adapters change frequently with lifecycle updates
+  staleTime: QUERY_FAST.staleTime, // Using QUERY_FAST because adapter state changes frequently and should feel live
   invalidatesOnMutate: ['metrics', 'system'], // Invalidate related queries
 });
 
@@ -41,6 +43,14 @@ export const useAdapters = baseHooks.useList;
 export const useAdapter = baseHooks.useDetail;
 export const useCreateAdapter = baseHooks.useCreate;
 export const useDeleteAdapter = baseHooks.useDelete;
+
+export async function invalidateAdapters(queryClient: QueryClient) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: adapterKeys.all }),
+    queryClient.invalidateQueries({ queryKey: ['metrics'] }),
+  ]);
+  await invalidateDashboard(queryClient);
+}
 
 /**
  * Hook for loading an adapter (lifecycle operation)
@@ -54,9 +64,7 @@ export function useLoadAdapter(
     mutationFn: (adapterId: string) => apiClient.loadAdapter(adapterId),
     ...restOptions,
     onSuccess: async (data, adapterId, ...rest) => {
-      queryClient.invalidateQueries({ queryKey: adapterKeys.detail(adapterId) });
-      queryClient.invalidateQueries({ queryKey: adapterKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: ['metrics'] });
+      await invalidateAdapters(queryClient);
       await onSuccess?.(data, adapterId, ...rest);
     },
   });
@@ -74,9 +82,7 @@ export function useUnloadAdapter(
     mutationFn: (adapterId: string) => apiClient.unloadAdapter(adapterId),
     ...restOptions,
     onSuccess: async (data, adapterId, ...rest) => {
-      queryClient.invalidateQueries({ queryKey: adapterKeys.detail(adapterId) });
-      queryClient.invalidateQueries({ queryKey: adapterKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: ['metrics'] });
+      await invalidateAdapters(queryClient);
       await onSuccess?.(data, adapterId, ...rest);
     },
   });
@@ -95,8 +101,7 @@ export function usePinAdapter(
       apiClient.pinAdapter(adapterId, pinned, reason),
     ...restOptions,
     onSuccess: async (data, variables, ...rest) => {
-      queryClient.invalidateQueries({ queryKey: adapterKeys.detail(variables.adapterId) });
-      queryClient.invalidateQueries({ queryKey: adapterKeys.lists() });
+      await invalidateAdapters(queryClient);
       await onSuccess?.(data, variables, ...rest);
     },
   });
@@ -114,9 +119,7 @@ export function useEvictAdapter(
     mutationFn: (adapterId: string) => apiClient.evictAdapter(adapterId),
     ...restOptions,
     onSuccess: async (data, adapterId, ...rest) => {
-      queryClient.invalidateQueries({ queryKey: adapterKeys.detail(adapterId) });
-      queryClient.invalidateQueries({ queryKey: adapterKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: ['metrics'] });
+      await invalidateAdapters(queryClient);
       await onSuccess?.(data, adapterId, ...rest);
     },
   });
@@ -134,9 +137,7 @@ export function usePromoteAdapter(
     mutationFn: (adapterId: string) => apiClient.promoteAdapterState(adapterId),
     ...restOptions,
     onSuccess: async (data, adapterId, ...rest) => {
-      queryClient.invalidateQueries({ queryKey: adapterKeys.detail(adapterId) });
-      queryClient.invalidateQueries({ queryKey: adapterKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: ['metrics'] });
+      await invalidateAdapters(queryClient);
       await onSuccess?.(data, adapterId, ...rest);
     },
   });
@@ -155,7 +156,7 @@ export function useImportAdapter(
       apiClient.importAdapter(file, load),
     ...restOptions,
     onSuccess: async (data, variables, ...rest) => {
-      queryClient.invalidateQueries({ queryKey: adapterKeys.lists() });
+      await invalidateAdapters(queryClient);
       await onSuccess?.(data, variables, ...rest);
     },
   });
@@ -174,8 +175,7 @@ export function usePromoteAdapterLifecycle(
       apiClient.promoteAdapterLifecycle(adapterId, reason),
     ...restOptions,
     onSuccess: async (data, variables, ...rest) => {
-      queryClient.invalidateQueries({ queryKey: adapterKeys.detail(variables.adapterId) });
-      queryClient.invalidateQueries({ queryKey: adapterKeys.lists() });
+      await invalidateAdapters(queryClient);
       await onSuccess?.(data, variables, ...rest);
     },
   });
@@ -194,8 +194,7 @@ export function useDemoteAdapterLifecycle(
       apiClient.demoteAdapterLifecycle(adapterId, reason),
     ...restOptions,
     onSuccess: async (data, variables, ...rest) => {
-      queryClient.invalidateQueries({ queryKey: adapterKeys.detail(variables.adapterId) });
-      queryClient.invalidateQueries({ queryKey: adapterKeys.lists() });
+      await invalidateAdapters(queryClient);
       await onSuccess?.(data, variables, ...rest);
     },
   });
@@ -263,8 +262,7 @@ export function useAdaptersApi() {
     demoteLifecycleError: demoteLifecycleMutation.error,
 
     // Cache invalidation
-    invalidateAdapters: () =>
-      queryClient.invalidateQueries({ queryKey: adapterKeys.all }),
+    invalidateAdapters: () => invalidateAdapters(queryClient),
   };
 }
 

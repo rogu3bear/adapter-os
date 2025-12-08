@@ -24,6 +24,7 @@ import PageWrapper from '@/layout/PageWrapper';
 import apiClient from '@/api/client';
 import type { ModelWithStatsResponse } from '@/api/types';
 import type { MetricsSnapshotEvent } from '@/api/streaming-types';
+import { QUERY_FAST, QUERY_STANDARD, QUERY_RARE } from '@/api/queryOptions';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -75,8 +76,9 @@ export default function OwnerHomePage() {
   } = useQuery({
     queryKey: ['owner-system-overview'],
     queryFn: () => apiClient.getSystemOverview(),
-    staleTime: 10000,
-    refetchInterval: 30000,
+    ...QUERY_FAST,
+    staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 
   // Fetch tenants
@@ -87,7 +89,7 @@ export default function OwnerHomePage() {
   } = useQuery({
     queryKey: ['owner-tenants'],
     queryFn: () => apiClient.listTenants(),
-    staleTime: 30000,
+    ...QUERY_STANDARD,
   });
 
   // Fetch adapters
@@ -98,7 +100,7 @@ export default function OwnerHomePage() {
   } = useQuery({
     queryKey: ['owner-adapters'],
     queryFn: () => apiClient.listAdapters(),
-    staleTime: 15000,
+    ...QUERY_FAST,
   });
 
   // Fetch adapter stacks
@@ -109,7 +111,7 @@ export default function OwnerHomePage() {
   } = useQuery({
     queryKey: ['owner-stacks'],
     queryFn: () => apiClient.listAdapterStacks(),
-    staleTime: 30000,
+    ...QUERY_STANDARD,
   });
 
   // Fetch base models
@@ -120,7 +122,7 @@ export default function OwnerHomePage() {
   } = useQuery<ModelWithStatsResponse[]>({
     queryKey: ['owner-models'],
     queryFn: () => apiClient.listModels(),
-    staleTime: 30000,
+    ...QUERY_RARE,
   });
 
   // Fetch base model status
@@ -131,8 +133,8 @@ export default function OwnerHomePage() {
   } = useQuery({
     queryKey: ['owner-base-model-status'],
     queryFn: () => apiClient.getBaseModelStatus(),
-    staleTime: 15000,
-    refetchInterval: 30000,
+    ...QUERY_FAST,
+    refetchInterval: 30_000,
   });
 
   // Fetch ground truth system state (memory pressure, top adapters)

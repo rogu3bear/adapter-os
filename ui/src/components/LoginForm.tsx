@@ -35,6 +35,7 @@ interface LoginFormProps {
   onConfigLoaded?: (config: AuthConfigResponse) => void;
   /** When true, shows TOTP field. Set by parent when MFA_REQUIRED error code is received */
   mfaRequired?: boolean;
+  devBypassFlagEnabled?: boolean;
 }
 
 const LockLogo = ({ className = 'h-10 w-10 text-foreground' }: { className?: string }) => (
@@ -71,7 +72,7 @@ const statusTone = (status: string) => {
   }
 };
 
-export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfigLoaded, mfaRequired: mfaRequiredProp }: LoginFormProps) {
+export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfigLoaded, mfaRequired: mfaRequiredProp, devBypassFlagEnabled = true }: LoginFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isDevBypassLoading, setIsDevBypassLoading] = useState(false);
   const [devBypassAllowed, setDevBypassAllowed] = useState(false);
@@ -125,7 +126,8 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
     setConfigError(null);
     try {
       const config = await apiClient.getAuthConfig();
-      setDevBypassAllowed(config.dev_bypass_allowed ?? false);
+      const allowsDevBypass = (config.dev_bypass_allowed ?? false) && devBypassFlagEnabled;
+      setDevBypassAllowed(allowsDevBypass);
       setShowTotpField(config.mfa_required ?? false);
       logger.info('Auth config TTLs', {
         component: 'LoginForm',
@@ -197,11 +199,10 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
     setIsDevBypassLoading(true);
     setDevBypassError(null);
     try {
-      const response = await apiClient.devBypass();
-      if (!response.token || !response.user_id || !response.tenant_id || !response.role) {
-        throw new Error('Dev bypass response missing required authentication fields');
+      if (!onDevBypass) {
+        throw new Error('Dev bypass is not available.');
       }
-      if (onDevBypass) await onDevBypass();
+      await onDevBypass();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setDevBypassError(errorMessage);

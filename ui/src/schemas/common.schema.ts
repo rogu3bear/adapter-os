@@ -381,6 +381,8 @@ export const LoginResponseSchema = z.object({
     .positive('Expiration must be positive')
     .describe('Token expiration in seconds'),
 
+  session_mode: z.enum(['normal', 'dev_bypass']).optional(),
+
   tenants: z.array(TenantSummarySchema).optional(),
 });
 

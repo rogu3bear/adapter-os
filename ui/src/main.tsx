@@ -1,8 +1,8 @@
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
-import { useState, useEffect, useRef } from "react";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef, useCallback } from "react";
 import RootLayout from "@/layout/RootLayout";
-import { SESSION_EXPIRED_FLAG_KEY, useAuth } from "@/providers/CoreProviders";
+import { useAuth } from "@/providers/CoreProviders";
 import type { AuthConfigResponse } from "@/api/auth-types";
 import { AppProviders } from "@/providers/AppProviders";
 import { LoginForm } from "@/components/LoginForm";
@@ -14,6 +14,8 @@ import { captureException } from "@/stores/errorStore";
 import { toast } from "sonner";
 import { useToastQueue } from "@/components/toast/ToastProvider";
 import NotFoundPage from "@/pages/NotFoundPage";
+import { consumeSessionExpiredFlag } from "@/auth/session";
+import { isDevBypassEnabled } from "@/auth/authBootstrap";
 
 import "./index.css";
 
@@ -74,28 +76,21 @@ function friendlyLoginMessage(apiErr?: ApiError, fallback: string = 'Login faile
     case 'NO_TENANT_ACCESS':
       return 'You’re signed in but have no tenant access. Ask an admin to grant access.';
     case 'SESSION_EXPIRED':
-      return 'Session expired—sign in again.';
+      return 'Session expired. Please log in again.';
     default:
       return fallback;
   }
 }
 
-function LoginRoute() {
-  const { user, login, refreshUser } = useAuth();
+export function LoginRoute() {
+  const { user, login, devBypassLogin } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { enqueue } = useToastQueue();
-  const [loginError, setLoginError] = useState<string | null>(() => {
-    try {
-      const expiredMessage = sessionStorage.getItem(SESSION_EXPIRED_FLAG_KEY);
-      if (expiredMessage) {
-        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
-        return expiredMessage;
-      }
-    } catch {
-      // ignore storage errors
-    }
-    return null;
-  });
+  const devBypassFlagEnabled = isDevBypassEnabled(); // Dev bypass environment policy: docs/AUTHENTICATION.md
+  const devBypassRequested = new URLSearchParams(location.search).get('dev') === 'true';
+  const devAutoTriggeredRef = useRef(false);
+  const [loginError, setLoginError] = useState<string | null>(() => consumeSessionExpiredFlag());
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [authConfig, setAuthConfig] = useState<AuthConfigResponse | null>(null);
   const [mfaRequired, setMfaRequired] = useState(false);
@@ -105,11 +100,50 @@ function LoginRoute() {
     ? 'Too many failed attempts. Account temporarily locked—please try again later or contact an administrator.'
     : null;
 
+  const runDevBypassLogin = useCallback(async () => {
+    try {
+      setLoginError(null);
+      isLoggingIn.current = true;
+      await devBypassLogin();
+    } catch (err) {
+      isLoggingIn.current = false;
+      const apiErr = isApiError(err) ? err : undefined;
+      const errorMessage = apiErr?.message || (err instanceof Error ? err.message : 'Dev bypass failed');
+      setLoginError(errorMessage || 'Dev bypass failed');
+      enqueue({ title: errorMessage || 'Dev bypass failed', variant: 'error', persist: true });
+      logger.error('Dev bypass failed', {
+        component: 'LoginRoute',
+        operation: 'devBypass',
+        errorCode: apiErr?.code,
+        status: apiErr?.status,
+      }, toError(err));
+      throw err;
+    }
+  }, [devBypassLogin, enqueue]);
+
   useEffect(() => {
     if (user) {
       setFailedAttempts(0);
     }
   }, [user]);
+
+  useEffect(() => {
+    if (devBypassRequested && !devBypassFlagEnabled) {
+      toast.info('Dev bypass disabled in this environment.');
+    }
+  }, [devBypassRequested, devBypassFlagEnabled]);
+
+  useEffect(() => {
+    if (!devBypassRequested || !devBypassFlagEnabled || devAutoTriggeredRef.current) {
+      return;
+    }
+    if (authConfig?.dev_bypass_allowed) {
+      devAutoTriggeredRef.current = true;
+      runDevBypassLogin().catch(() => {
+        // error already handled in runDevBypassLogin
+      });
+    }
+  }, [authConfig?.dev_bypass_allowed, devBypassFlagEnabled, devBypassRequested, runDevBypassLogin]);
 
   // Handle navigation after user is authenticated
   useEffect(() => {
@@ -215,33 +249,8 @@ function LoginRoute() {
           }, toError(err));
         }
       }}
-          onDevBypass={async () => {
-            try {
-              setLoginError(null);
-              isLoggingIn.current = true;
-              // Cookie is set synchronously by browser, no delay needed
-              await refreshUser();
-              // Navigation will happen in useEffect once user is set
-            } catch (err) {
-              isLoggingIn.current = false;
-              let errorMessage = 'Dev bypass failed';
-              if (err instanceof Error) {
-                errorMessage = err.message;
-                // Include error code if available
-                if (isApiError(err) && err.code) {
-                  errorMessage = `${errorMessage} (${err.code})`;
-                }
-              }
-              setLoginError(errorMessage);
-              const apiErr = isApiError(err) ? err : undefined;
-              logger.error('Dev bypass failed', {
-                component: 'LoginRoute',
-                operation: 'devBypass',
-                errorCode: apiErr?.code,
-                status: apiErr?.status,
-              }, toError(err));
-            }
-          }}
+      onDevBypass={runDevBypassLogin}
+      devBypassFlagEnabled={devBypassFlagEnabled}
       error={loginError}
       mfaRequired={mfaRequired}
     />

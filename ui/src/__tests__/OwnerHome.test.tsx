@@ -161,6 +161,41 @@ const mockListAdapters = vi.fn();
 const mockListAdapterStacks = vi.fn();
 const mockListModels = vi.fn();
 
+type LiveDataMock = {
+  data: null;
+  isLoading: boolean;
+  error: null;
+  sseConnected: boolean;
+  connectionStatus: 'polling';
+  lastUpdated: Date | null;
+  freshnessLevel: 'fresh' | 'recent' | 'stale' | 'very_stale' | 'live';
+  refetch: () => Promise<void>;
+  reconnect: () => void;
+  toggleSSE: () => void;
+};
+
+const createLiveDataMock = (): LiveDataMock => ({
+  data: null,
+  isLoading: false,
+  error: null,
+  sseConnected: false,
+  connectionStatus: 'polling',
+  lastUpdated: null,
+  freshnessLevel: 'recent',
+  refetch: async () => {},
+  reconnect: () => {},
+  toggleSSE: () => {},
+});
+
+const createSystemStateMock = () => ({
+  data: null,
+  isLoading: false,
+  error: null,
+  isLive: false,
+  lastUpdated: null,
+  refetch: async () => {},
+});
+
 vi.mock('@/api/client', () => ({
   __esModule: true,
   default: {
@@ -184,6 +219,18 @@ vi.mock('@/providers/CoreProviders', () => ({
     logout: vi.fn(),
   }),
 }));
+
+vi.mock('@/hooks/useSystemState', () => {
+  return {
+    useSystemState: vi.fn(() => createSystemStateMock()),
+  };
+});
+
+vi.mock('@/hooks/useLiveData', () => {
+  return {
+    useLiveData: vi.fn(() => createLiveDataMock()),
+  };
+});
 
 // Mock toast
 vi.mock('sonner', () => ({
@@ -248,7 +295,7 @@ describe('OwnerHomePage', () => {
         </TestWrapper>
       );
 
-      expect(screen.getByText('Owner Home')).toBeTruthy();
+      expect(screen.getByText(/Owner Home/i)).toBeTruthy();
     });
 
     it('displays System Owner badge', async () => {
@@ -478,7 +525,7 @@ describe('OwnerHomePage', () => {
 
       await waitFor(() => {
         // Page should still render even with tenant load error
-        expect(screen.getByText('Owner Home')).toBeTruthy();
+        expect(screen.getByText(/Owner Home/i)).toBeTruthy();
       });
     });
 
@@ -708,7 +755,7 @@ describe('OwnerHomePage', () => {
       );
 
       // Component should render in loading state
-      expect(screen.getByText('Owner Home')).toBeTruthy();
+      expect(screen.getByText(/Owner Home/i)).toBeTruthy();
     });
   });
 
@@ -875,7 +922,7 @@ describe('OwnerHomePage', () => {
       );
 
       // Should still render without crashing
-      expect(screen.getByText('Owner Home')).toBeTruthy();
+      expect(screen.getByText(/Owner Home/i)).toBeTruthy();
     });
 
     it('handles missing resource_usage in system overview', async () => {

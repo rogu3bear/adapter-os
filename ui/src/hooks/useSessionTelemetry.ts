@@ -9,6 +9,7 @@ import type {
 } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import type { AdapterStack } from '@/api/adapter-types';
+import { QUERY_FAST } from '@/api/queryOptions';
 
 export interface SessionSummary {
   requestId: string;
@@ -21,6 +22,13 @@ export interface MetricPoint {
   timestamp: string;
   value: number;
 }
+
+export const TELEMETRY_QUERY_KEYS = {
+  sessions: () => ['session-telemetry', 'sessions'] as const,
+  steps: () => ['session-telemetry', 'steps'] as const,
+  metricsTps: () => ['session-telemetry', 'metrics-tps'] as const,
+  metricsLatency: () => ['session-telemetry', 'metrics-latency'] as const,
+};
 
 interface UseSessionTelemetryOptions {
   initialRequestId?: string;
@@ -107,7 +115,7 @@ export function useSessionTelemetry(options: UseSessionTelemetryOptions = {}): U
         request_id: filterRequestId || undefined,
         source_type: sourceType || undefined,
       }),
-    staleTime: 30_000,
+    ...QUERY_FAST,
   });
 
   const sessions = useMemo(() => uniqueSessions(decisions), [decisions]);
@@ -134,7 +142,7 @@ export function useSessionTelemetry(options: UseSessionTelemetryOptions = {}): U
       return apiClient.getSessionRouterView(selectedRequestId);
     },
     enabled: !!selectedRequestId,
-    staleTime: 15_000,
+    ...QUERY_FAST,
   });
 
   const steps: SessionStep[] = useMemo(
@@ -232,7 +240,7 @@ export function useSessionTelemetry(options: UseSessionTelemetryOptions = {}): U
       });
     },
     enabled: !!selectedRequestId && !!timeWindow,
-    staleTime: 15_000,
+    ...QUERY_FAST,
   });
 
   const { data: latencySeries } = useQuery<MetricsSeriesResponse[]>({
@@ -246,7 +254,7 @@ export function useSessionTelemetry(options: UseSessionTelemetryOptions = {}): U
       });
     },
     enabled: !!selectedRequestId && !!timeWindow,
-    staleTime: 15_000,
+    ...QUERY_FAST,
   });
 
   const tokensPerSecond = useMemo(() => flattenMetrics(tokensPerSecondSeries), [tokensPerSecondSeries]);

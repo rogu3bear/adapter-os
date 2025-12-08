@@ -70,6 +70,9 @@ interface TrainingConfig {
   epochs: number;
   learning_rate: number;
   batch_size: number;
+  preferred_backend?: string;
+  require_gpu?: boolean;
+  max_gpu_memory_mb?: number;
   category: 'code' | 'framework' | 'codebase' | 'ephemeral';
   scope: 'global' | 'tenant' | 'repo' | 'commit';
   framework_id?: string;

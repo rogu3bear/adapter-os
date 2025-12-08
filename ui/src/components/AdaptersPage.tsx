@@ -1,9 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Input } from './ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
 import { AdapterStateVisualization } from './AdapterStateVisualization';
 import { AdapterMemoryMonitor } from './AdapterMemoryMonitor';
 import apiClient from '@/api/client';
@@ -15,7 +23,7 @@ import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
 import { AdapterListSkeleton } from '@/components/skeletons/AdapterListSkeleton';
-import { Code, MemoryStick, Activity, Clock, Pin, ArrowUp, Trash2, MoreHorizontal, Upload, Power, PowerOff } from 'lucide-react';
+import { Code, Pin, ArrowUp, Trash2, MoreHorizontal, Upload, Power, PowerOff, ArrowUpDown } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,11 +35,16 @@ import { useProgressiveHints } from '@/hooks/useProgressiveHints';
 import { getPageHints } from '@/data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
 import { useAdapterOperations } from '@/hooks/useAdapterOperations';
+import { useAdapterActions } from '@/hooks/useAdapterActions';
+import type { AdapterSortColumn } from '@/hooks/adapters/useAdapterFilterState';
+import type { AdapterActionType } from '@/hooks/useAdapterActions';
 import { getLifecycleVariant } from '@/utils/lifecycle';
 import { useRBAC } from '@/hooks/useRBAC';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
+import { useAdapterFilterState } from '@/hooks/adapters/useAdapterFilterState';
+import { ConfirmationModal } from '@/components/shared/Modal';
 import { AdapterLifecycleState } from '@/api/system-state-types';
 
 interface AdaptersData {
@@ -40,7 +53,8 @@ interface AdaptersData {
 }
 
 function AdaptersPageContent() {
-  const { can, userRole } = useRBAC();
+  const { can, userRole, getUser } = useRBAC();
+  const user = getUser?.();
   const { errors, addError, clearError } = usePageErrors();
   const navigate = useNavigate();
 
@@ -65,6 +79,22 @@ function AdaptersPageContent() {
   const adapters = data?.adapters ?? [];
   const totalMemory = data?.totalMemory ?? 0;
 
+  const {
+    search,
+    filters,
+    sort,
+    setSearch,
+    updateFilters,
+    setSort,
+    resetFilters,
+    applyFiltersAndSort,
+  } = useAdapterFilterState({
+    tenantId: user?.tenant_id,
+    userId: user?.id || user?.user_id,
+  });
+
+  const displayedAdapters = useMemo(() => applyFiltersAndSort(adapters), [adapters, applyFiltersAndSort]);
+
   const newestAdapterIds = useMemo(() => {
     const latestByName = new Map<string, { id: string; ts: number }>();
     adapters.forEach((adapter) => {
@@ -77,6 +107,11 @@ function AdaptersPageContent() {
     });
     return new Set(Array.from(latestByName.values()).map(v => v.id));
   }, [adapters]);
+
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(adapters.map(adapter => adapter.category).filter(Boolean))) as string[],
+    [adapters],
+  );
 
   // Progressive hints
   const hints = getPageHints('adapters').map(hint => ({
@@ -91,17 +126,51 @@ function AdaptersPageContent() {
   });
   const visibleHint = getVisibleHint();
 
+  const handleSortChange = useCallback(
+    (column: AdapterSortColumn) => {
+      setSort(prev => ({
+        column,
+        direction: prev.column === column ? (prev.direction === 'asc' ? 'desc' : 'asc') : 'asc',
+      }));
+    },
+    [setSort],
+  );
+
+  const {
+    openAction,
+    pendingAction,
+    isConfirmOpen,
+    setIsConfirmOpen,
+    performAction,
+    isRunning: isActionRunning,
+    inlineStatuses,
+    highlightedId,
+    confirmationCopy,
+  } = useAdapterActions({
+    onRefetch: refetch,
+  });
+
+  const openAdapterAction = useCallback(
+    (action: AdapterActionType, adapter: Adapter) => {
+      const adapterId = adapter.id || adapter.adapter_id || adapter.adapter_name || '';
+      if (!adapterId) return;
+      openAction(action, {
+        id: adapterId,
+        name: adapter.name || adapter.adapter_name || adapterId,
+        version: adapter.version,
+        state: adapter.current_state || adapter.runtime_state,
+      });
+    },
+    [openAction],
+  );
+
   // Adapter operations using shared hook
   const {
-    isOperationLoading,
     operationError,
     clearOperationError,
-    loadAdapter,
-    unloadAdapter,
     evictAdapter,
     pinAdapter,
     promoteAdapter,
-    deleteAdapter,
   } = useAdapterOperations({
     onDataRefresh: refetch,
   });
@@ -148,16 +217,9 @@ function AdaptersPageContent() {
   }
 
 
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'code': return <Code className="h-4 w-4" />;
-      default: return <Activity className="h-4 w-4" />;
-    }
-  };
-
   // Permission check helpers with canonical strings
   const canRegister = can('adapter:register');
-   const canStartTraining = can('training:start');
+  const canStartTraining = can('training:start');
   const canLoad = can('adapter:load');
   const canUnload = can('adapter:unload');
   const canDelete = can('adapter:delete');
@@ -239,6 +301,83 @@ function AdaptersPageContent() {
         </div>
       </div>
 
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card/50 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search adapters by name or ID"
+            className="w-64"
+          />
+          <Select
+            value={filters.state || 'any'}
+            onValueChange={(value) => updateFilters({ state: value === 'any' ? undefined : value })}
+          >
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="State" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="any">Any state</SelectItem>
+              <SelectItem value="resident">Resident</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="loading">Loading</SelectItem>
+              <SelectItem value="unloaded">Unloaded</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={filters.category || 'any'}
+            onValueChange={(value) => updateFilters({ category: value === 'any' ? undefined : value })}
+          >
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="any">All categories</SelectItem>
+              {categoryOptions.map(option => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant={filters.pinnedOnly ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => updateFilters({ pinnedOnly: !filters.pinnedOnly })}
+          >
+            Protected only
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={sort.column}
+            onValueChange={(value) => handleSortChange(value as AdapterSortColumn)}
+          >
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name">Name</SelectItem>
+              <SelectItem value="state">State</SelectItem>
+              <SelectItem value="memory">Memory</SelectItem>
+              <SelectItem value="activations">Activations</SelectItem>
+              <SelectItem value="created_at">Created</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSort(prev => ({ ...prev, direction: prev.direction === 'asc' ? 'desc' : 'asc' }))}
+          >
+            <ArrowUpDown className="mr-2 h-4 w-4" />
+            {sort.direction === 'asc' ? 'Ascending' : 'Descending'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { resetFilters(); setSort({ column: 'name', direction: 'asc' }); setSearch(''); }}>
+            Reset filters
+          </Button>
+        </div>
+      </div>
+
       {/* Visualizations */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {(() => {
@@ -266,9 +405,12 @@ function AdaptersPageContent() {
       </div>
 
       {/* Adapter Cards with quick actions */}
-      {adapters.length > 0 && (
+      {displayedAdapters.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {adapters.map((adapter) => {
+          {displayedAdapters.map((adapter) => {
+            const adapterKey = adapter.id || adapter.adapter_id || adapter.adapter_name || '';
+            const rowStatus = adapterKey ? inlineStatuses[adapterKey] : undefined;
+            const isHighlighted = adapterKey ? highlightedId === adapterKey : false;
             const status = adapter.current_state || adapter.lifecycle_state || 'pending';
             const statusLabel = (() => {
               if (status === 'resident' || status === 'active') return 'Active';
@@ -288,7 +430,7 @@ function AdaptersPageContent() {
             return (
               <Card
                 key={`adapter-card-${adapter.id}`}
-                className="border-border/70 transition-shadow duration-200 hover:shadow-lg"
+                className={`border-border/70 transition-shadow duration-200 hover:shadow-lg ${isHighlighted ? 'ring-1 ring-amber-400/60' : ''}`}
               >
                 <CardHeader className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
@@ -308,6 +450,14 @@ function AdaptersPageContent() {
                       {adapter.pinned && <Pin className="h-4 w-4 text-muted-foreground" />}
                     </div>
                   </div>
+                  {rowStatus && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Badge variant={rowStatus.type === 'conflict' ? 'secondary' : 'destructive'}>
+                        {rowStatus.type === 'conflict' ? 'Changed elsewhere' : 'Action failed'}
+                      </Badge>
+                      <span className="truncate">{rowStatus.message}</span>
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-2 text-xs">
                     <Badge variant="outline">{adapter.tier || 'tier_1'}</Badge>
                     <Badge variant="secondary">{adapter.category || 'general'}</Badge>
@@ -344,9 +494,9 @@ function AdaptersPageContent() {
                       disabled={!canLoad && !canUnload}
                       onClick={() => {
                         if (adapter.current_state === 'resident') {
-                          unloadAdapter?.(adapter.id);
+                          openAdapterAction('unload', adapter);
                         } else {
-                          loadAdapter?.(adapter.id);
+                          openAdapterAction('load', adapter);
                         }
                       }}
                     >
@@ -373,11 +523,11 @@ function AdaptersPageContent() {
         <CardContent>
           {loading ? (
             <AdapterListSkeleton />
-          ) : adapters.length === 0 ? (
+          ) : displayedAdapters.length === 0 ? (
             <EmptyState
               icon={Code}
               title="No adapters deployed"
-              description="Train or import an adapter to get started. Your fleet will appear here once deployed."
+              description={adapters.length === 0 ? 'Train or import an adapter to get started. Your fleet will appear here once deployed.' : 'No adapters match your current filters.'}
             />
           ) : (
             <Table>
@@ -418,134 +568,161 @@ function AdaptersPageContent() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {adapters.map(adapter => (
-                  <TableRow key={adapter.id}>
-                    <TableCell className="font-medium">
-                      <div className="flex flex-col gap-1">
-                        <span>{adapter.name}</span>
-                        <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                          {adapter.version && (
-                            <Badge variant="outline">v{adapter.version}</Badge>
+                {displayedAdapters.map(adapter => {
+                  const adapterKey = adapter.id || adapter.adapter_id || adapter.adapter_name || '';
+                  const rowStatus = adapterKey ? inlineStatuses[adapterKey] : undefined;
+                  const isHighlighted = adapterKey ? highlightedId === adapterKey : false;
+
+                  return (
+                    <TableRow key={adapter.id} className={isHighlighted ? 'bg-amber-50/70' : undefined}>
+                      <TableCell className="font-medium">
+                        <div className="flex flex-col gap-1">
+                          <span>{adapter.name}</span>
+                          <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                            {adapter.version && (
+                              <Badge variant="outline">v{adapter.version}</Badge>
+                            )}
+                            {adapter.hash_b3 && (
+                              <Badge variant="secondary">b3 {adapter.hash_b3.slice(0, 8)}…</Badge>
+                            )}
+                            <span className="truncate max-w-[200px]">{adapter.id}</span>
+                          </div>
+                          {rowStatus && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Badge variant={rowStatus.type === 'conflict' ? 'secondary' : 'destructive'}>
+                                {rowStatus.type === 'conflict' ? 'Changed elsewhere' : 'Action failed'}
+                              </Badge>
+                              <span className="truncate">{rowStatus.message}</span>
+                            </div>
                           )}
-                          {adapter.hash_b3 && (
-                            <Badge variant="secondary">b3 {adapter.hash_b3.slice(0, 8)}…</Badge>
-                          )}
-                          <span className="truncate max-w-[200px]">{adapter.id}</span>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{adapter.tier || 'tier_1'}</Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {adapter.rank || 16}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={getLifecycleVariant(adapter.lifecycle_state)}>
-                        {adapter.lifecycle_state || 'active'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge>{LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}</Badge>
-                      {adapter.pinned && <Pin className="h-4 w-4 ml-2" />}
-                    </TableCell>
-                    <TableCell>{(adapter.memory_bytes / 1024 / 1024).toFixed(1)} MB</TableCell>
-                    <TableCell>{adapter.activation_count}</TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {/* Load/Unload actions */}
-                          <DropdownMenuItem
-                            onClick={() => loadAdapter?.(adapter.id)}
-                            disabled={!canLoad || adapter.current_state === 'resident'}
-                            title={!canLoad ? 'Requires adapter:load permission' : 'Load adapter into memory'}
-                          >
-                            <Power className="mr-2 h-4 w-4" />
-                            {`Load${adapter.version ? ` v${adapter.version}` : ''}`}
-                            <GlossaryTooltip brief="Load adapter weights into GPU memory for inference" />
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => unloadAdapter?.(adapter.id)}
-                            disabled={!canUnload || adapter.current_state === 'unloaded'}
-                            title={!canUnload ? 'Requires adapter:unload permission' : 'Unload adapter from memory'}
-                          >
-                            <PowerOff className="mr-2 h-4 w-4" />
-                            {`Unload${adapter.version ? ` v${adapter.version}` : ''}`}
-                            <GlossaryTooltip brief="Remove adapter from GPU memory (can be reloaded)" />
-                          </DropdownMenuItem>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{adapter.tier || 'tier_1'}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {adapter.rank || 16}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={getLifecycleVariant(adapter.lifecycle_state)}>
+                          {adapter.lifecycle_state || 'active'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge>{LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}</Badge>
+                        {adapter.pinned && <Pin className="h-4 w-4 ml-2" />}
+                      </TableCell>
+                      <TableCell>{(adapter.memory_bytes / 1024 / 1024).toFixed(1)} MB</TableCell>
+                      <TableCell>{adapter.activation_count}</TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {/* Load/Unload actions */}
+                            <DropdownMenuItem
+                              onClick={() => openAdapterAction('load', adapter)}
+                              disabled={!canLoad || adapter.current_state === 'resident' || isActionRunning}
+                              title={!canLoad ? 'Requires adapter:load permission' : 'Load adapter into memory'}
+                            >
+                              <Power className="mr-2 h-4 w-4" />
+                              {`Load${adapter.version ? ` v${adapter.version}` : ''}`}
+                              <GlossaryTooltip brief="Load adapter weights into GPU memory for inference" />
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => openAdapterAction('unload', adapter)}
+                              disabled={!canUnload || adapter.current_state === 'unloaded' || isActionRunning}
+                              title={!canUnload ? 'Requires adapter:unload permission' : 'Unload adapter from memory'}
+                            >
+                              <PowerOff className="mr-2 h-4 w-4" />
+                              {`Unload${adapter.version ? ` v${adapter.version}` : ''}`}
+                              <GlossaryTooltip brief="Remove adapter from GPU memory (can be reloaded)" />
+                            </DropdownMenuItem>
 
-                          <DropdownMenuSeparator />
+                            <DropdownMenuSeparator />
 
-                          {/* Promote action */}
-                          <DropdownMenuItem
-                            onClick={() => promoteAdapter(adapter.id)}
-                            disabled={!canLoad}
-                            title={!canLoad ? 'Requires adapter:load permission' : 'Promote adapter to higher tier'}
-                          >
-                            <ArrowUp className="mr-2 h-4 w-4" />
-                            Promote
-                            <GlossaryTooltip brief="Increase adapter tier for higher routing priority" />
-                          </DropdownMenuItem>
+                            {/* Promote action */}
+                            <DropdownMenuItem
+                              onClick={() => promoteAdapter(adapter.id)}
+                              disabled={!canLoad}
+                              title={!canLoad ? 'Requires adapter:load permission' : 'Promote adapter to higher tier'}
+                            >
+                              <ArrowUp className="mr-2 h-4 w-4" />
+                              Promote
+                              <GlossaryTooltip brief="Increase adapter tier for higher routing priority" />
+                            </DropdownMenuItem>
 
-                          {/* Pin/Unpin action */}
-                          <DropdownMenuItem
-                            onClick={() => pinAdapter(adapter.id, !adapter.pinned)}
-                            disabled={!canLoad}
-                            title={!canLoad ? 'Requires adapter:load permission' : adapter.pinned ? 'Allow adapter removal' : 'Protect adapter'}
-                          >
-                            <Pin className="mr-2 h-4 w-4" />
-                            {adapter.pinned ? 'Allow Removal' : 'Protect Adapter'}
-                            <GlossaryTooltip brief={adapter.pinned ? 'Allow adapter to be removed when memory is needed' : 'Prevent adapter from being removed during memory pressure'} />
-                          </DropdownMenuItem>
+                            {/* Pin/Unpin action */}
+                            <DropdownMenuItem
+                              onClick={() => pinAdapter(adapter.id, !adapter.pinned)}
+                              disabled={!canLoad}
+                              title={!canLoad ? 'Requires adapter:load permission' : adapter.pinned ? 'Allow adapter removal' : 'Protect adapter'}
+                            >
+                              <Pin className="mr-2 h-4 w-4" />
+                              {adapter.pinned ? 'Allow Removal' : 'Protect Adapter'}
+                              <GlossaryTooltip brief={adapter.pinned ? 'Allow adapter to be removed when memory is needed' : 'Prevent adapter from being removed during memory pressure'} />
+                            </DropdownMenuItem>
 
-                          {/* Evict action */}
-                          <DropdownMenuItem
-                            onClick={() => evictAdapter(adapter.id)}
-                            disabled={!canUnload || adapter.pinned}
-                            title={!canUnload ? 'Requires adapter:unload permission' : adapter.pinned ? 'Cannot remove protected adapter' : 'Remove adapter'}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Evict
-                            <GlossaryTooltip brief="Force remove adapter from memory to free resources" />
-                          </DropdownMenuItem>
+                            {/* Evict action */}
+                            <DropdownMenuItem
+                              onClick={() => evictAdapter(adapter.id)}
+                              disabled={!canUnload || adapter.pinned}
+                              title={!canUnload ? 'Requires adapter:unload permission' : adapter.pinned ? 'Cannot remove protected adapter' : 'Remove adapter'}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Evict
+                              <GlossaryTooltip brief="Force remove adapter from memory to free resources" />
+                            </DropdownMenuItem>
 
-                          <DropdownMenuSeparator />
+                            <DropdownMenuSeparator />
 
-                          {/* Delete action (destructive) */}
-                          <DropdownMenuItem
-                            onClick={() => deleteAdapter(adapter.id)}
-                            disabled={!canDelete}
-                            title={!canDelete ? 'Requires adapter:delete permission' : 'Permanently delete adapter'}
-                            className="text-destructive focus:text-destructive"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                            <GlossaryTooltip brief="Permanently remove adapter and weights from the system" />
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => navigate(`/training/jobs?adapterId=${adapter.id}`)}>
-                            <Upload className="mr-2 h-4 w-4" />
-                            View training jobs
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => navigate(`/router-config?adapterId=${adapter.id}`)}>
-                            <ArrowUp className="mr-2 h-4 w-4" />
-                            Configure routing
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                            {/* Delete action (destructive) */}
+                            <DropdownMenuItem
+                              onClick={() => openAdapterAction('delete', adapter)}
+                              disabled={!canDelete || isActionRunning}
+                              title={!canDelete ? 'Requires adapter:delete permission' : 'Permanently delete adapter'}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                              <GlossaryTooltip brief="Permanently remove adapter and weights from the system" />
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => navigate(`/training/jobs?adapterId=${adapter.id}`)}>
+                              <Upload className="mr-2 h-4 w-4" />
+                              View training jobs
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => navigate(`/router-config?adapterId=${adapter.id}`)}>
+                              <ArrowUp className="mr-2 h-4 w-4" />
+                              Configure routing
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
         </CardContent>
       </Card>
+
+      {pendingAction && confirmationCopy && (
+        <ConfirmationModal
+          open={isConfirmOpen}
+          onOpenChange={setIsConfirmOpen}
+          title={confirmationCopy.title}
+          description={confirmationCopy.description}
+          confirmText={confirmationCopy.confirmText}
+          confirmVariant={confirmationCopy.variant}
+          onConfirm={performAction}
+          isLoading={isActionRunning}
+        />
+      )}
     </div>
   );
 }

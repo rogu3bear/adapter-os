@@ -1,10 +1,10 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiClient } from '@/api/client';
 import type { BaseModelStatus, AllModelsStatusResponse } from '@/api/types';
 import { CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
 import { logger } from '@/utils/logger';
 import { usePolling } from '@/hooks/usePolling';
+import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
 interface ModelStatusBadgeProps {
   status: BaseModelStatus['status'];
@@ -51,7 +51,7 @@ function ModelStatusBadge({ status }: ModelStatusBadgeProps) {
 }
 
 export const MultiModelStatusWidget: React.FC = () => {
-  const { data: status } = usePolling(
+  const { data: status, isLoading, error, lastUpdated, refetch } = usePolling(
     () => apiClient.getAllModelsStatus(),
     'slow',
     {
@@ -73,90 +73,93 @@ export const MultiModelStatusWidget: React.FC = () => {
   const loadingModels = models.filter(m => m.status === 'loading' || m.status === 'unloading');
   const errorModels = models.filter(m => m.status === 'error');
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>Loaded Models</span>
-          <span className="text-sm font-normal text-muted-foreground">
-            {loadedModels.length} active
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {/* Summary metrics */}
-          <div className="grid grid-cols-2 gap-4 pb-4 border-b">
-            <div>
-              <p className="text-sm text-muted-foreground">Total Models</p>
-              <p className="text-2xl font-bold">{models.length}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Memory Usage</p>
-              <p className="text-2xl font-bold">{(totalMemoryMb / 1024).toFixed(1)} GB</p>
-            </div>
-          </div>
+  const state: DashboardWidgetState = error
+    ? 'error'
+    : isLoading && models.length === 0
+      ? 'loading'
+      : models.length === 0
+        ? 'empty'
+        : 'ready';
 
-          {/* Model list */}
-          <div className="space-y-3">
-            {models.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No models loaded
+  return (
+    <DashboardWidgetFrame
+      title="Loaded Models"
+      subtitle="Model load state and memory usage"
+      state={state}
+      onRefresh={() => refetch()}
+      onRetry={() => refetch()}
+      lastUpdated={lastUpdated}
+      errorMessage={error ? 'Failed to fetch model status' : undefined}
+      emptyMessage="No models loaded"
+      headerRight={
+        <span className="text-sm font-normal text-muted-foreground">
+          {loadedModels.length} active
+        </span>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4 pb-4 border-b">
+          <div>
+            <p className="text-sm text-muted-foreground">Total Models</p>
+            <p className="text-2xl font-bold">{models.length}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Memory Usage</p>
+            <p className="text-2xl font-bold">{(totalMemoryMb / 1024).toFixed(1)} GB</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {models.map((model) => (
+            <div
+              key={model.model_id}
+              className="flex items-center justify-between p-3 rounded-lg border bg-card"
+            >
+              <div className="flex-1">
+                <p className="font-medium text-sm" title={model.model_path || undefined}>
+                  {model.model_name}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  ID: {model.model_id}
+                </p>
+                {model.model_path && (
+                  <p className="text-xs text-muted-foreground/70 mt-0.5 truncate" title={model.model_path}>
+                    📁 {model.model_path}
+                  </p>
+                )}
+                {model.error_message && (
+                  <p className="text-xs text-destructive mt-1">
+                    {model.error_message}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-4">
+                {model.memory_usage_mb !== undefined && (
+                  <span className="text-xs text-muted-foreground">
+                    {(model.memory_usage_mb / 1024).toFixed(1)} GB
+                  </span>
+                )}
+                <ModelStatusBadge status={model.status} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {(loadingModels.length > 0 || errorModels.length > 0) && (
+          <div className="pt-4 border-t space-y-2">
+            {loadingModels.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {loadingModels.length} model{loadingModels.length !== 1 ? 's' : ''} in transition
               </p>
-            ) : (
-              models.map((model) => (
-                <div
-                  key={model.model_id}
-                  className="flex items-center justify-between p-3 rounded-lg border bg-card"
-                >
-                  <div className="flex-1">
-                    <p className="font-medium text-sm" title={model.model_path || undefined}>
-                      {model.model_name}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      ID: {model.model_id}
-                    </p>
-                    {model.model_path && (
-                      <p className="text-xs text-muted-foreground/70 mt-0.5 truncate" title={model.model_path}>
-                        📁 {model.model_path}
-                      </p>
-                    )}
-                    {model.error_message && (
-                      <p className="text-xs text-destructive mt-1">
-                        {model.error_message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-4">
-                    {model.memory_usage_mb !== undefined && (
-                      <span className="text-xs text-muted-foreground">
-                        {(model.memory_usage_mb / 1024).toFixed(1)} GB
-                      </span>
-                    )}
-                    <ModelStatusBadge status={model.status} />
-                  </div>
-                </div>
-              ))
+            )}
+            {errorModels.length > 0 && (
+              <p className="text-xs text-destructive">
+                {errorModels.length} model{errorModels.length !== 1 ? 's' : ''} with errors
+              </p>
             )}
           </div>
-
-          {/* Status summary */}
-          {(loadingModels.length > 0 || errorModels.length > 0) && (
-            <div className="pt-4 border-t space-y-2">
-              {loadingModels.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {loadingModels.length} model{loadingModels.length !== 1 ? 's' : ''} in transition
-                </p>
-              )}
-              {errorModels.length > 0 && (
-                <p className="text-xs text-destructive">
-                  {errorModels.length} model{errorModels.length !== 1 ? 's' : ''} with errors
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+        )}
+      </div>
+    </DashboardWidgetFrame>
   );
 };

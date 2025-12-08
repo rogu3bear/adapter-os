@@ -35,6 +35,7 @@ export * from './useActivityEvents';
 export * from './useActivityFeed';
 export * from './useAdapterDetail';
 export * from './useAdapterOperations';
+export * from './useAdapterActions';
 export * from './useMessages';
 export * from './useNotifications';
 export * from './usePolicies';

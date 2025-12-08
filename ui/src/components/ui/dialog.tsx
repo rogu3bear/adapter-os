@@ -58,16 +58,56 @@ const DialogOverlay = React.forwardRef<
 });
 DialogOverlay.displayName = "DialogOverlay";
 
-function DialogContent({
-  className,
-  children,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content>) {
+const DialogContent = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { initialFocusSelector?: string }
+>(({ className, children, initialFocusSelector, onOpenAutoFocus, ...props }, ref) => {
+  const contentRef = React.useRef<React.ElementRef<typeof DialogPrimitive.Content> | null>(null);
+
+  const setRef = React.useCallback(
+    (node: React.ElementRef<typeof DialogPrimitive.Content> | null) => {
+      contentRef.current = node;
+      if (typeof ref === 'function') {
+        ref(node);
+      } else if (ref) {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-expect-error - React.Ref accepts null assignment
+        ref.current = node;
+      }
+    },
+    [ref],
+  );
+
+  const handleOpenAutoFocus = React.useCallback(
+    (event: Event) => {
+      onOpenAutoFocus?.(event as never);
+      if ((event as { defaultPrevented?: boolean }).defaultPrevented) return;
+
+      const target =
+        (initialFocusSelector &&
+          contentRef.current?.querySelector<HTMLElement>(initialFocusSelector)) ||
+        contentRef.current?.querySelector<HTMLElement>('[data-autofocus]') ||
+        contentRef.current?.querySelector<HTMLElement>(
+          'input, button, select, textarea, a[href], [tabindex]:not([tabindex="-1"])',
+        );
+
+      if (target) {
+        event.preventDefault();
+        target.focus();
+      }
+    },
+    [initialFocusSelector, onOpenAutoFocus],
+  );
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
+        ref={setRef}
         data-slot="dialog-content"
+        aria-modal="true"
+        role="dialog"
+        onOpenAutoFocus={handleOpenAutoFocus}
         className={cn(
 
           FROST_BACKGROUND,
@@ -90,7 +130,8 @@ function DialogContent({
       </DialogPrimitive.Content>
     </DialogPortal>
   );
-}
+});
+DialogContent.displayName = "DialogContent";
 
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (

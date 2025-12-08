@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Play, Pause, Upload, Download, CheckCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
 import apiClient from '@/api/client';
@@ -14,6 +13,7 @@ import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { useRBAC } from '@/hooks/useRBAC';
 import { usePolling } from '@/hooks/usePolling';
+import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
 // Utility functions for request deduplication
 const OPERATION_STORAGE_KEY = 'adapteros_model_operations';
@@ -252,65 +252,89 @@ export function BaseModelWidget() {
   const canUnload = status && status.status === 'ready';
   const disableDownload = !status?.model_id || isActionLoading || !isAdmin;
 
+  const widgetState: DashboardWidgetState = pollingError
+    ? 'error'
+    : isLoading
+      ? 'loading'
+      : status
+        ? 'ready'
+        : 'empty';
+
   return (
     <>
-      {errorRecovery && (
-        <div className="mb-4">
-          {errorRecovery}
-        </div>
-      )}
-
-      {statusMessage && (
-        <Alert
-          className={
-            statusMessage.variant === 'success'
-              ? 'border-green-200 bg-green-50'
-              : statusMessage.variant === 'warning'
-                ? 'border-amber-200 bg-amber-50'
-                : 'border-blue-200 bg-blue-50'
-          }
-        >
-          <AlertDescription
-            className={
-              statusMessage.variant === 'success'
-                ? 'text-green-700'
-                : statusMessage.variant === 'warning'
-                  ? 'text-amber-700'
-                  : 'text-blue-700'
-            }
-          >
-            {statusMessage.message}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : getStatusIcon(status)}
-              Base Model
-              <GlossaryTooltip termId="base-model-status" />
-            </CardTitle>
-            {status && (
-              <Badge variant={status.is_loaded ? 'default' : 'secondary'}>
-                {status.status}
-              </Badge>
-            )}
+      <DashboardWidgetFrame
+        title={
+          <div className="flex items-center gap-2">
+            {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : getStatusIcon(status)}
+            <span>Base Model</span>
+            <GlossaryTooltip termId="base-model-status" />
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {isLoading ? (
-            <div className="h-24 animate-pulse bg-muted rounded" />
-          ) : (
+        }
+        subtitle="Base model lifecycle and actions"
+        state={widgetState}
+        onRefresh={() => refetchStatus()}
+        onRetry={() => refetchStatus()}
+        lastUpdated={lastUpdated}
+        errorMessage={pollingError?.message}
+        emptyMessage="No base model detected"
+        emptyAction={
+          <Button
+            onClick={() => setShowImportWizard(true)}
+            variant="secondary"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Import New Model
+          </Button>
+        }
+        headerRight={
+          status ? (
+            <Badge variant={status.is_loaded ? 'default' : 'secondary'}>
+              {status.status}
+            </Badge>
+          ) : null
+        }
+        loadingContent={<div className="h-24 animate-pulse bg-muted rounded" />}
+      >
+        <div className="space-y-4">
+          {errorRecovery && (
+            <div className="mb-2">
+              {errorRecovery}
+            </div>
+          )}
+
+          {statusMessage && (
+            <Alert
+              className={
+                statusMessage.variant === 'success'
+                  ? 'border-green-200 bg-green-50'
+                  : statusMessage.variant === 'warning'
+                    ? 'border-amber-200 bg-amber-50'
+                    : 'border-blue-200 bg-blue-50'
+              }
+            >
+              <AlertDescription
+                className={
+                  statusMessage.variant === 'success'
+                    ? 'text-green-700'
+                    : statusMessage.variant === 'warning'
+                      ? 'text-amber-700'
+                      : 'text-blue-700'
+                }
+              >
+                {statusMessage.message}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {status && (
             <>
               <div>
                 <p className="text-sm font-medium">
-                  {status?.model_name || 'No Model'}
+                  {status.model_name || 'No Model'}
                   <GlossaryTooltip termId="base-model-name" />
                 </p>
-                <p className="text-xs text-muted-foreground">{status?.model_id || 'No model has been imported'}</p>
-                {status?.model_path && (
+                <p className="text-xs text-muted-foreground">{status.model_id || 'No model has been imported'}</p>
+                {status.model_path && (
                   <p className="text-xs text-muted-foreground/70 mt-1 truncate" title={status.model_path}>
                     📁 {status.model_path}
                   </p>
@@ -350,8 +374,8 @@ export function BaseModelWidget() {
               </div>
             </>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </DashboardWidgetFrame>
       <Dialog open={showImportWizard} onOpenChange={setShowImportWizard}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>

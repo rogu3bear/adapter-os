@@ -58,6 +58,7 @@ import { useModalManager } from '@/contexts/ModalContext';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { useTraining } from '@/hooks/useTraining';
 import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
+import { QUERY_FAST } from '@/api/queryOptions';
 
 const MODAL_IDS = {
   HEALTH: 'dashboard-health',
@@ -206,7 +207,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
   } = useQuery({
     queryKey: ['adapters', 'dashboard'],
     queryFn: () => apiClient.listAdapters(),
-    staleTime: 30000,
+    ...QUERY_FAST,
   });
 
   const {

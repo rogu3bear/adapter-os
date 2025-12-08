@@ -1,5 +1,4 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, Bell, CheckCircle, Clock, Loader2 } from 'lucide-react';
@@ -11,6 +10,7 @@ import { useRelativeTime } from '@/hooks/useTimestamp';
 import apiClient from '@/api/client';
 import type { Alert as ApiAlert } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
+import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
 interface Alert {
   id: string;
@@ -65,6 +65,8 @@ export function ActiveAlertsWidget() {
     data: apiAlerts,
     isLoading,
     error,
+    lastUpdated,
+    refetch,
   } = usePolling<ApiAlert[]>(
     async () => {
       if (!selectedTenant) {
@@ -148,87 +150,96 @@ export function ActiveAlertsWidget() {
     }
   };
 
+  const state: DashboardWidgetState = error
+    ? 'error'
+    : (isLoading && !apiAlerts) || isLoading
+      ? 'loading'
+      : activeAlerts.length === 0
+        ? 'empty'
+        : 'ready';
+
   return (
-    <Card aria-labelledby="active-alerts-title">
-      <CardHeader>
-        <CardTitle id="active-alerts-title" className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bell className="h-5 w-5" aria-hidden="true" />
-            <span>Active Alerts</span>
+    <DashboardWidgetFrame
+      title={
+        <div className="flex items-center gap-2">
+          <Bell className="h-5 w-5" aria-hidden="true" />
+          <span>Active Alerts</span>
+        </div>
+      }
+      subtitle="Unacknowledged alerts and failed services"
+      state={state}
+      onRefresh={() => refetch()}
+      onRetry={() => refetch()}
+      lastUpdated={lastUpdated}
+      errorMessage={error ? 'Failed to load alerts' : undefined}
+      emptyMessage="No active alerts"
+      headerRight={
+        <Badge variant={activeAlerts.length > 0 ? 'destructive' : 'default'}>
+          {activeAlerts.length}
+        </Badge>
+      }
+      toolbar={
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as EventType)}>
+            <SelectTrigger className="w-[calc(var(--base-unit)*35)]" aria-label="Type filter">
+              <SelectValue placeholder="Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              <SelectItem value="recovery">Recovery</SelectItem>
+              <SelectItem value="policy">Policy</SelectItem>
+              <SelectItem value="build">Build</SelectItem>
+              <SelectItem value="adapter">Adapter</SelectItem>
+              <SelectItem value="telemetry">Telemetry</SelectItem>
+              <SelectItem value="security">Security</SelectItem>
+              <SelectItem value="error">Error</SelectItem>
+              <SelectItem value="collaboration">Collaboration</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={severityFilter} onValueChange={(v) => setSeverityFilter(v as Severity)}>
+            <SelectTrigger className="w-[calc(var(--base-unit)*35)]" aria-label="Severity filter">
+              <SelectValue placeholder="Severity" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All severities</SelectItem>
+              <SelectItem value="info">Info</SelectItem>
+              <SelectItem value="warning">Warning</SelectItem>
+              <SelectItem value="error">Error</SelectItem>
+              <SelectItem value="critical">Critical</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      }
+      loadingContent={
+        <div className="text-center py-8">
+          <Loader2 className="h-8 w-8 text-muted-foreground mx-auto mb-2 animate-spin" aria-hidden />
+          <p className="text-sm text-muted-foreground">Loading alerts...</p>
+        </div>
+      }
+    >
+      {criticalCount > 0 && (
+        <div className="p-3 bg-gray-100 border border-gray-300 rounded-lg">
+          <div className="flex items-center gap-2 text-gray-800">
+            <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+            <span className="font-medium text-sm">
+              {criticalCount} critical alert{criticalCount > 1 ? 's' : ''} require immediate attention
+            </span>
           </div>
-          <Badge variant={activeAlerts.length > 0 ? 'destructive' : 'default'}>
-            {activeAlerts.length}
-          </Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3" aria-live="polite">
-        {isLoading && !apiAlerts ? (
-          <div className="text-center py-8">
-            <Loader2 className="h-8 w-8 text-muted-foreground mx-auto mb-2 animate-spin" aria-hidden="true" />
-            <p className="text-sm text-muted-foreground">Loading alerts...</p>
-          </div>
-        ) : error ? (
-          <div className="text-center py-8">
-            <AlertTriangle className="h-8 w-8 text-gray-500 mx-auto mb-2 opacity-50" aria-hidden="true" />
-            <p className="text-sm text-muted-foreground">Failed to load alerts</p>
-            {!selectedTenant && (
-              <p className="text-xs text-muted-foreground mt-1">Please select a tenant</p>
-            )}
-          </div>
-        ) : alerts.length === 0 ? (
-          <div className="text-center py-8">
-            <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-2 opacity-20" aria-hidden="true" />
-            <p className="text-sm text-muted-foreground">No active alerts</p>
-          </div>
-        ) : (
-          <>
-            {criticalCount > 0 && (
-              <div className="p-3 bg-gray-100 border border-gray-300 rounded-lg">
-                <div className="flex items-center gap-2 text-gray-800">
-                  <AlertTriangle className="h-5 w-5" aria-hidden="true" />
-                  <span className="font-medium text-sm">
-                    {criticalCount} critical alert{criticalCount > 1 ? 's' : ''} require immediate attention
-                  </span>
-                </div>
-              </div>
-            )}
+        </div>
+      )}
 
-            <div className="space-y-2" role="list" aria-label="Alerts list">
-              {alerts.map((alert) => {
-                const Icon = getSeverityIcon(alert.severity);
-                // Calculate relative time at render for freshness (updates on each render)
-                const relativeTime = useRelativeTime(alert.created_at);
-                return (
-                  <div
-                    key={alert.id}
-                    className={`p-3 rounded-lg border ${getSeverityColor(alert.severity)}`}
-                  >
-                    <div className="flex items-start gap-2" role="listitem">
-                      <Icon className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden="true" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{alert.title}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Clock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
-                          <span className="text-xs text-muted-foreground">{relativeTime}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+      <div className="space-y-2" role="list" aria-label="Alerts list">
+        {alerts.map((alert) => renderAlert(alert, getSeverityColor(alert.severity)))}
+      </div>
 
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={() => navigate('/monitoring')}
-            >
-              View All Alerts
-            </Button>
-          </>
-        )}
-      </CardContent>
-    </Card>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() => navigate('/monitoring')}
+      >
+        View All Alerts
+      </Button>
+    </DashboardWidgetFrame>
   );
 }

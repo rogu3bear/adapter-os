@@ -597,6 +597,7 @@ export type BackendMode = 'real' | 'stub' | 'auto';
 export interface InferRequest {
   prompt: string;
   model?: string;
+  routing_determinism_mode?: string;
   backend?: BackendName;
   max_tokens?: number;
   temperature?: number;
@@ -605,6 +606,7 @@ export interface InferRequest {
   stream?: boolean;
   adapter_stack?: string[];
   stack_id?: string;
+  domain?: string;
   seed?: number;
   require_evidence?: boolean;
   adapters?: string[];
@@ -617,6 +619,7 @@ export interface InferResponse {
   tokens_generated: number;
   latency_ms: number;
   adapters_used: string[];
+  citations?: Citation[];
   finish_reason: 'stop' | 'length' | 'error';
   backend?: BackendName;
   trace?: {
@@ -640,6 +643,15 @@ export interface InferResponse {
   fallback_triggered?: boolean;
   determinism_mode_applied?: string;
   replay_guarantee?: string | null;
+}
+
+export interface Citation {
+  adapter_id: string;
+  file_path: string;
+  chunk_id: string;
+  offset_start: number;
+  offset_end: number;
+  preview: string;
 }
 
 export interface BatchInferRequest {

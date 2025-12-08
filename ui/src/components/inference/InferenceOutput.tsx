@@ -121,6 +121,38 @@ export function InferenceOutput({
         </CardContent>
       </Card>
 
+      {response.citations && response.citations.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Citations
+              <Badge variant="secondary" className="text-xs">
+                {response.citations.length}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {response.citations.map((citation, idx) => (
+              <details
+                key={`${citation.chunk_id}-${idx}`}
+                className="border rounded-md p-3 space-y-1"
+              >
+                <summary className="cursor-pointer flex items-center justify-between gap-2 text-sm">
+                  <span className="truncate">{citation.file_path}</span>
+                  <span className="text-xs text-muted-foreground">
+                    bytes {citation.offset_start}–{citation.offset_end}
+                  </span>
+                </summary>
+                <div className="text-xs text-muted-foreground whitespace-pre-wrap">
+                  {citation.preview}
+                </div>
+              </details>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {response.trace && typeof response.trace === 'object' && response.trace !== null && 'latency_ms' in response.trace && (
         <TraceVisualizer trace={response.trace as { latency_ms: number }} />
       )}

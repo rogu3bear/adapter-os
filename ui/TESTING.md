@@ -168,6 +168,13 @@ pnpm run test:e2e:coverage
 pnpm run coverage:report
 ```
 
+### Accessibility tests
+
+- Run `pnpm test:a11y` to start the dev server and execute axe-powered checks against `/login`, `/dashboard`, `/adapters`, and `/telemetry`.
+- API calls are stubbed via Cypress intercepts, so no backend is required for the smoke sweep.
+- The suite fails on `critical` and `serious` issues only to keep the signal-to-noise ratio high.
+- Rule: Any new top-level route must be added to `a11y.cy.ts` when introduced.
+
 ## Custom Commands
 
 ### Authentication
@@ -337,6 +344,8 @@ cy.cleanupTestData()
     files: ./coverage/lcov.info
 ```
 
+- Accessibility smoke runs in `a11y-ui-tests.yml` for PRs touching `ui/**` and calls `pnpm test:a11y`.
+
 ## Test Metrics
 
 Current test count:
@@ -358,6 +367,8 @@ Coverage areas:
 - [ ] Add visual regression tests
 - [ ] Add performance benchmarks
 - [ ] Increase UI test coverage for remaining pages
-- [ ] Add accessibility tests (a11y)
+- [ ] Expand accessibility coverage beyond smoke paths
 - [ ] Add network stubbing for offline testing
 - [ ] Add component tests
+
+MLNavigator Inc 2025-12-08.

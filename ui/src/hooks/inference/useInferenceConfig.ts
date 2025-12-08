@@ -81,6 +81,7 @@ export function useInferenceConfig(
       backend: 'auto',
       seed: undefined,
       require_evidence: false,
+      routing_determinism_mode: 'deterministic',
     }),
     [defaultMaxTokens, defaultTemperature]
   );

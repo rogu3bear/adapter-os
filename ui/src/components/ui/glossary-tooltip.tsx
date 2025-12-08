@@ -2,8 +2,8 @@
 
 import * as React from 'react';
 import { HelpCircle } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 import { GlossarySheet } from './glossary-sheet';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from './hover-card';
 import { cn } from './utils';
 import { getGlossaryEntry, type GlossaryEntry } from '@/data/glossary';
 
@@ -139,16 +139,22 @@ export function GlossaryTooltip({
     setSheetOpen(true);
   };
 
+  const triggerLabel = entry.term || entry.content?.brief || 'Glossary info';
+
   return (
     <>
-      {/* Use longer close delay when tooltip has interactive content (Learn more button) */}
-      <Tooltip closeDelayMs={hasDetailed ? 500 : 150}>
-        <TooltipTrigger asChild>
-          <span className="inline-flex items-center">
+      <HoverCard openDelay={0} closeDelay={150}>
+        <HoverCardTrigger asChild>
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={triggerLabel}
+            className="inline-flex items-center rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          >
             {renderTrigger()}
           </span>
-        </TooltipTrigger>
-        <TooltipContent side={side} align={align}>
+        </HoverCardTrigger>
+        <HoverCardContent side={side} align={align} className="w-fit max-w-md p-[calc(var(--base-unit)*2)] text-sm text-balance shadow-lg">
           <div className="space-y-2">
             {entry.term && <div className="font-semibold">{entry.term}</div>}
             <div className={entry.term ? "text-sm text-muted-foreground" : "text-sm"}>
@@ -156,6 +162,7 @@ export function GlossaryTooltip({
             </div>
             {hasDetailed && (
               <button
+                type="button"
                 onClick={handleLearnMoreClick}
                 className="text-sm text-primary hover:underline focus:outline-hidden focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
               >
@@ -163,8 +170,8 @@ export function GlossaryTooltip({
               </button>
             )}
           </div>
-        </TooltipContent>
-      </Tooltip>
+        </HoverCardContent>
+      </HoverCard>
 
       {hasDetailed && (
         <GlossarySheet

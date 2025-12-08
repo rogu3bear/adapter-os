@@ -28,3 +28,12 @@ export type {
   DialogState,
   DialogDataTypes,
 } from './useAdapterDialogs';
+
+export { useAdapterFilterState } from './useAdapterFilterState';
+export type {
+  AdapterFilters,
+  AdapterSortColumn,
+  AdapterSortDirection,
+  AdapterSortState,
+  UseAdapterFilterStateReturn,
+} from './useAdapterFilterState';

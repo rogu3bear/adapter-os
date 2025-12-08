@@ -207,7 +207,11 @@ describe('useCreateCategory - Mutation Hook', () => {
 
     expect(mockCreateChatCategory).toHaveBeenCalledWith(request);
     expect(mockCreateChatCategory).toHaveBeenCalledTimes(1);
-    expect(result.current.isSuccess).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
     expect(result.current.data).toEqual(newCategory);
   });
 
@@ -239,7 +243,10 @@ describe('useCreateCategory - Mutation Hook', () => {
     await result.current.mutateAsync(request);
 
     expect(mockCreateChatCategory).toHaveBeenCalledWith(request);
-    expect(result.current.data?.parent_id).toBe('cat-1');
+
+    await waitFor(() => {
+      expect(result.current.data?.parent_id).toBe('cat-1');
+    });
   });
 
   it('invalidates categories cache on success', async () => {
@@ -336,7 +343,11 @@ describe('useUpdateCategory - Mutation Hook', () => {
     });
 
     expect(mockUpdateChatCategory).toHaveBeenCalledWith('cat-1', updateRequest);
-    expect(result.current.isSuccess).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
     expect(result.current.data).toEqual(updatedCategory);
   });
 
@@ -358,7 +369,10 @@ describe('useUpdateCategory - Mutation Hook', () => {
     });
 
     expect(mockUpdateChatCategory).toHaveBeenCalledWith('cat-1', { color: '#FF0000' });
-    expect(result.current.data?.color).toBe('#FF0000');
+
+    await waitFor(() => {
+      expect(result.current.data?.color).toBe('#FF0000');
+    });
   });
 
   it('invalidates categories cache on success', async () => {
@@ -451,7 +465,10 @@ describe('useDeleteCategory - Mutation Hook', () => {
 
     expect(mockDeleteChatCategory).toHaveBeenCalledWith('cat-1');
     expect(mockDeleteChatCategory).toHaveBeenCalledTimes(1);
-    expect(result.current.isSuccess).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
   });
 
   it('invalidates both categories AND chat-sessions cache on success', async () => {
@@ -531,7 +548,10 @@ describe('useDeleteCategory - Mutation Hook', () => {
     await result.current.mutateAsync('cat-1');
 
     expect(mockDeleteChatCategory).toHaveBeenCalledWith('cat-1');
-    expect(result.current.isSuccess).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
   });
 });
 
@@ -553,7 +573,10 @@ describe('useSetSessionCategory - Mutation Hook', () => {
     });
 
     expect(mockSetSessionCategory).toHaveBeenCalledWith('session-1', 'cat-1');
-    expect(result.current.isSuccess).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
   });
 
   it('allows setting category to null (uncategorize)', async () => {
@@ -569,7 +592,10 @@ describe('useSetSessionCategory - Mutation Hook', () => {
     });
 
     expect(mockSetSessionCategory).toHaveBeenCalledWith('session-1', null);
-    expect(result.current.isSuccess).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
   });
 
   it('invalidates both categories AND chat-sessions cache on success', async () => {

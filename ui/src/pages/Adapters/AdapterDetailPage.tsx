@@ -34,6 +34,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 import { useAdapterDetail } from '@/hooks/useAdapterDetail';
 import { useAdapterOperations } from '@/hooks/useAdapterOperations';
+import { useAdapterActions } from '@/hooks/useAdapterActions';
 import { useRBAC } from '@/hooks/useRBAC';
 import { useAdaptersStream } from '@/hooks/useStreamingEndpoints';
 import { getLifecycleVariant } from '@/utils/lifecycle';
@@ -50,6 +51,8 @@ import { AddToStackModal } from '@/components/AddToStackModal';
 import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
 import type { PolicyPreflightResponse } from '@/api/policyTypes';
 import { useAdapters } from '@/hooks/useAdaptersApi';
+import { ConfirmationModal } from '@/components/shared/Modal';
+import { buildAdapterRecentActivity } from './adapterRecentActivity';
 
 type TabValue = 'overview' | 'evidence' | 'events' | 'activations' | 'lineage' | 'manifest' | 'lifecycle' | 'provenance';
 
@@ -182,7 +185,6 @@ export default function AdapterDetailPage() {
   // Connect to adapter stream for real-time updates
   const {
     connected: streamConnected,
-    error: streamError,
     lastUpdated: streamLastUpdated,
   } = useAdaptersStream({
     enabled: !!adapterId,
@@ -227,14 +229,22 @@ export default function AdapterDetailPage() {
   };
 
   // Adapter operations
-  const {
-    loadAdapter,
-    unloadAdapter,
-    pinAdapter,
-    deleteAdapter,
-    isOperationLoading,
-  } = useAdapterOperations({
+  const { pinAdapter } = useAdapterOperations({
     onDataRefresh: refetch,
+  });
+
+  const {
+    openAction,
+    pendingAction,
+    isConfirmOpen,
+    setIsConfirmOpen,
+    performAction,
+    isRunning: isActionRunning,
+    inlineStatuses,
+    confirmationCopy,
+  } = useAdapterActions({
+    onRefetch: refetch,
+    onDeleteSuccess: () => navigate('/adapters'),
     onShowPreflight: handleShowPreflight,
   });
 
@@ -257,26 +267,25 @@ export default function AdapterDetailPage() {
     toast.success('Adapter data refreshed');
   };
 
-  // Handle load adapter
-  const handleLoad = async () => {
-    if (!adapterId || !loadAdapter) return;
-    try {
-      await loadAdapter(adapterId);
-      toast.success('Adapter loaded successfully');
-    } catch (err) {
-      logger.error('Failed to load adapter', { component: 'AdapterDetailPage', adapterId }, err as Error);
-    }
+  // Handle load/unload/delete through shared action hook
+  const handleLoad = () => {
+    if (!adapterId) return;
+    openAction('load', {
+      id: adapterId,
+      name: adapter?.adapter?.name || adapter?.adapter?.adapter_name || adapterId,
+      version: adapter?.adapter?.version || null,
+      state: adapter?.current_state || adapter?.runtime_state || adapter?.adapter?.current_state || null,
+    });
   };
 
-  // Handle unload adapter
-  const handleUnload = async () => {
-    if (!adapterId || !unloadAdapter) return;
-    try {
-      await unloadAdapter(adapterId);
-      toast.success('Adapter unloaded successfully');
-    } catch (err) {
-      logger.error('Failed to unload adapter', { component: 'AdapterDetailPage', adapterId }, err as Error);
-    }
+  const handleUnload = () => {
+    if (!adapterId) return;
+    openAction('unload', {
+      id: adapterId,
+      name: adapter?.adapter?.name || adapter?.adapter?.adapter_name || adapterId,
+      version: adapter?.adapter?.version || null,
+      state: adapter?.current_state || adapter?.runtime_state || adapter?.adapter?.current_state || null,
+    });
   };
 
   // Handle pin/unpin adapter
@@ -292,18 +301,14 @@ export default function AdapterDetailPage() {
   };
 
   // Handle delete adapter
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!adapterId) return;
-    if (!window.confirm('Are you sure you want to delete this adapter? This action cannot be undone.')) {
-      return;
-    }
-    try {
-      await deleteAdapter(adapterId);
-      toast.success('Adapter deleted successfully');
-      navigate('/adapters');
-    } catch (err) {
-      logger.error('Failed to delete adapter', { component: 'AdapterDetailPage', adapterId }, err as Error);
-    }
+    openAction('delete', {
+      id: adapterId,
+      name: adapter?.adapter?.name || adapter?.adapter?.adapter_name || adapterId,
+      version: adapter?.adapter?.version || null,
+      state: adapter?.current_state || adapter?.adapter?.current_state || null,
+    });
   };
 
   // Loading state
@@ -383,6 +388,8 @@ export default function AdapterDetailPage() {
   const isPinned = streamingState?.isPinned ?? adapterData?.pinned ?? false;
   const kvConsistent = adapterData?.kv_consistent ?? false;
   const kvMessage = adapterData?.kv_message;
+  const inlineStatus = adapterId ? inlineStatuses[adapterId] : undefined;
+  const actionBusy = isActionRunning;
 
   const siblingVersions = useMemo(() => {
     if (!adapterName) return [];
@@ -397,6 +404,16 @@ export default function AdapterDetailPage() {
 
   const newestSiblingId = siblingVersions[0]?.adapter_id;
   const isNewestAdapter = newestSiblingId === adapterPrimaryId;
+
+  const recentActivity = useMemo(
+    () =>
+      buildAdapterRecentActivity({
+        adapterId: adapterPrimaryId,
+        lineageHistory: lineage?.history,
+        activations,
+      }),
+    [adapterPrimaryId, activations, lineage?.history],
+  );
 
   useEffect(() => {
     if (siblingVersions.length > 0) {
@@ -489,6 +506,11 @@ export default function AdapterDetailPage() {
                 <Radio className={`h-3 w-3 ${streamConnected ? 'text-green-400 animate-pulse' : 'text-muted-foreground'}`} />
                 {streamConnected ? 'Live' : 'Polling'}
               </Badge>
+              {inlineStatus && (
+                <Badge variant={inlineStatus.type === 'conflict' ? 'secondary' : 'destructive'}>
+                  {inlineStatus.type === 'conflict' ? 'Changed elsewhere' : 'Action failed'}
+                </Badge>
+              )}
             </div>
           </div>
 
@@ -537,14 +559,14 @@ export default function AdapterDetailPage() {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" disabled={isOperationLoading}>
+                <Button variant="outline" size="sm" disabled={actionBusy}>
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
                   onClick={handleLoad}
-                  disabled={!canLoad || currentState === 'resident'}
+                  disabled={!canLoad || currentState === 'resident' || actionBusy}
                 >
                   <Power className="h-4 w-4 mr-2" />
                   Activate Adapter
@@ -552,7 +574,7 @@ export default function AdapterDetailPage() {
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleUnload}
-                  disabled={!canUnload || currentState === 'unloaded'}
+                  disabled={!canUnload || currentState === 'unloaded' || actionBusy}
                 >
                   <PowerOff className="h-4 w-4 mr-2" />
                   Deactivate Adapter
@@ -575,7 +597,7 @@ export default function AdapterDetailPage() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={handleDelete}
-                  disabled={!canDelete}
+                  disabled={!canDelete || actionBusy}
                   className="text-destructive focus:text-destructive"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
@@ -620,11 +642,37 @@ export default function AdapterDetailPage() {
           </TabsList>
 
           <TabsContent value="overview" className="mt-6">
-            <AdapterOverview
-              adapter={adapter}
-              health={health}
-              isLoading={isLoadingDetail}
-            />
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recent activity</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {recentActivity.length ? (
+                    <div className="space-y-3">
+                      {recentActivity.map(event => (
+                        <div key={`${event.label}-${event.timestamp}`} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline">{event.label}</Badge>
+                            <span className="text-foreground">{event.detail || 'Event recorded'}</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(event.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">No recent events.</div>
+                  )}
+                </CardContent>
+              </Card>
+              <AdapterOverview
+                adapter={adapter}
+                health={health}
+                isLoading={isLoadingDetail}
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="evidence" className="mt-6 space-y-4">
@@ -770,6 +818,19 @@ export default function AdapterDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {pendingAction && confirmationCopy && (
+        <ConfirmationModal
+          open={isConfirmOpen}
+          onOpenChange={setIsConfirmOpen}
+          title={confirmationCopy.title}
+          description={confirmationCopy.description}
+          confirmText={confirmationCopy.confirmText}
+          confirmVariant={confirmationCopy.variant}
+          onConfirm={performAction}
+          isLoading={isActionRunning}
+        />
+      )}
+
       {/* Policy Preflight Dialog */}
       {preflightResult && (
         <PolicyPreflightDialog
@@ -782,7 +843,7 @@ export default function AdapterDetailPage() {
           onProceed={handlePreflightProceed}
           onCancel={handlePreflightCancel}
           isAdmin={can('policy:override')}
-          isLoading={isOperationLoading}
+          isLoading={isActionRunning}
         />
       )}
     </FeatureLayout>

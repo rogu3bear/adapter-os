@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, CheckCircle, Circle, AlertCircle, Loader2 } from 'lucide-react';
@@ -7,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePolling } from '@/hooks/usePolling';
 import { apiClient } from '@/api/client';
 import type { TrainingJob } from '@/api/types';
+import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
 interface PipelineStage {
   id: string;
@@ -19,7 +19,7 @@ export function MLPipelineWidget() {
   const navigate = useNavigate();
 
   // Fetch training jobs from API
-  const { data: response, isLoading, error } = usePolling(
+  const { data: response, isLoading, error, lastUpdated, refetch } = usePolling(
     () => apiClient.listTrainingJobs(),
     'normal',
     {
@@ -30,6 +30,7 @@ export function MLPipelineWidget() {
 
   // Extract jobs from paginated response
   const trainingJobs = response?.jobs;
+  const hasJobs = Boolean(trainingJobs && trainingJobs.length > 0);
 
   // Derive pipeline stages from training job data
   const stages: PipelineStage[] = useMemo(() => {
@@ -100,18 +101,42 @@ export function MLPipelineWidget() {
     ? stages[currentStageIndex + 1] 
     : null;
 
+  const state: DashboardWidgetState = error
+    ? 'error'
+    : isLoading && !hasJobs
+      ? 'loading'
+      : hasJobs
+        ? 'ready'
+        : 'empty';
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>ML Pipeline</span>
-          <Badge variant="outline">
-            {stages.filter(s => s.status === 'completed').length}/{stages.length} Complete
-          </Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Pipeline Visualization */}
+    <DashboardWidgetFrame
+      title="ML Pipeline"
+      subtitle="Training through deploy steps"
+      state={state}
+      onRefresh={() => refetch()}
+      onRetry={() => refetch()}
+      lastUpdated={lastUpdated}
+      errorMessage={error ? 'Failed to load training jobs' : undefined}
+      emptyMessage="No training jobs yet"
+      emptyAction={
+        <Button size="sm" onClick={() => navigate('/training')}>
+          Start training
+        </Button>
+      }
+      headerRight={
+        <Badge variant="outline">
+          {stages.filter(s => s.status === 'completed').length}/{stages.length} Complete
+        </Badge>
+      }
+      loadingContent={
+        <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Loading pipeline...</span>
+        </div>
+      }
+    >
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           {stages.map((stage, idx) => (
             <React.Fragment key={stage.id}>
@@ -131,7 +156,6 @@ export function MLPipelineWidget() {
           ))}
         </div>
 
-        {/* Current Status */}
         {currentStageIndex >= 0 && (
           <div className={`p-3 rounded-lg border ${getStatusColor(stages[currentStageIndex].status)}`}>
             <div className="flex items-center justify-between">
@@ -154,7 +178,6 @@ export function MLPipelineWidget() {
           </div>
         )}
 
-        {/* Next Action */}
         {nextStage && (
           <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
             <div className="text-sm">
@@ -171,7 +194,6 @@ export function MLPipelineWidget() {
           </div>
         )}
 
-        {/* Completed Message */}
         {stages.every(s => s.status === 'completed') && (
           <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-center">
             <CheckCircle className="h-5 w-5 text-green-600 mx-auto mb-1" />
@@ -180,8 +202,8 @@ export function MLPipelineWidget() {
             </p>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </DashboardWidgetFrame>
   );
 }
 

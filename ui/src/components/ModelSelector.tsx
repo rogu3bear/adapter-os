@@ -34,12 +34,12 @@ function generateDownloadCommands(modelId: string): string[] {
   // Check if it looks like a HuggingFace repo ID (contains /)
   if (modelId.includes('/')) {
     return [
-      `huggingface-cli download ${modelId} --local-dir ./var/model-cache/models/${modelId.split('/').pop()}`,
+      `huggingface-cli download ${modelId} --local-dir \${AOS_MODEL_CACHE_DIR:-./var/model-cache/models}/${modelId.split('/').pop()}`,
     ];
   }
   // For simple model names, provide generic instructions
   return [
-    `# Model path: ./var/model-cache/models/${modelId}`,
+    `# Model path: \${AOS_MODEL_CACHE_DIR:-./var/model-cache/models}/${modelId}`,
     `# Ensure model files are downloaded to this directory`,
   ];
 }

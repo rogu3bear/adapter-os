@@ -1,15 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { apiClient } from '@/api/client';
 import type { User } from '@/api/types';
-import type { LoginRequest, LoginResponse } from '@/api/auth-types';
+import type { LoginRequest, LoginResponse, SessionMode } from '@/api/auth-types';
 import { logger, toError } from '@/utils/logger';
 import { ThemeProvider as AosThemeProvider } from '@/theme/ThemeProvider';
-import { tryDevBypassLogin } from '@/auth/authBootstrap';
+import { isDevBypassEnabled, tryDevBypassLogin } from '@/auth/authBootstrap';
+import { clearSessionExpiredFlag, markSessionExpired, SESSION_EXPIRED_FLAG_KEY } from '@/auth/session';
+import { logAuthEvent } from '@/lib/logUIError';
 
 const SELECTED_TENANT_KEY = 'selectedTenant';
 const TENANT_BOOTSTRAP_KEY = 'aos-tenant-bootstrap';
 const AUTH_SESSION_KEY = 'aos-auth-active';
-export const SESSION_EXPIRED_FLAG_KEY = 'aos-session-expired';
+export { SESSION_EXPIRED_FLAG_KEY };
 export const TENANT_SELECTION_REQUIRED_KEY = 'aos-tenant-selection-required';
 const DEVICE_ID_KEY = 'aos-device-id';
 
@@ -34,7 +36,9 @@ interface AuthContextValue {
   isLoading: boolean;
   authError: Error | null;
   accessToken: string | null;
+  sessionMode: SessionMode;
   login: (credentials: LoginRequest) => Promise<LoginResponse>;
+  devBypassLogin: () => Promise<LoginResponse>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   refreshSession: () => Promise<void>;
@@ -95,6 +99,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<Error | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [sessionMode, setSessionMode] = useState<SessionMode>('normal');
   const isRefreshingRef = useRef(false);
 
   const clearAuthError = useCallback(() => {
@@ -125,19 +130,20 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setAuthError(null);
       try {
         sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
-        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+        clearSessionExpiredFlag();
       } catch {
         // best-effort session bookkeeping
       }
     } catch (error) {
       setUser(null);
+      setSessionMode('normal');
       const err = toError(error);
       setAuthError(err);
       logger.error('Failed to fetch user', { component: 'AuthProvider' }, err);
       try {
         const hadSession = sessionStorage.getItem(AUTH_SESSION_KEY) === 'true';
         if (hadSession) {
-          sessionStorage.setItem(SESSION_EXPIRED_FLAG_KEY, 'Session expired — sign in again.');
+          markSessionExpired();
           sessionStorage.removeItem(AUTH_SESSION_KEY);
         }
       } catch {
@@ -148,26 +154,13 @@ function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = useCallback(async (credentials: LoginRequest): Promise<LoginResponse> => {
-    setAuthError(null);
-    try {
-      logger.info('Initiating login', {
-        component: 'AuthProvider',
-        operation: 'login',
-        username: credentials.username,
-      });
-      const response = await apiClient.login({
-        ...credentials,
-        device_id: ensureDeviceId(),
-      });
+  const applyLoginResponse = useCallback(
+    async (response: LoginResponse, options: { emailHint?: string; sessionMode: SessionMode }): Promise<LoginResponse> => {
+      const mode = options.sessionMode ?? response.session_mode ?? 'normal';
+      setSessionMode(mode);
+
       apiClient.setToken(response.token);
       setAccessToken(response.token);
-      logger.info('Login successful', {
-        component: 'AuthProvider',
-        operation: 'login',
-        user_id: response.user_id,
-        tenant_id: response.tenant_id,
-      });
 
       // Prefer previously selected tenant when still available to avoid landing in wrong tenant
       let resolvedTenantId = response.tenant_id || '';
@@ -209,7 +202,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
-        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+        clearSessionExpiredFlag();
         if (resolvedTenants && resolvedTenants.length > 1) {
           sessionStorage.setItem(TENANT_SELECTION_REQUIRED_KEY, '1');
         } else {
@@ -222,8 +215,8 @@ function AuthProvider({ children }: { children: ReactNode }) {
       // Optimistically set user from login response to avoid auth/me flakiness
       setUser({
         id: response.user_id,
-        email: credentials.email ?? response.user_id,
-        display_name: credentials.email ?? response.user_id,
+        email: options.emailHint ?? response.user_id,
+        display_name: options.emailHint ?? response.user_id,
         role: response.role as User['role'],
         tenant_id: resolvedTenantId,
         permissions: [], // refreshed below
@@ -234,14 +227,71 @@ function AuthProvider({ children }: { children: ReactNode }) {
       refreshUser().catch(err => {
         logger.warn('Post-login user refresh failed; using optimistic user state', { component: 'AuthProvider' }, toError(err));
       });
-      return { ...response, tenant_id: resolvedTenantId, tenants: resolvedTenants };
+
+      return { ...response, tenant_id: resolvedTenantId, tenants: resolvedTenants, session_mode: mode };
+    },
+    [refreshUser],
+  );
+
+  const login = useCallback(async (credentials: LoginRequest): Promise<LoginResponse> => {
+    setAuthError(null);
+    try {
+      logger.info('Initiating login', {
+        component: 'AuthProvider',
+        operation: 'login',
+        username: credentials.username,
+      });
+      const response = await apiClient.login({
+        ...credentials,
+        device_id: ensureDeviceId(),
+      });
+      logger.info('Login successful', {
+        component: 'AuthProvider',
+        operation: 'login',
+        user_id: response.user_id,
+        tenant_id: response.tenant_id,
+      });
+      const normalizedMode = response.session_mode ?? 'normal';
+      return applyLoginResponse(response, {
+        emailHint: credentials.email ?? response.user_id,
+        sessionMode: normalizedMode,
+      });
     } catch (error) {
       const err = toError(error);
       setAuthError(err);
       logger.error('Login failed', { component: 'AuthProvider' }, err);
       throw error; // Re-throw so caller can handle
     }
-  }, [refreshUser]);
+  }, [applyLoginResponse]);
+
+  const devBypassLogin = useCallback(async (): Promise<LoginResponse> => {
+    setAuthError(null);
+    try {
+      logger.info('Initiating dev bypass login', {
+        component: 'AuthProvider',
+        operation: 'devBypassLogin',
+      });
+      const response = await apiClient.devBypass();
+      const normalizedMode: SessionMode = response.session_mode ?? 'dev_bypass';
+      const result = await applyLoginResponse(response, {
+        emailHint: response.user_id,
+        sessionMode: normalizedMode,
+      });
+      logAuthEvent('UI auth session established', {
+        component: 'AuthProvider',
+        operation: 'devBypassLogin',
+        mode: normalizedMode,
+        user_id: response.user_id,
+        tenant_id: result.tenant_id,
+      });
+      return result;
+    } catch (error) {
+      const err = toError(error);
+      setAuthError(err);
+      logger.error('Dev bypass login failed', { component: 'AuthProvider' }, err);
+      throw error;
+    }
+  }, [applyLoginResponse]);
 
   const logout = useCallback(async () => {
     try {
@@ -251,6 +301,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setUser(null);
       setAccessToken(null);
+      setSessionMode('normal');
       setAuthError(null); // Clear auth error on logout
       try {
         localStorage.removeItem(SELECTED_TENANT_KEY);
@@ -271,7 +322,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setAccessToken(apiClient.getToken ? apiClient.getToken() ?? null : null);
       try {
         sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
-        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+        clearSessionExpiredFlag();
       } catch {
         // ignore storage errors
       }
@@ -280,9 +331,10 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setAuthError(err);
       logger.error('Session refresh error', { component: 'AuthProvider' }, err);
       setUser(null);
+      setSessionMode('normal');
       try {
         sessionStorage.removeItem(AUTH_SESSION_KEY);
-        sessionStorage.setItem(SESSION_EXPIRED_FLAG_KEY, 'Session expired — sign in again.');
+        markSessionExpired();
       } catch {
         // ignore storage errors
       }
@@ -295,6 +347,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setAuthError(null); // Clear auth error on logout
       setAccessToken(null);
+      setSessionMode('normal');
     } catch (error) {
       logger.error('Logout all sessions error', { component: 'AuthProvider' }, toError(error));
     } finally {
@@ -327,37 +380,43 @@ function AuthProvider({ children }: { children: ReactNode }) {
     // 2) Otherwise, fall back to normal refreshUser flow (may 401).
     const checkAuth = async () => {
       try {
-        const devClaims = await tryDevBypassLogin();
-        if (devClaims) {
-          logger.debug('AuthProvider: using dev-bypass claims from /auth/me', {
-            component: 'AuthProvider',
-          });
-          const normalizedRole = typeof devClaims.role === 'string' ? devClaims.role.toLowerCase() : undefined;
-          const allowedRoles = ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'] as const;
-          const resolvedRole = (allowedRoles as readonly string[]).includes(normalizedRole ?? '')
-            ? (normalizedRole as User['role'])
-            : 'viewer';
+        const devBypassEnvEnabled = isDevBypassEnabled(); // Dev bypass environment policy documented in docs/AUTHENTICATION.md
+        if (devBypassEnvEnabled) {
+          const devClaims = await tryDevBypassLogin();
+          if (devClaims) {
+            logger.debug('AuthProvider: using dev-bypass claims from /auth/me', {
+              component: 'AuthProvider',
+            });
+            const normalizedRole = typeof devClaims.role === 'string' ? devClaims.role.toLowerCase() : undefined;
+            const allowedRoles = ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'] as const;
+            const resolvedRole = (allowedRoles as readonly string[]).includes(normalizedRole ?? '')
+              ? (normalizedRole as User['role'])
+              : 'viewer';
 
-          setUser({
-            id: devClaims.user_id,
-            email: devClaims.email,
-            display_name: devClaims.display_name || devClaims.email,
-            role: resolvedRole,
-            tenant_id: devClaims.tenant_id || '',
-            permissions: devClaims.permissions || [],
-            last_login_at: devClaims.last_login_at,
-            mfa_enabled: devClaims.mfa_enabled,
-            token_last_rotated_at: devClaims.token_last_rotated_at,
-            admin_tenants: devClaims.admin_tenants,
-          });
-          setAuthError(null);
-          try {
-            sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
-            sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
-          } catch {
-            // ignore storage errors
+            setSessionMode('dev_bypass');
+            setUser({
+              id: devClaims.user_id,
+              email: devClaims.email,
+              display_name: devClaims.display_name || devClaims.email,
+              role: resolvedRole,
+              tenant_id: devClaims.tenant_id || '',
+              permissions: devClaims.permissions || [],
+              last_login_at: devClaims.last_login_at,
+              mfa_enabled: devClaims.mfa_enabled,
+              token_last_rotated_at: devClaims.token_last_rotated_at,
+              admin_tenants: devClaims.admin_tenants,
+            });
+            setAuthError(null);
+            try {
+              sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+              sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+            } catch {
+              // ignore storage errors
+            }
+            return;
           }
-          return;
+        } else {
+          logger.debug('Dev bypass disabled by env; skipping bootstrap', { component: 'AuthProvider' });
         }
 
         // Attempt to get current user - if 401, we're not authenticated
@@ -377,7 +436,9 @@ function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
     authError,
     accessToken,
+    sessionMode,
     login,
+    devBypassLogin,
     logout,
     refreshUser,
     refreshSession,

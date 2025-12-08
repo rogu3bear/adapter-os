@@ -42,10 +42,13 @@ export interface TrainingJob {
   weights_hash_b3?: string;
   backend?: string;
   backend_reason?: string;
+  backend_device?: string;
   determinism_mode?: string;
   training_seed?: number;
   require_gpu?: boolean;
   max_gpu_memory_mb?: number;
+  // Runtime hardware usage
+  using_gpu?: boolean;
   examples_processed?: number;
   tokens_processed?: number;
   training_time_ms?: number;
@@ -65,6 +68,8 @@ export interface TrainingJob {
   language?: string;
   framework_id?: string;
   framework_version?: string;
+  lora_tier?: 'micro' | 'standard' | 'max';
+  scope?: string;
 
   // Audit trail (matches Rust TrainingJob)
   initiated_by?: string;
@@ -97,6 +102,9 @@ export interface TrainingConfig {
   gradient_clip?: number;
   max_seq_length?: number;
   gradient_accumulation_steps?: number;
+  preferred_backend?: string;
+  require_gpu?: boolean;
+  max_gpu_memory_mb?: number;
   save_steps?: number;
   eval_steps?: number;
   logging_steps?: number;
@@ -126,6 +134,8 @@ export interface StartTrainingRequest {
   // Provenance tracking
   base_model_id?: string;         // Base model used for training
   collection_id?: string;         // Document collection used
+  lora_tier?: 'micro' | 'standard' | 'max'; // Marketing/operational tier
+  scope?: string;                 // Logical scope (project, tenant, etc.)
 
   // Category & metadata
   category?: string;              // code, framework, codebase, docs, domain
@@ -168,6 +178,9 @@ export interface TrainingConfigRequest {
   warmup_steps?: number;
   max_seq_length?: number;
   gradient_accumulation_steps?: number;
+  preferred_backend?: string;
+  require_gpu?: boolean;
+  max_gpu_memory_mb?: number;
   // Additional UI fields (sent to backend if supported)
   weight_decay?: number;
   gradient_clip?: number;
@@ -208,6 +221,9 @@ export interface TrainingMetrics {
   progress_pct?: number;
   memory_usage?: number;
   gpu_utilization?: number;
+  backend?: string;
+  backend_device?: string;
+  using_gpu?: boolean;
   current_epoch?: number;
   total_epochs?: number;
   validation_loss?: number;

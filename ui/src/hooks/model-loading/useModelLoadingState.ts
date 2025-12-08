@@ -160,7 +160,8 @@ export function useModelLoadingState(
   }, [adapterState.adapterStates]);
 
   // Compute base model readiness (baseModelReady defined above for SSE condition)
-  const allAdaptersReady = adapterState.allAdaptersReady;
+  const adaptersPresent = adapterStates.size > 0;
+  const allAdaptersReady = adaptersPresent ? adapterState.allAdaptersReady : true;
   const overallReady = baseModelReady && allAdaptersReady;
 
   // Compute loading state
@@ -202,9 +203,9 @@ export function useModelLoadingState(
           ? 50
           : 0;
 
-    const totalAdapters = adapterStates.size || 1;
+    const totalAdapters = adapterStates.size;
     const readyCount = readyAdapters.length;
-    const adapterProgress = (readyCount / totalAdapters) * 100;
+    const adapterProgress = totalAdapters === 0 ? 100 : (readyCount / totalAdapters) * 100;
 
     return Math.round(modelProgress * MODEL_WEIGHT + adapterProgress * ADAPTER_WEIGHT);
   }, [baseModelReady, modelLoadProgress, isModelLoading, adapterStates.size, readyAdapters.length]);

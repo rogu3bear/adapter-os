@@ -83,7 +83,10 @@ export interface Adapter {
 
   // Code intelligence fields
   category?: 'code' | 'framework' | 'codebase' | 'ephemeral';
-  scope?: 'global' | 'tenant' | 'repo' | 'commit';
+  scope?: AdapterScope;
+  lora_tier?: 'micro' | 'standard' | 'max';
+  lora_strength?: number;
+  lora_scope?: string;
   framework_id?: string;
   framework_version?: string;
   repo_id?: string;
@@ -118,7 +121,7 @@ export interface Adapter {
 }
 
 export type AdapterCategory = 'code' | 'framework' | 'codebase' | 'ephemeral';
-export type AdapterScope = 'global' | 'tenant' | 'repo' | 'commit';
+export type AdapterScope = 'global' | 'tenant' | 'repo' | 'commit' | 'project';
 export type AdapterState = 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident' | 'loading';
 export type LifecycleState = 'draft' | 'active' | 'deprecated' | 'retired';
 export type EvictionPriority = 'never' | 'low' | 'normal' | 'high' | 'critical';
@@ -160,6 +163,10 @@ export interface UpdateAdapterRequest {
   tier?: string;
   expires_at?: string;
   metadata_json?: string;
+}
+
+export interface UpdateAdapterStrengthRequest {
+  lora_strength: number;
 }
 
 export interface AdapterResponse {
@@ -221,6 +228,7 @@ export interface AdapterStack {
   version?: number;
   workflow_type?: 'Parallel' | 'UpstreamDownstream' | 'Sequential';
   lifecycle_state?: string; // active, deprecated, retired, draft
+  determinism_mode?: string;
 }
 
 export interface LifecycleHistoryEvent {
@@ -251,6 +259,68 @@ export interface AdapterStackResponse {
   schema_version: string;
   stack: AdapterStack;
   warnings?: string[];
+}
+
+export interface AdapterStrengthSetting {
+  adapter_id: string;
+  strength?: number;
+}
+
+export interface AdapterPackage {
+  schema_version?: string;
+  id: string;
+  tenant_id: string;
+  name: string;
+  description?: string;
+  stack_id: string;
+  tags?: string[];
+  adapter_strengths?: AdapterStrengthSetting[];
+  adapter_ids?: string[];
+  determinism_mode?: string;
+  routing_determinism_mode?: string;
+  domain?: string;
+  scope_path?: string;
+  scope_path_prefix?: string;
+  installed?: boolean;
+  installed_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePackageRequest {
+  name: string;
+  description?: string;
+  tags?: string[];
+  stack_id?: string;
+  adapters?: AdapterStrengthSetting[];
+  determinism_mode?: string;
+  routing_determinism_mode?: string;
+  domain?: string;
+  scope_path?: string;
+  scope_path_prefix?: string;
+}
+
+export interface UpdatePackageRequest {
+  name?: string;
+  description?: string;
+  tags?: string[];
+  stack_id?: string;
+  adapters?: AdapterStrengthSetting[];
+  determinism_mode?: string;
+  routing_determinism_mode?: string;
+  domain?: string;
+  scope_path?: string;
+  scope_path_prefix?: string;
+}
+
+export interface PackageResponse {
+  schema_version: string;
+  package: AdapterPackage;
+}
+
+export interface PackageListResponse {
+  schema_version: string;
+  packages: AdapterPackage[];
 }
 
 export interface ListAdapterStacksResponse {
@@ -323,6 +393,9 @@ export interface AdapterDetailResponse {
   category?: string;
   scope?: string;
   tier?: string;
+  lora_tier?: 'micro' | 'standard' | 'max';
+  lora_strength?: number;
+  lora_scope?: string;
   manifest_schema_version?: string;
   content_hash_b3?: string;
   signature_valid?: boolean;
@@ -340,6 +413,8 @@ export interface AdapterManifest {
   hash: string;
   quantization?: string;
   dtype?: string;
+  lora_tier?: 'micro' | 'standard' | 'max';
+  scope?: string;
 }
 
 export interface AdapterMetrics {

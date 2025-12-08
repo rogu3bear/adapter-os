@@ -51,7 +51,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
     // Call custom error handler if provided
     this.props.onError?.(error, errorInfo);
-    logUIError(error, { scope: 'global', component: 'GlobalErrorBoundary' });
+    logUIError(error, { scope: 'global', component: 'GlobalErrorBoundary', severity: 'error' });
   }
 
   resetError = () => {

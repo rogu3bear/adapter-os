@@ -48,7 +48,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import apiClient from '@/api/client';
-import type { InferResponse, InferenceConfig, StreamingChunk } from '@/api/types';
+import type { InferResponse, InferenceConfig, StreamingChunk, Citation } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 
 /** Individual streaming token with timestamp */
@@ -197,6 +197,7 @@ export function useStreamingInference(
           top_k: config.top_k,
           top_p: config.top_p,
           seed: config.seed,
+          routing_determinism_mode: config.routing_determinism_mode,
           adapter_stack: stackId
             ? [stackId]
             : (adapterId && adapterId !== 'none' ? [adapterId] : undefined),
@@ -219,7 +220,7 @@ export function useStreamingInference(
               onToken(token);
             }
           },
-          onComplete: (fullText: string, finishReason: string | null) => {
+          onComplete: (fullText: string, finishReason: string | null, metadata?: { unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string, citations?: Citation[] }) => {
             const elapsed = Date.now() - startTime;
 
             // Map streaming finish reason to InferResponse finish reason
@@ -239,6 +240,9 @@ export function useStreamingInference(
               latency_ms: elapsed,
               adapters_used: adapterId && adapterId !== 'none' ? [adapterId] : [],
               finish_reason: mapFinishReason(finishReason),
+              citations: metadata?.citations || [],
+              unavailable_pinned_adapters: metadata?.unavailable_pinned_adapters,
+              pinned_routing_fallback: metadata?.pinned_routing_fallback as any,
             };
 
             setStreamingState(prev => ({

@@ -9,25 +9,42 @@ interface SectionErrorFallbackProps {
   error: Error;
   resetErrorBoundary: () => void;
   sectionName?: string;
+  severity?: 'warning' | 'error';
 }
 
-function SectionErrorFallback({ error, resetErrorBoundary, sectionName }: SectionErrorFallbackProps) {
+export function SectionErrorFallback({ error, resetErrorBoundary, sectionName, severity = 'error' }: SectionErrorFallbackProps) {
+  const isWarning = severity === 'warning';
+  const toneClasses = isWarning ? 'border-amber-300 bg-amber-50' : 'border-destructive/50 bg-destructive/5';
+  const iconClasses = isWarning ? 'text-amber-600' : 'text-destructive';
+  const heading = sectionName
+    ? isWarning
+      ? `${sectionName} had a hiccup`
+      : `${sectionName} failed to load`
+    : isWarning
+      ? 'Check this section'
+      : 'Something went wrong';
+  const body =
+    error.message ||
+    (isWarning
+      ? 'This section may not have loaded fully. You can retry safely.'
+      : 'An unexpected error occurred');
+
   return (
     <Card
-      className="border-destructive/50 bg-destructive/5"
+      className={`${toneClasses}`}
       role="alert"
-      aria-live="assertive"
+      aria-live={isWarning ? 'polite' : 'assertive'}
     >
       <CardContent className="flex flex-col items-center justify-center p-6 text-center">
         <AlertTriangle
-          className="h-8 w-8 text-destructive mb-3"
+          className={`h-8 w-8 mb-3 ${iconClasses}`}
           aria-hidden="true"
         />
-        <h3 className="font-semibold text-destructive mb-1">
-          {sectionName ? `${sectionName} failed to load` : 'Something went wrong'}
+        <h3 className={`font-semibold mb-1 ${isWarning ? 'text-amber-800' : 'text-destructive'}`}>
+          {heading}
         </h3>
         <p className="text-sm text-muted-foreground mb-4 max-w-md">
-          {error.message || 'An unexpected error occurred'}
+          {body}
         </p>
         <Button
           variant="outline"
@@ -49,13 +66,15 @@ interface SectionErrorBoundaryProps {
   sectionName?: string;
   onReset?: () => void;
   fallback?: React.ReactNode;
+  severity?: 'warning' | 'error';
 }
 
 export function SectionErrorBoundary({
   children,
   sectionName,
   onReset,
-  fallback
+  fallback,
+  severity = 'error',
 }: SectionErrorBoundaryProps) {
   return (
     <ReactErrorBoundary
@@ -67,6 +86,7 @@ export function SectionErrorBoundary({
             error={error}
             resetErrorBoundary={resetErrorBoundary}
             sectionName={sectionName}
+            severity={severity}
           />
         )
       }
@@ -76,6 +96,7 @@ export function SectionErrorBoundary({
           component: 'SectionErrorBoundary',
           route: undefined,
           pageKey: sectionName,
+          severity,
         });
       }}
       onReset={() => {

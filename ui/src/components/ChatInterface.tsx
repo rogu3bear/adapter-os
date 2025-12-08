@@ -86,6 +86,8 @@ export function ChatInterface({
   const [isArchivePanelOpen, setIsArchivePanelOpen] = useState(false);
   const [shareDialogSessionId, setShareDialogSessionId] = useState<string | null>(null);
   const [tagsDialogSessionId, setTagsDialogSessionId] = useState<string | null>(null);
+  const [routingMode, setRoutingMode] = useState<'deterministic' | 'adaptive'>('deterministic');
+  const [strengthOverrides, setStrengthOverrides] = useState<Record<string, number>>({});
 
   // Pinned adapters banner state
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -122,8 +124,56 @@ export function ChatInterface({
     [stacks, selectedStackId]
   );
 
+  const adapterList = useMemo(() => {
+    const adapters = (selectedStack as any)?.adapters as
+      | Array<{ id?: string; adapter_id?: string; name?: string; tier?: string; domain?: string; lora_strength?: number }>
+      | undefined;
+    if (adapters && adapters.length > 0) {
+      return adapters.map(adapter => ({
+        id: adapter.id ?? adapter.adapter_id ?? '',
+        name: adapter.name ?? adapter.adapter_id ?? '',
+        tier: adapter.tier,
+        domain: adapter.domain,
+        strength: adapter.lora_strength ?? 1,
+      })).filter(adapter => adapter.id);
+    }
+
+    if ((selectedStack as any)?.adapter_ids) {
+      return (selectedStack as any).adapter_ids.map((id: string) => ({
+        id,
+        name: id,
+        tier: undefined,
+        domain: undefined,
+        strength: 1,
+      }));
+    }
+
+    return [];
+  }, [selectedStack]);
+
+  useEffect(() => {
+    if (adapterList.length === 0) {
+      setStrengthOverrides({});
+      return;
+    }
+    setStrengthOverrides(prev => {
+      const next: Record<string, number> = {};
+      adapterList.forEach(adapter => {
+        const existing = prev[adapter.id];
+        next[adapter.id] = typeof existing === 'number' ? existing : 1;
+      });
+      return next;
+    });
+  }, [adapterList]);
+
+  const handleStrengthChange = useCallback((adapterId: string, value: number) => {
+    const clamped = Math.min(2, Math.max(0, value));
+    setStrengthOverrides(prev => ({ ...prev, [adapterId]: clamped }));
+  }, []);
+
   // Streaming message state (for in-progress messages)
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [isBaseOnlyMode, setIsBaseOnlyMode] = useState(false);
 
   // Compute effective collection ID (reacts to documentContext changes)
   const effectiveCollectionId = useMemo(
@@ -214,6 +264,8 @@ export function ChatInterface({
         setStreamingMessageId(null);
       }
     },
+    routingDeterminismMode: routingMode,
+    adapterStrengthOverrides: strengthOverrides,
   });
 
   const streamingContent = streamMode === 'tokens'
@@ -310,9 +362,18 @@ export function ChatInterface({
 
   // Select which state to use based on feature flag
   const allReady = autoLoadEnabled ? newModelLoadingState.overallReady : allAdaptersReady;
+  const adapterStateMap = autoLoadEnabled ? newModelLoadingState.adapterStates : adapterStates;
+  const hasAdapters = adapterStateMap.size > 0;
+  const baseModelReady = autoLoadEnabled ? newModelLoadingState.baseModelReady : true;
+  const canSend = autoLoadEnabled
+    ? (isBaseOnlyMode || !hasAdapters ? baseModelReady : allReady)
+    : allAdaptersReady;
   // Guard against an overlay lingering after readiness or error: only treat as loading when not ready and no error.
   const isLoadingModels = autoLoadEnabled
-    ? newModelLoadingState.isLoading && !newModelLoadingState.overallReady && !newModelLoadingState.error
+    ? newModelLoadingState.isLoading
+      && !newModelLoadingState.error
+      && !(isBaseOnlyMode && baseModelReady)
+      && !newModelLoadingState.overallReady
     : isCheckingAdapters;
 
   // Router decisions hook
@@ -332,6 +393,10 @@ export function ChatInterface({
       setSelectedStackId(defaultStack.id);
     }
   }, [defaultStack, selectedStackId]);
+
+  useEffect(() => {
+    setIsBaseOnlyMode(false);
+  }, [selectedStackId]);
 
   // Load session if sessionId prop is provided
   useEffect(() => {
@@ -359,7 +424,8 @@ export function ChatInterface({
               stack.name,
               effectiveCollectionId,
               documentCtx,
-              documentCtx ? 'document' : 'general'
+              documentCtx ? 'document' : 'general',
+              sessionConfigForRequest
             );
             setCurrentSessionId(newSession.id);
             setMessages(newSession.messages);
@@ -379,6 +445,7 @@ export function ChatInterface({
     createSession,
     effectiveCollectionId,
     documentContext,
+    sessionConfigForRequest,
   ]);
 
   // Auto-scroll to bottom when new messages arrive
@@ -409,24 +476,38 @@ export function ChatInterface({
     }
   }, []);
 
+  const handleLoadBaseModelOnly = useCallback(() => {
+    if (!autoLoadEnabled) {
+      return;
+    }
+    setIsBaseOnlyMode(true);
+    newModelLoader.loadModels(selectedStackId);
+  }, [autoLoadEnabled, newModelLoader, selectedStackId]);
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || isStreaming) return;
 
-    // Check if adapters are ready before sending (use allReady which is feature-flag aware)
-    if (!allReady && (autoLoadEnabled ? newModelLoadingState.adapterStates.size > 0 : adapterStates.size > 0)) {
-      // Show adapter prompt if not ready
-      // The PreChatAdapterPrompt component will handle showing the prompt
+    if (autoLoadEnabled && !baseModelReady) {
+      toast.error('Base model is not ready. Please load it first.');
+      return;
+    }
+
+    // Only block on adapter readiness when adapters are present and base-only mode is off
+    if (!isBaseOnlyMode && hasAdapters && !allReady) {
       toast.warning('Some adapters are not ready. Please load them first.');
       return;
     }
 
-    // Resolve stack to adapter IDs
-    const adapterIds = selectedStack?.adapter_ids || [];
+    // Resolve stack to adapter IDs (allow empty when base-only mode is active)
+    const adapterIds: string[] = isBaseOnlyMode
+      ? []
+      : (selectedStack?.adapter_ids ?? selectedStack?.adapters ?? []);
 
     if (!adapterIds || adapterIds.length === 0) {
-      toast.error('Please select a stack with adapters');
-      return;
+      if (!isBaseOnlyMode) {
+        toast.error('Please select a stack with adapters');
+        return;
+      }
     }
 
     if (!currentSessionId) {
@@ -440,7 +521,18 @@ export function ChatInterface({
 
     // Send message using the streaming hook
     await sendMessage(messageContent, adapterIds);
-  }, [input, isStreaming, selectedStack, allReady, autoLoadEnabled, newModelLoadingState.adapterStates, adapterStates, sendMessage, currentSessionId]);
+  }, [
+    allReady,
+    autoLoadEnabled,
+    baseModelReady,
+    currentSessionId,
+    hasAdapters,
+    input,
+    isBaseOnlyMode,
+    isStreaming,
+    selectedStack,
+    sendMessage,
+  ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -456,7 +548,13 @@ export function ChatInterface({
     defaultStack?.id && selectedStack?.id && selectedStack.id === defaultStack.id
   );
   const stackDetails = selectedStack?.lifecycle_state ?? selectedStack?.description ?? null;
-  const baseModelLabel = 'Not provided';
+  const baseModelLabel = autoLoadEnabled
+    ? newModelLoadingState.baseModelStatus === 'loading'
+      ? 'Loading base model...'
+      : baseModelReady
+        ? (isBaseOnlyMode || !hasAdapters ? 'Model ready (no adapters)' : 'Model ready')
+        : 'Base model not ready'
+    : 'Not provided';
 
   // Get recent sessions (last 10, sorted by updatedAt), filtered by search query
   const recentSessions = useMemo(() => {
@@ -496,6 +594,20 @@ export function ChatInterface({
       if (session.collectionId !== undefined) {
         setSelectedCollectionId(session.collectionId);
       }
+      const config = (session.metadata as Record<string, unknown> | undefined)?.chat_session_config as
+        | { stack_id?: string; routing_determinism_mode?: string; adapter_strength_overrides?: Record<string, number> }
+        | undefined;
+      if (config?.stack_id && !session.stackId) {
+        setSelectedStackId(config.stack_id);
+      }
+      if (config?.routing_determinism_mode) {
+        setRoutingMode(
+          config.routing_determinism_mode === 'adaptive' ? 'adaptive' : 'deterministic'
+        );
+      }
+      if (config?.adapter_strength_overrides) {
+        setStrengthOverrides(config.adapter_strength_overrides);
+      }
       setIsHistoryOpen(false);
     }
   }, [getSession]);
@@ -516,7 +628,8 @@ export function ChatInterface({
         selectedStack?.name,
         effectiveCollectionId,
         documentCtx,
-        documentCtx ? 'document' : 'general'
+        documentCtx ? 'document' : 'general',
+        sessionConfigForRequest
       );
       setCurrentSessionId(newSession.id);
       setMessages(newSession.messages);
@@ -526,7 +639,7 @@ export function ChatInterface({
     } catch {
       // error already surfaced
     }
-  }, [selectedStackId, stacks, createSession, documentContext, effectiveCollectionId]);
+  }, [selectedStackId, stacks, createSession, documentContext, effectiveCollectionId, sessionConfigForRequest]);
 
   const handleDeleteSession = useCallback((sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -602,6 +715,12 @@ export function ChatInterface({
     return collection?.name || 'Unknown';
   }, [selectedCollectionId, collections]);
 
+  const sessionConfigForRequest = useMemo(() => ({
+    stack_id: selectedStackId || undefined,
+    routing_determinism_mode: routingMode,
+    adapter_strength_overrides: strengthOverrides,
+  }), [selectedStackId, routingMode, strengthOverrides]);
+
   // Compute unavailable pinned adapters from messages
   const { unavailablePinnedAdapters, pinnedRoutingFallback } = useMemo(() => {
     // Find the latest assistant message with unavailable pinned adapters
@@ -663,7 +782,7 @@ export function ChatInterface({
         modelStatus={autoLoadEnabled ? newModelLoadingState.baseModelStatus : undefined}
         modelName={autoLoadEnabled ? newModelLoadingState.baseModelName || undefined : undefined}
         isModelLoading={autoLoadEnabled ? newModelLoadingState.baseModelStatus === 'loading' : undefined}
-        onLoadAndChat={autoLoadEnabled ? () => newModelLoader.loadModels(selectedStackId) : undefined}
+        onLoadAndChat={autoLoadEnabled ? handleLoadBaseModelOnly : undefined}
       />
 
       {/* Chat Loading Overlay (when feature flag is enabled) */}
@@ -953,6 +1072,45 @@ export function ChatInterface({
                 <p className="text-xs text-muted-foreground">Base model</p>
                 <p className="font-medium text-muted-foreground">{baseModelLabel}</p>
               </div>
+              <div className="sm:col-span-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">Active adapters</p>
+                  <p className="text-xs text-muted-foreground">
+                    Strength overrides (0.0–2.0, default 1.0)
+                  </p>
+                </div>
+                {adapterList.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No adapters selected</p>
+                ) : (
+                  <div className="space-y-3">
+                    {adapterList.map(adapter => (
+                      <div key={adapter.id} className="flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{adapter.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {[adapter.tier, adapter.domain].filter(Boolean).join(' • ') || 'Adapter'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min={0}
+                            max={2}
+                            step={0.05}
+                            value={strengthOverrides[adapter.id] ?? 1}
+                            onChange={(e) => handleStrengthChange(adapter.id, Number(e.target.value))}
+                            aria-label={`Strength for ${adapter.name}`}
+                            className="w-32"
+                          />
+                          <span className="text-xs tabular-nums">
+                            {(strengthOverrides[adapter.id] ?? 1).toFixed(2)}x
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </CardContent>
           )}
         </Card>
@@ -1015,6 +1173,19 @@ export function ChatInterface({
               </span>
             )}
           </div>
+          {autoLoadEnabled && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLoadBaseModelOnly}
+                disabled={!selectedStackId || isLoadingModels}
+              >
+                Load base model and chat without adapters
+              </Button>
+              <span className="text-xs text-muted-foreground">{baseModelLabel}</span>
+            </div>
+          )}
           {selectedStack && (
             <Badge variant="outline" aria-label={`${selectedStack.adapter_ids?.length || 0} adapters in stack`}>
               {selectedStack.adapter_ids?.length || 0} adapter
@@ -1152,6 +1323,22 @@ export function ChatInterface({
           className="flex gap-2"
           aria-label="Chat message input"
         >
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">Routing determinism</span>
+            <Select
+              value={routingMode}
+              onValueChange={(value: 'deterministic' | 'adaptive') => setRoutingMode(value)}
+              aria-label="Routing determinism mode"
+            >
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Deterministic" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="deterministic">Deterministic</SelectItem>
+                <SelectItem value="adaptive">Adaptive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <Textarea
             value={input}
             onChange={e => setInput(e.target.value)}
@@ -1180,7 +1367,7 @@ export function ChatInterface({
           )}
           <Button
             type="submit"
-            disabled={isStreaming || !input.trim() || !selectedStackId || (autoLoadEnabled && !allReady)}
+            disabled={isStreaming || !input.trim() || !selectedStackId || (autoLoadEnabled && !canSend)}
             size="lg"
             aria-label={isStreaming ? "Sending message..." : "Send message"}
           >

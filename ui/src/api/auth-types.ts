@@ -11,6 +11,8 @@ export interface LoginRequest {
   device_id?: string;
 }
 
+export type SessionMode = 'normal' | 'dev_bypass';
+
 export interface LoginResponse {
   schema_version: string;  // Required by backend API
   token: string;
@@ -21,6 +23,7 @@ export interface LoginResponse {
   tenants?: TenantSummary[];
   mfa_level?: string;
   admin_tenants?: string[]; // Tenant IDs the admin can manage; "*" wildcard is dev-only (debug / dev-bypass)
+  session_mode?: SessionMode;
 }
 
 export interface RefreshResponse {

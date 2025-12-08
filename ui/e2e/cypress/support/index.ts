@@ -1,4 +1,5 @@
 import './commands';
+import 'cypress-axe';
 import { clearAuthToken } from './api-helpers';
 import { clearResourceTracking } from './resource-cleanup';
 

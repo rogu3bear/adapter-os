@@ -288,6 +288,23 @@ The API client automatically:
 2. Import and use API client for data fetching
 3. Add TypeScript types from `src/api/types.ts`
 4. Follow existing patterns for loading states and error handling
+- Dashboard widgets should wrap content in `DashboardWidgetFrame` to standardize title/subtitle, refresh, last-updated label, and loading/error/empty/ready states. Wire `onRefresh` to the relevant React Query `refetch` (or invalidate) and pass `lastUpdated` from the query/polling hook.
+
+```tsx
+<DashboardWidgetFrame
+  title="Example"
+  state={state}
+  onRefresh={refetch}
+  lastUpdated={lastUpdated}
+  emptyMessage="No data"
+>
+  <WidgetBody />
+</DashboardWidgetFrame>
+```
+
+## Dashboard widgets
+
+See `docs/ui-component-hierarchy.md#dashboard-widget-pattern` for the required `DashboardWidgetFrame` usage on all dashboard widgets and how to migrate existing widgets when you touch them.
 
 ### Adding New API Endpoints
 
@@ -319,4 +336,4 @@ cargo build --release --bin mplora-server
 
 Same as parent project (MIT OR Apache-2.0).
 
-MLNavigator Inc 2025-12-07.
+MLNavigator Inc 2025-12-08.

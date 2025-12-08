@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ActiveAlertsWidget } from '@/components/dashboard/ActiveAlertsWidget';
-import { LayoutProvider } from '@/layout/LayoutProvider';
 import { MemoryRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const refetchMock = vi.fn();
 
 vi.mock('@/api/client', () => {
   return {
@@ -44,19 +44,60 @@ vi.mock('@/api/client', () => {
   };
 });
 
+vi.mock('@/hooks/usePolling', () => ({
+  usePolling: vi.fn().mockReturnValue({
+    data: [
+      { id: '1', severity: 'high', title: 'High latency', message: 'p95 = 30ms', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    ],
+    isLoading: false,
+    error: null,
+    lastUpdated: new Date('2025-01-01'),
+    refetch: refetchMock,
+  }),
+}));
+
+vi.mock('@/hooks/useServiceStatus', () => ({
+  useServiceStatus: () => ({
+    status: { services: [] },
+    isLoading: false,
+    lastUpdated: null,
+    refetch: vi.fn(),
+    error: null,
+  }),
+}));
+
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({ selectedTenant: 'test-tenant' }),
+}));
+
+vi.mock('@/hooks/useTimestamp', () => ({
+  useRelativeTime: () => 'moments ago',
+}));
+
+beforeEach(() => {
+  refetchMock.mockClear();
+});
+
 describe('ActiveAlertsWidget', () => {
   it('renders alerts from API', async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <MemoryRouter>
-        <QueryClientProvider client={queryClient}>
-          <LayoutProvider>
-            <ActiveAlertsWidget />
-          </LayoutProvider>
-        </QueryClientProvider>
+        <ActiveAlertsWidget />
       </MemoryRouter>
     );
     // Matches the title from our mock data
     expect(await screen.findByText(/High latency/)).toBeTruthy();
+  });
+
+  it('invokes refresh handler when refresh clicked', async () => {
+    render(
+      <MemoryRouter>
+        <ActiveAlertsWidget />
+      </MemoryRouter>
+    );
+
+    const refreshButton = await screen.findByRole('button', { name: /Refresh/ });
+    fireEvent.click(refreshButton);
+    expect(refetchMock).toHaveBeenCalled();
   });
 });

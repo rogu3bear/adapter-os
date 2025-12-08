@@ -8,6 +8,7 @@ const useDatasetMock = vi.fn();
 const useTrainingJobMock = vi.fn();
 const useCreateDatasetMock = vi.fn();
 const useValidateDatasetMock = vi.fn();
+const useChatBootstrapMock = vi.fn();
 const useAdapterStacksMock = vi.fn();
 
 vi.mock('@/hooks/useTraining', () => ({
@@ -16,6 +17,7 @@ vi.mock('@/hooks/useTraining', () => ({
     useTrainingJob: (...args: unknown[]) => useTrainingJobMock(...args),
     useCreateDataset: (...args: unknown[]) => useCreateDatasetMock(...args),
     useValidateDataset: (...args: unknown[]) => useValidateDatasetMock(...args),
+    useChatBootstrap: (...args: unknown[]) => useChatBootstrapMock(...args),
   },
 }));
 
@@ -46,6 +48,7 @@ describe('GuidedFlowPage', () => {
     vi.clearAllMocks();
     useCreateDatasetMock.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
     useValidateDatasetMock.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
+    useChatBootstrapMock.mockReturnValue({ data: undefined });
   });
 
   it('shows chat using newly trained stack when job is complete', () => {
@@ -53,6 +56,7 @@ describe('GuidedFlowPage', () => {
     useTrainingJobMock.mockReturnValue({
       data: { id: 'job-1', status: 'completed', stack_id: 'stack-42' },
     });
+    useChatBootstrapMock.mockReturnValue({ data: { ready: true, stack_id: 'stack-42' } });
     useAdapterStacksMock.mockReturnValue({ data: [{ id: 'stack-42', name: 'Stack 42' }] });
 
     render(

@@ -7,15 +7,26 @@ import { VirtualizedTableRows } from './ui/virtualized-table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
-import { Activity, Download, Eye, MoreHorizontal, Shield, Trash2 } from 'lucide-react';
+import { Activity, Download, Eye, MoreHorizontal, Pause, Play, RefreshCw, Shield, Trash2 } from 'lucide-react';
 import { ExportMenu } from './ui/export-menu';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
 import { Checkbox } from './ui/checkbox';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
+import { Input } from './ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { ScrollArea } from './ui/scroll-area';
+import { Switch } from './ui/switch';
 import apiClient from '@/api/client';
-import { TelemetryBundle, User, VerifyBundleSignatureResponse } from '@/api/types';
+import { TelemetryBundle, TelemetryEvent, User, VerifyBundleSignatureResponse } from '@/api/types';
 
 import { useTimestamp } from '@/hooks/useTimestamp';
 import { HashChainView } from './HashChainView';
@@ -32,7 +43,16 @@ import { DensityControls } from './ui/density-controls';
 import { useDensity } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/useRBAC';
 import { PERMISSIONS } from '@/utils/rbac';
-import { useLiveData } from '@/hooks/useLiveData';
+import { ConnectionStatus, useLiveData } from '@/hooks/useLiveData';
+import {
+  applyIncomingEvents,
+  filterTelemetryEvents,
+  flushBufferedEvents,
+  mapConnectionToStatus,
+  TELEMETRY_BUFFER_MAX,
+  TELEMETRY_VISIBLE_MAX,
+  type TelemetryEventState,
+} from './telemetry/telemetryStreamUtils';
 
 interface TelemetryProps {
   user?: User;
@@ -108,6 +128,12 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   const [selectedBundle, setSelectedBundle] = useState<TelemetryBundle | null>(null);
   const [selectedBundles, setSelectedBundles] = useState<string[]>([]);
   const [purgeKeepCount, setPurgeKeepCount] = useState(12);
+  const [eventState, setEventState] = useState<TelemetryEventState>({ events: [], buffer: [] });
+  const [eventSearch, setEventSearch] = useState('');
+  const [eventLevel, setEventLevel] = useState<string>('all');
+  const [eventTypeFilter, setEventTypeFilter] = useState<string>('');
+  const [streamError, setStreamError] = useState<Error | null>(null);
+  const [paused, setPaused] = useState(false);
 
   // RBAC permissions
   const canExportTelemetry = can(PERMISSIONS.AUDIT_VIEW);
@@ -211,6 +237,30 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
     return true;
   });
 
+  const filteredEvents = useMemo(
+    () =>
+      filterTelemetryEvents(eventState.events, {
+        text: eventSearch,
+        level: eventLevel === 'all' ? undefined : eventLevel,
+        eventType: eventTypeFilter || undefined,
+      }),
+    [eventLevel, eventSearch, eventState.events, eventTypeFilter],
+  );
+
+  const eventTypeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          eventState.events
+            .map((evt) => evt.event_type)
+            .filter((value): value is string => Boolean(value))
+        )
+      ).sort(),
+    [eventState.events],
+  );
+
+  const bufferedCount = eventState.buffer.length;
+
   useEffect(() => {
     if (loading) {
       logger.debug('Telemetry: showing loading state', {
@@ -232,6 +282,79 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   }, [bundles.length, effectiveTenant, filteredBundles.length, loading]);
 
   // Golden compare modal is encapsulated in its own component
+
+  const levelBadgeVariant = useCallback((level?: string) => {
+    switch (level?.toLowerCase()) {
+      case 'error':
+        return 'error';
+      case 'warn':
+      case 'warning':
+        return 'warning';
+      case 'info':
+        return 'info';
+      case 'debug':
+        return 'secondary';
+      default:
+        return 'outline';
+    }
+  }, []);
+
+  const handleTelemetryStreamMessage = useCallback(
+    (eventData: unknown) => {
+      const incoming = Array.isArray(eventData) ? eventData : [eventData];
+      setEventState((prev) => applyIncomingEvents(prev, incoming as TelemetryEvent[], paused));
+    },
+    [paused],
+  );
+
+  const loadInitialEvents = useCallback(async () => {
+    const initialEvents = await apiClient.getTelemetryEvents({ limit: TELEMETRY_VISIBLE_MAX });
+    setEventState({ events: initialEvents.slice(0, TELEMETRY_VISIBLE_MAX), buffer: [] });
+    return initialEvents;
+  }, []);
+
+  const {
+    isLoading: eventStreamLoading,
+    error: eventStreamHookError,
+    sseConnected: eventSseConnected,
+    connectionStatus: eventConnectionStatus,
+    reconnect: reconnectEvents,
+    lastUpdated: eventsLastUpdated,
+  } = useLiveData<TelemetryEvent[]>({
+    sseEndpoint: '/v1/stream/telemetry',
+    sseEventType: 'telemetry',
+    fetchFn: loadInitialEvents,
+    pollingSpeed: 'fast',
+    enabled: true,
+    onSSEMessage: handleTelemetryStreamMessage,
+    onError: (err) => setStreamError(err),
+    operationName: 'TelemetryEvents',
+  });
+
+  useEffect(() => {
+    if (eventStreamHookError) {
+      setStreamError(eventStreamHookError);
+    }
+  }, [eventStreamHookError]);
+
+  const streamStatusLabel = mapConnectionToStatus(eventConnectionStatus as ConnectionStatus, eventSseConnected);
+  const statusBadgeVariant: React.ComponentProps<typeof Badge>['variant'] =
+    streamStatusLabel === 'Live'
+      ? 'success'
+      : streamStatusLabel === 'Reconnecting'
+        ? 'warning'
+        : 'destructive';
+
+  const showReconnect = streamStatusLabel === 'Offline';
+
+  const handlePauseToggle = useCallback(() => {
+    setPaused((current) => {
+      if (current) {
+        setEventState((prev) => flushBufferedEvents(prev, TELEMETRY_VISIBLE_MAX));
+      }
+      return !current;
+    });
+  }, []);
 
   const handleSSEMessage = useCallback((eventData: unknown) => {
     try {
@@ -257,7 +380,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   }, []);
 
   // Use standardized live data hook
-  const { data, isLoading: liveDataLoading, error: liveDataError, sseConnected, refetch } = useLiveData<TelemetryBundle[]>({
+  const { isLoading: bundleLiveDataLoading } = useLiveData<TelemetryBundle[]>({
     sseEndpoint: '/v1/stream/telemetry',
     sseEventType: 'bundles',
     fetchFn: async () => {
@@ -287,8 +410,8 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
 
   // Update loading state
   useEffect(() => {
-    setLoading(liveDataLoading);
-  }, [liveDataLoading]);
+    setLoading(bundleLiveDataLoading || eventStreamLoading);
+  }, [bundleLiveDataLoading, eventStreamLoading]);
 
   const handleExportBundle = (bundle: TelemetryBundle) => {
     // Download bundle as JSON
@@ -512,6 +635,170 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
         </Alert>
       )}
 
+      {streamError && (
+        <Alert variant="destructive">
+          <AlertDescription className="flex items-center justify-between">
+            <span>{streamError.message}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setStreamError(null);
+                reconnectEvents();
+              }}
+            >
+              Reconnect
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle>Live Telemetry</CardTitle>
+              <Badge variant={statusBadgeVariant}>{streamStatusLabel}</Badge>
+              {paused && <Badge variant="warning">Paused</Badge>}
+              {paused && bufferedCount > 0 && (
+                <span className="text-xs text-muted-foreground">Buffered {bufferedCount}</span>
+              )}
+              {eventsLastUpdated && (
+                <span className="text-xs text-muted-foreground">
+                  Updated {eventsLastUpdated.toLocaleTimeString()}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handlePauseToggle}>
+                {paused ? (
+                  <>
+                    <Play className="icon-standard mr-2" />
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <Pause className="icon-standard mr-2" />
+                    Pause
+                  </>
+                )}
+              </Button>
+              {showReconnect && (
+                <Button size="sm" variant="secondary" onClick={reconnectEvents}>
+                  <RefreshCw className="icon-standard mr-2" />
+                  Reconnect
+                </Button>
+              )}
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Latest {TELEMETRY_VISIBLE_MAX} events in memory; while paused, incoming events buffer up to {TELEMETRY_BUFFER_MAX}{' '}
+            before oldest buffered entries drop.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+            <Input
+              value={eventSearch}
+              onChange={(e) => setEventSearch(e.target.value)}
+              placeholder="Search message, payload, or component"
+              className="md:max-w-sm"
+            />
+            <Select value={eventLevel} onValueChange={setEventLevel}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Level" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All severities</SelectItem>
+                <SelectItem value="debug">Debug</SelectItem>
+                <SelectItem value="info">Info</SelectItem>
+                <SelectItem value="warn">Warn</SelectItem>
+                <SelectItem value="error">Error</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={eventTypeFilter || 'all'}
+              onValueChange={(value) => setEventTypeFilter(value === 'all' ? '' : value)}
+              disabled={eventTypeOptions.length === 0}
+            >
+              <SelectTrigger className="w-52">
+                <SelectValue placeholder="Event type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All event types</SelectItem>
+                {eventTypeOptions.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="text-xs text-muted-foreground md:ml-auto">
+              Showing {filteredEvents.length} of {eventState.events.length} events
+            </div>
+          </div>
+
+          {eventStreamLoading ? (
+            <div className="text-sm text-muted-foreground">Loading telemetry events…</div>
+          ) : (
+            <TooltipProvider>
+              <ScrollArea className="max-h-[420px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Timestamp</TableHead>
+                      <TableHead>Level</TableHead>
+                      <TableHead>Event</TableHead>
+                      <TableHead>Component</TableHead>
+                      <TableHead>Message / Payload</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredEvents.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-sm text-muted-foreground">
+                          {eventState.events.length === 0 ? 'Waiting for telemetry events…' : 'No events match the current filters.'}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredEvents.map((evt) => {
+                        const id = evt.event_id || evt.id || `${evt.event_type}-${evt.timestamp}`;
+                        let payloadPreview = '';
+                        try {
+                          payloadPreview = evt.payload ? JSON.stringify(evt.payload).slice(0, 160) : '';
+                        } catch {
+                          payloadPreview = '';
+                        }
+                        const details = evt.message || payloadPreview || '—';
+
+                        return (
+                          <TableRow key={id}>
+                            <TableCell className="font-mono text-xs">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span>{new Date(evt.timestamp).toLocaleString()}</span>
+                                </TooltipTrigger>
+                                <TooltipContent>{evt.timestamp}</TooltipContent>
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={levelBadgeVariant(evt.level)}>{(evt.level || 'info').toUpperCase()}</Badge>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">{evt.event_type || '—'}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{evt.component || '—'}</TableCell>
+                            <TableCell className="text-sm">{details}</TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </TooltipProvider>
+          )}
+        </CardContent>
+      </Card>
+
       <GlossaryTooltip termId="telemetry-filters">
         <AdvancedFilter
           configs={telemetryFilterConfigs}
@@ -539,7 +826,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
             <TelemetryToolbar
               density={density}
               onDensityChange={setDensity}
-              connected={sseConnected}
+              connected={eventSseConnected && !paused}
               onExportAll={handleExportAllBundles}
               exportDisabled={bundles.length === 0}
               onPurge={() => setShowPurgeModal(true)}

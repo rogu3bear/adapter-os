@@ -110,6 +110,8 @@ export function LanguageBaseAdapterDialog({
       const req: StartTrainingRequest = {
         adapter_name: adapterName,
         config,
+        lora_tier: 'micro',
+        scope: 'project',
         // Optional backend fields can be added here:
         // template_id, repo_id, dataset_id
       };

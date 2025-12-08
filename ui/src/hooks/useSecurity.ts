@@ -48,6 +48,7 @@ export function usePolicies() {
     isLoading: query.isLoading,
     error: query.error,
     refetch: query.refetch,
+    lastUpdated: query.dataUpdatedAt ? new Date(query.dataUpdatedAt) : null,
   };
 }
 
@@ -192,6 +193,7 @@ export function useComplianceAudit() {
     isLoading: query.isLoading,
     error: query.error,
     refetch: query.refetch,
+    lastUpdated: query.dataUpdatedAt ? new Date(query.dataUpdatedAt) : null,
   };
 }
 

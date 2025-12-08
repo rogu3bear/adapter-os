@@ -80,6 +80,8 @@ export function StartTrainingForm({
   const [datasetId, setDatasetId] = useState(preselectedDatasetId ?? '');
   const [templateId, setTemplateId] = useState('');
   const [config, setConfig] = useState<TrainingConfigRequest>(DEFAULT_CONFIG);
+  const [loraTier, setLoraTier] = useState<'micro' | 'standard' | 'max'>('micro');
+  const [loraScope, setLoraScope] = useState<'project' | 'tenant'>('project');
 
   // Data from API
   const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
@@ -254,6 +256,8 @@ export function StartTrainingForm({
         config: configWithTargets,
         template_id: templateId || undefined,
         dataset_id: datasetId || undefined,
+        lora_tier: loraTier,
+        scope: loraScope,
       };
 
       const response = await apiClient.startTraining(request);
@@ -423,6 +427,41 @@ export function StartTrainingForm({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* LoRA Tier and Scope */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="lora-tier">LoRA Tier</Label>
+              <Select value={loraTier} onValueChange={(value) => setLoraTier(value as 'micro' | 'standard' | 'max')}>
+                <SelectTrigger id="lora-tier">
+                  <SelectValue placeholder="Select tier" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="micro">Micro (smallest)</SelectItem>
+                  <SelectItem value="standard">Standard (balanced)</SelectItem>
+                  <SelectItem value="max">Max (largest)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Marketing/operational tier for routing and UI badges.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lora-scope">LoRA Scope</Label>
+              <Select value={loraScope} onValueChange={(value) => setLoraScope(value as 'project' | 'tenant')}>
+                <SelectTrigger id="lora-scope">
+                  <SelectValue placeholder="Select scope" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="project">Project</SelectItem>
+                  <SelectItem value="tenant">Tenant</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Logical scope used for routing and visibility.
+              </p>
+            </div>
           </div>
 
           {/* Basic Config */}

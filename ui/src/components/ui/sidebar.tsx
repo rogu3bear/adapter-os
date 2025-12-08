@@ -482,6 +482,12 @@ function SidebarMenuButton({
     return button;
   }
 
+  const shouldShowTooltip = state === "collapsed" && !isMobile;
+
+  if (!shouldShowTooltip) {
+    return button;
+  }
+
   if (typeof tooltip === "string") {
     tooltip = {
       children: tooltip,
@@ -494,7 +500,6 @@ function SidebarMenuButton({
       <TooltipContent
         side="right"
         align="center"
-        hidden={state !== "collapsed" || isMobile}
         className="max-w-none"
         {...tooltip}
       />

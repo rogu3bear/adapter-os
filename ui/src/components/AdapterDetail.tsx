@@ -16,13 +16,14 @@ import {
   CardHeader,
   CardTitle,
 } from './ui/card';
+import { Slider } from './ui/slider';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowUp, ArrowDown, GitBranch, Clock, Database, Activity, Layers, ExternalLink, Plus } from 'lucide-react';
+import { ArrowUp, ArrowDown, GitBranch, Clock, Database, Activity, Layers, ExternalLink, Plus, Loader2 } from 'lucide-react';
 import { getLifecycleVariant } from '@/utils/lifecycle';
 import { AddToStackModal } from './AddToStackModal';
 import { useAdapterStacks } from '@/hooks/useAdmin';
@@ -37,6 +38,8 @@ export const AdapterDetail: React.FC = () => {
   const [lineage, setLineage] = useState<AdapterLineageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [strength, setStrength] = useState<number | null>(null);
+  const [isUpdatingStrength, setIsUpdatingStrength] = useState(false);
 
   // Dialog state
   const [showPromoteDialog, setShowPromoteDialog] = useState(false);
@@ -63,6 +66,7 @@ export const AdapterDetail: React.FC = () => {
           apiClient.getAdapterLineage(adapterId),
         ]);
         setAdapter(adapterData);
+        setStrength(adapterData.lora_strength ?? 1);
         setLineage(lineageData);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load adapter');
@@ -131,6 +135,28 @@ export const AdapterDetail: React.FC = () => {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleStrengthCommit = async (value: number) => {
+    if (!adapterId) return;
+    setIsUpdatingStrength(true);
+    setStrength(value);
+    try {
+      const updated = await apiClient.updateAdapterStrength(adapterId, value);
+      setAdapter(updated);
+      toast({
+        title: 'Strength updated',
+        description: `LoRA strength set to ${value.toFixed(2)}`,
+      });
+    } catch (err) {
+      toast({
+        title: 'Update failed',
+        description: err instanceof Error ? err.message : 'Unable to update strength',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUpdatingStrength(false);
     }
   };
 
@@ -278,13 +304,33 @@ export const AdapterDetail: React.FC = () => {
               <p className="text-sm text-gray-500">Alpha</p>
               <p>{adapter.alpha}</p>
             </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-gray-500">Strength</p>
+                {isUpdatingStrength && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+              </div>
+              <p className="font-medium">{(strength ?? adapter.lora_strength ?? 1).toFixed(2)}</p>
+              <Slider
+                min={0.2}
+                max={2}
+                step={0.05}
+                value={[strength ?? adapter.lora_strength ?? 1]}
+                onValueChange={([value]) => setStrength(value)}
+                onValueCommit={([value]) => handleStrengthCommit(value)}
+              />
+              <div className="flex gap-2 text-xs text-muted-foreground">
+                <Button size="sm" variant="outline" onClick={() => handleStrengthCommit(0.4)}>Light</Button>
+                <Button size="sm" variant="outline" onClick={() => handleStrengthCommit(0.7)}>Medium</Button>
+                <Button size="sm" variant="outline" onClick={() => handleStrengthCommit(1.0)}>Strong</Button>
+              </div>
+            </div>
             <div>
               <p className="text-sm text-gray-500">Category</p>
               <p>{adapter.category}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500">Scope</p>
-              <p>{adapter.scope}</p>
+              <p>{adapter.lora_scope ?? adapter.scope}</p>
             </div>
             {adapter.framework && (
               <div>
@@ -293,8 +339,8 @@ export const AdapterDetail: React.FC = () => {
               </div>
             )}
             <div>
-              <p className="text-sm text-gray-500">Tier</p>
-              <p>{adapter.tier}</p>
+              <p className="text-sm text-gray-500">LoRA Tier</p>
+              <p>{adapter.lora_tier ?? adapter.tier}</p>
             </div>
             {adapter.adapter?.lifecycle_state && (
               <div>

@@ -14,6 +14,8 @@
  * - /v1/stream/adapters - Adapter lifecycle state transitions
  */
 
+import { Citation } from './api-types';
+
 // ============================================================================
 // Training Stream Events
 // ============================================================================
@@ -493,6 +495,9 @@ export interface StreamingInferRequest {
   /** Backend selection (mlx, coreml, metal, or auto) */
   backend?: 'mlx' | 'coreml' | 'metal' | 'auto';
 
+  /** Per-request override for router determinism (deterministic/adaptive) */
+  routing_determinism_mode?: string;
+
   /** Maximum number of tokens to generate */
   max_tokens?: number;
 
@@ -510,6 +515,15 @@ export interface StreamingInferRequest {
 
   /** Adapter stack to use for inference (array of adapter IDs) */
   adapter_stack?: string[] | string;
+
+  /** Named adapter stack identifier */
+  stack_id?: string;
+
+  /** Optional domain hint to bias routing */
+  domain?: string;
+
+  /** Per-adapter strength overrides (multipliers, default 1.0) */
+  adapter_strength_overrides?: Record<string, number>;
 
   /** Collection ID for RAG-enhanced inference */
   collection_id?: string;
@@ -828,7 +842,7 @@ export type InferenceEvent =
   | { event: 'Loading'; phase: LoadPhase; progress: number; eta_seconds?: number }
   | { event: 'Ready'; warmup_latency_ms: number }
   | { event: 'Token'; text: string; token_id?: number }
-  | { event: 'Done'; total_tokens: number; latency_ms: number; unavailable_pinned_adapters?: string[]; pinned_routing_fallback?: string }
+  | { event: 'Done'; total_tokens: number; latency_ms: number; unavailable_pinned_adapters?: string[]; pinned_routing_fallback?: string; citations?: Citation[] }
   | { event: 'Error'; message: string; recoverable: boolean };
 
 /**

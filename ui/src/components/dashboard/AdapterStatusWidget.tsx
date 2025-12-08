@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Layers, TrendingUp, Activity, Loader2, AlertCircle } from 'lucide-react';
@@ -9,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useAdapters } from '@/pages/Adapters/useAdapters';
 import { useMemoryUsage } from '@/hooks/useSystemMetrics';
 import type { AdapterState } from '@/api/adapter-types';
+import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
 interface AdapterStateCount {
   state: string;
@@ -27,10 +27,16 @@ const STATE_COLORS: Record<string, string> = {
 
 export function AdapterStatusWidget() {
   // Fetch adapters data with auto-refresh (refetches every 60 seconds)
-  const { data: adaptersData, isLoading: isLoadingAdapters, error: adaptersError, refetch } = useAdapters();
+  const {
+    data: adaptersData,
+    isLoading: isLoadingAdapters,
+    error: adaptersError,
+    refetch: refetchAdapters,
+    dataUpdatedAt: adaptersUpdatedAt
+  } = useAdapters();
 
   // Fetch memory usage data with auto-refresh
-  const { data: memoryData, isLoading: isLoadingMemory } = useMemoryUsage('normal', true);
+  const { data: memoryData, isLoading: isLoadingMemory, lastUpdated: memoryUpdatedAt, refetch: refetchMemory } = useMemoryUsage('normal', true);
 
   // Calculate state distribution from adapters
   const stateDistribution = useMemo(() => {
@@ -91,102 +97,101 @@ export function AdapterStatusWidget() {
   }, [adaptersData]);
 
   const isLoading = isLoadingAdapters || isLoadingMemory;
+  const lastUpdatedCandidates = [
+    adaptersUpdatedAt ? new Date(adaptersUpdatedAt) : null,
+    memoryUpdatedAt ?? null
+  ].filter((d): d is Date => Boolean(d));
+  const lastUpdated = lastUpdatedCandidates.sort((a, b) => b.getTime() - a.getTime())[0] || null;
+
+  const handleRefresh = () => Promise.all([refetchAdapters(), refetchMemory()]);
+
+  const state: DashboardWidgetState = adaptersError
+    ? 'error'
+    : isLoading
+      ? 'loading'
+      : totalAdapters === 0
+        ? 'empty'
+        : 'ready';
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>Adapter Status</span>
-          {!isLoading && !adaptersError && (
-            <Badge variant="outline">
-              {activeAdapters} Active
-            </Badge>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {isLoading ? (
-          <>
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
-          </>
-        ) : adaptersError ? (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="flex items-center justify-between">
-              <span>Failed to load adapter status</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refetch()}
-              >
-                Retry
-              </Button>
-            </AlertDescription>
-          </Alert>
-        ) : totalAdapters === 0 ? (
-          <div className="text-center py-8">
-            <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-2 opacity-20" />
-            <p className="text-sm text-muted-foreground">No adapters found</p>
-          </div>
-        ) : (
-          <>
-            {/* State Distribution */}
-            <div>
-              <div className="flex items-center justify-between text-sm mb-2">
-                <span className="text-muted-foreground">Lifecycle States</span>
-                <span className="font-medium">{totalAdapters} total</span>
-              </div>
-              <div className="flex h-2 rounded-full overflow-hidden bg-gray-100">
-                {stateDistribution.map((state) => (
-                  state.count > 0 && (
-                    <div
-                      key={state.state}
-                      className={state.color}
-                      style={{ width: `${(state.count / totalAdapters) * 100}%` }}
-                      title={`${state.state}: ${state.count}`}
-                    />
-                  )
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                {stateDistribution.map((state) => (
-                  <div key={state.state} className="flex items-center gap-2 text-xs">
-                    <div className={`w-2 h-2 rounded-full ${state.color}`} />
-                    <span className="text-muted-foreground capitalize">{state.state}:</span>
-                    <span className="font-medium">{state.count}</span>
-                  </div>
-                ))}
-              </div>
+    <DashboardWidgetFrame
+      title="Adapter Status"
+      subtitle="Lifecycle and memory usage"
+      state={state}
+      onRefresh={handleRefresh}
+      onRetry={handleRefresh}
+      lastUpdated={lastUpdated}
+      errorMessage={adaptersError ? 'Failed to load adapter status' : undefined}
+      emptyMessage="No adapters found"
+      emptyAction={
+        <Button variant="outline" size="sm" onClick={() => window.location.assign('/adapters')}>
+          Go to adapters
+        </Button>
+      }
+      headerRight={
+        !isLoading && !adaptersError ? (
+          <Badge variant="outline">
+            {activeAdapters} Active
+          </Badge>
+        ) : null
+      }
+      loadingContent={
+        <>
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </>
+      }
+    >
+      <div>
+        <div className="flex items-center justify-between text-sm mb-2">
+          <span className="text-muted-foreground">Lifecycle States</span>
+          <span className="font-medium">{totalAdapters} total</span>
+        </div>
+        <div className="flex h-2 rounded-full overflow-hidden bg-gray-100">
+          {stateDistribution.map((state) => (
+            state.count > 0 && (
+              <div
+                key={state.state}
+                className={state.color}
+                style={{ width: `${(state.count / totalAdapters) * 100}%` }}
+                title={`${state.state}: ${state.count}`}
+              />
+            )
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          {stateDistribution.map((state) => (
+            <div key={state.state} className="flex items-center gap-2 text-xs">
+              <div className={`w-2 h-2 rounded-full ${state.color}`} />
+              <span className="text-muted-foreground capitalize">{state.state}:</span>
+              <span className="font-medium">{state.count}</span>
             </div>
+          ))}
+        </div>
+      </div>
 
-            {/* Memory Usage */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Layers className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Memory Usage</span>
-              </div>
-              <Progress value={memoryUsage} className="h-2" />
-              <p className="text-xs text-muted-foreground mt-1">
-                {memoryUsage.toFixed(1)}% of adapter memory in use
-              </p>
-            </div>
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Layers className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Memory Usage</span>
+        </div>
+        <Progress value={memoryUsage} className="h-2" />
+        <p className="text-xs text-muted-foreground mt-1">
+          {memoryUsage.toFixed(1)}% of adapter memory in use
+        </p>
+      </div>
 
-            {/* Activation Rate */}
-            <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-              <div className="flex items-center gap-2">
-                <Activity className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Avg Activation</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-lg font-semibold">{(avgActivationRate * 100).toFixed(1)}%</span>
-                <TrendingUp className="h-4 w-4 text-gray-600" />
-              </div>
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+      <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Avg Activation</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-lg font-semibold">{(avgActivationRate * 100).toFixed(1)}%</span>
+          <TrendingUp className="h-4 w-4 text-gray-600" />
+        </div>
+      </div>
+    </DashboardWidgetFrame>
   );
 }

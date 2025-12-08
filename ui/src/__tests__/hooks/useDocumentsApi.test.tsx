@@ -237,6 +237,7 @@ describe('useDocumentsApi - Mutations', () => {
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
       });
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
       const wrapper = ({ children }: { children: React.ReactNode }) => (
         <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
       );
@@ -249,12 +250,8 @@ describe('useDocumentsApi - Mutations', () => {
       expect(mockUploadDocument).toHaveBeenCalledWith(file, 'uploaded.pdf');
       expect(result.current.isUploading).toBe(false);
 
-      // Verify cache invalidation
-      const invalidatedKeys = queryClient
-        .getQueryCache()
-        .getAll()
-        .filter(q => q.state.status === 'pending');
-      expect(invalidatedKeys.length).toBeGreaterThan(0);
+      // Verify invalidateQueries was called with correct query key
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.lists() });
     });
 
     it('handles upload error', async () => {

@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions, type QueryClient } from '@tanstack/react-query';
 import apiClient from '@/api/client';
 import type {
   TrainingJob,
@@ -46,6 +46,15 @@ const QUERY_KEYS = {
   templates: ['training', 'templates'] as const,
   template: (id: string) => ['training', 'templates', id] as const,
 };
+
+export const TRAINING_QUERY_KEYS = QUERY_KEYS;
+
+export async function invalidateTrainingCaches(queryClient: QueryClient) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.trainingJobs }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.datasets }),
+  ]);
+}
 
 // Training Jobs Hooks
 
@@ -215,8 +224,7 @@ export function useCreateDatasetFromDocuments(
     mutationFn: (params) => apiClient.createDatasetFromDocuments(params),
     ...restOptions,
     onSuccess: async (data, variables, context, mutation) => {
-      // Invalidate datasets cache so the list refreshes
-      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.datasets });
+      await invalidateTrainingCaches(queryClient);
       // Call user-provided onSuccess if any
       await onSuccess?.(data, variables, context, mutation);
     },

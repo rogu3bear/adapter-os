@@ -79,6 +79,7 @@ function TrainingJobDetailContent() {
           total_epochs: progressEvent.total_epochs,
           current_loss: progressEvent.current_loss,
           tokens_per_second: progressEvent.tokens_per_second,
+          tokens_processed: progressEvent.tokens_processed ?? prev.tokens_processed,
           eta_seconds: progressEvent.estimated_time_remaining_sec,
           error_message: progressEvent.error,
         } : prev);
@@ -91,6 +92,7 @@ function TrainingJobDetailContent() {
             epoch: progressEvent.current_epoch,
             progress_pct: progressEvent.progress_pct,
             tokens_per_second: progressEvent.tokens_per_second,
+            tokens_processed: progressEvent.tokens_processed ?? prev?.tokens_processed,
           }));
         }
       }
@@ -214,6 +216,32 @@ function TrainingJobDetailContent() {
 
   const StatusIcon = statusConfig[job.status]?.icon || Clock;
   const statusClass = statusConfig[job.status]?.className || 'text-gray-500';
+  const backendLabel = job.backend || metrics?.backend || 'unknown';
+  const backendDevice = job.backend_device || metrics?.backend_device;
+  const backendDeviceLower = (backendDevice || '').toLowerCase();
+  const backendLower = (job.backend || '').toLowerCase();
+  const determinismLabel = job.determinism_mode || 'n/a';
+  const seedLabel = job.training_seed !== undefined ? `seed ${job.training_seed}` : null;
+  const usingGpu = (metrics?.using_gpu ?? job.require_gpu ?? false)
+    || backendDeviceLower.includes('gpu')
+    || backendDeviceLower.includes('ane')
+    || backendLower.includes('metal')
+    || backendLower.includes('coreml');
+  const latestLoss = metrics?.loss ?? job.current_loss ?? job.loss;
+  const tokensProcessed = job.tokens_processed ?? metrics?.tokens_processed;
+  const examplesProcessed = job.examples_processed ?? metrics?.examples_processed;
+  const tokensPerSecond = job.tokens_per_second ?? metrics?.tokens_per_second;
+  const examplesPerSecond = metrics?.throughput_examples_per_sec ?? job.throughput_examples_per_sec;
+  const hasPerformanceMetrics = latestLoss !== undefined
+    || tokensProcessed !== undefined
+    || examplesProcessed !== undefined
+    || tokensPerSecond !== undefined
+    || examplesPerSecond !== undefined;
+  const formatCount = (value?: number) => value !== undefined ? value.toLocaleString() : 'N/A';
+  const formatRate = (value?: number, fractionDigits = 1) =>
+    value !== undefined
+      ? value.toLocaleString(undefined, { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits })
+      : 'N/A';
 
   return (
     <div className="space-y-6">
@@ -334,6 +362,84 @@ function TrainingJobDetailContent() {
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
+          <Card className="mb-4">
+            <CardHeader>
+              <CardTitle>Backend & Determinism</CardTitle>
+              <CardDescription>Placement and reproducibility for this run</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div>
+                  <dt className="text-sm text-muted-foreground">Backend</dt>
+                  <dd className="flex items-center gap-2 text-sm">
+                    <span>{backendLabel}</span>
+                    <Badge variant={usingGpu ? 'default' : 'secondary'} className="text-[10px]">
+                      {usingGpu ? 'GPU/Accelerator' : 'CPU'}
+                    </Badge>
+                  </dd>
+                  {job.backend_reason && (
+                    <p className="text-xs text-muted-foreground mt-1">{job.backend_reason}</p>
+                  )}
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">Backend Device</dt>
+                  <dd className="text-sm">
+                    {backendDevice || 'device n/a'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">Determinism</dt>
+                  <dd className="text-sm">
+                    {determinismLabel}
+                    {seedLabel && (
+                      <span className="font-mono text-xs text-muted-foreground ml-2">{seedLabel}</span>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            </CardContent>
+          </Card>
+
+          <Card className="mb-4">
+            <CardHeader>
+              <CardTitle>Performance</CardTitle>
+              <CardDescription>Latest training throughput metrics</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {hasPerformanceMetrics ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-sm text-muted-foreground">Latest Loss</div>
+                    <div className="text-lg font-mono">
+                      {latestLoss !== undefined ? latestLoss.toFixed(4) : 'N/A'}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-sm text-muted-foreground">Tokens Processed</div>
+                    <div className="text-lg font-mono">{formatCount(tokensProcessed)}</div>
+                    {examplesProcessed !== undefined && (
+                      <div className="text-xs text-muted-foreground">
+                        Examples: {formatCount(examplesProcessed)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-sm text-muted-foreground">Tokens/sec</div>
+                    <div className="text-lg font-mono">{formatRate(tokensPerSecond, 1)}</div>
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-sm text-muted-foreground">Examples/sec</div>
+                    <div className="text-lg font-mono">{formatRate(examplesPerSecond, 2)}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  Performance metrics not available for this job
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Job Information</CardTitle>
@@ -373,24 +479,6 @@ function TrainingJobDetailContent() {
                 <div>
                   <dt className="text-sm text-muted-foreground">Template ID</dt>
                   <dd className="font-mono text-sm">{job.template_id || '-'}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm text-muted-foreground">Backend</dt>
-                  <dd className="text-sm">
-                    {job.backend || 'unknown'}
-                    {job.backend_reason && (
-                      <span className="text-muted-foreground"> — {job.backend_reason}</span>
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-sm text-muted-foreground">Determinism</dt>
-                  <dd className="text-sm">
-                    {job.determinism_mode || 'n/a'}
-                    {job.training_seed !== undefined && (
-                      <span className="font-mono text-xs text-muted-foreground ml-2">seed {job.training_seed}</span>
-                    )}
-                  </dd>
                 </div>
                 <div>
                   <dt className="text-sm text-muted-foreground">GPU Requirements</dt>

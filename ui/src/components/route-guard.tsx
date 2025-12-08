@@ -63,7 +63,7 @@ export function RouteGuard({ route, children, fallbackPath = '/dashboard' }: Rou
   return (
     <ErrorBoundary
       FallbackComponent={ErrorFallback}
-      onError={(error) => logUIError(error, { scope: 'page', component: 'RouteGuard', route: route.path })}
+      onError={(error) => logUIError(error, { scope: 'page', component: 'RouteGuard', route: route.path, severity: 'error' })}
     >
       <Suspense fallback={<PageSkeleton variant={route.skeletonVariant || 'default'} />}>
         <Component />

@@ -150,7 +150,7 @@ describe('ActivityFeedWidget integration', () => {
     renderWidget();
 
     await waitFor(() => {
-      expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 500);
+      expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
     });
   });
 

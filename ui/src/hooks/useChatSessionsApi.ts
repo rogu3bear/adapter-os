@@ -348,6 +348,7 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
     collectionId?: string | null;
     documentContext?: { documentId: string; documentName?: string };
     sourceType?: string;
+    sessionConfig?: Record<string, unknown>;
   };
 
   const createSessionMutation = useMutation({
@@ -367,6 +368,9 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
       }
       if (documentName) {
         metadata.documentName = documentName;
+      }
+      if (params.sessionConfig) {
+        metadata.chat_session_config = params.sessionConfig;
       }
 
       const req: CreateChatSessionRequest = {
@@ -470,7 +474,8 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
       stackName?: string,
       collectionId?: string,
       documentContext?: { documentId: string; documentName?: string },
-      sourceType?: string
+      sourceType?: string,
+      sessionConfig?: Record<string, unknown>
     ): Promise<LocalChatSession> => {
       try {
         return await createSessionMutation.mutateAsync({
@@ -480,6 +485,7 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
           collectionId,
           documentContext,
           sourceType,
+          sessionConfig,
         });
       } catch (error) {
         logger.error('Failed to create session on backend', {

@@ -15,6 +15,12 @@ export interface UseChatStreamingOptions {
   /** Stack ID to use for inference (adapter IDs will be resolved from stack) */
   stackId?: string;
 
+  /** Routing determinism mode (deterministic | adaptive) */
+  routingDeterminismMode?: 'deterministic' | 'adaptive';
+
+  /** Per-adapter strength overrides (multiplier) */
+  adapterStrengthOverrides?: Record<string, number>;
+
   /** Collection ID for RAG-enhanced inference */
   collectionId?: string;
 
@@ -196,12 +202,6 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
       return;
     }
 
-    // Validate adapter IDs
-    if (!adapterIds || adapterIds.length === 0) {
-      toast.error('Please select a stack with adapters');
-      return;
-    }
-
     // Check if already streaming
     if (isStreaming) {
       toast.warning('A message is already being processed');
@@ -236,9 +236,11 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
       prompt: validatedContent,
       max_tokens: 500,
       temperature: 0.7,
-      adapter_stack: adapterIds,
+      adapter_stack: adapterIds ?? [],
       ...(collectionId && { collection_id: collectionId }),
       ...(documentId && { document_id: documentId }),
+      ...(options.routingDeterminismMode && { routing_determinism_mode: options.routingDeterminismMode }),
+      ...(options.adapterStrengthOverrides && { adapter_strength_overrides: options.adapterStrengthOverrides }),
     };
 
     try {

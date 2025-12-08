@@ -125,10 +125,16 @@ export function TrainingJobTable({
               <GlossaryTooltip termId="training-status">Status</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
+              <GlossaryTooltip termId="training-backend">Backend</GlossaryTooltip>
+            </TableHead>
+            <TableHead role="columnheader" scope="col">
               <GlossaryTooltip termId="training-progress">Progress</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
               <GlossaryTooltip termId="training-loss">Loss</GlossaryTooltip>
+            </TableHead>
+            <TableHead role="columnheader" scope="col">
+              <GlossaryTooltip termId="training-throughput">Throughput</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
               <GlossaryTooltip termId="training-epoch">Epoch</GlossaryTooltip>
@@ -148,6 +154,14 @@ export function TrainingJobTable({
               const isJobCancelling = isCancelling.has(typedJob.id);
               const isActive = typedJob.status === 'running';
               const isTerminal = typedJob.status === 'completed' || typedJob.status === 'failed' || typedJob.status === 'cancelled';
+              const backendLabel = typedJob.backend || 'n/a';
+              const backendDevice = typedJob.backend_device || '';
+              const usingGpu = typedJob.backend_device?.toLowerCase().includes('gpu')
+                || typedJob.backend?.toLowerCase().includes('metal')
+                || typedJob.backend?.toLowerCase().includes('coreml')
+                || typedJob.require_gpu === true;
+              const tokensPerSecond = typedJob.tokens_per_second;
+              const examplesPerSecond = typedJob.throughput_examples_per_sec;
 
               return (
                 <TableRow key={typedJob.id} role="row">
@@ -179,6 +193,22 @@ export function TrainingJobTable({
                     </div>
                   </TableCell>
                   <TableCell>
+                    <div className="flex flex-col gap-1 min-w-[calc(var(--base-unit)*25)]">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">{backendLabel}</span>
+                        <Badge variant={usingGpu ? 'default' : 'secondary'} className="text-[10px]">
+                          {usingGpu ? 'GPU/Accelerator' : 'CPU'}
+                        </Badge>
+                      </div>
+                      <span
+                        className="text-xs text-muted-foreground truncate max-w-[calc(var(--base-unit)*37.5)]"
+                        title={backendDevice || backendLabel}
+                      >
+                        {backendDevice || 'device n/a'}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
                     <div className="flex items-center gap-2 min-w-[calc(var(--base-unit)*30)]">
                       <Progress
                         value={typedJob.progress_pct ?? typedJob.progress ?? 0}
@@ -191,6 +221,18 @@ export function TrainingJobTable({
                   </TableCell>
                   <TableCell className="text-muted-foreground font-mono">
                     {typedJob.current_loss?.toFixed(4) ?? typedJob.loss?.toFixed(4) ?? '-'}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground font-mono">
+                    <div className="flex flex-col leading-tight">
+                      <span>
+                        {tokensPerSecond !== undefined ? `${tokensPerSecond.toFixed(1)} tok/s` : 'N/A'}
+                      </span>
+                      {examplesPerSecond !== undefined && (
+                        <span className="text-xs text-muted-foreground">
+                          {examplesPerSecond.toFixed(2)} ex/s
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {typedJob.current_epoch !== undefined && typedJob.total_epochs !== undefined

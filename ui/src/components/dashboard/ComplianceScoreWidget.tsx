@@ -1,5 +1,4 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Shield, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
@@ -8,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { usePolicies, useComplianceAudit } from '@/hooks/useSecurity';
+import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
 interface PolicyPackStatus {
   name: string;
@@ -17,11 +17,29 @@ interface PolicyPackStatus {
 
 export function ComplianceScoreWidget() {
   const navigate = useNavigate();
-  const { policies, isLoading: isPoliciesLoading, error: policiesError } = usePolicies();
-  const { complianceAudit, isLoading: isComplianceLoading, error: complianceError } = useComplianceAudit();
+  const {
+    policies,
+    isLoading: isPoliciesLoading,
+    error: policiesError,
+    refetch: refetchPolicies,
+    lastUpdated: policiesUpdatedAt
+  } = usePolicies();
+  const {
+    complianceAudit,
+    isLoading: isComplianceLoading,
+    error: complianceError,
+    refetch: refetchCompliance,
+    lastUpdated: complianceUpdatedAt
+  } = useComplianceAudit();
 
   const isLoading = isPoliciesLoading || isComplianceLoading;
   const error = policiesError || complianceError;
+
+  const lastUpdated = [policiesUpdatedAt, complianceUpdatedAt]
+    .filter((d): d is Date => Boolean(d))
+    .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+
+  const handleRefresh = () => Promise.all([refetchPolicies(), refetchCompliance()]);
 
   // Calculate compliance metrics from API data
   const totalPacks = policies?.length || 0;
@@ -67,106 +85,108 @@ export function ComplianceScoreWidget() {
     return 'Needs Attention';
   };
 
+  const state: DashboardWidgetState = error
+    ? 'error'
+    : isLoading
+      ? 'loading'
+      : totalPacks === 0
+        ? 'empty'
+        : 'ready';
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            <span>Compliance Score</span>
-          </div>
-          {!isLoading && !error && (
-            <Badge variant={overallScore >= 95 ? 'default' : 'destructive'}>
-              {getScoreBadge(overallScore)}
-            </Badge>
+    <DashboardWidgetFrame
+      title={
+        <div className="flex items-center gap-2">
+          <Shield className="h-5 w-5" />
+          <span>Compliance Score</span>
+        </div>
+      }
+      subtitle="Policy compliance overview"
+      state={state}
+      onRefresh={handleRefresh}
+      onRetry={handleRefresh}
+      lastUpdated={lastUpdated}
+      errorMessage={error ? (error instanceof Error ? error.message : String(error)) : undefined}
+      emptyMessage="No policies configured"
+      emptyAction={
+        <Button variant="outline" size="sm" onClick={() => navigate('/security/policies')}>
+          Add policies
+        </Button>
+      }
+      headerRight={
+        !isLoading && !error ? (
+          <Badge variant={overallScore >= 95 ? 'default' : 'destructive'}>
+            {getScoreBadge(overallScore)}
+          </Badge>
+        ) : null
+      }
+      loadingContent={
+        <>
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-2 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </>
+      }
+    >
+      <div className="text-center">
+        <div className={`text-4xl font-bold ${getScoreColor(overallScore)}`}>
+          {overallScore}%
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          {compliantPacks}/{totalPacks} Policies Compliant
+        </p>
+      </div>
+
+      <div>
+        <Progress value={overallScore} className="h-2" />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Policies</span>
+          {violations > 0 && (
+            <span className="text-gray-700 font-medium">{violations} violations</span>
           )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {isLoading ? (
-          <>
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-2 w-full" />
-            <Skeleton className="h-32 w-full" />
-          </>
-        ) : error ? (
-          <ErrorRecovery
-            error={error instanceof Error ? error.message : String(error)}
-            onRetry={() => window.location.reload()}
-          />
-        ) : totalPacks === 0 ? (
-          <div className="text-center py-8">
-            <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-2 opacity-20" />
-            <p className="text-sm text-muted-foreground">No policies configured</p>
-          </div>
-        ) : (
-          <>
-            {/* Overall Score */}
-            <div className="text-center">
-              <div className={`text-4xl font-bold ${getScoreColor(overallScore)}`}>
-                {overallScore}%
-              </div>
-              <p className="text-sm text-muted-foreground mt-1">
-                {compliantPacks}/{totalPacks} Policies Compliant
-              </p>
-            </div>
-
-            {/* Progress Ring or Bar */}
-            <div>
-              <Progress value={overallScore} className="h-2" />
-            </div>
-
-            {/* Policy Pack Summary */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Policies</span>
-                {violations > 0 && (
-                  <span className="text-gray-700 font-medium">{violations} violations</span>
+        </div>
+        {policyPacks.length > 0 ? (
+          <div className="space-y-1">
+            {policyPacks.map((pack) => (
+              <div key={pack.name} className="flex items-center justify-between text-sm p-2 rounded hover:bg-muted">
+                <div className="flex items-center gap-2">
+                  {pack.compliant ? (
+                    <CheckCircle className="h-4 w-4 text-gray-600" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-gray-700" />
+                  )}
+                  <span>{pack.name}</span>
+                </div>
+                {pack.violations > 0 && (
+                  <Badge variant="destructive" className="text-xs">
+                    {pack.violations}
+                  </Badge>
                 )}
               </div>
-              {policyPacks.length > 0 ? (
-                <div className="space-y-1">
-                  {policyPacks.map((pack) => (
-                    <div key={pack.name} className="flex items-center justify-between text-sm p-2 rounded hover:bg-muted">
-                      <div className="flex items-center gap-2">
-                        {pack.compliant ? (
-                          <CheckCircle className="h-4 w-4 text-gray-600" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-gray-700" />
-                        )}
-                        <span>{pack.name}</span>
-                      </div>
-                      {pack.violations > 0 && (
-                        <Badge variant="destructive" className="text-xs">
-                          {pack.violations}
-                        </Badge>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-4">
-                  <p className="text-sm text-muted-foreground">No policies to display</p>
-                </div>
-              )}
-            </div>
-
-            {/* Action Button */}
-            {violations > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={() => navigate('/security/policies')}
-              >
-                <AlertTriangle className="h-4 w-4 mr-2" />
-                Review Violations
-              </Button>
-            )}
-          </>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-4">
+            <p className="text-sm text-muted-foreground">No policies to display</p>
+          </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+
+      {violations > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => navigate('/security/policies')}
+        >
+          <AlertTriangle className="h-4 w-4 mr-2" />
+          Review Violations
+        </Button>
+      )}
+    </DashboardWidgetFrame>
   );
 }
 

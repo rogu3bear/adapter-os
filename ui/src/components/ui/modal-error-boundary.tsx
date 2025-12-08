@@ -60,6 +60,7 @@ export function ModalErrorBoundary({ children, context, onClose }: ModalErrorBou
           component: context?.component ?? 'Modal',
           route: context?.route,
           pageKey: context?.pageKey,
+          severity: 'error',
         })
       }
     >

@@ -146,7 +146,7 @@ export class PageErrorBoundary extends Component<ErrorBoundaryProps, ErrorBounda
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('[PageErrorBoundary] Caught error:', error, errorInfo);
     this.props.onError?.(error, errorInfo);
-    logUIError(error, { scope: 'page', component: 'PageErrorBoundary' });
+    logUIError(error, { scope: 'page', component: 'PageErrorBoundary', severity: 'error' });
   }
 
   render() {

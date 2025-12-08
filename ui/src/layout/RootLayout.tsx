@@ -30,14 +30,29 @@ import { cn } from '@/components/ui/utils';
 import { Lock, ChevronDown, ChevronRight } from 'lucide-react';
 import { LiveDataStatusProvider } from '@/hooks/useLiveDataStatus';
 import { ConnectionStatusIndicator } from '@/components/header/ConnectionStatusIndicator';
-import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import LayoutDebugOverlay from '@/components/dev/LayoutDebugOverlay';
 import { useLayoutDebug } from '@/hooks/useLayoutDebug';
+import { useSessionExpiryHandler } from '@/hooks/useSessionExpiryHandler';
+import type { SessionMode } from '@/api/auth-types';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const COLLAPSED_GROUPS_KEY = 'aos_sidebar_collapsed_groups';
+
+export function SessionModeBanner({ sessionMode }: { sessionMode: SessionMode }) {
+  if (sessionMode !== 'dev_bypass') {
+    return null;
+  }
+
+  return (
+    <Alert variant="warning" className="mb-[var(--space-3)] border-amber-200 bg-amber-50 text-amber-950">
+      <AlertTitle>Dev bypass active</AlertTitle>
+      <AlertDescription>Demo admin session. Do not use with real data.</AlertDescription>
+    </Alert>
+  );
+}
 
 interface RootLayoutContentProps {
   navigationGroups: ReturnType<typeof generateNavigationGroups>;
@@ -45,7 +60,7 @@ interface RootLayoutContentProps {
 
 function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
   const { theme, toggleTheme } = useTheme();
-  const { user, logout } = useAuth();
+  const { user, logout, sessionMode } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { openPalette } = useCommandPalette();
@@ -132,6 +147,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
         <SidebarContent id="navigation" className="pt-2" role="navigation" aria-label="Main navigation">
           {navigationGroups.filter(group => shouldShowNavGroup(group, user.role)).map((group) => {
             const isCollapsed = collapsedGroups[group.title];
+            const groupMenuId = `nav-group-${group.title.replace(/\s+/g, '-').toLowerCase()}`;
             return (
               <SidebarGroup key={group.title}>
                 <SidebarGroupLabel asChild>
@@ -143,6 +159,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
                     )}
                     aria-expanded={!isCollapsed}
                     aria-label={`Toggle ${group.title} menu`}
+                    aria-controls={groupMenuId}
                   >
                     <span>{group.title}</span>
                     {isCollapsed ? (
@@ -154,7 +171,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
                 </SidebarGroupLabel>
 
                 {!isCollapsed && (
-                  <SidebarMenu>
+                  <SidebarMenu id={groupMenuId} aria-label={`${group.title} links`}>
                     {group.items.map((item) => {
                       const Icon = item.icon;
                       const isActive = location.pathname === item.to;
@@ -166,6 +183,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
                             tooltip={item.label}
                             size={isMobile ? 'lg' : 'default'}
                             aria-label={`Navigate to ${item.label}`}
+                            aria-current={isActive ? 'page' : undefined}
                           >
                             <Icon className={isMobile ? 'h-5 w-5' : 'h-4 w-4'} />
                             <span>{item.label}</span>
@@ -215,6 +233,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
           }}
         >
           <div className="mx-auto w-full" style={{ maxWidth: 'var(--layout-content-width-xl)' }}>
+            <SessionModeBanner sessionMode={sessionMode} />
             <SectionErrorBoundary sectionName="Page Content">
               <Outlet />
             </SectionErrorBoundary>
@@ -243,6 +262,8 @@ export default function RootLayout() {
   const location = useLocation();
   const [tenantError, setTenantError] = useState<string | null>(null);
   const [isSwitchingTenant, setIsSwitchingTenant] = useState(false);
+
+  useSessionExpiryHandler();
 
   // Generate navigation groups from centralized route config
   const navigationGroups = useMemo(() => generateNavigationGroups(user?.role, user?.permissions), [user?.role, user?.permissions]);
@@ -371,7 +392,6 @@ if (!user && location.pathname !== '/login') {
   } catch {
     // ignore storage errors
   }
-  toast.error('Session expired — please sign in again.');
   return <Navigate to="/login" replace />;
 }
 

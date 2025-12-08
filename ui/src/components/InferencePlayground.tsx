@@ -5,6 +5,7 @@ import { Badge } from './ui/badge';
 import { Textarea } from './ui/textarea';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { Slider } from './ui/slider';
 import { Alert, AlertDescription } from './ui/alert';
 import { validatePrompt, ValidationResult, MAX_PROMPT_LENGTH } from './inference/PromptInput';
 import { AdvancedOptions } from './inference/AdvancedOptions';
@@ -36,7 +37,8 @@ import {
   TrendingUp,
   Target,
   Plus,
-  HelpCircle
+  HelpCircle,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '@/api/client';
@@ -116,6 +118,8 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('none');
   const [selectedStackId, setSelectedStackId] = useState<string>('');
+  const [adapterStrength, setAdapterStrength] = useState<number | null>(null);
+  const [isAdapterStrengthUpdating, setIsAdapterStrengthUpdating] = useState(false);
 
   // Fetch stacks and default stack
   const { data: stacks = [] } = useAdapterStacks();
@@ -253,6 +257,37 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     setShowTemplateManager(true);
   }, []);
 
+  const setDeterminismMode = useCallback(
+    (mode: 'deterministic' | 'adaptive') => {
+      setConfigA(prev => ({ ...prev, routing_determinism_mode: mode }));
+      setConfigB(prev => ({ ...prev, routing_determinism_mode: mode }));
+    },
+    [setConfigA, setConfigB]
+  );
+
+  const handleAdapterStrengthCommit = useCallback(
+    async (value: number) => {
+      const targetId = selectedAdapterId && selectedAdapterId !== 'none' ? selectedAdapterId : null;
+      if (!targetId) return;
+      setAdapterStrength(value);
+      setIsAdapterStrengthUpdating(true);
+      try {
+        await apiClient.updateAdapterStrength(targetId, value);
+        setAdapters(prev =>
+          prev.map(adapter =>
+            adapter.id === targetId ? { ...adapter, lora_strength: value } : adapter
+          )
+        );
+        toast.success(`Strength set to ${value.toFixed(2)}`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to update strength');
+      } finally {
+        setIsAdapterStrengthUpdating(false);
+      }
+    },
+    [selectedAdapterId]
+  );
+
 
   useEffect(() => {
     // Load adapters
@@ -316,6 +351,15 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
       });
     }
   }, [defaultStack, selectedStackId]);
+
+  useEffect(() => {
+    const target = adapters.find(a => a.id === selectedAdapterId);
+    if (target) {
+      setAdapterStrength(target.lora_strength ?? 1);
+    } else {
+      setAdapterStrength(null);
+    }
+  }, [adapters, selectedAdapterId]);
 
   const saveSession = useCallback((config: InferenceConfig, response: InferResponse) => {
     const selectedStack = stacks.find(s => s.id === selectedStackId);
@@ -840,17 +884,25 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
 
                         return (
                           <SelectItem key={adapter.id} value={adapter.id}>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-start gap-2">
                               <span
-                                className={`h-2 w-2 rounded-full ${stateIndicator.color}`}
+                                className={`h-2 w-2 rounded-full ${stateIndicator.color} mt-1`}
                                 title={stateIndicator.label}
                                 aria-label={`State: ${stateIndicator.label}`}
                               />
-                              <Code className="h-4 w-4" aria-hidden="true" />
-                              <span>{adapter.name}</span>
-                              <span className="text-xs text-muted-foreground">
-                                ({stateIndicator.label})
-                              </span>
+                              <Code className="h-4 w-4 mt-[2px]" aria-hidden="true" />
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span>{adapter.name}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    ({stateIndicator.label})
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  Tier: {adapter.lora_tier ?? adapter.tier ?? 'unknown'} · Scope:{' '}
+                                  {adapter.lora_scope ?? adapter.scope ?? 'unspecified'}
+                                </div>
+                              </div>
                             </div>
                           </SelectItem>
                         );
@@ -863,6 +915,72 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                       : 'Adapters are trained LoRA modules that specialize the model for specific tasks. Select one to enhance inference quality. Base model runs without any adapter.'}
                   </p>
                 </div>
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1">
+                    Determinism
+                    <GlossaryTooltip termId="router-determinism">
+                      <span className="cursor-help text-muted-foreground hover:text-foreground">
+                        <HelpCircle className="h-3 w-3" />
+                      </span>
+                    </GlossaryTooltip>
+                  </Label>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={configA.routing_determinism_mode === 'deterministic' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setDeterminismMode('deterministic')}
+                    >
+                      Deterministic
+                    </Button>
+                    <Button
+                      variant={configA.routing_determinism_mode === 'adaptive' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setDeterminismMode('adaptive')}
+                    >
+                      Adaptive
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Per-request override; stack defaults stay unchanged.
+                  </p>
+                </div>
+
+                {selectedAdapterId && selectedAdapterId !== 'none' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Label>Strength</Label>
+                      {isAdapterStrengthUpdating && (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                      <span className="text-sm text-muted-foreground">
+                        {(adapterStrength ?? 1).toFixed(2)}
+                      </span>
+                    </div>
+                    <Slider
+                      min={0.2}
+                      max={2}
+                      step={0.05}
+                      value={[adapterStrength ?? 1]}
+                      onValueChange={([value]) => setAdapterStrength(value)}
+                      onValueCommit={([value]) => handleAdapterStrengthCommit(value)}
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => handleAdapterStrengthCommit(0.4)}>
+                        Light
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleAdapterStrengthCommit(0.7)}>
+                        Medium
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleAdapterStrengthCommit(1.0)}>
+                        Strong
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Adjusts runtime scale for this adapter only.
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
