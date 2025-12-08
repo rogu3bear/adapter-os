@@ -12,6 +12,8 @@
 - **OOM / memory pressure**: lower `max_memory_mb` or use quantized model; ensure swap not used heavily.
 - **Latency regression**: compare against Metal baseline; enable HKDF-seeded determinism in configs.
 - **Metal device not found** (`NSRangeException` crash): see [MLX_METAL_DEVICE_ACCESS.md](./MLX_METAL_DEVICE_ACCESS.md) for environmental fixes.
+- **Model path validation fails**: confirm `AOS_MODEL_PATH` points to an MLX directory containing `config.json`.
+- **Determinism reported as false**: ensure the worker passes the manifest hash (`create_backend_with_model_and_hash`) and build with `--features "mlx-backend,mlx"`; stub builds always report non-deterministic.
 
 ## Metal Device Access Issues
 
@@ -43,6 +45,11 @@ swift -e 'import Metal; print(MTLCreateSystemDefaultDevice() != nil ? "✅ Metal
 - Determinism tests: `cargo test -p adapteros-lora-mlx-ffi determinism_tests --features mlx`
 - Benchmarks: `make bench-mlx`
 
+## Testing Modes
+- Stub CI/default: `cargo test -p adapteros-lora-mlx-ffi` (no MLX runtime needed; real e2e suites are gated).
+- Real MLX: `cargo test -p adapteros-lora-mlx-ffi --features "mlx-backend,mlx" -- --include-ignored` (runs e2e/integration; requires MLX install + fixtures).
+- Focused e2e: `cargo test -p adapteros-lora-mlx-ffi --features "mlx-backend,mlx" e2e_workflow_tests`
+
 ## Log Signals
 - Look for `MLX FFI build: REAL` in build output.
 - Backend health warnings surfaced via `/v1/backends/{name}/status` (`warnings`/`errors` arrays).
@@ -51,3 +58,5 @@ swift -e 'import Metal; print(MTLCreateSystemDefaultDevice() != nil ? "✅ Metal
 ## Rollback
 - Set `backend = "metal"` or `"coreml"` in config and reload service.
 - Keep MLX assets on disk for fast re-enable once issues are resolved.
+
+MLNavigator Inc Monday Dec 8, 2025.

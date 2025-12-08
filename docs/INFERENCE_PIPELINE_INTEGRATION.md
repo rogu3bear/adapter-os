@@ -13,6 +13,8 @@ This document details the integration status of the complete inference pipeline 
 UI (React) → REST API (/v1/infer) → Router (K-sparse) → Backend (MLX/CoreML) → Adapter Loading → Response
 ```
 
+**Backend reality:** CoreML and Metal are available when built with `coreml-backend` / `metal-backend`; MLX runs as a stub unless built with `--features "multi-backend,mlx"` and the MLX runtime installed.
+
 ## Verified Components
 
 ### 1. Unified Adapter File Format (.aos)
@@ -79,7 +81,7 @@ All adapters contain:
 **Status:** WORKING
 
 - `RouterRing` with K-sparse selection
-- Q15 quantized gates (16-bit fixed-point)
+- Q15 quantized gates (16-bit fixed-point, `gate_q15_denominator=32767`)
 - Up to 8 adapters per ring
 
 **Implementation:** `crates/adapteros-lora-kernel-api/src/lib.rs`
@@ -110,9 +112,9 @@ let io = IoBuffers {
 
 | Backend | Status | Use Case |
 |---------|--------|----------|
-| CoreML | Implemented | ANE acceleration (production) |
-| MLX | Implemented | Production inference, training |
-| Metal | Building | Legacy fallback |
+| CoreML | Implemented (default on macOS builds) | ANE acceleration (production) |
+| MLX | Stub by default; real with `multi-backend,mlx` + MLX runtime | Production inference/training on Apple Silicon |
+| Metal | Implemented | Deterministic fallback |
 
 **Implementation:** `crates/adapteros-lora-worker/src/backend_factory.rs`
 
@@ -237,3 +239,5 @@ Full end-to-end inference requires:
 1. Downloaded Qwen 2.5 7B model files
 2. Running server for API tests
 3. Sufficient GPU memory for model + adapters
+
+MLNavigator Inc 2025-12-08.

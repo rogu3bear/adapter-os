@@ -1,39 +1,38 @@
 # GPU Training Integration for AdapterOS
 
-**Status:** Complete
-**Updated:** 2025-11-21
+**Status:** Orchestrator now calls `init_kernels()` by default (CPU fallback when assets missing)
+**Updated:** 2025-12-08
 **Location:** `crates/adapteros-lora-worker/src/training/trainer.rs`
 
 ## Overview
 
-Complete GPU training integration enabling automatic backend selection and accelerated LoRA training with fallback to CPU when GPU is unavailable.
+GPU acceleration is available in `MicroLoRATrainer`; orchestrated training now invokes `init_kernels()` automatically before the training loop, using model assets resolved from `AOS_MODEL_PATH` when present. If no GPU assets are available and GPU is optional, the job proceeds on CPU.
 
 ## Features Implemented
 
 ### 1. Multi-Backend GPU Support
 
-**Available Backends (Priority Order):**
+**Available Backends (Priority Order for Training):**
 
-1. **CoreML with ANE** (macOS 13+, `coreml-backend` feature)
-   - Apple Neural Engine acceleration
-   - Best power efficiency for production training
-   - Requires: macOS, Apple Silicon
+1. **CoreML with ANE** (macOS 13+, `coreml-backend` feature; default on macOS builds)  
+   - Apple Neural Engine acceleration  
+   - Best power efficiency for production training  
+   - Requires: macOS, Apple Silicon with ANE
 
-2. **Metal GPU** (macOS, always available)
-   - Deterministic GPU computation
-   - Fallback for systems without ANE
+2. **Metal GPU** (macOS, optional `metal-backend`)  
+   - Deterministic GPU computation (legacy fallback)  
+   - Used when CoreML unavailable  
    - Requires: macOS with Metal-capable GPU
 
-3. **MLX Backend** (production, `multi-backend` feature)
-   - Production inference and training
-   - HKDF-seeded determinism
-   - Enterprise resilience features
-   - Requires: Apple Silicon
+3. **MLX Backend** (`multi-backend` + `mlx` features)  
+   - Real MLX only when `mlx` is enabled; otherwise stub  
+   - HKDF-seeded determinism in real mode  
+   - Requires: Apple Silicon + installed MLX C++ runtime
 
-4. **CPU** (always available)
-   - Pure Rust implementation
-   - Fallback when GPU unavailable
-   - Works on all platforms
+4. **CPU** (always available)  
+   - Pure Rust implementation  
+   - Fallback when GPU unavailable  
+   - Works on all platforms (current orchestrator default)
 
 ### 2. TrainingBackend Enum
 
@@ -72,16 +71,16 @@ let config = TrainingConfig::default()
 
 ### 4. Automatic Backend Selection
 
-**Selection Logic:**
+**Selection Logic (when `init_kernels()` is invoked):**
 1. Validate GPU requirements (error if GPU required but unavailable)
-2. Check user-specified backend preference
-3. Auto-select best available GPU backend in priority order
-4. Fall back to CPU if GPU optional and initialization fails
+2. If `preferred_backend` is set and available, use it
+3. Otherwise auto-select in priority order: CoreML (ANE) → MLX → Metal
+4. If GPU is optional and all GPU candidates fail, fall back to CPU
 
 **Detection Methods:**
-- `detect_available_backends()` - List available backends
+- `detect_available_backends()` - List available backends (runtime capability-based)
 - `describe_available_backends()` - Human-readable description
-- `select_optimal_backend()` - Select best available
+- `build_backend_candidates()` - Candidate chain consumed by `init_kernels()`
 
 ### 5. GPU Kernel Initialization
 
@@ -102,6 +101,8 @@ pub fn init_kernels(&mut self, plan_bytes: &[u8]) -> Result<()> {
 }
 ```
 
+**Important:** `TrainingService::run_training_job` now calls `init_kernels(plan_bytes)` before `train_with_resume()`. Plan bytes are loaded from `AOS_MODEL_PATH` (CoreML `.mlpackage` paths or `model.safetensors`/first shard). When GPU is optional and assets are missing, initialization falls back to CPU; when `require_gpu=true`, missing assets or failed GPU init will fail the job with a clear error.
+
 **Error Handling:**
 - Clear messages when GPU required but unavailable
 - Lists available backends in error output
@@ -121,7 +122,12 @@ pub fn using_gpu(&self) -> bool {
 }
 ```
 
-### 7. Enhanced Telemetry
+### 7. Metrics & Telemetry (training + GPU)
+
+- **Per-epoch callback (`EpochMetrics`)** now carries loss, examples/sec, tokens/sec, tokens per epoch, and running totals.
+- **DB metrics** store `loss`, `tokens_per_sec`, `examples_per_sec`, and `tokens_processed` per epoch.
+- **Completion telemetry** includes backend, backend_device (when known), total tokens processed, tokens/sec, and examples/sec.
+- **MLX GPU metrics** now populate `mlx_memory_used` (stub returns 1MB) with `mlx_utilization: null` when unavailable; Metal metrics remain best-effort via powermetrics.
 
 **Training Start Event:**
 ```json
@@ -150,10 +156,13 @@ pub fn using_gpu(&self) -> bool {
     "training_time_ms": 15234,
     "seed": "...",
     "backend": "Metal",
+    "backend_device": "Apple GPU",
     "using_gpu": true,
     "performance": {
         "examples_per_second": 6.55,
+        "tokens_per_second": 4800.0,
         "total_examples": 100,
+        "total_tokens": 480000,
         "total_epochs": 3,
         "rank": 4,
         "hidden_dim": 768
@@ -185,14 +194,21 @@ When GPU available and selected:
 ```
 GPU acceleration required but no suitable GPU backend available.
 Available training backends:
-  - Metal: Metal GPU available
-  - CPU: CPU-only training
+  - CoreML (ANE): unavailable (missing ANE or feature)
+  - MLX: unavailable (feature/runtime)
+  - Metal: unavailable (no macOS Metal device)
+  - CPU: always available
 ```
 
 **Backend Initialization Failed (Optional GPU):**
 ```
-Failed to initialize Metal backend: [error reason], falling back to CPU training
+Failed to initialize Metal backend: [error reason], attempting fallback (CPU if all GPU fail)
 ```
+
+**Mid-Training Failure Policy:**
+- If `require_gpu=true`: fail the job on GPU error (no silent fallback)
+- If `require_gpu=false`: log warning, drop kernels, and continue on CPU for the remaining work
+- MLX circuit breaker can internally degrade to stub; trainer continues unless `require_gpu=true`
 
 ## Unit Tests
 
@@ -327,7 +343,7 @@ impl MicroLoRATrainer {
 
     pub async fn train(&mut self, examples: &[TrainingExample]) -> Result<TrainingResult>;
     pub async fn train_with_callback<C>(&mut self, examples: &[TrainingExample], on_epoch: C) -> Result<TrainingResult>
-    where C: FnMut(usize, f32);
+    where C: FnMut(EpochMetrics);
 
     // Backend detection
     pub fn detect_available_backends() -> Vec<(TrainingBackend, &'static str)>;
@@ -361,23 +377,24 @@ impl TrainingConfig {
 
 ### Backend Priority Order
 
-1. **CoreML/ANE** - Best power efficiency, production-ready
-2. **Metal** - Universal GPU support, deterministic
-3. **MLX** - Production-ready, HKDF-seeded, enterprise resilience
-4. **CPU** - Fallback for all cases
+1. **CoreML/ANE** - Best power efficiency, production-ready (default on macOS)
+2. **Metal** - Deterministic legacy fallback
+3. **MLX** - Real only with `multi-backend` + `mlx` + MLX runtime
+4. **CPU** - Fallback when GPU optional (current orchestrator default)
 
 ### Error Handling Strategy
 
 - **GPU Required:** Fail fast with actionable error message
 - **GPU Optional:** Log warning, fall back to CPU gracefully
-- **Backend Failure:** Provide clear failure reason
+- **Backend Failure (init):** Try next GPU candidate; CPU if optional and all fail
+- **Backend Failure (mid-training):** If GPU required, fail; if optional, drop kernels and continue on CPU
 
 ### Telemetry
 
 All training events include:
-- Selected backend name
+- Selected backend name and backend_device (when available)
 - GPU usage flag
-- Performance metrics (throughput, loss)
+- Performance metrics (throughput, loss, tokens)
 - Training configuration
 - Error reasons (if applicable)
 
@@ -394,10 +411,12 @@ All changes maintain backward compatibility:
 
 | Backend | macOS | Linux | Windows |
 |---------|-------|-------|---------|
-| CoreML  | ✓     | ✗     | ✗       |
-| Metal   | ✓     | ✗     | ✗       |
-| MLX     | ✓     | ✗     | ✗       |
+| CoreML (coreml-backend) | ✓     | ✗     | ✗       |
+| Metal (metal-backend)   | ✓     | ✗     | ✗       |
+| MLX (`multi-backend` + `mlx`) | ✓*    | ✗     | ✗       |
 | CPU     | ✓     | ✓     | ✓       |
+
+\* Requires MLX C++ runtime; `multi-backend` without `mlx` builds stubs only.
 
 ## Testing Strategy
 
@@ -411,7 +430,9 @@ All changes maintain backward compatibility:
 1. **MLX Training:** Requires explicit model path, not auto-detected
 2. **Memory Limits:** `max_gpu_memory_mb` is advisory, not enforced
 3. **Backend Switching:** Cannot switch backends mid-training
-4. **Determinism:** CoreML/Metal deterministic, MLX HKDF-seeded only
+4. **Determinism:** CoreML/Metal deterministic; MLX deterministic only when seeded with manifest hash; CPU uses HKDF + ChaCha20
+5. **Orchestrated Jobs:** `TrainingService` calls `init_kernels()` automatically; GPU use still requires configured model assets (`AOS_MODEL_PATH`) and appropriate feature flags. CPU fallback remains when GPU is optional.
+5. **Orchestrated Jobs:** GPU init depends on model assets being available via `AOS_MODEL_PATH`; optional GPU falls back to CPU when assets/backends are unavailable.
 
 ## Future Enhancements
 
@@ -445,3 +466,5 @@ This implementation provides a production-ready GPU training system for AdapterO
 5. Full test coverage and benchmarks
 6. Backward compatible API
 7. Support for CoreML/ANE, Metal, MLX, and CPU backends
+
+MLNavigator Inc 2025-12-08.

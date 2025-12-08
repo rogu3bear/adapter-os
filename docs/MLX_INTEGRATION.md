@@ -1,31 +1,31 @@
 # MLX Integration Guide
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
-**Last Updated:** 2025-11-21
-**Status:** Fully Implemented
+**Last Updated:** 2025-12-08
+**Status:** Feature-gated (stub by default; real when `multi-backend` + `mlx` are enabled)
 
 ---
 
 ## Overview
 
-This document describes the complete MLX (Apple Machine Learning Framework) backend integration into AdapterOS, featuring enterprise-grade resilience, health monitoring, deterministic seeding, and multi-adapter routing for production inference and training workloads on Apple Silicon.
+This document describes the MLX (Apple Machine Learning Framework) backend integration. The default build ships a deterministic stub; real MLX requires `--features "multi-backend,mlx"` and the MLX C++ runtime on Apple Silicon.
 
-### Current Status: Fully Implemented ✅
+### Current Status: Feature-Gated
 
-**MLX backend is production-ready with comprehensive capabilities.**
+**Real MLX is available only when built with `multi-backend` + `mlx`; otherwise the stub is used.**
 
 | Aspect | Status | Implementation |
 |--------|--------|----------------|
-| **Model Loading** | ✅ Complete | Load from directory or pre-serialized buffers with config.json parsing |
-| **Inference** | ✅ Complete | Forward passes, text generation, hidden state extraction |
-| **Determinism** | ✅ Complete | HKDF-seeded RNG for reproducible dropout/sampling operations |
-| **LoRA Support** | ✅ Complete | Multi-adapter routing with K-sparse selection and Q15 quantized gates |
-| **Tokenization** | ✅ Complete | Lazy tokenizer loading from model directory |
-| **Health Monitoring** | ✅ Complete | Circuit breaker, consecutive failure tracking, auto-recovery |
-| **Memory Management** | ✅ Complete | Unified memory tracking, GC hints, allocation monitoring |
-| **FFI Safety** | ✅ Complete | Bounds checking, null pointer validation, error propagation |
-| **Text Generation** | ✅ Complete | Temperature, top-k, top-p sampling with deterministic seeding |
-| **Hidden States** | ✅ Complete | Extract intermediate layer outputs for analysis |
+| **Model Loading** | ✅ Real when `mlx` enabled | Load from directory or pre-serialized buffers with config.json parsing |
+| **Inference** | ✅ Real when `mlx` enabled | Forward passes, text generation, hidden state extraction |
+| **Determinism** | ✅ HKDF-seeded in real mode | HKDF-seeded RNG for reproducible dropout/sampling operations |
+| **LoRA Support** | ✅ Real when `mlx` enabled | Multi-adapter routing with K-sparse selection and Q15 quantized gates |
+| **Tokenization** | ✅ Real when `mlx` enabled | Lazy tokenizer loading from model directory |
+| **Health Monitoring** | ⚠️ Stub emits warnings; real mode supports circuit breaker | Circuit breaker, consecutive failure tracking, auto-recovery |
+| **Memory Management** | ⚠️ Basic in stub; full in real mode | Unified memory tracking, GC hints, allocation monitoring |
+| **FFI Safety** | ✅ Real when `mlx` enabled | Bounds checking, null pointer validation, error propagation |
+| **Text Generation** | ✅ Real when `mlx` enabled | Temperature, top-k, top-p sampling with deterministic seeding |
+| **Hidden States** | ✅ Real when `mlx` enabled | Extract intermediate layer outputs for analysis |
 
 ---
 
@@ -43,7 +43,7 @@ See [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) for th
 
 ## Feature Flag
 
-MLX backend is enabled via the `mlx` feature flag in the `adapteros-lora-mlx-ffi` crate:
+MLX backend is enabled via the `mlx` feature flag in the `adapteros-lora-mlx-ffi` crate (pair with workspace `multi-backend`/`mlx-backend`):
 
 ```bash
 # Build with stub implementation (default, no MLX C++ required)
@@ -51,6 +51,9 @@ cargo build -p adapteros-lora-mlx-ffi
 
 # Build with real MLX integration (requires MLX C++ library)
 cargo build -p adapteros-lora-mlx-ffi --features mlx
+
+# Workspace build (real MLX)
+cargo build --release --features "multi-backend,mlx"
 ```
 
 The `mlx` feature enables GPU-accelerated inference through the MLX C++ framework.
@@ -252,6 +255,7 @@ let config = GenerationConfig {
     repetition_penalty: 1.1,
     eos_token: 2,
     use_cache: true,
+    kv_num_layers: Some(model.config().num_hidden_layers),
 };
 
 let text = model.generate_with_config("Explain MLX to me", config)?;
@@ -355,6 +359,13 @@ Set the model path via environment variable:
 export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
 ```
 
+**Model path resolution (in order):**
+1) CLI/`ModelConfig.path` (preferred)  
+2) `AOS_MODEL_PATH` (primary env var)  
+3) Legacy: `AOS_MLX_FFI_MODEL`, then `MLX_PATH` (warned)  
+
+The path must be a directory containing `config.json`; otherwise backend creation fails with an actionable `AOS_MODEL_PATH` error.
+
 ### Configuration File
 
 Add MLX configuration to `configs/cp.toml`:
@@ -374,8 +385,10 @@ If `model_path` is set in config and `AOS_MLX_FFI_MODEL` is also set, the enviro
 
 ## Runtime Guards
 
-- `MLXFFIModel::load(..)` returns `AosError::Unsupported` on stub builds with a helpful message. This prevents silent use of placeholder outputs during inference.
-- The CLI (`aosctl serve --backend mlx`) also fails fast on stub builds with actionable guidance.
+- `MLXFFIModel::load(..)` validates the directory and `config.json` before touching FFI; missing paths surface clear `AOS_MODEL_PATH` guidance.
+- The worker seeds MLX via HKDF using the manifest hash (`create_backend_with_model_and_hash`); without a manifest hash, determinism attestation returns `deterministic=false`.
+- Stub builds always report non-deterministic attestation and log a warning at backend init.
+- Circuit breaker: after 3 consecutive failures the backend drops into stub fallback (if enabled); exceeding `max_consecutive_failures` marks the backend non-operational.
 - The import command (`aosctl import-model`) validates MLX models and sets the environment variable automatically.
 
 ## Verifying Your Setup
@@ -400,7 +413,7 @@ If `model_path` is set in config and `AOS_MLX_FFI_MODEL` is also set, the enviro
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| Model loads but forward fails | Model path incorrect or corrupted | Verify `config.json` and `.safetensors` files exist |
+| Model loads but forward fails | Model path missing/invalid or corrupted | Verify `config.json` and `.safetensors` exist under `AOS_MODEL_PATH` |
 | "Tokenizer not available" error | Tokenizer not in model directory | Ensure `tokenizer.json` exists in model folder |
 | Circuit breaker opens | 3+ consecutive inference failures | Check model health: `model.health_status()` |
 | High memory usage | Accumulated allocations not freed | Call `memory::gc_collect()` between batches |
@@ -459,6 +472,10 @@ cargo build -p adapteros-lora-mlx-ffi --features mlx
 cargo build -p adapteros-lora-mlx-ffi
 cargo test -p adapteros-lora-mlx-ffi
 ```
+
+### MLX Testing Modes
+- Stub CI/default: `cargo test -p adapteros-lora-mlx-ffi` (runs stub-safe suites; real MLX e2e are gated).
+- Real MLX/local: `cargo test -p adapteros-lora-mlx-ffi --features "mlx-backend,mlx" -- --include-ignored` (enables real e2e/integration; ensure MLX is installed and fixtures are available).
 
 ### Debugging Build Configuration
 
@@ -568,6 +585,12 @@ flowchart TD
 - **MLX:** GPU-accelerated inference with deterministic seeding, production-ready
 - **Metal:** Direct GPU shader execution, legacy/fallback support
 
+**Training Selection Policy (ADR-aligned):**
+- Priority: CoreML (ANE) → MLX → Metal; CPU only when GPU is optional
+- `preferred_backend` is honored when available; otherwise the chain above is used
+- MLX training requires a model path (e.g., `AOS_MODEL_PATH`) and will fall back to CPU if GPU is optional and all GPU backends fail
+- Mid-training GPU failures fail fast when `require_gpu=true`; otherwise the trainer drops kernels and continues on CPU while MLX circuit breakers may enter stub mode internally
+
 ---
 
 ## Performance Characteristics
@@ -597,3 +620,5 @@ Related backend documentation:
 - [BENCHMARK_RESULTS.md](../BENCHMARK_RESULTS.md) - MLX FFI performance benchmarks
 - [crates/adapteros-lora-mlx-ffi/MLX_FFI_INTEGRATION_PROOF.md](../crates/adapteros-lora-mlx-ffi/MLX_FFI_INTEGRATION_PROOF.md) - MLX FFI integration verification
 - [crates/adapteros-lora-mlx-ffi/tests/INDEX.md](../crates/adapteros-lora-mlx-ffi/tests/INDEX.md) - MLX FFI test documentation index
+
+MLNavigator Inc Monday Dec 8, 2025.

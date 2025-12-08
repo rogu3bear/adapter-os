@@ -17,6 +17,12 @@ We adopt a **CoreML-first (ANE production), MLX-second (production), Metal-fallb
 
 **Fallback Chain:** CoreML → MLX → Metal
 
+**Training Selection & Fallback (2025-12):**
+- If `preferred_backend` is available, use it; otherwise follow CoreML → MLX → Metal
+- `require_gpu=true`: error if no GPU backend initializes; do not fall back to CPU
+- `require_gpu=false`: attempt GPU chain in priority order; fall back to CPU if all GPU init attempts fail
+- Mid-training: GPU errors fail the job when `require_gpu=true`; otherwise drop kernels and continue on CPU
+
 ### Backend Priority Matrix
 
 | Backend | Status | Determinism | Primary Use Case | Implementation Language |
@@ -552,3 +558,5 @@ Related backend documentation:
 
 **Signed:** James KC Auchterlonie
 **Date:** 2025-01-19
+
+MLNavigator Inc 2025-12-08.

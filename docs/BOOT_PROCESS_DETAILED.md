@@ -204,7 +204,7 @@ CoreML (ANE) → MLX (GPU) → Metal (fallback)
 ### 4.3 Priority Model Download (if `AOS_HF_HUB_ENABLED=true`)
 - Downloads models listed in `AOS_PRIORITY_MODELS`
 - Non-blocking with timeout
-- Stores in `var/model-cache/`
+- Stores in `${AOS_MODEL_CACHE_DIR}` (defaults to `./var/model-cache/models`)
 
 ---
 
@@ -411,7 +411,7 @@ boot_state.drain().await;
 ### Entry Point
 ```bash
 aos-worker --manifest manifests/qwen7b-mlx.yaml \
-           --model-path ./var/model-cache/models/qwen2.5-7b \
+           --model-path ${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID} \
            --uds-path ./var/run/worker.sock
 ```
 

@@ -1404,6 +1404,8 @@ aosctl train <ARGS>
 aosctl train --dataset-id dataset_123 --output adapters/my-adapter.aos --rank 16 --epochs 5
 ```
 
+**Metrics & backend visibility**: Training runs record backend, backend_device, determinism_mode, and throughput (tokens/examples processed per second). You can view these in the UI training job detail page or fetch them via `GET /v1/training/jobs/<id>/metrics` for CLI/automation.
+
 ### `train-base-adapter`
 
 Train base adapter from manifest
@@ -1500,3 +1502,4 @@ aosctl manual <ARGS>
 - [API Reference](API_REFERENCE.md) - REST API documentation
 - [CLAUDE.md](../CLAUDE.md) - Complete developer reference
 
+MLNavigator Inc 2025-12-08.

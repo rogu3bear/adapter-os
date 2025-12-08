@@ -28,7 +28,8 @@ flowchart LR
 2. **Generate** - `generate_training_data(&doc, &tokenizer, &config)?`
 3. **Dataset** - `TrainingDatasetManager::new(db, path, tok).create_dataset_from_documents(req).await?`
 4. **Train** - `MicroLoRATrainer::new(cfg)?.train(examples, adapter_id).await?`
-5. **Package** - `AdapterPackager::new().package(weights, manifest)?` then `registry.register_adapter(...)?`
+5. **Package** - `AdapterPackager::new().package(weights, manifest)?` then `registry.register_adapter(...)?`  
+   Manifest now records `training_backend`, determinism mode, `quantization="q15"`, and `gate_q15_denominator=32767`.
 
 This document focuses on Steps 2-3 (Generate and Dataset), which handle the dataset-to-training data flow.
 
@@ -283,7 +284,20 @@ GET /v1/datasets/{dataset_id}/statistics
 
 POST /v1/training/start
   Request body: {adapter_name, config, dataset_id}
-  -> Returns: {job_id, status}
+  -> Returns: {job_id, status, backend, determinism_mode, training_seed, require_gpu, max_gpu_memory_mb}
+
+GET /v1/training/jobs/{job_id}
+  -> Includes: backend, backend_reason, determinism_mode, training_seed, require_gpu, max_gpu_memory_mb,
+               examples_processed, tokens_processed (approx), throughput_examples_per_sec,
+               gpu_utilization_pct, peak_gpu_memory_mb, training_time_ms,
+               aos_path, package_hash_b3, manifest_rank, manifest_base_model,
+               manifest_per_layer_hashes, signature_status
+
+GET /v1/training/jobs/{job_id}/metrics
+  -> Adds extended metrics (examples_processed, tokens_processed, throughput_examples_per_sec, gpu_utilization_pct, peak_gpu_memory_mb, training_time_ms)
+
+GET /v1/training/jobs/{job_id}/artifacts
+  -> Includes weights artifact (hash) and .aos package entry with hash/path/created_at
 ```
 
 ## Related Files
@@ -301,3 +315,5 @@ POST /v1/training/start
 - [AOS_FORMAT.md](AOS_FORMAT.md) - .aos archive format specification
 - [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Full training pipeline architecture
 - [CLAUDE.md](../CLAUDE.md) - Training section in developer guide
+
+MLNavigator Inc 2025-12-08.

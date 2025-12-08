@@ -30,13 +30,18 @@ AdapterOS uses Cargo feature flags to control:
 
 ### Default Configuration
 
-**Default build** (no feature flags):
+**Default build (macOS targets)**:
 ```bash
-cargo build --release
+cargo build --release  # enables deterministic-only + coreml-backend
 ```
 
-**Enabled by default**: `deterministic-only`
-**Disabled by default**: All backends (Metal, MLX), telemetry, metrics, replay
+**Enabled by default**: `deterministic-only`, `coreml-backend` (macOS)
+**Disabled by default**: `metal-backend`, `multi-backend` / `mlx-backend`, `mlx`, telemetry, metrics, replay
+
+**Linux/CI note**: Use CPU-only by disabling defaults:
+```bash
+cargo build --release --no-default-features --features deterministic-only
+```
 
 ### Design Philosophy
 
@@ -101,10 +106,9 @@ cargo build --release
 - Apple Silicon (M1/M2/M3/M4)
 - Xcode Command Line Tools
 
-**Usage**:
+**Usage** (enabled by default on macOS targets):
 ```bash
-# Enable CoreML backend
-cargo build --release --features coreml-backend
+cargo build --release --features coreml-backend   # explicit opt-in
 ```
 
 **Crate integration**:
@@ -154,35 +158,26 @@ cargo build --release --features metal-backend
 
 #### `mlx-backend`
 
-**Purpose**: Production Apple MLX framework integration via C++ FFI.
+**Purpose**: Enable the MLX FFI crate. Builds a stub unless paired with `mlx`.
 
 **Includes**:
-- MLX C++ FFI implementation
-- Production kernel implementations
-- Enterprise resilience features
-- Health monitoring and circuit breakers
+- MLX C++ FFI wrapper (stub by default)
+- Deterministic stubs for CI/CPU-only environments
 
-**Platform**: macOS (production)
-
-**Requirements**:
-- macOS 13.0+
-- Xcode Command Line Tools
-- MLX C++ library (with `mlx` feature)
+**Platform**: macOS (compiles; real runtime requires Apple Silicon + MLX)
 
 **Usage**:
 ```bash
-# Enable MLX backend (production implementation)
+# Stub (no MLX runtime required)
 cargo build --release --features mlx-backend
+
+# Real MLX (requires MLX C++ installed)
+cargo build --release --features "mlx-backend,mlx"
 ```
 
-**Compilation behavior**:
-- ✅ Compiles successfully
-- ✅ Full MLX functionality (with `mlx` feature)
-- ✅ Stub fallback for testing (without `mlx`)
+**Status**: ⚠️ Stub by default; real only when `mlx` is also enabled.
 
-**Status**: ✅ **Production-Ready**
-
-**Recommendation**: Use alongside CoreML and Metal for multi-backend support.
+**Recommendation**: Pair with `mlx` only on macOS when you need MLX; keep stub in CI.
 
 ---
 
@@ -203,16 +198,20 @@ cargo build --release --features mlx-backend
 - MLX C++ library installed
 - Xcode Command Line Tools
 
-**Usage**:
+**Usage** (must be paired with `mlx-backend`/`multi-backend`):
 ```bash
-# Enable real MLX (requires mlx C++ installed)
-cargo build --release --features mlx
+# Enable real MLX (requires MLX C++ installed)
+cargo build --release --features "mlx-backend,mlx"
 ```
 
-**Status**: ✅ **Production-Ready** (requires external MLX C++ library installation)
+**Status**: ⚠️ Real MLX only when combined with `mlx-backend`; otherwise ignored.
 
 **Note**: Without this feature, `adapteros-lora-mlx-ffi` uses stub implementations
 for testing purposes. With this feature enabled, full production MLX functionality is available. A deprecated alias `real-mlx` remains accepted for compatibility only.
+
+**Testing modes**:
+- Stub CI/default: `cargo test -p adapteros-lora-mlx-ffi` (no MLX libs required; e2e suites are gated).
+- Real MLX: `cargo test -p adapteros-lora-mlx-ffi --features "mlx-backend,mlx" -- --include-ignored` (runs real MLX e2e/integration; ensure MLX libs and fixtures are present).
 
 ---
 
@@ -353,14 +352,15 @@ cargo build --release --no-default-features
 
 #### `multi-backend`
 
-**Purpose**: Alias for `mlx-backend` (experimental features).
+**Purpose**: Alias for `mlx-backend` (enables MLX FFI; stub unless `mlx` is also set).
 
 **Equivalent to**:
 ```bash
-cargo build --release --features mlx-backend
+cargo build --release --features mlx-backend          # stub
+cargo build --release --features "multi-backend,mlx"  # real MLX
 ```
 
-**Status**: ✅ Active (Pure Rust MLX backend)
+**Status**: ⚠️ Stub by default; add `mlx` for real MLX.
 
 ---
 
@@ -383,6 +383,10 @@ cargo build --release --features mlx-backend
 - ✅ Supported and tested
 - ⚠️ Experimental or untested
 - ❌ Not supported (compilation fails)
+
+**Notes**:
+- Add `mlx` alongside `mlx-backend` / `multi-backend` for real MLX; otherwise stubs are used.
+- On Linux/CI prefer `--no-default-features --features deterministic-only` to avoid CoreML build errors.
 
 ---
 
@@ -797,3 +801,4 @@ coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
 
 **Maintained by**: James KC Auchterlonie
 **Copyright**: © 2025 JKCA / James KC Auchterlonie. All rights reserved.
+MLNavigator Inc 2025-12-08.

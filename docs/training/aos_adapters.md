@@ -51,6 +51,12 @@ The `.aos` format uses a unified 64-byte header with cache-aligned layout for op
 - **Mmap-ready**: 64-byte aligned header for zero-copy memory-mapped loading
 - **Compatible**: Works seamlessly with existing AdapterOS infrastructure
 
+## Base Model Location (canonical)
+
+- Default path: `${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}` (cache root defaults to `./var/model-cache/models`).
+- Override via env or config keys (`AOS_MODEL_CACHE_DIR`, `AOS_BASE_MODEL_ID`, or `base_model.cache_root`/`base_model.id` in config).
+- Base weights are immutable/frozen; adapters merge on scratch buffers only.
+
 ## Creating .aos Files
 
 ### Command Line
@@ -82,36 +88,16 @@ cargo xtask train-base-adapter \
 ### Programmatic (Rust)
 
 ```rust
-use std::io::Write;
-
-const AOS_MAGIC: [u8; 4] = *b"AOS\x00";
-const HEADER_SIZE: u64 = 64;
+use adapteros_aos::{AosWriter, BackendTag};
 
 fn create_aos_file(
     weights_data: &[u8],
-    manifest_json: &[u8],
+    manifest_json: &serde_json::Value,
     output_path: &std::path::Path,
-) -> std::io::Result<()> {
-    let mut file = std::fs::File::create(output_path)?;
-
-    let weights_offset = HEADER_SIZE;
-    let weights_size = weights_data.len() as u64;
-    let manifest_offset = weights_offset + weights_size;
-    let manifest_size = manifest_json.len() as u64;
-
-    // Write 64-byte header (cache-aligned)
-    file.write_all(&AOS_MAGIC)?;                           // 0-3: magic
-    file.write_all(&0u32.to_le_bytes())?;                  // 4-7: flags
-    file.write_all(&weights_offset.to_le_bytes())?;        // 8-15: weights_offset
-    file.write_all(&weights_size.to_le_bytes())?;          // 16-23: weights_size
-    file.write_all(&manifest_offset.to_le_bytes())?;       // 24-31: manifest_offset
-    file.write_all(&manifest_size.to_le_bytes())?;         // 32-39: manifest_size
-    file.write_all(&[0u8; 24])?;                           // 40-63: reserved
-
-    // Write weights and manifest
-    file.write_all(weights_data)?;
-    file.write_all(manifest_json)?;
-
+) -> adapteros_core::Result<()> {
+    let mut writer = AosWriter::new();
+    writer.add_segment(BackendTag::Canonical, None, weights_data)?;
+    writer.write_archive(output_path, manifest_json)?;
     Ok(())
 }
 ```
@@ -262,6 +248,11 @@ adapter.aos
 }
 ```
 
+### Base model validation
+
+- Canonical bundles must include `base_model` and it must match the `--base-model-id` provided at registration time; mismatches are rejected.
+- Older bundles that omit `base_model` are accepted as legacy artifacts and are tagged in provenance with a warning; prefer repackaging with the canonical field.
+
 ### Lineage Format
 
 ```json
@@ -390,3 +381,5 @@ lifecycle.demote_adapter(0).await?;
 - [Training the AdapterOS Base Code Adapter](base_adapter.md)
 - [Adapter Lifecycle Management](../database-schema/workflows/ADAPTER-LIFECYCLE.md)
 - [Registry Schema](../database-schema/SCHEMA-DIAGRAM.md)
+
+MLNavigator Inc 2025-12-08.

@@ -86,11 +86,13 @@ Templates:
 ```rust
 use adapteros_lora_worker::training::AdapterPackager;
 
-let packager = AdapterPackager::new();
-let aos_path = packager.package(weights, manifest)?;
+let packager = AdapterPackager::with_default_path();
+let packaged = packager
+    .package_aos_for_tenant("tenant_id", "adapter-id", &quantized, &config, "base-model")
+    .await?;
 ```
 
-Output: `.aos` archive with 64-byte header, safetensors weights, and JSON manifest
+Output: `.aos` archive with safetensors weights and JSON manifest (rank, alpha, training_backend, determinism, `gate_q15_denominator=32767`, `quantization="q15"`).
 
 ### 6. Registration
 
@@ -114,6 +116,17 @@ Training jobs progress through states:
 
 **Database:** `training_jobs` table
 
+### Backend, Determinism, and Packaging Surface
+- Trainer records backend (`coreml`, `metal`, `mlx`, `cpu`) with a selection reason and GPU requirements (`require_gpu`, `max_gpu_memory_mb`).
+- `TrainingService::run_training_job` calls `init_kernels()` before entering the loop, using plan bytes resolved from `AOS_MODEL_PATH`; when GPU is optional and init fails or assets are missing, it logs and runs on CPU.
+- Determinism is HKDF-seeded; `training_seed` and `determinism_mode` are exposed on the job for audit.
+- Extended metrics: `examples_processed`, `tokens_processed` (approx.), `throughput_examples_per_sec`, `gpu_utilization_pct`, `peak_gpu_memory_mb`, `training_time_ms`.
+- Packaging returns `.aos` path/hash plus manifest summary (rank, base_model, per-layer hashes present) and `signature_status`; artifacts and job responses carry these fields.
+
+### UI/Operator Surface
+- Job list shows backend + determinism badges with status/progress.
+- Job detail shows backend/determinism seed, GPU requirements, package path/hash, manifest summary, and signature status; metrics tab includes throughput/GPU fields when present.
+
 ---
 
 ## Validation Gates
@@ -125,6 +138,20 @@ Training jobs progress through states:
 
 ---
 
+## AdapterOS Training Quick Start
+
+1. **Enable a backend**  
+   - macOS default: `cargo build --release` (CoreML + deterministic-only)  
+   - CPU-only/CI: `cargo build --release --no-default-features --features deterministic-only`  
+   - Real MLX: `cargo build --release --features "multi-backend,mlx"`
+2. **Ingest documents** → `DocumentIngestor::new(opts, tokenizer).ingest_pdf_path(path)?`
+3. **Create dataset** → `TrainingDatasetManager::new(db, path, tok).create_dataset_from_documents(req).await?`
+4. **Launch training** → `TrainingService::start_training_job(adapter_name, config, template_id, repo_id, dataset_id, db, storage_root)`  
+   (defaults package + register + create stack; set `post_actions` to opt out)
+5. **Find the adapter** → `.aos` at `var/adapters/repo/<tenant>/<adapter_id>/<adapter_id>.aos` with manifest fields for `training_backend`, `determinism`, and `gate_q15_denominator=32767` automatically registered via `AdapterRegistrationBuilder`.
+
+---
+
 ## References
 
 - [ARCHITECTURE_PATTERNS.md#training-pipeline](ARCHITECTURE_PATTERNS.md#training-pipeline) - Flow diagram
@@ -133,3 +160,5 @@ Training jobs progress through states:
 - [training/BASE_ADAPTER.md](training/BASE_ADAPTER.md) - Base adapter training
 - [USER_GUIDE_DATASETS.md](USER_GUIDE_DATASETS.md) - Dataset user guide
 - [CLAUDE.md](../CLAUDE.md) - Developer quick reference
+
+MLNavigator Inc 2025-12-08.

@@ -173,6 +173,30 @@ AOS_TELEMETRY_ENABLED=true
 
 ---
 
+### Runtime Path Configuration (defaults + env knobs)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AOS_MODEL_CACHE_DIR` | `./var/model-cache/models` | Base model cache root (joins with `AOS_BASE_MODEL_ID`) |
+| `AOS_ADAPTERS_ROOT` | `./var/adapters` (legacy: `AOS_ADAPTERS_DIR`) | Root for .aos artifacts/registry |
+| `DATABASE_URL` | `./var/cp.db` | Control plane SQLite path (used if `AOS_DATABASE_URL` unset) |
+| `AOS_TELEMETRY_DIR` | `./var/telemetry` | Telemetry bundle output (workers + CLI serve) |
+| `AOS_INDEX_DIR` | `./var/indices` | RAG index root (`<tenant>` appended) |
+| `AOS_MANIFEST_CACHE_DIR` | `./var/manifest-cache` | Worker manifest cache location |
+| `AOS_WORKER_SOCKET` | `/var/run/aos/<tenant>/worker.sock` (fallback `./var/run/worker.sock`) | Worker UDS path; training cancel falls back to `/var/run/adapteros.sock` |
+| `AOS_STATUS_PATH` | `/var/run/adapteros_status.json` (fallback `var/adapteros_status.json`) | Menu bar status file target |
+| `AOS_EMBEDDING_MODEL_PATH` | `./var/model-cache/models/bge-small-en-v1.5` | Embedding model location (tokenizer at `<path>/tokenizer.json`) |
+
+**Behavior:** When unset, runtime logs the chosen default path and source (env vs default) at startup to remove ambiguity between `./var/...` and `/var/...`.
+
+### Embedding / RAG paths
+
+- `AOS_EMBEDDING_MODEL_PATH` points to the embedding model directory; tokenizer is expected at `<path>/tokenizer.json`. Resolved via `resolve_embedding_model_path*` (env override or default) and logged with the source.
+- `AOS_INDEX_DIR` is the RAG index root; namespaces are per-tenant at `<index_root>/<tenant_id>`. Indices are not shared across tenants/namespaces.
+- Set both when running ingest or server so embedding and RAG loaders resolve consistently.
+
+---
+
 ### Security Configuration
 
 | Variable | Default | Purpose | Example |
@@ -305,6 +329,13 @@ AOS_MEMORY_EVICTION_THRESHOLD=0.85
 - Memory usage patterns
 - Error rates and recovery events
 - Policy violations (if enabled)
+
+---
+
+### Legacy AOS Migration (Temporary)
+
+- `AOS_ALLOW_LEGACY_AOS` (default: off) — Emergency migration flag to allow legacy AOS 1.x bundles. Default off; do not use in steady state. Emits `LEGACY_AOS_*` warnings and metrics when used. Removal scheduled for AdapterOS v0.15.0; tracked in `docs/issues/AOS_ALLOW_LEGACY_AOS_REMOVAL.md`.
+- Repackage adapters into AOS2: convert legacy bundles with `aosctl aos convert --input <legacy.aos> --output <adapter.aos> --format aos2` (or rerun packaging to emit AOS2 directly), then turn this flag off.
 
 ---
 
@@ -481,5 +512,5 @@ cargo run -p adapteros-orchestrator -- config show | grep backend
 
 ---
 
-**Last Updated:** 2025-11-23 | **Maintainer:** James KC Auchterlonie
-MLNavigator Inc 2025-12-07.
+**Last Updated:** 2025-12-08 | **Maintainer:** James KC Auchterlonie
+MLNavigator Inc 2025-12-08.
