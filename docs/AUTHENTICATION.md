@@ -207,6 +207,12 @@ The frontend automatically detects the environment and adjusts authentication be
 
 - **Development**: Uses `adapteros-local` token by default
 - **Production**: Requires valid JWT tokens from login
+- **Dev bypass policy**: `VITE_ENABLE_DEV_BYPASS` controls `/login?dev=true` and the “Use dev bypass” UI control.
+  - **Dev**: ON by default.
+  - **Staging**: OFF by default; can be turned ON temporarily for demos.
+  - **Production**: OFF.
+  - Dev-bypass sessions are for demo/admin only and always display the banner.
+- See `docs/DEV_BYPASS_POLICY.md` for the operational matrix and TTL guidance.
 
 **Citation**: `ui/src/api/client.ts` L38-60
 
@@ -536,3 +542,4 @@ cargo test --features extended-tests test_auth_performance_characteristics -- --
 - Authentication failure rate >1% (warning)
 - Authentication failure rate >5% (critical)
 
+MLNavigator Inc 2025-12-08.

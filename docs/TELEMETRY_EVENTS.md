@@ -130,6 +130,9 @@ Telemetry events are automatically emitted by:
 - `GlobalTickLedger` (divergence detection)
 - `UmaPressureMonitor` (memory pressure events)
 
+### Adapter detail recent activity
+- The adapter detail “Recent activity” card is sourced from adapter lineage history and activation history only; telemetry event types are not used for that card today.
+
 ### Database Schema
 
 Events stored in `telemetry_events` table:
@@ -162,3 +165,5 @@ GET /v1/telemetry/events?event_type=barrier.timeout&since=2025-01-01T00:00:00Z
 - [TELEMETRY_ARCHITECTURE.md](TELEMETRY_ARCHITECTURE.md) - Overall telemetry design
 - [TELEMETRY_QUICK_REFERENCE.md](TELEMETRY_QUICK_REFERENCE.md) - Quick start guide
 - [CLAUDE.md](../CLAUDE.md) - Developer guide
+
+MLNavigator Inc 2025-12-08.

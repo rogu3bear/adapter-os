@@ -15,6 +15,12 @@ This document provides exhaustive technical details including:
 - File formats
 - Dependencies and prerequisites
 
+## Adapters — Recent activity
+- Window: rolling last 24 hours for the adapter, capped at the 6 newest entries.
+- Event types: lineage history actions for the adapter (create/clone/promote/demote/load/unload/pin/unpin/duplicate, etc.) plus activation history points for that adapter.
+- Source: adapter detail lineage and activation responses only (no telemetry stream events).
+- Ordering: newest timestamp first; events outside the window are omitted; the UI falls back to “No recent events.” when none are available.
+
 ## Overview
 
 The flow consists of three major phases:
@@ -1357,3 +1363,4 @@ pub struct AppState {
 - Server Port: `configs/cp-8080.toml`
 - Production: `configs/production-multinode.toml`
 
+MLNavigator Inc 2025-12-08.
