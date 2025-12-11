@@ -336,6 +336,43 @@ struct MLXModelWrapper {
             }
 
             if (shard_files.empty()) {
+                // Some exports keep an index file but store weights in a single file.
+                const std::string single_filename = "model.safetensors";
+                bool index_has_single = content.find(single_filename) != std::string::npos ||
+                                        content.find("pytorch_model.bin.safetensors") != std::string::npos;
+
+                if (index_has_single) {
+                    std::string single_path = model_path + "/" + single_filename;
+                    std::ifstream single_file(single_path);
+                    if (!single_file.good()) {
+                        single_file.close();
+                        single_path = model_path + "/pytorch_model.bin.safetensors";
+                        single_file.open(single_path);
+                    }
+
+                    if (single_file.good()) {
+                        single_file.close();
+
+                        auto [single_weights, metadata] = mx::load_safetensors(single_path);
+                        weights = std::move(single_weights);
+
+                        if (weights.empty()) {
+                            g_last_error = "No weights loaded from safetensors file";
+                            return false;
+                        }
+
+                        total_weight_bytes = 0;
+                        for (const auto& [name, arr] : weights) {
+                            size_t bytes = calculate_array_memory(arr);
+                            total_weight_bytes += bytes;
+                        }
+                        record_allocation(reinterpret_cast<uintptr_t>(this), total_weight_bytes);
+                        std::cout << "[MLX] Loaded unsharded model referenced by index: " << single_path << std::endl;
+
+                        return true;
+                    }
+                }
+
                 g_last_error = "No shard files found in index: " + index_path;
                 return false;
             }

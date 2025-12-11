@@ -2,8 +2,13 @@
 //!
 //! Tests for 2-PRD[01]: Telemetry RouterDecision v1
 
-use adapteros_lora_router::{AdapterInfo, Router, RouterWeights};
+use adapteros_lora_router::{AdapterInfo, PolicyMask, Router, RouterWeights};
 use adapteros_telemetry::writer::RouterDecisionWriter;
+
+fn allow_all_mask(adapters: &[AdapterInfo]) -> PolicyMask {
+    let ids: Vec<String> = adapters.iter().map(|a| a.id.clone()).collect();
+    PolicyMask::allow_all(&ids, None)
+}
 
 #[test]
 fn test_router_emits_telemetry_on_decision() {
@@ -25,7 +30,9 @@ fn test_router_emits_telemetry_on_decision() {
             lora_tier: None,
         })
         .collect();
-    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+    let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+    let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
+    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask);
 
     // Verify telemetry event was emitted
     let event = receiver
@@ -83,7 +90,8 @@ fn test_router_increments_step_counter() {
                 ..Default::default()
             })
             .collect();
-        router.route_with_adapter_info(&features, &priors, &adapter_info);
+        let policy_mask = allow_all_mask(&adapter_info);
+        router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask);
 
         let event = receiver
             .try_recv()
@@ -119,7 +127,8 @@ fn test_router_propagates_stack_hash() {
             lora_tier: None,
         })
         .collect();
-    router.route_with_adapter_info(&features, &priors, &adapter_info);
+    let policy_mask = allow_all_mask(&adapter_info);
+    router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask);
 
     // Verify stack hash was propagated
     let event = receiver
@@ -155,7 +164,8 @@ fn test_router_without_telemetry_writer_works() {
             lora_tier: None,
         })
         .collect();
-    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+    let policy_mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask);
 
     assert_eq!(decision.indices.len(), 3, "Should still route correctly");
 }
@@ -181,7 +191,8 @@ fn test_telemetry_writer_bounded_channel_drops_on_overflow() {
             lora_tier: None,
         })
         .collect();
-    router.route_with_adapter_info(&features, &priors, &adapter_info); // Event 0
+    let policy_mask = allow_all_mask(&adapter_info);
+    router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask); // Event 0
     let adapter_info: Vec<AdapterInfo> = (0..2)
         .map(|i| AdapterInfo {
             id: format!("test_adapter_{}", i),
@@ -191,7 +202,8 @@ fn test_telemetry_writer_bounded_channel_drops_on_overflow() {
             ..Default::default()
         })
         .collect();
-    router.route_with_adapter_info(&features, &priors, &adapter_info); // Event 1
+    let policy_mask = allow_all_mask(&adapter_info);
+    router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask); // Event 1
 
     // These should be dropped (channel full)
     let adapter_info: Vec<AdapterInfo> = (0..2)
@@ -203,7 +215,8 @@ fn test_telemetry_writer_bounded_channel_drops_on_overflow() {
             ..Default::default()
         })
         .collect();
-    router.route_with_adapter_info(&features, &priors, &adapter_info); // Event 2 (dropped)
+    let policy_mask = allow_all_mask(&adapter_info);
+    router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask); // Event 2 (dropped)
     let adapter_info: Vec<AdapterInfo> = (0..2)
         .map(|i| AdapterInfo {
             id: format!("test_adapter_{}", i),
@@ -213,7 +226,8 @@ fn test_telemetry_writer_bounded_channel_drops_on_overflow() {
             ..Default::default()
         })
         .collect();
-    router.route_with_adapter_info(&features, &priors, &adapter_info); // Event 3 (dropped)
+    let policy_mask = allow_all_mask(&adapter_info);
+    router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask); // Event 3 (dropped)
 
     // Verify only 2 events are in the channel
     assert!(receiver.try_recv().is_ok(), "Should receive event 0");
@@ -250,7 +264,8 @@ fn test_entropy_values_match() {
             lora_tier: None,
         })
         .collect();
-    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+    let policy_mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask);
 
     let event = receiver
         .try_recv()

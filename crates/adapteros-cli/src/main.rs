@@ -38,6 +38,8 @@ use std::path::PathBuf;
 mod auth_store;
 mod cli;
 mod cli_telemetry;
+mod cmd_replay;
+mod cmd_trace_export;
 mod commands;
 mod error_codes;
 mod formatting;
@@ -125,6 +127,27 @@ impl Cli {
     }
 }
 
+#[derive(Subcommand, Clone, Debug)]
+enum TraceCommand {
+    /// Export an offline trace bundle for replay verification
+    #[command(after_help = "\
+Examples:
+  aosctl trace export --request basic --out ./tmp/basic
+  aosctl trace export --request cross-worker --out ./tmp/cross --fixtures ./test_data/replay_fixtures
+")]
+    Export {
+        /// Request identifier (maps to fixture directory)
+        #[arg(long)]
+        request: String,
+        /// Output directory for exported artifacts
+        #[arg(long)]
+        out: PathBuf,
+        /// Optional custom fixture root (defaults to test_data/replay_fixtures)
+        #[arg(long)]
+        fixtures: Option<PathBuf>,
+    },
+}
+
 #[derive(Subcommand)]
 enum Commands {
     // ============================================================
@@ -170,6 +193,10 @@ Examples:
     #[command(subcommand, visible_alias = "adapters")]
     Adapter(adapter::AdapterCommand),
 
+    /// Repository + version management commands
+    #[command(subcommand)]
+    Repo(commands::repo::RepoCommand),
+
     /// Adapter stack management commands (create, list, activate, etc.)
     #[command(subcommand, visible_alias = "stacks")]
     Stack(stack::StackCommand),
@@ -191,6 +218,54 @@ Examples:
     /// Scenario readiness utilities
     #[command(subcommand)]
     Scenario(commands::scenario::ScenarioSubcommand),
+
+    /// CoreML verification and health commands
+    #[command(subcommand)]
+    Coreml(commands::coreml_status::CoremlCommand),
+
+    // ============================================================
+    // Model Export
+    // ============================================================
+    /// Export a fused CoreML package from a base model and adapter bundle
+    #[cfg(feature = "coreml-export")]
+    CoremlExport {
+        /// Path to the base CoreML package directory or Manifest.json
+        #[arg(long)]
+        base_package: PathBuf,
+        /// Path to the adapter .aos bundle
+        #[arg(long)]
+        adapter_aos: PathBuf,
+        /// Output path for the fused CoreML package (directory or manifest)
+        #[arg(long)]
+        output_package: PathBuf,
+        /// Preferred compute units: cpu_only, cpu_and_gpu, cpu_and_neural_engine, all
+        #[arg(long)]
+        compute_units: Option<String>,
+        /// Optional logical base model ID for recording
+        #[arg(long)]
+        base_model_id: Option<String>,
+        /// Optional logical adapter ID for recording
+        #[arg(long)]
+        adapter_id: Option<String>,
+    },
+    /// Trigger CoreML export for a completed training job
+    #[cfg(feature = "coreml-export")]
+    CoremlExportJob {
+        /// Training job ID to export
+        job_id: String,
+        /// Control plane base URL (default http://localhost:8080)
+        #[arg(long, default_value = "http://localhost:8080")]
+        base_url: String,
+    },
+    /// Show CoreML export status for a training job
+    #[cfg(feature = "coreml-export")]
+    CoremlExportStatus {
+        /// Training job ID to inspect
+        job_id: String,
+        /// Control plane base URL (default http://localhost:8080)
+        #[arg(long, default_value = "http://localhost:8080")]
+        base_url: String,
+    },
 
     // ============================================================
     // Node & Cluster Management
@@ -280,6 +355,13 @@ Examples:
     Storage(storage::StorageCommand),
 
     // ============================================================
+    // Database Management
+    // ============================================================
+    /// Database management commands (migrate, reset)
+    #[command(subcommand)]
+    Db(commands::db::DbCommand),
+
+    // ============================================================
     // Plan Management
     // ============================================================
     /// Build a plan from manifest
@@ -352,41 +434,46 @@ Examples:
     #[command(subcommand)]
     Telemetry(telemetry::TelemetryCommand),
 
+    /// Trace utilities (export replayable artifacts)
+    #[command(subcommand)]
+    Trace(TraceCommand),
+
     /// Federation commands (verify cross-host signatures)
     #[command(subcommand)]
     Federation(federation::FederationCommand),
 
-    /// Check for environment drift
+    /// Run deterministic drift harness across backends
     #[command(after_help = "\
 Examples:
-  # Check drift against baseline
-  aosctl drift-check
+  # Run drift harness with config file
+  aosctl drift-check --config drift.json
 
-  # Check drift and save current fingerprint
-  aosctl drift-check --save-current
+  # Override dataset path
+  aosctl drift-check --config drift.json --dataset ./tests/data.json
 
-  # Create initial baseline
-  aosctl drift-check --save-baseline
-
-  # Use custom baseline path
-  aosctl drift-check --baseline var/production_baseline.json
+  # Limit to CPU and CoreML
+  aosctl drift-check --config drift.json --backend cpu --backend coreml
 ")]
     DriftCheck {
-        /// Database path
+        /// Drift harness config (JSON)
         #[arg(long)]
-        db: Option<PathBuf>,
+        config: PathBuf,
 
-        /// Baseline fingerprint path
+        /// Override dataset path
         #[arg(long)]
-        baseline: Option<PathBuf>,
+        dataset: Option<PathBuf>,
 
-        /// Save current fingerprint
+        /// Override manifest path for metadata writeback
         #[arg(long)]
-        save_current: bool,
+        manifest: Option<PathBuf>,
 
-        /// Save as new baseline
+        /// Backends to run (repeatable)
+        #[arg(long, value_name = "cpu|coreml|mlx|metal")]
+        backend: Vec<String>,
+
+        /// Reference backend (defaults to first backend)
         #[arg(long)]
-        save_baseline: bool,
+        reference_backend: Option<String>,
     },
 
     // ============================================================
@@ -603,25 +690,27 @@ Examples:
         show_trace: bool,
     },
 
-    /// Replay a bundle
+    /// Replay offline artifacts and verify determinism receipts
     #[command(after_help = "\
 Examples:
-  # Replay bundle
-  aosctl replay ./var/bundles/bundle_001.zip
+  # Replay exported trace (writes replay_report.json)
+  aosctl replay --dir ./tmp/basic --verify
 
-  # Replay with verbose output
-  aosctl replay ./var/bundles/bundle_001.zip --verbose
-
-  # Replay and check determinism
-  aosctl replay ./var/bundles/bundle_001.zip --check-determinism
+  # Replay with custom report path
+  aosctl replay --dir ./tmp/basic --report ./tmp/result.json
 ")]
     Replay {
-        /// Bundle path
-        bundle: PathBuf,
+        /// Directory containing exported trace artifacts
+        #[arg(long)]
+        dir: PathBuf,
 
-        /// Show divergence details (overridden by global --verbose)
-        #[arg(short, long)]
-        verbose: bool,
+        /// Optional output path for replay_report.json
+        #[arg(long)]
+        report: Option<PathBuf>,
+
+        /// Exit non-zero on mismatch
+        #[arg(long, default_value_t = false)]
+        verify: bool,
     },
 
     /// Rollback to previous checkpoint
@@ -840,6 +929,20 @@ Examples:
         full: bool,
     },
 
+    /// Targeted diagnostics for drift, health, and storage reconciler
+    #[command(after_help = "\
+Examples:
+  # Run drift harness for a dataset version
+  aosctl health drift-run --repo-id repo1 --dataset-version-ids ds-ver-1 --backend metal --baseline-backend cpu
+
+  # Show adapter health rollup
+  aosctl health adapter --repo-id repo1
+
+  # List storage reconciliation issues
+  aosctl health storage-list-issues --limit 20
+")]
+    Health(commands::diag_health::HealthCommand),
+
     /// Run determinism check (3 fixed prompts, N runs, compare outputs)
     #[command(after_help = "\
 Examples:
@@ -970,28 +1073,9 @@ Examples:
         args: commands::manual::ManualArgs,
     },
 
-    /// Train a LoRA adapter
-    #[command(after_help = "\
-Examples:
-  # Train adapter with default settings
-  aosctl train --data training_data.json --output ./trained_adapter
-
-  # Train with custom configuration
-  aosctl train --data training_data.json --output ./trained_adapter \\
-    --rank 8 --alpha 32.0 --learning-rate 0.001 --epochs 5
-
-  # Train with Metal backend
-  aosctl train --data training_data.json --output ./trained_adapter \\
-    --plan plan/qwen7b/plan.bin
-
-  # Train with configuration file
-  aosctl train --config training_config.json --data training_data.json \\
-    --output ./trained_adapter
-")]
-    Train {
-        #[command(flatten)]
-        args: train::TrainArgs,
-    },
+    /// Training job commands (start/status/list) - control plane
+    #[command(subcommand)]
+    Train(commands::train_cli::TrainCommand),
 
     /// Train adapter on documentation markdown files
     #[command(after_help = "\
@@ -1334,6 +1418,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             adapter::handle_adapter_command(cmd.clone(), &output).await?;
         }
 
+        // Repository + Version Management
+        Commands::Repo(cmd) => {
+            commands::repo::run_repo_command(cmd.clone(), cli.json).await?;
+        }
+
         // Adapter Stack Management
         Commands::Stack(cmd) => {
             stack::handle_stack_command(cmd.clone(), &output).await?;
@@ -1352,6 +1441,41 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         // Scenario readiness utilities
         Commands::Scenario(cmd) => {
             commands::scenario::run(cmd.clone(), &output).await?;
+        }
+
+        // CoreML verification status
+        Commands::Coreml(cmd) => {
+            commands::coreml_status::run(cmd.clone(), &output).await?;
+        }
+
+        // CoreML export pipeline
+        #[cfg(feature = "coreml-export")]
+        Commands::CoremlExport {
+            base_package,
+            adapter_aos,
+            output_package,
+            compute_units,
+            base_model_id,
+            adapter_id,
+        } => {
+            commands::coreml_export::run(
+                base_package.clone(),
+                adapter_aos.clone(),
+                output_package.clone(),
+                compute_units.clone(),
+                base_model_id.clone(),
+                adapter_id.clone(),
+                &output,
+            )
+            .await?;
+        }
+        #[cfg(feature = "coreml-export")]
+        Commands::CoremlExportJob { job_id, base_url } => {
+            commands::coreml_export::trigger_export_for_job(job_id, base_url, &output).await?;
+        }
+        #[cfg(feature = "coreml-export")]
+        Commands::CoremlExportStatus { job_id, base_url } => {
+            commands::coreml_export::show_export_status(job_id, base_url, &output).await?;
         }
 
         // Node & Cluster Management
@@ -1399,6 +1523,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             storage::handle_storage_command(cmd.clone(), &output).await?;
         }
 
+        // Database Management
+        Commands::Db(cmd) => {
+            commands::db::handle_db_command(cmd.clone(), &output).await?;
+        }
+
         // Plan Management
         Commands::PlanBuild {
             manifest,
@@ -1434,23 +1563,44 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             telemetry::handle_telemetry_command(cmd.clone(), &output).await?;
         }
 
+        Commands::Trace(trace_cmd) => match trace_cmd {
+            TraceCommand::Export {
+                request,
+                out,
+                fixtures,
+            } => {
+                let expectation =
+                    cmd_trace_export::run(request, out, fixtures.as_deref(), &output)?;
+                if output.mode().is_json() {
+                    output.print_json(&serde_json::to_value(&expectation)?)?;
+                } else if output.is_verbose() {
+                    output.progress(format!(
+                        "Expected receipt: {}",
+                        expectation.expected_receipt
+                    ));
+                }
+            }
+        },
+
         Commands::Federation(cmd) => {
             federation::handle_federation_command(cmd.clone(), &output).await?;
         }
 
         Commands::DriftCheck {
-            db,
-            baseline,
-            save_current,
-            save_baseline,
+            config,
+            dataset,
+            manifest,
+            backend,
+            reference_backend,
         } => {
             std::process::exit(
-                commands::drift_check::drift_check(
-                    db.clone(),
-                    baseline.clone(),
-                    *save_current,
-                    *save_baseline,
-                )
+                commands::drift_check::drift_check(commands::drift_check::DriftCheckArgs {
+                    config: config.clone(),
+                    dataset_override: dataset.clone(),
+                    manifest_override: manifest.clone(),
+                    backends_override: backend.clone(),
+                    reference_backend: reference_backend.clone(),
+                })
                 .await?,
             );
         }
@@ -1551,10 +1701,19 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             )
             .await?;
         }
-        Commands::Replay { bundle, verbose } => {
-            // Merge command-specific verbose flag with global verbose
-            let verbose_mode = *verbose || cli.verbose;
-            replay::run(&bundle, verbose_mode, &output).await?;
+        Commands::Replay {
+            dir,
+            report,
+            verify,
+        } => {
+            let report_path = report.as_ref().map(|p| p.as_path());
+            let replay_report = cmd_replay::run(dir, *verify, report_path, &output)?;
+
+            if output.mode().is_json() {
+                output.print_json(&serde_json::to_value(&replay_report)?)?;
+            } else if output.is_verbose() {
+                output.progress(format!("Replay status: {}", replay_report.status));
+            }
         }
         Commands::Rollback { tenant, cpid } => {
             rollback::run(&tenant, &cpid, &output).await?;
@@ -1632,6 +1791,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             diag::run(diag_profile, tenant.clone(), *json, bundle.clone()).await?;
         }
 
+        Commands::Health(cmd) => {
+            commands::diag_health::run(cmd.clone(), &output).await?;
+        }
+
         Commands::Determinism {
             stack_id,
             runs,
@@ -1681,8 +1844,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::manual::run_manual(args.clone())?;
         }
 
-        Commands::Train { args } => {
-            args.execute().await?;
+        Commands::Train { cmd } => {
+            commands::train_cli::run(cmd.clone(), &output).await?;
         }
 
         Commands::TrainDocs { args } => {
@@ -1973,10 +2136,18 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Auth(_) => "auth",
         Commands::TenantInit { .. } | Commands::Init { .. } => "init-tenant",
         Commands::Adapter(_) => "adapter",
+        Commands::Repo(_) => "repo",
         Commands::Stack(_) => "stack",
         Commands::Chat(_) => "chat",
         Commands::Dev(_) => "dev",
         Commands::Scenario(_) => "scenario",
+        Commands::Coreml(_) => "coreml",
+        #[cfg(feature = "coreml-export")]
+        Commands::CoremlExport { .. } => "coreml-export",
+        #[cfg(feature = "coreml-export")]
+        Commands::CoremlExportJob { .. } => "coreml-export-job",
+        #[cfg(feature = "coreml-export")]
+        Commands::CoremlExportStatus { .. } => "coreml-export-status",
         Commands::Node(_) => "node",
         Commands::Status { .. } => "status",
         Commands::Doctor { .. } => "doctor",
@@ -1985,9 +2156,11 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Deploy { .. } => "deploy",
         Commands::Registry(_) => "registry",
         Commands::Storage(_) => "storage",
+        Commands::Db(_) => "db",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
         Commands::Telemetry(_) => "telemetry",
+        Commands::Trace(_) => "trace",
         Commands::Federation(_) => "federation",
         Commands::DriftCheck { .. } => "drift-check",
         Commands::Codegraph(_) => "codegraph",
@@ -2010,6 +2183,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Completions { .. } => "completions",
         Commands::Config(_) => "config",
         Commands::Diag { .. } => "diag",
+        Commands::Health { .. } => "health",
         Commands::Determinism { .. } => "determinism",
         Commands::Quarantine { .. } => "quarantine",
         Commands::Explain { .. } => "explain",
@@ -2050,6 +2224,13 @@ fn extract_tenant_from_command(command: &Commands) -> Option<String> {
     match command {
         Commands::Serve { tenant, .. } | Commands::Rollback { tenant, .. } => Some(tenant.clone()),
         Commands::Diag { tenant, .. } => tenant.clone(),
+        Commands::Repo(commands::repo::RepoCommand::Repo(commands::repo::RepoOps::Create(
+            args,
+        ))) => Some(args.tenant.clone()),
+        Commands::Repo(commands::repo::RepoCommand::Repo(commands::repo::RepoOps::List {
+            tenant,
+            ..
+        })) => Some(tenant.clone()),
         // Tenant extraction for grouped commands is handled by their respective handlers
         _ => None,
     }

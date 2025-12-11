@@ -63,7 +63,7 @@ async fn create_test_worker(db: &Db, worker_id: &str, tenant_id: &str) -> Result
 
     sqlx::query(
         "INSERT INTO workers (id, tenant_id, node_id, plan_id, status, uds_path, started_at, last_seen_at)
-         VALUES (?, ?, ?, ?, 'serving', '/tmp/test.sock', datetime('now'), datetime('now'))",
+         VALUES (?, ?, ?, ?, 'healthy', '/tmp/test.sock', datetime('now'), datetime('now'))",
     )
     .bind(worker_id)
     .bind(tenant_id)

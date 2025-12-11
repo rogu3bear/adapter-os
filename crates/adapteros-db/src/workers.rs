@@ -729,28 +729,80 @@ impl Db {
 
     /// Register a worker with manifest binding
     ///
-    /// Inserts a new worker record with manifest hash and version information.
-    /// Sets initial status to 'starting'.
+    /// Inserts or updates a worker record with manifest hash and version information,
+    /// then transitions lifecycle to `registered`.
     pub async fn register_worker(&self, params: WorkerRegistrationParams) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO workers (
-                id, tenant_id, node_id, plan_id, uds_path, pid, status,
-                manifest_hash_b3, schema_version, api_version,
-                started_at, registered_at
-             ) VALUES (?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, datetime('now'), datetime('now'))",
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
+        let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workers WHERE id = ?")
+            .bind(&params.worker_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to check worker existence: {}", e)))?;
+
+        if exists == 0 {
+            sqlx::query(
+                "INSERT INTO workers (
+                    id, tenant_id, node_id, plan_id, uds_path, pid, status,
+                    manifest_hash_b3, schema_version, api_version,
+                    started_at, registered_at
+                 ) VALUES (?, ?, ?, ?, ?, ?, 'created', ?, ?, ?, datetime('now'), NULL)",
+            )
+            .bind(&params.worker_id)
+            .bind(&params.tenant_id)
+            .bind(&params.node_id)
+            .bind(&params.plan_id)
+            .bind(&params.uds_path)
+            .bind(params.pid)
+            .bind(&params.manifest_hash)
+            .bind(&params.schema_version)
+            .bind(&params.api_version)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to register worker: {}", e)))?;
+        } else {
+            sqlx::query(
+                "UPDATE workers
+                 SET tenant_id = ?, node_id = ?, plan_id = ?, uds_path = ?, pid = ?,
+                     manifest_hash_b3 = ?, schema_version = ?, api_version = ?
+                 WHERE id = ?",
+            )
+            .bind(&params.tenant_id)
+            .bind(&params.node_id)
+            .bind(&params.plan_id)
+            .bind(&params.uds_path)
+            .bind(params.pid)
+            .bind(&params.manifest_hash)
+            .bind(&params.schema_version)
+            .bind(&params.api_version)
+            .bind(&params.worker_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update worker metadata: {}", e)))?;
+        }
+
+        tx.commit().await.map_err(|e| {
+            AosError::Database(format!("Failed to commit registration metadata: {}", e))
+        })?;
+
+        // Ensure lifecycle moves to registered and stamp registration time
+        self.transition_worker_status(
+            &params.worker_id,
+            adapteros_core::WorkerStatus::Registered.as_str(),
+            "registration accepted",
+            None,
         )
-        .bind(&params.worker_id)
-        .bind(&params.tenant_id)
-        .bind(&params.node_id)
-        .bind(&params.plan_id)
-        .bind(&params.uds_path)
-        .bind(params.pid)
-        .bind(&params.manifest_hash)
-        .bind(&params.schema_version)
-        .bind(&params.api_version)
-        .execute(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to register worker: {}", e)))?;
+        .await?;
+
+        sqlx::query("UPDATE workers SET registered_at = COALESCE(registered_at, datetime('now')) WHERE id = ?")
+            .bind(&params.worker_id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to stamp registered_at: {}", e)))?;
 
         Ok(())
     }
@@ -762,7 +814,7 @@ impl Db {
     ///
     /// # Arguments
     /// * `worker_id` - The worker ID
-    /// * `new_status` - Target status (starting, serving, draining, stopped, crashed)
+    /// * `new_status` - Target status (created, registered, healthy, draining, stopped, error)
     /// * `reason` - Reason for the transition
     /// * `actor` - User or system that initiated (None for system)
     ///
@@ -865,11 +917,13 @@ impl Db {
                 status = ?,
                 last_transition_at = datetime('now'),
                 last_transition_reason = ?,
-                last_seen_at = datetime('now')
+                last_seen_at = datetime('now'),
+                registered_at = CASE WHEN ? = 'registered' THEN COALESCE(registered_at, datetime('now')) ELSE registered_at END
              WHERE id = ?",
         )
         .bind(new_status)
         .bind(reason)
+        .bind(new_status)
         .bind(worker_id)
         .execute(&mut *tx)
         .await
@@ -887,7 +941,7 @@ impl Db {
     /// Returns workers that:
     /// - Match the given manifest_hash_b3
     /// - Have schema_version compatible with control plane (major.minor match)
-    /// - Have status = 'serving'
+    /// - Have status = 'healthy'
     /// - Have health_status IN ('healthy', 'unknown') or NULL
     /// - Ordered by avg_latency_ms (lowest first)
     pub async fn list_compatible_workers(
@@ -902,7 +956,7 @@ impl Db {
                     api_version, registered_at, health_status
              FROM workers
              WHERE manifest_hash_b3 = ?
-               AND status = 'serving'
+               AND status = 'healthy'
                AND (health_status IS NULL OR health_status IN ('healthy', 'unknown'))
              ORDER BY avg_latency_ms ASC NULLS LAST",
         )
@@ -956,7 +1010,7 @@ impl Db {
     /// - Match the given manifest_hash_b3
     /// - Belong to the specified tenant_id
     /// - Have schema_version compatible with control plane (major.minor match)
-    /// - Have status = 'serving'
+    /// - Have status = 'healthy'
     /// - Have health_status IN ('healthy', 'unknown') or NULL
     /// - Ordered by avg_latency_ms (lowest first)
     ///
@@ -976,7 +1030,7 @@ impl Db {
              FROM workers
              WHERE manifest_hash_b3 = ?
                AND tenant_id = ?
-               AND status = 'serving'
+               AND status = 'healthy'
                AND (health_status IS NULL OR health_status IN ('healthy', 'unknown'))
              ORDER BY avg_latency_ms ASC NULLS LAST",
         )
@@ -1034,15 +1088,15 @@ impl Db {
         Ok(compatible_workers)
     }
 
-    /// List serving workers
+    /// List healthy workers
     ///
     /// Returns all workers with:
-    /// - status = 'serving'
+    /// - status = 'healthy'
     /// - schema_version compatible with control plane (major.minor match)
     /// - healthy status
     ///
     /// Used for routing when manifest matching is not required.
-    pub async fn list_serving_workers(&self) -> Result<Vec<WorkerWithBinding>> {
+    pub async fn list_healthy_workers(&self) -> Result<Vec<WorkerWithBinding>> {
         use adapteros_core::version::API_SCHEMA_VERSION;
 
         let workers = sqlx::query_as::<_, WorkerWithBinding>(
@@ -1050,7 +1104,7 @@ impl Db {
                     started_at, last_seen_at, manifest_hash_b3, schema_version,
                     api_version, registered_at, health_status
              FROM workers
-             WHERE status = 'serving'
+             WHERE status = 'healthy'
                AND (health_status IS NULL OR health_status IN ('healthy', 'unknown'))
              ORDER BY avg_latency_ms ASC NULLS LAST",
         )
@@ -1089,7 +1143,7 @@ impl Db {
                 initial_count = initial_count,
                 compatible_count = compatible_workers.len(),
                 filtered_out = initial_count - compatible_workers.len(),
-                "Some serving workers filtered out due to schema incompatibility"
+                "Some healthy workers filtered out due to schema incompatibility"
             );
         }
 

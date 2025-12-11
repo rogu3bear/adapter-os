@@ -12,9 +12,12 @@ use adapteros_db::chat_sessions::CreateChatProvenanceParams;
 use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::Db;
-use adapteros_server_api::handlers::chat_sessions::{
-    add_chat_message, create_chat_session, get_chat_provenance, AddChatMessageRequest,
-    CreateChatSessionRequest,
+use adapteros_server_api::{
+    auth::{AuthMode, PrincipalType},
+    handlers::chat_sessions::{
+        add_chat_message, create_chat_session, get_chat_provenance, AddChatMessageRequest,
+        CreateChatSessionRequest,
+    },
 };
 use axum::{extract::Path, extract::State, Extension, Json};
 use common::{setup_state, test_admin_claims};
@@ -497,6 +500,8 @@ fn test_claims_for_tenant(tenant_id: &str) -> adapteros_server_api::auth::Claims
         jti: "test-token".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: adapteros_server_api::auth::AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     }
 }
 

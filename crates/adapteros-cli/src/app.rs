@@ -605,6 +605,13 @@ pub enum Commands {
         no_verify: bool,
     },
 
+    // ============================================================
+    // Dataset Management
+    // ============================================================
+    /// Dataset lifecycle (create, ingest, list, versions, show, validate)
+    #[command(subcommand)]
+    Dataset(commands::datasets::DatasetCommand),
+
     /// Verification commands (bundle, adapter, adapters, determinism-loop, telemetry, federation)
     #[command(subcommand)]
     Verify(commands::verify::VerifyCommand),
@@ -1615,6 +1622,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Import { bundle, no_verify } => {
             import::run(bundle, !no_verify, output).await?;
         }
+        Commands::Dataset(cmd) => {
+            commands::datasets::run(cmd.clone(), output).await?;
+        }
         Commands::Verify(cmd) => {
             commands::verify::handle_verify_command(cmd.clone(), output).await?;
         }
@@ -1876,6 +1886,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::SecdStatus { .. } => "secd-status",
         Commands::SecdAudit { .. } => "secd-audit",
         Commands::Import { .. } => "import",
+        Commands::Dataset { .. } => "dataset",
         Commands::Verify { .. } => "verify",
         Commands::Policy(_) => "policy",
         Commands::Serve { .. } => "serve",

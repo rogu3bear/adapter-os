@@ -1,4 +1,4 @@
-use adapteros_core::{BackendProfile, SeedMode};
+use adapteros_core::{BackendKind, SeedMode};
 use adapteros_db::Db;
 use adapteros_manifest::ManifestV3;
 use adapteros_metrics_exporter::MetricsExporter;
@@ -43,6 +43,7 @@ async fn fetch_manifest_by_hash_returns_yaml_and_hash() {
         server: Default::default(),
         security: Default::default(),
         auth: Default::default(),
+        self_hosting: Default::default(),
         performance: Default::default(),
         paths: PathsConfig {
             artifacts_root: "var/artifacts".into(),
@@ -54,7 +55,7 @@ async fn fetch_manifest_by_hash_returns_yaml_and_hash() {
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,
-        backend_profile: BackendProfile::AutoDev,
+        backend_profile: BackendKind::Auto,
         worker_id: 0,
     }));
 

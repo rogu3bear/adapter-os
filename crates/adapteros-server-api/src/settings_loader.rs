@@ -120,7 +120,7 @@ pub fn load_full_settings_with_overrides(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_core::{BackendProfile, SeedMode};
+    use adapteros_core::{BackendKind, SeedMode};
 
     #[test]
     fn test_load_overrides_no_file() {
@@ -136,6 +136,7 @@ mod tests {
             server: Default::default(),
             security: Default::default(),
             auth: Default::default(),
+            self_hosting: Default::default(),
             performance: Default::default(),
             paths: crate::config::PathsConfig {
                 artifacts_root: "var/artifacts".to_string(),
@@ -147,7 +148,7 @@ mod tests {
             },
             chat_context: Default::default(),
             seed_mode: SeedMode::BestEffort,
-            backend_profile: BackendProfile::AutoDev,
+            backend_profile: BackendKind::default_inference_backend(),
             worker_id: 0,
         }));
 

@@ -6,6 +6,8 @@
 //! - `aosctl storage migrate` - Migrate data from SQL to KV backend
 //! - `aosctl storage verify` - Verify consistency between SQL and KV backends
 
+use crate::auth_store::load_auth;
+use crate::http_client::send_with_refresh;
 use crate::output::OutputWriter;
 use adapteros_core::Result;
 use adapteros_db::kv_metrics::{global_kv_metrics, KvMetricsSnapshot};
@@ -706,6 +708,9 @@ async fn migrate_data(
         .await
         .context("Failed to connect to database")?;
 
+    // Ensure auth session compatibility (creates compatibility view if needed).
+    db.resolve_session_table().await?;
+
     // Initialize or attach KV backend
     if !db.has_kv_backend() {
         if dry_run {
@@ -776,6 +781,8 @@ async fn migrate_data(
     if verify && !dry_run {
         output.info("");
         output.info("Verifying migration (diff_all_supported)...");
+        // Release KV handles before verification to avoid redb locking conflicts.
+        db.detach_kv_backend();
         // Reuse existing verifier for supported domains
         let _ = verify_consistency(
             db_path.clone(),
@@ -878,6 +885,9 @@ async fn verify_consistency(
     let mut db = Db::connect(&db_url)
         .await
         .context("Failed to connect to database")?;
+
+    // Ensure auth session compatibility (creates compatibility view if needed).
+    db.resolve_session_table().await?;
 
     let domains = if adapters_only {
         vec![MigrationDomain::Adapters]
@@ -1468,6 +1478,7 @@ async fn kv_isolation_scan_api(
 ) -> Result<()> {
     let client = Client::builder()
         .timeout(Duration::from_secs(timeout))
+        .cookie_store(true)
         .build()
         .context("Failed to build HTTP client")?;
 
@@ -1475,8 +1486,13 @@ async fn kv_isolation_scan_api(
         "{}/v1/storage/kv-isolation/scan",
         server_url.trim_end_matches('/')
     );
-    let mut req = client.post(url);
-    req = apply_auth(req, token);
+    let mut auth_state = load_auth().ok().flatten();
+    if let Some(auth) = auth_state.as_mut() {
+        auth.base_url = server_url.trim_end_matches('/').to_string();
+        if let Some(t) = token {
+            auth.token = t.to_string();
+        }
+    }
 
     let body = serde_json::json!({
         "sample_rate": sample_rate,
@@ -1484,11 +1500,19 @@ async fn kv_isolation_scan_api(
         "hash_seed": hash_seed,
     });
 
-    let resp = req
-        .json(&body)
-        .send()
+    let resp = if let Some(auth) = auth_state.as_mut() {
+        send_with_refresh(&client, auth, |client, t| {
+            client.post(url.clone()).bearer_auth(t).json(&body)
+        })
         .await
-        .context("Failed to send KV isolation scan request")?;
+    } else {
+        let mut req = client.post(url.clone());
+        req = apply_auth(req, token);
+        req.json(&body)
+            .send()
+            .await
+            .context("Failed to send KV isolation scan request")
+    }?;
 
     if !resp.status().is_success() {
         output.error(&format!("KV isolation scan failed: HTTP {}", resp.status()));
@@ -1553,6 +1577,7 @@ async fn kv_isolation_health_api(
 ) -> Result<()> {
     let client = Client::builder()
         .timeout(Duration::from_secs(timeout))
+        .cookie_store(true)
         .build()
         .context("Failed to build HTTP client")?;
 
@@ -1560,13 +1585,26 @@ async fn kv_isolation_health_api(
         "{}/v1/storage/kv-isolation/health",
         server_url.trim_end_matches('/')
     );
-    let mut req = client.get(url);
-    req = apply_auth(req, token);
+    let mut auth_state = load_auth().ok().flatten();
+    if let Some(auth) = auth_state.as_mut() {
+        auth.base_url = server_url.trim_end_matches('/').to_string();
+        if let Some(t) = token {
+            auth.token = t.to_string();
+        }
+    }
 
-    let resp = req
-        .send()
+    let resp = if let Some(auth) = auth_state.as_mut() {
+        send_with_refresh(&client, auth, |client, t| {
+            client.get(url.clone()).bearer_auth(t)
+        })
         .await
-        .context("Failed to fetch KV isolation health")?;
+    } else {
+        let mut req = client.get(url.clone());
+        req = apply_auth(req, token);
+        req.send()
+            .await
+            .context("Failed to fetch KV isolation health")
+    }?;
 
     if !resp.status().is_success() {
         output.error(&format!(

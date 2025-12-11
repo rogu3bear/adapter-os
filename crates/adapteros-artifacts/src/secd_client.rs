@@ -20,7 +20,7 @@ pub struct SecdClient {
 
 /// Request to secd daemon
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "cmd", rename_all = "snake_case")]
+#[serde(tag = "op", rename_all = "snake_case")]
 pub enum SecdRequest {
     /// Seal data for encryption
     Seal { data: String },
@@ -28,6 +28,19 @@ pub enum SecdRequest {
     Unseal { data: String },
     /// Sign data
     Sign { data: String },
+    /// Seal data with tenant-specific key
+    SealTenant { tenant_id: String, data: String },
+    /// Unseal data with tenant-specific key
+    UnsealTenant { tenant_id: String, data: String },
+    /// Compute keyed digest with tenant-specific key
+    DigestTenant { tenant_id: String, data: String },
+    /// Ensure tenant key exists
+    EnsureTenantKey { tenant_id: String },
+    /// Export tenant key (requires permission token)
+    ExportTenantKey {
+        tenant_id: String,
+        permission_token: String,
+    },
     /// Health check
     Ping,
 }
@@ -114,6 +127,137 @@ impl SecdClient {
                 .map_err(|e| AosError::Crypto(format!("Invalid base64 in sign response: {}", e))),
             SecdResponse::Error { message } => Err(AosError::Crypto(format!(
                 "Sign operation failed: {}",
+                message
+            ))),
+            _ => Err(AosError::Crypto("Invalid response format".to_string())),
+        }
+    }
+
+    /// Seal data using a tenant-specific key
+    pub async fn seal_tenant(&self, tenant_id: &str, data: &[u8]) -> Result<Vec<u8>> {
+        let base64_data = base64::engine::general_purpose::STANDARD.encode(data);
+        let request = SecdRequest::SealTenant {
+            tenant_id: tenant_id.to_string(),
+            data: base64_data,
+        };
+        let response = self.send_request(request).await?;
+
+        match response {
+            SecdResponse::Ok {
+                result: Some(result),
+            } => base64::engine::general_purpose::STANDARD
+                .decode(result)
+                .map_err(|e| {
+                    AosError::Crypto(format!("Invalid base64 in seal_tenant response: {}", e))
+                }),
+            SecdResponse::Error { message } => Err(AosError::Crypto(format!(
+                "Seal tenant operation failed: {}",
+                message
+            ))),
+            _ => Err(AosError::Crypto("Invalid response format".to_string())),
+        }
+    }
+
+    /// Unseal data using a tenant-specific key
+    pub async fn unseal_tenant(&self, tenant_id: &str, sealed: &[u8]) -> Result<Vec<u8>> {
+        let base64_data = base64::engine::general_purpose::STANDARD.encode(sealed);
+        let request = SecdRequest::UnsealTenant {
+            tenant_id: tenant_id.to_string(),
+            data: base64_data,
+        };
+        let response = self.send_request(request).await?;
+
+        match response {
+            SecdResponse::Ok {
+                result: Some(result),
+            } => base64::engine::general_purpose::STANDARD
+                .decode(result)
+                .map_err(|e| {
+                    AosError::Crypto(format!("Invalid base64 in unseal_tenant response: {}", e))
+                }),
+            SecdResponse::Error { message } => Err(AosError::Crypto(format!(
+                "Unseal tenant operation failed: {}",
+                message
+            ))),
+            _ => Err(AosError::Crypto("Invalid response format".to_string())),
+        }
+    }
+
+    /// Compute keyed digest for data using tenant-specific key
+    pub async fn digest_tenant(&self, tenant_id: &str, data: &[u8]) -> Result<[u8; 32]> {
+        let base64_data = base64::engine::general_purpose::STANDARD.encode(data);
+        let request = SecdRequest::DigestTenant {
+            tenant_id: tenant_id.to_string(),
+            data: base64_data,
+        };
+        let response = self.send_request(request).await?;
+
+        match response {
+            SecdResponse::Ok {
+                result: Some(result),
+            } => {
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(result)
+                    .map_err(|e| {
+                        AosError::Crypto(format!("Invalid base64 in digest_tenant response: {}", e))
+                    })?;
+                if bytes.len() != 32 {
+                    return Err(AosError::Crypto(format!(
+                        "Expected 32-byte digest, got {} bytes",
+                        bytes.len()
+                    )));
+                }
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&bytes);
+                Ok(out)
+            }
+            SecdResponse::Error { message } => Err(AosError::Crypto(format!(
+                "Digest tenant operation failed: {}",
+                message
+            ))),
+            _ => Err(AosError::Crypto("Invalid response format".to_string())),
+        }
+    }
+
+    /// Ensure tenant key exists
+    pub async fn ensure_tenant_key(&self, tenant_id: &str) -> Result<()> {
+        let request = SecdRequest::EnsureTenantKey {
+            tenant_id: tenant_id.to_string(),
+        };
+        let response = self.send_request(request).await?;
+        match response {
+            SecdResponse::Ok { .. } => Ok(()),
+            SecdResponse::Error { message } => Err(AosError::Crypto(format!(
+                "Ensure tenant key failed: {}",
+                message
+            ))),
+        }
+    }
+
+    /// Export tenant key bytes (requires permission token)
+    pub async fn export_tenant_key(
+        &self,
+        tenant_id: &str,
+        permission_token: &str,
+    ) -> Result<Vec<u8>> {
+        let request = SecdRequest::ExportTenantKey {
+            tenant_id: tenant_id.to_string(),
+            permission_token: permission_token.to_string(),
+        };
+        let response = self.send_request(request).await?;
+        match response {
+            SecdResponse::Ok {
+                result: Some(result),
+            } => base64::engine::general_purpose::STANDARD
+                .decode(result)
+                .map_err(|e| {
+                    AosError::Crypto(format!(
+                        "Invalid base64 in export_tenant_key response: {}",
+                        e
+                    ))
+                }),
+            SecdResponse::Error { message } => Err(AosError::Crypto(format!(
+                "Export tenant key failed: {}",
                 message
             ))),
             _ => Err(AosError::Crypto("Invalid response format".to_string())),

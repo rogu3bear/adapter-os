@@ -550,7 +550,7 @@ fn test_stack_persistence_across_restart() {
         Some(stack_hash),
     );
 
-    let decision1 = router1.route_with_adapter_info(&features, &priors, &adapters);
+    let decision1 = router1.route_with_adapter_info(&features, &priors, &adapters, None);
 
     // Verify stack hash and name are set
     assert_eq!(router1.active_stack(), Some(&stack_name.to_string()));
@@ -564,7 +564,7 @@ fn test_stack_persistence_across_restart() {
         Some(stack_hash),
     );
 
-    let decision2 = router2.route_with_adapter_info(&features, &priors, &adapters);
+    let decision2 = router2.route_with_adapter_info(&features, &priors, &adapters, None);
 
     // Decisions should be identical (deterministic routing)
     assert_eq!(

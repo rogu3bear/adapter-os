@@ -24,6 +24,12 @@ pub struct Event {
     pub inputs: HashMap<String, serde_json::Value>,
     /// Output data from the operation
     pub outputs: HashMap<String, serde_json::Value>,
+    /// Interval identifier for fused weight spans (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval_id: Option<String>,
+    /// Hash of the fused weights applied in this interval (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fused_weight_hash: Option<B3Hash>,
     /// BLAKE3 hash of the event data
     pub blake3_hash: B3Hash,
     /// Additional metadata
@@ -79,6 +85,8 @@ impl Event {
             event_type: event_type.clone(),
             inputs: inputs.clone(),
             outputs: outputs.clone(),
+            interval_id: None,
+            fused_weight_hash: None,
             metadata: metadata.clone(),
             timestamp,
         };
@@ -92,6 +100,8 @@ impl Event {
             event_type,
             inputs,
             outputs,
+            interval_id: None,
+            fused_weight_hash: None,
             blake3_hash,
             metadata,
             timestamp,
@@ -107,6 +117,8 @@ impl Event {
             event_type: self.event_type.clone(),
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
+            interval_id: self.interval_id.clone(),
+            fused_weight_hash: self.fused_weight_hash,
             metadata: self.metadata.clone(),
             timestamp: self.timestamp,
         };
@@ -117,6 +129,18 @@ impl Event {
     /// Verify the event's hash
     pub fn verify_hash(&self) -> bool {
         self.compute_hash() == self.blake3_hash
+    }
+
+    /// Attach fusion interval metadata and recompute the hash.
+    pub fn with_interval(
+        mut self,
+        interval_id: Option<String>,
+        fused_weight_hash: Option<B3Hash>,
+    ) -> Self {
+        self.interval_id = interval_id;
+        self.fused_weight_hash = fused_weight_hash;
+        self.blake3_hash = self.compute_hash();
+        self
     }
 }
 
@@ -129,6 +153,8 @@ struct EventData {
     pub event_type: String,
     pub inputs: HashMap<String, serde_json::Value>,
     pub outputs: HashMap<String, serde_json::Value>,
+    pub interval_id: Option<String>,
+    pub fused_weight_hash: Option<B3Hash>,
     pub metadata: EventMetadata,
     pub timestamp: u128,
 }

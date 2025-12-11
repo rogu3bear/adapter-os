@@ -144,6 +144,8 @@ fn test_routing_policy_denies_specific_adapter() {
             },
         ],
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
     };
 
     let policy = RoutingPolicy {
@@ -178,6 +180,8 @@ fn test_routing_policy_denies_all_adapters() {
             gate_q15: 16000,
         }],
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
     };
 
     let policy = RoutingPolicy {
@@ -364,6 +368,8 @@ fn base_only_request_zeroes_priors_and_clears_decisions() {
             },
         ],
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
     };
 
     if base_only_request {
@@ -390,6 +396,9 @@ fn base_only_request_zeroes_priors_and_clears_decisions() {
             tau: 0.0,
             entropy_floor: 0.0,
             stack_hash: None,
+            interval_id: None,
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
         });
     }
 

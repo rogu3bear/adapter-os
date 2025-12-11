@@ -8,6 +8,8 @@ pub struct AuthStore {
     pub base_url: String,
     pub tenant_id: String,
     pub token: String,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
     pub expires_at: Option<i64>,
 }
 
@@ -124,6 +126,7 @@ mod tests {
             base_url: "http://localhost:8080".to_string(),
             tenant_id: "tenant-a".to_string(),
             token: "abc123".to_string(),
+            refresh_token: Some("refresh123".to_string()),
             expires_at: Some(100),
         };
         save_auth(&store).expect("save");
@@ -141,6 +144,7 @@ mod tests {
             base_url: "http://env.example".to_string(),
             tenant_id: "tenant-env".to_string(),
             token: "token-env".to_string(),
+            refresh_token: Some("refresh-env".to_string()),
             expires_at: None,
         };
         save_auth(&store).expect("save");

@@ -7,7 +7,7 @@ use adapteros_config::{
     init_effective_config, resolve_base_model_location, resolve_manifest_path,
     try_effective_config, ConfigLoader, ConfigSnapshot,
 };
-use adapteros_core::{derive_seed, AosError, B3Hash, BackendProfile, SeedMode};
+use adapteros_core::{derive_seed, AosError, B3Hash, BackendKind, SeedMode};
 use adapteros_db::{kv_metrics, Db, DbFactory, DbStorageBackend, RuntimeSession};
 use adapteros_deterministic_exec::{
     global_ledger::GlobalTickLedger, init_global_executor, select::select_2, spawn_deterministic,
@@ -23,16 +23,21 @@ use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
 use adapteros_server_api::kv_isolation;
 use adapteros_server_api::runtime_mode::RuntimeModeResolver;
+use adapteros_server_api::storage_reconciler::spawn_storage_reconciler;
 use adapteros_server_api::worker_health::WorkerHealthMonitor;
 use adapteros_server_api::{routes, AppState};
 use adapteros_telemetry::AlertingEngine;
 use anyhow::Result;
 use clap::Parser;
+use serde_json::json;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::signal;
 use tokio::time::MissedTickBehavior;
 use tracing::{error, info, trace, warn};
@@ -116,6 +121,39 @@ fn normalize_jwt_mode(value: &str) -> String {
         "eddsa" | "ed25519" => "eddsa".to_string(),
         other => other.to_string(),
     }
+}
+
+fn agent_log(
+    hypothesis_id: &'static str,
+    location: &'static str,
+    message: &'static str,
+    data: serde_json::Value,
+) {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    // #region agent log
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
+    {
+        let _ = writeln!(
+            file,
+            "{}",
+            json!({
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": hypothesis_id,
+                "location": location,
+                "message": message,
+                "data": data,
+                "timestamp": timestamp,
+            })
+        );
+    }
+    // #endregion
 }
 
 #[derive(Parser)]
@@ -449,9 +487,6 @@ async fn main() -> Result<()> {
     init_global_executor(executor_config.clone())?;
     info!("Deterministic executor initialized with manifest-derived seed");
 
-    // Transition to starting backend state
-    boot_state.start_backend().await;
-
     // Initialize MLX runtime (idempotent, safe to call multiple times)
     #[cfg(feature = "multi-backend")]
     {
@@ -464,12 +499,6 @@ async fn main() -> Result<()> {
             tracing::info!("MLX runtime initialized successfully");
         }
     }
-
-    // Transition to loading base models state
-    boot_state.load_base_models().await;
-
-    // Download priority models from HuggingFace Hub if enabled
-    download_priority_models().await;
 
     // Security preflight: ensure egress is blocked
     info!("Running security preflight checks");
@@ -645,14 +674,53 @@ async fn main() -> Result<()> {
         "Connecting to database with storage backend"
     );
 
-    let db = DbFactory::create(
+    agent_log(
+        "H1",
+        "main.rs:633",
+        "db_connect_start",
+        json!({
+            "db_path": db_cfg.path,
+            "pool_size": db_cfg.pool_size,
+            "storage_mode": cfg_backend.as_str(),
+            "kv_path": kv_path.display().to_string(),
+            "kv_tantivy_path": kv_tantivy_path.as_ref().map(|p| p.display().to_string()),
+        }),
+    );
+
+    let db = match DbFactory::create(
         &db_cfg.path,
         db_cfg.pool_size,
         db_backend,
         Some(kv_path.as_path()),
         kv_tantivy_path.as_deref(),
     )
-    .await?;
+    .await
+    {
+        Ok(db) => {
+            agent_log(
+                "H1",
+                "main.rs:647",
+                "db_connect_ok",
+                json!({
+                    "storage_mode": cfg_backend.as_str(),
+                    "has_kv_path": kv_path.as_path().exists(),
+                }),
+            );
+            db
+        }
+        Err(e) => {
+            agent_log(
+                "H1",
+                "main.rs:653",
+                "db_connect_err",
+                json!({
+                    "storage_mode": cfg_backend.as_str(),
+                    "error": format!("{}", e),
+                }),
+            );
+            return Err(e.into());
+        }
+    };
 
     // Note: Storage mode adjustment logging removed due to type mismatch
     // TODO: Re-add proper logging when StorageMode implements Display
@@ -862,6 +930,7 @@ async fn main() -> Result<()> {
                 max_alerts_per_file: 0,
                 rotate_size_mb: 0,
             },
+            self_hosting: Default::default(),
             git: None,
             policies: Default::default(),
             logging: Default::default(),
@@ -957,6 +1026,7 @@ async fn main() -> Result<()> {
                 max_alerts_per_file: 0,
                 rotate_size_mb: 0,
             },
+            self_hosting: Default::default(),
             git: None,
             policies: Default::default(),
             logging: Default::default(),
@@ -1033,6 +1103,15 @@ async fn main() -> Result<()> {
     // Transition to loading policies state
     boot_state.load_policies().await;
 
+    // Transition to starting backend state
+    boot_state.start_backend().await;
+
+    // Transition to loading base models state
+    boot_state.load_base_models().await;
+
+    // Download priority models from HuggingFace Hub if enabled
+    download_priority_models().await;
+
     // Create API config (subset needed by handlers)
     let api_config = {
         let cfg = server_config
@@ -1077,6 +1156,12 @@ async fn main() -> Result<()> {
                 lockout_threshold: cfg.auth.lockout_threshold,
                 lockout_cooldown: cfg.auth.lockout_cooldown,
             },
+            self_hosting: adapteros_server_api::state::SelfHostingConfigApi {
+                mode: cfg.self_hosting.mode.clone(),
+                repo_allowlist: cfg.self_hosting.repo_allowlist.clone(),
+                promotion_threshold: cfg.self_hosting.promotion_threshold,
+                require_human_approval: cfg.self_hosting.mode.eq_ignore_ascii_case("safe"),
+            },
             performance: Default::default(),
             paths: adapteros_server_api::PathsConfig {
                 artifacts_root: cfg.paths.artifacts_root.clone(),
@@ -1088,7 +1173,7 @@ async fn main() -> Result<()> {
             },
             chat_context: Default::default(),
             seed_mode: SeedMode::default(),
-            backend_profile: BackendProfile::default(),
+            backend_profile: BackendKind::default_inference_backend(),
             worker_id: 0,
         }))
     };
@@ -1126,6 +1211,7 @@ async fn main() -> Result<()> {
                                 cfg.rate_limits = new_config.rate_limits.clone();
                                 cfg.metrics = new_config.metrics.clone();
                                 cfg.alerting = new_config.alerting.clone();
+                                cfg.self_hosting = new_config.self_hosting.clone();
                             }
                             Err(e) => {
                                 error!("Config lock poisoned during reload: {}", e);
@@ -1138,6 +1224,13 @@ async fn main() -> Result<()> {
                                 api_cfg.metrics.enabled = new_config.metrics.enabled;
                                 api_cfg.metrics.bearer_token =
                                     new_config.metrics.bearer_token.clone();
+                                api_cfg.self_hosting.mode = new_config.self_hosting.mode.clone();
+                                api_cfg.self_hosting.repo_allowlist =
+                                    new_config.self_hosting.repo_allowlist.clone();
+                                api_cfg.self_hosting.promotion_threshold =
+                                    new_config.self_hosting.promotion_threshold;
+                                api_cfg.self_hosting.require_human_approval =
+                                    new_config.self_hosting.mode.eq_ignore_ascii_case("safe");
                                 // Reload paths config
                                 api_cfg.paths.artifacts_root =
                                     new_config.paths.artifacts_root.clone();
@@ -1530,6 +1623,29 @@ async fn main() -> Result<()> {
     // Create broadcast channel for dataset progress (capacity 100)
     let (dataset_progress_tx, _) = tokio::sync::broadcast::channel(100);
 
+    // Wire training service to DB + dataset storage so training uses real datasets (not synthetic).
+    let training_storage_root = {
+        let cfg = server_config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        PathBuf::from(&cfg.paths.datasets_root)
+    };
+    if let Err(e) = std::fs::create_dir_all(&training_storage_root) {
+        warn!(
+            error = %e,
+            path = %training_storage_root.display(),
+            "Failed to ensure training storage root exists; training may fail"
+        );
+    }
+    let training_service = Arc::new(adapteros_orchestrator::TrainingService::with_db(
+        db.clone(),
+        training_storage_root.clone(),
+    ));
+    info!(
+        path = %training_storage_root.display(),
+        "Training service initialized with DB-backed storage root"
+    );
+
     let mut state = AppState::new(
         db.clone(),
         jwt_secret,
@@ -1539,6 +1655,7 @@ async fn main() -> Result<()> {
         Arc::clone(&metrics_registry),
         uma_monitor.clone(),
     )
+    .with_training_service(training_service)
     .with_dataset_progress(dataset_progress_tx)
     .with_boot_state(boot_state.clone())
     .with_runtime_mode(runtime_mode)
@@ -1575,6 +1692,10 @@ async fn main() -> Result<()> {
     state = state.with_plugin_registry(Arc::new(adapteros_server_api::PluginRegistry::new(
         db.clone(),
     )));
+
+    // Start self-hosting agent if enabled
+    let _self_hosting_handle =
+        adapteros_server_api::self_hosting::spawn_self_hosting_agent(state.clone());
 
     // Initialize Registry for adapter management
     {
@@ -1620,6 +1741,9 @@ async fn main() -> Result<()> {
             }
         }
     }
+
+    // Spawn storage reconciler in the background to detect missing/orphaned bytes.
+    spawn_storage_reconciler(Arc::new(state.clone()));
 
     // Load embedding model for RAG if embeddings feature enabled
     #[cfg(feature = "embeddings")]
@@ -2082,6 +2206,8 @@ async fn main() -> Result<()> {
 
         // Transition to ready state - server is now accepting requests
         boot_state.ready().await;
+        // Mark fully ready once boot tasks have completed
+        boot_state.fully_ready().await;
 
         let listener = tokio::net::UnixListener::bind(&socket_path)?;
         axum::serve(listener, app)
@@ -2134,6 +2260,8 @@ async fn main() -> Result<()> {
 
         // Transition to ready state - server is now accepting requests
         boot_state.ready().await;
+        // Mark fully ready once boot tasks have completed
+        boot_state.fully_ready().await;
 
         let listener = tokio::net::TcpListener::bind(addr).await?;
         axum::serve(listener, app)
@@ -2413,11 +2541,22 @@ async fn seed_models_from_cache_if_empty(db: &Db) -> Result<()> {
 
     let cache_root = std::env::var("AOS_MODEL_CACHE_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("var/model-cache"))
-        .join("models");
-    if !cache_root.exists() {
+        .unwrap_or_else(|_| PathBuf::from("var/model-cache"));
+    let primary_models_dir = cache_root.join("models");
+    let fallback_dir = std::env::var("AOS_MODEL_CACHE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("var/models"));
+
+    // Collect candidate model directories to seed.
+    let mut model_dirs = Vec::new();
+    if primary_models_dir.exists() {
+        model_dirs.push(primary_models_dir.clone());
+    } else if fallback_dir.exists() {
+        model_dirs.push(fallback_dir.clone());
+    } else {
         info!(
-            path = %cache_root.display(),
+            path = %primary_models_dir.display(),
+            fallback = %fallback_dir.display(),
             "Model cache directory not found, skipping seed"
         );
         return Ok(());
@@ -2426,48 +2565,52 @@ async fn seed_models_from_cache_if_empty(db: &Db) -> Result<()> {
     let mut seeded = 0usize;
     let mut errors = 0usize;
 
-    for entry in std::fs::read_dir(&cache_root)? {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(e) => {
-                warn!(error = %e, "Failed to read cached model entry");
-                errors += 1;
+    for root in model_dirs {
+        // If this root is a single model directory (like var/models/Qwen2.5...), seed it directly.
+        let entries: Vec<PathBuf> = if root.join("config.json").exists() {
+            vec![root.clone()]
+        } else {
+            std::fs::read_dir(&root)?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .collect()
+        };
+
+        for path in entries {
+            if !path.is_dir() {
                 continue;
             }
-        };
 
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-
-        let Some(path_str) = path.to_str() else {
-            errors += 1;
-            warn!(path = ?path, "Skipping model dir with non-UTF8 path");
-            continue;
-        };
-
-        let name = entry.file_name().to_string_lossy().to_string();
-        let (format, backend) = detect_model_format_backend(&path);
-
-        match db
-            .import_model_from_path(&name, path_str, &format, &backend, "system", "system")
-            .await
-        {
-            Ok(model_id) => {
-                if let Err(e) = db
-                    .update_model_import_status(&model_id, "available", None)
-                    .await
-                {
-                    warn!(model_id = %model_id, error = %e, "Failed to mark model available");
-                    errors += 1;
-                } else {
-                    seeded += 1;
-                }
-            }
-            Err(e) => {
-                warn!(model = %name, error = %e, "Failed to seed cached model");
+            let Some(path_str) = path.to_str() else {
                 errors += 1;
+                warn!(path = ?path, "Skipping model dir with non-UTF8 path");
+                continue;
+            };
+
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "model".to_string());
+            let (format, backend) = detect_model_format_backend(&path);
+
+            match db
+                .import_model_from_path(&name, path_str, &format, &backend, "system", "system")
+                .await
+            {
+                Ok(model_id) => {
+                    if let Err(e) = db
+                        .update_model_import_status(&model_id, "available", None)
+                        .await
+                    {
+                        warn!(model_id = %model_id, error = %e, "Failed to mark model available");
+                        errors += 1;
+                    } else {
+                        seeded += 1;
+                    }
+                }
+                Err(e) => {
+                    warn!(model = %name, error = %e, "Failed to seed cached model");
+                    errors += 1;
+                }
             }
         }
     }
@@ -2475,7 +2618,7 @@ async fn seed_models_from_cache_if_empty(db: &Db) -> Result<()> {
     info!(
         seeded,
         errors,
-        path = %cache_root.display(),
+        path = %primary_models_dir.display(),
         "Seeded cached base models into database"
     );
 

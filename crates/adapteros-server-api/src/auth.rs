@@ -13,8 +13,11 @@ use jsonwebtoken::{
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::sync::OnceLock;
 #[cfg(not(debug_assertions))]
 use tracing::error;
+use tracing::warn;
+use uuid::Uuid;
 
 const ARGON2_MEMORY_KIB: u32 = 64 * 1024; // 64 MiB
 const ARGON2_ITERATIONS: u32 = 3;
@@ -39,6 +42,140 @@ pub fn derive_kid_from_bytes(data: &[u8]) -> String {
 
 pub fn derive_kid_from_str(data: &str) -> String {
     derive_kid_from_bytes(data.as_bytes())
+}
+
+/// How a caller was authenticated.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMode {
+    #[serde(alias = "jwt", alias = "bearer")]
+    BearerToken,
+    Cookie,
+    ApiKey,
+    DevBypass,
+    Unauthenticated,
+}
+
+impl Default for AuthMode {
+    fn default() -> Self {
+        AuthMode::BearerToken
+    }
+}
+
+impl AuthMode {
+    pub fn is_authenticated(&self) -> bool {
+        !matches!(self, AuthMode::Unauthenticated)
+    }
+}
+
+/// Logical identity category of the caller.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PrincipalType {
+    User,
+    ApiKey,
+    DevBypass,
+    InternalService,
+}
+
+impl Default for PrincipalType {
+    fn default() -> Self {
+        PrincipalType::User
+    }
+}
+
+/// Normalized principal representation derived from claims/API keys/dev bypass.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Principal {
+    pub principal_type: PrincipalType,
+    pub principal_id: String,
+    pub tenant_id: String,
+    pub admin_tenants: Vec<String>,
+    pub session_id: Option<String>,
+    pub device_id: Option<String>,
+    pub mfa_level: Option<String>,
+    pub jti: String,
+    pub auth_mode: AuthMode,
+}
+
+impl Principal {
+    pub fn from_claims(
+        claims: &Claims,
+        principal_type: PrincipalType,
+        auth_mode: AuthMode,
+    ) -> Self {
+        Self {
+            principal_type,
+            principal_id: claims.sub.clone(),
+            tenant_id: claims.tenant_id.clone(),
+            admin_tenants: claims.admin_tenants.clone(),
+            session_id: claims.session_id.clone(),
+            device_id: claims.device_id.clone(),
+            mfa_level: claims.mfa_level.clone(),
+            jti: claims.jti.clone(),
+            auth_mode,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DevBypassStatus {
+    pub active: bool,
+    pub build: &'static str,
+    pub env_requested: bool,
+}
+
+fn dev_bypass_requested() -> (bool, bool) {
+    let env_present = env::var("AOS_DEV_NO_AUTH").is_ok();
+    let requested = env::var("AOS_DEV_NO_AUTH")
+        .map(|v| {
+            let lower = v.to_ascii_lowercase();
+            matches!(lower.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false);
+    (env_present, requested)
+}
+
+/// Shared, single-evaluated dev-bypass status (logs exactly once).
+pub(crate) fn dev_bypass_status() -> &'static DevBypassStatus {
+    static STATUS: OnceLock<DevBypassStatus> = OnceLock::new();
+    STATUS.get_or_init(|| {
+        let (env_present, requested) = dev_bypass_requested();
+        #[cfg(debug_assertions)]
+        {
+            if requested {
+                warn!(
+                    "Dev auth bypass ENABLED via AOS_DEV_NO_AUTH (debug build only) — auth_mode=dev_bypass; unsafe for production"
+                );
+                return DevBypassStatus {
+                    active: true,
+                    build: "debug",
+                    env_requested: true,
+                };
+            }
+
+            DevBypassStatus {
+                active: false,
+                build: "debug",
+                env_requested: env_present,
+            }
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            if env_present {
+                error!(
+                    "AOS_DEV_NO_AUTH detected in release build - this flag is ignored in production"
+                );
+            }
+
+            DevBypassStatus {
+                active: false,
+                build: "release",
+                env_requested: env_present,
+            }
+        }
+    })
 }
 
 /// Access token claims (used across the API as `Claims`)
@@ -68,6 +205,10 @@ pub struct AccessClaims {
     pub nbf: i64, // Not Before timestamp
     #[serde(default = "default_issuer")]
     pub iss: String,
+    #[serde(default)]
+    pub auth_mode: AuthMode,
+    #[serde(default)]
+    pub principal_type: Option<PrincipalType>,
 }
 
 /// Refresh token claims used for session renewal
@@ -91,23 +232,8 @@ pub struct RefreshClaims {
 pub type Claims = AccessClaims;
 
 /// SECURITY: Dev no-auth bypass is only available in debug builds.
-#[cfg(debug_assertions)]
 pub(crate) fn dev_no_auth_enabled() -> bool {
-    env::var("AOS_DEV_NO_AUTH")
-        .map(|v| {
-            let lower = v.to_ascii_lowercase();
-            matches!(lower.as_str(), "1" | "true" | "yes" | "on")
-        })
-        .unwrap_or(false)
-}
-
-/// SECURITY: In release builds, dev_no_auth is NEVER enabled
-#[cfg(not(debug_assertions))]
-pub(crate) fn dev_no_auth_enabled() -> bool {
-    if env::var("AOS_DEV_NO_AUTH").is_ok() {
-        error!("AOS_DEV_NO_AUTH detected in release build - this flag is ignored in production");
-    }
-    false
+    dev_bypass_status().active
 }
 
 /// Password verification result with upgrade hint
@@ -306,6 +432,9 @@ pub fn generate_token_ed25519_with_admin_tenants_mfa(
         hasher.update(user_id.as_bytes());
         hasher.update(&now.timestamp().to_le_bytes());
         hasher.update(tenant_id.as_bytes());
+        // Add a per-token nonce to avoid collisions when tokens are minted in the same second
+        let nonce = Uuid::now_v7();
+        hasher.update(nonce.as_bytes());
         hex::encode(hasher.finalize().as_bytes())
     };
 
@@ -325,6 +454,8 @@ pub fn generate_token_ed25519_with_admin_tenants_mfa(
         mfa_level: mfa_level.map(|s| s.to_string()),
         rot_id: None,
         iss: JWT_ISSUER.to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     // Use Ed25519 algorithm for signing
@@ -551,6 +682,8 @@ pub fn generate_token_with_admin_tenants_mfa(
         mfa_level: mfa_level.map(|s| s.to_string()),
         rot_id: None,
         iss: JWT_ISSUER.to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     let mut header = Header::default();
@@ -629,6 +762,8 @@ pub fn issue_access_token_ed25519(
         jti,
         nbf: nbf.timestamp(),
         iss: JWT_ISSUER.to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     let mut header = Header::new(JwtAlgorithm::EdDSA);
@@ -681,6 +816,8 @@ pub fn issue_access_token_hmac(
         jti: session_id.to_string(),
         nbf: nbf.timestamp(),
         iss: JWT_ISSUER.to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     let mut header = Header::new(JwtAlgorithm::HS256);
@@ -972,6 +1109,38 @@ mod tests {
     }
 
     #[test]
+    fn access_token_sets_session_id_and_principal_type() {
+        let keypair = Keypair::generate();
+        let session_id = "sess-principal";
+        let roles = vec!["admin".to_string()];
+
+        let token = issue_access_token_ed25519(
+            "user-claims",
+            "user@example.com",
+            "admin",
+            &roles,
+            "tenant-check",
+            &[],
+            None,
+            session_id,
+            None,
+            &keypair,
+            Some(120),
+        )
+        .expect("access token");
+
+        let public_pem = encode_ed25519_public_key_pem(&keypair.public_key().to_bytes());
+        let kid = derive_kid_from_str(&public_pem);
+        let claims =
+            validate_access_token_ed25519(&token, &[(kid, public_pem.clone())], &public_pem)
+                .expect("validate access");
+
+        assert_eq!(claims.session_id.as_deref(), Some(session_id));
+        assert_eq!(claims.jti, session_id.to_string());
+        assert_eq!(claims.principal_type, Some(PrincipalType::User));
+    }
+
+    #[test]
     fn refresh_token_carries_rotation_and_device() {
         let keypair = Keypair::generate();
         let roles = vec!["viewer".to_string()];
@@ -1022,6 +1191,8 @@ mod tests {
             jti: "jti-1".to_string(),
             nbf: now.timestamp(),
             iss: "unexpected-issuer".to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
         };
 
         let mut header = Header::new(JwtAlgorithm::EdDSA);
@@ -1154,6 +1325,8 @@ mod tests {
             jti: "jti-kidless".to_string(),
             nbf: now.timestamp(),
             iss: JWT_ISSUER.to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
         };
 
         let mut header = Header::new(JwtAlgorithm::EdDSA);

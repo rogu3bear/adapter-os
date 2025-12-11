@@ -255,6 +255,31 @@ impl Default for TelemetryFilters {
     }
 }
 
+impl TelemetryFilters {
+    /// Construct filters with a required tenant identifier.
+    pub fn with_tenant(tenant_id: impl Into<String>) -> Self {
+        Self {
+            tenant_id: Some(tenant_id.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Validate that required tenant context is present.
+    pub fn validate(&self) -> std::result::Result<(), AosError> {
+        match self
+            .tenant_id
+            .as_ref()
+            .map(|t| t.trim())
+            .filter(|t| !t.is_empty())
+        {
+            Some(_) => Ok(()),
+            None => Err(AosError::Validation(
+                "telemetry tenant_id is required for queries".to_string(),
+            )),
+        }
+    }
+}
+
 /// Telemetry event builder for constructing events
 pub struct TelemetryEventBuilder {
     event: TelemetryEvent,
@@ -364,10 +389,56 @@ mod tests {
     }
 
     #[test]
+    fn telemetry_event_builder_rejects_empty_tenant() {
+        let identity = IdentityEnvelope::new(
+            "".to_string(),
+            "domain".to_string(),
+            "purpose".to_string(),
+            "rev".to_string(),
+        );
+        let result = TelemetryEventBuilder::new(
+            EventType::SystemError,
+            LogLevel::Error,
+            "missing tenant".to_string(),
+            identity,
+        )
+        .build();
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn telemetry_event_builder_rejects_whitespace_tenant() {
+        let identity = IdentityEnvelope::new(
+            "   ".to_string(),
+            "domain".to_string(),
+            "purpose".to_string(),
+            "rev".to_string(),
+        );
+        let result = TelemetryEventBuilder::new(
+            EventType::SystemError,
+            LogLevel::Error,
+            "missing tenant".to_string(),
+            identity,
+        )
+        .build();
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_telemetry_filters_default() {
         let filters = TelemetryFilters::default();
         assert_eq!(filters.limit, Some(100));
         assert!(filters.tenant_id.is_none());
         assert!(filters.user_id.is_none());
+        assert!(filters.validate().is_err());
+    }
+
+    #[test]
+    fn telemetry_filters_require_tenant() {
+        let filters = TelemetryFilters::with_tenant("tenant-123");
+        assert!(filters.validate().is_ok());
+        assert_eq!(filters.limit, Some(100));
     }
 }

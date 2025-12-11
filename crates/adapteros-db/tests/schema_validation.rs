@@ -125,6 +125,10 @@ async fn test_core_tables_exist() -> Result<()> {
         // Migration 0071_lifecycle_version_history.sql
         "adapter_version_history",
         "stack_version_history",
+        // Migration 0175_adapter_repositories_and_versions.sql
+        "adapter_repositories",
+        "adapter_versions",
+        "adapter_version_runtime_state",
         // Migration 0072_tenant_snapshots.sql
         "tenant_snapshots",
         // Migration 0073_index_hashes.sql
@@ -166,6 +170,9 @@ async fn test_core_tables_exist() -> Result<()> {
         "routing_decisions",
         "adapter_version_history",
         "stack_version_history",
+        "adapter_repositories",
+        "adapter_versions",
+        "adapter_version_runtime_state",
         "tenant_snapshots",
         "index_hashes",
     ];

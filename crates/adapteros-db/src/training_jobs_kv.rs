@@ -14,6 +14,10 @@ use uuid::Uuid;
 pub struct TrainingJobKv {
     pub id: String,
     pub repo_id: String,
+    pub target_branch: Option<String>,
+    pub base_version_id: Option<String>,
+    pub draft_version_id: Option<String>,
+    pub code_commit_sha: Option<String>,
     pub training_config_json: String,
     pub status: String,
     pub progress_json: String,
@@ -31,10 +35,16 @@ pub struct TrainingJobKv {
     pub tenant_id: Option<String>,
     pub build_id: Option<String>,
     pub source_documents_json: Option<String>,
+    pub synthetic_mode: Option<bool>,
+    pub data_lineage_mode: Option<String>,
     pub retryable: Option<i64>,
     pub retry_of_job_id: Option<String>,
     pub stack_id: Option<String>,
     pub adapter_id: Option<String>,
+    pub produced_version_id: Option<String>,
+    pub hyperparameters_json: Option<String>,
+    pub data_spec_json: Option<String>,
+    pub metrics_snapshot_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

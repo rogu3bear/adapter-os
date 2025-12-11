@@ -1,5 +1,5 @@
 // Supervisor Services API Tests
-import { validateErrorResponse } from '../support/api-helpers';
+import { validateErrorResponse } from '../../support/api-helpers';
 
 describe('Supervisor Services API', () => {
   beforeEach(() => {

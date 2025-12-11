@@ -203,6 +203,8 @@ export default function PromptOrchestrationPanel() {
   });
 
   const [metrics, setMetrics] = useState<OrchestrationMetrics | null>(null);
+  const [orchestrationUnavailable, setOrchestrationUnavailable] = useState(false);
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
 
   const [recentAnalyses, setRecentAnalyses] = useState<PromptAnalysisResult[]>([]);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(true);
@@ -210,6 +212,16 @@ export default function PromptOrchestrationPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [testPrompt, setTestPrompt] = useState('');
   const [testResult, setTestResult] = useState<PromptAnalysisResult | null>(null);
+
+  const markOrchestrationUnavailable = useCallback((reason: string) => {
+    setOrchestrationUnavailable(true);
+    setUnavailableReason(reason);
+  }, []);
+
+  const clearOrchestrationUnavailable = useCallback(() => {
+    setOrchestrationUnavailable(false);
+    setUnavailableReason(null);
+  }, []);
 
   // Load configuration with graceful degradation
   // [source: ui/src/components/PromptOrchestrationPanel.tsx L200-L240]
@@ -248,6 +260,7 @@ export default function PromptOrchestrationPanel() {
         true // skipRetry - endpoint may not exist
       );
       setConfig(response);
+      clearOrchestrationUnavailable();
       // Cache to localStorage
       localStorage.setItem(ORCHESTRATION_CONFIG_KEY, JSON.stringify(response));
       logger.info('Loaded config from backend', {
@@ -260,6 +273,7 @@ export default function PromptOrchestrationPanel() {
         component: 'PromptOrchestrationPanel',
         operation: 'loadConfig',
       });
+      markOrchestrationUnavailable('Orchestration APIs are not available on this backend (v0.9)');
       setConfig(DEFAULT_CONFIG);
     }
 
@@ -311,6 +325,7 @@ export default function PromptOrchestrationPanel() {
           component: 'PromptOrchestrationPanel',
           operation: 'saveConfig',
         });
+        markOrchestrationUnavailable('Cannot sync orchestration config: API not available on this backend (v0.9)');
         toast.success('Configuration saved locally (backend sync pending)');
       }
     } catch (error) {
@@ -334,26 +349,33 @@ export default function PromptOrchestrationPanel() {
       let result: PromptAnalysisResult;
 
       // Try backend analysis first (may not exist yet)
-      try {
-        result = await apiClient.request<PromptAnalysisResult>(
-          '/v1/orchestration/analyze',
-          {
-            method: 'POST',
-            body: JSON.stringify({ prompt: testPrompt }),
-          },
-          true // skipRetry - endpoint may not exist
-        );
-        logger.info('Received analysis from backend', {
-          component: 'PromptOrchestrationPanel',
-          operation: 'testPromptAnalysis',
-          complexityScore: result.complexityScore,
-        });
-      } catch (backendError) {
-        // Backend not available - use client-side heuristic analysis
-        logger.info('Using client-side heuristic analysis (backend /v1/orchestration/analyze pending)', {
-          component: 'PromptOrchestrationPanel',
-          operation: 'testPromptAnalysis',
-        });
+      if (!orchestrationUnavailable) {
+        try {
+          result = await apiClient.request<PromptAnalysisResult>(
+            '/v1/orchestration/analyze',
+            {
+              method: 'POST',
+              body: JSON.stringify({ prompt: testPrompt }),
+            },
+            true // skipRetry - endpoint may not exist
+          );
+          logger.info('Received analysis from backend', {
+            component: 'PromptOrchestrationPanel',
+            operation: 'testPromptAnalysis',
+            complexityScore: result.complexityScore,
+          });
+          clearOrchestrationUnavailable();
+        } catch (backendError) {
+          // Backend not available - use client-side heuristic analysis
+          logger.info('Using client-side heuristic analysis (backend /v1/orchestration/analyze pending)', {
+            component: 'PromptOrchestrationPanel',
+            operation: 'testPromptAnalysis',
+          });
+          markOrchestrationUnavailable('Prompt analysis API is not available on this backend (v0.9)');
+          result = analyzePromptLocally(testPrompt);
+        }
+      } else {
+        // Already know backend is unavailable – skip network
         result = analyzePromptLocally(testPrompt);
       }
 
@@ -388,6 +410,7 @@ export default function PromptOrchestrationPanel() {
           true // skipRetry - endpoint may not exist
         );
         setMetrics(orchestrationMetrics);
+        clearOrchestrationUnavailable();
         logger.debug('Loaded orchestration metrics from dedicated endpoint', {
           component: 'PromptOrchestrationPanel',
           operation: 'loadMetrics',
@@ -410,6 +433,7 @@ export default function PromptOrchestrationPanel() {
           const orchestrationData = response['orchestration'] as OrchestrationMetrics | undefined;
           if (orchestrationData) {
             setMetrics(orchestrationData);
+            clearOrchestrationUnavailable();
             logger.debug('Extracted orchestration metrics from /v1/metrics', {
               component: 'PromptOrchestrationPanel',
               operation: 'loadMetrics',
@@ -426,12 +450,14 @@ export default function PromptOrchestrationPanel() {
         component: 'PromptOrchestrationPanel',
         operation: 'loadMetrics',
       });
+      markOrchestrationUnavailable('Orchestration metrics API is not available on this backend (v0.9)');
     } catch (error) {
       logger.debug('Error loading orchestration metrics', {
         component: 'PromptOrchestrationPanel',
         operation: 'loadMetrics',
         error: toError(error),
       });
+      markOrchestrationUnavailable('Orchestration metrics API is not available on this backend (v0.9)');
     }
     setIsLoadingMetrics(false);
   }, []);
@@ -480,6 +506,15 @@ export default function PromptOrchestrationPanel() {
           </Button>
         </div>
       </div>
+
+      {orchestrationUnavailable && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            {unavailableReason || 'Orchestration APIs are not available on this backend (v0.9). The UI is running in local-only mode until the server supports /v1/orchestration endpoints.'}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
@@ -772,7 +807,7 @@ export default function PromptOrchestrationPanel() {
                   ) : (
                     <>
                       <CheckCircle className="w-4 h-4 mr-2" />
-                      Save Configuration
+                      {orchestrationUnavailable ? 'Save Locally (backend pending)' : 'Save Configuration'}
                     </>
                   )}
                 </Button>
@@ -804,7 +839,11 @@ export default function PromptOrchestrationPanel() {
 
               <Button onClick={testPromptAnalysis} disabled={isLoading || !testPrompt.trim()}>
                 <PlayCircle className="w-4 h-4 mr-2" />
-                {isLoading ? 'Analyzing...' : 'Analyze Prompt'}
+                {isLoading
+                  ? 'Analyzing...'
+                  : orchestrationUnavailable
+                    ? 'Analyze Prompt (local only)'
+                    : 'Analyze Prompt'}
               </Button>
 
               {testResult && (

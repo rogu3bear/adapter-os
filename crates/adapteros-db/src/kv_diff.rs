@@ -17,6 +17,7 @@ use crate::training_jobs_kv::TrainingJobKvRepository;
 use crate::users_kv::{UserKvOps, UserKvRepository};
 use crate::Db;
 use adapteros_core::AosError;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -112,11 +113,18 @@ impl Db {
         let Some(pool) = self.pool_opt() else {
             return Ok(issues);
         };
-        let sql_cols = sqlx::query!(
-            r#"SELECT id, tenant_id, name, description, created_at, updated_at FROM document_collections"#
-        )
-        .fetch_all(pool)
-        .await?;
+        #[derive(sqlx::FromRow)]
+        struct CollectionRow {
+            id: Option<String>,
+            tenant_id: String,
+            name: String,
+            description: Option<String>,
+        }
+
+        let sql_cols: Vec<CollectionRow> =
+            sqlx::query_as(r#"SELECT id, tenant_id, name, description FROM document_collections"#)
+                .fetch_all(pool)
+                .await?;
 
         let Some(kv) = self.kv_backend() else {
             return Ok(issues);
@@ -714,19 +722,23 @@ impl Db {
             return Ok(issues);
         };
 
+        // Resolve canonical session relation (creates compatibility view if only user_sessions exists).
+        let session_table = self.resolve_session_table().await?;
+
         #[derive(sqlx::FromRow)]
         struct AuthRow {
             jti: String,
             user_id: String,
+            tenant_id: Option<String>,
             ip_address: Option<String>,
             user_agent: Option<String>,
             last_activity: String,
-            expires_at: i64,
+            expires_at: String,
         }
 
-        let mut sql_sessions = sqlx::query_as::<_, AuthRow>(
-            r#"SELECT jti, user_id, ip_address, user_agent, last_activity, expires_at FROM auth_sessions"#,
-        )
+        let mut sql_sessions = sqlx::query_as::<_, AuthRow>(&format!(
+            r#"SELECT jti, user_id, tenant_id, ip_address, user_agent, last_activity, expires_at FROM {session_table}"#
+        ))
         .fetch_all(pool)
         .await?;
 
@@ -754,6 +766,15 @@ impl Db {
                             kv_value: sess.user_id.clone(),
                         });
                     }
+                    if sess.tenant_id.as_deref() != row.tenant_id.as_deref() {
+                        issues.push(DiffIssue {
+                            domain: "auth_sessions".into(),
+                            id: row.jti.clone(),
+                            field: "tenant_id".into(),
+                            sql_value: row.tenant_id.clone().unwrap_or_else(|| "None".into()),
+                            kv_value: sess.tenant_id.clone().unwrap_or_else(|| "None".into()),
+                        });
+                    }
                     if sess.ip_address != row.ip_address {
                         issues.push(DiffIssue {
                             domain: "auth_sessions".into(),
@@ -772,12 +793,16 @@ impl Db {
                             kv_value: sess.user_agent.clone().unwrap_or_else(|| "None".into()),
                         });
                     }
-                    if sess.expires_at != row.expires_at {
+                    let sql_expires = DateTime::parse_from_rfc3339(&row.expires_at)
+                        .map(|dt| dt.timestamp())
+                        .or_else(|_| row.expires_at.parse::<i64>().map_err(|_| ()))
+                        .unwrap_or_else(|_| Utc::now().timestamp());
+                    if sess.expires_at != sql_expires {
                         issues.push(DiffIssue {
                             domain: "auth_sessions".into(),
                             id: row.jti.clone(),
                             field: "expires_at".into(),
-                            sql_value: row.expires_at.to_string(),
+                            sql_value: sql_expires.to_string(),
                             kv_value: sess.expires_at.to_string(),
                         });
                     }

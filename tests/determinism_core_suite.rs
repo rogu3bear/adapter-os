@@ -4,11 +4,12 @@
 
 use adapteros_core::B3Hash;
 use adapteros_db::{CreateReplayMetadataParams, Db};
-use adapteros_lora_router::{AdapterInfo, Router, RouterDeterminismConfig, RouterWeights};
+use adapteros_lora_router::{AdapterInfo, PolicyMask, Router, RouterDeterminismConfig, RouterWeights};
 use adapteros_lora_worker::services::determinism_policy::{HkdfSeedExpander, SeedDomain};
 use adapteros_policy::{DeterminismConfig, DeterminismPolicy, RngSeedingMethod};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+use sqlx;
 
 #[test]
 fn test_router_seed_derivation_and_policy_hooks() {
@@ -69,8 +70,12 @@ fn test_router_ordering_and_q15_gates_are_stable() {
     let mut router2 = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
     router2.set_determinism_config(determinism);
 
-    let decision1 = router1.route_with_adapter_info(&features, &priors, &adapter_info);
-    let decision2 = router2.route_with_adapter_info(&features, &priors, &adapter_info);
+    let mask = {
+        let ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+        PolicyMask::allow_all(&ids, None)
+    };
+    let decision1 = router1.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
+    let decision2 = router2.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
     assert_eq!(
         decision1.indices, decision2.indices,
@@ -116,6 +121,9 @@ fn test_router_ordering_and_q15_gates_are_stable() {
 async fn test_replay_metadata_round_trip() {
     let db = Db::new_in_memory().await.expect("in-memory DB should init");
 
+    ensure_base_only_column(&db).await;
+    seed_tenant(&db).await;
+
     let router_seed_bytes = {
         let mut expander = HkdfSeedExpander::new(&[0x99u8; 32]);
         expander.derive(SeedDomain::Router)
@@ -141,6 +149,9 @@ async fn test_replay_metadata_round_trip() {
         sampling_params_json: sampling_params_json.clone(),
         backend: "metal".to_string(),
         backend_version: Some("v1.0.0-test".to_string()),
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: Some("v1.0.0-test".to_string()),
         rag_snapshot_hash: Some("rag-snapshot-xyz".to_string()),
         adapter_ids: Some(adapter_ids.clone()),
@@ -156,6 +167,10 @@ async fn test_replay_metadata_round_trip() {
         tokens_generated: Some(64),
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: true,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: Some("policy-001".to_string()),
         execution_policy_version: Some(1),
@@ -209,4 +224,29 @@ async fn test_replay_metadata_round_trip() {
         stored_rag_doc_ids, rag_doc_ids,
         "RAG doc ID order must persist"
     );
+}
+
+async fn ensure_base_only_column(db: &Db) {
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM pragma_table_info('inference_replay_metadata') WHERE name = 'base_only'",
+    )
+    .fetch_optional(db.pool())
+    .await
+    .expect("pragma table info should succeed");
+
+    if exists.is_none() {
+        sqlx::query("ALTER TABLE inference_replay_metadata ADD COLUMN base_only INTEGER")
+            .execute(db.pool())
+            .await
+            .expect("should be able to add base_only column in tests");
+    }
+}
+
+async fn seed_tenant(db: &Db) {
+    sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
+        .bind("tenant-det")
+        .bind("Determinism Tenant")
+        .execute(db.pool())
+        .await
+        .expect("tenant insert should succeed for FK constraints");
 }

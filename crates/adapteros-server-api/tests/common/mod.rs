@@ -1,11 +1,11 @@
-use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use std::{env, path::PathBuf};
 
-use adapteros_core::{BackendProfile, SeedMode};
+use adapteros_core::{BackendKind, SeedMode};
 use adapteros_db::Db;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
-use adapteros_server_api::auth::Claims;
+use adapteros_server_api::auth::{AuthMode, Claims, PrincipalType};
 use adapteros_server_api::config::PathsConfig;
 use adapteros_server_api::state::{ApiConfig, AppState, MetricsConfig};
 use adapteros_server_api::telemetry::MetricsRegistry;
@@ -20,6 +20,7 @@ use adapteros_telemetry::MetricsCollector;
 /// - UMA pressure monitor for memory management
 #[allow(dead_code)]
 pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState> {
+    env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     // 1. Create in-memory database with migrations
     let db = Db::new_in_memory()
         .await
@@ -76,6 +77,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
         server: Default::default(),
         security: Default::default(),
         auth: Default::default(),
+        self_hosting: Default::default(),
         performance: Default::default(),
         paths: PathsConfig {
             artifacts_root: "/tmp/test-artifacts".to_string(),
@@ -87,7 +89,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,
-        backend_profile: BackendProfile::AutoDev,
+        backend_profile: BackendKind::Auto,
         worker_id: 0,
     }));
 
@@ -137,6 +139,8 @@ pub fn test_admin_claims() -> Claims {
         jti: "test-token".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     }
 }
 
@@ -158,6 +162,8 @@ pub fn test_viewer_claims() -> Claims {
         jti: "test-viewer-token".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     }
 }
 
@@ -179,6 +185,8 @@ pub fn test_operator_claims() -> Claims {
         jti: "test-operator-token".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     }
 }
 
@@ -200,6 +208,8 @@ pub fn test_compliance_claims() -> Claims {
         jti: "test-compliance-token".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     }
 }
 

@@ -25,14 +25,13 @@ pub use token_revocation::{
 // PRD-03: Per-tenant token baseline functions are exported directly from this module
 // get_tenant_token_baseline, set_tenant_token_baseline
 
-use crate::auth::Claims;
+use crate::auth::{AuthMode, Claims, PrincipalType};
 use crate::types::ErrorResponse;
 use adapteros_core::Result;
 use adapteros_db::Db;
 use axum::{http::StatusCode, Json};
 use chrono::{DateTime, Duration, Utc};
 use sqlx::{FromRow, Row};
-use std::env;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -45,28 +44,8 @@ fn lockout_columns_missing(err: &sqlx::Error) -> bool {
 }
 
 /// Check if dev no-auth bypass is enabled (compile-time restricted to debug builds)
-///
-/// SECURITY: This function is only available in debug builds. Release builds always return false.
-#[cfg(debug_assertions)]
 fn dev_no_auth_enabled() -> bool {
-    env::var("AOS_DEV_NO_AUTH")
-        .map(|v| {
-            let lower = v.to_ascii_lowercase();
-            matches!(lower.as_str(), "1" | "true" | "yes" | "on")
-        })
-        .unwrap_or(false)
-}
-
-/// SECURITY: In release builds, dev_no_auth is NEVER enabled
-#[cfg(not(debug_assertions))]
-fn dev_no_auth_enabled() -> bool {
-    // SECURITY: Always return false in release builds, regardless of environment variable
-    if env::var("AOS_DEV_NO_AUTH").is_ok() {
-        tracing::error!(
-            "AOS_DEV_NO_AUTH detected in release build - this flag is ignored in production"
-        );
-    }
-    false
+    crate::auth::dev_no_auth_enabled()
 }
 
 /// Core tenant access check logic (shared by all validation functions)
@@ -616,9 +595,10 @@ pub async fn upsert_user_session(
     locked: bool,
 ) -> Result<()> {
     let created_at = Utc::now().to_rfc3339();
+    let session_table = db.resolve_session_table().await?;
 
-    sqlx::query(
-        "INSERT INTO user_sessions (
+    let query = format!(
+        "INSERT INTO {session_table} (
             session_id, jti, user_id, tenant_id, created_at, expires_at, refresh_expires_at,
             device_id, rot_id, refresh_hash, locked, ip_address, user_agent, last_activity
          )
@@ -632,30 +612,33 @@ pub async fn upsert_user_session(
             locked=excluded.locked,
             ip_address=excluded.ip_address,
             user_agent=excluded.user_agent,
-            last_activity=datetime('now')",
-    )
-    .bind(session_id)
-    .bind(session_id)
-    .bind(user_id)
-    .bind(tenant_id)
-    .bind(&created_at)
-    .bind(refresh_expires_at)
-    .bind(refresh_expires_at)
-    .bind(device_id)
-    .bind(rot_id)
-    .bind(refresh_hash)
-    .bind(if locked { 1 } else { 0 })
-    .bind(ip_address)
-    .bind(user_agent)
-    .execute(db.pool())
-    .await?;
+            last_activity=datetime('now')"
+    );
+
+    sqlx::query(&query)
+        .bind(session_id)
+        .bind(session_id)
+        .bind(user_id)
+        .bind(tenant_id)
+        .bind(&created_at)
+        .bind(refresh_expires_at)
+        .bind(refresh_expires_at)
+        .bind(device_id)
+        .bind(rot_id)
+        .bind(refresh_hash)
+        .bind(if locked { 1 } else { 0 })
+        .bind(ip_address)
+        .bind(user_agent)
+        .execute(db.pool())
+        .await?;
 
     Ok(())
 }
 
 /// Fetch a session by ID (session_id preferred, falls back to jti for legacy rows).
 pub async fn get_session_by_id(db: &Db, session_id: &str) -> Result<Option<SessionRecord>> {
-    let row = sqlx::query_as::<_, SessionRecord>(
+    let session_table = db.resolve_session_table().await?;
+    let query = format!(
         "SELECT
             COALESCE(session_id, jti) as session_id,
             user_id,
@@ -666,14 +649,16 @@ pub async fn get_session_by_id(db: &Db, session_id: &str) -> Result<Option<Sessi
             refresh_expires_at,
             expires_at,
             locked
-         FROM user_sessions
+         FROM {session_table}
          WHERE session_id = ? OR jti = ?
-         LIMIT 1",
-    )
-    .bind(session_id)
-    .bind(session_id)
-    .fetch_optional(db.pool())
-    .await?;
+         LIMIT 1"
+    );
+
+    let row = sqlx::query_as::<_, SessionRecord>(&query)
+        .bind(session_id)
+        .bind(session_id)
+        .fetch_optional(db.pool())
+        .await?;
 
     Ok(row)
 }
@@ -686,33 +671,39 @@ pub async fn update_session_rotation(
     refresh_hash: Option<&str>,
     refresh_expires_at: &str,
 ) -> Result<()> {
-    sqlx::query(
-        "UPDATE user_sessions
+    let session_table = db.resolve_session_table().await?;
+    let query = format!(
+        "UPDATE {session_table}
          SET rot_id = ?, refresh_hash = ?, refresh_expires_at = ?, expires_at = ?, last_activity = datetime('now')
-         WHERE session_id = ? OR jti = ?",
-    )
-    .bind(rot_id)
-    .bind(refresh_hash)
-    .bind(refresh_expires_at)
-    .bind(refresh_expires_at)
-    .bind(session_id)
-    .bind(session_id)
-    .execute(db.pool())
-    .await?;
+         WHERE session_id = ? OR jti = ?"
+    );
+
+    sqlx::query(&query)
+        .bind(rot_id)
+        .bind(refresh_hash)
+        .bind(refresh_expires_at)
+        .bind(refresh_expires_at)
+        .bind(session_id)
+        .bind(session_id)
+        .execute(db.pool())
+        .await?;
     Ok(())
 }
 
 /// Lock a session to prevent further use.
 pub async fn lock_session(db: &Db, session_id: &str) -> Result<()> {
-    sqlx::query(
-        "UPDATE user_sessions
+    let session_table = db.resolve_session_table().await?;
+    let query = format!(
+        "UPDATE {session_table}
          SET locked = 1, refresh_hash = NULL, last_activity = datetime('now')
-         WHERE session_id = ? OR jti = ?",
-    )
-    .bind(session_id)
-    .bind(session_id)
-    .execute(db.pool())
-    .await?;
+         WHERE session_id = ? OR jti = ?"
+    );
+
+    sqlx::query(&query)
+        .bind(session_id)
+        .bind(session_id)
+        .execute(db.pool())
+        .await?;
     Ok(())
 }
 
@@ -727,21 +718,24 @@ pub async fn create_session(
     user_agent: Option<&str>,
 ) -> Result<()> {
     let created_at = Utc::now().to_rfc3339();
+    let session_table = db.resolve_session_table().await?;
+    let query = format!(
+        "INSERT INTO {session_table} (jti, session_id, user_id, tenant_id, created_at, expires_at, ip_address, user_agent, last_activity, locked)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)"
+    );
 
-    sqlx::query(
-        "INSERT INTO user_sessions (jti, user_id, tenant_id, created_at, expires_at, ip_address, user_agent, last_activity)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    )
-    .bind(jti)
-    .bind(user_id)
-    .bind(tenant_id)
-    .bind(&created_at)
-    .bind(expires_at)
-    .bind(ip_address)
-    .bind(user_agent)
-    .bind(&created_at)
-    .execute(db.pool())
-    .await?;
+    sqlx::query(&query)
+        .bind(jti)
+        .bind(jti)
+        .bind(user_id)
+        .bind(tenant_id)
+        .bind(&created_at)
+        .bind(expires_at)
+        .bind(ip_address)
+        .bind(user_agent)
+        .bind(&created_at)
+        .execute(db.pool())
+        .await?;
 
     Ok(())
 }
@@ -749,8 +743,10 @@ pub async fn create_session(
 /// Update session activity
 pub async fn update_session_activity(db: &Db, jti: &str) -> Result<()> {
     let last_activity = Utc::now().to_rfc3339();
+    let session_table = db.resolve_session_table().await?;
+    let query = format!("UPDATE {session_table} SET last_activity = ? WHERE jti = ?");
 
-    sqlx::query("UPDATE user_sessions SET last_activity = ? WHERE jti = ?")
+    sqlx::query(&query)
         .bind(&last_activity)
         .bind(jti)
         .execute(db.pool())
@@ -765,18 +761,20 @@ pub async fn get_user_sessions(
     user_id: &str,
 ) -> Result<Vec<(String, String, Option<String>, String)>> {
     let now = Utc::now().to_rfc3339();
-
-    let sessions = sqlx::query_as::<_, (String, String, Option<String>, String)>(
+    let session_table = db.resolve_session_table().await?;
+    let query = format!(
         "SELECT jti, created_at, ip_address, last_activity
-         FROM user_sessions
+         FROM {session_table}
          WHERE user_id = ?
            AND expires_at > ?
-         ORDER BY last_activity DESC",
-    )
-    .bind(user_id)
-    .bind(&now)
-    .fetch_all(db.pool())
-    .await?;
+         ORDER BY last_activity DESC"
+    );
+
+    let sessions = sqlx::query_as::<_, (String, String, Option<String>, String)>(&query)
+        .bind(user_id)
+        .bind(&now)
+        .fetch_all(db.pool())
+        .await?;
 
     Ok(sessions)
 }
@@ -784,11 +782,10 @@ pub async fn get_user_sessions(
 /// Cleanup expired sessions
 pub async fn cleanup_expired_sessions(db: &Db) -> Result<usize> {
     let now = Utc::now().to_rfc3339();
+    let session_table = db.resolve_session_table().await?;
+    let query = format!("DELETE FROM {session_table} WHERE expires_at < ?");
 
-    let result = sqlx::query("DELETE FROM user_sessions WHERE expires_at < ?")
-        .bind(&now)
-        .execute(db.pool())
-        .await?;
+    let result = sqlx::query(&query).bind(&now).execute(db.pool()).await?;
 
     let count = result.rows_affected() as usize;
 
@@ -859,6 +856,8 @@ mod tests {
             jti: "jti-1".to_string(),
             nbf: 0,
             iss: "adapteros".to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
         };
 
         assert!(validate_tenant_isolation(&claims, "tenant-a").is_ok());
@@ -882,6 +881,8 @@ mod tests {
             jti: "jti-1".to_string(),
             nbf: 0,
             iss: "adapteros".to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
         };
 
         assert!(validate_tenant_isolation(&claims, "tenant-b").is_err());
@@ -905,6 +906,8 @@ mod tests {
             jti: "jti-2".to_string(),
             nbf: 0,
             iss: "adapteros".to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
         };
 
         // Admin with empty admin_tenants can only access their own tenant
@@ -931,6 +934,8 @@ mod tests {
             jti: "jti-2".to_string(),
             nbf: 0,
             iss: "adapteros".to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
         };
 
         // Admin can access tenants in admin_tenants list
@@ -1079,6 +1084,8 @@ mod tests {
             jti: "jti-tenant-guard".to_string(),
             nbf: now,
             iss: crate::auth::JWT_ISSUER.to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
         }
     }
 

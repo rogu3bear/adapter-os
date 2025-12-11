@@ -583,7 +583,7 @@ All methods are async and return `Result<T>` for proper error propagation.
 
 - [PEER_DISCOVERY.md](PEER_DISCOVERY.md) - Peer discovery protocol documentation
 - [../../docs/ARCHITECTURE_PATTERNS.md](../../docs/ARCHITECTURE_PATTERNS.md) - Architectural patterns including multi-agent coordination
-- [../../docs/DETERMINISTIC_EXECUTION.md](../../docs/DETERMINISTIC_EXECUTION.md) - Global tick ledger for federation sync
+- [../../docs/DETERMINISM.md](../../docs/DETERMINISM.md) - Global tick ledger for federation sync
 - [../../docs/DATABASE_REFERENCE.md](../../docs/DATABASE_REFERENCE.md) - Database schema for federation tables
 - [../adapteros-db/README.md](../adapteros-db/README.md) - Database layer documentation
 - [../../CLAUDE.md](../../CLAUDE.md) - Developer quick reference guide

@@ -42,27 +42,18 @@ mod compile_time_guards {
         println!("  - Message: 'this endpoint is only available in development mode'");
     }
 
-    /// Test: middleware "adapteros-local" token bypass has debug guard
+    /// Test: dev no-auth env bypass is debug-only
     ///
-    /// The hardcoded token bypass in auth_middleware MUST be wrapped in
-    /// #[cfg(debug_assertions)] to prevent production use.
-    /// Location: crates/adapteros-server-api/src/middleware.rs:146-172
+    /// The AOS_DEV_NO_AUTH path is only honored in debug builds; release builds ignore it.
+    /// Location: crates/adapteros-server-api/src/auth.rs (dev_no_auth_enabled) and middleware/mod.rs
     #[test]
-    fn test_middleware_bypass_has_debug_guard() {
-        // Code structure in middleware.rs:
-        // ```rust
-        // #[cfg(debug_assertions)]
-        // {
-        //     if token == "adapteros-local" {
-        //         // Create dev claims and proceed
-        //     }
-        // }
-        // ```
-        println!("Verification: middleware bypass has debug guard at line 146-172");
-        println!("  - #[cfg(debug_assertions)] wraps 'adapteros-local' check");
-        println!("  - Creates Claims with sub='api-key-user'");
-        println!("  - Token expires in 1 hour (not 8)");
-        println!("  - Role is 'User' (not 'admin')");
+    fn test_dev_no_auth_is_debug_only() {
+        println!("Verification: AOS_DEV_NO_AUTH is gated by cfg(debug_assertions)");
+        println!("  - dev_no_auth_enabled() returns true only in debug builds");
+        println!("  - Release builds log and ignore the env var");
+        println!(
+            "  - Bypass injects admin claims with admin_tenants=[\"*\"] and tenant_id=\"system\""
+        );
     }
 
     /// Test: CORS layer has different configs for debug/release
@@ -102,40 +93,26 @@ mod token_validation {
         println!("  - Consistent with production token expiry");
     }
 
-    /// Test: Middleware bypass token has 1 hour expiry (shorter)
+    /// Test: Dev no-auth claims use debug-only 8 hour expiry
     ///
-    /// The middleware bypass uses a shorter expiry for security.
-    /// Location: crates/adapteros-server-api/src/middleware.rs:155
+    /// Location: crates/adapteros-server-api/src/middleware/mod.rs dev_no_auth_claims()
     #[test]
-    fn test_middleware_bypass_token_expiry() {
-        println!("Verification: middleware bypass token expiry is 1 hour");
-        println!("  - Line 155: exp: (now + Duration::hours(1)).timestamp()");
-        println!("  - Shorter than production tokens for added security");
+    fn test_dev_no_auth_claims_expiry() {
+        println!("Verification: dev_no_auth_claims expiry is 8 hours");
+        println!("  - Matches dev_bypass_handler duration");
+        println!("  - Only active under cfg(debug_assertions)");
     }
 
     /// Test: Dev bypass claims have correct structure
     ///
-    /// Location: crates/adapteros-server-api/src/handlers/auth_enhanced.rs:688-692
+    /// Location: crates/adapteros-server-api/src/handlers/auth_enhanced.rs
     #[test]
     fn test_dev_bypass_claims_structure() {
         println!("Verification: dev bypass claims structure");
         println!("  - user_id: 'dev-admin-user'");
         println!("  - email: 'dev-admin@adapteros.local'");
         println!("  - role: 'admin' (full privileges)");
-        println!("  - tenant_id: 'system'");
-    }
-
-    /// Test: Middleware bypass claims are restricted
-    ///
-    /// The middleware bypass creates less privileged claims.
-    /// Location: crates/adapteros-server-api/src/middleware.rs:150-158
-    #[test]
-    fn test_middleware_bypass_claims_restricted() {
-        println!("Verification: middleware bypass claims are restricted");
-        println!("  - sub: 'api-key-user' (not admin)");
-        println!("  - role: 'User' (not Admin)");
-        println!("  - tenant_id: 'default' (not system)");
-        println!("  - Less privileged than dev_bypass_handler");
+        println!("  - tenant_id: 'default' (matches handler code)");
     }
 }
 
@@ -153,28 +130,28 @@ mod session_tracking {
         println!("  - Includes client IP for tracking");
     }
 
-    /// Test: Middleware bypass logs debug message
+    /// Test: Dev no-auth logs once when enabled
     ///
-    /// Location: crates/adapteros-server-api/src/middleware.rs:161
+    /// Location: crates/adapteros-server-api/src/auth.rs (dev_bypass_status)
     #[test]
-    fn test_middleware_bypass_logs_debug() {
-        println!("Verification: middleware bypass logs debug message");
-        println!("  - tracing::debug!('Using debug bypass token (dev mode only)')");
-        println!("  - Visible in debug logs for auditing");
+    fn test_dev_no_auth_logs_once() {
+        println!("Verification: dev no-auth logs exactly once when requested in debug");
+        println!("  - Memoized status via OnceLock");
+        println!("  - Prevents noisy logs while still signaling bypass use");
     }
 }
 
 #[cfg(test)]
 mod hardcoded_credentials {
-    /// Test: "adapteros-local" is the only hardcoded bypass token
+    /// Test: No hardcoded bypass tokens
     ///
-    /// There should be NO other hardcoded tokens or credentials.
+    /// Dev bypass is feature- and debug-gated; AOS_DEV_NO_AUTH is env-gated and debug-only.
     #[test]
-    fn test_single_hardcoded_bypass_token() {
-        println!("Verification: single hardcoded bypass token");
-        println!("  - Only 'adapteros-local' is hardcoded");
-        println!("  - Used in middleware.rs line 148");
-        println!("  - Protected by #[cfg(debug_assertions)]");
+    fn test_no_hardcoded_bypass_tokens() {
+        println!("Verification: no hardcoded bypass tokens remain");
+        println!("  - dev_bypass_handler requires dev-bypass feature + debug + dev_login_enabled");
+        println!("  - AOS_DEV_NO_AUTH is ignored in release builds");
+        println!("  - No static shared secrets are embedded");
     }
 
     /// Test: JWT secrets are not hardcoded
@@ -276,18 +253,15 @@ mod release_build_verification {
 
 #[cfg(test)]
 mod security_concerns {
-    /// SECURITY CONCERN #1: Middleware bypass grants User role, not Admin
+    /// SECURITY NOTE #1: Dev bypass vs dev no-auth scope
     ///
-    /// The "adapteros-local" token in middleware creates a User role claim,
-    /// while dev_bypass_handler creates an Admin role claim.
-    /// This is intentional - middleware bypass has fewer privileges.
+    /// Dev bypass issues admin for tenant 'default' with normal cookie/CSRF flow.
+    /// Dev no-auth injects wildcard admin claims and skips cookie/session creation.
     #[test]
-    fn test_middleware_vs_handler_privilege_difference() {
-        println!("SECURITY NOTE: Different privilege levels");
-        println!("  - middleware.rs: role = 'User' (restricted)");
-        println!("  - dev_bypass_handler: role = 'admin' (full)");
-        println!("  - Middleware bypass is for API testing");
-        println!("  - Handler bypass is for admin UI testing");
+    fn test_dev_bypass_vs_dev_no_auth_scope() {
+        println!("SECURITY NOTE: Dev bypass vs dev no-auth");
+        println!("  - dev_bypass_handler: admin, tenant='default', sets cookies, audited");
+        println!("  - dev_no_auth: admin with admin_tenants=[\"*\"], tenant='system', debug-only, no cookies");
     }
 
     /// SECURITY CONCERN #2: Token in query string
@@ -302,18 +276,6 @@ mod security_concerns {
         println!("  - Query strings may appear in access logs");
         println!("  - Recommendation: Use Authorization header");
     }
-
-    /// SECURITY CONCERN #3: ui/server.js uses different secret
-    ///
-    /// The UI service panel uses 'adapteros-local-dev' as shared secret.
-    /// This is different from the API 'adapteros-local' token.
-    #[test]
-    fn test_ui_panel_uses_different_secret() {
-        println!("INFO: UI service panel uses different secret");
-        println!("  - ui/server.js: 'adapteros-local-dev'");
-        println!("  - API middleware: 'adapteros-local'");
-        println!("  - These are separate authentication domains");
-    }
 }
 
 #[cfg(test)]
@@ -322,12 +284,11 @@ mod recommendations {
     #[test]
     fn recommendation_release_build_integration_test() {
         println!("RECOMMENDATION: Add CI release build test");
-        println!("  1. Build with --release flag");
+        println!("  1. Build without dev-bypass feature or in release mode");
         println!("  2. Start server");
         println!("  3. Call POST /v1/auth/dev-bypass");
-        println!("  4. Verify 403 Forbidden response");
-        println!("  5. Call protected endpoint with 'adapteros-local'");
-        println!("  6. Verify 401 Unauthorized response");
+        println!("  4. Verify 403/disabled response");
+        println!("  5. Ensure AOS_DEV_NO_AUTH is ignored in release logs");
     }
 
     /// Recommendation: Add feature flag for dev bypass

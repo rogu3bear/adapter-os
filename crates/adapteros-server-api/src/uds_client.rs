@@ -8,6 +8,7 @@
 //!
 //! Citation: docs/llm-interface-specification.md §5.1
 
+use serde::Deserialize;
 use serde_json;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -58,6 +59,23 @@ pub enum UdsClientError {
 /// UDS client for communicating with workers
 pub struct UdsClient {
     timeout: Duration,
+}
+
+/// CoreML verification snapshot returned by worker debug endpoint.
+#[derive(Debug, Deserialize)]
+pub struct WorkerCoremlVerification {
+    pub mode: Option<String>,
+    #[serde(default = "default_status")]
+    pub status: String,
+    pub expected: Option<String>,
+    pub actual: Option<String>,
+    pub source: Option<String>,
+    #[serde(default)]
+    pub mismatch: bool,
+}
+
+fn default_status() -> String {
+    "unknown".to_string()
 }
 
 impl UdsClient {
@@ -211,6 +229,51 @@ impl UdsClient {
         // Check if response contains 200 OK
         let response_str = String::from_utf8_lossy(&response_buffer);
         Ok(response_str.contains("200 OK"))
+    }
+
+    /// Fetch CoreML verification snapshot from worker debug endpoint.
+    pub async fn coreml_verification_status(
+        &self,
+        uds_path: &Path,
+    ) -> Result<WorkerCoremlVerification, UdsClientError> {
+        let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
+            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
+
+        let request = "GET /debug/coreml_verification HTTP/1.1\r\nHost: worker\r\n\r\n";
+        tokio::time::timeout(self.timeout, stream.write_all(request.as_bytes()))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        let mut response_buffer = Vec::new();
+        tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        let response_str = String::from_utf8_lossy(&response_buffer);
+        let lines: Vec<&str> = response_str.lines().collect();
+        if lines.is_empty() {
+            return Err(UdsClientError::RequestFailed("Empty response".to_string()));
+        }
+
+        let status_line = lines[0];
+        if !status_line.contains("200 OK") {
+            return Err(UdsClientError::RequestFailed(format!(
+                "Worker returned error: {}",
+                status_line
+            )));
+        }
+
+        let json_str = match response_str.find("\r\n\r\n") {
+            Some(pos) => response_str.get(pos + 4..).unwrap_or(""),
+            None => "",
+        };
+
+        serde_json::from_str::<WorkerCoremlVerification>(json_str)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))
     }
 
     /// Check if a worker is healthy via UDS with latency tracking
@@ -771,7 +834,9 @@ mod tests {
             router_seed: Some("router-seed".to_string()),
             seed_mode: None,
             request_seed: None,
+            determinism: None,
             backend_profile: None,
+            coreml_mode: None,
             determinism_mode: Some("strict".to_string()),
             routing_determinism_mode: Some(
                 adapteros_types::adapters::metadata::RoutingDeterminismMode::Deterministic,

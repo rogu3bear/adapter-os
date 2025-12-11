@@ -3,10 +3,15 @@
 //! Tests for CoreML, Metal, and MLX backend integration with the backend factory.
 //! Verifies correct capability detection, automatic selection, and fallback behavior.
 
-use adapteros_core::constants::{BYTES_PER_GB, BYTES_PER_MB};
+use adapteros_core::{
+    backend::BackendKind,
+    constants::{BYTES_PER_GB, BYTES_PER_MB},
+    ExecutionProfile, SeedMode,
+};
 use adapteros_lora_worker::backend_factory::{
-    auto_select_backend, create_backend, create_backend_auto, describe_available_backends,
-    detect_capabilities, BackendCapabilities, BackendChoice, BackendStrategy,
+    auto_select_backend, create_backend, create_backend_auto, create_backend_with_model_and_hash,
+    describe_available_backends, detect_capabilities, select_backend_from_execution_profile,
+    BackendCapabilities, BackendChoice, BackendStrategy, SelectionContext,
 };
 
 #[test]
@@ -84,6 +89,58 @@ fn test_auto_select_backend_coreml_priority() {
 }
 
 #[test]
+fn coreml_request_falls_back_with_reason() {
+    let caps = BackendCapabilities {
+        has_metal: false,
+        metal_device_name: None,
+        has_ane: false,
+        has_coreml: false,
+        has_mlx: true,
+        gpu_memory_bytes: Some(2 * BYTES_PER_GB),
+    };
+    let profile = ExecutionProfile {
+        seed_mode: SeedMode::BestEffort,
+        backend_profile: BackendKind::CoreML,
+    };
+
+    let ctx = SelectionContext::new(profile, caps);
+    let selection = select_backend_from_execution_profile(&ctx).expect("fallback selection");
+    assert!(
+        selection.overridden,
+        "coreml should be overridden when unavailable"
+    );
+    assert_eq!(
+        selection.selected,
+        BackendChoice::Mlx,
+        "fallback should pick MLX when available"
+    );
+    assert_eq!(selection.reason, Some("coreml_unavailable_fallback_mlx"));
+}
+
+#[test]
+fn metal_request_errors_when_unavailable() {
+    let caps = BackendCapabilities {
+        has_metal: false,
+        metal_device_name: None,
+        has_ane: false,
+        has_coreml: false,
+        has_mlx: true,
+        gpu_memory_bytes: None,
+    };
+    let profile = ExecutionProfile {
+        seed_mode: SeedMode::BestEffort,
+        backend_profile: BackendKind::Metal,
+    };
+
+    let ctx = SelectionContext::new(profile, caps);
+    let result = select_backend_from_execution_profile(&ctx);
+    assert!(
+        result.is_err(),
+        "Metal should error when capability is absent"
+    );
+}
+
+#[test]
 fn test_auto_select_backend_metal_fallback() {
     let caps = BackendCapabilities {
         has_metal: true,
@@ -156,6 +213,45 @@ fn test_create_backend_auto() {
             println!("Auto backend creation failed: {}", e);
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn metal_backend_requires_manifest_hash() {
+    use adapteros_core::B3Hash;
+    use std::path::Path;
+
+    let path = Path::new("var/models/nonexistent");
+    let err = create_backend_with_model_and_hash(BackendChoice::Metal, path, None)
+        .err()
+        .expect("Metal backend should require manifest hash");
+    assert!(
+        format!("{}", err).contains("Manifest hash is required"),
+        "Unexpected error: {err}"
+    );
+
+    // Confirm a valid hash passes the manifest check before path loading.
+    let dummy_hash = B3Hash::hash(b"dummy");
+    let result = create_backend_with_model_and_hash(BackendChoice::Metal, path, Some(&dummy_hash));
+    assert!(
+        result.is_err(),
+        "Path validation should still run after manifest hash is supplied"
+    );
+}
+
+#[cfg(feature = "multi-backend")]
+#[test]
+fn mlx_backend_requires_manifest_hash() {
+    use std::path::Path;
+
+    let path = Path::new("var/models/nonexistent");
+    let err = create_backend_with_model_and_hash(BackendChoice::Mlx, path, None)
+        .err()
+        .expect("MLX backend should require manifest hash");
+    assert!(
+        format!("{}", err).contains("Manifest hash is required"),
+        "Unexpected error: {err}"
+    );
 }
 
 #[test]
@@ -380,6 +476,7 @@ fn test_backend_choice_exhaustive_matching() {
         BackendChoice::CoreML,
         BackendChoice::Mlx,
         BackendChoice::Auto,
+        BackendChoice::CPU,
     ];
 
     for choice in choices {
@@ -388,6 +485,7 @@ fn test_backend_choice_exhaustive_matching() {
             BackendChoice::CoreML => println!("CoreML backend"),
             BackendChoice::Mlx => println!("MLX backend"),
             BackendChoice::Auto => println!("Auto-selected backend"),
+            BackendChoice::CPU => println!("CPU backend (unsupported for inference kernels)"),
         }
     }
 }

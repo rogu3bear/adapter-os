@@ -1,5 +1,5 @@
 // Telemetry API Tests
-import { validateErrorResponse } from '../support/api-helpers';
+import { validateErrorResponse } from '../../support/api-helpers';
 
 describe('Telemetry API', () => {
   beforeEach(() => {
@@ -10,7 +10,7 @@ describe('Telemetry API', () => {
     it('should get activity events', () => {
       cy.apiRequest({
         method: 'GET',
-        url: '/v1/telemetry/events',
+        url: '/v1/telemetry/events/recent',
       }).then((response) => {
         expect(response.status).to.eq(200);
         expect(response.body).to.be.an('array');

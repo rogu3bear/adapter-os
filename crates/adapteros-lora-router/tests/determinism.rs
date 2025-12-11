@@ -9,8 +9,16 @@
 //! Note: Router seed is used for telemetry sampling determinism, not routing decisions.
 //! Routing determinism comes from stable sorting (score desc, then index asc).
 
-use adapteros_lora_router::{AdapterInfo, Router};
+use adapteros_lora_router::{
+    AdapterInfo, Decision, PolicyMask, Router, ROUTER_GATE_Q15_DENOM, ROUTER_GATE_Q15_MAX,
+};
 use proptest::prelude::*;
+use smallvec::smallvec;
+
+fn allow_all_mask(adapters: &[AdapterInfo]) -> PolicyMask {
+    let ids: Vec<String> = adapters.iter().map(|a| a.id.clone()).collect();
+    PolicyMask::allow_all(&ids, None)
+}
 
 #[test]
 fn test_deterministic_top_k_ordering() {
@@ -34,8 +42,9 @@ fn test_deterministic_top_k_ordering() {
             lora_tier: None,
         })
         .collect();
-    let decision1 = router.route_with_adapter_info(&[], &priors, &adapter_info);
-    let decision2 = router.route_with_adapter_info(&[], &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision1 = router.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
+    let decision2 = router.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
 
     // Results should be identical (deterministic via sorting)
     assert_eq!(decision1.indices, decision2.indices);
@@ -48,9 +57,18 @@ fn test_deterministic_top_k_ordering() {
 
     // New router instance should also produce same results (determinism)
     let mut router2 = Router::new(weights_vec, 3, 1.0, 0.01, seed).expect("router creation");
-    let decision3 = router2.route_with_adapter_info(&[], &priors, &adapter_info);
+    let decision3 = router2.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
     assert_eq!(decision1.indices, decision3.indices);
     assert_eq!(decision1.gates_q15, decision3.gates_q15);
+}
+
+#[test]
+fn q15_denominator_is_locked() {
+    assert!(
+        (ROUTER_GATE_Q15_DENOM - 32767.0).abs() < f32::EPSILON,
+        "Q15 denominator must remain 32767.0, found {}",
+        ROUTER_GATE_Q15_DENOM
+    );
 }
 
 #[test]
@@ -70,7 +88,8 @@ fn test_q15_quantization_properties() {
             lora_tier: None,
         })
         .collect();
-    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
 
     // Q15 gates should be non-negative (i16::MAX is 32767, so <= 32767 is guaranteed by type)
     for gate in &decision.gates_q15 {
@@ -98,6 +117,20 @@ fn test_q15_quantization_properties() {
 }
 
 #[test]
+fn gates_f32_uses_q15_denominator_constant() {
+    let decision = Decision {
+        indices: smallvec![0],
+        gates_q15: smallvec![ROUTER_GATE_Q15_MAX],
+        entropy: 0.0,
+        candidates: Vec::new(),
+        decision_hash: None,
+    };
+
+    let gates = decision.gates_f32();
+    assert_eq!(gates[0], ROUTER_GATE_Q15_MAX as f32 / ROUTER_GATE_Q15_DENOM);
+}
+
+#[test]
 fn test_k0_detection_empty_result() {
     let seed = [42u8; 32];
     let weights_vec = vec![1.0; 5];
@@ -105,7 +138,8 @@ fn test_k0_detection_empty_result() {
 
     // Empty priors should result in empty decision
     let adapter_info: Vec<AdapterInfo> = vec![];
-    let decision = router.route_with_adapter_info(&[], &[], &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&[], &[], &adapter_info, &mask);
 
     assert!(decision.indices.is_empty());
     assert!(decision.gates_q15.is_empty());
@@ -129,7 +163,8 @@ fn test_gate_normalization_and_entropy_floor() {
             lora_tier: None,
         })
         .collect();
-    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
 
     // Convert gates back to f32
     let gates_f32: Vec<f32> = decision
@@ -178,19 +213,62 @@ fn test_multiple_calls_deterministic() {
             lora_tier: None,
         })
         .collect();
-    let decision1_1 = router1.route_with_adapter_info(&[], &priors, &adapter_info);
-    let decision1_2 = router1.route_with_adapter_info(&[], &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision1_1 = router1.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
+    let decision1_2 = router1.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
 
     // Second router instance with same seed (seed doesn't affect routing, just telemetry)
     let weights_vec2 = vec![1.0; 4];
     let mut router2 = Router::new(weights_vec2, 2, 1.0, 0.01, seed).expect("router creation");
-    let decision2_1 = router2.route_with_adapter_info(&[], &priors, &adapter_info);
+    let decision2_1 = router2.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
 
     // All three should produce identical results (deterministic sorting)
     assert_eq!(decision1_1.indices, decision1_2.indices);
     assert_eq!(decision1_1.indices, decision2_1.indices);
     assert_eq!(decision1_1.gates_q15, decision1_2.gates_q15);
     assert_eq!(decision1_1.gates_q15, decision2_1.gates_q15);
+}
+
+#[test]
+fn test_repeated_routing_returns_identical_indices_and_gates() {
+    // Fixed priors and adapter list must produce identical outputs across runs
+    let seed = [7u8; 32];
+    let weights_vec = vec![1.0; 4];
+    let mut router = Router::new(weights_vec, 2, 1.0, 1e-6, seed).expect("router creation");
+
+    let priors = vec![0.4, 0.3, 0.2, 0.1];
+    let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+        .map(|i| AdapterInfo {
+            id: format!("repeat_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
+        })
+        .collect();
+
+    let mut baseline_indices = None;
+    let mut baseline_gates = None;
+
+    for _ in 0..10 {
+        let decision = router.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
+        if baseline_indices.is_none() {
+            baseline_indices = Some(decision.indices.clone());
+            baseline_gates = Some(decision.gates_q15.clone());
+        } else {
+            assert_eq!(
+                baseline_indices.as_ref().unwrap(),
+                &decision.indices,
+                "indices should remain stable across runs"
+            );
+            assert_eq!(
+                baseline_gates.as_ref().unwrap(),
+                &decision.gates_q15,
+                "gates must remain stable across runs"
+            );
+        }
+    }
 }
 
 #[test]
@@ -210,7 +288,8 @@ fn test_q15_range_properties() {
             lora_tier: None,
         })
         .collect();
-    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
 
     // All gates should be non-negative (i16::MAX is 32767, guaranteed by type system)
     for gate in &decision.gates_q15 {
@@ -239,7 +318,8 @@ fn test_router_ring_invariants() {
             lora_tier: None,
         })
         .collect();
-    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
 
     // 1:1 mapping
     assert_eq!(decision.indices.len(), 4);
@@ -265,7 +345,8 @@ fn test_router_ring_invariants() {
             lora_tier: None,
         })
         .collect();
-    let decision_k0 = router_k0.route_with_adapter_info(&[], &priors, &adapter_info);
+    let mask_k0 = allow_all_mask(&adapter_info);
+    let decision_k0 = router_k0.route_with_adapter_info(&[], &priors, &adapter_info, &mask_k0);
     assert!(decision_k0.indices.is_empty());
     assert!(decision_k0.gates_q15.is_empty());
 }
@@ -279,7 +360,8 @@ fn test_varying_k_stability() {
     for k in 0..=8 {
         let weights_vec = vec![1.0; 8];
         let mut router = Router::new(weights_vec, k, 1.0, 0.01, seed).expect("router creation");
-        let decision = router.route_with_adapter_info(&[], &priors, &[]);
+        let mask = PolicyMask::allow_all(&Vec::<String>::new(), None);
+        let decision = router.route_with_adapter_info(&[], &priors, &[], &mask);
 
         assert_eq!(decision.indices.len(), k);
         assert_eq!(decision.gates_q15.len(), k);
@@ -309,8 +391,10 @@ proptest! {
                 lora_tier: None,
             })
             .collect();
-        let decision1 = router1.route_with_adapter_info(&[], &priors, &adapter_info);
-        let decision2 = router2.route_with_adapter_info(&[], &priors, &adapter_info);
+        let decision1 =
+            router1.route_with_adapter_info(&[], &priors, &adapter_info, &allow_all_mask(&adapter_info));
+        let decision2 =
+            router2.route_with_adapter_info(&[], &priors, &adapter_info, &allow_all_mask(&adapter_info));
 
         // Properties - check before moving values
         prop_assert_eq!(decision1.indices.len(), k);

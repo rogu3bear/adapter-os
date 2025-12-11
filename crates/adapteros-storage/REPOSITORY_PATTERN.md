@@ -31,27 +31,27 @@ crates/adapteros-storage/src/
 Main repository providing all adapter storage operations:
 
 #### CRUD Operations
-- `create(adapter) -> Result<String>` - Create new adapter with automatic index updates
-- `get(tenant_id, adapter_id) -> Result<Option<AdapterKv>>` - Retrieve adapter by ID
-- `update(adapter) -> Result<()>` - Update adapter and refresh indexes
-- `delete(tenant_id, adapter_id) -> Result<bool>` - Delete adapter and clean up indexes
+- `create(adapter) -> Result<String>` - Validates duplicate keys (primary + legacy) before write, then updates all indexes.
+- `get(tenant_id, adapter_id) -> Result<Option<AdapterKv>>` - Resolves via `BY_ADAPTER_ID` index first, then falls back to direct key; enforces tenant match.
+- `update(adapter) -> Result<()>` - Migrates legacy UUID keys to adapter_id keys, deletes stale legacy entries, refreshes indexes.
+- `delete(tenant_id, adapter_id) -> Result<bool>` - Removes primary + legacy keys and prunes all index entries.
 
 #### Query Operations
 - `list_by_tenant(tenant_id) -> Result<Vec<AdapterKv>>` - All adapters for tenant
-- `list_by_state(tenant_id, state) -> Result<Vec<AdapterKv>>` - Filter by state
-- `list_by_tier(tenant_id, tier) -> Result<Vec<AdapterKv>>` - Filter by tier
-- `find_by_hash(hash) -> Result<Option<AdapterKv>>` - Content-based lookup
+- `list_by_state(tenant_id, state) -> Result<Vec<AdapterKv>>` - Filter by state (tenant-filtered after index hit)
+- `list_by_tier(tenant_id, tier) -> Result<Vec<AdapterKv>>` - Filter by tier (tenant-filtered after index hit)
+- `find_by_hash(hash) -> Result<Option<AdapterKv>>` - Content-based lookup (unique hash expected)
 
 #### Lineage Queries (Replaces SQL Recursive CTEs)
 - `get_ancestors(tenant_id, adapter_id) -> Result<Vec<AdapterKv>>`
-  - Walks up parent chain iteratively
-  - Cycle detection to prevent infinite loops
-  - Safety limit: max 100 ancestors
+  - Iterative walk up `parent_id`
+  - Cycle detection
+  - Safety cap: 100 ancestors
 
 - `get_descendants(tenant_id, adapter_id) -> Result<Vec<AdapterKv>>`
-  - Breadth-first search for all children
+  - BFS using `BY_PARENT` index (stored as internal UUID)
   - Cycle detection
-  - Safety limit: max 1000 descendants
+  - Safety cap: 1000 descendants
 
 #### Pagination
 - `list_paginated(tenant_id, cursor, limit) -> Result<PaginatedResult<AdapterKv>>`
@@ -122,6 +122,12 @@ pub struct AdapterKv {
     pub version: String,
     pub lifecycle_state: String,
 
+    // Archive/GC
+    pub archived_at: Option<String>,
+    pub archived_by: Option<String>,
+    pub archive_reason: Option<String>,
+    pub purged_at: Option<String>,
+
     // Timestamps
     pub created_at: String,
     pub updated_at: String,
@@ -129,11 +135,11 @@ pub struct AdapterKv {
 ```
 
 Helper methods:
-- `primary_key()` - Returns `"adapter:{id}"`
-- `tenant_key()` - Returns `"tenant:{tenant_id}:adapter:{id}"`
-- `hash_key()` - Returns `"adapter:hash:{hash_b3}"`
-- `parent_key()` - Returns `"adapter:{parent_id}:children"`
-- `children_key()` - Returns `"adapter:{id}:children"`
+- `primary_key()` - `"adapter:{adapter_id|id}"`
+- `legacy_primary_key()` - `"adapter:{uuid}"` (back-compat read/update)
+- `tenant_key()` - `"tenant:{tenant_id}:adapter:{key_id}"`
+- `hash_key()` - `"adapter:hash:{hash_b3}"`
+- `parent_key()` / `children_key()` - lineage helpers
 
 ### 3. Secondary Indexes
 
@@ -152,6 +158,7 @@ pub mod adapter_indexes {
     pub const BY_ACTIVE: &str = "adapters_by_active";
     pub const BY_PINNED: &str = "adapters_by_pinned";
     pub const BY_PARENT: &str = "adapters_by_parent";
+    pub const BY_ADAPTER_ID: &str = "adapters_by_adapter_id";
 }
 ```
 
@@ -163,6 +170,7 @@ index:{index_name}:{index_value}:{entity_id}
 Examples:
 - `index:adapters_by_tenant:default:adapter-123`
 - `index:adapters_by_state:warm:adapter-456`
+- `index:adapters_by_adapter_id:adapter-external-id:adapter-uuid`
 - `index:adapters_by_parent:adapter-parent:adapter-child`
 
 #### IndexManager Operations
@@ -208,26 +216,7 @@ Implementations can use:
 
 **Location:** `/crates/adapteros-storage/src/error.rs`
 
-Extended `StorageError` with two new variants:
-
-```rust
-pub enum StorageError {
-    // Existing variants...
-    NotFound(String),
-    SerializationError(String),
-    BackendError(String),
-    TransactionError(String),
-    IndexError(String),
-    IoError(#[from] std::io::Error),
-    InvalidOperation(String),
-    ReadOnly,
-    LockError(String),
-
-    // NEW: Added for repository pattern
-    InvalidData(String),       // Data validation failures
-    ConflictError(String),      // Concurrent modifications
-}
-```
+`StorageError` covers not-found, conflicts, serialization, backend/index failures, IO, invalid ops, and locking/read-only modes. Repository surfaces conflicts on duplicate keys and propagates backend/index errors as-is.
 
 ## SQL to KV Migration
 
@@ -308,42 +297,9 @@ let adapters = repo.list_by_state(tenant_id, state).await?;
 | Get descendants | O(n) | n = total descendants, BFS |
 | List paginated | O(m + k log k) | Sorting overhead |
 
-## Testing Strategy
+## Testing Notes
 
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    struct MockBackend { /* ... */ }
-
-    impl KvBackend for MockBackend { /* ... */ }
-
-    #[tokio::test]
-    async fn test_create_and_retrieve() {
-        let backend = Arc::new(MockBackend::new());
-        let index_mgr = Arc::new(IndexManager::new(backend.clone()));
-        let repo = AdapterRepository::new(backend, index_mgr);
-
-        let adapter = AdapterKv { /* ... */ };
-        repo.create(adapter.clone()).await.unwrap();
-
-        let retrieved = repo.get(&adapter.tenant_id, &adapter.id).await.unwrap();
-        assert_eq!(retrieved.unwrap().id, adapter.id);
-    }
-
-    #[tokio::test]
-    async fn test_lineage_traversal() {
-        // Test ancestor/descendant queries with mock data
-    }
-
-    #[tokio::test]
-    async fn test_cycle_detection() {
-        // Ensure circular references don't cause infinite loops
-    }
-}
-```
+`adapter.rs` includes async tests for create/read via adapter_id keying, legacy key migration on update, and delete cleaning both primary/legacy keys. Use `RedbBackend::open_in_memory` for lightweight coverage.
 
 ## Future Enhancements
 
@@ -388,5 +344,7 @@ mod tests {
 ---
 
 **Implementation Date**: 2025-11-29
-**Status**: Complete - Ready for integration and testing
-**Next Steps**: Backend implementation, migration tooling, unit tests
+**Status**: Active - KV repository with legacy-key migration and lineage guards
+**Next Steps**: Broader integration + dual-write cutover validation
+
+MLNavigator Inc Dec 11, 2025.

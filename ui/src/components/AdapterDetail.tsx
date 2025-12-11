@@ -163,10 +163,12 @@ export const AdapterDetail: React.FC = () => {
   const getStateColor = (state: string): string => {
     const colors: Record<string, string> = {
       unloaded: 'gray',
+      loading: 'blue',
       cold: 'blue',
       warm: 'yellow',
       hot: 'orange',
       resident: 'red',
+      error: 'red',
     };
     return colors[state] || 'gray';
   };
@@ -192,6 +194,9 @@ export const AdapterDetail: React.FC = () => {
       </div>
     );
   }
+
+  const releaseState = adapter.lifecycle_state || adapter.adapter?.lifecycle_state;
+  const runtimeState = adapter.runtime_state || adapter.current_state;
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -229,9 +234,13 @@ export const AdapterDetail: React.FC = () => {
             <div className="flex items-center gap-2">
               <Activity className="h-5 w-5 text-gray-500" />
               <div>
-                <p className="text-sm text-gray-500">State</p>
-                <Badge className={`bg-${getStateColor(adapter.current_state)}-500`}>
-                  {LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}
+                <p className="text-sm text-gray-500">Release State</p>
+                <Badge variant={getLifecycleVariant(releaseState || 'draft')}>
+                  {releaseState || 'draft'}
+                </Badge>
+                <p className="text-sm text-gray-500 mt-2">Runtime State</p>
+                <Badge className={`bg-${getStateColor(runtimeState || 'unloaded')}-500`}>
+                  {LIFECYCLE_STATE_LABELS[runtimeState || 'unloaded'] || runtimeState || 'unloaded'}
                 </Badge>
               </div>
             </div>

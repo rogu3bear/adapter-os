@@ -4,7 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { ActiveAlertsWidget } from '@/components/dashboard/ActiveAlertsWidget';
 import { MemoryRouter } from 'react-router-dom';
 
-const refetchMock = vi.fn();
+const refetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/api/client', () => {
   return {

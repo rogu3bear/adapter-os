@@ -331,6 +331,28 @@ impl Db {
         Ok(model)
     }
 
+    /// Get a model scoped to a tenant. Returns None when tenant_id is set and does not match.
+    pub async fn get_model_for_tenant(&self, tenant_id: &str, id: &str) -> Result<Option<Model>> {
+        let model = self.get_model(id).await?;
+        Ok(match model {
+            Some(m) if m.tenant_id.as_deref().map_or(true, |t| t == tenant_id) => Some(m),
+            _ => None,
+        })
+    }
+
+    /// Get a model by name scoped to a tenant (allows global models with NULL tenant_id).
+    pub async fn get_model_by_name_for_tenant(
+        &self,
+        tenant_id: &str,
+        name: &str,
+    ) -> Result<Option<Model>> {
+        let model = self.get_model_by_name(name).await?;
+        Ok(match model {
+            Some(m) if m.tenant_id.as_deref().map_or(true, |t| t == tenant_id) => Some(m),
+            _ => None,
+        })
+    }
+
     pub async fn list_models(&self) -> Result<Vec<Model>> {
         let models = sqlx::query_as::<_, Model>(
             "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3,

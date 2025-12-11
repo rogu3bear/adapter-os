@@ -4,7 +4,8 @@
 //! for Dataset endpoints.
 
 use adapteros_api_types::training::{
-    DatasetResponse, DatasetValidationStatus, ValidateDatasetResponse,
+    DatasetResponse, DatasetValidationStatus, DatasetVersionSummary, DatasetVersionsResponse,
+    ValidateDatasetResponse,
 };
 use serde_json::json;
 
@@ -49,6 +50,7 @@ fn test_dataset_response_required_fields() {
     let response = DatasetResponse {
         schema_version: "1.0".to_string(),
         dataset_id: "ds-123".to_string(),
+        dataset_version_id: Some("ds-ver-001".to_string()),
         name: "Test Dataset".to_string(),
         description: Some("A test dataset".to_string()),
         file_count: 5,
@@ -58,6 +60,7 @@ fn test_dataset_response_required_fields() {
         storage_path: "/var/data/ds-123".to_string(),
         validation_status: DatasetValidationStatus::Valid,
         validation_errors: None,
+        trust_state: Some("allowed".to_string()),
         created_by: "user@test.com".to_string(),
         created_at: "2025-01-15T00:00:00Z".to_string(),
         updated_at: "2025-01-15T00:00:00Z".to_string(),
@@ -67,11 +70,13 @@ fn test_dataset_response_required_fields() {
 
     // Required fields must be present and correctly typed
     assert!(json["dataset_id"].is_string());
+    assert!(json["dataset_version_id"].is_string());
     assert!(json["name"].is_string());
     assert!(json["file_count"].is_i64());
     assert!(json["total_size_bytes"].is_i64());
     assert!(json["validation_status"].is_string());
     assert_eq!(json["validation_status"], "valid");
+    assert_eq!(json["trust_state"], "allowed");
 
     // Optional fields must be null or correct type when present
     assert!(json["description"].is_string());
@@ -82,6 +87,7 @@ fn test_validation_errors_is_array() {
     let response = DatasetResponse {
         schema_version: "1.0".to_string(),
         dataset_id: "ds-123".to_string(),
+        dataset_version_id: Some("ds-ver-001".to_string()),
         name: "Test".to_string(),
         description: None,
         file_count: 1,
@@ -94,6 +100,7 @@ fn test_validation_errors_is_array() {
             "File data.jsonl: Invalid JSON at line 5".to_string(),
             "File config.json: Missing required field".to_string(),
         ]),
+        trust_state: Some("blocked".to_string()),
         created_by: "test".to_string(),
         created_at: "2025-01-15T00:00:00Z".to_string(),
         updated_at: "2025-01-15T00:00:00Z".to_string(),
@@ -112,6 +119,7 @@ fn test_validation_errors_null_when_none() {
     let response = DatasetResponse {
         schema_version: "1.0".to_string(),
         dataset_id: "ds-123".to_string(),
+        dataset_version_id: None,
         name: "Test".to_string(),
         description: None,
         file_count: 1,
@@ -121,6 +129,7 @@ fn test_validation_errors_null_when_none() {
         storage_path: "/tmp".to_string(),
         validation_status: DatasetValidationStatus::Valid,
         validation_errors: None,
+        trust_state: None,
         created_by: "test".to_string(),
         created_at: "2025-01-15T00:00:00Z".to_string(),
         updated_at: "2025-01-15T00:00:00Z".to_string(),
@@ -181,4 +190,27 @@ fn test_dataset_validation_status_from_db_string() {
         DatasetValidationStatus::from_db_string("unknown"),
         DatasetValidationStatus::Draft
     );
+}
+
+#[test]
+fn test_dataset_versions_response_contract() {
+    let response = DatasetVersionsResponse {
+        schema_version: "1.0".to_string(),
+        dataset_id: "ds-123".to_string(),
+        versions: vec![DatasetVersionSummary {
+            dataset_version_id: "ver-1".to_string(),
+            version_number: 1,
+            version_label: Some("v1".to_string()),
+            hash_b3: Some("hash-v1".to_string()),
+            storage_path: Some("/tmp/ver1".to_string()),
+            trust_state: Some("allowed".to_string()),
+            created_at: "2025-02-01T00:00:00Z".to_string(),
+        }],
+    };
+
+    let json = serde_json::to_value(&response).unwrap();
+    assert_eq!(json["dataset_id"], "ds-123");
+    assert!(json["versions"].is_array());
+    assert_eq!(json["versions"][0]["trust_state"], "allowed");
+    assert_eq!(json["versions"][0]["version_number"], 1);
 }

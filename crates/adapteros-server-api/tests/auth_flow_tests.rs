@@ -5,7 +5,10 @@ mod common;
 
 use adapteros_api_types::auth::{LoginRequest, UserInfoResponse};
 use adapteros_db::users::Role;
-use adapteros_server_api::auth::{hash_password, Claims};
+use adapteros_server_api::auth::{
+    hash_password, validate_refresh_token_ed25519, validate_refresh_token_hmac, validate_token,
+    validate_token_ed25519, AuthMode, Claims, RefreshClaims,
+};
 use adapteros_server_api::handlers::auth::auth_me;
 use adapteros_server_api::handlers::auth_enhanced::{login_handler, refresh_token_handler};
 use adapteros_server_api::ip_extraction::ClientIp;
@@ -14,12 +17,17 @@ use adapteros_server_api::middleware::{
     request_id::request_id_middleware, tenant_route_guard_middleware,
 };
 use adapteros_server_api::request_id::REQUEST_ID_HEADER;
+use adapteros_server_api::security::{
+    lock_session, revoke_token, set_tenant_token_baseline, update_session_rotation,
+};
 use adapteros_server_api::types::{ApiErrorBody, ErrorResponse};
 use axum::body::{to_bytes, Body};
 use axum::http::{header, HeaderMap, HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use blake3;
+use chrono::{Duration, Utc};
 use tower::ServiceExt;
 
 use common::setup_state;
@@ -93,6 +101,7 @@ async fn login_and_me_with_cookie_tokens() -> anyhow::Result<()> {
     let cookies = collect_cookies(&set_cookie_headers);
     let auth_cookie = find_cookie(&cookies, "auth_token").expect("auth_token cookie");
     let refresh_cookie = find_cookie(&cookies, "refresh_token").expect("refresh_token cookie");
+    let csrf_cookie = find_cookie(&cookies, "csrf_token").expect("csrf_token cookie");
 
     assert!(
         auth_cookie.contains("HttpOnly") && refresh_cookie.contains("HttpOnly"),
@@ -105,6 +114,14 @@ async fn login_and_me_with_cookie_tokens() -> anyhow::Result<()> {
     assert!(
         auth_cookie.contains("SameSite=Lax") && refresh_cookie.contains("SameSite=Lax"),
         "SameSite=Lax expected by default"
+    );
+    assert!(
+        csrf_cookie.contains("SameSite"),
+        "csrf cookie should include SameSite"
+    );
+    assert!(
+        !csrf_cookie.contains("HttpOnly"),
+        "csrf cookie must be readable for double-submit"
     );
 
     let auth_value = cookie_value(auth_cookie, "auth_token").expect("auth cookie value");
@@ -256,6 +273,88 @@ async fn csrf_protects_unsafe_requests() {
     assert_eq!(ok_resp.status(), StatusCode::OK);
 }
 
+async fn audit_count_by_action(db: &adapteros_db::Db, action: &str) -> i64 {
+    let stats = db
+        .get_audit_stats_by_action(None, None)
+        .await
+        .expect("audit stats");
+    stats
+        .into_iter()
+        .find(|(a, _)| a == action)
+        .map(|(_, c)| c)
+        .unwrap_or(0)
+}
+
+#[tokio::test]
+async fn refresh_reuse_logs_audit_event() -> anyhow::Result<()> {
+    let state = setup_state(None).await?;
+    {
+        let mut cfg = state.config.write().unwrap();
+        cfg.server.production_mode = true;
+        cfg.security.cookie_secure = Some(true);
+        cfg.security.cookie_same_site = Some("Lax".to_string());
+    }
+
+    let pw_hash = hash_password("reuser!")?;
+    state
+        .db
+        .create_user(
+            "reuse@example.com",
+            "Reuse User",
+            &pw_hash,
+            Role::Admin,
+            "tenant-1",
+        )
+        .await?;
+
+    let login_req = LoginRequest {
+        username: None,
+        email: "reuse@example.com".to_string(),
+        password: "reuser!".to_string(),
+        device_id: None,
+        totp_code: None,
+    };
+    let (login_headers, _) = login_handler(
+        axum::extract::State(state.clone()),
+        HeaderMap::new(),
+        axum::Extension(ClientIp("127.0.0.1".into())),
+        Json(login_req),
+    )
+    .await
+    .expect("login should succeed");
+
+    let login_cookies = collect_cookies(&login_headers);
+    let refresh_cookie = find_cookie(&login_cookies, "refresh_token").expect("refresh cookie");
+    let original_refresh =
+        cookie_value(refresh_cookie, "refresh_token").expect("refresh token value");
+
+    // First refresh rotates session (new rot_id stored)
+    let mut refresh_headers = HeaderMap::new();
+    refresh_headers.insert(
+        header::COOKIE,
+        HeaderValue::from_str(&format!("refresh_token={original_refresh}"))?,
+    );
+    let (_set_cookies, _) =
+        refresh_token_handler(axum::extract::State(state.clone()), refresh_headers)
+            .await
+            .expect("initial refresh should succeed");
+
+    // Reuse old refresh token should now trigger rotation mismatch and audit log
+    let before = audit_count_by_action(&state.db, "auth.refresh_reuse_detected").await;
+    let mut reuse_headers = HeaderMap::new();
+    reuse_headers.insert(
+        header::COOKIE,
+        HeaderValue::from_str(&format!("refresh_token={original_refresh}"))?,
+    );
+    let reuse_resp =
+        refresh_token_handler(axum::extract::State(state.clone()), reuse_headers).await;
+    assert!(reuse_resp.is_err(), "reuse should be rejected");
+    let after = audit_count_by_action(&state.db, "auth.refresh_reuse_detected").await;
+    assert_eq!(after, before + 1, "reuse should emit audit log");
+
+    Ok(())
+}
+
 fn tenant_app(claims: Claims) -> Router {
     let inject_claims = move |mut req: Request<Body>, next: Next| {
         let c = claims.clone();
@@ -272,6 +371,29 @@ fn tenant_app(claims: Claims) -> Router {
         )
         .layer(middleware::from_fn(tenant_route_guard_middleware))
         .layer(middleware::from_fn(inject_claims))
+}
+
+fn decode_access_claims(token: &str, state: &adapteros_server_api::state::AppState) -> Claims {
+    if state.use_ed25519 {
+        validate_token_ed25519(token, &state.ed25519_public_keys, &state.ed25519_public_key)
+            .expect("token should decode")
+    } else {
+        validate_token(token, &state.hmac_keys, state.jwt_secret.as_slice())
+            .expect("token should decode")
+    }
+}
+
+fn decode_refresh_claims(
+    token: &str,
+    state: &adapteros_server_api::state::AppState,
+) -> RefreshClaims {
+    if state.use_ed25519 {
+        validate_refresh_token_ed25519(token, &state.ed25519_public_keys, &state.ed25519_public_key)
+            .expect("refresh token should decode")
+    } else {
+        validate_refresh_token_hmac(token, &state.hmac_keys, state.jwt_secret.as_slice())
+            .expect("refresh token should decode")
+    }
 }
 
 #[tokio::test]
@@ -366,5 +488,313 @@ async fn unauthorized_errors_include_request_id_envelope() -> anyhow::Result<()>
     assert_eq!(err.code, "UNAUTHORIZED");
     assert_eq!(err.request_id, request_id_header);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn baseline_rejects_stale_access_tokens() -> anyhow::Result<()> {
+    let state = setup_state(None).await?;
+    let pw_hash = hash_password("baseline-pass!")?;
+    state
+        .db
+        .create_user(
+            "baseline@example.com",
+            "Baseline User",
+            &pw_hash,
+            Role::Admin,
+            "tenant-1",
+        )
+        .await?;
+
+    let login_req = LoginRequest {
+        username: None,
+        email: "baseline@example.com".to_string(),
+        password: "baseline-pass!".to_string(),
+        device_id: None,
+        totp_code: None,
+    };
+    let (login_headers, _) = login_handler(
+        axum::extract::State(state.clone()),
+        HeaderMap::new(),
+        axum::Extension(ClientIp("127.0.0.1".into())),
+        Json(login_req),
+    )
+    .await
+    .expect("login should succeed");
+
+    let cookies = collect_cookies(&login_headers);
+    let auth_cookie = find_cookie(&cookies, "auth_token").expect("auth cookie");
+    let auth_value = cookie_value(auth_cookie, "auth_token").expect("auth token value");
+
+    // Advance baseline beyond token issuance to invalidate the token
+    let baseline = (Utc::now() + Duration::seconds(120)).to_rfc3339();
+    set_tenant_token_baseline(&state.db, "tenant-1", &baseline).await?;
+
+    let app = Router::new()
+        .route("/v1/auth/me", get(auth_me))
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/auth/me")
+                .header(header::COOKIE, format!("auth_token={auth_value}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body = to_bytes(resp.into_body(), 2048).await?;
+    let err: ErrorResponse = serde_json::from_slice(&body)?;
+    assert_eq!(err.code, "TOKEN_REVOKED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn revoked_token_denied_even_before_expiry() -> anyhow::Result<()> {
+    let state = setup_state(None).await?;
+    let pw_hash = hash_password("revoke-pass!")?;
+    state
+        .db
+        .create_user(
+            "revoke@example.com",
+            "Revoke User",
+            &pw_hash,
+            Role::Admin,
+            "tenant-1",
+        )
+        .await?;
+
+    let login_req = LoginRequest {
+        username: None,
+        email: "revoke@example.com".to_string(),
+        password: "revoke-pass!".to_string(),
+        device_id: None,
+        totp_code: None,
+    };
+    let (login_headers, _) = login_handler(
+        axum::extract::State(state.clone()),
+        HeaderMap::new(),
+        axum::Extension(ClientIp("127.0.0.1".into())),
+        Json(login_req),
+    )
+    .await
+    .expect("login should succeed");
+    let cookies = collect_cookies(&login_headers);
+    let auth_cookie = find_cookie(&cookies, "auth_token").expect("auth cookie");
+    let auth_value = cookie_value(auth_cookie, "auth_token").expect("auth token value");
+
+    let claims = decode_access_claims(&auth_value, &state);
+    let expires_at = (Utc::now() + Duration::hours(1)).to_rfc3339();
+    revoke_token(
+        &state.db,
+        &claims.jti,
+        &claims.sub,
+        &claims.tenant_id,
+        &expires_at,
+        Some(&claims.sub),
+        Some("test revoke"),
+    )
+    .await
+    .expect("revocation should succeed");
+
+    let app = Router::new()
+        .route("/v1/auth/me", get(auth_me))
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/auth/me")
+                .header(header::COOKIE, format!("auth_token={auth_value}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body = to_bytes(resp.into_body(), 2048).await?;
+    let err: ErrorResponse = serde_json::from_slice(&body)?;
+    assert_eq!(err.code, "TOKEN_REVOKED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn old_refresh_token_fails_after_rotation() -> anyhow::Result<()> {
+    let state = setup_state(None).await?;
+    let pw_hash = hash_password("rotate-pass!")?;
+    state
+        .db
+        .create_user(
+            "rotate@example.com",
+            "Rotate User",
+            &pw_hash,
+            Role::Admin,
+            "tenant-1",
+        )
+        .await?;
+
+    let login_req = LoginRequest {
+        username: None,
+        email: "rotate@example.com".to_string(),
+        password: "rotate-pass!".to_string(),
+        device_id: None,
+        totp_code: None,
+    };
+    let (login_headers, _) = login_handler(
+        axum::extract::State(state.clone()),
+        HeaderMap::new(),
+        axum::Extension(ClientIp("127.0.0.1".into())),
+        Json(login_req),
+    )
+    .await
+    .expect("login should succeed");
+    let cookies = collect_cookies(&login_headers);
+    let refresh_cookie = find_cookie(&cookies, "refresh_token").expect("refresh cookie");
+    let original_refresh =
+        cookie_value(refresh_cookie, "refresh_token").expect("refresh token value");
+
+    // First refresh rotates session
+    let mut refresh_headers = HeaderMap::new();
+    refresh_headers.insert(
+        header::COOKIE,
+        HeaderValue::from_str(&format!("refresh_token={original_refresh}"))?,
+    );
+    let _ = refresh_token_handler(axum::extract::State(state.clone()), refresh_headers)
+        .await
+        .expect("first refresh should succeed");
+
+    // Reuse old refresh token should now fail rotation check
+    let mut stale_headers = HeaderMap::new();
+    stale_headers.insert(
+        header::COOKIE,
+        HeaderValue::from_str(&format!("refresh_token={original_refresh}"))?,
+    );
+    let (status, Json(err_body)) =
+        refresh_token_handler(axum::extract::State(state.clone()), stale_headers)
+            .await
+            .expect_err("stale refresh must fail");
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(err_body.code, "UNAUTHORIZED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn locked_session_cannot_refresh() -> anyhow::Result<()> {
+    let state = setup_state(None).await?;
+    let pw_hash = hash_password("lock-pass!")?;
+    state
+        .db
+        .create_user(
+            "lock@example.com",
+            "Lock User",
+            &pw_hash,
+            Role::Admin,
+            "tenant-1",
+        )
+        .await?;
+
+    let login_req = LoginRequest {
+        username: None,
+        email: "lock@example.com".to_string(),
+        password: "lock-pass!".to_string(),
+        device_id: None,
+        totp_code: None,
+    };
+    let (login_headers, _) = login_handler(
+        axum::extract::State(state.clone()),
+        HeaderMap::new(),
+        axum::Extension(ClientIp("127.0.0.1".into())),
+        Json(login_req),
+    )
+    .await
+    .expect("login should succeed");
+    let cookies = collect_cookies(&login_headers);
+    let refresh_cookie = find_cookie(&cookies, "refresh_token").expect("refresh cookie");
+    let refresh_value = cookie_value(refresh_cookie, "refresh_token").expect("refresh token value");
+
+    let refresh_claims = decode_refresh_claims(&refresh_value, &state);
+    lock_session(&state.db, &refresh_claims.session_id)
+        .await
+        .expect("lock should succeed");
+
+    let mut refresh_headers = HeaderMap::new();
+    refresh_headers.insert(
+        header::COOKIE,
+        HeaderValue::from_str(&format!("refresh_token={refresh_value}"))?,
+    );
+    let (status, Json(err_body)) =
+        refresh_token_handler(axum::extract::State(state.clone()), refresh_headers)
+            .await
+            .expect_err("locked session refresh must fail");
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(err_body.code, "SESSION_EXPIRED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn expired_session_cannot_refresh() -> anyhow::Result<()> {
+    let state = setup_state(None).await?;
+    let pw_hash = hash_password("expire-pass!")?;
+    state
+        .db
+        .create_user(
+            "expire@example.com",
+            "Expire User",
+            &pw_hash,
+            Role::Admin,
+            "tenant-1",
+        )
+        .await?;
+
+    let login_req = LoginRequest {
+        username: None,
+        email: "expire@example.com".to_string(),
+        password: "expire-pass!".to_string(),
+        device_id: None,
+        totp_code: None,
+    };
+    let (login_headers, _) = login_handler(
+        axum::extract::State(state.clone()),
+        HeaderMap::new(),
+        axum::Extension(ClientIp("127.0.0.1".into())),
+        Json(login_req),
+    )
+    .await
+    .expect("login should succeed");
+    let cookies = collect_cookies(&login_headers);
+    let refresh_cookie = find_cookie(&cookies, "refresh_token").expect("refresh cookie");
+    let refresh_value = cookie_value(refresh_cookie, "refresh_token").expect("refresh token value");
+
+    let refresh_claims = decode_refresh_claims(&refresh_value, &state);
+    let past = (Utc::now() - Duration::minutes(5)).to_rfc3339();
+    let refresh_hash = blake3::hash(refresh_value.as_bytes()).to_hex().to_string();
+    update_session_rotation(
+        &state.db,
+        &refresh_claims.session_id,
+        &refresh_claims.rot_id,
+        Some(&refresh_hash),
+        &past,
+    )
+    .await
+    .expect("update rotation");
+
+    let mut refresh_headers = HeaderMap::new();
+    refresh_headers.insert(
+        header::COOKIE,
+        HeaderValue::from_str(&format!("refresh_token={refresh_value}"))?,
+    );
+    let (status, Json(err_body)) =
+        refresh_token_handler(axum::extract::State(state.clone()), refresh_headers)
+            .await
+            .expect_err("expired session refresh must fail");
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(err_body.code, "SESSION_EXPIRED");
     Ok(())
 }

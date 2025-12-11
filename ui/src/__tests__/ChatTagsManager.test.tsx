@@ -49,8 +49,8 @@ vi.mock('@/hooks/useChatTags', () => ({
   useRemoveTagFromSession: (options?: unknown) => mockUseRemoveTagFromSession(options),
 }));
 
-// Mock toast
-const mockToastError = vi.fn();
+// Mock toast (hoisted to satisfy vi.mock hoisting)
+const mockToastError = vi.hoisted(() => vi.fn());
 vi.mock('sonner', () => ({
   toast: {
     error: mockToastError,
@@ -134,8 +134,8 @@ describe('ChatTagsManager', () => {
 
       const bugTag = screen.getByText('Bug').closest('span');
       expect(bugTag).toBeTruthy();
-      expect(bugTag?.style.borderColor).toBe('#ef4444');
-      expect(bugTag?.style.color).toBe('#ef4444');
+      expect(bugTag?.style.borderColor).toMatch(/#ef4444|rgb\(239,\s?68,\s?68\)/);
+      expect(bugTag?.style.color).toMatch(/#ef4444|rgb\(239,\s?68,\s?68\)/);
     });
 
     it('renders remove button for each tag', () => {

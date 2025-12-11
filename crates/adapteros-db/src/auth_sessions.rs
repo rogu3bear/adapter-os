@@ -24,13 +24,20 @@ impl Db {
 
     fn kv_to_auth_session(kv: AuthSessionKv) -> AuthSession {
         AuthSession {
-            jti: kv.jti,
+            jti: kv.jti.clone(),
+            session_id: kv.session_id.or_else(|| Some(kv.jti)),
             user_id: kv.user_id,
+            tenant_id: kv.tenant_id.unwrap_or_default(),
+            device_id: kv.device_id,
+            rot_id: kv.rot_id,
+            refresh_hash: kv.refresh_hash,
+            refresh_expires_at: kv.refresh_expires_at.map(|ts| ts.to_string()),
             ip_address: kv.ip_address,
             user_agent: kv.user_agent,
             created_at: kv.created_at.to_rfc3339(),
             last_activity: kv.last_activity.to_rfc3339(),
             expires_at: kv.expires_at,
+            locked: kv.locked,
         }
     }
 
@@ -98,6 +105,7 @@ impl Db {
     ///
     /// # Arguments
     /// * `jti` - JWT ID (unique identifier for the session)
+    /// * `tenant_id` - Tenant associated with the session
     /// * `user_id` - User ID associated with the session
     /// * `ip_address` - IP address of the client
     /// * `user_agent` - User agent string
@@ -105,6 +113,7 @@ impl Db {
     pub async fn create_auth_session(
         &self,
         jti: &str,
+        tenant_id: &str,
         user_id: &str,
         ip_address: Option<&str>,
         user_agent: Option<&str>,
@@ -113,11 +122,17 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
                 sqlx::query(
-                    "INSERT INTO auth_sessions (jti, user_id, ip_address, user_agent, created_at, last_activity, expires_at)
-                     VALUES (?, ?, ?, ?, datetime('now'), datetime('now'), ?)",
+                    "INSERT INTO auth_sessions (
+                        jti, session_id, user_id, tenant_id, device_id, rot_id, refresh_hash,
+                        refresh_expires_at, ip_address, user_agent, created_at, last_activity,
+                        expires_at, locked
+                    )
+                    VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, datetime('now'), datetime('now'), ?, 0)",
                 )
                 .bind(jti)
+                .bind(jti) // align session_id with jti for compatibility
                 .bind(user_id)
+                .bind(tenant_id)
                 .bind(ip_address)
                 .bind(user_agent)
                 .bind(expires_at)
@@ -212,7 +227,21 @@ impl Db {
             None => return Ok(Vec::new()),
         };
         let sessions = sqlx::query_as::<_, AuthSession>(
-            "SELECT jti, user_id, ip_address, user_agent, created_at, last_activity, expires_at
+            "SELECT
+                 jti,
+                 session_id,
+                 user_id,
+                 tenant_id,
+                 device_id,
+                 rot_id,
+                 refresh_hash,
+                 refresh_expires_at,
+                 ip_address,
+                 user_agent,
+                 created_at,
+                 last_activity,
+                 expires_at,
+                 locked
              FROM auth_sessions
              WHERE user_id = ? AND expires_at > ?
              ORDER BY last_activity DESC",
@@ -279,10 +308,17 @@ impl Db {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct AuthSession {
     pub jti: String,
+    pub session_id: Option<String>,
     pub user_id: String,
+    pub tenant_id: String,
+    pub device_id: Option<String>,
+    pub rot_id: Option<String>,
+    pub refresh_hash: Option<String>,
+    pub refresh_expires_at: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub created_at: String,
     pub last_activity: String,
     pub expires_at: i64,
+    pub locked: bool,
 }

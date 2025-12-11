@@ -3,6 +3,7 @@
 //! Records the replay key and content for each inference operation,
 //! enabling exact reproduction of model outputs under identical conditions.
 
+use crate::crypto_at_rest::{crypto_from_env_runtime, redact_for_log, CryptoAtRest, EncryptedField};
 use crate::replay_kv::record_replay_drift;
 use crate::{Db, Result};
 use adapteros_core::AosError;
@@ -29,6 +30,12 @@ pub struct InferenceReplayMetadata {
     pub backend: String,
     /// Backend/FFI version hash or identifier (optional)
     pub backend_version: Option<String>,
+    /// Hash of the fused CoreML package manifest (if applicable)
+    pub coreml_package_hash: Option<String>,
+    /// Expected fused CoreML package hash (if available from registry/manifest)
+    pub coreml_expected_package_hash: Option<String>,
+    /// Whether verification detected a mismatch between expected and actual hash.
+    pub coreml_hash_mismatch: Option<bool>,
     /// Sampling algorithm version for compatibility tracking
     pub sampling_algorithm_version: String,
     /// BLAKE3 hash of sorted document hashes (null if no RAG)
@@ -59,6 +66,14 @@ pub struct InferenceReplayMetadata {
     pub determinism_mode: Option<String>,
     /// Whether backend fallback occurred during execution
     pub fallback_triggered: Option<bool>,
+    /// CoreML compute preference requested (if applicable)
+    pub coreml_compute_preference: Option<String>,
+    /// CoreML compute units actually used (if applicable)
+    pub coreml_compute_units: Option<String>,
+    /// Whether CoreML leveraged GPU for this run (if applicable)
+    pub coreml_gpu_used: Option<bool>,
+    /// Backend selected after fallback (if different from requested)
+    pub fallback_backend: Option<String>,
     /// Replay guarantee level (exact, approximate, none)
     pub replay_guarantee: Option<String>,
     /// Execution policy ID applied (if any)
@@ -79,6 +94,9 @@ pub struct CreateReplayMetadataParams {
     pub sampling_params_json: String,
     pub backend: String,
     pub backend_version: Option<String>,
+    pub coreml_package_hash: Option<String>,
+    pub coreml_expected_package_hash: Option<String>,
+    pub coreml_hash_mismatch: Option<bool>,
     pub sampling_algorithm_version: Option<String>,
     pub rag_snapshot_hash: Option<String>,
     /// JSON-serializable list of adapter IDs
@@ -98,6 +116,10 @@ pub struct CreateReplayMetadataParams {
     pub tokens_generated: Option<i32>,
     pub determinism_mode: Option<String>,
     pub fallback_triggered: bool,
+    pub coreml_compute_preference: Option<String>,
+    pub coreml_compute_units: Option<String>,
+    pub coreml_gpu_used: Option<bool>,
+    pub fallback_backend: Option<String>,
     pub replay_guarantee: Option<String>,
     pub execution_policy_id: Option<String>,
     pub execution_policy_version: Option<i32>,
@@ -142,22 +164,48 @@ impl Db {
         let prompt_truncated = if params.prompt_truncated { 1 } else { 0 };
         let response_truncated = if params.response_truncated { 1 } else { 0 };
         let fallback_triggered = if params.fallback_triggered { 1 } else { 0 };
+        let coreml_gpu_used = params.coreml_gpu_used.map(|v| if v { 1 } else { 0 });
+        let coreml_hash_mismatch = params.coreml_hash_mismatch.map(|v| if v { 1 } else { 0 });
+
+        // Encrypt prompt/response at rest when enabled
+        let mut stored_prompt_text = params.prompt_text.clone();
+        let mut stored_response_text = params.response_text.clone();
+        if let Some(crypto) = crypto_from_env_runtime() {
+            let sealed_prompt = crypto.seal(&params.tenant_id, &params.prompt_text).await?;
+            stored_prompt_text = CryptoAtRest::encode(&sealed_prompt)?;
+
+            if let Some(resp) = &params.response_text {
+                let sealed_resp = crypto.seal(&params.tenant_id, resp).await?;
+                stored_response_text = Some(CryptoAtRest::encode(&sealed_resp)?);
+            }
+
+            tracing::debug!(
+                tenant_id = %params.tenant_id,
+                prompt = %redact_for_log(&params.prompt_text),
+                response = %params
+                    .response_text
+                    .as_deref()
+                    .map(redact_for_log)
+                    .unwrap_or(""),
+                "Stored prompt/response with crypto-at-rest"
+            );
+        }
 
         sqlx::query(
             r#"
             INSERT INTO inference_replay_metadata (
                 id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
-                sampling_params_json, backend, backend_version, sampling_algorithm_version,
+                sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
                 rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                 response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                 replay_status, latency_ms, tokens_generated, determinism_mode,
-                fallback_triggered, replay_guarantee, execution_policy_id,
+                fallback_triggered, coreml_compute_preference, coreml_compute_units,
+                coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
                 execution_policy_version, created_at
             )
             VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 datetime('now')
             )
             "#,
@@ -171,13 +219,16 @@ impl Db {
         .bind(&params.sampling_params_json)
         .bind(&params.backend)
         .bind(&params.backend_version)
+        .bind(&params.coreml_package_hash)
+        .bind(&params.coreml_expected_package_hash)
+        .bind(&coreml_hash_mismatch)
         .bind(&sampling_algorithm_version)
         .bind(&params.rag_snapshot_hash)
         .bind(&adapter_ids_json)
         .bind(base_only)
-        .bind(&params.prompt_text)
+        .bind(&stored_prompt_text)
         .bind(prompt_truncated)
-        .bind(&params.response_text)
+        .bind(&stored_response_text)
         .bind(response_truncated)
         .bind(&rag_doc_ids_json)
         .bind(&params.chat_context_hash)
@@ -186,6 +237,10 @@ impl Db {
         .bind(&params.tokens_generated)
         .bind(&params.determinism_mode)
         .bind(fallback_triggered)
+        .bind(&params.coreml_compute_preference)
+        .bind(&params.coreml_compute_units)
+        .bind(coreml_gpu_used)
+        .bind(&params.fallback_backend)
         .bind(&params.replay_guarantee)
         .bind(&params.execution_policy_id)
         .bind(&params.execution_policy_version)
@@ -225,6 +280,34 @@ impl Db {
         Ok(id)
     }
 
+    async fn decrypt_payloads(
+        &self,
+        tenant_id: &str,
+        prompt_text: String,
+        response_text: Option<String>,
+    ) -> Result<(String, Option<String>)> {
+        async fn decode_single(tenant_id: &str, raw: String) -> Result<String> {
+            if let Some(field) = EncryptedField::decode(&raw) {
+                if let Some(crypto) = crypto_from_env_runtime() {
+                    return match crypto.unseal(tenant_id, &field).await? {
+                        Some(plaintext) => Ok(plaintext),
+                        None => Ok("[redacted]".to_string()),
+                    };
+                }
+            }
+            Ok(raw)
+        }
+
+        let prompt = decode_single(tenant_id, prompt_text).await?;
+        let response = if let Some(r) = response_text {
+            Some(decode_single(tenant_id, r).await?)
+        } else {
+            None
+        };
+
+        Ok((prompt, response))
+    }
+
     /// Get replay metadata by inference ID
     ///
     /// Retrieves the replay metadata for a specific inference operation.
@@ -243,11 +326,12 @@ impl Db {
                             if let Ok(Some(sql_meta)) = sqlx::query_as::<_, InferenceReplayMetadataRow>(
                                 r#"
                                 SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
-                                       sampling_params_json, backend, backend_version, sampling_algorithm_version,
+                                       sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
                                        rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
-                                       fallback_triggered, replay_guarantee, execution_policy_id,
+                                       fallback_triggered, coreml_compute_preference, coreml_compute_units,
+                                       coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
                                        execution_policy_version, created_at
                                 FROM inference_replay_metadata
                                 WHERE inference_id = ?
@@ -269,6 +353,17 @@ impl Db {
                             }
                         }
                     }
+
+                    let (prompt, response) = self
+                        .decrypt_payloads(
+                            &record.tenant_id,
+                            record.prompt_text.clone(),
+                            record.response_text.clone(),
+                        )
+                        .await?;
+                    let mut record = record;
+                    record.prompt_text = prompt;
+                    record.response_text = response;
 
                     return Ok(Some(record));
                 }
@@ -297,11 +392,12 @@ impl Db {
         let record = sqlx::query_as::<_, InferenceReplayMetadataRow>(
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
-                   sampling_params_json, backend, backend_version, sampling_algorithm_version,
+                   sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
                    rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
-                   fallback_triggered, replay_guarantee, execution_policy_id,
+                   fallback_triggered, coreml_compute_preference, coreml_compute_units,
+                   coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
                    execution_policy_version, created_at
             FROM inference_replay_metadata
             WHERE inference_id = ?
@@ -312,7 +408,21 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch replay metadata: {}", e)))?;
 
-        Ok(record.map(Into::into))
+        if let Some(row) = record {
+            let mut rec: InferenceReplayMetadata = row.into();
+            let (prompt, response) = self
+                .decrypt_payloads(
+                    &rec.tenant_id,
+                    rec.prompt_text.clone(),
+                    rec.response_text.clone(),
+                )
+                .await?;
+            rec.prompt_text = prompt;
+            rec.response_text = response;
+            Ok(Some(rec))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get replay metadata by ID
@@ -330,11 +440,12 @@ impl Db {
                             if let Ok(Some(sql_meta)) = sqlx::query_as::<_, InferenceReplayMetadataRow>(
                                 r#"
                                 SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
-                                       sampling_params_json, backend, backend_version, sampling_algorithm_version,
+                                       sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
                                        rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
-                                       fallback_triggered, replay_guarantee, execution_policy_id,
+                                       fallback_triggered, coreml_compute_preference, coreml_compute_units,
+                                       coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
                                        execution_policy_version, created_at
                                 FROM inference_replay_metadata
                                 WHERE id = ?
@@ -356,6 +467,17 @@ impl Db {
                             }
                         }
                     }
+
+                    let (prompt, response) = self
+                        .decrypt_payloads(
+                            &record.tenant_id,
+                            record.prompt_text.clone(),
+                            record.response_text.clone(),
+                        )
+                        .await?;
+                    let mut record = record;
+                    record.prompt_text = prompt;
+                    record.response_text = response;
 
                     return Ok(Some(record));
                 }
@@ -380,11 +502,12 @@ impl Db {
         let record = sqlx::query_as::<_, InferenceReplayMetadataRow>(
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
-                   sampling_params_json, backend, backend_version, sampling_algorithm_version,
+                   sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
                    rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
-                   fallback_triggered, replay_guarantee, execution_policy_id,
+                   fallback_triggered, coreml_compute_preference, coreml_compute_units,
+                   coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
                    execution_policy_version, created_at
             FROM inference_replay_metadata
             WHERE id = ?
@@ -395,7 +518,21 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch replay metadata: {}", e)))?;
 
-        Ok(record.map(Into::into))
+        if let Some(row) = record {
+            let mut rec: InferenceReplayMetadata = row.into();
+            let (prompt, response) = self
+                .decrypt_payloads(
+                    &rec.tenant_id,
+                    rec.prompt_text.clone(),
+                    rec.response_text.clone(),
+                )
+                .await?;
+            rec.prompt_text = prompt;
+            rec.response_text = response;
+            Ok(Some(rec))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Update replay status
@@ -440,16 +577,29 @@ impl Db {
                         mapped.push(self.kv_replay_metadata_to_record(meta)?);
                     }
 
+                    for rec in mapped.iter_mut() {
+                        let (prompt, response) = self
+                            .decrypt_payloads(
+                                &rec.tenant_id,
+                                rec.prompt_text.clone(),
+                                rec.response_text.clone(),
+                            )
+                            .await?;
+                        rec.prompt_text = prompt;
+                        rec.response_text = response;
+                    }
+
                     if self.storage_mode().is_dual_write() && self.storage_mode().read_from_sql() {
                         if let Some(pool) = self.pool_opt() {
                             let sql_records = sqlx::query_as::<_, InferenceReplayMetadataRow>(
                                 r#"
                                 SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
-                                       sampling_params_json, backend, backend_version, sampling_algorithm_version,
+                                       sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
                                        rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
-                                       fallback_triggered, replay_guarantee, execution_policy_id,
+                                       fallback_triggered, coreml_compute_preference, coreml_compute_units,
+                                       coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
                                        execution_policy_version, created_at
                                 FROM inference_replay_metadata
                                 WHERE tenant_id = ?
@@ -498,11 +648,12 @@ impl Db {
         let records = sqlx::query_as::<_, InferenceReplayMetadataRow>(
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
-                   sampling_params_json, backend, backend_version, sampling_algorithm_version,
+                   sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
                    rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
-                   fallback_triggered, replay_guarantee, execution_policy_id,
+                   fallback_triggered, coreml_compute_preference, coreml_compute_units,
+                   coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
                    execution_policy_version, created_at
             FROM inference_replay_metadata
             WHERE tenant_id = ?
@@ -517,7 +668,21 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to list replay metadata: {}", e)))?;
 
-        Ok(records.into_iter().map(Into::into).collect())
+        let mut records: Vec<InferenceReplayMetadata> =
+            records.into_iter().map(Into::into).collect();
+        for rec in records.iter_mut() {
+            let (prompt, response) = self
+                .decrypt_payloads(
+                    &rec.tenant_id,
+                    rec.prompt_text.clone(),
+                    rec.response_text.clone(),
+                )
+                .await?;
+            rec.prompt_text = prompt;
+            rec.response_text = response;
+        }
+
+        Ok(records)
     }
 }
 
@@ -533,6 +698,9 @@ struct InferenceReplayMetadataRow {
     sampling_params_json: String,
     backend: String,
     backend_version: Option<String>,
+    coreml_package_hash: Option<String>,
+    coreml_expected_package_hash: Option<String>,
+    coreml_hash_mismatch: Option<i32>,
     sampling_algorithm_version: String,
     rag_snapshot_hash: Option<String>,
     adapter_ids_json: Option<String>,
@@ -548,6 +716,10 @@ struct InferenceReplayMetadataRow {
     tokens_generated: Option<i32>,
     determinism_mode: Option<String>,
     fallback_triggered: Option<i32>,
+    coreml_compute_preference: Option<String>,
+    coreml_compute_units: Option<String>,
+    coreml_gpu_used: Option<i32>,
+    fallback_backend: Option<String>,
     replay_guarantee: Option<String>,
     execution_policy_id: Option<String>,
     execution_policy_version: Option<i32>,
@@ -566,6 +738,9 @@ impl From<InferenceReplayMetadataRow> for InferenceReplayMetadata {
             sampling_params_json: row.sampling_params_json,
             backend: row.backend,
             backend_version: row.backend_version,
+            coreml_package_hash: row.coreml_package_hash,
+            coreml_expected_package_hash: row.coreml_expected_package_hash,
+            coreml_hash_mismatch: row.coreml_hash_mismatch.map(|v| v != 0),
             sampling_algorithm_version: row.sampling_algorithm_version,
             rag_snapshot_hash: row.rag_snapshot_hash,
             adapter_ids_json: row.adapter_ids_json,
@@ -581,6 +756,10 @@ impl From<InferenceReplayMetadataRow> for InferenceReplayMetadata {
             tokens_generated: row.tokens_generated,
             determinism_mode: row.determinism_mode,
             fallback_triggered: row.fallback_triggered.map(|v| v != 0),
+            coreml_compute_preference: row.coreml_compute_preference,
+            coreml_compute_units: row.coreml_compute_units,
+            coreml_gpu_used: row.coreml_gpu_used.map(|v| v != 0),
+            fallback_backend: row.fallback_backend,
             replay_guarantee: row.replay_guarantee,
             execution_policy_id: row.execution_policy_id,
             execution_policy_version: row.execution_policy_version,
@@ -624,6 +803,9 @@ mod tests {
             sampling_params_json: r#"{"temperature":0.7,"top_k":50,"seed":42}"#.to_string(),
             backend: "CoreML".to_string(),
             backend_version: Some("v1.0.0".to_string()),
+            coreml_package_hash: Some("coreml-fused-hash".to_string()),
+            coreml_expected_package_hash: None,
+            coreml_hash_mismatch: None,
             sampling_algorithm_version: Some("v1.0.0".to_string()),
             rag_snapshot_hash: Some("rag-hash-789".to_string()),
             adapter_ids: Some(vec!["adapter-1".to_string(), "adapter-2".to_string()]),
@@ -639,6 +821,10 @@ mod tests {
             tokens_generated: Some(25),
             determinism_mode: Some("strict".to_string()),
             fallback_triggered: false,
+            coreml_compute_preference: Some("cpu_and_neural_engine".to_string()),
+            coreml_compute_units: Some("cpu_and_neural_engine".to_string()),
+            coreml_gpu_used: Some(false),
+            fallback_backend: None,
             replay_guarantee: Some("exact".to_string()),
             execution_policy_id: None,
             execution_policy_version: None,
@@ -664,6 +850,16 @@ mod tests {
         assert_eq!(metadata.tokens_generated, Some(25));
         assert_eq!(metadata.prompt_truncated, 0);
         assert_eq!(metadata.response_truncated, 0);
+        assert_eq!(
+            metadata.coreml_compute_preference.as_deref(),
+            Some("cpu_and_neural_engine")
+        );
+        assert_eq!(
+            metadata.coreml_compute_units.as_deref(),
+            Some("cpu_and_neural_engine")
+        );
+        assert_eq!(metadata.coreml_gpu_used, Some(false));
+        assert_eq!(metadata.fallback_backend, None);
 
         // Verify JSON fields
         let adapter_ids: Vec<String> =
@@ -697,6 +893,9 @@ mod tests {
             sampling_params_json: r#"{"temperature":0.7}"#.to_string(),
             backend: "MLX".to_string(),
             backend_version: None,
+            coreml_package_hash: None,
+            coreml_expected_package_hash: None,
+            coreml_hash_mismatch: None,
             sampling_algorithm_version: None,
             rag_snapshot_hash: None,
             adapter_ids: None,
@@ -712,6 +911,10 @@ mod tests {
             tokens_generated: None,
             determinism_mode: Some("strict".to_string()),
             fallback_triggered: false,
+            coreml_compute_preference: None,
+            coreml_compute_units: None,
+            coreml_gpu_used: None,
+            fallback_backend: None,
             replay_guarantee: Some("exact".to_string()),
             execution_policy_id: None,
             execution_policy_version: None,
@@ -749,6 +952,9 @@ mod tests {
                 sampling_params_json: r#"{"temperature":0.7}"#.to_string(),
                 backend: "Metal".to_string(),
                 backend_version: None,
+                coreml_package_hash: None,
+                coreml_expected_package_hash: None,
+                coreml_hash_mismatch: None,
                 sampling_algorithm_version: None,
                 rag_snapshot_hash: None,
                 adapter_ids: None,
@@ -764,6 +970,10 @@ mod tests {
                 tokens_generated: Some(20 + i),
                 determinism_mode: Some("strict".to_string()),
                 fallback_triggered: false,
+                coreml_compute_preference: None,
+                coreml_compute_units: None,
+                coreml_gpu_used: None,
+                fallback_backend: None,
                 replay_guarantee: Some("exact".to_string()),
                 execution_policy_id: None,
                 execution_policy_version: None,
@@ -808,6 +1018,9 @@ mod tests {
             sampling_params_json: r#"{}"#.to_string(),
             backend: "CoreML".to_string(),
             backend_version: None,
+            coreml_package_hash: None,
+            coreml_expected_package_hash: None,
+            coreml_hash_mismatch: None,
             sampling_algorithm_version: None,
             rag_snapshot_hash: None,
             adapter_ids: None,
@@ -823,6 +1036,10 @@ mod tests {
             tokens_generated: None,
             determinism_mode: None,
             fallback_triggered: false,
+            coreml_compute_preference: None,
+            coreml_compute_units: None,
+            coreml_gpu_used: None,
+            fallback_backend: None,
             replay_guarantee: None,
             execution_policy_id: None,
             execution_policy_version: None,
@@ -854,6 +1071,9 @@ mod tests {
             sampling_params_json: "{}".to_string(),
             backend: "Metal".to_string(),
             backend_version: None,
+            coreml_package_hash: None,
+            coreml_expected_package_hash: None,
+            coreml_hash_mismatch: None,
             sampling_algorithm_version: None,
             rag_snapshot_hash: None,
             adapter_ids: Some(vec!["adapter-fb".to_string()]),
@@ -869,6 +1089,10 @@ mod tests {
             tokens_generated: Some(5),
             determinism_mode: Some("strict".to_string()),
             fallback_triggered: true,
+            coreml_compute_preference: None,
+            coreml_compute_units: None,
+            coreml_gpu_used: None,
+            fallback_backend: None,
             replay_guarantee: Some("exact".to_string()),
             execution_policy_id: None,
             execution_policy_version: None,

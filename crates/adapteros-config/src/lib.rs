@@ -31,6 +31,7 @@
 //! println!("Port: {}", cfg.server.port);
 //! ```
 
+pub mod coreml;
 pub mod effective;
 pub mod global;
 pub mod guards;
@@ -44,11 +45,12 @@ pub mod schema;
 pub mod session;
 pub mod types;
 
+pub use coreml::CoreMLComputePreference;
 pub use effective::{
     effective_config, init_effective_config, is_effective_initialized, try_effective_config,
     AlertingSection, AuthSection, ConfigValueSource, DatabaseSection, EffectiveConfig,
     InferenceSection, LoggingSection, MetricsSection, ModelSection, PathsSection,
-    RateLimitsSection, SecuritySection, ServerSection,
+    RateLimitsSection, SecuritySection, SelfHostingMode, SelfHostingSection, ServerSection,
 };
 pub use global::{
     config, config_or_default, init_runtime_config, is_initialized, try_config, ConfigError,
@@ -61,7 +63,7 @@ pub use model::{
     resolve_tokenizer_path, BackendPreference, ModelConfig,
 };
 pub use path_resolver::{
-    resolve_adapters_root, resolve_base_model_location, resolve_database_url,
+    prepare_socket_path, resolve_adapters_root, resolve_base_model_location, resolve_database_url,
     resolve_embedding_model_path, resolve_embedding_model_path_with_override, resolve_index_root,
     resolve_manifest_cache_dir, resolve_manifest_path, resolve_model_path, resolve_status_path,
     resolve_telemetry_dir, resolve_worker_socket_for_cp, resolve_worker_socket_for_worker,

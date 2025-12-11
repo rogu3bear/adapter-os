@@ -12,6 +12,24 @@ import {
   CLOSE_BUTTON_BASE,
 } from "./utils";
 
+const containsDialogDescription = (node: React.ReactNode): boolean => {
+  if (!node) return false;
+
+  if (Array.isArray(node)) {
+    return node.some(containsDialogDescription);
+  }
+
+  if (React.isValidElement(node)) {
+    const elementType = node.type;
+    if (elementType === DialogDescription || elementType === DialogPrimitive.Description) {
+      return true;
+    }
+    return containsDialogDescription((node as React.ReactElement).props?.children);
+  }
+
+  return false;
+};
+
 function Dialog({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
@@ -61,8 +79,15 @@ DialogOverlay.displayName = "DialogOverlay";
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { initialFocusSelector?: string }
->(({ className, children, initialFocusSelector, onOpenAutoFocus, ...props }, ref) => {
+>(({ className, children, initialFocusSelector, onOpenAutoFocus, ...restProps }, ref) => {
   const contentRef = React.useRef<React.ElementRef<typeof DialogPrimitive.Content> | null>(null);
+  const { ['aria-describedby']: ariaDescribedBy, ...contentProps } = restProps;
+  const hasDescription = React.useMemo(
+    () => containsDialogDescription(children),
+    [children],
+  );
+  const fallbackDescriptionId = React.useId();
+  const describedBy = ariaDescribedBy ?? (hasDescription ? undefined : fallbackDescriptionId);
 
   const setRef = React.useCallback(
     (node: React.ElementRef<typeof DialogPrimitive.Content> | null) => {
@@ -108,6 +133,7 @@ const DialogContent = React.forwardRef<
         aria-modal="true"
         role="dialog"
         onOpenAutoFocus={handleOpenAutoFocus}
+        aria-describedby={describedBy}
         className={cn(
 
           FROST_BACKGROUND,
@@ -117,8 +143,13 @@ const DialogContent = React.forwardRef<
           "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-20 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
           className,
         )}
-        {...props}
+        {...contentProps}
       >
+        {!hasDescription && !ariaDescribedBy && (
+          <DialogPrimitive.Description id={fallbackDescriptionId} className="sr-only">
+            Dialog content
+          </DialogPrimitive.Description>
+        )}
         {children}
         <DialogPrimitive.Close className={cn(
           CLOSE_BUTTON_BASE,

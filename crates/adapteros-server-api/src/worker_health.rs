@@ -431,7 +431,7 @@ impl WorkerHealthMonitor {
         }
 
         // Sort by: healthy first, then by lowest latency
-        candidates.sort_by(|(_, status_a, latency_a), (_, status_b, latency_b)| {
+        candidates.sort_by(|(wa, status_a, latency_a), (wb, status_b, latency_b)| {
             // Healthy < Degraded < Unknown
             let priority_a = match status_a {
                 WorkerHealthStatus::Healthy => 0,
@@ -450,6 +450,7 @@ impl WorkerHealthMonitor {
                 latency_a
                     .partial_cmp(latency_b)
                     .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| wa.id.cmp(&wb.id))
             })
         });
 
@@ -493,7 +494,7 @@ impl WorkerHealthMonitor {
         }
 
         // Sort by: healthy first, then by lowest latency
-        candidates.sort_by(|(_, status_a, latency_a), (_, status_b, latency_b)| {
+        candidates.sort_by(|(wa, status_a, latency_a), (wb, status_b, latency_b)| {
             // Healthy < Degraded < Unknown
             let priority_a = match status_a {
                 WorkerHealthStatus::Healthy => 0,
@@ -512,6 +513,7 @@ impl WorkerHealthMonitor {
                 latency_a
                     .partial_cmp(latency_b)
                     .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| wa.id.cmp(&wb.id))
             })
         });
 
@@ -612,4 +614,77 @@ pub struct WorkerHealthSummary {
     pub total_failures: u64,
     pub consecutive_slow: usize,
     pub consecutive_failures: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn worker_selection_ties_break_by_id() {
+        let db = adapteros_db::Db::new_in_memory()
+            .await
+            .expect("in-memory db");
+        let monitor = WorkerHealthMonitor::with_defaults(db);
+
+        monitor.worker_metrics.insert(
+            "worker-a".to_string(),
+            WorkerMetrics {
+                avg_latency_ms: 10.0,
+                health_status: WorkerHealthStatus::Healthy,
+                ..Default::default()
+            },
+        );
+        monitor.worker_metrics.insert(
+            "worker-b".to_string(),
+            WorkerMetrics {
+                avg_latency_ms: 10.0,
+                health_status: WorkerHealthStatus::Healthy,
+                ..Default::default()
+            },
+        );
+
+        let workers = vec![
+            WorkerWithBinding {
+                id: "worker-b".to_string(),
+                tenant_id: "tenant".to_string(),
+                node_id: "node".to_string(),
+                plan_id: "plan".to_string(),
+                uds_path: "/tmp/worker-b.sock".to_string(),
+                pid: None,
+                status: "serving".to_string(),
+                started_at: "now".to_string(),
+                last_seen_at: None,
+                manifest_hash_b3: Some("hash".to_string()),
+                schema_version: Some("1.0".to_string()),
+                api_version: None,
+                registered_at: None,
+                health_status: None,
+            },
+            WorkerWithBinding {
+                id: "worker-a".to_string(),
+                tenant_id: "tenant".to_string(),
+                node_id: "node".to_string(),
+                plan_id: "plan".to_string(),
+                uds_path: "/tmp/worker-a.sock".to_string(),
+                pid: None,
+                status: "serving".to_string(),
+                started_at: "now".to_string(),
+                last_seen_at: None,
+                manifest_hash_b3: Some("hash".to_string()),
+                schema_version: Some("1.0".to_string()),
+                api_version: None,
+                registered_at: None,
+                health_status: None,
+            },
+        ];
+
+        let selected = monitor
+            .get_best_worker_with_binding(&workers)
+            .expect("selected worker");
+        assert_eq!(
+            selected.id, "worker-a",
+            "Lower lexicographic id should win when latency and health tie"
+        );
+    }
 }

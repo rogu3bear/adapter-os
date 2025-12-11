@@ -30,6 +30,44 @@ pub enum Request {
         data: String,
     },
 
+    /// Ensure a tenant-specific key exists
+    EnsureTenantKey {
+        /// Tenant identifier used for key derivation
+        tenant_id: String,
+    },
+
+    /// Encrypt data with a tenant-specific key
+    SealTenant {
+        /// Tenant identifier
+        tenant_id: String,
+        /// Base64-encoded data to encrypt
+        data: String,
+    },
+
+    /// Decrypt data with a tenant-specific key
+    UnsealTenant {
+        /// Tenant identifier
+        tenant_id: String,
+        /// Base64-encoded encrypted data
+        data: String,
+    },
+
+    /// Compute keyed digest with tenant-specific key
+    DigestTenant {
+        /// Tenant identifier
+        tenant_id: String,
+        /// Base64-encoded data to hash
+        data: String,
+    },
+
+    /// Export tenant key material (protected by permission token)
+    ExportTenantKey {
+        /// Tenant identifier
+        tenant_id: String,
+        /// Permission token required for export
+        permission_token: String,
+    },
+
     /// Get public key for verification
     GetPublicKey {
         /// Key label

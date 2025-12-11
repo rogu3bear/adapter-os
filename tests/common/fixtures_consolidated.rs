@@ -165,7 +165,7 @@ impl TestAppStateBuilder {
 
     /// Build the app state
     pub async fn build(self) -> Result<adapteros_server_api::AppState> {
-        use adapteros_core::{BackendProfile, SeedMode};
+        use adapteros_core::{BackendKind, SeedMode};
         use adapteros_lora_worker::memory::UmaPressureMonitor;
         use adapteros_server_api::config::PathsConfig;
         use adapteros_server_api::state::{ApiConfig, MetricsConfig};
@@ -200,7 +200,7 @@ impl TestAppStateBuilder {
         api_config_inner.use_session_stack_for_routing = false;
         api_config_inner.paths = paths_config;
         api_config_inner.seed_mode = SeedMode::BestEffort;
-        api_config_inner.backend_profile = BackendProfile::AutoDev;
+        api_config_inner.backend_profile = BackendKind::Auto;
         api_config_inner.worker_id = 0;
 
         let api_config = Arc::new(std::sync::RwLock::new(api_config_inner));

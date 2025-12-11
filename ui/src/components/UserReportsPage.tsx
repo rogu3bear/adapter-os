@@ -46,11 +46,11 @@ export function UserReportsPage({ tenantId }: UserReportsPageProps) {
       apiClient.listAdapters().catch(() => []),
       // Fetch recent telemetry events from API
       effectiveTenant
-        ? apiClient.getTelemetryEvents({
-            limit: 20, // Show last 20 events in reports page
-            tenantId: effectiveTenant,
-            startTime: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // Last 24 hours
-          }).catch(() => []) // Graceful degradation: return empty array on error
+        ? apiClient
+            .getTelemetryEvents({
+              limit: 20, // Show last 20 events in reports page
+            })
+            .catch(() => []) // Graceful degradation: return empty array on error
         : Promise.resolve([]), // Return empty array if no tenant selected
     ]);
 

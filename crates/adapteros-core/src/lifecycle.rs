@@ -5,15 +5,20 @@
 //! # Lifecycle States
 //!
 //! Adapters and stacks progress through these states:
-//! - **Draft**: Under development, not production-ready
-//! - **Active**: Production-ready and available for use
-//! - **Deprecated**: Still functional but discouraged, migration recommended
-//! - **Retired**: No longer available, cannot be loaded
+//! - **Draft**: Version created; .aos missing or incomplete
+//! - **Training**: Training job running
+//! - **Ready**: .aos uploaded, hash verified, basic validation passed
+//! - **Active**: Selected for production traffic; eligible for routing
+//! - **Deprecated**: No longer preferred; still routable for rollback
+//! - **Retired**: Not allowed in new routes; kept for audit
+//! - **Failed**: Training or validation failed; not routable
 //!
 //! # Valid Transitions
 //!
 //! ```text
-//! Draft → Active → Deprecated → Retired
+//! Draft   → Training → Ready → Active → Deprecated → Retired
+//!   ↘                 ↘ (rollback)        ↘
+//!    └──────────────► Failed ◄────────────┘
 //! ```
 //!
 //! # Versioning
@@ -58,37 +63,49 @@ use std::str::FromStr;
 pub enum LifecycleState {
     /// Under development, not production-ready
     Draft,
+    /// Training job running
+    Training,
+    /// Artifact uploaded and validated
+    Ready,
     /// Production-ready and available for use
     Active,
     /// Still functional but discouraged, migration recommended
     Deprecated,
     /// No longer available, cannot be loaded
     Retired,
+    /// Training or validation failed; not routable
+    Failed,
 }
 
 impl LifecycleState {
     /// Returns true if the state allows loading/activation
     pub fn is_loadable(&self) -> bool {
-        matches!(self, LifecycleState::Active | LifecycleState::Deprecated)
+        matches!(
+            self,
+            LifecycleState::Ready | LifecycleState::Active | LifecycleState::Deprecated
+        )
     }
 
     /// Returns true if the state allows modifications
     pub fn is_mutable(&self) -> bool {
-        matches!(self, LifecycleState::Draft | LifecycleState::Active)
+        matches!(self, LifecycleState::Draft | LifecycleState::Training)
     }
 
     /// Returns true if this is a terminal state (no further transitions)
     pub fn is_terminal(&self) -> bool {
-        matches!(self, LifecycleState::Retired)
+        matches!(self, LifecycleState::Retired | LifecycleState::Failed)
     }
 
     /// Returns the next valid state in the lifecycle progression
     pub fn next(&self) -> Option<LifecycleState> {
         match self {
-            LifecycleState::Draft => Some(LifecycleState::Active),
+            LifecycleState::Draft => Some(LifecycleState::Training),
+            LifecycleState::Training => Some(LifecycleState::Ready),
+            LifecycleState::Ready => Some(LifecycleState::Active),
             LifecycleState::Active => Some(LifecycleState::Deprecated),
             LifecycleState::Deprecated => Some(LifecycleState::Retired),
             LifecycleState::Retired => None,
+            LifecycleState::Failed => None,
         }
     }
 
@@ -96,9 +113,19 @@ impl LifecycleState {
     pub fn valid_predecessors(&self) -> &'static [LifecycleState] {
         match self {
             LifecycleState::Draft => &[],
-            LifecycleState::Active => &[LifecycleState::Draft],
+            LifecycleState::Training => &[LifecycleState::Draft],
+            LifecycleState::Ready => &[LifecycleState::Training, LifecycleState::Active],
+            LifecycleState::Active => &[LifecycleState::Ready],
             LifecycleState::Deprecated => &[LifecycleState::Active],
             LifecycleState::Retired => &[LifecycleState::Deprecated],
+            LifecycleState::Failed => &[
+                LifecycleState::Draft,
+                LifecycleState::Training,
+                LifecycleState::Ready,
+                LifecycleState::Active,
+                LifecycleState::Deprecated,
+                LifecycleState::Retired,
+            ],
         }
     }
 
@@ -125,9 +152,12 @@ impl LifecycleState {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Draft => "draft",
+            Self::Training => "training",
+            Self::Ready => "ready",
             Self::Active => "active",
             Self::Deprecated => "deprecated",
             Self::Retired => "retired",
+            Self::Failed => "failed",
         }
     }
 }
@@ -136,9 +166,12 @@ impl fmt::Display for LifecycleState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LifecycleState::Draft => write!(f, "draft"),
+            LifecycleState::Training => write!(f, "training"),
+            LifecycleState::Ready => write!(f, "ready"),
             LifecycleState::Active => write!(f, "active"),
             LifecycleState::Deprecated => write!(f, "deprecated"),
             LifecycleState::Retired => write!(f, "retired"),
+            LifecycleState::Failed => write!(f, "failed"),
         }
     }
 }
@@ -149,11 +182,14 @@ impl FromStr for LifecycleState {
     fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "draft" => Ok(LifecycleState::Draft),
+            "training" => Ok(LifecycleState::Training),
+            "ready" => Ok(LifecycleState::Ready),
             "active" => Ok(LifecycleState::Active),
             "deprecated" => Ok(LifecycleState::Deprecated),
             "retired" => Ok(LifecycleState::Retired),
+            "failed" => Ok(LifecycleState::Failed),
             _ => Err(AosError::Validation(format!(
-                "Invalid lifecycle state: {}. Must be one of: draft, active, deprecated, retired",
+                "Invalid lifecycle state: {}. Must be one of: draft, training, ready, active, deprecated, retired, failed",
                 s
             ))),
         }
@@ -163,7 +199,9 @@ impl FromStr for LifecycleState {
 /// A lifecycle state transition
 ///
 /// Validates that transitions follow the allowed progression:
-/// Draft → Active → Deprecated → Retired
+/// Draft → Training → Ready → Active → Deprecated → Retired
+/// Optional rollback: Active → Ready
+/// Failure path: Any → Failed
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LifecycleTransition {
     pub from: LifecycleState,
@@ -179,9 +217,13 @@ impl LifecycleTransition {
     /// Check if this transition is valid
     ///
     /// Valid transitions:
-    /// - Draft → Active
+    /// - Draft → Training
+    /// - Training → Ready
+    /// - Ready → Active
     /// - Active → Deprecated
     /// - Deprecated → Retired
+    /// - Active → Ready (rollback)
+    /// - Any state → Failed
     /// - Any state → same state (no-op)
     pub fn is_valid(&self) -> bool {
         // No-op transitions are always valid
@@ -199,7 +241,7 @@ impl LifecycleTransition {
             Ok(())
         } else {
             Err(AosError::PolicyViolation(format!(
-                "Invalid lifecycle transition: {} → {}. Valid transitions: draft→active, active→deprecated, deprecated→retired",
+                "Invalid lifecycle transition: {} → {}. Valid transitions: draft→training→ready→active→deprecated→retired, active→ready, any→failed",
                 self.from, self.to
             )))
         }
@@ -323,7 +365,9 @@ mod tests {
 
     #[test]
     fn test_lifecycle_state_progression() {
-        assert_eq!(LifecycleState::Draft.next(), Some(LifecycleState::Active));
+        assert_eq!(LifecycleState::Draft.next(), Some(LifecycleState::Training));
+        assert_eq!(LifecycleState::Training.next(), Some(LifecycleState::Ready));
+        assert_eq!(LifecycleState::Ready.next(), Some(LifecycleState::Active));
         assert_eq!(
             LifecycleState::Active.next(),
             Some(LifecycleState::Deprecated)
@@ -333,34 +377,54 @@ mod tests {
             Some(LifecycleState::Retired)
         );
         assert_eq!(LifecycleState::Retired.next(), None);
+        assert_eq!(LifecycleState::Failed.next(), None);
     }
 
     #[test]
     fn test_lifecycle_state_loadable() {
         assert!(!LifecycleState::Draft.is_loadable());
+        assert!(!LifecycleState::Training.is_loadable());
+        assert!(LifecycleState::Ready.is_loadable());
         assert!(LifecycleState::Active.is_loadable());
         assert!(LifecycleState::Deprecated.is_loadable());
         assert!(!LifecycleState::Retired.is_loadable());
+        assert!(!LifecycleState::Failed.is_loadable());
     }
 
     #[test]
     fn test_lifecycle_state_mutable() {
         assert!(LifecycleState::Draft.is_mutable());
-        assert!(LifecycleState::Active.is_mutable());
+        assert!(LifecycleState::Training.is_mutable());
+        assert!(!LifecycleState::Ready.is_mutable());
         assert!(!LifecycleState::Deprecated.is_mutable());
         assert!(!LifecycleState::Retired.is_mutable());
+        assert!(!LifecycleState::Failed.is_mutable());
     }
 
     #[test]
     fn test_valid_transitions() {
         // Valid forward transitions
-        assert!(LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Active).is_valid());
+        assert!(
+            LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Training).is_valid()
+        );
+        assert!(
+            LifecycleTransition::new(LifecycleState::Training, LifecycleState::Ready).is_valid()
+        );
+        assert!(LifecycleTransition::new(LifecycleState::Ready, LifecycleState::Active).is_valid());
         assert!(
             LifecycleTransition::new(LifecycleState::Active, LifecycleState::Deprecated).is_valid()
         );
         assert!(
             LifecycleTransition::new(LifecycleState::Deprecated, LifecycleState::Retired)
                 .is_valid()
+        );
+        assert!(LifecycleTransition::new(LifecycleState::Active, LifecycleState::Ready).is_valid());
+        assert!(
+            LifecycleTransition::new(LifecycleState::Training, LifecycleState::Failed).is_valid()
+        );
+        assert!(LifecycleTransition::new(LifecycleState::Ready, LifecycleState::Failed).is_valid());
+        assert!(
+            LifecycleTransition::new(LifecycleState::Active, LifecycleState::Failed).is_valid()
         );
 
         // No-op transitions (same state)
@@ -373,11 +437,15 @@ mod tests {
     fn test_invalid_transitions() {
         // Backward transitions
         assert!(
-            !LifecycleTransition::new(LifecycleState::Active, LifecycleState::Draft).is_valid()
+            !LifecycleTransition::new(LifecycleState::Training, LifecycleState::Draft).is_valid()
         );
+        assert!(!LifecycleTransition::new(LifecycleState::Ready, LifecycleState::Draft).is_valid());
         assert!(
             !LifecycleTransition::new(LifecycleState::Deprecated, LifecycleState::Active)
                 .is_valid()
+        );
+        assert!(
+            !LifecycleTransition::new(LifecycleState::Retired, LifecycleState::Active).is_valid()
         );
         assert!(
             !LifecycleTransition::new(LifecycleState::Retired, LifecycleState::Deprecated)
@@ -385,11 +453,15 @@ mod tests {
         );
 
         // Skip-ahead transitions
+        assert!(!LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Ready).is_valid());
         assert!(
-            !LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Deprecated).is_valid()
+            !LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Active).is_valid()
         );
         assert!(
             !LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Retired).is_valid()
+        );
+        assert!(
+            !LifecycleTransition::new(LifecycleState::Ready, LifecycleState::Retired).is_valid()
         );
     }
 
@@ -400,12 +472,28 @@ mod tests {
             LifecycleState::Draft
         );
         assert_eq!(
+            LifecycleState::from_str("training").unwrap(),
+            LifecycleState::Training
+        );
+        assert_eq!(
+            LifecycleState::from_str("ready").unwrap(),
+            LifecycleState::Ready
+        );
+        assert_eq!(
             LifecycleState::from_str("active").unwrap(),
             LifecycleState::Active
         );
         assert_eq!(
             LifecycleState::from_str("DEPRECATED").unwrap(),
             LifecycleState::Deprecated
+        );
+        assert_eq!(
+            LifecycleState::from_str("retired").unwrap(),
+            LifecycleState::Retired
+        );
+        assert_eq!(
+            LifecycleState::from_str("failed").unwrap(),
+            LifecycleState::Failed
         );
         assert!(LifecycleState::from_str("invalid").is_err());
     }
@@ -450,10 +538,10 @@ mod tests {
 
     #[test]
     fn test_transition_validation() {
-        let valid = LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Active);
+        let valid = LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Training);
         assert!(valid.validate().is_ok());
 
-        let invalid = LifecycleTransition::new(LifecycleState::Active, LifecycleState::Draft);
+        let invalid = LifecycleTransition::new(LifecycleState::Ready, LifecycleState::Draft);
         assert!(invalid.validate().is_err());
         assert!(invalid.validation_error().is_some());
     }

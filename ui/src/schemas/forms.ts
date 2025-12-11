@@ -344,6 +344,16 @@ export const InferenceRequestSchema = z.object({
     .max(1, 'Top P must be at most 1')
     .default(0.9),
 
+  backend: z
+    .enum(['auto', 'coreml', 'mlx', 'metal'])
+    .optional()
+    .default('auto'),
+
+  model: z
+    .string()
+    .min(1, 'Model identifier cannot be empty')
+    .optional(),
+
   seed: z
     .number()
     .int('Seed must be an integer')

@@ -7,16 +7,20 @@ use adapteros_core::lifecycle::{
 #[test]
 fn test_valid_transitions() {
     // Test valid transitions using is_valid()
-    assert!(LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Active).is_valid());
+    assert!(LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Training).is_valid());
+    assert!(LifecycleTransition::new(LifecycleState::Training, LifecycleState::Ready).is_valid());
+    assert!(LifecycleTransition::new(LifecycleState::Ready, LifecycleState::Active).is_valid());
     assert!(
         LifecycleTransition::new(LifecycleState::Active, LifecycleState::Deprecated).is_valid()
     );
     assert!(
         LifecycleTransition::new(LifecycleState::Deprecated, LifecycleState::Retired).is_valid()
     );
+    assert!(LifecycleTransition::new(LifecycleState::Active, LifecycleState::Ready).is_valid());
+    assert!(LifecycleTransition::new(LifecycleState::Ready, LifecycleState::Failed).is_valid());
 
     // Test invalid transitions
-    assert!(!LifecycleTransition::new(LifecycleState::Active, LifecycleState::Retired).is_valid());
+    assert!(!LifecycleTransition::new(LifecycleState::Ready, LifecycleState::Draft).is_valid());
     assert!(!LifecycleTransition::new(LifecycleState::Retired, LifecycleState::Active).is_valid());
 }
 
@@ -58,9 +62,12 @@ fn test_semantic_version_comparison() {
 #[test]
 fn test_lifecycle_state_display() {
     assert_eq!(format!("{}", LifecycleState::Draft), "draft");
+    assert_eq!(format!("{}", LifecycleState::Training), "training");
+    assert_eq!(format!("{}", LifecycleState::Ready), "ready");
     assert_eq!(format!("{}", LifecycleState::Active), "active");
     assert_eq!(format!("{}", LifecycleState::Deprecated), "deprecated");
     assert_eq!(format!("{}", LifecycleState::Retired), "retired");
+    assert_eq!(format!("{}", LifecycleState::Failed), "failed");
 }
 
 #[test]

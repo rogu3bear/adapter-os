@@ -228,6 +228,19 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
                 </div>
               </div>
             )}
+            {lineage.lineage.dataset_trust_state && (
+              <div className="flex items-center justify-between py-2">
+                <span className="text-sm font-medium">Dataset Trust</span>
+                <div className="flex items-center gap-2 text-sm">
+                  <Badge variant={lineage.lineage.dataset_trust_state === 'blocked' || lineage.lineage.dataset_trust_state === 'needs_approval' ? 'destructive' : 'outline'}>
+                    {lineage.lineage.dataset_trust_state}
+                  </Badge>
+                  {lineage.lineage.dataset_trust_reason && (
+                    <span className="text-xs text-muted-foreground">{lineage.lineage.dataset_trust_reason}</span>
+                  )}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

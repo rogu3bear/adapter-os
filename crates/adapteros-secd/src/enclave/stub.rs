@@ -134,6 +134,27 @@ impl EnclaveManager {
         Ok(plaintext)
     }
 
+    /// Compute keyed digest for data using a derived key for the label
+    pub fn digest_with_label(&mut self, label: &str, data: &[u8]) -> Result<[u8; 32]> {
+        use blake3::Hasher;
+
+        let key = self.get_or_derive_encryption_key(label)?;
+        let mut keyed = Hasher::new_keyed(&key);
+        keyed.update(data);
+        Ok(*keyed.finalize().as_bytes())
+    }
+
+    /// Ensure encryption key exists (derivation is idempotent)
+    pub fn ensure_encryption_key(&mut self, label: &str) -> Result<()> {
+        let _ = self.get_or_derive_encryption_key(label)?;
+        Ok(())
+    }
+
+    /// Export derived encryption key bytes (controlled by caller)
+    pub fn export_encryption_key(&mut self, label: &str) -> Result<[u8; 32]> {
+        self.get_or_derive_encryption_key(label)
+    }
+
     /// Sign arbitrary data using a software signing key identified by label
     pub fn sign_with_label(&mut self, label: &str, data: &[u8]) -> Result<Vec<u8>> {
         let signing_key = self.get_or_derive_signing_key(label)?;

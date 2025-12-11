@@ -1,4 +1,5 @@
 /// <reference types="cypress" />
+import '../../support/commands';
 
 describe('Training Page E2E Tests', () => {
   beforeEach(() => {

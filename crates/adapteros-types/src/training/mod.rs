@@ -1,5 +1,4 @@
 //! Training job and configuration types
-//!
 //! This module provides canonical training types that consolidate definitions
 //! from adapteros-core, adapteros-orchestrator, and adapteros-api-types into
 //! a single source of truth.
@@ -18,7 +17,85 @@
 //! 2. `adapteros-orchestrator/src/training.rs` - Orchestrator-specific variant
 //! 3. Used by `adapteros-api-types/src/training.rs` for API responses
 
+use crate::coreml::CoreMLPlacementSpec;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+
+fn default_dataset_weight() -> f32 {
+    1.0
+}
+
+/// Dataset version selector with optional sampling weight.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct DatasetVersionSelection {
+    pub dataset_version_id: String,
+    #[serde(default = "default_dataset_weight")]
+    pub weight: f32,
+}
+
+/// Snapshot of dataset trust_state captured at training time.
+///
+/// Trust semantics:
+/// - Training proceeds only for `allowed` or `allowed_with_warning`.
+/// - `blocked`, `needs_approval`, and `unknown` are rejected.
+/// - Adapter trust aggregates worst-of datasets (blocked > warn > unknown > allowed).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct DatasetVersionTrustSnapshot {
+    pub dataset_version_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_at_training_time: Option<String>,
+}
+
+/// Lineage quality for training data provenance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum DataLineageMode {
+    /// Fully versioned datasets were provided.
+    Versioned,
+    /// Only a dataset handle was provided (no immutable versions).
+    DatasetOnly,
+    /// Synthetic or diagnostic data with no dataset linkage.
+    Synthetic,
+    /// Legacy unpinned adapters (no dataset lineage; allowed for old jobs only).
+    LegacyUnpinned,
+}
+
+impl DataLineageMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DataLineageMode::Versioned => "versioned",
+            DataLineageMode::DatasetOnly => "dataset_only",
+            DataLineageMode::Synthetic => "synthetic",
+            DataLineageMode::LegacyUnpinned => "legacy_unpinned",
+        }
+    }
+}
+
+/// Classification for adapter branches controlling promotion safeguards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum BranchClassification {
+    /// Protected branches (e.g., main) with strict promotion rules.
+    Protected,
+    /// High-sensitivity branches (treat like protected).
+    High,
+    /// Sandbox branches that allow relaxed promotion for legacy/unpinned adapters.
+    Sandbox,
+}
+
+impl BranchClassification {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BranchClassification::Protected => "protected",
+            BranchClassification::High => "high",
+            BranchClassification::Sandbox => "sandbox",
+        }
+    }
+}
 
 /// LoRA adapter tier for routing and UI badges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +107,88 @@ pub enum LoraTier {
     Standard,
     /// Maximum capacity adapters
     Max,
+}
+
+/// Backend preference for training requests.
+///
+/// This mirrors the inference `BackendKind` variants but lives in `adapteros-types`
+/// to avoid introducing dependency cycles. Conversion to the runtime backend
+/// type happens in the orchestrator/worker boundary.
+///
+/// CoreML is a first-class training target for LoRA-only runs. Callers may
+/// provide an explicit fallback when CoreML assets/devices are unavailable, but
+/// fallbacks must be surfaced explicitly (no silent redirects).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrainingBackendKind {
+    /// Deterministic auto-selection (best available)
+    #[serde(alias = "autodev", alias = "auto_dev", alias = "default")]
+    Auto,
+    /// CoreML / ANE acceleration (inference/export target)
+    #[serde(alias = "core-ml", alias = "ane")]
+    CoreML,
+    /// MLX backend (training/export)
+    #[serde(alias = "mlx")]
+    Mlx,
+    /// Metal GPU backend (deterministic fallback)
+    #[serde(alias = "metal")]
+    Metal,
+    /// CPU-only execution
+    #[serde(alias = "cpu_only", alias = "cpu-only")]
+    Cpu,
+}
+
+impl TrainingBackendKind {
+    /// Canonical lower-case string representation for serialization/logging.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrainingBackendKind::Auto => "auto",
+            TrainingBackendKind::CoreML => "coreml",
+            TrainingBackendKind::Mlx => "mlx",
+            TrainingBackendKind::Metal => "metal",
+            TrainingBackendKind::Cpu => "cpu",
+        }
+    }
+}
+
+impl Default for TrainingBackendKind {
+    fn default() -> Self {
+        TrainingBackendKind::Auto
+    }
+}
+
+impl fmt::Display for TrainingBackendKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Backend policy describing how to handle CoreML preference and fallbacks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrainingBackendPolicy {
+    /// Deterministic auto-selection (existing behavior).
+    Auto,
+    /// Require CoreML; fail fast if CoreML cannot be used.
+    CoremlOnly,
+    /// Prefer CoreML, allow explicit fallback if CoreML is unavailable.
+    CoremlElseFallback,
+}
+
+impl Default for TrainingBackendPolicy {
+    fn default() -> Self {
+        TrainingBackendPolicy::Auto
+    }
+}
+
+impl TrainingBackendPolicy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrainingBackendPolicy::Auto => "auto",
+            TrainingBackendPolicy::CoremlOnly => "coreml_only",
+            TrainingBackendPolicy::CoremlElseFallback => "coreml_else_fallback",
+        }
+    }
 }
 
 /// Training job state machine
@@ -105,9 +264,71 @@ pub struct TrainingJob {
     #[serde(rename = "repo_id")]
     pub repo_id: Option<String>,
 
+    /// Human-readable repository name (for artifact pathing)
+    #[serde(rename = "repo_name", skip_serializing_if = "Option::is_none")]
+    pub repo_name: Option<String>,
+
+    /// Target branch for the produced adapter version
+    #[serde(rename = "target_branch", skip_serializing_if = "Option::is_none")]
+    pub target_branch: Option<String>,
+
+    /// Optional parent adapter version (for finetuning)
+    #[serde(rename = "base_version_id", skip_serializing_if = "Option::is_none")]
+    pub base_version_id: Option<String>,
+
+    /// Draft adapter version created for this training job
+    #[serde(rename = "draft_version_id", skip_serializing_if = "Option::is_none")]
+    pub draft_version_id: Option<String>,
+
+    /// Adapter version ID created for this training run
+    #[serde(rename = "adapter_version_id", skip_serializing_if = "Option::is_none")]
+    pub adapter_version_id: Option<String>,
+
+    /// Final produced adapter version (after promotion)
+    #[serde(
+        rename = "produced_version_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub produced_version_id: Option<String>,
+
+    /// Human-friendly version label (per branch)
+    #[serde(rename = "version_label", skip_serializing_if = "Option::is_none")]
+    pub version_label: Option<String>,
+
+    /// Source control commit used during training
+    #[serde(rename = "code_commit_sha", skip_serializing_if = "Option::is_none")]
+    pub code_commit_sha: Option<String>,
+
+    /// Raw data specification JSON (normalized)
+    #[serde(rename = "data_spec_json", skip_serializing_if = "Option::is_none")]
+    pub data_spec_json: Option<String>,
+
+    /// BLAKE3 hash of data_spec_json
+    #[serde(rename = "data_spec_hash", skip_serializing_if = "Option::is_none")]
+    pub data_spec_hash: Option<String>,
+
     /// Optional reference to training dataset
     #[serde(rename = "dataset_id")]
     pub dataset_id: Option<String>,
+
+    /// Dataset versions used for training (with optional sampling weights)
+    #[serde(
+        rename = "dataset_version_ids",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub dataset_version_ids: Option<Vec<DatasetVersionSelection>>,
+    /// Trust snapshot for dataset versions at job creation time.
+    #[serde(
+        rename = "dataset_version_trust",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub dataset_version_trust: Option<Vec<DatasetVersionTrustSnapshot>>,
+    /// Whether this training run explicitly opted into synthetic/diagnostic data
+    #[serde(rename = "synthetic_mode", default)]
+    pub synthetic_mode: bool,
+    /// Data lineage quality for this job
+    #[serde(rename = "data_lineage_mode", skip_serializing_if = "Option::is_none")]
+    pub data_lineage_mode: Option<DataLineageMode>,
 
     /// Optional reference to base model used for training
     #[serde(rename = "base_model_id", skip_serializing_if = "Option::is_none")]
@@ -277,6 +498,18 @@ pub struct TrainingJob {
     pub retry_of_job_id: Option<String>,
 
     // Backend and determinism (new)
+    /// Backend requested by caller (audit/export signal)
+    #[serde(rename = "requested_backend", skip_serializing_if = "Option::is_none")]
+    pub requested_backend: Option<String>,
+    /// Backend policy requested by caller (audit/export signal)
+    #[serde(rename = "backend_policy", skip_serializing_if = "Option::is_none")]
+    pub backend_policy: Option<String>,
+    /// Explicit fallback when CoreML was requested (audit/export signal)
+    #[serde(
+        rename = "coreml_training_fallback",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub coreml_training_fallback: Option<String>,
     /// Backend selected by trainer (CoreML (ANE), Metal, MLX, CPU)
     #[serde(rename = "backend", skip_serializing_if = "Option::is_none")]
     pub backend: Option<String>,
@@ -286,6 +519,54 @@ pub struct TrainingJob {
     /// Hardware/device identifier for the selected backend (if available)
     #[serde(rename = "backend_device", skip_serializing_if = "Option::is_none")]
     pub backend_device: Option<String>,
+    /// Whether a CoreML export was requested for this job
+    #[serde(
+        rename = "coreml_export_requested",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub coreml_export_requested: Option<bool>,
+    /// Current CoreML export status: pending/running/succeeded/failed/skipped
+    #[serde(
+        rename = "coreml_export_status",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub coreml_export_status: Option<String>,
+    /// Reason for CoreML export failure or skip
+    #[serde(
+        rename = "coreml_export_reason",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub coreml_export_reason: Option<String>,
+    /// Hash of the fused CoreML package/manifest
+    #[serde(
+        rename = "coreml_fused_package_hash",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub coreml_fused_package_hash: Option<String>,
+    /// Path to the fused CoreML package
+    #[serde(
+        rename = "coreml_package_path",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub coreml_package_path: Option<String>,
+    /// Path to CoreML export metadata JSON
+    #[serde(
+        rename = "coreml_metadata_path",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub coreml_metadata_path: Option<String>,
+    /// Hash of the base CoreML manifest used for fusion
+    #[serde(
+        rename = "coreml_base_manifest_hash",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub coreml_base_manifest_hash: Option<String>,
+    /// Hash of the adapter payload used for fusion
+    #[serde(
+        rename = "coreml_adapter_hash_b3",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub coreml_adapter_hash_b3: Option<String>,
     /// Determinism mode (e.g., hkdf_seeded, nondet_fallback)
     #[serde(rename = "determinism_mode", skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
@@ -356,12 +637,31 @@ impl TrainingJob {
     /// Create a new training job in Pending state
     pub fn new(id: String, adapter_name: String, config: TrainingConfig) -> Self {
         let now = chrono::Utc::now().to_rfc3339();
+        let requested_backend = config.preferred_backend.map(|b| b.as_str().to_string());
+        let coreml_training_fallback = config
+            .coreml_training_fallback
+            .map(|b| b.as_str().to_string());
+        let backend_policy = config.backend_policy.map(|p| p.as_str().to_string());
         Self {
             id,
             adapter_name,
             template_id: None,
             repo_id: None,
+            repo_name: None,
+            target_branch: None,
+            base_version_id: None,
+            draft_version_id: None,
+            adapter_version_id: None,
+            produced_version_id: None,
+            version_label: None,
+            code_commit_sha: None,
+            data_spec_json: None,
+            data_spec_hash: None,
             dataset_id: None,
+            dataset_version_ids: None,
+            dataset_version_trust: None,
+            synthetic_mode: false,
+            data_lineage_mode: None,
             base_model_id: None,
             collection_id: None,
             build_id: None,
@@ -405,9 +705,20 @@ impl TrainingJob {
             retryable: None,
             retry_of_job_id: None,
             // Backend/determinism defaults
+            requested_backend,
+            backend_policy,
+            coreml_training_fallback,
             backend: None,
             backend_reason: None,
             backend_device: None,
+            coreml_export_requested: None,
+            coreml_export_status: None,
+            coreml_export_reason: None,
+            coreml_fused_package_hash: None,
+            coreml_package_path: None,
+            coreml_metadata_path: None,
+            coreml_base_manifest_hash: None,
+            coreml_adapter_hash_b3: None,
             determinism_mode: None,
             training_seed: None,
             require_gpu: None,
@@ -444,6 +755,12 @@ impl TrainingJob {
     /// Builder method to set dataset ID
     pub fn with_dataset_id(mut self, dataset_id: String) -> Self {
         self.dataset_id = Some(dataset_id);
+        self
+    }
+
+    /// Set dataset versions (with weights) used for training
+    pub fn with_dataset_versions(mut self, dataset_versions: Vec<DatasetVersionSelection>) -> Self {
+        self.dataset_version_ids = Some(dataset_versions);
         self
     }
 
@@ -618,6 +935,10 @@ pub struct TrainingConfig {
     #[serde(rename = "targets")]
     pub targets: Vec<String>,
 
+    /// Optional CoreML placement spec to align training/inference
+    #[serde(rename = "coreml_placement", skip_serializing_if = "Option::is_none")]
+    pub coreml_placement: Option<CoreMLPlacementSpec>,
+
     /// Number of training epochs
     #[serde(rename = "epochs")]
     pub epochs: u32,
@@ -646,12 +967,43 @@ pub struct TrainingConfig {
     pub gradient_accumulation_steps: Option<u32>,
 
     /// Preferred training backend (coreml, mlx, metal, cpu). None = auto.
+    ///
+    /// CoreML is an inference/export target only; training requests that set
+    /// `preferred_backend = coreml` will train on a fallback backend instead
+    /// (see `coreml_training_fallback`) and record that decision for audit.
     #[serde(
         rename = "preferred_backend",
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub preferred_backend: Option<String>,
+    pub preferred_backend: Option<TrainingBackendKind>,
+
+    /// Backend policy for CoreML preference and fallback semantics.
+    #[serde(
+        rename = "backend_policy",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub backend_policy: Option<TrainingBackendPolicy>,
+
+    /// Explicit fallback to use when CoreML is requested for training. If
+    /// unset, the worker applies a deterministic policy of MLX → Metal →
+    /// CPU (when GPU is optional). This field is ignored when the preferred
+    /// backend is not CoreML.
+    #[serde(
+        rename = "coreml_training_fallback",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub coreml_training_fallback: Option<TrainingBackendKind>,
+
+    /// Request a CoreML export after successful training (optional, default: false)
+    #[serde(
+        rename = "enable_coreml_export",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub enable_coreml_export: Option<bool>,
 
     /// Require GPU acceleration (error if no GPU backend can be initialized)
     #[serde(rename = "require_gpu", default)]
@@ -719,6 +1071,7 @@ impl TrainingConfig {
                 "up_proj".to_string(),
                 "down_proj".to_string(),
             ],
+            coreml_placement: None,
             epochs: 3,
             learning_rate: 0.001,
             batch_size: 32,
@@ -734,6 +1087,9 @@ impl TrainingConfig {
             checkpoint_frequency: Some(5),
             max_checkpoints: Some(3),
             preferred_backend: None,
+            backend_policy: None,
+            coreml_training_fallback: None,
+            enable_coreml_export: None,
             require_gpu: false,
             max_gpu_memory_mb: None,
         }
@@ -750,6 +1106,7 @@ impl TrainingConfig {
                 "v_proj".to_string(),
                 "o_proj".to_string(),
             ],
+            coreml_placement: None,
             epochs: 1,
             learning_rate: 0.002,
             batch_size: 16,
@@ -765,6 +1122,9 @@ impl TrainingConfig {
             checkpoint_frequency: None,
             max_checkpoints: None,
             preferred_backend: None,
+            backend_policy: None,
+            coreml_training_fallback: None,
+            enable_coreml_export: None,
             require_gpu: false,
             max_gpu_memory_mb: None,
         }
@@ -786,6 +1146,7 @@ impl TrainingConfig {
                 "mlp.dense_h_to_4h".to_string(),
                 "mlp.dense_4h_to_h".to_string(),
             ],
+            coreml_placement: None,
             epochs: 5,
             learning_rate: 0.0005,
             batch_size: 64,
@@ -801,6 +1162,9 @@ impl TrainingConfig {
             checkpoint_frequency: Some(2),
             max_checkpoints: Some(5),
             preferred_backend: None,
+            backend_policy: None,
+            coreml_training_fallback: None,
+            enable_coreml_export: None,
             require_gpu: false,
             max_gpu_memory_mb: None,
         }

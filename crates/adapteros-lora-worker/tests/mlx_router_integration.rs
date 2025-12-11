@@ -9,7 +9,7 @@
 
 use adapteros_lora_router::{Decision, DecisionCandidate};
 use adapteros_lora_worker::router_bridge::{
-    batch_decision_to_router_ring, decision_to_router_ring, decision_to_router_ring_unchecked,
+    batch_decision_to_router_ring, decision_to_router_ring,
 };
 use smallvec::SmallVec;
 
@@ -21,6 +21,8 @@ fn make_decision(indices: &[u16], gates: &[i16], entropy: f32) -> Decision {
         entropy,
         candidates: vec![],
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
     }
 }
 
@@ -37,6 +39,8 @@ fn make_decision_with_candidates(
         entropy,
         candidates,
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
     }
 }
 
@@ -120,16 +124,6 @@ fn test_router_q15_signed_range() {
     let ring = decision_to_router_ring(&decision, 100).unwrap();
 
     assert_eq!(ring.active_gates(), &[-32767, -1, 0, 32767]);
-}
-
-#[test]
-fn test_router_unchecked_conversion() {
-    // Test unchecked conversion (skips bounds checking)
-    let decision = make_decision(&[0, 1, 2], &[100, 200, 300], 0.4);
-    let ring = decision_to_router_ring_unchecked(&decision);
-
-    assert_eq!(ring.k, 3);
-    assert_eq!(ring.active_indices(), &[0, 1, 2]);
 }
 
 #[test]

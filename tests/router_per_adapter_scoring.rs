@@ -5,7 +5,12 @@
 //! 2. Orthogonality penalties applied during scoring
 //! 3. MPLoRA diversity controls actually working
 
-use adapteros_lora_router::{AdapterInfo, CodeFeatures, Router, RouterWeights};
+use adapteros_lora_router::{AdapterInfo, CodeFeatures, PolicyMask, Router, RouterWeights};
+
+fn allow_all_mask(adapters: &[AdapterInfo]) -> PolicyMask {
+    let ids: Vec<String> = adapters.iter().map(|a| a.id.clone()).collect();
+    PolicyMask::allow_all(&ids, None)
+}
 
 /// Test that per-adapter scoring produces different scores for different adapters
 #[test]
@@ -46,7 +51,8 @@ fn test_per_adapter_scores_differ() {
     let priors = vec![1.0, 1.0, 1.0];
 
     // Route with adapter info
-    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask);
 
     // Python adapter should be selected first because features match
     // (If per-adapter scoring works correctly)
@@ -123,7 +129,8 @@ fn test_features_affect_ranking_with_varied_priors() {
     let priors = vec![0.5, 1.0, 2.0];
 
     // Route with adapter info
-    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask);
 
     // Even though JS has highest prior (2.0), Rust should get a feature boost
     // for matching language + framework
@@ -230,19 +237,20 @@ fn test_orthogonality_penalty_reduces_similar_selection() {
     let features = CodeFeatures::from_context("def main(): pass");
     let feature_vec = features.to_vector();
     let priors = vec![1.0, 1.0, 1.0, 1.0];
+    let mask = allow_all_mask(&adapter_info);
 
     // First routing: select adapters 0, 1, 2
-    let decision1 = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info);
+    let decision1 = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask);
     assert_eq!(decision1.indices.len(), 3);
 
     // Second routing: adapters that were selected in first round should be penalized
-    let decision2 = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info);
+    let decision2 = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask);
 
     // With penalties, at least one adapter should change
     // (The exact behavior depends on penalty strength, but diversity should increase)
 
     // Third routing: continue to build history
-    let decision3 = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info);
+    let decision3 = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask);
 
     // After multiple rounds, we should see rotation in adapter selection
     // Count unique adapters across all decisions
@@ -293,7 +301,8 @@ fn test_framework_matching_boosts_score() {
     // Equal priors
     let priors = vec![1.0, 1.0];
 
-    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask);
 
     // Django adapter should score higher due to framework matching
     let django_score = decision
@@ -355,7 +364,8 @@ fn test_tier_boosts() {
     // Equal priors
     let priors = vec![1.0, 1.0, 1.0];
 
-    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask);
 
     // Higher tiers should get score boosts
     let tier0_score = decision.candidates[0].raw_score;

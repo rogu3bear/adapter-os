@@ -40,7 +40,7 @@ env_var.parse::<u16>().config_err("AOS_SERVER_PORT")?;
 
 ## Documentation
 
-See [docs/ERROR_HELPERS.md](../../../../docs/ERROR_HELPERS.md) for detailed usage guide.
+See [docs/ERRORS.md](../../../../docs/ERRORS.md) for comprehensive error handling guide including error helpers, patterns, and best practices.
 
 ## Examples
 

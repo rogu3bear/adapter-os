@@ -39,6 +39,7 @@
 //! ```
 
 use adapteros_core::{AosError, B3Hash, Result, CPID};
+use adapteros_types::coreml::CoreMLPlacementSpec;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -66,6 +67,10 @@ pub struct ManifestV3 {
     pub telemetry: TelemetryCfg,
     pub policies: Policies,
     pub seeds: Seeds,
+    #[serde(default)]
+    pub coreml: Option<CoreMLSection>,
+    #[serde(default)]
+    pub fusion: Option<CoreMLFusion>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -98,6 +103,9 @@ pub struct Base {
 pub struct Adapter {
     pub id: String,
     pub hash: B3Hash,
+    /// Assurance tier for drift/determinism enforcement
+    #[serde(default = "default_assurance_tier")]
+    pub assurance_tier: AssuranceTier,
     pub tier: AdapterTier,
     pub rank: u32,
     pub alpha: f32,
@@ -111,6 +119,35 @@ pub struct Adapter {
     pub warmup_prompt: Option<String>,
     #[serde(default)]
     pub dependencies: Option<AdapterDependencies>,
+    /// Determinism/drift metadata produced by harness runs (optional).
+    #[serde(default)]
+    pub determinism_seed: Option<u64>,
+    #[serde(default)]
+    pub determinism_backend: Option<String>,
+    #[serde(default)]
+    pub determinism_device: Option<String>,
+    #[serde(default)]
+    pub drift_reference_backend: Option<String>,
+    #[serde(default)]
+    pub drift_metric: Option<f32>,
+    /// Backend used as the canonical baseline when computing drift
+    #[serde(default)]
+    pub drift_baseline_backend: Option<String>,
+    /// Backend evaluated against the baseline in the last run
+    #[serde(default)]
+    pub drift_test_backend: Option<String>,
+    /// Assurance tier recorded with the drift run
+    #[serde(default)]
+    pub drift_tier: Option<AssuranceTier>,
+    /// Slice size used during the drift run (if any)
+    #[serde(default)]
+    pub drift_slice_size: Option<usize>,
+    /// Slice offset used during the drift run (if any)
+    #[serde(default)]
+    pub drift_slice_offset: Option<usize>,
+    /// Loss L∞ metric recorded during drift run (optional)
+    #[serde(default)]
+    pub drift_loss_metric: Option<f32>,
 
     // Code intelligence fields
     #[serde(default = "default_category")]
@@ -188,11 +225,24 @@ pub struct AdapterDependencies {
     pub conflicts_with: Vec<String>,
 }
 
+fn default_assurance_tier() -> AssuranceTier {
+    AssuranceTier::Standard
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AdapterTier {
     Persistent,
     Ephemeral,
+}
+
+/// Assurance tier used for drift/determinism gates.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AssuranceTier {
+    Low,
+    Standard,
+    High,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -465,6 +515,33 @@ pub struct Seeds {
     pub parent_cpid: Option<CPID>,
 }
 
+/// CoreML-specific metadata, including LoRA placement for CoreML graphs.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct CoreMLSection {
+    #[serde(default)]
+    pub placement: Option<CoreMLPlacementSpec>,
+}
+
+/// Optional CoreML fusion metadata to bind the fused package to its source artifacts.
+///
+/// All fields are optional to keep backward compatibility; verification logic should
+/// treat the presence of `fused_manifest_hash` as the primary signal.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct CoreMLFusion {
+    #[serde(default)]
+    pub fused_manifest_hash: Option<B3Hash>,
+    #[serde(default)]
+    pub coreml_package_hash: Option<B3Hash>,
+    #[serde(default)]
+    pub base_model_id: Option<String>,
+    #[serde(default)]
+    pub base_model_hash: Option<B3Hash>,
+    #[serde(default)]
+    pub adapter_id: Option<String>,
+    #[serde(default)]
+    pub adapter_hash: Option<B3Hash>,
+}
+
 impl ManifestV3 {
     /// Parse manifest from JSON
     pub fn from_json(json: &str) -> Result<Self> {
@@ -541,6 +618,36 @@ impl ManifestV3 {
                     "Adapter {} has non-positive alpha",
                     adapter.id
                 )));
+            }
+        }
+
+        // CoreML placement constraints
+        if let Some(coreml) = &self.coreml {
+            if let Some(spec) = &coreml.placement {
+                if spec.version == 0 {
+                    return Err(AosError::InvalidManifest(
+                        "coreml.placement.version must be > 0".into(),
+                    ));
+                }
+                for binding in &spec.bindings {
+                    if binding.rank == 0 {
+                        return Err(AosError::InvalidManifest(format!(
+                            "coreml placement binding {} has rank 0",
+                            binding.binding_id
+                        )));
+                    }
+                    if binding.shape.input_dim == 0 || binding.shape.output_dim == 0 {
+                        return Err(AosError::InvalidManifest(format!(
+                            "coreml placement binding {} has zero-dimension shape",
+                            binding.binding_id
+                        )));
+                    }
+                    if binding.target.layer.trim().is_empty() {
+                        return Err(AosError::InvalidManifest(
+                            "coreml placement binding missing target layer".into(),
+                        ));
+                    }
+                }
             }
         }
 
@@ -688,6 +795,8 @@ mod tests {
                 manifest_hash: B3Hash::hash(b"manifest"),
                 parent_cpid: None,
             },
+            coreml: None,
+            fusion: None,
         }
     }
 

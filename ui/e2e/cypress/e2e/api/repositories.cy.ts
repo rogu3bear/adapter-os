@@ -1,5 +1,5 @@
 // Repository Management API Tests
-import { validateErrorResponse } from '../../support/api-helpers';
+import { validateErrorResponse } from '../../../support/api-helpers';
 
 describe('Repository Management API', () => {
   beforeEach(() => {

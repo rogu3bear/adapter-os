@@ -640,6 +640,10 @@ export interface InferResponse {
   pinned_routing_fallback?: 'stack_only' | 'partial' | null;
   // Determinism/back-end tracking
   backend_used?: BackendName | string;
+  coreml_compute_preference?: string;
+  coreml_compute_units?: string;
+  coreml_gpu_used?: boolean | null;
+  fallback_backend?: BackendName | string;
   fallback_triggered?: boolean;
   determinism_mode_applied?: string;
   replay_guarantee?: string | null;
@@ -1064,6 +1068,19 @@ export interface TenantUsageResponse {
   gpu_usage_pct?: number;
   cpu_usage_pct?: number;
   active_adapters_count?: number;
+}
+
+export interface TenantStorageUsageResponse {
+  schema_version?: string;
+  tenant_id: string;
+  dataset_bytes: number;
+  artifact_bytes: number;
+  dataset_versions: number;
+  adapter_versions: number;
+  soft_limit_bytes: number;
+  hard_limit_bytes: number;
+  soft_exceeded: boolean;
+  hard_exceeded: boolean;
 }
 
 export interface AssignPoliciesResponse {
@@ -1622,12 +1639,19 @@ export interface ExtendedRouterDecision {
   input_token_id?: number;
   entropy_floor?: number;
   entropy?: number;
+  interval_id?: string;
   candidates?: RouterCandidateInfo[]; // Extended: detailed candidate info instead of string[]
   k_value?: number; // Extended: K-sparse value
   adapter_map?: Map<number, string>; // Extended: For debugging: maps adapter_idx to adapter_id
   // Pinned adapter fallback tracking
   unavailable_pinned_adapters?: string[];
   pinned_routing_fallback?: 'stack_only' | 'partial' | null;
+  policy_mask_digest?: string;
+  policy_overrides_applied?: {
+    allow_list: boolean;
+    deny_list: boolean;
+    trust_state: boolean;
+  };
 }
 
 // Audit log entry
@@ -1739,6 +1763,7 @@ export interface InferenceTrace {
     }> | string[];
     gates?: number[];
     stack_hash?: string;
+    interval_id?: string;
   }>;
   evidence_spans?: Array<{
     text: string;

@@ -40,6 +40,7 @@ import {
 import { ChatLoadingOverlay } from './chat/ChatLoadingOverlay';
 import { ChatErrorDisplay } from './chat/ChatErrorDisplay';
 import { MissingPinnedAdaptersBanner } from './chat/MissingPinnedAdaptersBanner';
+import apiClient from '@/api/client';
 
 interface ChatInterfaceProps {
   selectedTenant: string;
@@ -105,6 +106,8 @@ export function ChatInterface({
   const {
     sessions,
     isLoading: isLoadingSessions,
+    isUnsupported: isChatHistoryUnsupported,
+    unsupportedReason: chatHistoryUnsupportedReason,
     createSession,
     updateSession,
     addMessage,
@@ -117,6 +120,21 @@ export function ChatInterface({
     documentName: documentContext?.documentName,
     collectionId: documentContext?.collectionId ?? null,
   });
+  const chatHistoryUnsupportedMessage =
+    chatHistoryUnsupportedReason ?? 'Chat history is not supported for this version.';
+  const guardChatHistory = useCallback(() => {
+    if (!isChatHistoryUnsupported) {
+      return false;
+    }
+    toast.info(chatHistoryUnsupportedMessage);
+    return true;
+  }, [chatHistoryUnsupportedMessage, isChatHistoryUnsupported]);
+
+  useEffect(() => {
+    if (isChatHistoryUnsupported && isHistoryOpen) {
+      setIsHistoryOpen(false);
+    }
+  }, [isChatHistoryUnsupported, isHistoryOpen]);
 
   // Memoize selected stack (needed before hooks)
   const selectedStack = useMemo(
@@ -171,6 +189,12 @@ export function ChatInterface({
     setStrengthOverrides(prev => ({ ...prev, [adapterId]: clamped }));
   }, []);
 
+  const sessionConfigForRequest = useMemo(() => ({
+    stack_id: selectedStackId || undefined,
+    routing_determinism_mode: routingMode,
+    adapter_strength_overrides: strengthOverrides,
+  }), [selectedStackId, routingMode, strengthOverrides]);
+
   // Streaming message state (for in-progress messages)
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [isBaseOnlyMode, setIsBaseOnlyMode] = useState(false);
@@ -206,7 +230,7 @@ export function ChatInterface({
     onMessageSent: (message) => {
       // Add user message to messages
       setMessages(prev => [...prev, message]);
-      if (currentSessionId) {
+        if (currentSessionId && !isChatHistoryUnsupported) {
         addMessage(currentSessionId, message);
       }
 
@@ -389,10 +413,19 @@ export function ChatInterface({
 
   // Set default stack on mount
   useEffect(() => {
-    if (!selectedStackId && defaultStack?.id) {
-      setSelectedStackId(defaultStack.id);
+    if (selectedStackId) {
+      return;
     }
-  }, [defaultStack, selectedStackId]);
+
+    if (defaultStack?.id) {
+      setSelectedStackId(defaultStack.id);
+      return;
+    }
+
+    if (stacks.length > 0) {
+      setSelectedStackId(stacks[0].id);
+    }
+  }, [defaultStack, selectedStackId, stacks]);
 
   useEffect(() => {
     setIsBaseOnlyMode(false);
@@ -462,12 +495,9 @@ export function ChatInterface({
   // Fetch evidence data for a message
   const fetchMessageEvidence = useCallback(async (messageId: string): Promise<EvidenceItem[]> => {
     try {
-      const response = await fetch(`/api/v1/chat/messages/${messageId}/evidence`);
-      if (response.ok) {
-        return await response.json();
-      }
-      return [];
+      return await apiClient.getMessageEvidence(messageId);
     } catch (err) {
+      // apiClient already logs with request correlation; keep minimal fallback here
       logger.error('Failed to fetch message evidence', {
         component: 'ChatInterface',
         messageId,
@@ -584,6 +614,10 @@ export function ChatInterface({
   };
 
   const handleLoadSession = useCallback((sessionId: string) => {
+    if (guardChatHistory()) {
+      return;
+    }
+
     const session = getSession(sessionId);
     if (session) {
       setMessages(session.messages);
@@ -610,9 +644,13 @@ export function ChatInterface({
       }
       setIsHistoryOpen(false);
     }
-  }, [getSession]);
+  }, [getSession, guardChatHistory]);
 
   const handleCreateSession = useCallback(async () => {
+    if (guardChatHistory()) {
+      return;
+    }
+
     if (!selectedStackId) {
       toast.error('Please select a stack first');
       return;
@@ -639,10 +677,13 @@ export function ChatInterface({
     } catch {
       // error already surfaced
     }
-  }, [selectedStackId, stacks, createSession, documentContext, effectiveCollectionId, sessionConfigForRequest]);
+  }, [createSession, documentContext, effectiveCollectionId, guardChatHistory, selectedStackId, sessionConfigForRequest, stacks]);
 
   const handleDeleteSession = useCallback((sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (guardChatHistory()) {
+      return;
+    }
     if (window.confirm('Are you sure you want to delete this session?')) {
       deleteSession(sessionId);
       if (currentSessionId === sessionId) {
@@ -651,9 +692,13 @@ export function ChatInterface({
       }
       toast.success('Session deleted');
     }
-  }, [deleteSession, currentSessionId]);
+  }, [currentSessionId, deleteSession, guardChatHistory]);
 
   const handleRenameSession = useCallback((sessionId: string, newName: string) => {
+    if (guardChatHistory()) {
+      return;
+    }
+
     // Validate session name
     const trimmedName = newName.trim();
     if (!trimmedName || trimmedName.length === 0) {
@@ -668,7 +713,7 @@ export function ChatInterface({
     updateSession(sessionId, { name: trimmedName });
     setEditingSessionId(null);
     toast.success('Session renamed');
-  }, [updateSession]);
+  }, [guardChatHistory, updateSession]);
 
   // Handler for viewing document evidence
   const handleViewDocumentClick = useCallback((documentId: string, pageNumber?: number, highlightText?: string) => {
@@ -689,6 +734,10 @@ export function ChatInterface({
 
   // Handler for collection change
   const handleCollectionChange = useCallback(async (collectionId: string) => {
+    if (guardChatHistory()) {
+      return;
+    }
+
     const newCollectionId = collectionId === 'none' ? null : collectionId;
     setSelectedCollectionId(newCollectionId);
 
@@ -706,7 +755,7 @@ export function ChatInterface({
         toast.error('Failed to update collection');
       }
     }
-  }, [currentSessionId, updateSessionCollection]);
+  }, [currentSessionId, guardChatHistory, updateSessionCollection]);
 
   // Get selected collection name for display
   const selectedCollectionName = useMemo(() => {
@@ -714,12 +763,6 @@ export function ChatInterface({
     const collection = collections.find(c => c.collection_id === selectedCollectionId);
     return collection?.name || 'Unknown';
   }, [selectedCollectionId, collections]);
-
-  const sessionConfigForRequest = useMemo(() => ({
-    stack_id: selectedStackId || undefined,
-    routing_determinism_mode: routingMode,
-    adapter_strength_overrides: strengthOverrides,
-  }), [selectedStackId, routingMode, strengthOverrides]);
 
   // Compute unavailable pinned adapters from messages
   const { unavailablePinnedAdapters, pinnedRoutingFallback } = useMemo(() => {
@@ -1123,8 +1166,13 @@ export function ChatInterface({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setIsHistoryOpen(!isHistoryOpen)}
-            aria-label={isHistoryOpen ? "Close history" : "Open history"}
+            onClick={() => {
+              if (guardChatHistory()) {
+                return;
+              }
+              setIsHistoryOpen(!isHistoryOpen);
+            }}
+            aria-label={isChatHistoryUnsupported ? chatHistoryUnsupportedMessage : isHistoryOpen ? "Close history" : "Open history"}
           >
             {isHistoryOpen ? (
               <ChevronLeft className="h-4 w-4" />
@@ -1132,6 +1180,11 @@ export function ChatInterface({
               <History className="h-4 w-4" />
             )}
           </Button>
+          {isChatHistoryUnsupported && (
+            <span className="text-xs text-muted-foreground">
+              {chatHistoryUnsupportedMessage}
+            </span>
+          )}
           <Layers className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
           {documentContext && (
             <Badge variant="secondary" className="gap-1">

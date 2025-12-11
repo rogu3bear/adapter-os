@@ -27,10 +27,10 @@ import { useKeyboardShortcuts } from '@/utils/accessibility';
 import { generateNavigationGroups, shouldShowNavGroup } from '@/utils/navigation';
 import { logger } from '@/utils/logger';
 import { cn } from '@/components/ui/utils';
-import { Lock, ChevronDown, ChevronRight } from 'lucide-react';
+import { Lock, ChevronDown, ChevronRight, RefreshCw, LogOut, CheckCircle2, ArrowRight } from 'lucide-react';
 import { LiveDataStatusProvider } from '@/hooks/useLiveDataStatus';
 import { ConnectionStatusIndicator } from '@/components/header/ConnectionStatusIndicator';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import LayoutDebugOverlay from '@/components/dev/LayoutDebugOverlay';
@@ -321,16 +321,16 @@ export default function RootLayout() {
   const requiresTenantSelection = useMemo(() => {
     if (!user) return false;
     const multipleTenants = tenants.length > 1;
-    const noSelection = !selectedTenant;
     const noTenantAccess = tenants.length === 0;
+    const hasSelection = Boolean(selectedTenant && tenants.some((t) => t.id === selectedTenant));
     let forcedSelection = false;
     try {
       forcedSelection = sessionStorage.getItem(TENANT_SELECTION_REQUIRED_KEY) === '1';
     } catch {
       forcedSelection = false;
     }
-    return noTenantAccess || (multipleTenants && (forcedSelection || noSelection));
-  }, [selectedTenant, tenants.length, user]);
+    return noTenantAccess || (multipleTenants && !hasSelection && (forcedSelection || !selectedTenant));
+  }, [selectedTenant, tenants, user]);
 
   const handleTenantChoice = useCallback(async (tenantId: string) => {
     if (isSwitchingTenant) return;
@@ -408,48 +408,74 @@ if (!user && location.pathname !== '/login') {
   if (user && !tenantsLoading && requiresTenantSelection) {
     return (
       <>
-        <div className="min-h-screen flex items-center justify-center bg-background px-4">
-          <Card className="w-full max-w-xl border-border/70 shadow-lg">
-            <CardHeader>
-              <CardTitle>Select a tenant</CardTitle>
-              <CardDescription>Pick one tenant for this session. You can switch later from the header.</CardDescription>
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background via-background to-muted/30 px-4 py-10">
+          <Card className="w-full max-w-3xl border-border/70 shadow-2xl">
+            <CardHeader className="space-y-2">
+              <CardTitle className="text-2xl">Select a tenant</CardTitle>
+              <CardDescription className="text-base">
+                Pick one tenant for this session. You can switch later from the header.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4">
               {tenantError && <div className="text-sm text-destructive">{tenantError}</div>}
-              {tenants.map((tenant) => (
-                <Button
-                  key={tenant.id}
-                  variant={tenant.id === selectedTenant ? 'default' : 'outline'}
-                  className="w-full justify-between"
-                  disabled={isSwitchingTenant}
-                  onClick={() => void handleTenantChoice(tenant.id)}
-                >
-                  <span className="truncate text-left">{tenant.name}</span>
-                  <Badge variant="secondary">{tenant.id === selectedTenant ? 'Active' : 'Select'}</Badge>
-                </Button>
-              ))}
-              {tenants.length === 0 && (
-                <div className="rounded-md border border-border/80 p-3 text-sm text-muted-foreground">
+              {tenants.length > 0 ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {tenants.map((tenant) => {
+                    const isActive = tenant.id === selectedTenant;
+                    return (
+                      <Button
+                        key={tenant.id}
+                        variant={isActive ? 'default' : 'outline'}
+                        className={cn(
+                          'w-full justify-between items-start text-left h-auto px-4 py-3',
+                          isActive && 'shadow-inner'
+                        )}
+                        disabled={isSwitchingTenant}
+                        onClick={() => void handleTenantChoice(tenant.id)}
+                      >
+                        <div className="flex flex-col gap-1 overflow-hidden">
+                          <span className="font-semibold truncate">{tenant.name}</span>
+                          <span className="text-xs text-muted-foreground truncate">{tenant.id}</span>
+                        </div>
+                        <Badge variant={isActive ? 'secondary' : 'outline'} className="flex items-center gap-1">
+                          {isActive ? <CheckCircle2 className="h-3 w-3" /> : <ArrowRight className="h-3 w-3" />}
+                          {isActive ? 'Active' : 'Select'}
+                        </Badge>
+                      </Button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-md border border-border/80 bg-muted/30 p-3 text-sm text-muted-foreground">
                   You’re signed in but have no tenant access. Ask an admin to grant access or sign out.
                 </div>
               )}
-              <div className="flex gap-2 justify-between">
+            </CardContent>
+            <CardFooter className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-muted-foreground">
+                Session is paused until you pick a tenant.
+              </div>
+              <div className="flex w-full gap-2 sm:w-auto">
                 <Button
                   variant="outline"
                   onClick={() => void refreshTenants()}
                   disabled={isSwitchingTenant}
+                  className="flex-1 sm:flex-none"
                 >
+                  <RefreshCw className="mr-2 h-4 w-4" />
                   Reload tenants
                 </Button>
                 <Button
                   variant="ghost"
                   onClick={() => void logout()}
                   disabled={isSwitchingTenant}
+                  className="flex-1 sm:flex-none"
                 >
+                  <LogOut className="mr-2 h-4 w-4" />
                   Sign out
                 </Button>
               </div>
-            </CardContent>
+            </CardFooter>
           </Card>
         </div>
         <Toaster position="top-right" className="z-40" />

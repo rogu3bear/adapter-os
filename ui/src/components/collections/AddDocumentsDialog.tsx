@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, FileText } from 'lucide-react';
+import { Plus, FileText, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { TERMS } from '@/constants/terminology';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import useCollectionsApi from '@/hooks/useCollectionsApi';
+import apiClient from '@/api/client';
+import { logger, toError } from '@/utils/logger';
 
 interface Document {
   id: string;
@@ -25,18 +29,29 @@ export function AddDocumentsDialog({ collectionId, onDocumentsAdded }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [featureUnavailable, setFeatureUnavailable] = useState<string | null>(null);
+  const { invalidateCollections } = useCollectionsApi();
 
   const fetchAvailableDocuments = React.useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch documents not already in this collection
-      const response = await fetch(`/api/v1/collections/${collectionId}/available-documents`);
-      if (response.ok) {
-        const data = await response.json();
-        setDocuments(data);
-      }
+      const data = await apiClient.listAvailableDocuments(collectionId);
+      setDocuments(data as Document[]);
+      setFeatureUnavailable(null);
     } catch (error) {
-      console.error('Failed to fetch available documents:', error);
+      // Surface feature gating separately; all other failures are logged
+      const err = toError(error);
+      if ((error as { code?: string; status?: number }).status === 404) {
+        setFeatureUnavailable('Collection document endpoints are not available on this backend (v0.9).');
+        setDocuments([]);
+      } else {
+        logger.error('Failed to fetch available documents', {
+          component: 'AddDocumentsDialog',
+          operation: 'listAvailableDocuments',
+          collectionId,
+        }, err);
+        setDocuments([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -65,21 +80,23 @@ export function AddDocumentsDialog({ collectionId, onDocumentsAdded }: Props) {
 
     setLoading(true);
     try {
-      const response = await fetch(`/api/v1/collections/${collectionId}/documents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          document_ids: Array.from(selectedIds)
-        }),
-      });
-
-      if (response.ok) {
-        setOpen(false);
-        setSelectedIds(new Set());
-        onDocumentsAdded?.();
-      }
+      await apiClient.addDocumentsToCollection(collectionId, Array.from(selectedIds));
+      setOpen(false);
+      setSelectedIds(new Set());
+      await invalidateCollections();
+      onDocumentsAdded?.();
     } catch (error) {
-      console.error('Failed to add documents:', error);
+      const err = toError(error);
+      if ((error as { code?: string; status?: number }).status === 404) {
+        setFeatureUnavailable('Collection document endpoints are not available on this backend (v0.9).');
+      } else {
+        logger.error('Failed to add documents to collection', {
+          component: 'AddDocumentsDialog',
+          operation: 'addDocumentsToCollection',
+          collectionId,
+          selectedCount: selectedIds.size,
+        }, err);
+      }
     } finally {
       setLoading(false);
     }
@@ -103,6 +120,13 @@ export function AddDocumentsDialog({ collectionId, onDocumentsAdded }: Props) {
         </DialogHeader>
 
         <div className="space-y-4">
+          {featureUnavailable && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{featureUnavailable}</AlertDescription>
+            </Alert>
+          )}
+
           {/* Search filter */}
           <Input
             placeholder="Search documents..."
@@ -157,7 +181,7 @@ export function AddDocumentsDialog({ collectionId, onDocumentsAdded }: Props) {
           </Button>
           <Button
             onClick={addDocuments}
-            disabled={selectedIds.size === 0 || loading}
+            disabled={selectedIds.size === 0 || loading || !!featureUnavailable}
           >
             Add {selectedIds.size > 0 && `(${selectedIds.size})`}
           </Button>

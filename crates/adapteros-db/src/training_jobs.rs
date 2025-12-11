@@ -19,6 +19,14 @@ use uuid::Uuid;
 pub struct TrainingJobRecord {
     pub id: String,
     pub repo_id: String,
+    #[sqlx(default)]
+    pub target_branch: Option<String>,
+    #[sqlx(default)]
+    pub base_version_id: Option<String>,
+    #[sqlx(default)]
+    pub draft_version_id: Option<String>,
+    #[sqlx(default)]
+    pub code_commit_sha: Option<String>,
     pub training_config_json: String,
     pub status: String,
     pub progress_json: String,
@@ -39,6 +47,10 @@ pub struct TrainingJobRecord {
     pub tenant_id: Option<String>,
     pub build_id: Option<String>,
     pub source_documents_json: Option<String>,
+    #[sqlx(default)]
+    pub synthetic_mode: Option<i64>,
+    #[sqlx(default)]
+    pub data_lineage_mode: Option<String>,
     // Fields from migration 0133 - retry tracking
     /// Whether this job can be retried (determined by error type)
     pub retryable: Option<i64>,
@@ -49,6 +61,14 @@ pub struct TrainingJobRecord {
     pub stack_id: Option<String>,
     /// Adapter ID created from this training job
     pub adapter_id: Option<String>,
+    #[sqlx(default)]
+    pub produced_version_id: Option<String>,
+    #[sqlx(default)]
+    pub hyperparameters_json: Option<String>,
+    #[sqlx(default)]
+    pub data_spec_json: Option<String>,
+    #[sqlx(default)]
+    pub metrics_snapshot_id: Option<String>,
 }
 
 /// Training metric record from database
@@ -151,6 +171,10 @@ impl Db {
         TrainingJobKv {
             id: record.id.clone(),
             repo_id: record.repo_id.clone(),
+            target_branch: record.target_branch.clone(),
+            base_version_id: record.base_version_id.clone(),
+            draft_version_id: record.draft_version_id.clone(),
+            code_commit_sha: record.code_commit_sha.clone(),
             training_config_json: record.training_config_json.clone(),
             status: record.status.clone(),
             progress_json: record.progress_json.clone(),
@@ -168,10 +192,16 @@ impl Db {
             tenant_id: record.tenant_id.clone(),
             build_id: record.build_id.clone(),
             source_documents_json: record.source_documents_json.clone(),
+            synthetic_mode: record.synthetic_mode.map(|v| v != 0),
+            data_lineage_mode: record.data_lineage_mode.clone(),
             retryable: record.retryable,
             retry_of_job_id: record.retry_of_job_id.clone(),
             stack_id: record.stack_id.clone(),
             adapter_id: record.adapter_id.clone(),
+            produced_version_id: record.produced_version_id.clone(),
+            hyperparameters_json: record.hyperparameters_json.clone(),
+            data_spec_json: record.data_spec_json.clone(),
+            metrics_snapshot_id: record.metrics_snapshot_id.clone(),
         }
     }
 
@@ -179,6 +209,10 @@ impl Db {
         TrainingJobRecord {
             id: kv.id.clone(),
             repo_id: kv.repo_id.clone(),
+            target_branch: kv.target_branch.clone(),
+            base_version_id: kv.base_version_id.clone(),
+            draft_version_id: kv.draft_version_id.clone(),
+            code_commit_sha: kv.code_commit_sha.clone(),
             training_config_json: kv.training_config_json.clone(),
             status: kv.status.clone(),
             progress_json: kv.progress_json.clone(),
@@ -196,10 +230,16 @@ impl Db {
             tenant_id: kv.tenant_id.clone(),
             build_id: kv.build_id.clone(),
             source_documents_json: kv.source_documents_json.clone(),
+            synthetic_mode: kv.synthetic_mode.map(|v| if v { 1 } else { 0 }),
+            data_lineage_mode: kv.data_lineage_mode.clone(),
             retryable: kv.retryable,
             retry_of_job_id: kv.retry_of_job_id.clone(),
             stack_id: kv.stack_id.clone(),
             adapter_id: kv.adapter_id.clone(),
+            produced_version_id: kv.produced_version_id.clone(),
+            hyperparameters_json: kv.hyperparameters_json.clone(),
+            data_spec_json: kv.data_spec_json.clone(),
+            metrics_snapshot_id: kv.metrics_snapshot_id.clone(),
         }
     }
 
@@ -250,6 +290,10 @@ impl Db {
             let job = TrainingJobKv {
                 id: id.clone(),
                 repo_id: repo_id.to_string(),
+                target_branch: None,
+                base_version_id: None,
+                draft_version_id: None,
+                code_commit_sha: None,
                 training_config_json: training_config_json.to_string(),
                 status: "pending".to_string(),
                 progress_json: progress_json.clone(),
@@ -267,10 +311,16 @@ impl Db {
                 tenant_id: None,
                 build_id: None,
                 source_documents_json: None,
+                synthetic_mode: Some(false),
+                data_lineage_mode: None,
                 retryable: None,
                 retry_of_job_id: None,
                 stack_id: None,
                 adapter_id: None,
+                produced_version_id: None,
+                hyperparameters_json: None,
+                data_spec_json: None,
+                metrics_snapshot_id: None,
             };
             if let Err(e) = repo.put_job(&job).await {
                 self.record_kv_write_fallback("training_jobs.create");
@@ -303,11 +353,14 @@ impl Db {
         }
 
         let job = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json,
+            "SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+                    training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id, stack_id, adapter_id
+                    synthetic_mode, data_lineage_mode,
+                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs WHERE id = ?",
         )
         .bind(job_id)
@@ -329,11 +382,14 @@ impl Db {
         }
 
         let job = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json,
+            "SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+                    training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id, stack_id, adapter_id
+                    synthetic_mode, data_lineage_mode,
+                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE adapter_id = ? AND tenant_id = ?
              ORDER BY created_at DESC
@@ -434,6 +490,51 @@ impl Db {
         Ok(())
     }
 
+    /// Link a training job to the produced adapter version (and optional metrics snapshot).
+    pub async fn set_training_produced_version(
+        &self,
+        job_id: &str,
+        version_id: &str,
+        metrics_snapshot_id: Option<&str>,
+    ) -> Result<()> {
+        if let Some(repo) = self.get_training_job_kv_repo() {
+            if let Err(e) = repo
+                .update_job(job_id, |job| {
+                    job.produced_version_id = Some(version_id.to_string());
+                    if let Some(metrics) = metrics_snapshot_id {
+                        job.metrics_snapshot_id = Some(metrics.to_string());
+                    }
+                })
+                .await
+            {
+                self.record_kv_write_fallback("training_jobs.set_produced_version");
+                warn!(error = %e, job_id = %job_id, "KV update produced_version failed");
+            }
+        }
+
+        if self.storage_mode().write_to_sql() {
+            sqlx::query(
+                r#"
+                UPDATE repository_training_jobs
+                SET produced_version_id = ?, metrics_snapshot_id = COALESCE(?, metrics_snapshot_id)
+                WHERE id = ?
+                "#,
+            )
+            .bind(version_id)
+            .bind(metrics_snapshot_id)
+            .bind(job_id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        } else if !self.storage_mode().write_to_kv() {
+            return Err(AosError::Database(
+                "No backend available for set_training_produced_version".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// List training jobs for a repository
     ///
     /// Evidence: migrations/0013_git_repository_integration.sql:25-40
@@ -463,11 +564,14 @@ impl Db {
         }
 
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json,
+            "SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+                    training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id, stack_id, adapter_id
+                    synthetic_mode, data_lineage_mode,
+                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE repo_id = ?
              ORDER BY started_at DESC",
@@ -512,11 +616,14 @@ impl Db {
         }
 
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json,
+            "SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+                    training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id, stack_id, adapter_id
+                    synthetic_mode, data_lineage_mode,
+                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE status = ?
              ORDER BY started_at DESC",
@@ -584,6 +691,7 @@ impl Db {
                     rtj.template_id, rtj.created_at, rtj.metadata_json, rtj.config_hash_b3,
                     rtj.dataset_id, rtj.base_model_id, rtj.collection_id, rtj.tenant_id,
                     rtj.build_id, rtj.source_documents_json,
+                    rtj.synthetic_mode, rtj.data_lineage_mode,
                     rtj.retryable, rtj.retry_of_job_id, rtj.stack_id, rtj.adapter_id
              FROM repository_training_jobs rtj
              WHERE rtj.tenant_id = ? OR rtj.created_by LIKE ?
@@ -633,6 +741,7 @@ impl Db {
     /// - artifact_path: Path to the packaged .aos file
     /// - adapter_id: Registered adapter identifier
     /// - weights_hash_b3: BLAKE3 hash of the trained weights
+    /// - extra metadata fields (e.g., CoreML export status) are merged if provided
     ///
     /// Evidence: migrations/0050_training_jobs_extensions.sql:18-19
     /// Pattern: metadata_json column for artifact tracking
@@ -642,12 +751,20 @@ impl Db {
         artifact_path: &str,
         adapter_id: &str,
         weights_hash_b3: &str,
+        extra_metadata: Option<serde_json::Value>,
     ) -> Result<()> {
-        let metadata = serde_json::json!({
+        let mut metadata = serde_json::json!({
             "artifact_path": artifact_path,
             "adapter_id": adapter_id,
             "weights_hash_b3": weights_hash_b3
         });
+        if let Some(extra) = extra_metadata {
+            if let (Some(base), Some(additional)) = (metadata.as_object_mut(), extra.as_object()) {
+                for (k, v) in additional {
+                    base.insert(k.clone(), v.clone());
+                }
+            }
+        }
         let metadata_json = serde_json::to_string(&metadata).map_err(AosError::Serialization)?;
 
         if let Some(repo) = self.get_training_job_kv_repo() {
@@ -761,11 +878,14 @@ impl Db {
         }
 
         let job = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json,
+            "SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+                    training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id, stack_id, adapter_id
+                    synthetic_mode, data_lineage_mode,
+                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE metadata_json LIKE ?",
         )
@@ -857,11 +977,14 @@ impl Db {
         }
 
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json,
+            "SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+                    training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id, stack_id, adapter_id
+                    synthetic_mode, data_lineage_mode,
+                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE config_hash_b3 = ?
              ORDER BY started_at DESC",
@@ -892,6 +1015,8 @@ impl Db {
     /// * `build_id` - Build/commit identifier for reproducibility
     /// * `source_documents_json` - JSON list of source document IDs
     /// * `retry_of_job_id` - Optional ID of original job this is a retry of (for retry chain tracking)
+    /// * `synthetic_mode` - Whether the job explicitly opted into synthetic data
+    /// * `data_lineage_mode` - Lineage quality for this job
     pub async fn create_training_job_with_provenance(
         &self,
         job_id: Option<&str>,
@@ -905,6 +1030,13 @@ impl Db {
         build_id: Option<&str>,
         source_documents_json: Option<&str>,
         retry_of_job_id: Option<&str>,
+        target_branch: Option<&str>,
+        base_version_id: Option<&str>,
+        draft_version_id: Option<&str>,
+        code_commit_sha: Option<&str>,
+        data_spec_json: Option<&str>,
+        synthetic_mode: bool,
+        data_lineage_mode: Option<&str>,
     ) -> Result<String> {
         let id = job_id
             .map(|s| s.to_string())
@@ -924,9 +1056,10 @@ impl Db {
             sqlx::query(
                 "INSERT INTO repository_training_jobs
              (id, repo_id, training_config_json, status, progress_json, created_by,
-              dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-              retry_of_job_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+             retry_of_job_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+             data_spec_json, synthetic_mode, data_lineage_mode, produced_version_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&id)
             .bind(repo_id)
@@ -941,6 +1074,14 @@ impl Db {
             .bind(build_id)
             .bind(source_documents_json)
             .bind(retry_of_job_id)
+            .bind(target_branch)
+            .bind(base_version_id)
+            .bind(draft_version_id)
+            .bind(code_commit_sha)
+            .bind(data_spec_json)
+            .bind(if synthetic_mode { 1 } else { 0 })
+            .bind(data_lineage_mode)
+            .bind(None::<String>)
             .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
@@ -954,6 +1095,10 @@ impl Db {
             let job = TrainingJobKv {
                 id: id.clone(),
                 repo_id: repo_id.to_string(),
+                target_branch: target_branch.map(|s| s.to_string()),
+                base_version_id: base_version_id.map(|s| s.to_string()),
+                draft_version_id: draft_version_id.map(|s| s.to_string()),
+                code_commit_sha: code_commit_sha.map(|s| s.to_string()),
                 training_config_json: training_config_json.to_string(),
                 status: "pending".to_string(),
                 progress_json: progress_json.clone(),
@@ -971,10 +1116,16 @@ impl Db {
                 tenant_id: tenant_id.map(|s| s.to_string()),
                 build_id: build_id.map(|s| s.to_string()),
                 source_documents_json: source_documents_json.map(|s| s.to_string()),
+                synthetic_mode: Some(synthetic_mode),
+                data_lineage_mode: data_lineage_mode.map(|s| s.to_string()),
                 retryable: None,
                 retry_of_job_id: retry_of_job_id.map(|s| s.to_string()),
                 stack_id: None,
                 adapter_id: None,
+                produced_version_id: None,
+                hyperparameters_json: None,
+                data_spec_json: data_spec_json.map(|s| s.to_string()),
+                metrics_snapshot_id: None,
             };
             if let Err(e) = repo.put_job(&job).await {
                 self.record_kv_write_fallback("training_jobs.create_provenance");
@@ -1247,11 +1398,14 @@ impl Db {
     /// Vector of training jobs that are retries of the original, ordered by creation time (newest first)
     pub async fn get_retry_chain(&self, original_job_id: &str) -> Result<Vec<TrainingJobRecord>> {
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json,
+            "SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+                    training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id, stack_id, adapter_id
+                    synthetic_mode, data_lineage_mode,
+                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE retry_of_job_id = ?
              ORDER BY started_at DESC",

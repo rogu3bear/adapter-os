@@ -1,5 +1,5 @@
 // Workspace API Tests
-import { validateErrorResponse } from '../support/api-helpers';
+import { validateErrorResponse } from '../../support/api-helpers';
 
 describe('Workspace API', () => {
   beforeEach(() => {

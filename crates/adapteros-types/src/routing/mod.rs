@@ -2,6 +2,8 @@
 //!
 //! This module contains the canonical routing types used across the system.
 
+/// Fixed-size BLAKE3 hash (32 bytes) used for routing digests.
+pub type B3Hash = [u8; 32];
 use serde::{Deserialize, Serialize};
 
 /// Candidate adapter entry for router trace
@@ -49,6 +51,18 @@ pub struct RouterDecision {
     /// BLAKE3 hash of the active adapter stack (for verification)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack_hash: Option<String>,
+
+    /// Fusion interval identifier that was active for this decision.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval_id: Option<String>,
+
+    /// Digest binding routing policy context to the applied mask (if any).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_mask_digest: Option<B3Hash>,
+
+    /// Flags indicating which policy overrides were applied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_overrides_applied: Option<PolicyOverrideFlags>,
 }
 
 impl RouterDecision {
@@ -68,6 +82,9 @@ impl RouterDecision {
             tau,
             entropy_floor,
             stack_hash: None,
+            interval_id: None,
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
         }
     }
 
@@ -87,4 +104,13 @@ impl RouterDecision {
     pub fn top_k(&self, k: usize) -> Vec<&RouterCandidate> {
         self.candidate_adapters.iter().take(k).collect()
     }
+}
+
+/// Flags describing which policy overrides affected routing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct PolicyOverrideFlags {
+    pub allow_list: bool,
+    pub deny_list: bool,
+    pub trust_state: bool,
 }

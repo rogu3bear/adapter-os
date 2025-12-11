@@ -38,18 +38,18 @@ impl IdentityEnvelope {
 
     /// Validate the envelope fields (basic non-empty check)
     pub fn validate(&self) -> Result<(), AosError> {
-        if self.tenant_id.is_empty() {
+        if self.tenant_id.trim().is_empty() {
             return Err(AosError::Validation(
                 "tenant_id cannot be empty".to_string(),
             ));
         }
-        if self.domain.is_empty() {
+        if self.domain.trim().is_empty() {
             return Err(AosError::Validation("domain cannot be empty".to_string()));
         }
-        if self.purpose.is_empty() {
+        if self.purpose.trim().is_empty() {
             return Err(AosError::Validation("purpose cannot be empty".to_string()));
         }
-        if self.revision.is_empty() {
+        if self.revision.trim().is_empty() {
             return Err(AosError::Validation("revision cannot be empty".to_string()));
         }
         Ok(())

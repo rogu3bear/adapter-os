@@ -4,7 +4,7 @@
 //! telemetry, and system-metrics.
 
 use crate::state::AppState;
-use crate::worker_health::WorkerHealthStatus;
+use crate::worker_health::{WorkerHealthStatus, WorkerHealthSummary};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -13,10 +13,12 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use sqlx::query;
 use std::path::Path as StdPath;
 use std::time::{Duration, SystemTime};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tokio::task;
 use tracing::warn;
 use utoipa::ToSchema;
 
@@ -861,45 +863,56 @@ pub async fn gather_system_ready_components(
 fn worker_component_health(state: &AppState) -> ComponentHealth {
     if let Some(monitor) = &state.health_monitor {
         let summary = monitor.get_health_summary();
+        let serving = has_healthy_worker(state);
+
         if summary.is_empty() {
-            return ComponentHealth::new(
-                "workers",
-                ComponentStatus::Degraded,
-                "no workers registered",
-            );
+            return if serving {
+                ComponentHealth::new(
+                    "workers",
+                    ComponentStatus::Healthy,
+                    "workers registered (health metrics pending)",
+                )
+            } else {
+                ComponentHealth::new(
+                    "workers",
+                    ComponentStatus::Degraded,
+                    "no workers registered",
+                )
+            };
         }
 
-        let mut any_crashed = false;
-        let mut any_degraded = false;
-        let mut unknown = false;
+        let status = reduce_worker_status(&summary, serving);
 
-        for item in summary.iter() {
-            match item.health_status {
-                WorkerHealthStatus::Crashed => any_crashed = true,
-                WorkerHealthStatus::Degraded => any_degraded = true,
-                WorkerHealthStatus::Unknown => unknown = true,
-                WorkerHealthStatus::Healthy => {}
-            }
-        }
-
-        if any_crashed {
-            ComponentHealth::new(
+        match status {
+            ComponentStatus::Unhealthy => ComponentHealth::new(
                 "workers",
                 ComponentStatus::Unhealthy,
                 "one or more workers crashed",
-            )
-        } else if any_degraded || unknown {
-            ComponentHealth::new(
+            ),
+            ComponentStatus::Healthy => {
+                if serving
+                    && summary
+                        .iter()
+                        .any(|h| h.health_status != WorkerHealthStatus::Healthy)
+                {
+                    ComponentHealth::new(
+                        "workers",
+                        ComponentStatus::Healthy,
+                        "serving worker reachable (health telemetry degraded/unknown)",
+                    )
+                } else {
+                    ComponentHealth::new(
+                        "workers",
+                        ComponentStatus::Healthy,
+                        format!("{} workers healthy", summary.len()),
+                    )
+                }
+            }
+            ComponentStatus::Degraded => ComponentHealth::new(
                 "workers",
                 ComponentStatus::Degraded,
                 "worker health degraded or unknown",
-            )
-        } else {
-            ComponentHealth::new(
-                "workers",
-                ComponentStatus::Healthy,
-                format!("{} workers healthy", summary.len()),
-            )
+            ),
         }
     } else {
         ComponentHealth::new(
@@ -908,6 +921,48 @@ fn worker_component_health(state: &AppState) -> ComponentHealth {
             "worker health monitor unavailable",
         )
     }
+}
+
+fn reduce_worker_status(summary: &[WorkerHealthSummary], serving: bool) -> ComponentStatus {
+    let any_crashed = summary
+        .iter()
+        .any(|s| s.health_status == WorkerHealthStatus::Crashed);
+    if any_crashed {
+        return ComponentStatus::Unhealthy;
+    }
+
+    let any_healthy = summary
+        .iter()
+        .any(|s| s.health_status == WorkerHealthStatus::Healthy);
+    let any_degraded = summary
+        .iter()
+        .any(|s| s.health_status == WorkerHealthStatus::Degraded);
+    let any_unknown = summary
+        .iter()
+        .any(|s| s.health_status == WorkerHealthStatus::Unknown);
+
+    if serving || any_healthy {
+        ComponentStatus::Healthy
+    } else if any_degraded || any_unknown {
+        ComponentStatus::Degraded
+    } else {
+        ComponentStatus::Degraded
+    }
+}
+
+fn has_healthy_worker(state: &AppState) -> bool {
+    let pool = state.db_pool.clone();
+    task::block_in_place(|| {
+        let handle = tokio::runtime::Handle::current();
+        handle.block_on(async {
+            query("SELECT 1 FROM workers WHERE status = 'healthy' LIMIT 1")
+                .fetch_optional(&pool)
+                .await
+                .ok()
+                .flatten()
+                .is_some()
+        })
+    })
 }
 
 async fn check_ui_health() -> ComponentHealth {
@@ -1177,5 +1232,44 @@ mod tests {
             });
 
         assert_eq!(overall, ComponentStatus::Unhealthy);
+    }
+
+    fn summary(status: WorkerHealthStatus) -> WorkerHealthSummary {
+        WorkerHealthSummary {
+            worker_id: "w1".to_string(),
+            health_status: status,
+            avg_latency_ms: 0.0,
+            total_requests: 0,
+            total_failures: 0,
+            consecutive_slow: 0,
+            consecutive_failures: 0,
+        }
+    }
+
+    #[test]
+    fn worker_status_crashed_is_unhealthy() {
+        let summary = vec![summary(WorkerHealthStatus::Crashed)];
+        assert_eq!(
+            reduce_worker_status(&summary, false),
+            ComponentStatus::Unhealthy
+        );
+    }
+
+    #[test]
+    fn worker_status_serving_overrides_unknown() {
+        let summary = vec![summary(WorkerHealthStatus::Unknown)];
+        assert_eq!(
+            reduce_worker_status(&summary, true),
+            ComponentStatus::Healthy
+        );
+    }
+
+    #[test]
+    fn worker_status_degraded_without_serving() {
+        let summary = vec![summary(WorkerHealthStatus::Degraded)];
+        assert_eq!(
+            reduce_worker_status(&summary, false),
+            ComponentStatus::Degraded
+        );
     }
 }

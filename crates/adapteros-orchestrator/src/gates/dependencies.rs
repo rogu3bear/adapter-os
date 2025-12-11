@@ -77,7 +77,9 @@ pub struct ToolStatus {
 impl DependencyCheckResult {
     /// Check if all critical dependencies are met
     pub fn critical_met(&self) -> bool {
-        self.required_paths.values().all(|p| p.exists && p.readable)
+        self.all_available
+            && self.degradation_level == 0
+            && self.required_paths.values().all(|p| p.exists && p.readable)
             && self.required_tools.values().all(|t| t.available)
     }
 

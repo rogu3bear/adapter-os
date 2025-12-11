@@ -447,6 +447,28 @@ start_backend_animated() {
                     local pid
                     pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
                     update_step "success" "Backend API     ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_SERVER_PORT)"
+                    #region agent log
+                    BACKEND_PID="$pid" python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H1",
+    "location": "start_backend_animated:health",
+    "message": "backend ready",
+    "data": {
+        "pid": os.environ.get("BACKEND_PID"),
+        "manifest": os.environ.get("AOS_MANIFEST_PATH"),
+        "backend_port": os.environ.get("AOS_SERVER_PORT", "8080")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+                    #endregion agent log
                     return 0
                 fi
                 sleep 1
@@ -456,9 +478,52 @@ start_backend_animated() {
             local pid
             pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
             update_step "success" "Backend API     ${FG_YELLOW}STARTED${FG_RESET} (PID $pid, port $AOS_SERVER_PORT)"
+            #region agent log
+            BACKEND_PID="$pid" python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H1",
+    "location": "start_backend_animated:started",
+    "message": "backend started without healthz",
+    "data": {
+        "pid": os.environ.get("BACKEND_PID"),
+        "manifest": os.environ.get("AOS_MANIFEST_PATH"),
+        "backend_port": os.environ.get("AOS_SERVER_PORT", "8080")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+            #endregion agent log
             return 0
         else
             update_step "error" "Backend API - failed to start"
+            #region agent log
+            python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H1",
+    "location": "start_backend_animated:error",
+    "message": "backend start failed",
+    "data": {
+        "manifest": os.environ.get("AOS_MANIFEST_PATH"),
+        "backend_port": os.environ.get("AOS_SERVER_PORT", "8080")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+            #endregion agent log
             return 1
         fi
     else
@@ -481,6 +546,27 @@ start_ui_animated() {
                     local pid
                     pid=$(cat "$AOS_VAR_DIR/ui.pid" 2>/dev/null)
                     update_step "success" "UI Server       ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_UI_PORT)"
+                    #region agent log
+                    UI_PID="$pid" python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H2",
+    "location": "start_ui_animated:ready",
+    "message": "ui ready",
+    "data": {
+        "pid": os.environ.get("UI_PID"),
+        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+                    #endregion agent log
                     return 0
                 fi
                 sleep 1
@@ -490,9 +576,50 @@ start_ui_animated() {
             local pid
             pid=$(cat "$AOS_VAR_DIR/ui.pid" 2>/dev/null)
             update_step "success" "UI Server       ${FG_YELLOW}STARTED${FG_RESET} (PID $pid, port $AOS_UI_PORT)"
+            #region agent log
+            UI_PID="$pid" python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H2",
+    "location": "start_ui_animated:started",
+    "message": "ui started without readiness",
+    "data": {
+        "pid": os.environ.get("UI_PID"),
+        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+            #endregion agent log
             return 0
         else
             update_step "error" "UI Server - failed to start"
+            #region agent log
+            python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H2",
+    "location": "start_ui_animated:error",
+    "message": "ui start failed",
+    "data": {
+        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+            #endregion agent log
             return 1
         fi
     else
@@ -544,6 +671,31 @@ start_all() {
 
     ensure_var_dirs
 
+    #region agent log
+    python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H4",
+    "location": "start_all:env",
+    "message": "start_all entry",
+    "data": {
+        "AOS_SERVER_PORT": os.environ.get("AOS_SERVER_PORT", "8080"),
+        "AOS_UI_PORT": os.environ.get("AOS_UI_PORT", "3200"),
+        "AOS_MANIFEST_PATH": os.environ.get("AOS_MANIFEST_PATH"),
+        "AOS_MODEL_BACKEND": os.environ.get("AOS_MODEL_BACKEND"),
+        "SKIP_WORKER": os.environ.get("SKIP_WORKER", "0")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+    #endregion agent log
+
     # Preflight with animation
     print_step "running" "Running preflight checks..."
 
@@ -561,6 +713,29 @@ start_all() {
             preflight_failed=1
         fi
     fi
+
+    #region agent log
+    PREFLIGHT_FAILED="$preflight_failed" python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H4",
+    "location": "start_all:preflight",
+    "message": "preflight complete",
+    "data": {
+        "preflight_failed": os.environ.get("PREFLIGHT_FAILED"),
+        "server_port": os.environ.get("AOS_SERVER_PORT", "8080"),
+        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+    #endregion agent log
 
     if [ $preflight_failed -eq 1 ]; then
         update_step "error" "Preflight checks failed (see above)"
@@ -602,6 +777,31 @@ start_all() {
     else
         update_step "pending" "Worker          ${FG_YELLOW}SKIPPED${FG_RESET}  (optional, binary/manifest not found)"
     fi
+
+    #region agent log
+WORKER_OK_STATE="$worker_ok" python - <<'PY'
+import json, os, time
+var_dir = os.environ.get("AOS_VAR_DIR", "var")
+socket_path = os.path.join(os.getcwd(), var_dir, "run", "worker.sock")
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H3",
+    "location": "start_all:worker",
+    "message": "worker start result",
+    "data": {
+        "skip_worker": os.environ.get("SKIP_WORKER", "0"),
+        "worker_socket_exists": os.path.exists(socket_path),
+        "worker_ok": bool(int(os.environ.get("WORKER_OK_STATE", "0")))
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+    #endregion agent log
 
     echo ""
 

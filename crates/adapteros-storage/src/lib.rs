@@ -3,6 +3,7 @@
 //! Provides disk quota enforcement, storage cleanup policies, and monitoring
 //! for AdapterOS training and adapter storage.
 
+pub mod byte_store;
 pub mod cleanup;
 pub mod entities;
 pub mod error;
@@ -11,6 +12,7 @@ pub mod kv;
 pub mod migration;
 pub mod models;
 pub mod monitor;
+pub mod object_store;
 pub mod policy;
 pub mod quota;
 pub mod redb;
@@ -22,6 +24,7 @@ pub mod types;
 mod tests;
 
 // Re-export commonly used types
+pub use byte_store::{ByteStorage, FsByteStorage, StorageKey, StorageKind, StorageLocation};
 pub use error::StorageError;
 pub use index::{IndexDef, IndexManager as IndexMgr, KeyExtractor};
 pub use kv::{IndexManager as KvIndexManager, KvBackend};
@@ -30,6 +33,7 @@ pub use models::{
     AdapterKv, RagDocumentKv, ReplayExecutionKv, ReplayMetadataKv, ReplaySessionKv,
     TelemetryBundleKv, TelemetryEventKv, DEFAULT_BUNDLE_CHUNK_SIZE,
 };
+pub use object_store::{FsObjectStore, ObjectStore, StoredObject};
 pub use repos::{
     AdapterRepository, PaginatedResult, RagRepository, ReplayRepository, TelemetryRepository,
 };

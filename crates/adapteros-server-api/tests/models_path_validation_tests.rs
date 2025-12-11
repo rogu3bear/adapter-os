@@ -11,7 +11,12 @@ mod common;
 #[tokio::test]
 async fn load_model_returns_404_when_model_path_missing() {
     // Ensure the worker socket lookup succeeds (even if the socket is fake) so we reach path validation.
-    std::env::set_var("AOS_WORKER_SOCKET", "/tmp/nonexistent.sock");
+    let fake_socket = std::path::PathBuf::from("./var/run/nonexistent.sock");
+    if let Some(parent) = fake_socket.parent() {
+        std::fs::create_dir_all(parent).expect("create fake socket dir");
+    }
+    std::fs::write(&fake_socket, b"").expect("touch fake socket");
+    std::env::set_var("AOS_WORKER_SOCKET", fake_socket.to_str().unwrap());
 
     let state: AppState = common::setup_state(None).await.expect("setup state");
     let claims = common::test_admin_claims();
@@ -65,4 +70,6 @@ async fn load_model_returns_404_when_model_path_missing() {
         "unexpected error message: {:?}",
         status_row.error_message
     );
+
+    let _ = std::fs::remove_file(fake_socket);
 }

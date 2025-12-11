@@ -799,6 +799,7 @@ mod tests {
             base_url: base_url.clone(),
             tenant_id: "tenant-1".to_string(),
             token: "test-token".to_string(),
+            refresh_token: None,
             expires_at: None,
         };
         save_auth(&auth).expect("auth saved");

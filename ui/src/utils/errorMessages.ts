@@ -159,6 +159,22 @@ const ERROR_CODE_MAP: Record<string, (context?: ErrorContext) => UserFriendlyErr
     variant: 'error'
   }),
 
+  'DATASET_TRUST_BLOCKED': () => ({
+    title: 'Dataset blocked by trust gate',
+    message: 'Dataset trust_state is blocked; override or adjust the dataset to proceed.',
+    actionText: 'Review dataset trust',
+    helpUrl: '/docs/training/aos_adapters',
+    variant: 'error'
+  }),
+
+  'DATASET_TRUST_NEEDS_APPROVAL': () => ({
+    title: 'Dataset needs approval',
+    message: 'Dataset trust_state requires approval or validation before training.',
+    actionText: 'Review dataset validation',
+    helpUrl: '/docs/training/aos_adapters',
+    variant: 'warning'
+  }),
+
   'INVALID_TRAINING_DATA': () => ({
     title: 'Invalid Training Data',
     message: 'The training data format is not valid. Please check your data format and try again.',

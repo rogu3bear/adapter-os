@@ -144,8 +144,12 @@ fn test_router_determinism_with_decision_hash() {
         .collect();
 
     // Make routing decisions
-    let decision1 = router1.route_with_adapter_info(&features, &priors, &adapter_info);
-    let decision2 = router2.route_with_adapter_info(&features, &priors, &adapter_info);
+    let mask = {
+        let ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+        adapteros_lora_router::PolicyMask::allow_all(&ids, None)
+    };
+    let decision1 = router1.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
+    let decision2 = router2.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
     // Verify identical routing
     assert_eq!(

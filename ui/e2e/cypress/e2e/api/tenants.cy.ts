@@ -1,5 +1,5 @@
 // Tenant Management API Tests
-import { validateErrorResponse } from '../support/api-helpers';
+import { validateErrorResponse } from '../../support/api-helpers';
 
 describe('Tenant Management API', () => {
   beforeEach(() => {

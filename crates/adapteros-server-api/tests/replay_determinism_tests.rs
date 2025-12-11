@@ -7,7 +7,9 @@
 
 use adapteros_core::{B3Hash, SeedMode};
 use adapteros_db::{CreateReplayMetadataParams, Db, InferenceReplayMetadata};
-use adapteros_server_api::determinism_context::DeterminismContext;
+use adapteros_server_api::determinism_context::{
+    from_replay_metadata, from_request, DeterminismContext,
+};
 use adapteros_server_api::handlers::replay_inference::execute_replay;
 use adapteros_server_api::types::{
     DivergenceDetails, ErrorResponse, ReplayKey, ReplayMatchStatus, ReplayRequest, ReplayStatus,
@@ -29,6 +31,9 @@ async fn create_test_metadata(db: &Db, inference_id: &str, tenant_id: &str) -> S
         sampling_params_json: serde_json::to_string(&SamplingParams::default()).unwrap(),
         backend: "CoreML".to_string(),
         backend_version: Some("v1.0.0".to_string()),
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: Some("rag-snapshot-hash-789".to_string()),
         adapter_ids: Some(vec!["adapter-1".to_string()]),
@@ -44,6 +49,10 @@ async fn create_test_metadata(db: &Db, inference_id: &str, tenant_id: &str) -> S
         tokens_generated: Some(10),
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
@@ -72,7 +81,7 @@ fn replay_request_seed_hex_round_trips() {
     );
     request.request_id = "req-1".to_string();
 
-    let ctx_from_request = DeterminismContext::from_request(
+    let ctx_from_request = from_request(
         &request,
         Some(&manifest),
         &B3Hash::hash(b"global"),
@@ -96,6 +105,9 @@ fn replay_request_seed_hex_round_trips() {
         sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
         backend: "Metal".to_string(),
         backend_version: Some("v1.0.0".to_string()),
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: "v1".to_string(),
         rag_snapshot_hash: None,
         adapter_ids_json: None,
@@ -111,13 +123,17 @@ fn replay_request_seed_hex_round_trips() {
         tokens_generated: None,
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: Some(false),
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
         created_at: "now".to_string(),
     };
 
-    let ctx_from_replay = DeterminismContext::from_replay_metadata(&metadata).expect("replay ctx");
+    let ctx_from_replay = from_replay_metadata(&metadata).expect("replay ctx");
     assert_eq!(
         ctx_from_request.request_seed(),
         ctx_from_replay.request_seed(),
@@ -142,6 +158,9 @@ fn replay_seed_field_expands_for_compatibility() {
         sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
         backend: "Metal".to_string(),
         backend_version: None,
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: "v1".to_string(),
         rag_snapshot_hash: None,
         adapter_ids_json: None,
@@ -157,13 +176,17 @@ fn replay_seed_field_expands_for_compatibility() {
         tokens_generated: None,
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: Some(false),
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
         created_at: "now".to_string(),
     };
 
-    let ctx = DeterminismContext::from_replay_metadata(&metadata).expect("ctx");
+    let ctx = from_replay_metadata(&metadata).expect("ctx");
     assert_eq!(
         ctx.request_seed_low64(),
         99,
@@ -171,7 +194,7 @@ fn replay_seed_field_expands_for_compatibility() {
     );
     assert_eq!(
         ctx.source(),
-        &adapteros_server_api::determinism_context::DeterminismSource::SeedU64Expanded
+        &adapteros_core::determinism::DeterminismSource::SeedU64Expanded
     );
 }
 
@@ -191,6 +214,9 @@ fn replay_seedless_metadata_is_rejected() {
         sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
         backend: "Metal".to_string(),
         backend_version: None,
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: "v1".to_string(),
         rag_snapshot_hash: None,
         adapter_ids_json: None,
@@ -206,14 +232,17 @@ fn replay_seedless_metadata_is_rejected() {
         tokens_generated: None,
         determinism_mode: Some("besteffort".to_string()),
         fallback_triggered: Some(false),
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("approximate".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
         created_at: "now".to_string(),
     };
 
-    let err = DeterminismContext::from_replay_metadata(&metadata)
-        .expect_err("seedless replay should be rejected");
+    let err = from_replay_metadata(&metadata).expect_err("seedless replay should be rejected");
     let msg = err.to_string();
     assert!(
         msg.contains("missing request_seed"),
@@ -237,6 +266,9 @@ async fn replay_handler_rejects_seedless_metadata() {
         sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
         backend: "CoreML".to_string(),
         backend_version: Some("v1.0.0".to_string()),
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: None,
         adapter_ids: None,
@@ -252,6 +284,10 @@ async fn replay_handler_rejects_seedless_metadata() {
         tokens_generated: None,
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
@@ -598,6 +634,9 @@ async fn test_truncated_flags_stored_correctly() {
         sampling_params_json: "{}".to_string(),
         backend: "MLX".to_string(),
         backend_version: None,
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: None,
         adapter_ids: None,
@@ -613,6 +652,10 @@ async fn test_truncated_flags_stored_correctly() {
         tokens_generated: None,
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("approximate".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
@@ -657,6 +700,9 @@ async fn test_rag_doc_ids_stored_and_retrieved() {
         sampling_params_json: "{}".to_string(),
         backend: "CoreML".to_string(),
         backend_version: None,
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: Some("rag-hash".to_string()),
         adapter_ids: None,
@@ -672,6 +718,10 @@ async fn test_rag_doc_ids_stored_and_retrieved() {
         tokens_generated: None,
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
@@ -708,6 +758,9 @@ async fn test_base_only_metadata_sets_flag_and_empty_adapters() {
         sampling_params_json: "{}".to_string(),
         backend: "CoreML".to_string(),
         backend_version: None,
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: None,
         adapter_ids: Some(Vec::new()),
@@ -723,6 +776,10 @@ async fn test_base_only_metadata_sets_flag_and_empty_adapters() {
         tokens_generated: Some(3),
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
@@ -767,6 +824,9 @@ async fn test_legacy_metadata_without_base_only_remains_non_base() {
         sampling_params_json: "{}".to_string(),
         backend: "Metal".to_string(),
         backend_version: None,
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: None,
         adapter_ids: Some(vec!["adapter-legacy".to_string()]),
@@ -782,6 +842,10 @@ async fn test_legacy_metadata_without_base_only_remains_non_base() {
         tokens_generated: Some(2),
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
@@ -816,6 +880,9 @@ async fn test_base_only_replay_enforces_empty_adapter_list() {
         sampling_params_json: "{}".to_string(),
         backend: "Metal".to_string(),
         backend_version: None,
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: None,
         adapter_ids: Some(Vec::new()),
@@ -831,6 +898,10 @@ async fn test_base_only_replay_enforces_empty_adapter_list() {
         tokens_generated: Some(2),
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
@@ -928,6 +999,7 @@ async fn test_replay_with_golden_policy_enforcement() {
         require_seed: true,
         allow_fallback: false,
         replay_mode: "exact".to_string(),
+        ..Default::default()
     };
 
     let golden = GoldenPolicy {
@@ -998,6 +1070,9 @@ async fn test_replay_with_golden_policy_enforcement() {
         sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
         backend: backend.to_string(),
         backend_version: Some("v1.0.0".to_string()),
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: None,
         adapter_ids: Some(vec!["adapter-1".to_string(), "adapter-2".to_string()]),
@@ -1013,6 +1088,10 @@ async fn test_replay_with_golden_policy_enforcement() {
         tokens_generated: Some(25),
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: Some(policy_id.clone()),
         execution_policy_version: Some(policy.version as i32),
@@ -1122,6 +1201,7 @@ async fn test_replay_metadata_supports_drift_detection() {
         require_seed: true,
         allow_fallback: false, // No fallback = strict mode
         replay_mode: "exact".to_string(),
+        ..Default::default()
     };
 
     let request = CreateExecutionPolicyRequest {
@@ -1160,6 +1240,9 @@ async fn test_replay_metadata_supports_drift_detection() {
         sampling_params_json: serde_json::to_string(&sampling_params).unwrap(),
         backend: "Metal".to_string(),
         backend_version: Some("v1.0.0".to_string()),
+        coreml_package_hash: None,
+        coreml_expected_package_hash: None,
+        coreml_hash_mismatch: None,
         sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
         rag_snapshot_hash: None,
         adapter_ids: Some(vec!["adapter-a".to_string()]),
@@ -1175,6 +1258,10 @@ async fn test_replay_metadata_supports_drift_detection() {
         tokens_generated: Some(10),
         determinism_mode: Some("strict".to_string()),
         fallback_triggered: false,
+        coreml_compute_preference: None,
+        coreml_compute_units: None,
+        coreml_gpu_used: None,
+        fallback_backend: None,
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: Some(policy_id.clone()),
         execution_policy_version: Some(1),

@@ -10,8 +10,9 @@
 #![cfg(target_os = "macos")]
 
 use adapteros_lora_kernel_coreml::aos_loader::{
-    detect_format, extract_simple_manifest, parse_aos2_header, parse_simple_aos_header, AosFormat,
-    AOS2_HEADER_SIZE, AOS2_MAGIC, MIN_AOS_HEADER_SIZE,
+    detect_format, extract_simple_manifest, parse_aos2_header, parse_simple_aos_header,
+    read_coreml_sections, AosFormat, CoremlTrainingSection, PlacementRecord, AOS2_HEADER_SIZE,
+    AOS2_MAGIC, MIN_AOS_HEADER_SIZE,
 };
 
 // =============================================================================
@@ -786,6 +787,60 @@ fn test_edge_case_whitespace_in_manifest() {
 
     let result = extract_simple_manifest(&archive);
     assert!(result.is_ok());
+}
+
+#[test]
+fn test_read_coreml_sections_with_placement() {
+    let manifest = serde_json::json!({
+        "coreml": {
+            "coreml_used": true,
+            "coreml_device_type": "ane",
+            "coreml_precision_mode": "q15"
+        },
+        "placement": {
+            "records": [{
+                "graph_target": "transformer.layer_0.attn.q_proj",
+                "rank": 8,
+                "direction": "q_proj",
+                "alpha_override": 0.75
+            }]
+        }
+    });
+
+    let (coreml, placement) = read_coreml_sections(&manifest);
+    assert_eq!(
+        coreml,
+        Some(CoremlTrainingSection {
+            coreml_used: true,
+            coreml_device_type: Some("ane".to_string()),
+            coreml_precision_mode: Some("q15".to_string()),
+            coreml_compile_config_id: None
+        })
+    );
+    assert_eq!(
+        placement,
+        vec![PlacementRecord {
+            graph_target: "transformer.layer_0.attn.q_proj".to_string(),
+            rank: 8,
+            direction: "q_proj".to_string(),
+            alpha_override: Some(0.75)
+        }]
+    );
+}
+
+#[test]
+fn test_read_coreml_sections_when_absent() {
+    let manifest = serde_json::json!({
+        "version": "2.0",
+        "metadata": { "scope_path": "domain/group/scope/op" }
+    });
+
+    let (coreml, placement) = read_coreml_sections(&manifest);
+    assert!(coreml.is_none(), "coreml section should be optional");
+    assert!(
+        placement.is_empty(),
+        "placement records should default empty"
+    );
 }
 
 // =============================================================================

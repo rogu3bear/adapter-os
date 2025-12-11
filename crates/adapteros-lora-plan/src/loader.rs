@@ -473,18 +473,30 @@ mod tests {
         let adapter = adapteros_manifest::Adapter {
             id: "test-adapter".to_string(),
             hash: adapteros_core::B3Hash::hash(b"test"),
+            assurance_tier: adapteros_manifest::AssuranceTier::Standard,
             tier: adapteros_manifest::AdapterTier::Persistent,
             rank: 16,
             alpha: 32.0,
+            lora_strength: None,
             target_modules: vec!["q_proj".to_string(), "k_proj".to_string()],
             ttl: None,
             acl: vec![],
             warmup_prompt: None,
             dependencies: None,
+            determinism_seed: None,
+            determinism_backend: None,
+            determinism_device: None,
+            drift_reference_backend: None,
+            drift_metric: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
+            drift_tier: None,
+            drift_slice_size: None,
+            drift_slice_offset: None,
+            drift_loss_metric: None,
             // Code intelligence fields
             category: adapteros_manifest::AdapterCategory::Code,
             scope: adapteros_manifest::AdapterScope::Global,
-            lora_strength: None,
             framework_id: None,
             framework_version: None,
             repo_id: None,
@@ -517,10 +529,10 @@ mod tests {
         // Expected calculation:
         // rank=16, hidden_size=4096, intermediate_size=11008, num_layers=32
         // attention_params = 16 * (4096 + 4096) = 131,072
-        // mlp_params = 16 * (4096 + 11008 + 11008 + 4096) = 491,520
-        // params_per_layer = 131,072 + 491,520 = 622,592
-        // total_params = 622,592 * 32 = 19,922,944
-        // memory_bytes = 19,922,944 * 2 = 39,845,888
-        assert_eq!(memory, 39_845_888);
+        // mlp_params = 16 * (4096 + 11008 + 11008 + 4096) = 483,328
+        // params_per_layer = 131,072 + 483,328 = 614,400
+        // total_params = 614,400 * 32 = 19,660,800
+        // memory_bytes = 19,660,800 * 2 = 39,321,600
+        assert_eq!(memory, 39_321_600);
     }
 }

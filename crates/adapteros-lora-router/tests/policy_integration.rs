@@ -2,10 +2,15 @@
 //!
 //! Tests for PRD-ROUTER-01: Policy hooks and validation
 
-use adapteros_lora_router::{AdapterInfo, Router, RouterWeights};
+use adapteros_lora_router::{AdapterInfo, PolicyMask, Router, RouterWeights};
 use adapteros_policy::packs::router::{
     AdapterMetadata, RouterConfig, RouterPolicy, StackConfiguration,
 };
+
+fn allow_all_mask(adapters: &[AdapterInfo]) -> PolicyMask {
+    let ids: Vec<String> = adapters.iter().map(|a| a.id.clone()).collect();
+    PolicyMask::allow_all(&ids, None)
+}
 
 #[test]
 fn test_router_respects_k_sparse_policy() {
@@ -31,7 +36,8 @@ fn test_router_respects_k_sparse_policy() {
         })
         .collect();
 
-    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
     // Should only select 2 adapters (clamped to policy)
     assert_eq!(
@@ -248,7 +254,8 @@ fn test_entropy_floor_enforcement() {
         })
         .collect();
 
-    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
     let gates = decision.gates_f32();
 
     // All gates should be >= entropy floor / k
@@ -343,7 +350,7 @@ fn test_policy_integration_with_telemetry() {
         })
         .collect();
 
-    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, None);
 
     // Verify telemetry event was emitted
     let event = receiver

@@ -4,7 +4,7 @@
 //!
 //! Tests the complete integration between Rust status writer and Swift menu bar app.
 
-use adapteros_core::{BackendProfile, SeedMode};
+use adapteros_core::{BackendKind, SeedMode};
 use adapteros_db::Db;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::TrainingService;
@@ -212,8 +212,9 @@ async fn create_test_app_state(db: Db) -> AppState {
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,
-        backend_profile: BackendProfile::AutoDev,
+        backend_profile: BackendKind::Auto,
         worker_id: 0,
+        self_hosting: Default::default(),
     }));
 
     let metrics_exporter = Arc::new(MetricsExporter::new(Default::default()).unwrap());

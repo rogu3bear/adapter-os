@@ -1,5 +1,6 @@
 import { createElement, lazy } from 'react';
 import LegacyRedirectNotice from '@/components/LegacyRedirectNotice';
+import { lazyWithRetry } from '@/utils/lazyWithRetry';
 import type { UserRole } from '@/api/types';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -51,7 +52,7 @@ const AdapterRegisterPage = lazy(() => import('@/pages/Adapters/AdapterRegisterP
 const AdapterActivationsPage = lazy(() => import('@/pages/Adapters/AdapterActivations'));
 const AdapterLineagePage = lazy(() => import('@/pages/Adapters/AdapterLineage'));
 const AdapterManifestPage = lazy(() => import('@/pages/Adapters/AdapterManifest'));
-const AdaptersShellPage = lazy(() => import('@/pages/Adapters/AdaptersShell'));
+const AdaptersShellPage = lazyWithRetry(() => import('@/pages/Adapters/AdaptersShell'));
 const PoliciesPage = lazy(() => import('@/pages/PoliciesPage'));
 const MetricsPage = lazy(() => import('@/pages/MetricsPage'));
 const TelemetryPage = lazy(() => import('@/pages/TelemetryPage'));
@@ -60,6 +61,7 @@ const ObservabilityPage = lazy(() => import('@/pages/ObservabilityPage'));
 const InferencePage = lazy(() => import('@/pages/InferencePage'));
 const ChatPage = lazy(() => import('@/pages/ChatPage'));
 const AuditPage = lazy(() => import('@/pages/AuditPage'));
+const RepositoriesShellPage = lazy(() => import('@/pages/Repositories/RepositoriesShell'));
 const CompliancePage = lazy(() => import('@/pages/Security/ComplianceTab').then(m => ({ default: m.ComplianceTab })));
 const BaseModelsPage = lazy(() => import('@/pages/BaseModelsPage'));
 const WorkflowPage = lazy(() => import('@/pages/WorkflowPage'));
@@ -182,6 +184,39 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Guided Setup',
     cluster: 'Build',
     roleVisibility: ['admin'],
+  },
+  {
+    path: '/repos',
+    component: RepositoriesShellPage,
+    requiresAuth: true,
+    navGroup: 'Build',
+    navTitle: 'Repositories',
+    navIcon: GitBranch,
+    navOrder: 0,
+    skeletonVariant: 'table',
+    breadcrumb: 'Repositories',
+    cluster: 'Build',
+    roleVisibility: ['admin', 'operator'],
+  },
+  {
+    path: '/repos/:repoId',
+    component: RepositoriesShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Repository Detail',
+    parentPath: '/repos',
+    cluster: 'Build',
+    roleVisibility: ['admin', 'operator'],
+  },
+  {
+    path: '/repos/:repoId/versions/:versionId',
+    component: RepositoriesShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Version Detail',
+    parentPath: '/repos/:repoId',
+    cluster: 'Build',
+    roleVisibility: ['admin', 'operator'],
   },
   {
     // LEGACY: quick training retained; hidden from nav

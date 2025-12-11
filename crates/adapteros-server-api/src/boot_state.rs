@@ -183,25 +183,20 @@ impl BootStateManager {
         }
     }
 
-    /// Create a new boot state manager with database for audit logging
-    pub fn with_db(db: Arc<Db>) -> Self {
-        Self {
-            current: Arc::new(RwLock::new(BootState::Stopped)),
-            start_time: Instant::now(),
-            db: Some(db),
-            model_status: Arc::new(RwLock::new(ModelLoadingStatus::default())),
-        }
-    }
-
     /// Attach a database handle without resetting state or counters.
     /// Returns a new manager sharing the same state/time/model status.
-    pub fn attach_db(&self, db: Arc<Db>) -> Self {
+    pub fn with_db(&self, db: Arc<Db>) -> Self {
         Self {
             current: Arc::clone(&self.current),
             start_time: self.start_time,
             db: Some(db),
             model_status: Arc::clone(&self.model_status),
         }
+    }
+
+    /// Alias for `with_db` to keep call sites clear when upgrading after startup.
+    pub fn attach_db(&self, db: Arc<Db>) -> Self {
+        self.with_db(db)
     }
 
     /// Get the current state
@@ -369,13 +364,18 @@ impl BootStateManager {
 
     /// Validate ordered transition to prevent skipping boot/drain steps.
     fn is_allowed_transition(from: BootState, to: BootState) -> bool {
+        // Allow both the canonical DB-first boot path and the backend-first path
+        // currently executed by adapteros-server during startup.
         matches!(
             (from, to),
             (BootState::Stopped, BootState::Booting)
+                | (BootState::Booting, BootState::StartingBackend)
                 | (BootState::Booting, BootState::InitializingDb)
                 | (BootState::InitializingDb, BootState::LoadingPolicies)
                 | (BootState::LoadingPolicies, BootState::StartingBackend)
+                | (BootState::LoadingPolicies, BootState::LoadingAdapters)
                 | (BootState::StartingBackend, BootState::LoadingBaseModels)
+                | (BootState::LoadingBaseModels, BootState::InitializingDb)
                 | (BootState::LoadingBaseModels, BootState::LoadingAdapters)
                 | (BootState::LoadingAdapters, BootState::Ready)
                 | (BootState::Ready, BootState::FullyReady)
@@ -472,6 +472,7 @@ impl Clone for BootStateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_state_transitions() {
@@ -561,6 +562,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_runtime_boot_order() {
+        let manager = BootStateManager::new();
+
+        // This mirrors the startup order used by adapteros-server today.
+        manager.boot().await;
+        manager.start_backend().await;
+        manager.load_base_models().await;
+        manager.init_db().await;
+        manager.load_policies().await;
+        manager.load_adapters().await;
+        manager.ready().await;
+
+        assert_eq!(manager.current_state(), BootState::Ready);
+        assert!(manager.is_ready());
+        assert!(!manager.is_booting());
+    }
+
+    #[tokio::test]
     async fn test_model_loading_tracking() {
         let manager = BootStateManager::new();
 
@@ -642,6 +661,32 @@ mod tests {
         manager
             .transition(BootState::LoadingAdapters, "invalid-backward")
             .await;
+        assert_eq!(manager.current_state(), BootState::Ready);
+    }
+
+    #[tokio::test]
+    async fn attach_db_preserves_state_and_transitions_ordered() {
+        let manager = BootStateManager::new();
+
+        manager.boot().await;
+        manager.init_db().await;
+
+        let elapsed_before = manager.elapsed();
+
+        std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+        let db = Arc::new(adapteros_db::Db::new_in_memory().await.unwrap());
+        let attached = manager.attach_db(Arc::clone(&db));
+
+        let elapsed_after = attached.elapsed();
+        assert!(elapsed_after >= elapsed_before);
+
+        attached.load_policies().await;
+        attached.start_backend().await;
+        attached.load_base_models().await;
+        attached.load_adapters().await;
+        attached.ready().await;
+
+        assert_eq!(attached.current_state(), BootState::Ready);
         assert_eq!(manager.current_state(), BootState::Ready);
     }
 }

@@ -3,9 +3,12 @@
 //! Handles lifecycle state transitions and version history for adapters and stacks.
 
 use crate::Db;
+use adapteros_core::lifecycle::{LifecycleState, LifecycleTransition};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::Row;
+use std::str::FromStr;
 
 /// A lifecycle transition event from version history
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -56,6 +59,14 @@ impl Db {
         reason: &str,
         initiated_by: &str,
     ) -> Result<String> {
+        let new_state_enum = LifecycleState::from_str(new_state).map_err(|e| {
+            AosError::Validation(format!(
+                "Invalid lifecycle state '{}': {}",
+                new_state,
+                e.to_string()
+            ))
+        })?;
+
         // Use transaction to ensure atomicity of read-modify-write
         let mut tx = self
             .pool()
@@ -63,22 +74,110 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-        // Get current state, version, and PK (id) for FK reference
-        let row =
-            sqlx::query("SELECT id, lifecycle_state, version FROM adapters WHERE adapter_id = ?")
-                .bind(adapter_id)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|e| AosError::Database(e.to_string()))?
-                .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+        // Get current state, version, artifact references, and repo metadata
+        let row = sqlx::query(
+            "SELECT id, lifecycle_state, version, aos_file_path, aos_file_hash, content_hash_b3, repo_id, metadata_json
+             FROM adapters WHERE adapter_id = ?",
+        )
+        .bind(adapter_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?
+        .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
         let adapter_pk: String = row.get(0); // adapters.id (PK) for FK reference
-        let current_state: String = row.get(1);
+        let current_state_str: String = row.get(1);
         let current_version: String = row.get(2);
+        let aos_file_path: Option<String> = row.get(3);
+        let aos_file_hash: Option<String> = row.get(4);
+        let content_hash_b3: Option<String> = row.get(5);
+        let repo_id: Option<String> = row.get(6);
+        let metadata_json: Option<String> = row.get(7);
+
+        let current_state = LifecycleState::from_str(&current_state_str).map_err(|_| {
+            AosError::Validation(format!(
+                "Invalid current lifecycle state: {}",
+                current_state_str
+            ))
+        })?;
+
+        // Validate requested transition follows the lifecycle graph
+        LifecycleTransition::new(current_state, new_state_enum)
+            .validate()
+            .map_err(|e| AosError::Validation(e.to_string()))?;
+
+        // Immutable artifact required for ready/active/deprecated/retired
+        if matches!(
+            new_state_enum,
+            LifecycleState::Ready
+                | LifecycleState::Active
+                | LifecycleState::Deprecated
+                | LifecycleState::Retired
+        ) {
+            if aos_file_path.as_deref().map(str::is_empty).unwrap_or(true)
+                || aos_file_hash.as_deref().map(str::is_empty).unwrap_or(true)
+                || content_hash_b3
+                    .as_deref()
+                    .map(str::is_empty)
+                    .unwrap_or(true)
+            {
+                return Err(AosError::Validation(
+                    "Immutable .aos artifact (path, hash, content hash) required before entering ready/active/deprecated/retired"
+                        .to_string(),
+                ));
+            }
+        }
+
+        // Active requires prior metrics/policy evidence and uniqueness per repo/branch
+        if matches!(new_state_enum, LifecycleState::Active) {
+            // Require at least one training snapshot (acts as metrics/provenance evidence)
+            let snapshot_exists: Option<i64> = sqlx::query_scalar(
+                "SELECT 1 FROM adapter_training_snapshots WHERE adapter_id = ? LIMIT 1",
+            )
+            .bind(adapter_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to check training snapshot: {}", e)))?;
+
+            if snapshot_exists.is_none() {
+                return Err(AosError::Validation(
+                    "Active state requires a training snapshot/metrics evidence".to_string(),
+                ));
+            }
+
+            // Enforce single active per (repo_id, branch)
+            if let Some(repo_id_val) = repo_id.as_deref() {
+                let requested_branch = branch_from_metadata(&metadata_json);
+                let rows = sqlx::query("SELECT adapter_id, metadata_json FROM adapters WHERE repo_id = ? AND lifecycle_state = 'active'")
+                    .bind(repo_id_val)
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(|e| AosError::Database(format!("Failed to check active adapters: {}", e)))?;
+
+                for row in rows {
+                    let other_id: String = row.get(0);
+                    if other_id == adapter_id {
+                        continue;
+                    }
+                    let other_branch = branch_from_metadata(&row.get::<Option<String>, _>(1));
+                    let branches_conflict = match (&requested_branch, &other_branch) {
+                        (Some(req), Some(other)) => req == other,
+                        (Some(_), None) => true, // unknown branch -> treat as conflict
+                        (None, _) => true,       // unknown requested branch -> conservative
+                    };
+                    if branches_conflict {
+                        return Err(AosError::Validation(format!(
+                            "Active state requires uniqueness per repo/branch; adapter {} is already active for repo {}",
+                            other_id, repo_id_val
+                        )));
+                    }
+                }
+            }
+        }
 
         // Validate transition (done in application layer via LifecycleTransition)
         // This is a simple check to prevent obviously invalid transitions
-        if current_state == new_state {
+        if current_state == new_state_enum {
             // No-op transition, just record it but don't bump version
             sqlx::query(
                 "INSERT INTO adapter_version_history
@@ -87,8 +186,8 @@ impl Db {
             )
             .bind(&adapter_pk)  // Use adapters.id (PK) for FK reference
             .bind(&current_version)
-            .bind(new_state)
-            .bind(&current_state)
+            .bind(new_state_enum.as_str())
+            .bind(current_state.as_str())
             .bind(reason)
             .bind(initiated_by)
             .execute(&mut *tx)
@@ -110,7 +209,7 @@ impl Db {
              SET lifecycle_state = ?, version = ?
              WHERE adapter_id = ?",
         )
-        .bind(new_state)
+        .bind(new_state_enum.as_str())
         .bind(&new_version)
         .bind(adapter_id)
         .execute(&mut *tx)
@@ -125,8 +224,8 @@ impl Db {
         )
         .bind(&adapter_pk) // Use adapters.id (PK) for FK reference
         .bind(&new_version)
-        .bind(new_state)
-        .bind(&current_state)
+        .bind(new_state_enum.as_str())
+        .bind(current_state.as_str())
         .bind(reason)
         .bind(initiated_by)
         .execute(&mut *tx)
@@ -382,6 +481,17 @@ impl Db {
     }
 }
 
+fn branch_from_metadata(metadata_json: &Option<String>) -> Option<String> {
+    metadata_json.as_ref().and_then(|raw| {
+        let parsed: Value = serde_json::from_str(raw).ok()?;
+        parsed
+            .get("branch")
+            .and_then(|v| v.as_str())
+            .or_else(|| parsed.get("git_branch").and_then(|v| v.as_str()))
+            .map(|s| s.to_string())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,6 +537,15 @@ mod tests {
             .unwrap();
 
         db.register_adapter(params).await.unwrap();
+
+        // Seed artifact and provenance required for ready/active/...
+        sqlx::query(
+            "UPDATE adapters SET aos_file_path = 'path/to.aos', aos_file_hash = 'hash123', content_hash_b3 = 'content123', repo_id = 'repo-1', metadata_json = '{\"branch\":\"main\"}' WHERE adapter_id = ?",
+        )
+        .bind("test-adapter")
+        .execute(db.pool())
+        .await
+        .unwrap();
 
         // Transition from active to deprecated
         let new_version = db
@@ -476,6 +595,24 @@ mod tests {
             .unwrap();
 
         db.register_adapter(params).await.unwrap();
+
+        sqlx::query(
+            "UPDATE adapters SET aos_file_path = 'path/to.aos', aos_file_hash = 'hash123', content_hash_b3 = 'content123', repo_id = 'repo-1', metadata_json = '{\"branch\":\"main\"}' WHERE adapter_id = ?",
+        )
+        .bind("test-adapter")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO adapter_training_snapshots (id, tenant_id, adapter_id, training_job_id, collection_id, documents_json, chunk_manifest_hash, chunking_config_json, created_at)
+             VALUES ('snap-1', ?, ?, 'job-1', NULL, '[]', 'chunk-hash', '{}', datetime('now'))",
+        )
+        .bind(&tenant_id)
+        .bind("test-adapter")
+        .execute(db.pool())
+        .await
+        .unwrap();
 
         // Transition to same state (no-op)
         let version = db

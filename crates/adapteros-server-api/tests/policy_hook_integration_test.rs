@@ -56,6 +56,8 @@ async fn test_hook_enforcement_logs_decisions() -> Result<()> {
         jti: "test-token".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: adapteros_server_api::auth::AuthMode::BearerToken,
+        principal_type: Some(adapteros_server_api::auth::PrincipalType::User),
     };
 
     // Create hook context for OnBeforeInference
@@ -97,6 +99,186 @@ async fn test_hook_enforcement_logs_decisions() -> Result<()> {
     Ok(())
 }
 
+/// Test: OnBeforeInference hooks log for both live and replay inference
+#[tokio::test]
+async fn test_hook_parity_live_and_replay() -> Result<()> {
+    let state = common::setup_state(None).await.unwrap();
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES ('parity-test', 'Parity Test', 0)",
+    )
+    .execute(state.db.pool())
+    .await
+    .map_err(|e| adapteros_core::AosError::Database(e.to_string()))?;
+
+    state
+        .db
+        .initialize_tenant_policy_bindings("parity-test", "system")
+        .await?;
+
+    let claims = adapteros_server_api::auth::Claims {
+        sub: "parity-user".to_string(),
+        email: "parity@example.com".to_string(),
+        role: "operator".to_string(),
+        roles: vec!["operator".to_string()],
+        tenant_id: "parity-test".to_string(),
+        admin_tenants: vec![],
+        device_id: None,
+        session_id: None,
+        mfa_level: None,
+        rot_id: None,
+        exp: 9999999999,
+        iat: 0,
+        jti: "parity-token".to_string(),
+        nbf: 0,
+        iss: "adapteros".to_string(),
+        auth_mode: adapteros_server_api::auth::AuthMode::BearerToken,
+        principal_type: Some(adapteros_server_api::auth::PrincipalType::User),
+    };
+
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Routing hooks
+    let live_routing_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnRequestBeforeRouting,
+        "inference",
+        None,
+    );
+    enforce_at_hook(&state, &live_routing_ctx).await.unwrap();
+
+    let replay_routing_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnRequestBeforeRouting,
+        "replay_inference",
+        None,
+    );
+    enforce_at_hook(&state, &replay_routing_ctx).await.unwrap();
+
+    // Live inference hook
+    let live_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnBeforeInference,
+        "inference",
+        None,
+    );
+    enforce_at_hook(&state, &live_ctx).await.unwrap();
+
+    // Replay inference hook
+    let replay_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnBeforeInference,
+        "replay_inference",
+        None,
+    );
+    enforce_at_hook(&state, &replay_ctx).await.unwrap();
+
+    let live_after_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnAfterInference,
+        "inference",
+        None,
+    );
+    enforce_at_hook(&state, &live_after_ctx).await.unwrap();
+
+    let replay_after_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnAfterInference,
+        "replay_inference",
+        None,
+    );
+    enforce_at_hook(&state, &replay_after_ctx).await.unwrap();
+
+    let filters = PolicyDecisionFilters {
+        tenant_id: Some("parity-test".to_string()),
+        hook: Some("on_before_inference".to_string()),
+        ..Default::default()
+    };
+    let decisions = state.db.query_policy_decisions(filters).await?;
+
+    let routing_filters = PolicyDecisionFilters {
+        tenant_id: Some("parity-test".to_string()),
+        hook: Some("on_request_before_routing".to_string()),
+        ..Default::default()
+    };
+    let routing_decisions = state.db.query_policy_decisions(routing_filters).await?;
+
+    let mut routing_live = false;
+    let mut routing_replay = false;
+    for decision in routing_decisions {
+        if decision.resource_type.as_deref() == Some("inference") {
+            routing_live = true;
+        }
+        if decision.resource_type.as_deref() == Some("replay_inference") {
+            routing_replay = true;
+        }
+    }
+
+    assert!(
+        routing_live,
+        "expected policy audit decision for live routing hook"
+    );
+    assert!(
+        routing_replay,
+        "expected policy audit decision for replay routing hook"
+    );
+
+    let mut has_live = false;
+    let mut has_replay = false;
+    for decision in decisions {
+        if decision.resource_type.as_deref() == Some("inference") {
+            has_live = true;
+        }
+        if decision.resource_type.as_deref() == Some("replay_inference") {
+            has_replay = true;
+        }
+    }
+
+    assert!(
+        has_live,
+        "expected policy audit decision for live inference hook"
+    );
+    assert!(
+        has_replay,
+        "expected policy audit decision for replay inference hook"
+    );
+
+    let after_filters = PolicyDecisionFilters {
+        tenant_id: Some("parity-test".to_string()),
+        hook: Some("on_after_inference".to_string()),
+        ..Default::default()
+    };
+    let after_decisions = state.db.query_policy_decisions(after_filters).await?;
+
+    let mut after_live = false;
+    let mut after_replay = false;
+    for decision in after_decisions {
+        if decision.resource_type.as_deref() == Some("inference") {
+            after_live = true;
+        }
+        if decision.resource_type.as_deref() == Some("replay_inference") {
+            after_replay = true;
+        }
+    }
+
+    assert!(
+        after_live,
+        "expected policy audit decision for live inference OnAfterInference hook"
+    );
+    assert!(
+        after_replay,
+        "expected policy audit decision for replay inference OnAfterInference hook"
+    );
+
+    Ok(())
+}
+
 /// Test: OnRequestBeforeRouting hook is called before OnBeforeInference
 ///
 /// This test verifies the hook ordering by checking audit trail timestamps
@@ -133,6 +315,8 @@ async fn test_hook_ordering_routing_before_inference() -> Result<()> {
         jti: "test-token".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: adapteros_server_api::auth::AuthMode::BearerToken,
+        principal_type: Some(adapteros_server_api::auth::PrincipalType::User),
     };
 
     let request_id = uuid::Uuid::new_v4().to_string();
@@ -212,6 +396,8 @@ async fn test_streaming_fires_all_three_hooks() -> Result<()> {
         jti: "test-token".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: adapteros_server_api::auth::AuthMode::BearerToken,
+        principal_type: Some(adapteros_server_api::auth::PrincipalType::User),
     };
 
     let request_id = uuid::Uuid::new_v4().to_string();

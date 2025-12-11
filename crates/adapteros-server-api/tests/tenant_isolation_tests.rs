@@ -7,14 +7,31 @@
 //! - List Operations: Lists are properly filtered by tenant
 //! - Admin Override: Admin role can access all tenants' resources
 
+use adapteros_api_types::adapters::PromoteVersionRequest;
+use adapteros_api_types::training::ValidateDatasetRequest;
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
+use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_db::adapters::AdapterRegistrationBuilder;
+use adapteros_db::sqlx;
 use adapteros_db::users::Role;
 use adapteros_db::Db;
-use adapteros_server_api::auth::Claims;
+use adapteros_server_api::auth::{AuthMode, Claims, PrincipalType};
+use adapteros_server_api::handlers::code::{
+    get_repository, register_repo, RegisterRepositoryRequest,
+};
+use adapteros_server_api::handlers::datasets::validate_dataset;
+use adapteros_server_api::handlers::list_repositories;
+use adapteros_server_api::handlers::promote_adapter_version_handler;
 use adapteros_server_api::permissions::{require_permission, Permission};
+use adapteros_server_api::state::AppState;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::{Extension, Json};
 use chrono::{Duration, Utc};
+mod common;
+use common::{setup_state, test_admin_claims};
 use uuid::Uuid;
 
 /// Test helper to create a tenant
@@ -68,6 +85,8 @@ fn create_test_claims(user_id: &str, email: &str, role: &str, tenant_id: &str) -
         jti: Uuid::new_v4().to_string(),
         nbf: now.timestamp(),
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     }
 }
 
@@ -133,6 +152,54 @@ async fn create_test_adapter(
         .map_err(|e| AosError::Validation(format!("Failed to build adapter params: {}", e)))?;
 
     db.register_adapter(params).await
+}
+
+async fn create_test_repo(db: &Db, tenant_id: &str, name: &str) -> Result<String> {
+    db.create_adapter_repository(CreateRepositoryParams {
+        tenant_id,
+        name,
+        base_model_id: Some("base-model"),
+        default_branch: None,
+        created_by: Some("tester"),
+        description: Some("test repo"),
+    })
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to create repo: {}", e)))
+}
+
+async fn create_test_version(
+    db: &Db,
+    tenant_id: &str,
+    repo_id: &str,
+    branch: &str,
+    version: &str,
+) -> Result<String> {
+    db.create_adapter_version(adapteros_db::CreateVersionParams {
+        repo_id,
+        tenant_id,
+        version,
+        branch,
+        branch_classification: "protected",
+        aos_path: None,
+        aos_hash: None,
+        manifest_schema_version: None,
+        parent_version_id: None,
+        code_commit_sha: None,
+        data_spec_hash: None,
+        training_backend: None,
+        coreml_used: None,
+        coreml_device_type: None,
+        dataset_version_ids: None,
+        release_state: "ready",
+        metrics_snapshot_id: None,
+        evaluation_summary: None,
+        allow_archived: false,
+        actor: Some("tester"),
+        reason: None,
+        train_job_id: None,
+    })
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to create version: {}", e)))
 }
 
 // =============================================================================
@@ -269,6 +336,209 @@ async fn test_cross_tenant_training_job_access_denied() -> Result<()> {
 }
 
 // =============================================================================
+// TEST SUITE: Cross-Tenant Adapter Version Access Denied
+// =============================================================================
+
+#[tokio::test]
+async fn test_cross_tenant_adapter_versions_are_isolated() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    create_test_tenant(&db, "tenant-a").await?;
+    create_test_tenant(&db, "tenant-b").await?;
+
+    let repo_a = create_test_repo(&db, "tenant-a", "repo-a").await?;
+    let _version_a = create_test_version(&db, "tenant-a", &repo_a, "main", "1.0.0").await?;
+
+    // Tenant A sees its version
+    let versions_a = db
+        .list_adapter_versions_for_repo("tenant-a", &repo_a, Some("main"), None)
+        .await?;
+    assert_eq!(versions_a.len(), 1);
+
+    // Tenant B should not see Tenant A versions
+    let versions_b = db
+        .list_adapter_versions_for_repo("tenant-b", &repo_a, Some("main"), None)
+        .await?;
+    assert!(
+        versions_b.is_empty(),
+        "Tenant B must not see Tenant A adapter versions"
+    );
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST SUITE: Dataset Validation Tenant Isolation
+// =============================================================================
+
+#[tokio::test]
+async fn test_dataset_validate_enforces_tenant_isolation() -> Result<()> {
+    let state: AppState = setup_state(None).await.expect("state");
+
+    // Seed dataset with tenant-a ownership
+    let dataset_id = "ds-iso";
+    state
+        .db
+        .create_training_dataset_with_id(
+            dataset_id,
+            "Dataset ISO",
+            Some("desc"),
+            "jsonl",
+            "hash-iso",
+            "/tmp/ds",
+            Some("tester"),
+        )
+        .await?;
+    sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
+        .bind("tenant-a")
+        .bind(dataset_id)
+        .execute(state.db.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to set tenant: {}", e)))?;
+
+    // Claims for tenant-b (no admin_tenants grants)
+    let mut claims = test_admin_claims();
+    claims.tenant_id = "tenant-b".to_string();
+    claims.admin_tenants = vec![];
+
+    let result = validate_dataset(
+        State(state.clone()),
+        Extension(claims),
+        Path(dataset_id.to_string()),
+        Json(ValidateDatasetRequest {
+            check_format: Some(false),
+        }),
+    )
+    .await;
+
+    match result {
+        Err((status, _)) => assert_eq!(status, StatusCode::FORBIDDEN),
+        Ok(_) => panic!("Cross-tenant validation must be forbidden"),
+    }
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST SUITE: Repository List Tenant Isolation
+// =============================================================================
+
+#[tokio::test]
+async fn test_repository_list_filtered_by_tenant() -> Result<()> {
+    let state: AppState = setup_state(None).await.expect("state");
+
+    // Seed repos for two tenants
+    let repo_a = create_test_repo(&state.db, "tenant-a", "repo-a").await?;
+    let repo_b = create_test_repo(&state.db, "tenant-b", "repo-b").await?;
+
+    let mut claims_a = test_admin_claims();
+    claims_a.tenant_id = "tenant-a".to_string();
+    let Json(list_a) = list_repositories(State(state.clone()), Extension(claims_a))
+        .await
+        .unwrap();
+    let ids_a: Vec<String> = list_a.into_iter().map(|r| r.id).collect();
+    assert!(ids_a.contains(&repo_a), "Tenant A should see its own repo");
+    assert!(
+        !ids_a.contains(&repo_b),
+        "Tenant A must not see Tenant B repo"
+    );
+
+    let mut claims_b = test_admin_claims();
+    claims_b.tenant_id = "tenant-b".to_string();
+    let Json(list_b) = list_repositories(State(state.clone()), Extension(claims_b))
+        .await
+        .unwrap();
+    let ids_b: Vec<String> = list_b.into_iter().map(|r| r.id).collect();
+    assert!(ids_b.contains(&repo_b), "Tenant B should see its own repo");
+    assert!(
+        !ids_b.contains(&repo_a),
+        "Tenant B must not see Tenant A repo"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_repository_detail_respects_tenant() -> Result<()> {
+    let state: AppState = setup_state(None).await.expect("state");
+
+    let repo_a = create_test_repo(&state.db, "tenant-a", "repo-a-detail").await?;
+
+    let mut claims_b = test_admin_claims();
+    claims_b.tenant_id = "tenant-b".to_string();
+
+    let result = get_repository(
+        State(state.clone()),
+        Extension(claims_b),
+        Path(repo_a.clone()),
+    )
+    .await;
+
+    match result {
+        Err((status, _)) => assert_eq!(status, StatusCode::NOT_FOUND),
+        Ok(_) => panic!("Cross-tenant repo detail must not be readable"),
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_repository_register_blocks_cross_tenant() -> Result<()> {
+    let state: AppState = setup_state(None).await.expect("state");
+
+    let mut claims_b = test_admin_claims();
+    claims_b.tenant_id = "tenant-b".to_string();
+
+    let result = register_repo(
+        State(state.clone()),
+        Extension(claims_b),
+        Json(RegisterRepositoryRequest {
+            tenant_id: "tenant-a".to_string(),
+            repo_id: "repo-cross".to_string(),
+            path: "/tmp/repo".to_string(),
+            languages: vec!["rust".to_string()],
+            default_branch: "main".to_string(),
+        }),
+    )
+    .await;
+
+    match result {
+        Err((status, _)) => assert_eq!(status, StatusCode::FORBIDDEN),
+        Ok(_) => panic!("Cross-tenant register should not succeed"),
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_adapter_version_promotion_blocks_cross_tenant() -> Result<()> {
+    let state: AppState = setup_state(None).await.expect("state");
+
+    let repo_a = create_test_repo(&state.db, "tenant-a", "repo-promote").await?;
+    let version_a = create_test_version(&state.db, "tenant-a", &repo_a, "main", "1.2.3").await?;
+
+    let mut claims_b = test_admin_claims();
+    claims_b.tenant_id = "tenant-b".to_string();
+
+    let result = promote_adapter_version_handler(
+        State(state.clone()),
+        Extension(claims_b),
+        Path(version_a.clone()),
+        Json(PromoteVersionRequest {
+            repo_id: repo_a.clone(),
+        }),
+    )
+    .await;
+
+    match result {
+        Err((status, _)) => assert_eq!(status, StatusCode::NOT_FOUND),
+        Ok(_) => panic!("Cross-tenant promotion should not succeed"),
+    }
+
+    Ok(())
+}
+
+// =============================================================================
 // TEST SUITE: Cross-Tenant Adapter Access Denied
 // =============================================================================
 
@@ -282,7 +552,7 @@ async fn test_cross_tenant_adapter_access_denied() -> Result<()> {
     create_test_tenant(&db, "tenant-b").await?;
 
     // Create adapters for each tenant
-    let adapter_a_id = create_test_adapter(&db, "adapter-a-1", "tenant-a", "Adapter A1").await?;
+    let _adapter_a_id = create_test_adapter(&db, "adapter-a-1", "tenant-a", "Adapter A1").await?;
     let adapter_b_id = create_test_adapter(&db, "adapter-b-1", "tenant-b", "Adapter B1").await?;
 
     // List adapters for tenant A (should only see their own)
@@ -317,6 +587,124 @@ async fn test_cross_tenant_adapter_access_denied() -> Result<()> {
     assert_eq!(
         adapter_b_from_db.tenant_id, "tenant-b",
         "Adapter should belong to tenant-b"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_adapter_for_tenant_enforces_isolation() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    create_test_tenant(&db, "tenant-a").await?;
+    create_test_tenant(&db, "tenant-b").await?;
+
+    create_test_adapter(&db, "adapter-a-1", "tenant-a", "Adapter A1").await?;
+
+    let same_tenant = db.get_adapter_for_tenant("tenant-a", "adapter-a-1").await?;
+    assert!(same_tenant.is_some(), "tenant-a should see its adapter");
+
+    let cross_tenant = db.get_adapter_for_tenant("tenant-b", "adapter-a-1").await?;
+    assert!(
+        cross_tenant.is_none(),
+        "tenant-b must not see tenant-a adapter"
+    );
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST SUITE: Cross-Tenant Base Model Access Denied
+// =============================================================================
+
+#[tokio::test]
+async fn test_cross_tenant_base_model_access_denied() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    create_test_tenant(&db, "tenant-a").await?;
+    create_test_tenant(&db, "tenant-b").await?;
+
+    // Insert tenant-scoped base models
+    sqlx::query("INSERT INTO models (id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, metadata_json, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind("model-a-id")
+        .bind("model-a")
+        .bind("hash-a")
+        .bind(None::<String>)
+        .bind("config-hash-a")
+        .bind("tokenizer-hash-a")
+        .bind("tokenizer-cfg-hash-a")
+        .bind(None::<String>)
+        .bind("tenant-a")
+        .execute(db.pool())
+        .await?;
+
+    sqlx::query("INSERT INTO models (id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, metadata_json, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind("model-b-id")
+        .bind("model-b")
+        .bind("hash-b")
+        .bind(None::<String>)
+        .bind("config-hash-b")
+        .bind("tokenizer-hash-b")
+        .bind("tokenizer-cfg-hash-b")
+        .bind(None::<String>)
+        .bind("tenant-b")
+        .execute(db.pool())
+        .await?;
+
+    // Global model (tenant_id NULL) should be visible to all tenants
+    sqlx::query("INSERT INTO models (id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind("model-global-id")
+        .bind("model-global")
+        .bind("hash-g")
+        .bind(None::<String>)
+        .bind("config-hash-g")
+        .bind("tokenizer-hash-g")
+        .bind("tokenizer-cfg-hash-g")
+        .bind(None::<String>)
+        .execute(db.pool())
+        .await?;
+
+    let tenant_a_model = db.get_model_for_tenant("tenant-a", "model-a-id").await?;
+    assert!(
+        tenant_a_model.is_some(),
+        "tenant-a should see its base model"
+    );
+
+    let tenant_b_denied = db.get_model_for_tenant("tenant-b", "model-a-id").await?;
+    assert!(
+        tenant_b_denied.is_none(),
+        "tenant-b must not see tenant-a base model"
+    );
+
+    let model_b_by_name = db
+        .get_model_by_name_for_tenant("tenant-b", "model-b")
+        .await?;
+    assert!(
+        model_b_by_name.is_some(),
+        "tenant-b should resolve its base model by name"
+    );
+
+    let cross_name_lookup = db
+        .get_model_by_name_for_tenant("tenant-a", "model-b")
+        .await?;
+    assert!(
+        cross_name_lookup.is_none(),
+        "tenant-a must not resolve tenant-b base model by name"
+    );
+
+    let global_a = db
+        .get_model_by_name_for_tenant("tenant-a", "model-global")
+        .await?;
+    assert!(
+        global_a.is_some(),
+        "global model should be visible to tenant-a"
+    );
+    let global_b = db
+        .get_model_by_name_for_tenant("tenant-b", "model-global")
+        .await?;
+    assert!(
+        global_b.is_some(),
+        "global model should be visible to tenant-b"
     );
 
     Ok(())
@@ -803,6 +1191,8 @@ async fn test_token_before_baseline_should_be_rejected() -> Result<()> {
         jti: Uuid::new_v4().to_string(),
         nbf: token_iat_timestamp,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     // Baseline set to T1 (2025-12-02T00:00:00Z) - AFTER token was issued

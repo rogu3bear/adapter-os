@@ -277,8 +277,9 @@ mlx_array_t* mlx_model_forward(mlx_model_t* model, mlx_array_t* input) {
     if (!model || !input) return nullptr;
     try {
         auto mdl = reinterpret_cast<StubModel*>(model);
+        (void)mdl;  // Suppress unused variable warning
         auto inp = reinterpret_cast<StubArray*>(input);
-        
+
         // Stub forward pass - return dummy output
         std::vector<float> output(inp->data.size(), 0.5f);
         auto result = new StubArray(output);
@@ -293,8 +294,9 @@ mlx_array_t* mlx_model_forward_with_hidden_states(mlx_model_t* model, mlx_array_
     if (!model || !input || !hidden_states || !num_hidden) return nullptr;
     try {
         auto mdl = reinterpret_cast<StubModel*>(model);
+        (void)mdl;  // Suppress unused variable warning
         auto inp = reinterpret_cast<StubArray*>(input);
-        
+
         // Stub forward pass with hidden states
         // Create dummy hidden states for the 4 target modules
         const int num_modules = 4;
@@ -465,7 +467,8 @@ mlx_array_t* mlx_matmul(mlx_array_t* a, mlx_array_t* b) {
     try {
         auto arr_a = reinterpret_cast<StubArray*>(a);
         auto arr_b = reinterpret_cast<StubArray*>(b);
-        
+        (void)arr_b;  // Suppress unused variable warning
+
         // Simple matrix multiplication stub
         std::vector<float> result(arr_a->data.size(), 0.0f);
         for (size_t i = 0; i < arr_a->data.size(); ++i) {
@@ -577,7 +580,9 @@ mlx_array_t* mlx_lora_forward(mlx_array_t* input, mlx_array_t* lora_a, mlx_array
         auto inp = reinterpret_cast<StubArray*>(input);
         auto a = reinterpret_cast<StubArray*>(lora_a);
         auto b = reinterpret_cast<StubArray*>(lora_b);
-        
+        (void)a;  // Suppress unused variable warning
+        (void)b;  // Suppress unused variable warning
+
         // Simple LoRA forward pass stub
         std::vector<float> result(inp->data.size(), 0.0f);
         for (size_t i = 0; i < inp->data.size(); ++i) {

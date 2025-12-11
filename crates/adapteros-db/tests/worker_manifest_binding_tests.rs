@@ -230,7 +230,7 @@ async fn test_list_compatible_workers_for_tenant() {
 }
 
 #[tokio::test]
-async fn test_list_serving_workers_filters_schema() {
+async fn test_list_healthy_workers_filters_schema() {
     let db = create_test_db().await.expect("Failed to create test db");
 
     // Insert worker with compatible schema
@@ -240,7 +240,7 @@ async fn test_list_serving_workers_filters_schema() {
         DEFAULT_TENANT_ID,
         "test-manifest",
         API_SCHEMA_VERSION,
-        "serving",
+        "healthy",
     )
     .await;
 
@@ -251,15 +251,15 @@ async fn test_list_serving_workers_filters_schema() {
         DEFAULT_TENANT_ID,
         "test-manifest",
         "999.0.0", // Incompatible
-        "serving",
+        "healthy",
     )
     .await;
 
-    // List all serving workers (should filter by schema)
+    // List all healthy workers (should filter by schema)
     let serving = db
-        .list_serving_workers()
+        .list_healthy_workers()
         .await
-        .expect("Failed to list serving workers");
+        .expect("Failed to list healthy workers");
 
     // Should only return workers with compatible schema
     let compat_ids: Vec<_> = serving.iter().map(|w| w.id.as_str()).collect();
@@ -278,7 +278,7 @@ async fn test_worker_with_null_schema_excluded() {
         DEFAULT_TENANT_ID,
         "test-manifest",
         API_SCHEMA_VERSION,
-        "serving",
+        "healthy",
     )
     .await;
 
@@ -286,7 +286,7 @@ async fn test_worker_with_null_schema_excluded() {
     // Use node-01 (from seed) and test-plan (from ensure_test_infrastructure)
     sqlx::query(
         "INSERT INTO workers (id, tenant_id, node_id, plan_id, uds_path, pid, status, manifest_hash_b3, schema_version, started_at)
-         VALUES ('worker-null-schema', ?, 'node-01', 'test-plan', '/var/run/w2.sock', 5002, 'serving', 'test-manifest', NULL, datetime('now'))"
+         VALUES ('worker-null-schema', ?, 'node-01', 'test-plan', '/var/run/w2.sock', 5002, 'healthy', 'test-manifest', NULL, datetime('now'))"
     )
     .bind(DEFAULT_TENANT_ID)
     .execute(&*db.pool())
@@ -302,6 +302,200 @@ async fn test_worker_with_null_schema_excluded() {
     // Should only return worker with proper schema, not the NULL one
     assert_eq!(compatible.len(), 1);
     assert_eq!(compatible[0].id, "worker-with-schema");
+}
+
+#[tokio::test]
+async fn worker_transition_requires_registered_before_healthy() {
+    let db = create_test_db().await.expect("Failed to create test db");
+    insert_test_worker(
+        &db,
+        "worker-transition",
+        DEFAULT_TENANT_ID,
+        "test-manifest",
+        API_SCHEMA_VERSION,
+        "created",
+    )
+    .await;
+
+    let result = db
+        .transition_worker_status("worker-transition", "healthy", "skip-registered", None)
+        .await;
+    assert!(
+        result.is_err(),
+        "Healthy transition should fail when not registered"
+    );
+}
+
+#[tokio::test]
+async fn worker_valid_transition_updates_status_and_history() {
+    let db = create_test_db().await.expect("Failed to create test db");
+    insert_test_worker(
+        &db,
+        "worker-valid",
+        DEFAULT_TENANT_ID,
+        "test-manifest",
+        API_SCHEMA_VERSION,
+        "created",
+    )
+    .await;
+
+    db.transition_worker_status("worker-valid", "registered", "registration", Some("tester"))
+        .await
+        .expect("registered transition should succeed");
+    db.transition_worker_status("worker-valid", "healthy", "uds-listening", Some("tester"))
+        .await
+        .expect("healthy transition should succeed");
+
+    let worker = db
+        .get_worker("worker-valid")
+        .await
+        .expect("worker lookup should succeed")
+        .expect("worker should exist");
+    assert_eq!(worker.status, "healthy");
+
+    let history = db
+        .get_worker_status_history("worker-valid", Some(10))
+        .await
+        .expect("history fetch should succeed");
+    assert_eq!(history.len(), 2);
+    assert!(history.iter().all(|h| h.valid_transition == 1));
+}
+
+#[tokio::test]
+async fn invalid_transition_creates_audit_and_preserves_status() {
+    let db = create_test_db().await.expect("Failed to create test db");
+    insert_test_worker(
+        &db,
+        "worker-invalid",
+        DEFAULT_TENANT_ID,
+        "test-manifest",
+        API_SCHEMA_VERSION,
+        "created",
+    )
+    .await;
+
+    let result = db
+        .transition_worker_status(
+            "worker-invalid",
+            "healthy",
+            "skip-registered",
+            Some("tester"),
+        )
+        .await;
+    assert!(result.is_err(), "invalid transition should fail");
+
+    let worker = db
+        .get_worker("worker-invalid")
+        .await
+        .expect("worker fetch")
+        .expect("worker exists");
+    assert_eq!(worker.status, "created");
+
+    let history = db
+        .get_worker_status_history("worker-invalid", Some(10))
+        .await
+        .expect("history fetch should succeed");
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].valid_transition, 0);
+
+    let audit_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM audit_logs WHERE resource_id = ? AND action = 'WorkerLifecycleViolation'",
+    )
+    .bind("worker-invalid")
+    .fetch_one(db.pool())
+    .await
+    .expect("audit fetch");
+    assert_eq!(audit_count.0, 1);
+}
+
+#[tokio::test]
+async fn worker_status_history_tracks_full_lifecycle() {
+    let db = create_test_db().await.expect("Failed to create test db");
+    insert_test_worker(
+        &db,
+        "worker-sequence",
+        DEFAULT_TENANT_ID,
+        "test-manifest",
+        API_SCHEMA_VERSION,
+        "created",
+    )
+    .await;
+
+    db.transition_worker_status("worker-sequence", "registered", "registration", None)
+        .await
+        .expect("registered transition should succeed");
+    db.transition_worker_status("worker-sequence", "healthy", "uds-listening", None)
+        .await
+        .expect("healthy transition should succeed");
+    db.transition_worker_status("worker-sequence", "draining", "ctrl-c", None)
+        .await
+        .expect("draining transition should succeed");
+    db.transition_worker_status("worker-sequence", "stopped", "shutdown", None)
+        .await
+        .expect("stopped transition should succeed");
+
+    let worker = db
+        .get_worker("worker-sequence")
+        .await
+        .expect("worker lookup should succeed")
+        .expect("worker should exist");
+    assert_eq!(worker.status, "stopped");
+
+    let history = db
+        .get_worker_status_history("worker-sequence", Some(10))
+        .await
+        .expect("history fetch should succeed");
+    assert_eq!(history.len(), 4);
+}
+
+#[tokio::test]
+async fn selection_skips_draining_stopped_error_workers() {
+    let db = create_test_db().await.expect("Failed to create test db");
+
+    insert_test_worker(
+        &db,
+        "worker-healthy-keep",
+        DEFAULT_TENANT_ID,
+        "selection-manifest",
+        API_SCHEMA_VERSION,
+        "healthy",
+    )
+    .await;
+    insert_test_worker(
+        &db,
+        "worker-draining-drop",
+        DEFAULT_TENANT_ID,
+        "selection-manifest",
+        API_SCHEMA_VERSION,
+        "draining",
+    )
+    .await;
+    insert_test_worker(
+        &db,
+        "worker-stopped-drop",
+        DEFAULT_TENANT_ID,
+        "selection-manifest",
+        API_SCHEMA_VERSION,
+        "stopped",
+    )
+    .await;
+    insert_test_worker(
+        &db,
+        "worker-error-drop",
+        DEFAULT_TENANT_ID,
+        "selection-manifest",
+        API_SCHEMA_VERSION,
+        "error",
+    )
+    .await;
+
+    let compatible = db
+        .list_compatible_workers_for_tenant("selection-manifest", DEFAULT_TENANT_ID)
+        .await
+        .expect("list compatible");
+
+    assert_eq!(compatible.len(), 1);
+    assert_eq!(compatible[0].id, "worker-healthy-keep");
 }
 
 // =========================================================================

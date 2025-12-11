@@ -1,4 +1,5 @@
 use crate::auth_store::{clear_auth, load_auth, save_auth, AuthStore};
+use crate::http_client::extract_cookie;
 use crate::output::OutputWriter;
 use adapteros_api_types::auth::LoginRequest;
 use anyhow::{Context, Result};
@@ -70,6 +71,7 @@ pub async fn handle_auth_command(cmd: AuthCommand, output: &OutputWriter) -> Res
                 .json()
                 .await
                 .context("Failed to parse login response")?;
+            let refresh_token = extract_cookie(resp.headers(), "refresh_token");
 
             let effective_tenant = tenant_id.unwrap_or_else(|| login.tenant_id.clone());
             let expires_at = Some(Utc::now().timestamp() + login.expires_in as i64);
@@ -78,6 +80,7 @@ pub async fn handle_auth_command(cmd: AuthCommand, output: &OutputWriter) -> Res
                 base_url: base.clone(),
                 tenant_id: effective_tenant.clone(),
                 token: login.token.clone(),
+                refresh_token,
                 expires_at,
             };
             save_auth(&store)?;
@@ -228,6 +231,7 @@ mod tests {
             base_url: "http://example.com".to_string(),
             tenant_id: "stored-tenant".to_string(),
             token: "token-warn".to_string(),
+            refresh_token: None,
             expires_at: None,
         };
         save_auth(&store).expect("save auth");

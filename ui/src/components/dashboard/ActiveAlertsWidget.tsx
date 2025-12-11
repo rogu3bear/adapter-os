@@ -7,6 +7,7 @@ import { useTenant } from '@/providers/FeatureProviders';
 import { usePolling } from '@/hooks/usePolling';
 import { useServiceStatus } from '@/hooks/useServiceStatus';
 import { useRelativeTime } from '@/hooks/useTimestamp';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import apiClient from '@/api/client';
 import type { Alert as ApiAlert } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
@@ -19,6 +20,9 @@ interface Alert {
   created_at: string; // Store ISO timestamp for dynamic relative time calculation
   acknowledged: boolean;
 }
+
+type EventType = 'all' | 'recovery' | 'policy' | 'build' | 'adapter' | 'telemetry' | 'security' | 'error' | 'collaboration';
+type Severity = 'all' | 'critical' | 'high' | 'medium' | 'low' | 'info' | 'warning' | 'error';
 
 /**
  * Maps API alert severity to widget severity
@@ -56,6 +60,9 @@ function mapApiAlertToWidgetAlert(apiAlert: ApiAlert): Alert {
 export function ActiveAlertsWidget() {
   const navigate = useNavigate();
   const { selectedTenant } = useTenant();
+  const [typeFilter, setTypeFilter] = React.useState<EventType>('all');
+  const [severityFilter, setSeverityFilter] = React.useState<Severity>('all');
+  const relativeTime = useRelativeTime();
 
   // Fetch service status for service failure alerts (shared subscription)
   const { status } = useServiceStatus();
@@ -123,9 +130,43 @@ export function ActiveAlertsWidget() {
     return [...apiAlertsMapped, ...serviceAlerts];
   }, [apiAlertsMapped, serviceAlerts]);
 
+  const filteredAlerts = React.useMemo(() => {
+    return alerts.filter((alert) => {
+      const severityOk = severityFilter === 'all' ? true : alert.severity === severityFilter;
+      // Event types are not currently part of the alert payload; keep filter passive until types are wired.
+      const typeOk = typeFilter === 'all';
+      return severityOk && typeOk;
+    });
+  }, [alerts, severityFilter, typeFilter]);
+
   // All alerts from API are active (unacknowledged) since we filter by status: 'active'
-  const activeAlerts = alerts;
+  const activeAlerts = filteredAlerts;
   const criticalCount = activeAlerts.filter(a => a.severity === 'critical').length;
+
+  const renderAlert = (alert: Alert, colorClass: string) => (
+    <div
+      key={alert.id}
+      className={`border rounded p-3 flex flex-col gap-2 ${colorClass}`}
+      role="listitem"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">{alert.title}</span>
+        </div>
+        <Badge variant="outline" className="text-xs capitalize">
+          {alert.severity}
+        </Badge>
+      </div>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Clock className="h-3 w-3" aria-hidden />
+        <span>
+          {typeof relativeTime === 'function'
+            ? relativeTime(new Date(alert.created_at).toISOString())
+            : relativeTime}
+        </span>
+      </div>
+    </div>
+  );
 
   const getSeverityColor = (severity: Alert['severity']) => {
     switch (severity) {

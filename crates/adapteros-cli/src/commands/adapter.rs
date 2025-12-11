@@ -1,5 +1,6 @@
 //! Adapter lifecycle management commands
 
+use crate::http_client::send_with_refresh_from_store;
 use crate::output::OutputWriter;
 use adapteros_aos::{parse_segments, AosWriter};
 use adapteros_api_types::adapters::RegisterAdapterRequest;
@@ -12,7 +13,7 @@ use adapteros_db::Db;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
 use hex;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -495,6 +496,72 @@ pub enum AdapterCommand {
         pinned_only: bool,
     },
 
+    /// List adapter versions for a repository (control plane)
+    #[command(
+        after_help = "Examples:\n  aosctl adapter versions repo-123\n  aosctl adapter versions repo-123 --json"
+    )]
+    Versions {
+        /// Repository ID
+        #[arg()]
+        repo_id: String,
+
+        /// Control plane base URL
+        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        base_url: String,
+
+        /// Output JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Promote an adapter version (control plane)
+    #[command(
+        after_help = "Examples:\n  aosctl adapter promote-version repo-123 ver-456\n  aosctl adapter promote-version repo-123 ver-456 --json"
+    )]
+    PromoteVersion {
+        /// Repository ID
+        #[arg()]
+        repo_id: String,
+
+        /// Version ID
+        #[arg()]
+        version_id: String,
+
+        /// Control plane base URL
+        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        base_url: String,
+
+        /// Output JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Roll back a repository branch to a previous version
+    #[command(
+        after_help = "Examples:\n  aosctl adapter rollback-version repo-123 --version-id ver-456 --branch main\n  aosctl adapter rollback-version repo-123 --branch main --json"
+    )]
+    RollbackVersion {
+        /// Repository ID
+        #[arg()]
+        repo_id: String,
+
+        /// Branch to roll back
+        #[arg(long, default_value = "main")]
+        branch: String,
+
+        /// Target version ID (required unless server chooses last good)
+        #[arg(long)]
+        version_id: Option<String>,
+
+        /// Control plane base URL
+        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        base_url: String,
+
+        /// Output JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Show detailed metrics for an adapter
     #[command(
         after_help = "Examples:\n  aosctl adapter profile adapter-1\n  aosctl adapter profile adapter-1 --json\n  aosctl adapter profile adapter-1 --tenant dev"
@@ -803,6 +870,9 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::DirectoryUpsert { .. } => "adapter_directory_upsert".to_string(),
         AdapterCommand::VerifyGpu { .. } => "adapter_verify_gpu".to_string(),
         AdapterCommand::UpdateLifecycle { .. } => "adapter_update_lifecycle".to_string(),
+        AdapterCommand::Versions { .. } => "adapter_versions".to_string(),
+        AdapterCommand::PromoteVersion { .. } => "adapter_promote_version".to_string(),
+        AdapterCommand::RollbackVersion { .. } => "adapter_rollback_version".to_string(),
         AdapterCommand::Register { .. } => "adapter_register".to_string(),
         AdapterCommand::Swap { .. } => "adapter_swap".to_string(),
         AdapterCommand::Info { .. } => "adapter_info".to_string(),
@@ -827,7 +897,10 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::DirectoryUpsert { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::VerifyGpu { tenant, .. } => tenant.clone(),
         AdapterCommand::UpdateLifecycle { .. } => None, // No tenant parameter
-        AdapterCommand::Register { .. } => None,        // No tenant parameter
+        AdapterCommand::Versions { .. } => None,
+        AdapterCommand::PromoteVersion { .. } => None,
+        AdapterCommand::RollbackVersion { .. } => None,
+        AdapterCommand::Register { .. } => None, // No tenant parameter
         AdapterCommand::Swap { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::Info { .. } => None, // No tenant parameter
         AdapterCommand::Inspect { .. } => None, // No tenant parameter
@@ -855,6 +928,34 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             tenant,
             pinned_only,
         } => list_adapters(json, tenant, pinned_only, output).await,
+        AdapterCommand::Versions {
+            repo_id,
+            base_url,
+            json,
+        } => list_adapter_versions(&repo_id, &base_url, *json, output).await,
+        AdapterCommand::PromoteVersion {
+            repo_id,
+            version_id,
+            base_url,
+            json,
+        } => promote_adapter_version(&repo_id, &version_id, &base_url, *json, output).await,
+        AdapterCommand::RollbackVersion {
+            repo_id,
+            branch,
+            version_id,
+            base_url,
+            json,
+        } => {
+            rollback_adapter_version(
+                &repo_id,
+                &branch,
+                version_id.as_deref(),
+                &base_url,
+                *json,
+                output,
+            )
+            .await
+        }
         AdapterCommand::Profile {
             adapter_id,
             json,
@@ -2257,6 +2358,166 @@ async fn import_adapter_cmd(
         }
     }
 
+    Ok(())
+}
+
+async fn list_adapter_versions(
+    repo_id: &str,
+    base_url: &str,
+    json: bool,
+    output: &OutputWriter,
+) -> Result<()> {
+    let client = reqwest::Client::new();
+    let url = format!(
+        "{}/v1/adapter-repositories/{}/versions",
+        base_url.trim_end_matches('/'),
+        repo_id
+    );
+
+    let resp =
+        send_with_refresh_from_store(&client, |c, auth| c.get(&url).bearer_auth(&auth.token))
+            .await
+            .map_err(|e| AosError::Http(e.to_string()))?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(AosError::Other(format!(
+            "Failed to list adapter versions: {} {}",
+            status, text
+        )));
+    }
+
+    let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
+    if json {
+        output.result(&serde_json::to_string_pretty(&parsed).unwrap());
+        return Ok(());
+    }
+
+    if let Some(arr) = parsed.as_array() {
+        output.info(&format!("{} versions for repo {}", arr.len(), repo_id));
+        for item in arr {
+            let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("-");
+            let state = item.get("state").and_then(|v| v.as_str()).unwrap_or("-");
+            let backend = item.get("backend").and_then(|v| v.as_str()).unwrap_or("-");
+            let coreml_used = item
+                .get("coreml_used")
+                .and_then(|v| v.as_bool())
+                .map(|b| if b { "coreml" } else { "-" })
+                .unwrap_or("-");
+            let health = item
+                .get("adapter_health")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-");
+            let binding = item
+                .get("dataset_version_ids")
+                .and_then(|v| v.as_array())
+                .map(|vs| {
+                    vs.iter()
+                        .filter_map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                })
+                .unwrap_or_else(|| "-".to_string());
+
+            output.result(format!(
+                "- {} | state={} | backend={} | coreml={} | health={} | data={}",
+                id, state, backend, coreml_used, health, binding
+            ));
+        }
+    } else {
+        output.result(&text);
+    }
+
+    Ok(())
+}
+
+async fn promote_adapter_version(
+    repo_id: &str,
+    version_id: &str,
+    base_url: &str,
+    json: bool,
+    output: &OutputWriter,
+) -> Result<()> {
+    let client = reqwest::Client::new();
+    let url = format!(
+        "{}/v1/adapter-versions/{}/promote",
+        base_url.trim_end_matches('/'),
+        version_id
+    );
+    let body = json!({ "repo_id": repo_id });
+
+    let resp = send_with_refresh_from_store(&client, |c, auth| {
+        c.post(&url).bearer_auth(&auth.token).json(&body)
+    })
+    .await
+    .map_err(|e| AosError::Http(e.to_string()))?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(AosError::Other(format!(
+            "Failed to promote version: {} {}",
+            status, text
+        )));
+    }
+
+    let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
+    if json {
+        output.result(&serde_json::to_string_pretty(&parsed).unwrap());
+    } else {
+        output.success(&format!(
+            "Promoted version {} for repo {}",
+            version_id, repo_id
+        ));
+    }
+    Ok(())
+}
+
+async fn rollback_adapter_version(
+    repo_id: &str,
+    branch: &str,
+    version_id: Option<&str>,
+    base_url: &str,
+    json: bool,
+    output: &OutputWriter,
+) -> Result<()> {
+    let target = version_id.ok_or_else(|| {
+        AosError::Validation("version_id is required for rollback; supply --version-id".to_string())
+    })?;
+
+    let client = reqwest::Client::new();
+    let url = format!(
+        "{}/v1/adapter-repositories/{}/versions/rollback",
+        base_url.trim_end_matches('/'),
+        repo_id
+    );
+    let body = json!({ "branch": branch, "target_version_id": target });
+
+    let resp = send_with_refresh_from_store(&client, |c, auth| {
+        c.post(&url).bearer_auth(&auth.token).json(&body)
+    })
+    .await
+    .map_err(|e| AosError::Http(e.to_string()))?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(AosError::Other(format!(
+            "Failed to rollback version: {} {}",
+            status, text
+        )));
+    }
+
+    let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
+    if json {
+        output.result(&serde_json::to_string_pretty(&parsed).unwrap());
+    } else {
+        output.success(&format!(
+            "Rolled back repo {} branch {} to version {}",
+            repo_id, branch, target
+        ));
+    }
     Ok(())
 }
 

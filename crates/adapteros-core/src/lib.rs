@@ -26,11 +26,17 @@
 //! ```
 
 pub mod adapter_repo_paths;
+pub mod adapter_store;
+pub mod backend;
 pub mod circuit_breaker;
 pub mod constants;
 pub mod context_hash;
+pub mod context_manifest;
+pub mod determinism;
+pub mod determinism_mode;
 pub mod error;
 pub mod error_helpers;
+pub mod fusion_interval;
 pub mod hash;
 pub mod id;
 pub mod identity;
@@ -46,6 +52,7 @@ pub mod retry_policy;
 pub mod seed;
 pub mod stack;
 pub mod status;
+pub mod telemetry;
 pub mod tenant_snapshot;
 pub mod time;
 pub mod timeout;
@@ -59,6 +66,8 @@ pub use adapter_repo_paths::{
     AdapterPaths as RepoAdapterPaths, ResolveError, VersionStrategy, DEFAULT_CACHE_DIR,
     DEFAULT_REPO_DIR,
 };
+pub use adapter_store::{AdapterPins, AdapterRecord, AdapterSnapshot, AdapterStore};
+pub use backend::BackendKind;
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
     SharedCircuitBreaker, StandardCircuitBreaker,
@@ -68,7 +77,16 @@ pub use constants::{
     BYTES_PER_MB, DEFAULT_TIMEOUT_SECS, SLOW_TIMEOUT_SECS,
 };
 pub use context_hash::{compute_context_hash, ChunkRef};
+pub use context_manifest::{
+    ContextAdapterEntry, ContextAdapterEntryV1, ContextManifest, ContextManifestV1,
+};
+pub use determinism::{
+    derive_router_seed, derive_router_tiebreak_seed, derive_sampler_seed, expand_u64_seed,
+    DeterminismContext, DeterminismSource,
+};
+pub use determinism_mode::DeterminismMode;
 pub use error::{AosError, Result, ResultExt};
+pub use fusion_interval::FusionInterval;
 pub use hash::B3Hash;
 pub use id::CPID;
 pub use lifecycle::{LifecycleState, LifecycleTransition, SemanticVersion, TransitionReason};
@@ -82,11 +100,17 @@ pub use plugins::{EventHookType, Plugin, PluginConfig, PluginHealth, PluginStatu
 pub use policy::DriftPolicy;
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_request_seed, derive_seed, derive_seed_full,
-    derive_seed_indexed, derive_seed_typed, hash_adapter_dir, BackendProfile, ExecutionProfile,
-    SeedLabel, SeedMode,
+    derive_seed_indexed, derive_seed_typed, hash_adapter_dir, ExecutionProfile, SeedLabel,
+    SeedMode,
 };
 pub use stack::compute_stack_hash;
 pub use status::{AdapterOSStatus, HealthCheckResult, HealthStatus, ServiceStatus};
+pub use telemetry::{
+    audit_export_tamper_event, determinism_violation_event, dual_write_divergence_event,
+    emit_observability_event, receipt_mismatch_event, strict_mode_failure_event,
+    DeterminismViolationKind, ObservabilityDetail, ObservabilityEvent, ObservabilityEventKind,
+    ObservabilitySeverity, DETERMINISM_VIOLATION_METRIC,
+};
 pub use timeout::TimeoutExt;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 pub use version::VersionInfo;
@@ -100,14 +124,16 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 pub mod prelude {
     pub use crate::{
         bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes, AdapterEvent, AdapterName,
-        AdapterOSStatus, AosError, AuditEvent, B3Hash, BackendProfile, CircuitBreaker,
+        AdapterOSStatus, AosError, AuditEvent, B3Hash, BackendKind, CircuitBreaker,
         CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, DriftPolicy, EventHookType,
         ExecutionProfile, ForkType, HealthCheckResult, HealthStatus, InferenceEvent,
-        LifecycleState, LifecycleTransition, MetricsTickEvent, Plugin, PluginConfig, PluginEvent,
+        LifecycleState, LifecycleTransition, MetricsTickEvent, ObservabilityEvent,
+        ObservabilityEventKind, ObservabilitySeverity, Plugin, PluginConfig, PluginEvent,
         PluginHealth, PluginStatus, PolicyViolationEvent, Result, ResultExt, SeedMode,
         SemanticVersion, ServiceStatus, SharedCircuitBreaker, StackName, StandardCircuitBreaker,
         TrainingConfig, TrainingJob, TrainingJobEvent, TrainingJobStatus, TrainingTemplate,
         TransitionReason, VersionInfo, WorkerStatus, WorkerStatusTransition, BYTES_PER_GB,
-        BYTES_PER_KB, BYTES_PER_MB, CPID, DEFAULT_TIMEOUT_SECS, SLOW_TIMEOUT_SECS,
+        BYTES_PER_KB, BYTES_PER_MB, CPID, DEFAULT_TIMEOUT_SECS, DETERMINISM_VIOLATION_METRIC,
+        SLOW_TIMEOUT_SECS,
     };
 }

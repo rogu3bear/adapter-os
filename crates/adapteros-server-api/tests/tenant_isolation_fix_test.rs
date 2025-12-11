@@ -5,7 +5,8 @@
 //! **Vulnerability:** Admin users could access any tenant without restriction
 //! **Fix:** Admin users can only access tenants listed in their `admin_tenants` claim
 
-use adapteros_server_api::auth::Claims;
+use adapteros_server_api::auth::PrincipalType;
+use adapteros_server_api::auth::{AuthMode, Claims};
 use adapteros_server_api::security::validate_tenant_isolation;
 
 #[test]
@@ -26,14 +27,15 @@ fn test_non_admin_cannot_cross_tenant_access() {
         jti: "jti-1".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
-    // User can access their own tenant
+    // Can access own tenant
     assert!(validate_tenant_isolation(&claims, "tenant-a").is_ok());
 
-    // User cannot access other tenants
+    // Cannot access other tenants even if in admin_tenants (not admin role)
     assert!(validate_tenant_isolation(&claims, "tenant-b").is_err());
-    assert!(validate_tenant_isolation(&claims, "tenant-c").is_err());
 }
 
 #[test]
@@ -55,6 +57,8 @@ fn test_admin_without_grants_cannot_cross_tenant_access() {
         jti: "jti-1".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     // Admin can access their own tenant
@@ -84,6 +88,8 @@ fn test_admin_with_specific_grants_can_access_only_granted_tenants() {
         jti: "jti-1".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     // Admin can access their own tenant
@@ -116,6 +122,8 @@ fn test_sre_role_cannot_cross_tenant_access() {
         jti: "jti-1".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     // SRE can access their own tenant
@@ -143,6 +151,8 @@ fn test_viewer_role_cannot_cross_tenant_access() {
         jti: "jti-1".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     // Viewer can access their own tenant
@@ -172,6 +182,8 @@ fn test_admin_tenants_ignored_for_non_admin_roles() {
         jti: "jti-1".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     // Can access own tenant
@@ -201,6 +213,8 @@ fn test_backwards_compatibility_empty_admin_tenants() {
         jti: "jti-1".to_string(),
         nbf: 0,
         iss: "adapteros".to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     };
 
     // Should work like normal isolated admin

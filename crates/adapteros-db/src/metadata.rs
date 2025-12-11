@@ -37,6 +37,9 @@ pub struct AdapterMeta {
     pub category: String,
     pub scope: String,
     pub tier: String, // ephemeral/persistent/warm
+    /// Assurance tier for drift/determinism (low/standard/high)
+    #[serde(default)]
+    pub assurance_tier: Option<String>,
 
     // Technical metadata
     pub hash_b3: String,
@@ -44,6 +47,29 @@ pub struct AdapterMeta {
     pub alpha: f64,
     pub targets_json: String,
     pub acl_json: Option<String>,
+    // Determinism & drift (optional, additive)
+    #[serde(default)]
+    pub determinism_seed: Option<u64>,
+    #[serde(default)]
+    pub determinism_backend: Option<String>,
+    #[serde(default)]
+    pub determinism_device: Option<String>,
+    #[serde(default)]
+    pub drift_reference_backend: Option<String>,
+    #[serde(default)]
+    pub drift_metric: Option<f64>,
+    #[serde(default)]
+    pub drift_baseline_backend: Option<String>,
+    #[serde(default)]
+    pub drift_test_backend: Option<String>,
+    #[serde(default)]
+    pub drift_tier: Option<String>,
+    #[serde(default)]
+    pub drift_loss_metric: Option<f64>,
+    #[serde(default)]
+    pub drift_slice_size: Option<u64>,
+    #[serde(default)]
+    pub drift_slice_offset: Option<u64>,
 
     // Semantic naming (from migration 0061)
     pub adapter_name: Option<String>,
@@ -222,11 +248,23 @@ impl From<crate::adapters::Adapter> for AdapterMeta {
             category: adapter.category,
             scope: adapter.scope,
             tier: adapter.tier,
+            assurance_tier: None,
             hash_b3: adapter.hash_b3,
             rank: adapter.rank,
             alpha: adapter.alpha,
             targets_json: adapter.targets_json,
             acl_json: adapter.acl_json,
+            determinism_seed: None,
+            determinism_backend: None,
+            determinism_device: None,
+            drift_reference_backend: None,
+            drift_metric: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
+            drift_tier: None,
+            drift_loss_metric: None,
+            drift_slice_size: None,
+            drift_slice_offset: None,
             adapter_name: adapter.adapter_name,
             tenant_namespace: adapter.tenant_namespace,
             domain: adapter.domain,
@@ -329,12 +367,17 @@ mod tests {
     #[test]
     fn test_lifecycle_state_transitions() {
         // Valid transitions
-        assert!(LifecycleState::Draft.can_transition_to(LifecycleState::Active));
+        assert!(LifecycleState::Draft.can_transition_to(LifecycleState::Training));
+        assert!(LifecycleState::Training.can_transition_to(LifecycleState::Ready));
+        assert!(LifecycleState::Ready.can_transition_to(LifecycleState::Active));
         assert!(LifecycleState::Active.can_transition_to(LifecycleState::Deprecated));
         assert!(LifecycleState::Deprecated.can_transition_to(LifecycleState::Retired));
+        assert!(LifecycleState::Active.can_transition_to(LifecycleState::Ready));
+        assert!(LifecycleState::Active.can_transition_to(LifecycleState::Failed));
 
         // Invalid transitions (backward)
-        assert!(!LifecycleState::Active.can_transition_to(LifecycleState::Draft));
+        assert!(!LifecycleState::Training.can_transition_to(LifecycleState::Draft));
+        assert!(!LifecycleState::Ready.can_transition_to(LifecycleState::Draft));
         assert!(!LifecycleState::Deprecated.can_transition_to(LifecycleState::Active));
 
         // Can't transition out of retired
@@ -346,6 +389,7 @@ mod tests {
     fn test_lifecycle_state_tier_validation() {
         // ephemeral adapters can't be deprecated
         assert!(!LifecycleState::Deprecated.is_valid_for_tier("ephemeral"));
+        assert!(LifecycleState::Ready.is_valid_for_tier("ephemeral"));
         assert!(LifecycleState::Active.is_valid_for_tier("ephemeral"));
         assert!(LifecycleState::Retired.is_valid_for_tier("ephemeral"));
 
@@ -371,13 +415,16 @@ mod tests {
     #[test]
     fn test_state_transition_validation() {
         // Valid transition
-        let result =
-            validate_state_transition(LifecycleState::Draft, LifecycleState::Active, "persistent");
+        let result = validate_state_transition(
+            LifecycleState::Draft,
+            LifecycleState::Training,
+            "persistent",
+        );
         assert!(result.is_ok());
 
         // Invalid transition (backward)
         let result =
-            validate_state_transition(LifecycleState::Active, LifecycleState::Draft, "persistent");
+            validate_state_transition(LifecycleState::Ready, LifecycleState::Draft, "persistent");
         assert!(result.is_err());
 
         // Invalid state for tier

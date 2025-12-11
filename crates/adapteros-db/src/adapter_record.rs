@@ -193,6 +193,22 @@ pub struct LifecycleState {
     pub pinned: i32,
 }
 
+/// Normalize legacy/alias load_state values into the canonical set used by the
+/// database schema. This keeps older rows (e.g., "loaded"/"unloaded" or
+/// "hot"/"resident" written before current_state was introduced) compatible
+/// with validations and downstream readiness checks.
+pub fn normalize_load_state(state: &str) -> &'static str {
+    match state.to_ascii_lowercase().as_str() {
+        "loaded" | "hot" | "resident" => "warm",
+        "unloaded" => "cold",
+        "loading" => "loading",
+        "unloading" => "unloading",
+        "warm" => "warm",
+        "cold" => "cold",
+        _ => "cold",
+    }
+}
+
 impl LifecycleState {
     /// Create a default lifecycle state (unloaded)
     pub fn default_unloaded() -> Self {
@@ -218,15 +234,24 @@ impl LifecycleState {
             )));
         }
 
-        let valid_load_states = ["cold", "warm", "hot"];
-        if !valid_load_states.contains(&self.load_state.as_str()) {
+        let normalized_load_state = normalize_load_state(&self.load_state);
+        let valid_load_states = ["cold", "loading", "warm", "unloading"];
+        if !valid_load_states.contains(&normalized_load_state) {
             return Err(AosError::Validation(format!(
                 "Invalid load_state: {}",
                 self.load_state
             )));
         }
 
-        let valid_lifecycle = ["draft", "active", "deprecated", "retired"];
+        let valid_lifecycle = [
+            "draft",
+            "training",
+            "ready",
+            "active",
+            "deprecated",
+            "retired",
+            "failed",
+        ];
         if !valid_lifecycle.contains(&self.lifecycle_state.as_str()) {
             return Err(AosError::Validation(format!(
                 "Invalid lifecycle_state: {}",
@@ -417,6 +442,39 @@ pub struct ArtifactInfo {
     pub aos_file_path: Option<String>,
     /// BLAKE3 hash of .aos file
     pub aos_file_hash: Option<String>,
+    /// Determinism seed recorded by drift harness
+    #[serde(default)]
+    pub determinism_seed: Option<u64>,
+    /// Backend tag for determinism run
+    #[serde(default)]
+    pub determinism_backend: Option<String>,
+    /// Device tag for determinism run
+    #[serde(default)]
+    pub determinism_device: Option<String>,
+    /// Reference backend used for drift comparison
+    #[serde(default)]
+    pub drift_reference_backend: Option<String>,
+    /// Drift metric (e.g., max L∞ distance) recorded by harness
+    #[serde(default)]
+    pub drift_metric: Option<f32>,
+    /// Loss drift metric (e.g., loss L∞) recorded by harness
+    #[serde(default)]
+    pub drift_loss_metric: Option<f32>,
+    /// Baseline backend used for the last drift run
+    #[serde(default)]
+    pub drift_baseline_backend: Option<String>,
+    /// Test backend compared against the baseline
+    #[serde(default)]
+    pub drift_test_backend: Option<String>,
+    /// Assurance tier used when evaluating drift
+    #[serde(default)]
+    pub drift_tier: Option<String>,
+    /// Slice size used for the drift run (if any)
+    #[serde(default)]
+    pub drift_slice_size: Option<u64>,
+    /// Slice offset used for the drift run (if any)
+    #[serde(default)]
+    pub drift_slice_offset: Option<u64>,
 }
 
 impl ArtifactInfo {
@@ -832,6 +890,7 @@ impl SchemaCompatible for AdapterRecordV1 {
         let artifacts = ArtifactInfo {
             aos_file_path: flat.aos_file_path.clone(),
             aos_file_hash: flat.aos_file_hash.clone(),
+            ..Default::default()
         };
 
         let schema = SchemaMetadata::new(

@@ -1,5 +1,5 @@
 // Health and Readiness API Tests
-import { getApiBaseUrl, validateErrorResponse } from '../support/api-helpers';
+import { getApiBaseUrl, validateErrorResponse } from '../../support/api-helpers';
 
 describe('Health & Readiness API', () => {
   const apiBase = getApiBaseUrl();

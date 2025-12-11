@@ -289,3 +289,23 @@ pnpm cypress:run
 # 3. Or open GUI for interactive testing
 pnpm cypress:open
 ```
+
+---
+
+## Deterministic seed fixtures (UI e2e)
+
+- Reset and seed: `cargo run -p adapteros-cli -- db seed-fixtures` (defaults: tenant `tenant-test`, model `model-qwen-test`, adapter `adapter-test`, stack `stack-test`, chat session `chat-session-test`)
+- Skip reset: add `--skip-reset` (idempotent upserts), omit chat seed with `--no-chat`
+- Cypress task: `cy.seedTestData({ skipReset: true })` uses the same command under the hood
+- Tests now run against the live API (no cy.intercept stubs); ensure backend is running with `AOS_DEV_NO_AUTH=1 AOS_DEV_JWT_SECRET=test AOS_DETERMINISTIC=1` and a worker/model if inference is exercised.
+- Seeded artifacts live in `cypress/fixtures/adapters/` (for uploads if needed); API fixtures remain for reference but are not intercepted.
+- Env hints: `CYPRESS_TEST_TENANT_ID`, `CYPRESS_TEST_MODEL_ID`, `CYPRESS_TEST_ADAPTER_ID`, `CYPRESS_TEST_STACK_ID`, `CYPRESS_TEST_CHAT_SESSION_ID`
+
+## Live no-stub UI e2e prerequisites
+
+- Backend: running on `http://localhost:8080` with `AOS_DEV_NO_AUTH=1` (dev only).
+- Worker: running with a tiny model (`config.json` + `model.safetensors`) pointed to `AOS_E2E_MODEL_PATH` and bound to a UDS (e.g., `AOS_E2E_UDS=/tmp/aos-e2e.sock`). Pre-clean stale sockets before runs.
+- Run spec headless: `pnpm cypress:run --spec e2e/cypress/e2e/ui/adapter-chat.cy.ts` (consider a 5-minute watchdog in CI).
+- The `db:seed-fixtures` Cypress task seeds deterministic IDs; no stubs are used, so live API responses must be available.
+
+MLNavigator Inc 2025-12-09.

@@ -75,13 +75,14 @@ pub async fn revoke_all_user_tokens(
     reason: &str,
 ) -> Result<usize> {
     // Get all active sessions for the user
-    let sessions = sqlx::query_as::<_, (String, String)>(
-        "SELECT jti, expires_at FROM user_sessions WHERE user_id = ? AND tenant_id = ?",
-    )
-    .bind(user_id)
-    .bind(tenant_id)
-    .fetch_all(db.pool())
-    .await?;
+    let session_table = db.resolve_session_table().await?;
+    let query =
+        format!("SELECT jti, expires_at FROM {session_table} WHERE user_id = ? AND tenant_id = ?");
+    let sessions = sqlx::query_as::<_, (String, String)>(&query)
+        .bind(user_id)
+        .bind(tenant_id)
+        .fetch_all(db.pool())
+        .await?;
 
     let count = sessions.len();
 
@@ -168,13 +169,19 @@ mod tests {
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS user_sessions (
                 jti TEXT PRIMARY KEY,
+                session_id TEXT,
                 user_id TEXT NOT NULL,
                 tenant_id TEXT NOT NULL,
+                device_id TEXT,
+                rot_id TEXT,
+                refresh_hash TEXT,
+                refresh_expires_at TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 expires_at TEXT NOT NULL,
                 ip_address TEXT,
                 user_agent TEXT,
-                last_activity TEXT NOT NULL DEFAULT (datetime('now'))
+                last_activity TEXT NOT NULL DEFAULT (datetime('now')),
+                locked INTEGER NOT NULL DEFAULT 0
             )",
         )
         .execute(db.pool())

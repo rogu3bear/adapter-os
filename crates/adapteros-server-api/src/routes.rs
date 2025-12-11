@@ -40,8 +40,8 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::health::check_all_health,
         crate::health::check_component_health,
         handlers::auth::auth_login,
-        handlers::auth::auth_logout,
         handlers::auth::auth_me,
+        handlers::auth_enhanced::logout_handler,
         handlers::auth_enhanced::mfa_status_handler,
         handlers::auth_enhanced::mfa_start_handler,
         handlers::auth_enhanced::mfa_verify_handler,
@@ -72,6 +72,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::execution_policy::deactivate_execution_policy,
         handlers::execution_policy::get_execution_policy_history,
         handlers::list_adapters,
+        handlers::list_adapter_repositories,
+        handlers::list_adapter_versions,
         handlers::get_adapter,
         handlers::register_adapter,
         handlers::delete_adapter,
@@ -104,6 +106,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::list_training_jobs,
         handlers::get_training_job,
         handlers::start_training,
+        handlers::promote_version,
         handlers::cancel_training,
         handlers::retry_training,
         handlers::create_training_session,
@@ -206,6 +209,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::get_dataset_files,
         handlers::datasets::get_dataset_statistics,
         handlers::datasets::validate_dataset,
+        handlers::datasets::update_dataset_safety,
+        handlers::datasets::override_dataset_trust,
         handlers::datasets::preview_dataset,
         handlers::datasets::delete_dataset,
         handlers::datasets::dataset_upload_progress,
@@ -473,6 +478,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::UploadChunkResponse,
         handlers::datasets::CompleteChunkedUploadRequest,
         handlers::datasets::CompleteChunkedUploadResponse,
+        handlers::datasets::UpdateDatasetSafetyRequest,
+        handlers::datasets::UpdateDatasetSafetyResponse,
+        handlers::datasets::TrustOverrideRequest,
+        handlers::datasets::TrustOverrideResponse,
         handlers::datasets::UploadSessionStatusResponse,
         // Evidence types (PRD-DATA-01 Phase 2)
         handlers::evidence::CreateEvidenceRequest,
@@ -694,7 +703,10 @@ pub fn build(state: AppState) -> Router {
 
     // Protected routes (require auth)
     let protected_routes = Router::new()
-        .route("/v1/auth/logout", post(auth::auth_logout))
+        .route(
+            "/v1/auth/logout",
+            post(handlers::auth_enhanced::logout_handler),
+        )
         .route("/v1/auth/me", get(auth::auth_me))
         .route(
             "/v1/auth/mfa/status",
@@ -1210,6 +1222,51 @@ pub fn build(state: AppState) -> Router {
             post(handlers::adapters::import_adapter),
         )
         .route(
+            "/v1/adapter-repositories",
+            get(handlers::list_adapter_repositories).post(handlers::create_adapter_repository),
+        )
+        .route(
+            "/v1/adapter-repositories/{repo_id}",
+            get(handlers::get_adapter_repository),
+        )
+        .route(
+            "/v1/adapter-repositories/{repo_id}/policy",
+            get(handlers::get_adapter_repository_policy)
+                .put(handlers::upsert_adapter_repository_policy),
+        )
+        .route(
+            "/v1/adapter-repositories/{repo_id}/archive",
+            post(handlers::archive_adapter_repository),
+        )
+        .route(
+            "/v1/adapter-repositories/{repo_id}/versions",
+            get(handlers::list_adapter_versions),
+        )
+        .route(
+            "/v1/adapter-repositories/{repo_id}/versions/rollback",
+            post(handlers::rollback_adapter_version_handler),
+        )
+        .route(
+            "/v1/adapter-repositories/{repo_id}/resolve-version",
+            post(handlers::resolve_adapter_version_handler),
+        )
+        .route(
+            "/v1/adapter-versions/draft",
+            post(handlers::create_draft_version),
+        )
+        .route(
+            "/v1/adapter-versions/{version_id}",
+            get(handlers::get_adapter_version),
+        )
+        .route(
+            "/v1/adapter-versions/{version_id}/promote",
+            post(handlers::promote_adapter_version_handler),
+        )
+        .route(
+            "/v1/adapter-versions/{version_id}/tag",
+            post(handlers::tag_adapter_version_handler),
+        )
+        .route(
             "/v1/adapters/{adapter_id}",
             axum::routing::delete(handlers::delete_adapter),
         )
@@ -1463,6 +1520,11 @@ pub fn build(state: AppState) -> Router {
             get(handlers::datasets::get_dataset),
         )
         .route(
+            "/v1/datasets/{dataset_id}/versions",
+            get(handlers::datasets::list_dataset_versions)
+                .post(handlers::datasets::create_dataset_version),
+        )
+        .route(
             "/v1/datasets/{dataset_id}",
             delete(handlers::datasets::delete_dataset),
         )
@@ -1479,6 +1541,10 @@ pub fn build(state: AppState) -> Router {
             post(handlers::datasets::validate_dataset),
         )
         .route(
+            "/v1/datasets/{dataset_id}/trust_override",
+            post(handlers::datasets::apply_dataset_trust_override),
+        )
+        .route(
             "/v1/datasets/{dataset_id}/preview",
             get(handlers::datasets::preview_dataset),
         )
@@ -1490,6 +1556,18 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/datasets/from-documents",
             post(handlers::datasets::create_dataset_from_documents),
+        )
+        .route(
+            "/v1/training/datasets/from-upload",
+            post(handlers::training_datasets::create_training_dataset_from_upload),
+        )
+        .route(
+            "/v1/training/dataset_versions/{dataset_version_id}/manifest",
+            get(handlers::training_datasets::get_training_dataset_manifest),
+        )
+        .route(
+            "/v1/training/dataset_versions/{dataset_version_id}/rows",
+            get(handlers::training_datasets::stream_training_dataset_rows),
         )
         // Document routes
         .route(
@@ -1614,6 +1692,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::memory_detail::get_combined_memory_usage),
         )
         .route(
+            "/v1/debug/coreml_verification_status",
+            get(handlers::coreml_verification_status),
+        )
+        .route(
             "/v1/memory/uma-breakdown",
             get(handlers::memory_detail::get_uma_memory_breakdown),
         )
@@ -1689,12 +1771,20 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/training/start", post(handlers::start_training))
         .route(
+            "/v1/training/repos/{repo_id}/versions/{version_id}/promote",
+            post(handlers::promote_version),
+        )
+        .route(
             "/v1/training/jobs/{job_id}/cancel",
             post(handlers::cancel_training),
         )
         .route(
             "/v1/training/jobs/{job_id}/retry",
             post(handlers::retry_training),
+        )
+        .route(
+            "/v1/training/jobs/{job_id}/export/coreml",
+            post(handlers::export_coreml_training_job),
         )
         .route(
             "/v1/training/sessions",
@@ -1818,6 +1908,20 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/plugins/{name}", get(handlers::plugins::plugin_status))
         .route("/v1/plugins", get(handlers::plugins::list_plugins))
+        // Orchestration (single-node stub)
+        .route(
+            "/v1/orchestration/analyze",
+            post(handlers::orchestration::analyze_orchestration_prompt),
+        )
+        .route(
+            "/v1/orchestration/metrics",
+            get(handlers::orchestration::get_orchestration_metrics),
+        )
+        .route(
+            "/v1/orchestration/config",
+            get(handlers::orchestration::get_orchestration_config)
+                .put(handlers::orchestration::update_orchestration_config),
+        )
         // Settings routes
         .route(
             "/v1/settings",
@@ -1938,6 +2042,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/storage/stats",
             get(handlers::storage::get_storage_stats),
+        )
+        .route(
+            "/v1/storage/tenant-usage",
+            get(handlers::storage::get_tenant_storage_usage),
         )
         .route(
             "/v1/storage/kv-isolation/health",

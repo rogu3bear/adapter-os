@@ -209,7 +209,7 @@ pub async fn run(
     }
 
     // 2. Initialize telemetry writer
-    let telemetry_dir = resolve_telemetry_dir();
+    let telemetry_dir = resolve_telemetry_dir()?;
     std::fs::create_dir_all(&telemetry_dir.path)?;
     let telemetry = adapteros_telemetry::TelemetryWriter::new(
         telemetry_dir.path.clone(),
@@ -415,6 +415,8 @@ pub async fn run(
         &tokenizer_path,
         &model_path,
         telemetry,
+        None,
+        None,
     )
     .await?;
     output.success("Worker initialized");

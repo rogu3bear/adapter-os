@@ -717,6 +717,20 @@ pub fn default_schema() -> ConfigSchema {
     );
 
     schema.add_variable(
+        ConfigVariable::new("AOS_MODEL_CACHE_MAX_MB")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: None,
+            })
+            .description(
+                "Maximum in-process model cache size (MB). Required for worker startup to bound memory.",
+            )
+            .category("MODEL")
+            .config_key("model.cache.max.mb")
+            .build(),
+    );
+
+    schema.add_variable(
         ConfigVariable::new("AOS_MODEL_PATH")
             .config_type(ConfigType::Path { must_exist: false })
             .default_value(DEV_MODEL_PATH)
@@ -882,14 +896,19 @@ pub fn default_schema() -> ConfigSchema {
         ConfigVariable::new("AOS_INFERENCE_BACKEND_PROFILE")
             .config_type(ConfigType::Enum {
                 values: vec![
+                    "auto".to_string(),
                     "autodev".to_string(),
                     "coreml".to_string(),
                     "metal".to_string(),
                     "mlx".to_string(),
+                    "cpu".to_string(),
                 ],
             })
-            .default_value("autodev")
-            .description("Backend profile for inference: autodev (dev default), coreml, metal, mlx")
+            .default_value("auto")
+            .description(
+                "Backend profile for inference: auto (dev default), coreml, metal, mlx, cpu. \
+                 'autodev' remains accepted for backward compatibility.",
+            )
             .category("INFERENCE")
             .config_key("inference.backend.profile")
             .build(),
@@ -1197,6 +1216,37 @@ pub fn default_schema() -> ConfigSchema {
             .default_value("true")
             .description("Enable CoreML backend for ANE acceleration")
             .category("BACKEND")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_COREML_COMPUTE_PREFERENCE")
+            .config_type(ConfigType::Enum {
+                values: vec![
+                    "cpu_only".to_string(),
+                    "cpu_and_gpu".to_string(),
+                    "cpu_and_ne".to_string(),
+                    "all".to_string(),
+                ],
+            })
+            .default_value("cpu_and_gpu")
+            .description(
+                "CoreML compute units preference: cpu_only, cpu_and_gpu (default), cpu_and_ne, all",
+            )
+            .category("BACKEND")
+            .config_key("coreml.compute_preference")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_COREML_PRODUCTION_MODE")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description(
+                "Enable CoreML production mode (enforces ANE-only compute units inside the binding)",
+            )
+            .category("BACKEND")
+            .config_key("coreml.production_mode")
             .build(),
     );
 
@@ -1645,6 +1695,47 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    // =========================================================================
+    // SELF_HOSTING - Internal self-hosting agent controls
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_SELF_HOSTING_MODE")
+            .config_type(ConfigType::Enum {
+                values: vec!["off".into(), "on".into(), "safe".into()],
+            })
+            .default_value("off")
+            .description("Self-hosting agent mode: off, on, or safe (human approval required)")
+            .category("SELF_HOSTING")
+            .config_key("self_hosting.mode")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_SELF_HOSTING_REPO_ALLOWLIST")
+            .config_type(ConfigType::String)
+            .default_value("")
+            .description("Comma-separated list of repo IDs the self-hosting agent may manage")
+            .category("SELF_HOSTING")
+            .config_key("self_hosting.repo_allowlist")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_SELF_HOSTING_PROMOTION_THRESHOLD")
+            .config_type(ConfigType::Float {
+                min: Some(0.0),
+                max: Some(1.0),
+            })
+            .default_value("0.0")
+            .description(
+                "Minimum evaluation score required for auto-promotion when self_hosting_mode=on",
+            )
+            .category("SELF_HOSTING")
+            .config_key("self_hosting.promotion_threshold")
+            .build(),
+    );
+
     schema
 }
 
@@ -1675,6 +1766,7 @@ mod tests {
         assert!(categories.contains(&"DEBUG"));
         assert!(categories.contains(&"STORAGE"));
         assert!(categories.contains(&"ADAPTER_GC"));
+        assert!(categories.contains(&"SELF_HOSTING"));
     }
 
     #[test]

@@ -23,13 +23,25 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Progress } from '@/components/ui/progress';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
+import { HealthBadge, TrustBadge } from '@/components/shared/TrustHealthBadge';
 import { AdapterDetailResponse, AdapterHealthResponse } from '@/api/adapter-types';
+import type { TrustState } from '@/api/training-types';
 import { getLifecycleVariant } from '@/utils/lifecycle';
-import { formatDistanceToNow, parseISO } from 'date-fns';
 import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
 import { formatBytes, formatRelativeTime } from '@/utils/format';
+import { describeSubcode, pickPrimarySubcode } from '@/utils/health';
+
+const normalizeTrustState = (state?: string): string => {
+  switch ((state ?? 'unknown').toLowerCase()) {
+    case 'warn':
+      return 'allowed_with_warning';
+    case 'blocked_regressed':
+      return 'blocked';
+    default:
+      return state ?? 'unknown';
+  }
+};
 
 interface AdapterOverviewProps {
   adapter: AdapterDetailResponse | null;
@@ -53,6 +65,27 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
   const adapterData = adapter.adapter;
   const metrics = adapter.metrics;
   const manifest = adapter.manifest;
+  const adapterTrustState =
+    adapterData?.adapter_trust_state ||
+    (adapter as unknown as { adapter_trust_state?: string }).adapter_trust_state ||
+    'unknown';
+  const normalizedTrust = normalizeTrustState(adapterTrustState);
+  const datasetTrustEntries: Array<{ id: string; trust_state: TrustState }> =
+    (adapterData?.dataset_version_trust ?? []).length > 0
+      ? (adapterData?.dataset_version_trust ?? []).map((snapshot) => ({
+          id: snapshot.dataset_version_id,
+          trust_state: (snapshot.trust_at_training_time ?? 'unknown') as TrustState,
+        }))
+      : (health?.datasets ?? []).map((ds) => ({
+          id: ds.dataset_version_id,
+          trust_state: (ds.trust_state as TrustState) ?? 'unknown',
+        }));
+  const adapterTrustVariant =
+    normalizedTrust === 'blocked'
+      ? 'destructive'
+      : normalizedTrust === 'allowed_with_warning'
+        ? 'secondary'
+        : 'outline';
 
   const tenantId = adapter.tenant_id || adapterData?.tenant_id;
   const runtimeState =
@@ -66,6 +99,8 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
     adapter.signature_valid ??
     adapterData?.signature_valid ??
     (adapter.content_hash_b3 || adapterData?.content_hash_b3 ? true : false);
+  const primarySubcode = pickPrimarySubcode(health);
+  const primarySubcodeDetail = primarySubcode ? describeSubcode(primarySubcode) : null;
 
   // Format timestamp helper
   const formatTime = (timestamp: string | undefined): string => {
@@ -74,20 +109,6 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
       return formatRelativeTime(timestamp);
     } catch {
       return timestamp;
-    }
-  };
-
-  // Get health status color
-  const getHealthColor = (status: string | undefined): string => {
-    switch (status) {
-      case 'healthy':
-        return 'text-green-500';
-      case 'degraded':
-        return 'text-yellow-500';
-      case 'unhealthy':
-        return 'text-red-500';
-      default:
-        return 'text-muted-foreground';
     }
   };
 
@@ -318,30 +339,165 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
               <>
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Overall Health</span>
-                  <Badge className={getHealthColor(health.health)}>
-                    {health.health}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <HealthBadge state={health.health} />
+                    {primarySubcodeDetail ? (
+                      <span className="text-sm font-medium">{primarySubcodeDetail.label}</span>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">{health.health}</span>
+                    )}
+                    {health.subcodes?.length ? (
+                      <a
+                        href="#health-details"
+                        className="text-xs text-primary underline-offset-4 hover:underline"
+                      >
+                        Health details
+                      </a>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  Last checked: {formatTime(health.last_check)}
-                </div>
-                <div className="space-y-2 mt-4">
-                  <h4 className="text-sm font-medium">Health Checks</h4>
-                  {health.checks?.map((check, idx) => (
-                    <div key={idx} className="flex items-center justify-between py-1 border-b last:border-0">
-                      <span className="text-sm">{check.name}</span>
-                      <Badge variant={check.status === 'passed' ? 'default' : 'destructive'}>
-                        {check.status}
-                      </Badge>
+                {health.drift_summary && (
+                  <div className="text-xs text-muted-foreground">
+                    Drift: {health.drift_summary.current.toFixed(4)}
+                    {health.drift_summary.hard_threshold !== undefined &&
+                      ` (hard ≥ ${health.drift_summary.hard_threshold})`}
+                  </div>
+                )}
+                <div className="space-y-2 mt-4" id="health-details">
+                  <h4 className="text-sm font-medium">Health details</h4>
+                  {health.subcodes?.length ? (
+                    health.subcodes.map((code, idx) => {
+                      const detail = describeSubcode(code);
+                      return (
+                        <div
+                          key={`${code.code}-${idx}`}
+                          className="flex items-center justify-between py-1 border-b last:border-0"
+                        >
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium">{detail.label}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {code.domain} — {detail.detail}
+                            </span>
+                          </div>
+                          <Badge variant="outline">{code.code}</Badge>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No health signals reported</p>
+                  )}
+                  {health.storage && (
+                    <div className="mt-3 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Storage/Reconciler</span>
+                        <Badge variant={health.storage.reconciler_status === 'corrupt' ? 'destructive' : 'default'}>
+                          {health.storage.reconciler_status}
+                        </Badge>
+                      </div>
+                      {health.storage.last_checked_at && (
+                        <div className="text-xs text-muted-foreground">
+                          Last checked: {formatTime(health.storage.last_checked_at)}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                  {(!health.checks || health.checks.length === 0) && (
-                    <p className="text-sm text-muted-foreground">No health checks configured</p>
                   )}
                 </div>
               </>
             ) : (
               <p className="text-sm text-muted-foreground">Health data unavailable</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Debug Snapshot */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Cpu className="h-5 w-5" />
+              Debug Snapshot
+            </CardTitle>
+            <CardDescription>Adapter-version focused diagnostics</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <InfoRow
+              label="Adapter Version ID"
+              value={adapterData?.adapter_id || adapterData?.id || 'N/A'}
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Backend & CoreML</h4>
+                <p className="text-sm text-muted-foreground">
+                  Backend: {health?.backend?.backend || adapterData?.training_backend || 'unknown'}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  CoreML: {health?.backend?.coreml_used ? 'used' : 'not used'} {health?.backend?.coreml_device_type && `(${health.backend.coreml_device_type})`}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Drift</h4>
+                <p className="text-sm text-muted-foreground">
+                  {health?.drift_summary
+                    ? `current ${health.drift_summary.current.toFixed(4)}`
+                    : 'No drift signal reported'}
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Adapter Trust</h4>
+              <div className="flex items-center gap-2">
+                <Badge variant={adapterTrustVariant}>{normalizedTrust}</Badge>
+                <span className="text-xs text-muted-foreground">
+                  Adapter trust is the worst of its datasets: blocked &gt; warn &gt; unknown &gt; allowed.
+                </span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Datasets & Trust</h4>
+              {datasetTrustEntries.length ? (
+                datasetTrustEntries.map(ds => (
+                  <div key={ds.id} className="flex items-center justify-between py-1 border-b last:border-0">
+                    <span className="text-sm">{ds.id}</span>
+                    <TrustBadge state={ds.trust_state} size="sm" />
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No dataset links recorded</p>
+              )}
+            </div>
+            {health?.storage && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Storage/Reconciler</h4>
+                <div className="flex items-center gap-2">
+                  <Badge variant={health.storage.reconciler_status === 'corrupt' ? 'destructive' : 'default'}>
+                    {health.storage.reconciler_status}
+                  </Badge>
+                  {health.storage.last_checked_at && (
+                    <span className="text-xs text-muted-foreground">
+                      Last checked {formatTime(health.storage.last_checked_at)}
+                    </span>
+                  )}
+                </div>
+                {health.storage.issues?.length ? (
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    {health.storage.issues.map((issue, idx) => {
+                      const detail = describeSubcode(issue);
+                      return (
+                        <div key={`${issue.code}-${idx}`} className="flex items-center justify-between">
+                          <div className="flex flex-col">
+                            <span>{detail.label}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {issue.domain} — {detail.detail}
+                            </span>
+                          </div>
+                          <Badge variant="outline">{issue.code}</Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No reconciler issues detected</p>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

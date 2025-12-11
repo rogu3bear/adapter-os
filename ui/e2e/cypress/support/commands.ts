@@ -33,7 +33,7 @@ declare global {
        * Seed test data (placeholder for future implementation)
        * @example cy.seedTestData()
        */
-      seedTestData(): Chainable<void>;
+      seedTestData(options?: { skipReset?: boolean; chat?: boolean }): Chainable<void>;
 
       /**
        * Track a created resource for cleanup
@@ -52,6 +52,12 @@ declare global {
 
 // Login command - authenticates and caches token with automatic refresh
 Cypress.Commands.add('login', () => {
+  const staticToken = Cypress.env('AUTH_TOKEN');
+  if (staticToken && typeof staticToken === 'string') {
+    Cypress.env('authToken', staticToken);
+    return cy.wrap(staticToken);
+  }
+
   const existingToken = Cypress.env('authToken');
   
   // Check if existing token is still valid
@@ -103,8 +109,7 @@ Cypress.Commands.add('cleanupTestData', () => {
   return cleanupTrackedResources();
 });
 
-// Placeholder for test data seeding
-Cypress.Commands.add('seedTestData', () => {
-  // TODO: Implement test data seeding
-  cy.log('seedTestData not yet implemented');
+// Deterministic seed helper (uses aosctl db seed-fixtures via cypress task)
+Cypress.Commands.add('seedTestData', (options: { skipReset?: boolean; chat?: boolean } = {}) => {
+  return cy.task('db:seed-fixtures', options);
 });

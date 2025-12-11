@@ -8,7 +8,7 @@
 
 #![allow(dead_code)]
 
-use adapteros_core::{BackendProfile, SeedMode};
+use adapteros_core::{BackendKind, SeedMode};
 use adapteros_db::Db;
 use adapteros_server_api::routes;
 use adapteros_server_api::AppState;
@@ -85,8 +85,9 @@ impl ApiTestHarness {
             paths: paths_config,
             chat_context: Default::default(),
             seed_mode: SeedMode::BestEffort,
-            backend_profile: BackendProfile::AutoDev,
+            backend_profile: BackendKind::Auto,
             worker_id: 0,
+            self_hosting: Default::default(),
         }));
 
         let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![

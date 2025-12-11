@@ -1,0 +1,55 @@
+import { lazy, type ComponentType } from 'react';
+
+type Loader<T extends ComponentType> = () => Promise<{ default: T }>;
+
+interface LazyWithRetryOptions {
+  retries?: number;
+  delayMs?: number;
+  devReload?: boolean;
+}
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const isRecoverableChunkError = (err: unknown): err is Error => {
+  if (!(err instanceof Error)) return false;
+  const message = err.message || '';
+  return (
+    message.includes('ChunkLoadError') ||
+    message.includes('Loading chunk') ||
+    message.includes('Failed to fetch dynamically imported module') ||
+    message.includes('Importing a module script failed')
+  );
+};
+
+/**
+ * Wrap React.lazy to tolerate transient dev chunk load failures.
+ * Retries a few times, then optionally reloads (dev only) before surfacing the error.
+ */
+export function lazyWithRetry<T extends ComponentType>(
+  factory: Loader<T>,
+  options: LazyWithRetryOptions = {},
+) {
+  const { retries = 2, delayMs = 400, devReload = true } = options;
+  let attempt = 0;
+
+  const load = (): Promise<{ default: T }> =>
+    factory().catch(async (err) => {
+      attempt += 1;
+      if (isRecoverableChunkError(err) && attempt <= retries) {
+        const backoff = delayMs * attempt;
+        console.warn(`[lazyWithRetry] retrying chunk load in ${backoff}ms (attempt ${attempt})`, err);
+        await wait(backoff);
+        return load();
+      }
+
+      if (isRecoverableChunkError(err) && import.meta.env.DEV && devReload) {
+        console.warn('[lazyWithRetry] reloading page after chunk load failure', err);
+        window.location.reload();
+      }
+
+      throw err;
+    });
+
+  return lazy(load);
+}
+

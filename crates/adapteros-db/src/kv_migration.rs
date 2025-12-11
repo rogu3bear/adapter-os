@@ -14,12 +14,12 @@
 use crate::adapters::{Adapter, AdapterRegistrationParams};
 use crate::adapters_kv::{AdapterKvOps, AdapterKvRepository};
 use crate::auth_sessions_kv::{AuthSessionKv, AuthSessionKvRepository};
-use crate::chat_sessions_kv::ChatSessionKvRepository;
+use crate::chat_sessions_kv::{ChatMessageKv, ChatSessionKv};
 use crate::collections_kv::CollectionKvRepository;
 use crate::documents_kv::{DocumentChunkKv, DocumentKv, DocumentKvRepository};
 use crate::kv_metrics::global_kv_metrics;
 use crate::plans_kv::{plan_to_kv, PlanKvRepository};
-use crate::policy_audit_kv::PolicyAuditKvRepository;
+use crate::policy_audit::PolicyAuditDecision;
 use crate::runtime_sessions::RuntimeSession;
 use crate::runtime_sessions_kv::RuntimeSessionKvRepository;
 use crate::stacks_kv::{stack_record_to_kv, StackKvOps, StackKvRepository};
@@ -28,7 +28,7 @@ use crate::tenants_kv::TenantKvRepository;
 use crate::training_jobs_kv::{TrainingJobKv, TrainingJobKvRepository, TrainingMetricKv};
 use crate::traits::StackRecord;
 use crate::Db;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use blake3::Hasher;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -304,20 +304,38 @@ impl Db {
         Ok(MigrationStats::default())
     }
 
-    #[cfg(any())]
     /// Migrate policy audit decisions to KV storage.
     pub async fn migrate_policy_audit_to_kv(&self) -> Result<MigrationStats> {
         let kv_backend = self.kv_backend().ok_or_else(|| {
             AosError::Config("KV backend not attached - call init_kv_backend() first".into())
         })?;
-        let repo = PolicyAuditKvRepository::new(kv_backend.backend().clone());
+        let backend = kv_backend.backend().clone();
         let mut stats = MigrationStats::default();
 
-        let entries = sqlx::query!(
+        #[derive(sqlx::FromRow)]
+        struct AuditRow {
+            id: String,
+            tenant_id: String,
+            policy_pack_id: String,
+            hook: String,
+            decision: String,
+            reason: Option<String>,
+            request_id: Option<String>,
+            user_id: Option<String>,
+            resource_type: Option<String>,
+            resource_id: Option<String>,
+            metadata_json: Option<String>,
+            timestamp: String,
+            previous_hash: Option<String>,
+            entry_hash: Option<String>,
+            chain_sequence: i64,
+        }
+
+        let entries = sqlx::query_as::<_, AuditRow>(
             r#"SELECT id, tenant_id, policy_pack_id, hook, decision, reason, request_id, user_id,
                 resource_type, resource_id, metadata_json, timestamp, previous_hash, entry_hash, chain_sequence
              FROM policy_audit_decisions
-             ORDER BY tenant_id, chain_sequence ASC"#
+             ORDER BY tenant_id, chain_sequence ASC"#,
         )
         .fetch_all(self.pool())
         .await
@@ -327,23 +345,76 @@ impl Db {
         for row in entries {
             let id = row.id.clone();
             let tenant_id = row.tenant_id.clone();
-            let policy_pack_id = row.policy_pack_id.clone();
-            let hook = row.hook.clone();
-            let decision = row.decision.clone();
-            let res = repo
-                .log_policy_decision(
-                    &tenant_id,
-                    &policy_pack_id,
-                    &hook,
-                    &decision,
-                    row.reason.as_deref(),
-                    row.request_id.as_deref(),
-                    row.user_id.as_deref(),
-                    row.resource_type.as_deref(),
-                    row.resource_id.as_deref(),
-                    row.metadata_json.as_deref(),
-                )
-                .await;
+
+            let mut entry = PolicyAuditDecision {
+                id: id.clone(),
+                tenant_id: tenant_id.clone(),
+                policy_pack_id: row.policy_pack_id.clone(),
+                hook: row.hook.clone(),
+                decision: row.decision.clone(),
+                reason: row.reason.clone(),
+                request_id: row.request_id.clone(),
+                user_id: row.user_id.clone(),
+                resource_type: row.resource_type.clone(),
+                resource_id: row.resource_id.clone(),
+                metadata_json: row.metadata_json.clone(),
+                timestamp: row.timestamp.clone(),
+                previous_hash: row.previous_hash.clone(),
+                entry_hash: row.entry_hash.clone().unwrap_or_default(),
+                chain_sequence: row.chain_sequence,
+            };
+
+            let computed_hash = {
+                let entry_data = format!(
+                    "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+                    entry.id,
+                    entry.timestamp,
+                    entry.tenant_id,
+                    entry.policy_pack_id,
+                    entry.hook,
+                    entry.decision,
+                    entry.reason.as_deref().unwrap_or(""),
+                    entry.request_id.as_deref().unwrap_or(""),
+                    entry.user_id.as_deref().unwrap_or(""),
+                    entry.resource_type.as_deref().unwrap_or(""),
+                    entry.resource_id.as_deref().unwrap_or(""),
+                    entry.metadata_json.as_deref().unwrap_or(""),
+                    entry.previous_hash.as_deref().unwrap_or(""),
+                );
+                B3Hash::hash(entry_data.as_bytes()).to_string()
+            };
+
+            if entry.entry_hash.is_empty() {
+                entry.entry_hash = computed_hash.clone();
+            } else if entry.entry_hash != computed_hash {
+                warn!(
+                    entry_id = %entry.id,
+                    "Policy audit hash mismatch during migration (sql vs computed); using SQL value"
+                );
+            }
+
+            // Persist entry and sequence index
+            let payload = serde_json::to_vec(&entry).map_err(AosError::Serialization)?;
+            let entry_key = format!("tenant/{}/policy_audit/{}", tenant_id, entry.id);
+            let seq_key = format!(
+                "tenant/{}/policy_audit/seq/{:020}:{}",
+                tenant_id, entry.chain_sequence, entry.id
+            );
+
+            let res = async {
+                backend.set(&entry_key, payload).await.map_err(|e| {
+                    AosError::Database(format!("Failed to store policy audit entry: {}", e))
+                })?;
+                backend
+                    .set(&seq_key, entry.id.as_bytes().to_vec())
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!("Failed to store policy audit seq: {}", e))
+                    })?;
+                Ok::<_, AosError>(())
+            }
+            .await;
+
             match res {
                 Ok(_) => stats.migrated += 1,
                 Err(e) => {
@@ -357,13 +428,6 @@ impl Db {
         Ok(stats)
     }
 
-    /// Migrate policy audit decisions (stubbed).
-    pub async fn migrate_policy_audit_stub(&self) -> Result<MigrationStats> {
-        warn!("Policy audit migration stubbed; skipping");
-        Ok(MigrationStats::default())
-    }
-
-    #[cfg(any())]
     /// Migrate training jobs and metrics to KV storage.
     pub async fn migrate_training_jobs_to_kv(&self) -> Result<MigrationStats> {
         let kv_backend = self.kv_backend().ok_or_else(|| {
@@ -372,13 +436,15 @@ impl Db {
         let repo = TrainingJobKvRepository::new(kv_backend.backend().clone());
         let mut stats = MigrationStats::default();
 
-        let jobs = sqlx::query!(
-            r#"SELECT id, repo_id, training_config_json, status, progress_json,
-                    started_at, completed_at, created_by, adapter_name, template_id,
-                    created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                    retryable, retry_of_job_id, stack_id, adapter_id
-             FROM repository_training_jobs"#
+        let jobs = sqlx::query_as::<_, crate::training_jobs::TrainingJobRecord>(
+            r#"SELECT id, repo_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
+                      training_config_json, status, progress_json,
+                      started_at, completed_at, created_by, adapter_name, template_id,
+                      created_at, metadata_json, config_hash_b3,
+                      dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                      retryable, retry_of_job_id, stack_id, adapter_id,
+                      produced_version_id, hyperparameters_json, data_spec_json, metrics_snapshot_id
+               FROM repository_training_jobs"#,
         )
         .fetch_all(self.pool())
         .await
@@ -386,60 +452,85 @@ impl Db {
 
         stats.total = jobs.len();
         for row in jobs {
-            let id = row.id.clone();
+            let job_id = row.id.clone();
+            let tenant_id = row.tenant_id.clone().unwrap_or_default();
+
             let job = TrainingJobKv {
-                id: id.clone(),
+                id: job_id.clone(),
                 repo_id: row.repo_id.clone(),
+                target_branch: row.target_branch.clone(),
+                base_version_id: row.base_version_id.clone(),
+                draft_version_id: row.draft_version_id.clone(),
+                code_commit_sha: row.code_commit_sha.clone(),
                 training_config_json: row.training_config_json.clone(),
                 status: row.status.clone(),
                 progress_json: row.progress_json.clone(),
-                started_at: row
-                    .started_at
-                    .map(|d| d.to_string())
-                    .unwrap_or_else(|| Utc::now().to_rfc3339()),
-                completed_at: row.completed_at.map(|d| d.to_string()),
+                started_at: row.started_at.clone(),
+                completed_at: row.completed_at.clone(),
                 created_by: row.created_by.clone(),
                 adapter_name: row.adapter_name.clone(),
                 template_id: row.template_id.clone(),
-                created_at: row.created_at.map(|d| d.to_string()),
+                created_at: row.created_at.clone(),
                 metadata_json: row.metadata_json.clone(),
                 config_hash_b3: row.config_hash_b3.clone(),
                 dataset_id: row.dataset_id.clone(),
                 base_model_id: row.base_model_id.clone(),
                 collection_id: row.collection_id.clone(),
-                tenant_id: row.tenant_id.clone(),
+                tenant_id: Some(tenant_id.clone()),
                 build_id: row.build_id.clone(),
                 source_documents_json: row.source_documents_json.clone(),
+                synthetic_mode: row.synthetic_mode.map(|v| v != 0),
+                data_lineage_mode: row.data_lineage_mode.clone(),
                 retryable: row.retryable,
                 retry_of_job_id: row.retry_of_job_id.clone(),
                 stack_id: row.stack_id.clone(),
                 adapter_id: row.adapter_id.clone(),
+                produced_version_id: row.produced_version_id.clone(),
+                hyperparameters_json: row.hyperparameters_json.clone(),
+                data_spec_json: row.data_spec_json.clone(),
+                metrics_snapshot_id: row.metrics_snapshot_id.clone(),
             };
             match repo.put_job(&job).await {
                 Ok(_) => stats.migrated += 1,
                 Err(e) => {
                     stats.failed += 1;
-                    stats.failed_ids.push(id.clone());
-                    warn!(error = %e, job_id = %id, "Failed to migrate training job");
+                    stats.failed_ids.push(job_id.clone());
+                    warn!(error = %e, job_id = %job_id, "Failed to migrate training job");
                 }
             }
 
-            let metrics = sqlx::query!(
+            let metrics = match sqlx::query!(
                 r#"SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
              FROM repository_training_metrics WHERE training_job_id = ?"#,
-                id
+                job_id
             )
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            {
+                Ok(rows) => rows,
+                Err(e) => {
+                    if let sqlx::Error::Database(db_err) = &e {
+                        if db_err.code().as_deref() == Some("14") {
+                            warn!(
+                                job_id = %job_id,
+                                error = %db_err,
+                                "Skipping metrics migration; database file not readable"
+                            );
+                            continue;
+                        }
+                    }
+                    return Err(AosError::Database(e.to_string()));
+                }
+            };
 
             for m in metrics {
+                let metric_job_id = m.training_job_id.clone();
                 let metric = TrainingMetricKv {
                     id: m.id.clone().unwrap_or_default(),
-                    training_job_id: m.training_job_id.clone().unwrap_or_default(),
-                    step: m.step,
+                    training_job_id: metric_job_id,
+                    step: m.step.unwrap_or(0),
                     epoch: m.epoch,
-                    metric_name: m.metric_name.clone().unwrap_or_default(),
+                    metric_name: m.metric_name.clone(),
                     metric_value: m.metric_value,
                     metric_timestamp: m.metric_timestamp.map(|d| d.to_string()),
                 };
@@ -450,17 +541,234 @@ impl Db {
         Ok(stats)
     }
 
-    /// Migrate training jobs and metrics to KV storage (stubbed).
-    pub async fn migrate_training_jobs_stub(&self) -> Result<MigrationStats> {
-        warn!("Training jobs migration stubbed; skipping");
-        Ok(MigrationStats::default())
-    }
-
-    #[cfg(any())]
     /// Migrate chat sessions and messages to KV storage (basic fields).
     pub async fn migrate_chat_sessions_to_kv(&self) -> Result<MigrationStats> {
-        warn!("Chat sessions migration stubbed; skipping");
-        Ok(MigrationStats::default())
+        let kv_backend = self.kv_backend().ok_or_else(|| {
+            AosError::Config("KV backend not attached - call init_kv_backend() first".into())
+        })?;
+        let backend = kv_backend.backend().clone();
+        let mut stats = MigrationStats::default();
+
+        #[derive(sqlx::FromRow)]
+        struct ChatSessionRow {
+            id: String,
+            tenant_id: String,
+            user_id: Option<String>,
+            created_by: Option<String>,
+            stack_id: Option<String>,
+            collection_id: Option<String>,
+            document_id: Option<String>,
+            name: String,
+            title: Option<String>,
+            source_type: Option<String>,
+            source_ref_id: Option<String>,
+            _category_id: Option<String>,
+            status: Option<String>,
+            _deleted_at: Option<String>,
+            _deleted_by: Option<String>,
+            _archived_at: Option<String>,
+            _archived_by: Option<String>,
+            _archive_reason: Option<String>,
+            _retention_until: Option<String>,
+            _description: Option<String>,
+            _is_shared: Option<i64>,
+            metadata_json: Option<String>,
+            tags_json: Option<String>,
+            created_at: String,
+            updated_at: String,
+            last_activity_at: String,
+            pinned_adapter_ids: Option<String>,
+        }
+
+        #[derive(sqlx::FromRow, Clone)]
+        struct ChatMessageRow {
+            id: String,
+            session_id: String,
+            _tenant_id: String,
+            role: String,
+            content: String,
+            timestamp: Option<String>,
+            created_at: Option<String>,
+            sequence: i64,
+            metadata_json: Option<String>,
+        }
+
+        let sessions = sqlx::query_as::<_, ChatSessionRow>(
+            r#"SELECT id, tenant_id, user_id, created_by, stack_id, collection_id, document_id,
+                      name, title, source_type, source_ref_id, category_id, status, deleted_at,
+                      deleted_by, archived_at, archived_by, archive_reason, retention_until,
+                      description, is_shared, metadata_json, tags_json, created_at, updated_at,
+                      last_activity_at, pinned_adapter_ids
+               FROM chat_sessions
+               ORDER BY tenant_id, last_activity_at DESC, id ASC"#,
+        )
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        let messages = sqlx::query_as::<_, ChatMessageRow>(
+            r#"SELECT id, session_id, tenant_id, role, content, timestamp, created_at, sequence, metadata_json
+               FROM chat_messages
+               ORDER BY session_id, sequence ASC, id ASC"#,
+        )
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        let mut msgs_by_session: HashMap<String, Vec<ChatMessageRow>> = HashMap::new();
+        for m in messages {
+            msgs_by_session
+                .entry(m.session_id.clone())
+                .or_default()
+                .push(m);
+        }
+
+        stats.total = sessions.len();
+
+        for row in sessions {
+            let session_id = row.id.clone();
+            let tenant_id = row.tenant_id.clone();
+            let status = row.status.clone().unwrap_or_else(|| "active".to_string());
+            let created_at = row.created_at.clone();
+            let updated_at = row.updated_at.clone();
+            let last_activity_at = row.last_activity_at.clone();
+
+            let session = ChatSessionKv {
+                id: session_id.clone(),
+                tenant_id: tenant_id.clone(),
+                user_id: row.user_id.clone(),
+                created_by: row.created_by.clone(),
+                stack_id: row.stack_id.clone(),
+                collection_id: row.collection_id.clone(),
+                document_id: row.document_id.clone(),
+                name: row.name.clone(),
+                title: row.title.clone(),
+                source_type: row.source_type.clone(),
+                source_ref_id: row.source_ref_id.clone(),
+                created_at: created_at.clone(),
+                updated_at: updated_at.clone(),
+                last_activity_at: last_activity_at.clone(),
+                metadata_json: row.metadata_json.clone(),
+                tags_json: row.tags_json.clone(),
+                pinned_adapter_ids: row.pinned_adapter_ids.clone(),
+                status,
+            };
+
+            let session_key = format!("tenant/{}/chat_session/{}", tenant_id, session_id);
+            let lookup_key = format!("chat-session-lookup/{}", session_id);
+            let index_key = format!("tenant/{}/chat_sessions", tenant_id);
+
+            let res = async {
+                // store session
+                let payload = serde_json::to_vec(&session).map_err(AosError::Serialization)?;
+                backend.set(&session_key, payload).await.map_err(|e| {
+                    AosError::Database(format!("Failed to store chat session: {}", e))
+                })?;
+
+                backend
+                    .set(&lookup_key, tenant_id.as_bytes().to_vec())
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!("Failed to store chat session lookup: {}", e))
+                    })?;
+
+                // session index
+                let mut ids: Vec<String> = match backend.get(&index_key).await {
+                    Ok(Some(bytes)) => {
+                        serde_json::from_slice(&bytes).map_err(AosError::Serialization)?
+                    }
+                    _ => Vec::new(),
+                };
+                if !ids.contains(&session_id) {
+                    ids.push(session_id.clone());
+                    let payload_idx = serde_json::to_vec(&ids).map_err(AosError::Serialization)?;
+                    backend.set(&index_key, payload_idx).await.map_err(|e| {
+                        AosError::Database(format!("Failed to update chat session index: {}", e))
+                    })?;
+                }
+
+                // user index
+                if let Some(uid) = row.user_id.as_deref() {
+                    let user_idx = format!("tenant/{}/chat_sessions/user/{}", tenant_id, uid);
+                    let mut user_ids: Vec<String> = match backend.get(&user_idx).await {
+                        Ok(Some(bytes)) => {
+                            serde_json::from_slice(&bytes).map_err(AosError::Serialization)?
+                        }
+                        _ => Vec::new(),
+                    };
+                    if !user_ids.contains(&session_id) {
+                        user_ids.push(session_id.clone());
+                        let payload_uid =
+                            serde_json::to_vec(&user_ids).map_err(AosError::Serialization)?;
+                        backend.set(&user_idx, payload_uid).await.map_err(|e| {
+                            AosError::Database(format!("Failed to update chat user index: {}", e))
+                        })?;
+                    }
+                }
+
+                // messages for this session
+                let mut msg_ids: Vec<String> = Vec::new();
+                if let Some(msgs) = msgs_by_session.get(&session_id) {
+                    for m in msgs {
+                        let msg_id = m.id.clone();
+                        let msg = ChatMessageKv {
+                            id: msg_id.clone(),
+                            session_id: session_id.clone(),
+                            tenant_id: tenant_id.clone(),
+                            role: m.role.clone(),
+                            content: m.content.clone(),
+                            timestamp: m.timestamp.clone().unwrap_or_else(|| {
+                                m.created_at
+                                    .clone()
+                                    .unwrap_or_else(|| last_activity_at.clone())
+                            }),
+                            created_at: m.created_at.clone().unwrap_or_else(|| {
+                                m.timestamp
+                                    .clone()
+                                    .unwrap_or_else(|| last_activity_at.clone())
+                            }),
+                            sequence: m.sequence,
+                            metadata_json: m.metadata_json.clone(),
+                        };
+
+                        let msg_key = format!(
+                            "tenant/{}/chat_session/{}/message/{}",
+                            tenant_id, session_id, msg_id
+                        );
+                        let payload_msg =
+                            serde_json::to_vec(&msg).map_err(AosError::Serialization)?;
+                        backend.set(&msg_key, payload_msg).await.map_err(|e| {
+                            AosError::Database(format!("Failed to store chat message: {}", e))
+                        })?;
+                        msg_ids.push(msg_id);
+                    }
+                }
+
+                if !msg_ids.is_empty() {
+                    let idx_key =
+                        format!("tenant/{}/chat_session/{}/messages", tenant_id, session_id);
+                    let payload_idx =
+                        serde_json::to_vec(&msg_ids).map_err(AosError::Serialization)?;
+                    backend.set(&idx_key, payload_idx).await.map_err(|e| {
+                        AosError::Database(format!("Failed to store chat message index: {}", e))
+                    })?;
+                }
+
+                Ok::<_, AosError>(())
+            }
+            .await;
+
+            match res {
+                Ok(_) => stats.migrated += 1,
+                Err(e) => {
+                    stats.failed += 1;
+                    stats.failed_ids.push(session_id.clone());
+                    warn!(error = %e, session_id = %session_id, "Failed to migrate chat session");
+                }
+            }
+        }
+
+        Ok(stats)
     }
 
     /// Migrate a single adapter from SQL to KV
@@ -1237,16 +1545,43 @@ impl Db {
                     .await
             }
             MigrationDomain::PolicyAudit => {
-                warn!("Policy audit migration skipped (not implemented)");
-                Ok(0)
+                let res = self.migrate_policy_audit_to_kv().await?;
+                stats.total += res.total;
+                stats.migrated += res.migrated;
+                stats.skipped += res.skipped;
+                stats.failed += res.failed;
+                stats.errors.extend(
+                    res.failed_ids
+                        .into_iter()
+                        .map(|id| format!("policy_audit:{id}")),
+                );
+                Ok(res.total)
             }
             MigrationDomain::TrainingJobs => {
-                warn!("Training jobs migration skipped (not implemented)");
-                Ok(0)
+                let res = self.migrate_training_jobs_to_kv().await?;
+                stats.total += res.total;
+                stats.migrated += res.migrated;
+                stats.skipped += res.skipped;
+                stats.failed += res.failed;
+                stats.errors.extend(
+                    res.failed_ids
+                        .into_iter()
+                        .map(|id| format!("training_job:{id}")),
+                );
+                Ok(res.total)
             }
             MigrationDomain::ChatSessions => {
-                warn!("Chat sessions migration skipped (not implemented)");
-                Ok(0)
+                let res = self.migrate_chat_sessions_to_kv().await?;
+                stats.total += res.total;
+                stats.migrated += res.migrated;
+                stats.skipped += res.skipped;
+                stats.failed += res.failed;
+                stats.errors.extend(
+                    res.failed_ids
+                        .into_iter()
+                        .map(|id| format!("chat_session:{id}")),
+                );
+                Ok(res.total)
             }
         }
     }
@@ -1571,24 +1906,28 @@ impl Db {
             AosError::Database("SQL backend unavailable for auth session migration".to_string())
         })?;
 
+        // Resolve canonical session relation (creates compatibility view if only user_sessions exists).
+        let session_table = self.resolve_session_table().await?;
+
         #[derive(sqlx::FromRow)]
         struct AuthRow {
             jti: String,
             user_id: String,
+            tenant_id: Option<String>,
             ip_address: Option<String>,
             user_agent: Option<String>,
             created_at: String,
             last_activity: String,
-            expires_at: i64,
+            expires_at: String,
         }
 
-        let mut rows: Vec<AuthRow> = sqlx::query_as::<_, AuthRow>(
+        let mut rows: Vec<AuthRow> = sqlx::query_as::<_, AuthRow>(&format!(
             r#"
-            SELECT jti, user_id, ip_address, user_agent, created_at, last_activity, expires_at
-            FROM auth_sessions
+            SELECT jti, user_id, tenant_id, ip_address, user_agent, created_at, last_activity, expires_at
+            FROM {session_table}
             ORDER BY last_activity DESC, jti ASC
-            "#,
-        )
+            "#
+        ))
         .fetch_all(pool)
         .await?;
 
@@ -1619,11 +1958,15 @@ impl Db {
             let last_activity = DateTime::parse_from_rfc3339(&row.last_activity)
                 .map(|dt| dt.with_timezone(&Utc))
                 .unwrap_or_else(|_| Utc::now());
+            let expires_at = DateTime::parse_from_rfc3339(&row.expires_at)
+                .map(|dt| dt.timestamp())
+                .or_else(|_| row.expires_at.parse::<i64>().map_err(|_| ()))
+                .unwrap_or_else(|_| Utc::now().timestamp());
 
             let kv = AuthSessionKv {
                 jti: row.jti.clone(),
                 user_id: row.user_id.clone(),
-                tenant_id: None,
+                tenant_id: row.tenant_id.clone(),
                 session_id: None,
                 device_id: None,
                 rot_id: None,
@@ -1633,7 +1976,7 @@ impl Db {
                 user_agent: row.user_agent.clone(),
                 created_at,
                 last_activity,
-                expires_at: row.expires_at,
+                expires_at,
                 locked: false,
             };
 

@@ -14,6 +14,8 @@ pub struct Config {
     pub metrics: MetricsConfig,
     pub alerting: AlertingConfig,
     #[serde(default)]
+    pub self_hosting: SelfHostingConfig,
+    #[serde(default)]
     pub git: Option<adapteros_git::GitConfig>,
     #[serde(default)]
     pub policies: PoliciesConfig,
@@ -49,6 +51,14 @@ fn default_storage_mode() -> String {
 
 fn default_pool_size() -> u32 {
     20
+}
+
+fn default_self_hosting_mode() -> String {
+    "off".to_string()
+}
+
+fn default_self_hosting_threshold() -> f64 {
+    0.0
 }
 
 fn default_kv_path() -> String {
@@ -238,6 +248,19 @@ pub struct AlertingConfig {
     pub alert_dir: String,
     pub max_alerts_per_file: usize,
     pub rotate_size_mb: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SelfHostingConfig {
+    /// Self-hosting agent mode: off/on/safe
+    #[serde(default = "default_self_hosting_mode")]
+    pub mode: String,
+    /// Repo IDs the agent is allowed to manage
+    #[serde(default)]
+    pub repo_allowlist: Vec<String>,
+    /// Minimum evaluation score required for auto-promotion (on mode)
+    #[serde(default = "default_self_hosting_threshold")]
+    pub promotion_threshold: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

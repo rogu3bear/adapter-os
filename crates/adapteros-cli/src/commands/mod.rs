@@ -19,12 +19,17 @@ pub mod code;
 pub mod codegraph;
 pub mod completions;
 pub mod config;
+#[cfg(feature = "coreml-export")]
+pub mod coreml_export;
+pub mod coreml_status;
 pub mod db;
 pub mod deploy;
 pub mod dev;
 pub mod diag;
+pub mod diag_health;
 pub mod doctor;
 // pub mod diag_bundle;  // Temporarily disabled - functionality moved to diag.rs
+pub mod datasets;
 pub mod drift_check;
 pub mod explain;
 pub mod federation;
@@ -60,6 +65,7 @@ pub mod registry;
 // pub mod sync_registry;     // Consolidated into registry.rs
 pub mod replay;
 pub mod replay_bundle;
+pub mod repo;
 pub mod report;
 pub mod rollback;
 pub mod router;
@@ -80,6 +86,7 @@ pub mod tui;
 pub mod telemetry_show;
 pub mod trace;
 pub mod train;
+pub mod train_cli;
 pub mod train_docs;
 pub mod training_common;
 pub mod tutorial;

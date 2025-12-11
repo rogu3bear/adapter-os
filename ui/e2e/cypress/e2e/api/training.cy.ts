@@ -1,5 +1,5 @@
 // Training API Tests
-import { validateErrorResponse } from '../../support/api-helpers';
+import { validateErrorResponse } from '../../../support/api-helpers';
 
 describe('Training API', () => {
   beforeEach(() => {

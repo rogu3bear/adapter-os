@@ -314,12 +314,21 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
     <>
       <div className="flex items-center gap-2">
         <Select value={selectedModelId} onValueChange={handleChange} disabled={disabled || loading}>
-          <SelectTrigger className="w-[200px]" aria-label="Model selector">
+          <SelectTrigger
+            className="w-[200px]"
+            aria-label="Model selector"
+            data-cy="model-selector"
+          >
             <SelectValue placeholder={loading ? 'Loading models…' : 'Select model'} />
           </SelectTrigger>
           <SelectContent>
             {models.map((m) => (
-              <SelectItem key={m.id} value={m.id}>
+              <SelectItem
+                key={m.id}
+                value={m.id}
+                data-cy="model-option"
+                data-model-id={m.id}
+              >
                 <div className="flex items-center gap-2">
                   {getStatusIcon(m)}
                   <div>

@@ -53,6 +53,8 @@ import type { PolicyPreflightResponse } from '@/api/policyTypes';
 import { useAdapters } from '@/hooks/useAdaptersApi';
 import { ConfirmationModal } from '@/components/shared/Modal';
 import { buildAdapterRecentActivity } from './adapterRecentActivity';
+import { useLineage } from '@/hooks/useLineage';
+import { LineageViewer } from '@/components/lineage/LineageViewer';
 
 type TabValue = 'overview' | 'evidence' | 'events' | 'activations' | 'lineage' | 'manifest' | 'lifecycle' | 'provenance';
 
@@ -62,6 +64,9 @@ export default function AdapterDetailPage() {
   const { can } = useRBAC();
   const [activeTab, setActiveTab] = useState<TabValue>('overview');
   const [showAddToStackModal, setShowAddToStackModal] = useState(false);
+  const [lineageDirection, setLineageDirection] = useState<'both' | 'upstream' | 'downstream'>('both');
+  const [includeEvidence, setIncludeEvidence] = useState(true);
+  const [lineageCursors, setLineageCursors] = useState<Record<string, string>>({});
 
   // Preflight dialog state
   const [showPreflightDialog, setShowPreflightDialog] = useState(false);
@@ -415,6 +420,20 @@ export default function AdapterDetailPage() {
     [adapterPrimaryId, activations, lineage?.history],
   );
 
+  const {
+    data: lineageGraph,
+    isLoading: isLoadingLineage,
+    refetch: refetchLineage,
+  } = useLineage('adapter_version', adapterPrimaryId, {
+    params: {
+      direction: lineageDirection,
+      include_evidence: includeEvidence,
+      limit_per_level: 6,
+      cursors: lineageCursors,
+    },
+    enabled: Boolean(adapterPrimaryId),
+  });
+
   useEffect(() => {
     if (siblingVersions.length > 0) {
       setBaseVersion(prev => prev || siblingVersions[0].version || adapterVersion || '');
@@ -454,6 +473,41 @@ export default function AdapterDetailPage() {
     setShowDuplicateModal(false);
     setNewVersion('');
   };
+
+  const handleNavigateLineageNode = useCallback(
+    (node: { type?: string; id: string; href?: string }) => {
+      if (node.href) {
+        navigate(node.href);
+        return;
+      }
+      switch (node.type) {
+        case 'adapter_version':
+          navigate(`/adapters/${node.id}`);
+          return;
+        case 'training_job':
+          navigate(`/training/jobs/${node.id}`);
+          return;
+        case 'dataset_version':
+        case 'dataset':
+          navigate(`/training/datasets/${node.id}`);
+          return;
+        case 'document':
+          navigate(`/documents/${node.id}`);
+          return;
+        default:
+          return;
+      }
+    },
+    [navigate],
+  );
+
+  const handleLineageLoadMore = useCallback((level: { type: string; next_cursor?: string }) => {
+    if (!level.next_cursor) return;
+    setLineageCursors((prev) => ({
+      ...prev,
+      [level.type]: level.next_cursor!,
+    }));
+  }, []);
 
   return (
     <FeatureLayout
@@ -618,6 +672,11 @@ export default function AdapterDetailPage() {
               Train jobs for this adapter or configure routing to activate it in the stack.
             </div>
             <div className="flex flex-wrap gap-2">
+              {adapter?.training_job_id && (
+                <Button variant="outline" size="sm" onClick={() => navigate(`/training/jobs/${adapter.training_job_id}`)}>
+                  Origin job
+                </Button>
+              )}
               <Button size="sm" onClick={() => navigate(`/training/jobs?adapterId=${adapterId}`)}>
                 View training jobs
               </Button>
@@ -731,10 +790,20 @@ export default function AdapterDetailPage() {
           </TabsContent>
 
           <TabsContent value="lineage" className="mt-6">
-            <AdapterLineage
-              adapterId={adapterId}
-              lineage={lineage}
-              isLoading={isLoading}
+            <LineageViewer
+              title="Adapter Lineage"
+              data={lineageGraph ?? null}
+              isLoading={isLoadingLineage}
+              onRefresh={() => {
+                setLineageCursors({});
+                refetchLineage();
+              }}
+              direction={lineageDirection}
+              includeEvidence={includeEvidence}
+              onChangeDirection={setLineageDirection}
+              onToggleEvidence={() => setIncludeEvidence((v) => !v)}
+              onNavigateNode={handleNavigateLineageNode}
+              onLoadMore={(level) => handleLineageLoadMore(level)}
             />
           </TabsContent>
 

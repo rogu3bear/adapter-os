@@ -1,5 +1,5 @@
 // Domain Adapter API Tests
-import { validateErrorResponse } from '../support/api-helpers';
+import { validateErrorResponse } from '../../support/api-helpers';
 
 describe('Domain Adapter API', () => {
   beforeEach(() => {

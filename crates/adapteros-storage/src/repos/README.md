@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Adapter Repository provides a clean abstraction layer for adapter storage operations, replacing SQL queries with KV-based operations. This is part of the broader SQL → KV migration strategy.
+The Adapter Repository provides a clean abstraction layer for adapter storage operations, replacing SQL queries with KV-based operations. This is part of the broader SQL → KV migration strategy and supports legacy UUID keys migrating to adapter_id keys.
 
 ## Architecture
 
@@ -26,8 +26,8 @@ kv/
 ### Key Design Decisions
 
 1. **Repository Pattern**: Encapsulates all adapter storage operations
-2. **Secondary Indexes**: Replaces SQL indexes with KV-based prefix scans
-3. **Lineage Traversal**: Implements recursive CTE logic in Rust
+2. **Secondary Indexes**: Replaces SQL indexes with KV-based prefix scans (including adapter_id mapping)
+3. **Lineage Traversal**: Implements recursive CTE logic in Rust with cycle guards and caps
 4. **Tenant Isolation**: All operations enforce tenant boundaries
 
 ## AdapterRepository API
@@ -38,7 +38,7 @@ kv/
 // Create a new adapter
 let id = repo.create(adapter).await?;
 
-// Get adapter by ID
+// Get adapter by ID (index lookup + tenant guard)
 let adapter = repo.get(tenant_id, adapter_id).await?;
 
 // Update existing adapter
@@ -120,6 +120,7 @@ pub mod adapter_indexes {
     pub const BY_ACTIVE: &str = "adapters_by_active";
     pub const BY_PINNED: &str = "adapters_by_pinned";
     pub const BY_PARENT: &str = "adapters_by_parent";
+    pub const BY_ADAPTER_ID: &str = "adapters_by_adapter_id";
 }
 ```
 
@@ -141,7 +142,7 @@ index:adapters_by_parent:adapter-parent:adapter-child
 
 Indexes are automatically maintained on:
 - **Create**: All applicable indexes updated
-- **Update**: Old values removed, new values added
+- **Update**: Legacy UUID keys migrated to adapter_id keys; old index entries removed before adds when key changes
 - **Delete**: All index entries removed
 
 ## Migration from SQL
@@ -265,10 +266,10 @@ mod tests {
 | Phase | Status | Description |
 |-------|--------|-------------|
 | 1. Repository Pattern | ✅ Complete | Core repository implementation |
-| 2. Index System | ✅ Complete | Secondary index infrastructure |
-| 3. Lineage Queries | ✅ Complete | Recursive CTE replacement |
+| 2. Index System | ✅ Complete | Secondary index infrastructure (incl. adapter_id) |
+| 3. Lineage Queries | ✅ Complete | Recursive CTE replacement with caps |
 | 4. Integration | 🔄 In Progress | Wire up to existing code |
-| 5. Dual-Write | 📅 Planned | Write to both SQL and KV |
+| 5. Dual-Write | 🔄 In Progress | SQL + KV registration path |
 | 6. Migration Tool | 📅 Planned | Batch data migration |
 | 7. Read Cutover | 📅 Planned | Switch reads to KV |
 | 8. SQL Deprecation | 📅 Planned | Remove SQL code |
@@ -286,7 +287,8 @@ let repo = AdapterRepository::new(backend, index_mgr);
 
 // Create adapter
 let adapter = AdapterKv {
-    id: "adapter-123".to_string(),
+    id: "adapter-uuid".to_string(),
+    adapter_id: Some("adapter-123".to_string()),
     tenant_id: "default".to_string(),
     tier: "warm".to_string(),
     current_state: "hot".to_string(),
@@ -309,7 +311,9 @@ let mut updated = adapter.clone();
 updated.current_state = "resident".to_string();
 repo.update(updated).await?;
 
-// Verify index updated
+// Verify index updated (state + adapter_id mapping)
 let resident = repo.list_by_state("default", "resident").await?;
-assert!(resident.iter().any(|a| a.id == "adapter-123"));
+assert!(resident.iter().any(|a| a.key_id() == "adapter-123"));
 ```
+
+MLNavigator Inc Dec 11, 2025.

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use adapteros_api_types::ModelLoadStatus;
-use adapteros_core::{BackendProfile, SeedMode};
+use adapteros_core::{BackendKind, SeedMode};
 use adapteros_db::models::ModelRegistrationBuilder;
 use adapteros_db::sqlx;
 use adapteros_server_api::handlers::models::{load_model, unload_model};
@@ -136,7 +136,8 @@ fn minimal_request(tenant_id: &str, model_id: &str) -> InferenceRequestInternal 
         adapter_strength_overrides: None,
         seed_mode: Some(SeedMode::BestEffort),
         request_seed: None,
-        backend_profile: Some(BackendProfile::AutoDev),
+        backend_profile: Some(BackendKind::Auto),
+        coreml_mode: None,
         max_tokens: 16,
         temperature: 0.0,
         top_k: None,

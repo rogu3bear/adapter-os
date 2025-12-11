@@ -2471,4 +2471,40 @@ mod tests {
         let retrieved_config = manager.get_pack_config(&PolicyPackId::Egress).unwrap();
         assert!(!retrieved_config.enabled);
     }
+
+    #[test]
+    fn test_policy_pack_id_all_matches_registry() {
+        let mut ids = PolicyPackId::all();
+        ids.sort_by_key(|id| id.to_id_string());
+        ids.dedup();
+
+        let mut expected = vec![
+            PolicyPackId::AdapterLifecycle,
+            PolicyPackId::Artifacts,
+            PolicyPackId::BuildRelease,
+            PolicyPackId::Compliance,
+            PolicyPackId::Determinism,
+            PolicyPackId::Egress,
+            PolicyPackId::Evidence,
+            PolicyPackId::FullPack,
+            PolicyPackId::Incident,
+            PolicyPackId::Isolation,
+            PolicyPackId::LlmOutput,
+            PolicyPackId::Memory,
+            PolicyPackId::NumericUnits,
+            PolicyPackId::Performance,
+            PolicyPackId::RagIndex,
+            PolicyPackId::Refusal,
+            PolicyPackId::Retention,
+            PolicyPackId::Router,
+            PolicyPackId::Secrets,
+            PolicyPackId::Telemetry,
+        ];
+        expected.sort_by_key(|id| id.to_id_string());
+
+        assert_eq!(
+            ids, expected,
+            "PolicyPackId::all must expose exactly the registered policy packs"
+        );
+    }
 }

@@ -10,6 +10,13 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
+fn export_token_valid(token: &str) -> bool {
+    match std::env::var("AOS_SECD_EXPORT_TOKEN") {
+        Ok(expected) if !expected.is_empty() && expected == token => true,
+        _ => false,
+    }
+}
+
 /// Serve enclave operations over Unix Domain Socket
 pub async fn serve_uds(
     socket_path: impl AsRef<Path>,
@@ -204,6 +211,163 @@ async fn process_request(
             }
         }
 
+        Request::EnsureTenantKey { tenant_id } => {
+            let label = format!("tenant:{}", tenant_id);
+            let mut enclave = enclave.lock().await;
+            match enclave.ensure_encryption_key(&label) {
+                Ok(_) => {
+                    audit_logger
+                        .log_success("ensure_tenant_key", Some(&tenant_id))
+                        .await;
+                    Response::ok_empty()
+                }
+                Err(e) => {
+                    let error_msg = format!("Ensure tenant key failed: {}", e);
+                    audit_logger
+                        .log_error("ensure_tenant_key", Some(&tenant_id), &error_msg)
+                        .await;
+                    Response::error(error_msg)
+                }
+            }
+        }
+
+        Request::SealTenant { tenant_id, data } => {
+            let data_bytes = match engine.decode(&data) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    audit_logger
+                        .log_error(
+                            "seal_tenant",
+                            Some(&tenant_id),
+                            &format!("Invalid base64: {}", e),
+                        )
+                        .await;
+                    return Response::error(format!("Invalid base64: {}", e));
+                }
+            };
+
+            let label = format!("tenant:{}", tenant_id);
+            let hash_hex = hex::encode(&data_bytes[..32.min(data_bytes.len())]);
+            let mut enclave = enclave.lock().await;
+
+            match enclave.seal_with_label(&label, &data_bytes) {
+                Ok(sealed) => {
+                    audit_logger
+                        .log_success("seal_tenant", Some(&hash_hex))
+                        .await;
+                    Response::ok(sealed)
+                }
+                Err(e) => {
+                    let error_msg = format!("Tenant seal failed: {}", e);
+                    audit_logger
+                        .log_error("seal_tenant", Some(&hash_hex), &error_msg)
+                        .await;
+                    Response::error(error_msg)
+                }
+            }
+        }
+
+        Request::UnsealTenant { tenant_id, data } => {
+            let data_bytes = match engine.decode(&data) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    audit_logger
+                        .log_error(
+                            "unseal_tenant",
+                            Some(&tenant_id),
+                            &format!("Invalid base64: {}", e),
+                        )
+                        .await;
+                    return Response::error(format!("Invalid base64: {}", e));
+                }
+            };
+
+            let label = format!("tenant:{}", tenant_id);
+            let hash_hex = hex::encode(&data_bytes[..32.min(data_bytes.len())]);
+            let mut enclave = enclave.lock().await;
+
+            match enclave.unseal_with_label(&label, &data_bytes) {
+                Ok(unsealed) => {
+                    audit_logger
+                        .log_success("unseal_tenant", Some(&hash_hex))
+                        .await;
+                    Response::ok(unsealed)
+                }
+                Err(e) => {
+                    let error_msg = format!("Tenant unseal failed: {}", e);
+                    audit_logger
+                        .log_error("unseal_tenant", Some(&hash_hex), &error_msg)
+                        .await;
+                    Response::error(error_msg)
+                }
+            }
+        }
+
+        Request::DigestTenant { tenant_id, data } => {
+            let data_bytes = match engine.decode(&data) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    audit_logger
+                        .log_error(
+                            "digest_tenant",
+                            Some(&tenant_id),
+                            &format!("Invalid base64: {}", e),
+                        )
+                        .await;
+                    return Response::error(format!("Invalid base64: {}", e));
+                }
+            };
+
+            let label = format!("tenant:{}", tenant_id);
+            let mut enclave = enclave.lock().await;
+
+            match enclave.digest_with_label(&label, &data_bytes) {
+                Ok(digest) => {
+                    audit_logger
+                        .log_success("digest_tenant", Some(&tenant_id))
+                        .await;
+                    Response::ok(digest.to_vec())
+                }
+                Err(e) => {
+                    let error_msg = format!("Tenant digest failed: {}", e);
+                    audit_logger
+                        .log_error("digest_tenant", Some(&tenant_id), &error_msg)
+                        .await;
+                    Response::error(error_msg)
+                }
+            }
+        }
+
+        Request::ExportTenantKey {
+            tenant_id,
+            permission_token,
+        } => {
+            if !export_token_valid(&permission_token) {
+                audit_logger
+                    .log_error("export_tenant_key", Some(&tenant_id), "permission denied")
+                    .await;
+                return Response::error("permission denied");
+            }
+
+            let label = format!("tenant:{}", tenant_id);
+            let mut enclave = enclave.lock().await;
+            match enclave.export_encryption_key(&label) {
+                Ok(key_bytes) => {
+                    audit_logger
+                        .log_success("export_tenant_key", Some(&tenant_id))
+                        .await;
+                    Response::ok(key_bytes.to_vec())
+                }
+                Err(e) => {
+                    let error_msg = format!("Export tenant key failed: {}", e);
+                    audit_logger
+                        .log_error("export_tenant_key", Some(&tenant_id), &error_msg)
+                        .await;
+                    Response::error(error_msg)
+                }
+            }
+        }
+
         Request::GetPublicKey { key_label } => {
             let mut enclave = enclave.lock().await;
             match enclave.get_public_key(&key_label) {
@@ -224,5 +388,18 @@ async fn process_request(
         }
 
         Request::Ping => Response::ok_empty(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::export_token_valid;
+
+    #[test]
+    fn export_token_guard_respects_permission() {
+        std::env::set_var("AOS_SECD_EXPORT_TOKEN", "permit");
+        assert!(export_token_valid("permit"));
+        assert!(!export_token_valid("deny"));
+        std::env::remove_var("AOS_SECD_EXPORT_TOKEN");
     }
 }

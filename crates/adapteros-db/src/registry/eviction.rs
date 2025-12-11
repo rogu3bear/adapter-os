@@ -123,7 +123,10 @@ impl EvictionManager {
         // Update database state (mark as unloaded)
         sqlx::query(
             r#"
-            UPDATE adapters SET load_state = 'unloaded', last_unloaded_at = datetime('now')
+            UPDATE adapters
+            SET load_state = 'cold',
+                current_state = 'unloaded',
+                last_unloaded_at = datetime('now')
             WHERE adapter_id = ?1
             "#,
         )
@@ -318,7 +321,8 @@ impl MemoryPressureSelector {
         let query = format!(
             r#"
             SELECT adapter_id FROM adapters
-            WHERE load_state = 'loaded'
+            WHERE current_state IN ('warm', 'hot', 'resident')
+               OR load_state IN ('loaded', 'warm')
             ORDER BY {}
             "#,
             order_clause
@@ -344,7 +348,9 @@ impl MemoryPressureSelector {
         // Get loaded adapters that are in the custom order list
         let candidates: Vec<String> = sqlx::query_scalar(
             r#"
-            SELECT adapter_id FROM adapters WHERE load_state = 'loaded'
+            SELECT adapter_id FROM adapters
+            WHERE current_state IN ('warm', 'hot', 'resident')
+               OR load_state IN ('loaded', 'warm')
             "#,
         )
         .fetch_all(db.pool())

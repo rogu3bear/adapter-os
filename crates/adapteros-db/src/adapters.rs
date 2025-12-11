@@ -512,7 +512,7 @@ pub struct Adapter {
 
     // Metadata normalization (from migration 0068)
     pub version: String,         // Semantic version or monotonic
-    pub lifecycle_state: String, // draft/active/deprecated/retired
+    pub lifecycle_state: String, // draft/training/ready/active/deprecated/retired/failed
 
     // Archive/GC fields (from migration 0138)
     pub archived_at: Option<String>,    // When adapter was archived
@@ -681,7 +681,7 @@ impl Db {
             if let Some(pool) = self.pool_opt() {
                 sqlx::query(
                     "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
                 )
                 .bind(&id)
                 .bind(&params.tenant_id)
@@ -850,6 +850,27 @@ impl Db {
     /// # Returns
     /// Vector of all active adapters ordered by tier (ascending) and creation date (descending)
     pub async fn list_all_adapters_system(&self) -> Result<Vec<Adapter>> {
+        if self.storage_mode().read_from_kv() {
+            let mut adapters = Vec::new();
+
+            let tenants = self.list_tenants().await?;
+            for tenant in tenants {
+                let tenant_adapters = self.list_adapters_for_tenant(&tenant.id).await?;
+                adapters.extend(tenant_adapters);
+            }
+
+            if !adapters.is_empty() || !self.storage_mode().sql_fallback_enabled() {
+                adapters.sort_by(|a, b| {
+                    a.tier
+                        .cmp(&b.tier)
+                        .then_with(|| b.created_at.cmp(&a.created_at))
+                });
+                return Ok(adapters);
+            }
+
+            self.record_kv_read_fallback("adapters.list_all.system");
+        }
+
         let query = format!(
             "SELECT {} FROM adapters WHERE active = 1 ORDER BY tier ASC, created_at DESC",
             ADAPTER_SELECT_FIELDS
@@ -1159,6 +1180,19 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapter)
+    }
+
+    /// Get adapter by ID scoped to a tenant (returns None on tenant mismatch).
+    pub async fn get_adapter_for_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+    ) -> Result<Option<Adapter>> {
+        let adapter = self.get_adapter(adapter_id).await?;
+        Ok(match adapter {
+            Some(a) if a.tenant_id == tenant_id => Some(a),
+            _ => None,
+        })
     }
 
     /// Find adapter by BLAKE3 hash for deduplication

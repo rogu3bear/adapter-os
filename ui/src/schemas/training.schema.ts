@@ -86,6 +86,16 @@ export const TrainingConfigSchema = z.object({
 
 export type TrainingConfig = z.infer<typeof TrainingConfigSchema>;
 
+// Post-training actions schema (aligned with adapteros-api-types::PostActionsRequest)
+const PostActionsSchema = z.object({
+  package: z.boolean().optional(),
+  register: z.boolean().optional(),
+  create_stack: z.boolean().optional(),
+  activate_stack: z.boolean().optional(),
+  tier: z.string().optional(),
+  adapters_root: z.string().optional(),
+});
+
 /**
  * Start training request schema
  *
@@ -123,6 +133,18 @@ export const StartTrainingRequestSchema = z.object({
     .max(100, 'Dataset ID too long')
     .optional()
     .describe('Training dataset'),
+  dataset_version_ids: z.array(
+    z.object({
+      dataset_version_id: z.string().min(1, 'Dataset version ID is required'),
+      weight: z.number().positive('Weight must be positive').optional(),
+    })
+  )
+    .min(1, 'At least one dataset version is required')
+    .optional(),
+  synthetic_mode: z.boolean().optional().default(false),
+  data_lineage_mode: z.enum(['versioned', 'dataset_only', 'synthetic', 'legacy_unpinned']).optional(),
+  branch_classification: z.enum(['protected', 'high', 'sandbox']).optional(),
+  post_actions: PostActionsSchema.optional(),
 });
 
 export type StartTrainingRequest = z.infer<typeof StartTrainingRequestSchema>;

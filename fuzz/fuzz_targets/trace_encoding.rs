@@ -1,0 +1,92 @@
+#![no_main]
+
+use adapteros_core::B3Hash;
+use adapteros_db::{recompute_receipt, SqlTraceSink, TraceStart, TraceTokenInput};
+use blake3::Hasher;
+use libfuzzer_sys::fuzz_target;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha20Rng;
+use std::sync::Arc;
+use tokio::runtime::Builder;
+
+fn seed_rng(data: &[u8]) -> ChaCha20Rng {
+    let mut hasher = Hasher::new();
+    hasher.update(data);
+    let digest = hasher.finalize();
+    let mut seed = [0u8; 32];
+    seed.copy_from_slice(digest.as_bytes());
+    ChaCha20Rng::from_seed(seed)
+}
+
+fuzz_target!(|data: &[u8]| {
+    let mut rng = seed_rng(data);
+    let rt = match Builder::new_current_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(_) => return,
+    };
+
+    let _ = rt.block_on(async {
+        let db = Arc::new(adapteros_db::Db::new_in_memory().await?);
+
+        let trace_id = format!("trace-{}", rng.gen::<u64>());
+        let context_digest = B3Hash::hash(&rng.gen::<u128>().to_le_bytes()).to_bytes();
+
+        let start = TraceStart {
+            trace_id: trace_id.clone(),
+            tenant_id: "tenant-fuzz".to_string(),
+            request_id: None,
+            context_digest,
+        };
+
+        let mut sink = SqlTraceSink::new(db.clone(), start, 8).await?;
+
+        let token_count = rng.gen_range(0..=4usize);
+        for idx in 0..token_count {
+            let adapter_count = rng.gen_range(1..=4usize);
+            let adapters: Vec<String> = (0..adapter_count)
+                .map(|i| format!("adapter-{i}"))
+                .collect();
+            let gates: Vec<i16> = (0..adapter_count)
+                .map(|_| rng.gen_range(-32000i16..=32767i16))
+                .collect();
+
+            let token = TraceTokenInput {
+                token_index: idx as u32,
+                adapter_ids: adapters,
+                gates_q15: gates,
+                policy_mask_digest: if rng.gen_bool(0.3) {
+                    Some(B3Hash::hash(&rng.gen::<u128>().to_le_bytes()).to_bytes())
+                } else {
+                    None
+                },
+                backend_id: Some(if rng.gen_bool(0.5) {
+                    "coreml".to_string()
+                } else {
+                    "mlx".to_string()
+                }),
+                kernel_version_id: Some("k1".to_string()),
+            };
+
+            let _ = sink.record_token(token).await;
+        }
+
+        let outputs: Vec<u32> = (0..rng.gen_range(0..=5)).map(|_| rng.gen()).collect();
+        let _ = sink.finalize(&outputs).await;
+
+        // Corrupt one row with arbitrary fuzz data to exercise decode robustness
+        let blob: Vec<u8> = data.iter().cloned().take(128).collect();
+        let _ = adapteros_db::sqlx::query(
+            "UPDATE inference_trace_tokens SET selected_adapter_ids = ?, gates_q15 = ? WHERE trace_id = ? AND token_index = 0",
+        )
+        .bind(blob.clone())
+        .bind(blob)
+        .bind(&trace_id)
+        .execute(db.pool())
+        .await;
+
+        // Receipt recomputation exercises decoding paths; errors are fine, panics are not
+        let _ = recompute_receipt(&db, &trace_id).await;
+
+        Ok::<(), adapteros_core::AosError>(())
+    });
+});

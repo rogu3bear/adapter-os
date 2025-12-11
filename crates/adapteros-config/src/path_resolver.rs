@@ -2,6 +2,9 @@ use adapteros_core::paths::AOS_ADAPTERS_DIR_ENV;
 use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
 
+/// Absolute prefixes that are forbidden for system/local sockets.
+const FORBIDDEN_TMP_PREFIXES: [&str; 2] = ["/tmp", "/private/tmp"];
+
 /// Dev-only fixture path for the default local Qwen2.5-7B-Instruct-4bit model.
 pub const DEV_MODEL_PATH: &str = "./var/models/Qwen2.5-7B-Instruct-4bit";
 
@@ -194,8 +197,8 @@ pub fn resolve_embedding_model_path_with_override(cli_override: Option<&Path>) -
 }
 
 /// Resolve telemetry directory with env/default provenance.
-pub fn resolve_telemetry_dir() -> ResolvedPath {
-    resolve_env_or_default("AOS_TELEMETRY_DIR", DEFAULT_TELEMETRY_DIR, "telemetry-dir")
+pub fn resolve_telemetry_dir() -> Result<ResolvedPath> {
+    resolve_env_or_default_no_tmp("AOS_TELEMETRY_DIR", DEFAULT_TELEMETRY_DIR, "telemetry-dir")
 }
 
 /// Resolve index root directory with env/default provenance.
@@ -204,8 +207,8 @@ pub fn resolve_index_root() -> ResolvedPath {
 }
 
 /// Resolve manifest cache directory with env/default provenance.
-pub fn resolve_manifest_cache_dir() -> ResolvedPath {
-    resolve_env_or_default(
+pub fn resolve_manifest_cache_dir() -> Result<ResolvedPath> {
+    resolve_env_or_default_no_tmp(
         "AOS_MANIFEST_CACHE_DIR",
         DEFAULT_MANIFEST_CACHE_DIR,
         "manifest-cache",
@@ -213,52 +216,55 @@ pub fn resolve_manifest_cache_dir() -> ResolvedPath {
 }
 
 /// Resolve adapters root with support for both AOS_ADAPTERS_ROOT (preferred) and AOS_ADAPTERS_DIR (legacy).
-pub fn resolve_adapters_root() -> ResolvedPath {
+pub fn resolve_adapters_root() -> Result<ResolvedPath> {
     crate::model::load_dotenv();
     if let Ok(env_path) = std::env::var(AOS_ADAPTERS_ROOT_ENV) {
         let path = PathBuf::from(&env_path);
+        reject_tmp_persistent_path(&path, "adapters-root")?;
         tracing::info!(
             path = %path.display(),
             source = %PathSource::Env(AOS_ADAPTERS_ROOT_ENV),
             "Resolved adapters root from environment"
         );
-        return ResolvedPath {
+        return Ok(ResolvedPath {
             path,
             source: PathSource::Env(AOS_ADAPTERS_ROOT_ENV),
             used_dev_fallback: false,
-        };
+        });
     }
 
     if let Ok(env_path) = std::env::var(AOS_ADAPTERS_DIR_ENV) {
         let path = PathBuf::from(&env_path);
+        reject_tmp_persistent_path(&path, "adapters-root")?;
         tracing::info!(
             path = %path.display(),
             source = %PathSource::Env(AOS_ADAPTERS_DIR_ENV),
             "Resolved adapters root from legacy environment variable"
         );
-        return ResolvedPath {
+        return Ok(ResolvedPath {
             path,
             source: PathSource::Env(AOS_ADAPTERS_DIR_ENV),
             used_dev_fallback: false,
-        };
+        });
     }
 
     let path = PathBuf::from(DEFAULT_ADAPTERS_ROOT);
+    reject_tmp_persistent_path(&path, "adapters-root")?;
     tracing::info!(
         path = %path.display(),
         source = %PathSource::Default("adapters-root"),
         "Using default adapters root"
     );
 
-    ResolvedPath {
+    Ok(ResolvedPath {
         path,
         source: PathSource::Default("adapters-root"),
         used_dev_fallback: false,
-    }
+    })
 }
 
 /// Resolve database URL with env/default provenance.
-pub fn resolve_database_url() -> ResolvedPath {
+pub fn resolve_database_url() -> Result<ResolvedPath> {
     crate::model::load_dotenv();
     if let Ok(url) = std::env::var("DATABASE_URL") {
         tracing::info!(
@@ -266,11 +272,13 @@ pub fn resolve_database_url() -> ResolvedPath {
             source = %PathSource::Env("DATABASE_URL"),
             "Resolved database URL from environment"
         );
-        return ResolvedPath {
+        let resolved = ResolvedPath {
             path: PathBuf::from(url),
             source: PathSource::Env("DATABASE_URL"),
             used_dev_fallback: false,
         };
+        reject_tmp_persistent_path(&resolved.path, "database-url")?;
+        return Ok(resolved);
     }
 
     if let Ok(url) = std::env::var("AOS_DATABASE_URL") {
@@ -279,25 +287,28 @@ pub fn resolve_database_url() -> ResolvedPath {
             source = %PathSource::Env("AOS_DATABASE_URL"),
             "Resolved database URL from legacy environment variable"
         );
-        return ResolvedPath {
+        let resolved = ResolvedPath {
             path: PathBuf::from(url),
             source: PathSource::Env("AOS_DATABASE_URL"),
             used_dev_fallback: false,
         };
+        reject_tmp_persistent_path(&resolved.path, "database-url")?;
+        return Ok(resolved);
     }
 
     let path = PathBuf::from(DEFAULT_DB_PATH);
+    reject_tmp_persistent_path(&path, "database-url")?;
     tracing::info!(
         database_url = %path.display(),
         source = %PathSource::Default("database-url"),
         "Using default database URL"
     );
 
-    ResolvedPath {
+    Ok(ResolvedPath {
         path,
         source: PathSource::Default("database-url"),
         used_dev_fallback: false,
-    }
+    })
 }
 
 /// Resolve worker socket for worker processes.
@@ -310,33 +321,35 @@ pub fn resolve_database_url() -> ResolvedPath {
 pub fn resolve_worker_socket_for_worker(
     tenant_id: &str,
     override_path: Option<&Path>,
-) -> ResolvedPath {
+) -> Result<ResolvedPath> {
     crate::model::load_dotenv();
     if let Some(path) = override_path {
+        reject_tmp_socket(path, "worker")?;
         tracing::info!(
             path = %path.display(),
             source = %PathSource::Cli,
             "Resolved worker socket from CLI/env override"
         );
-        return ResolvedPath {
+        return Ok(ResolvedPath {
             path: path.to_path_buf(),
             source: PathSource::Cli,
             used_dev_fallback: false,
-        };
+        });
     }
 
     if let Ok(env_path) = std::env::var("AOS_WORKER_SOCKET") {
         let path = PathBuf::from(&env_path);
+        reject_tmp_socket(&path, "worker")?;
         tracing::info!(
             path = %path.display(),
             source = %PathSource::Env("AOS_WORKER_SOCKET"),
             "Resolved worker socket from environment"
         );
-        return ResolvedPath {
+        return Ok(ResolvedPath {
             path,
             source: PathSource::Env("AOS_WORKER_SOCKET"),
             used_dev_fallback: false,
-        };
+        });
     }
 
     let prod_path = PathBuf::from(format!(
@@ -344,6 +357,7 @@ pub fn resolve_worker_socket_for_worker(
         DEFAULT_WORKER_SOCKET_PROD_ROOT.trim_end_matches('/'),
         tenant_id
     ));
+    reject_tmp_socket(&prod_path, "worker")?;
     if let Some(parent) = prod_path.parent() {
         if std::fs::create_dir_all(parent).is_ok() {
             tracing::info!(
@@ -351,11 +365,11 @@ pub fn resolve_worker_socket_for_worker(
                 source = %PathSource::Default("worker-socket-prod"),
                 "Using per-tenant worker socket path"
             );
-            return ResolvedPath {
+            return Ok(ResolvedPath {
                 path: prod_path,
                 source: PathSource::Default("worker-socket-prod"),
                 used_dev_fallback: false,
-            };
+            });
         } else {
             tracing::warn!(
                 path = %prod_path.display(),
@@ -365,6 +379,7 @@ pub fn resolve_worker_socket_for_worker(
     }
 
     let dev_path = PathBuf::from(DEFAULT_WORKER_SOCKET_DEV);
+    reject_tmp_socket(&dev_path, "worker")?;
     if let Some(parent) = dev_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -374,11 +389,11 @@ pub fn resolve_worker_socket_for_worker(
         "Using dev worker socket fallback"
     );
 
-    ResolvedPath {
+    Ok(ResolvedPath {
         path: dev_path,
         source: PathSource::DevFallback(DEFAULT_WORKER_SOCKET_DEV),
         used_dev_fallback: true,
-    }
+    })
 }
 
 /// Resolve worker socket for control plane clients (training cancel, owner chat).
@@ -386,33 +401,106 @@ pub fn resolve_worker_socket_for_worker(
 /// Precedence:
 /// 1) AOS_WORKER_SOCKET
 /// 2) /var/run/adapteros.sock
-pub fn resolve_worker_socket_for_cp() -> ResolvedPath {
+pub fn resolve_worker_socket_for_cp() -> Result<ResolvedPath> {
     crate::model::load_dotenv();
     if let Ok(env_path) = std::env::var("AOS_WORKER_SOCKET") {
         let path = PathBuf::from(&env_path);
+        reject_tmp_socket(&path, "control-plane")?;
         tracing::info!(
             path = %path.display(),
             source = %PathSource::Env("AOS_WORKER_SOCKET"),
             "Resolved control-plane worker socket from environment"
         );
-        return ResolvedPath {
+        return Ok(ResolvedPath {
             path,
             source: PathSource::Env("AOS_WORKER_SOCKET"),
             used_dev_fallback: false,
-        };
+        });
     }
 
     let path = PathBuf::from(DEFAULT_CP_WORKER_SOCKET);
+    reject_tmp_socket(&path, "control-plane")?;
     tracing::info!(
         path = %path.display(),
         source = %PathSource::Default("worker-socket-cp"),
         "Using default control-plane worker socket"
     );
-    ResolvedPath {
+    Ok(ResolvedPath {
         path,
         source: PathSource::Default("worker-socket-cp"),
         used_dev_fallback: false,
+    })
+}
+
+/// Remove stale socket file (if present) and ensure parent directory exists.
+///
+/// Also rejects sockets under `/tmp` (or `/private/tmp`) to enforce system-local invariants.
+pub fn prepare_socket_path(path: &Path, kind: &str) -> Result<()> {
+    reject_tmp_socket(path, kind)?;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to create {} socket directory {}: {}",
+                kind,
+                parent.display(),
+                e
+            ))
+        })?;
     }
+
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to remove stale {} socket {}: {}",
+                kind,
+                path.display(),
+                e
+            ))
+        })?;
+    }
+
+    Ok(())
+}
+
+fn reject_tmp_socket(path: &Path, kind: &str) -> Result<()> {
+    let path_str = path.display().to_string();
+    if FORBIDDEN_TMP_PREFIXES
+        .iter()
+        .any(|prefix| path_str.starts_with(prefix))
+    {
+        return Err(AosError::Config(format!(
+            "{} socket path must not be under /tmp: {}",
+            kind,
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn reject_tmp_persistent_path(path: &Path, kind: &str) -> Result<()> {
+    let path_str = path.display().to_string();
+    let mut candidate = path_str.as_str();
+
+    for prefix in ["sqlite://", "file://"] {
+        if let Some(stripped) = candidate.strip_prefix(prefix) {
+            candidate = stripped;
+            break;
+        }
+    }
+
+    if FORBIDDEN_TMP_PREFIXES
+        .iter()
+        .any(|prefix| candidate.starts_with(prefix))
+    {
+        return Err(AosError::Config(format!(
+            "{} path must not be under /tmp: {}",
+            kind,
+            path.display()
+        )));
+    }
+
+    Ok(())
 }
 
 /// Resolve status file path for menu bar integration.
@@ -573,6 +661,16 @@ fn resolve_env_or_default(
     }
 }
 
+fn resolve_env_or_default_no_tmp(
+    env_var: &'static str,
+    default: &'static str,
+    label: &'static str,
+) -> Result<ResolvedPath> {
+    let resolved = resolve_env_or_default(env_var, default, label);
+    reject_tmp_persistent_path(&resolved.path, label)?;
+    Ok(resolved)
+}
+
 fn validate_path_exists(path: &Path, kind: &str, source: &str) -> Result<()> {
     if path.exists() {
         return Ok(());
@@ -674,38 +772,172 @@ mod tests {
 
     #[test]
     fn telemetry_dir_prefers_env() {
-        std::env::set_var("AOS_TELEMETRY_DIR", "/tmp/aos-telemetry");
-        let resolved = resolve_telemetry_dir();
-        assert_eq!(resolved.path, PathBuf::from("/tmp/aos-telemetry"));
+        std::env::set_var("AOS_TELEMETRY_DIR", "./var/aos-telemetry-env");
+        let resolved = resolve_telemetry_dir().unwrap();
+        assert_eq!(resolved.path, PathBuf::from("./var/aos-telemetry-env"));
         assert_eq!(resolved.source, PathSource::Env("AOS_TELEMETRY_DIR"));
         std::env::remove_var("AOS_TELEMETRY_DIR");
+    }
+
+    #[test]
+    fn telemetry_dir_rejects_tmp_env() {
+        std::env::set_var("AOS_TELEMETRY_DIR", "/tmp/aos-telemetry");
+        let err = resolve_telemetry_dir().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("telemetry-dir"));
+        std::env::remove_var("AOS_TELEMETRY_DIR");
+    }
+
+    #[test]
+    fn telemetry_dir_rejects_private_tmp_env() {
+        std::env::set_var("AOS_TELEMETRY_DIR", "/private/tmp/aos-telemetry");
+        let err = resolve_telemetry_dir().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("telemetry-dir"));
+        std::env::remove_var("AOS_TELEMETRY_DIR");
+    }
+
+    #[test]
+    fn manifest_cache_rejects_tmp_env() {
+        std::env::set_var("AOS_MANIFEST_CACHE_DIR", "/tmp/manifest-cache");
+        let err = resolve_manifest_cache_dir().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("manifest-cache"));
+        std::env::remove_var("AOS_MANIFEST_CACHE_DIR");
+    }
+
+    #[test]
+    fn manifest_cache_rejects_tmp_uri_env() {
+        std::env::set_var("AOS_MANIFEST_CACHE_DIR", "file:///tmp/manifest-cache");
+        let err = resolve_manifest_cache_dir().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("manifest-cache"));
+        std::env::remove_var("AOS_MANIFEST_CACHE_DIR");
+    }
+
+    #[test]
+    fn adapters_root_rejects_tmp_env() {
+        std::env::set_var(AOS_ADAPTERS_ROOT_ENV, "/tmp/adapters");
+        let err = resolve_adapters_root().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("adapters-root"));
+        std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
+    }
+
+    #[test]
+    fn adapters_root_rejects_tmp_legacy_env() {
+        std::env::set_var(AOS_ADAPTERS_DIR_ENV, "/tmp/adapters");
+        let err = resolve_adapters_root().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("adapters-root"));
+        std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
     }
 
     #[test]
     fn database_url_defaults_when_unset() {
         std::env::remove_var("DATABASE_URL");
         std::env::remove_var("AOS_DATABASE_URL");
-        let resolved = resolve_database_url();
+        let resolved = resolve_database_url().unwrap();
         assert_eq!(resolved.path, PathBuf::from(DEFAULT_DB_PATH));
         assert_eq!(resolved.source, PathSource::Default("database-url"));
     }
 
     #[test]
     fn database_url_prefers_primary_env() {
-        std::env::set_var("DATABASE_URL", "/tmp/db.sqlite");
-        let resolved = resolve_database_url();
-        assert_eq!(resolved.path, PathBuf::from("/tmp/db.sqlite"));
+        std::env::set_var("DATABASE_URL", "./var/db.sqlite");
+        let resolved = resolve_database_url().unwrap();
+        assert_eq!(resolved.path, PathBuf::from("./var/db.sqlite"));
         assert_eq!(resolved.source, PathSource::Env("DATABASE_URL"));
+        std::env::remove_var("DATABASE_URL");
+    }
+
+    #[test]
+    fn database_url_rejects_tmp_env() {
+        std::env::set_var("DATABASE_URL", "/tmp/db.sqlite");
+        let err = resolve_database_url().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("database-url"));
         std::env::remove_var("DATABASE_URL");
     }
 
     #[test]
     fn worker_socket_uses_env_override() {
         std::env::set_var("AOS_WORKER_SOCKET", "/tmp/worker.sock");
-        let resolved = resolve_worker_socket_for_worker("tenant-x", None);
-        assert_eq!(resolved.path, PathBuf::from("/tmp/worker.sock"));
-        assert_eq!(resolved.source, PathSource::Env("AOS_WORKER_SOCKET"));
+        let err = resolve_worker_socket_for_worker("tenant-x", None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("must not be under /tmp"));
         std::env::remove_var("AOS_WORKER_SOCKET");
+    }
+
+    #[test]
+    fn worker_socket_prefers_cli_over_env() {
+        let cli_path = PathBuf::from("./var/test-cli.worker.sock");
+        std::env::set_var("AOS_WORKER_SOCKET", "./var/test-env.worker.sock");
+
+        let resolved =
+            resolve_worker_socket_for_worker("tenant-x", Some(cli_path.as_path())).unwrap();
+        assert_eq!(resolved.path, cli_path);
+        assert_eq!(resolved.source, PathSource::Cli);
+
+        std::env::remove_var("AOS_WORKER_SOCKET");
+    }
+
+    #[test]
+    fn worker_socket_prefers_env_when_cli_missing() {
+        std::env::set_var("AOS_WORKER_SOCKET", "./var/test-env-only.worker.sock");
+
+        let resolved = resolve_worker_socket_for_worker("tenant-x", None).unwrap();
+        assert_eq!(
+            resolved.path,
+            PathBuf::from("./var/test-env-only.worker.sock")
+        );
+        assert_eq!(resolved.source, PathSource::Env("AOS_WORKER_SOCKET"));
+
+        std::env::remove_var("AOS_WORKER_SOCKET");
+    }
+
+    #[test]
+    fn database_url_rejects_tmp_sqlite_scheme() {
+        std::env::remove_var("DATABASE_URL");
+        std::env::set_var("AOS_DATABASE_URL", "sqlite:///tmp/cp.db");
+        let err = resolve_database_url().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("database-url"));
+        std::env::remove_var("AOS_DATABASE_URL");
+    }
+
+    #[test]
+    fn database_url_rejects_tmp_file_scheme() {
+        std::env::remove_var("DATABASE_URL");
+        std::env::set_var("AOS_DATABASE_URL", "file:///private/tmp/cp.db");
+        let err = resolve_database_url().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("database-url"));
+        std::env::remove_var("AOS_DATABASE_URL");
+    }
+
+    #[test]
+    fn control_plane_socket_rejects_tmp() {
+        std::env::set_var("AOS_WORKER_SOCKET", "/tmp/cp.sock");
+        let err = resolve_worker_socket_for_cp().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        std::env::remove_var("AOS_WORKER_SOCKET");
+    }
+
+    #[test]
+    fn prepare_socket_removes_stale_and_creates_parent() {
+        let tmp = TempDir::new_in(".").unwrap();
+        let socket_path = tmp.path().join("nested/worker.sock");
+        std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
+        std::fs::write(&socket_path, b"stale").unwrap();
+
+        prepare_socket_path(&socket_path, "worker").expect("prepare should succeed");
+        assert!(socket_path.parent().unwrap().exists());
+        assert!(!socket_path.exists());
+
+        // Ensure a fresh socket file can be created after cleanup.
+        std::fs::File::create(&socket_path).expect("should be able to recreate socket file");
     }
 
     #[test]

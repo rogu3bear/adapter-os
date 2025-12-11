@@ -14,6 +14,8 @@ pub struct EventBuilder {
     inputs: HashMap<String, serde_json::Value>,
     outputs: HashMap<String, serde_json::Value>,
     metadata: EventMetadata,
+    interval_id: Option<String>,
+    fused_weight_hash: Option<B3Hash>,
 }
 
 impl EventBuilder {
@@ -36,6 +38,8 @@ impl EventBuilder {
                 gpu_utilization_pct: 0.0,
                 custom: HashMap::new(),
             },
+            interval_id: None,
+            fused_weight_hash: None,
         }
     }
 
@@ -69,16 +73,34 @@ impl EventBuilder {
         self
     }
 
+    /// Set fusion interval identifier for this event
+    pub fn with_interval_id(mut self, interval_id: String) -> Self {
+        self.interval_id = Some(interval_id);
+        self
+    }
+
+    /// Set fused weight hash for this event
+    pub fn with_fused_weight_hash(mut self, fused_weight_hash: B3Hash) -> Self {
+        self.fused_weight_hash = Some(fused_weight_hash);
+        self
+    }
+
     /// Build the event
     pub fn build(self) -> Event {
-        Event::new(
+        let event = Event::new(
             self.tick_id,
             self.op_id,
             self.event_type,
             self.inputs,
             self.outputs,
             self.metadata,
-        )
+        );
+
+        if self.interval_id.is_some() || self.fused_weight_hash.is_some() {
+            return event.with_interval(self.interval_id, self.fused_weight_hash);
+        }
+
+        event
     }
 }
 
@@ -270,6 +292,40 @@ pub fn router_decision_event(tick_id: u64, decision: RouterDecisionEvent) -> Eve
     .build()
 }
 
+/// Fusion interval boundary event with fused weight hash evidence
+pub fn fusion_interval_event(
+    tick_id: u64,
+    interval_id: String,
+    start_token: usize,
+    end_token: usize,
+    fused_weight_hash: B3Hash,
+) -> Event {
+    EventBuilder::new(
+        tick_id,
+        format!("fusion_interval_{}", interval_id),
+        "fusion.interval".to_string(),
+    )
+    .add_input(
+        "interval_id".to_string(),
+        serde_json::Value::String(interval_id.clone()),
+    )
+    .add_input(
+        "start_token".to_string(),
+        serde_json::Value::Number((start_token as u64).into()),
+    )
+    .add_input(
+        "end_token".to_string(),
+        serde_json::Value::Number((end_token as u64).into()),
+    )
+    .add_output(
+        "fused_weight_hash".to_string(),
+        serde_json::Value::String(fused_weight_hash.to_hex()),
+    )
+    .with_interval_id(interval_id)
+    .with_fused_weight_hash(fused_weight_hash)
+    .build()
+}
+
 /// Memory allocation event
 pub fn memory_alloc_event(
     tick_id: u64,
@@ -449,5 +505,16 @@ mod tests {
         assert!(event.outputs.contains_key("selected_adapters"));
         assert!(event.outputs.contains_key("gate_values"));
         assert!(event.outputs.contains_key("entropy"));
+    }
+
+    #[test]
+    fn test_fusion_interval_event() {
+        let hash = B3Hash::hash(b"fused");
+        let event = fusion_interval_event(1, "request-0".to_string(), 0, 4, hash);
+
+        assert_eq!(event.interval_id.as_deref(), Some("request-0"));
+        assert_eq!(event.fused_weight_hash, Some(hash));
+        assert!(event.outputs.contains_key("fused_weight_hash"));
+        assert!(event.verify_hash());
     }
 }

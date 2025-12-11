@@ -153,4 +153,44 @@ mod tests {
             "Train help should contain examples section"
         );
     }
+
+    #[test]
+    fn train_start_help_mentions_dataset_guidance() {
+        let output = Command::new("cargo")
+            .args(["run", "--bin", "aosctl", "--", "train", "start", "--help"])
+            .output()
+            .expect("Failed to execute train start help");
+
+        let stdout = String::from_utf8(output.stdout).expect("UTF-8 stdout");
+        assert!(
+            stdout
+                .to_lowercase()
+                .contains("required unless --synthetic-mode"),
+            "train start help should call out dataset requirement"
+        );
+        assert!(
+            stdout.to_lowercase().contains("data spec hash"),
+            "train start help should mention data spec hash"
+        );
+    }
+
+    #[test]
+    fn health_dataset_help_mentions_trust() {
+        let output = Command::new("cargo")
+            .args([
+                "run", "--bin", "aosctl", "--", "health", "dataset", "--help",
+            ])
+            .output()
+            .expect("Failed to execute health dataset help");
+
+        let stdout = String::from_utf8(output.stdout).expect("UTF-8 stdout");
+        assert!(
+            stdout.to_lowercase().contains("trust"),
+            "health dataset help should reference trust signals"
+        );
+        assert!(
+            stdout.to_lowercase().contains("validation"),
+            "health dataset help should reference validation signals"
+        );
+    }
 }

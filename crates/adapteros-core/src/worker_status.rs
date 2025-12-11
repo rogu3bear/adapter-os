@@ -5,20 +5,21 @@
 //! # Worker Status
 //!
 //! Workers progress through these states:
-//! - **Starting**: Worker is initializing, not ready to serve
-//! - **Serving**: Worker is ready and accepting requests
-//! - **Draining**: Worker is gracefully shutting down, rejecting new requests
-//! - **Stopped**: Worker has cleanly stopped
-//! - **Crashed**: Worker terminated abnormally
+//! - **Created**: Process launched, manifest not yet bound/registered
+//! - **Registered**: Control plane accepted registration and manifest hash
+//! - **Healthy**: Worker is ready and accepting requests; UDS is listening
+//! - **Draining**: Graceful shutdown; rejecting new requests
+//! - **Stopped**: Clean shutdown complete
+//! - **Error**: Fatal/health failure path (terminal)
 //!
 //! # Valid Transitions
 //!
 //! ```text
-//! starting → serving | crashed
-//! serving → draining | crashed
-//! draining → stopped | crashed
+//! created → registered | error
+//! registered → healthy | error
+//! healthy → draining | error
 //! stopped → (terminal)
-//! crashed → (terminal)
+//! error → (terminal)
 //! ```
 //!
 //! # Examples
@@ -28,15 +29,15 @@
 //!
 //! // Validate a transition
 //! let transition = WorkerStatusTransition::new(
-//!     WorkerStatus::Starting,
-//!     WorkerStatus::Serving
+//!     WorkerStatus::Created,
+//!     WorkerStatus::Registered
 //! );
 //! assert!(transition.is_valid());
 //!
 //! // Invalid transition
 //! let invalid = WorkerStatusTransition::new(
 //!     WorkerStatus::Stopped,
-//!     WorkerStatus::Serving
+//!     WorkerStatus::Healthy
 //! );
 //! assert!(!invalid.is_valid());
 //! ```
@@ -52,58 +53,66 @@ use std::str::FromStr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkerStatus {
-    /// Worker is initializing, not ready to serve requests
-    Starting,
-    /// Worker is ready and accepting inference requests
-    Serving,
+    /// Process launched, manifest not yet bound/registered
+    Created,
+    /// Control plane accepted registration and manifest hash
+    Registered,
+    /// Worker is ready and accepting inference requests (UDS listening)
+    Healthy,
     /// Worker is gracefully shutting down, rejecting new requests
     Draining,
     /// Worker has cleanly stopped
     Stopped,
-    /// Worker terminated abnormally
-    Crashed,
+    /// Worker terminated abnormally or failed health checks
+    Error,
 }
 
 impl WorkerStatus {
     /// Returns true if the worker can serve inference requests
     pub fn can_serve(&self) -> bool {
-        matches!(self, WorkerStatus::Serving)
+        matches!(self, WorkerStatus::Healthy)
     }
 
     /// Returns true if this is a terminal state (no further transitions allowed)
     pub fn is_terminal(&self) -> bool {
-        matches!(self, WorkerStatus::Stopped | WorkerStatus::Crashed)
+        matches!(self, WorkerStatus::Stopped | WorkerStatus::Error)
     }
 
     /// Returns true if the worker is still running (not terminal)
     pub fn is_running(&self) -> bool {
         matches!(
             self,
-            WorkerStatus::Starting | WorkerStatus::Serving | WorkerStatus::Draining
+            WorkerStatus::Created
+                | WorkerStatus::Registered
+                | WorkerStatus::Healthy
+                | WorkerStatus::Draining
         )
     }
 
     /// Returns all valid states this worker can transition to
     pub fn valid_transitions(&self) -> &'static [WorkerStatus] {
         match self {
-            WorkerStatus::Starting => &[WorkerStatus::Serving, WorkerStatus::Crashed],
-            WorkerStatus::Serving => &[WorkerStatus::Draining, WorkerStatus::Crashed],
-            WorkerStatus::Draining => &[WorkerStatus::Stopped, WorkerStatus::Crashed],
+            WorkerStatus::Created => &[WorkerStatus::Registered, WorkerStatus::Error],
+            WorkerStatus::Registered => &[WorkerStatus::Healthy, WorkerStatus::Error],
+            WorkerStatus::Healthy => &[WorkerStatus::Draining, WorkerStatus::Error],
+            WorkerStatus::Draining => &[WorkerStatus::Stopped, WorkerStatus::Error],
             WorkerStatus::Stopped => &[],
-            WorkerStatus::Crashed => &[],
+            WorkerStatus::Error => &[],
         }
     }
 
     /// Returns all states that can transition to this state
     pub fn valid_predecessors(&self) -> &'static [WorkerStatus] {
         match self {
-            WorkerStatus::Starting => &[],
-            WorkerStatus::Serving => &[WorkerStatus::Starting],
-            WorkerStatus::Draining => &[WorkerStatus::Serving],
+            WorkerStatus::Created => &[],
+            WorkerStatus::Registered => &[WorkerStatus::Created],
+            WorkerStatus::Healthy => &[WorkerStatus::Registered],
+            WorkerStatus::Draining => &[WorkerStatus::Healthy],
             WorkerStatus::Stopped => &[WorkerStatus::Draining],
-            WorkerStatus::Crashed => &[
-                WorkerStatus::Starting,
-                WorkerStatus::Serving,
+            WorkerStatus::Error => &[
+                WorkerStatus::Created,
+                WorkerStatus::Registered,
+                WorkerStatus::Healthy,
                 WorkerStatus::Draining,
             ],
         }
@@ -136,11 +145,24 @@ impl WorkerStatus {
     /// Convert to string representation for database storage
     pub fn as_str(&self) -> &'static str {
         match self {
-            WorkerStatus::Starting => "starting",
-            WorkerStatus::Serving => "serving",
+            WorkerStatus::Created => "created",
+            WorkerStatus::Registered => "registered",
+            WorkerStatus::Healthy => "healthy",
             WorkerStatus::Draining => "draining",
             WorkerStatus::Stopped => "stopped",
-            WorkerStatus::Crashed => "crashed",
+            WorkerStatus::Error => "error",
+        }
+    }
+
+    /// Backwards-compatible alias for legacy persisted values.
+    pub fn legacy_alias(&self) -> &'static str {
+        match self {
+            WorkerStatus::Created => "starting",
+            WorkerStatus::Registered => "starting",
+            WorkerStatus::Healthy => "serving",
+            WorkerStatus::Draining => "draining",
+            WorkerStatus::Stopped => "stopped",
+            WorkerStatus::Error => "crashed",
         }
     }
 }
@@ -156,13 +178,14 @@ impl FromStr for WorkerStatus {
 
     fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
-            "starting" => Ok(WorkerStatus::Starting),
-            "serving" => Ok(WorkerStatus::Serving),
+            "created" | "starting" => Ok(WorkerStatus::Created),
+            "registered" => Ok(WorkerStatus::Registered),
+            "healthy" | "serving" => Ok(WorkerStatus::Healthy),
             "draining" => Ok(WorkerStatus::Draining),
             "stopped" => Ok(WorkerStatus::Stopped),
-            "crashed" => Ok(WorkerStatus::Crashed),
+            "error" | "crashed" => Ok(WorkerStatus::Error),
             _ => Err(AosError::Validation(format!(
-                "Invalid worker status: {}. Must be one of: starting, serving, draining, stopped, crashed",
+                "Invalid worker status: {}. Must be one of: created, registered, healthy, draining, stopped, error",
                 s
             ))),
         }
@@ -172,10 +195,10 @@ impl FromStr for WorkerStatus {
 /// A worker status transition
 ///
 /// Validates that transitions follow the allowed state machine:
-/// - starting → serving | crashed
-/// - serving → draining | crashed
-/// - draining → stopped | crashed
-/// - stopped, crashed → (terminal, no transitions)
+/// - created → registered | error
+/// - registered → healthy | error
+/// - healthy → draining | error
+/// - stopped, error → (terminal, no transitions)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerStatusTransition {
     pub from: WorkerStatus,
@@ -229,84 +252,98 @@ mod tests {
 
     #[test]
     fn test_worker_status_can_serve() {
-        assert!(!WorkerStatus::Starting.can_serve());
-        assert!(WorkerStatus::Serving.can_serve());
+        assert!(!WorkerStatus::Created.can_serve());
+        assert!(!WorkerStatus::Registered.can_serve());
+        assert!(WorkerStatus::Healthy.can_serve());
         assert!(!WorkerStatus::Draining.can_serve());
         assert!(!WorkerStatus::Stopped.can_serve());
-        assert!(!WorkerStatus::Crashed.can_serve());
+        assert!(!WorkerStatus::Error.can_serve());
     }
 
     #[test]
     fn test_worker_status_is_terminal() {
-        assert!(!WorkerStatus::Starting.is_terminal());
-        assert!(!WorkerStatus::Serving.is_terminal());
+        assert!(!WorkerStatus::Created.is_terminal());
+        assert!(!WorkerStatus::Registered.is_terminal());
+        assert!(!WorkerStatus::Healthy.is_terminal());
         assert!(!WorkerStatus::Draining.is_terminal());
         assert!(WorkerStatus::Stopped.is_terminal());
-        assert!(WorkerStatus::Crashed.is_terminal());
+        assert!(WorkerStatus::Error.is_terminal());
     }
 
     #[test]
     fn test_worker_status_is_running() {
-        assert!(WorkerStatus::Starting.is_running());
-        assert!(WorkerStatus::Serving.is_running());
+        assert!(WorkerStatus::Created.is_running());
+        assert!(WorkerStatus::Registered.is_running());
+        assert!(WorkerStatus::Healthy.is_running());
         assert!(WorkerStatus::Draining.is_running());
         assert!(!WorkerStatus::Stopped.is_running());
-        assert!(!WorkerStatus::Crashed.is_running());
+        assert!(!WorkerStatus::Error.is_running());
     }
 
     #[test]
-    fn test_valid_transitions_from_starting() {
-        assert!(WorkerStatus::Starting.can_transition_to(WorkerStatus::Serving));
-        assert!(WorkerStatus::Starting.can_transition_to(WorkerStatus::Crashed));
-        assert!(!WorkerStatus::Starting.can_transition_to(WorkerStatus::Draining));
-        assert!(!WorkerStatus::Starting.can_transition_to(WorkerStatus::Stopped));
+    fn test_valid_transitions_from_created() {
+        assert!(WorkerStatus::Created.can_transition_to(WorkerStatus::Registered));
+        assert!(WorkerStatus::Created.can_transition_to(WorkerStatus::Error));
+        assert!(!WorkerStatus::Created.can_transition_to(WorkerStatus::Healthy));
+        assert!(!WorkerStatus::Created.can_transition_to(WorkerStatus::Draining));
+        assert!(!WorkerStatus::Created.can_transition_to(WorkerStatus::Stopped));
     }
 
     #[test]
-    fn test_valid_transitions_from_serving() {
-        assert!(WorkerStatus::Serving.can_transition_to(WorkerStatus::Draining));
-        assert!(WorkerStatus::Serving.can_transition_to(WorkerStatus::Crashed));
-        assert!(!WorkerStatus::Serving.can_transition_to(WorkerStatus::Starting));
-        assert!(!WorkerStatus::Serving.can_transition_to(WorkerStatus::Stopped));
+    fn test_valid_transitions_from_registered() {
+        assert!(WorkerStatus::Registered.can_transition_to(WorkerStatus::Healthy));
+        assert!(WorkerStatus::Registered.can_transition_to(WorkerStatus::Error));
+        assert!(!WorkerStatus::Registered.can_transition_to(WorkerStatus::Created));
+        assert!(!WorkerStatus::Registered.can_transition_to(WorkerStatus::Draining));
+        assert!(!WorkerStatus::Registered.can_transition_to(WorkerStatus::Stopped));
     }
 
     #[test]
     fn test_valid_transitions_from_draining() {
         assert!(WorkerStatus::Draining.can_transition_to(WorkerStatus::Stopped));
-        assert!(WorkerStatus::Draining.can_transition_to(WorkerStatus::Crashed));
-        assert!(!WorkerStatus::Draining.can_transition_to(WorkerStatus::Starting));
-        assert!(!WorkerStatus::Draining.can_transition_to(WorkerStatus::Serving));
+        assert!(WorkerStatus::Draining.can_transition_to(WorkerStatus::Error));
+        assert!(!WorkerStatus::Draining.can_transition_to(WorkerStatus::Created));
+        assert!(!WorkerStatus::Draining.can_transition_to(WorkerStatus::Registered));
+        assert!(!WorkerStatus::Draining.can_transition_to(WorkerStatus::Healthy));
     }
 
     #[test]
     fn test_terminal_states_no_transitions() {
         assert_eq!(WorkerStatus::Stopped.valid_transitions(), &[]);
-        assert_eq!(WorkerStatus::Crashed.valid_transitions(), &[]);
+        assert_eq!(WorkerStatus::Error.valid_transitions(), &[]);
 
-        assert!(!WorkerStatus::Stopped.can_transition_to(WorkerStatus::Starting));
-        assert!(!WorkerStatus::Stopped.can_transition_to(WorkerStatus::Serving));
-        assert!(!WorkerStatus::Crashed.can_transition_to(WorkerStatus::Starting));
-        assert!(!WorkerStatus::Crashed.can_transition_to(WorkerStatus::Serving));
+        assert!(!WorkerStatus::Stopped.can_transition_to(WorkerStatus::Created));
+        assert!(!WorkerStatus::Stopped.can_transition_to(WorkerStatus::Healthy));
+        assert!(!WorkerStatus::Error.can_transition_to(WorkerStatus::Created));
+        assert!(!WorkerStatus::Error.can_transition_to(WorkerStatus::Healthy));
     }
 
     #[test]
     fn test_noop_transitions_always_valid() {
-        assert!(WorkerStatus::Starting.can_transition_to(WorkerStatus::Starting));
-        assert!(WorkerStatus::Serving.can_transition_to(WorkerStatus::Serving));
+        assert!(WorkerStatus::Created.can_transition_to(WorkerStatus::Created));
+        assert!(WorkerStatus::Healthy.can_transition_to(WorkerStatus::Healthy));
         assert!(WorkerStatus::Draining.can_transition_to(WorkerStatus::Draining));
         assert!(WorkerStatus::Stopped.can_transition_to(WorkerStatus::Stopped));
-        assert!(WorkerStatus::Crashed.can_transition_to(WorkerStatus::Crashed));
+        assert!(WorkerStatus::Error.can_transition_to(WorkerStatus::Error));
     }
 
     #[test]
     fn test_worker_status_from_str() {
         assert_eq!(
-            WorkerStatus::from_str("starting").unwrap(),
-            WorkerStatus::Starting
+            WorkerStatus::from_str("created").unwrap(),
+            WorkerStatus::Created
+        );
+        assert_eq!(
+            WorkerStatus::from_str("registered").unwrap(),
+            WorkerStatus::Registered
+        );
+        assert_eq!(
+            WorkerStatus::from_str("healthy").unwrap(),
+            WorkerStatus::Healthy
         );
         assert_eq!(
             WorkerStatus::from_str("serving").unwrap(),
-            WorkerStatus::Serving
+            WorkerStatus::Healthy
         );
         assert_eq!(
             WorkerStatus::from_str("DRAINING").unwrap(),
@@ -318,28 +355,33 @@ mod tests {
         );
         assert_eq!(
             WorkerStatus::from_str("crashed").unwrap(),
-            WorkerStatus::Crashed
+            WorkerStatus::Error
+        );
+        assert_eq!(
+            WorkerStatus::from_str("error").unwrap(),
+            WorkerStatus::Error
         );
         assert!(WorkerStatus::from_str("invalid").is_err());
     }
 
     #[test]
     fn test_worker_status_display() {
-        assert_eq!(WorkerStatus::Starting.to_string(), "starting");
-        assert_eq!(WorkerStatus::Serving.to_string(), "serving");
+        assert_eq!(WorkerStatus::Created.to_string(), "created");
+        assert_eq!(WorkerStatus::Registered.to_string(), "registered");
+        assert_eq!(WorkerStatus::Healthy.to_string(), "healthy");
         assert_eq!(WorkerStatus::Draining.to_string(), "draining");
         assert_eq!(WorkerStatus::Stopped.to_string(), "stopped");
-        assert_eq!(WorkerStatus::Crashed.to_string(), "crashed");
+        assert_eq!(WorkerStatus::Error.to_string(), "error");
     }
 
     #[test]
     fn test_worker_status_transition_validation() {
-        let valid = WorkerStatusTransition::new(WorkerStatus::Starting, WorkerStatus::Serving);
+        let valid = WorkerStatusTransition::new(WorkerStatus::Created, WorkerStatus::Registered);
         assert!(valid.is_valid());
         assert!(valid.validate().is_ok());
         assert!(valid.validation_error().is_none());
 
-        let invalid = WorkerStatusTransition::new(WorkerStatus::Stopped, WorkerStatus::Serving);
+        let invalid = WorkerStatusTransition::new(WorkerStatus::Stopped, WorkerStatus::Healthy);
         assert!(!invalid.is_valid());
         assert!(invalid.validate().is_err());
         assert!(invalid.validation_error().is_some());
@@ -347,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_transition_to_returns_error_on_invalid() {
-        let result = WorkerStatus::Stopped.transition_to(WorkerStatus::Serving);
+        let result = WorkerStatus::Stopped.transition_to(WorkerStatus::Healthy);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -357,8 +399,8 @@ mod tests {
 
     #[test]
     fn test_transition_to_returns_ok_on_valid() {
-        let result = WorkerStatus::Starting.transition_to(WorkerStatus::Serving);
+        let result = WorkerStatus::Created.transition_to(WorkerStatus::Registered);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), WorkerStatus::Serving);
+        assert_eq!(result.unwrap(), WorkerStatus::Registered);
     }
 }

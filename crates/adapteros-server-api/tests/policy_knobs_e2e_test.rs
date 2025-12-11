@@ -8,7 +8,7 @@
 use adapteros_api_types::{
     CreateExecutionPolicyRequest, DeterminismPolicy, GoldenPolicy, RoutingPolicy,
 };
-use adapteros_core::{BackendProfile, Result, SeedMode};
+use adapteros_core::{BackendKind, Result, SeedMode};
 use adapteros_db::Db;
 use adapteros_server_api::config::PathsConfig;
 use adapteros_server_api::state::{ApiConfig, GeneralConfig, MetricsConfig};
@@ -56,10 +56,13 @@ async fn test_fallback_allowed_false_persists_in_db() {
     // Create execution policy with allow_fallback = false
     let determinism = DeterminismPolicy {
         allowed_modes: vec!["strict".to_string(), "besteffort".to_string()],
+        allowed_backends: None,
+        denied_backends: None,
         default_mode: "strict".to_string(),
         require_seed: true,
         allow_fallback: false, // This is the critical setting
         replay_mode: "exact".to_string(),
+        ..Default::default()
     };
 
     let request = CreateExecutionPolicyRequest {
@@ -171,10 +174,13 @@ async fn test_pin_enforcement_error_persists() {
     // Create execution policy with pin_enforcement = "error"
     let determinism = DeterminismPolicy {
         allowed_modes: vec!["strict".to_string()],
+        allowed_backends: None,
+        denied_backends: None,
         default_mode: "strict".to_string(),
         require_seed: false,
         allow_fallback: false,
         replay_mode: "exact".to_string(),
+        ..Default::default()
     };
 
     let routing = RoutingPolicy {
@@ -247,10 +253,13 @@ async fn test_policy_update_creates_new_version() {
     // Create initial policy with allow_fallback = true
     let initial_determinism = DeterminismPolicy {
         allowed_modes: vec!["strict".to_string(), "besteffort".to_string()],
+        allowed_backends: None,
+        denied_backends: None,
         default_mode: "besteffort".to_string(),
         require_seed: false,
         allow_fallback: true, // Initially true
         replay_mode: "approximate".to_string(),
+        ..Default::default()
     };
 
     let initial_request = CreateExecutionPolicyRequest {
@@ -276,10 +285,13 @@ async fn test_policy_update_creates_new_version() {
     // Update policy with allow_fallback = false
     let updated_determinism = DeterminismPolicy {
         allowed_modes: vec!["strict".to_string()],
+        allowed_backends: None,
+        denied_backends: None,
         default_mode: "strict".to_string(),
         require_seed: true,
         allow_fallback: false, // Now false
         replay_mode: "exact".to_string(),
+        ..Default::default()
     };
 
     let update_request = CreateExecutionPolicyRequest {
@@ -383,10 +395,13 @@ async fn test_api_response_matches_db_policy() {
     // Create policy with specific values
     let determinism = DeterminismPolicy {
         allowed_modes: vec!["strict".to_string(), "besteffort".to_string()],
+        allowed_backends: None,
+        denied_backends: None,
         default_mode: "strict".to_string(),
         require_seed: true,
         allow_fallback: false,
         replay_mode: "exact".to_string(),
+        ..Default::default()
     };
 
     let routing = RoutingPolicy {
@@ -467,6 +482,7 @@ fn create_test_config(global_determinism: Option<&str>, use_session_stack: bool)
         server: Default::default(),
         security: Default::default(),
         auth: Default::default(),
+        self_hosting: Default::default(),
         performance: Default::default(),
         paths: PathsConfig {
             artifacts_root: "/tmp/test".to_string(),
@@ -478,7 +494,7 @@ fn create_test_config(global_determinism: Option<&str>, use_session_stack: bool)
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,
-        backend_profile: BackendProfile::AutoDev,
+        backend_profile: BackendKind::Auto,
         worker_id: 0,
     }
 }
@@ -511,7 +527,7 @@ async fn test_resolve_policy_global_only() {
     let config = create_test_config(Some("strict"), false);
 
     // Resolve policy with no stack override
-    let resolved = resolve_tenant_execution_policy(&db, &config, tenant_id, None)
+    let resolved = resolve_tenant_execution_policy(&db, &config, tenant_id, None, None)
         .await
         .expect("Failed to resolve policy");
 
@@ -555,10 +571,13 @@ async fn test_resolve_policy_tenant_override() {
     // Create tenant execution policy with strict default
     let determinism = DeterminismPolicy {
         allowed_modes: vec!["strict".to_string()],
+        allowed_backends: None,
+        denied_backends: None,
         default_mode: "strict".to_string(),
         require_seed: true,
         allow_fallback: false,
         replay_mode: "exact".to_string(),
+        ..Default::default()
     };
 
     let request = CreateExecutionPolicyRequest {
@@ -576,7 +595,7 @@ async fn test_resolve_policy_tenant_override() {
     let config = create_test_config(Some("relaxed"), false);
 
     // Resolve policy with no stack override
-    let resolved = resolve_tenant_execution_policy(&db, &config, tenant_id, None)
+    let resolved = resolve_tenant_execution_policy(&db, &config, tenant_id, None, None)
         .await
         .expect("Failed to resolve policy");
 
@@ -623,10 +642,13 @@ async fn test_resolve_policy_stack_override() {
     // Create tenant execution policy with besteffort default
     let determinism = DeterminismPolicy {
         allowed_modes: vec!["strict".to_string(), "besteffort".to_string()],
+        allowed_backends: None,
+        denied_backends: None,
         default_mode: "besteffort".to_string(),
         require_seed: false,
         allow_fallback: true,
         replay_mode: "approximate".to_string(),
+        ..Default::default()
     };
 
     let request = CreateExecutionPolicyRequest {
@@ -644,7 +666,7 @@ async fn test_resolve_policy_stack_override() {
     let config = create_test_config(Some("relaxed"), false);
 
     // Resolve policy WITH stack override to strict
-    let resolved = resolve_tenant_execution_policy(&db, &config, tenant_id, Some("strict"))
+    let resolved = resolve_tenant_execution_policy(&db, &config, tenant_id, Some("strict"), None)
         .await
         .expect("Failed to resolve policy");
 
@@ -682,7 +704,7 @@ async fn test_routing_knobs_derived() {
 
     // Test with use_session_stack_for_routing = true
     let config_true = create_test_config(None, true);
-    let resolved_true = resolve_tenant_execution_policy(&db, &config_true, tenant_id, None)
+    let resolved_true = resolve_tenant_execution_policy(&db, &config_true, tenant_id, None, None)
         .await
         .expect("Failed to resolve policy");
 
@@ -697,7 +719,7 @@ async fn test_routing_knobs_derived() {
 
     // Test with use_session_stack_for_routing = false
     let config_false = create_test_config(None, false);
-    let resolved_false = resolve_tenant_execution_policy(&db, &config_false, tenant_id, None)
+    let resolved_false = resolve_tenant_execution_policy(&db, &config_false, tenant_id, None, None)
         .await
         .expect("Failed to resolve policy");
 
@@ -734,10 +756,13 @@ async fn test_resolved_policy_struct_fields() {
     // Create complete execution policy with all fields
     let determinism = DeterminismPolicy {
         allowed_modes: vec!["strict".to_string(), "besteffort".to_string()],
+        allowed_backends: None,
+        denied_backends: None,
         default_mode: "strict".to_string(),
         require_seed: true,
         allow_fallback: false,
         replay_mode: "exact".to_string(),
+        ..Default::default()
     };
 
     let routing = RoutingPolicy {
@@ -771,7 +796,7 @@ async fn test_resolved_policy_struct_fields() {
     let config = create_test_config(Some("relaxed"), true);
 
     // Resolve
-    let resolved = resolve_tenant_execution_policy(&db, &config, tenant_id, None)
+    let resolved = resolve_tenant_execution_policy(&db, &config, tenant_id, None, None)
         .await
         .expect("Failed to resolve policy");
 

@@ -95,7 +95,7 @@ export function LoginRoute() {
   const [authConfig, setAuthConfig] = useState<AuthConfigResponse | null>(null);
   const [mfaRequired, setMfaRequired] = useState(false);
   const isLoggingIn = useRef(false);
-  const maxLoginAttempts = authConfig?.max_login_attempts ?? 5;
+  const maxLoginAttempts = Math.max(1, authConfig?.max_login_attempts ?? 5);
   const lockoutMessage = failedAttempts >= maxLoginAttempts
     ? 'Too many failed attempts. Account temporarily locked—please try again later or contact an administrator.'
     : null;

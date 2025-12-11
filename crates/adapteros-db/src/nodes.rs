@@ -83,7 +83,7 @@ impl Db {
     /// Get list of adapter IDs loaded on a specific node
     pub async fn get_node_loaded_adapters(&self, node_id: &str) -> Result<Vec<String>> {
         let adapter_ids = sqlx::query_scalar::<_, String>(
-            "SELECT adapter_id FROM adapters WHERE node_id = ? AND load_state = 'loaded'",
+            "SELECT adapter_id FROM adapters WHERE node_id = ? AND (current_state IN ('warm', 'hot', 'resident') OR load_state IN ('loaded', 'warm'))",
         )
         .bind(node_id)
         .fetch_all(&*self.pool())
@@ -131,7 +131,7 @@ impl Db {
             "SELECT DISTINCT a.adapter_id
              FROM workers w
              JOIN adapters a ON a.id IN (SELECT json_extract(value, '$') FROM json_each(w.adapters_loaded_json))
-             WHERE w.node_id = ? AND w.status = 'serving'",
+             WHERE w.node_id = ? AND w.status = 'healthy'",
         )
         .bind(node_id)
         .fetch_all(&*self.pool())

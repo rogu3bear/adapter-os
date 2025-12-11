@@ -4,6 +4,7 @@
 // 【2025-01-20†refactor†adapter_types】
 
 import React from 'react';
+import type { DatasetVersionTrustSnapshot } from './training-types';
 
 // Behavior training types
 export interface BehaviorEvent {
@@ -64,6 +65,8 @@ export interface Adapter {
   rank: number;
   // Storage tier: 'persistent', 'warm', or 'ephemeral'
   tier: string;
+  // Assurance tier for drift/determinism gates
+  assurance_tier?: 'low' | 'standard' | 'high';
   // Supported programming languages
   languages?: string[];
   // Languages in JSON string format (for backward compatibility)
@@ -93,10 +96,13 @@ export interface Adapter {
   commit_sha?: string;
   intent?: string;
   base_model_id?: string;
+  adapter_trust_state?: 'allowed' | 'warn' | 'blocked' | 'unknown' | 'blocked_regressed';
+  dataset_version_ids?: string[];
+  dataset_version_trust?: DatasetVersionTrustSnapshot[];
 
   // Lifecycle state management
   current_state?: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
-  lifecycle_state?: string;        // Release lifecycle state (draft/active/...)
+  lifecycle_state?: LifecycleState | AdapterState | string; // Release lifecycle state or legacy runtime aliases
   runtime_state?: string;          // Memory/runtime status
   kv_consistent?: boolean;         // SQL+KV alignment
   kv_message?: string;             // Reason when inconsistent
@@ -104,6 +110,15 @@ export interface Adapter {
   memory_bytes?: number;
   last_activated?: string;
   activation_count?: number;
+  // Drift/determinism metadata recorded by harness
+  drift_reference_backend?: string;
+  drift_baseline_backend?: string;
+  drift_test_backend?: string;
+  drift_tier?: 'low' | 'standard' | 'high';
+  drift_metric?: number;
+  drift_loss_metric?: number;
+  drift_slice_size?: number;
+  drift_slice_offset?: number;
   manifest_schema_version?: string;
   content_hash_b3?: string;
   signature_valid?: boolean;
@@ -118,12 +133,60 @@ export interface Adapter {
   // UI compatibility fields
   status?: 'active' | 'inactive' | 'loading' | 'error';  // Alias for current_state in UI
   description?: string;  // Adapter description
+  // CoreML export + verification (PRD-3/PRD-5 placeholders)
+  coreml_export_available?: boolean;
+  coreml_export_status?: string;
+  coreml_export_verified?: boolean;
+  coreml_verification_status?: string;
+  coreml_export_last_verified_at?: string;
+  coreml_export_last_exported_at?: string;
+}
+
+// CoreML package/export state (minimal surface for UI)
+export interface CoremlPackageStatus {
+  supported?: boolean;
+  export_available?: boolean;
+  export_status?: string;
+  export_last_exported_at?: string;
+  verification_status?: 'passed' | 'failed' | 'pending' | 'unknown' | string;
+  verified?: boolean;
+  verified_at?: string;
+  coreml_package_hash?: string;
+  coreml_expected_package_hash?: string;
+  coreml_hash_mismatch?: boolean;
+  notes?: string[];
+}
+
+export interface CoremlPackageStatusResponse {
+  schema_version?: string;
+  status: CoremlPackageStatus;
+  message?: string;
+}
+
+export interface CoremlPackageActionResponse {
+  schema_version?: string;
+  status?: CoremlPackageStatus;
+  message?: string;
 }
 
 export type AdapterCategory = 'code' | 'framework' | 'codebase' | 'ephemeral';
 export type AdapterScope = 'global' | 'tenant' | 'repo' | 'commit' | 'project';
-export type AdapterState = 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident' | 'loading';
-export type LifecycleState = 'draft' | 'active' | 'deprecated' | 'retired';
+export type AdapterState =
+  | 'unloaded'
+  | 'loading'
+  | 'cold'
+  | 'warm'
+  | 'hot'
+  | 'resident'
+  | 'error';
+export type LifecycleState =
+  | 'draft'
+  | 'training'
+  | 'ready'
+  | 'active'
+  | 'deprecated'
+  | 'retired'
+  | 'failed';
 export type EvictionPriority = 'never' | 'low' | 'normal' | 'high' | 'critical';
 
 export interface ModelInfo {
@@ -544,16 +607,61 @@ export interface AdapterStateResponse {
   new_state?: AdapterState;
 }
 
+export type AdapterHealthFlag = 'healthy' | 'degraded' | 'unsafe' | 'corrupt';
+
+export type AdapterHealthDomain =
+  | 'drift'
+  | 'trust'
+  | 'storage'
+  | 'other';
+
+export interface AdapterHealthSubcode {
+  domain: AdapterHealthDomain;
+  code: string;
+  message?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface AdapterDriftSummary {
+  current: number;
+  hard_threshold?: number;
+  tier?: string;
+}
+
+export interface AdapterDatasetHealth {
+  dataset_version_id: string;
+  trust_state: string;
+  overall_trust_status?: string;
+}
+
+export interface AdapterStorageHealth {
+  reconciler_status: string;
+  last_checked_at?: string;
+  issues?: AdapterHealthSubcode[];
+}
+
+export interface AdapterBackendHealth {
+  backend?: string;
+  coreml_device_type?: string;
+  coreml_used?: boolean;
+}
+
 export interface AdapterHealthResponse {
   schema_version: string;
   adapter_id: string;
-  health: 'healthy' | 'degraded' | 'unhealthy';
-  checks: Array<{
-    name: string;
-    status: 'passed' | 'failed';
-    message?: string;
-  }>;
-  last_check: string;
+  health: AdapterHealthFlag;
+  primary_subcode?: AdapterHealthSubcode;
+  subcodes: AdapterHealthSubcode[];
+  drift_summary?: AdapterDriftSummary;
+  datasets: AdapterDatasetHealth[];
+  storage?: AdapterStorageHealth;
+  backend?: AdapterBackendHealth;
+  recent_activations: AdapterActivationResponse[];
+  total_activations: number;
+  selected_count: number;
+  avg_gate_value: number;
+  memory_usage_mb: number;
+  policy_violations: string[];
 }
 
 export interface UpdateAdapterPolicyRequest {

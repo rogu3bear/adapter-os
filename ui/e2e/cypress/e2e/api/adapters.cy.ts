@@ -1,5 +1,5 @@
 // Adapter Management API Tests
-import { validateErrorResponse } from '../support/api-helpers';
+import { validateErrorResponse } from '../../support/api-helpers';
 
 describe('Adapter Management API', () => {
   beforeEach(() => {
@@ -30,6 +30,18 @@ describe('Adapter Management API', () => {
       }).then((response) => {
         expect(response.status).to.eq(401);
         validateErrorResponse(response);
+      });
+    });
+  });
+
+  describe('Adapter Repositories', () => {
+    it('should list adapter repositories', () => {
+      cy.apiRequest({
+        method: 'GET',
+        url: '/v1/adapter-repositories',
+      }).then((response) => {
+        expect(response.status).to.eq(200);
+        expect(response.body).to.be.an('array');
       });
     });
   });

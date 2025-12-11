@@ -131,6 +131,7 @@ impl TrainArgs {
                 warmup_steps: None,
                 max_seq_length: None,
                 gradient_accumulation_steps: None,
+                determinism: None,
             };
 
             info!("Using command-line training configuration");

@@ -37,6 +37,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use std::borrow::Cow;
 use tracing::error;
 
 /// Unified API error type implementing IntoResponse
@@ -46,7 +47,7 @@ use tracing::error;
 #[derive(Debug)]
 pub struct ApiError {
     status: StatusCode,
-    code: &'static str,
+    code: Cow<'static, str>,
     message: String,
     details: Option<String>,
     request_id: Option<String>,
@@ -60,7 +61,7 @@ impl ApiError {
     pub fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
         Self {
             status,
-            code,
+            code: Cow::Borrowed(code),
             message: message.into(),
             details: None,
             request_id: None,
@@ -251,13 +252,22 @@ impl IntoResponse for ApiError {
 /// Convert from the old tuple error format for gradual migration
 impl From<(StatusCode, Json<ErrorResponse>)> for ApiError {
     fn from((status, Json(response)): (StatusCode, Json<ErrorResponse>)) -> Self {
+        let ErrorResponse {
+            code,
+            error,
+            details,
+            ..
+        } = response;
+
         Self {
             status,
-            code: "LEGACY_ERROR",
-            message: response.error,
-            details: response
-                .details
-                .and_then(|v| v.as_str().map(|s| s.to_string())),
+            code: if code.is_empty() {
+                Cow::Borrowed("LEGACY_ERROR")
+            } else {
+                Cow::Owned(code)
+            },
+            message: error,
+            details: details.and_then(|v| v.as_str().map(|s| s.to_string())),
             request_id: None,
         }
     }
@@ -569,5 +579,18 @@ mod tests {
         let api_err: ApiError = manifest_err.into();
         assert_eq!(api_err.status, StatusCode::BAD_REQUEST);
         assert_eq!(api_err.code, "ADAPTER_NOT_IN_MANIFEST");
+    }
+
+    #[test]
+    fn test_legacy_tuple_conversion_preserves_code() {
+        let legacy: (StatusCode, Json<ErrorResponse>) = (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("legacy failure").with_code("LEGACY_CODE")),
+        );
+
+        let api_err: ApiError = legacy.into();
+        assert_eq!(api_err.status, StatusCode::BAD_REQUEST);
+        assert_eq!(api_err.code, "LEGACY_CODE");
+        assert_eq!(api_err.message, "legacy failure");
     }
 }

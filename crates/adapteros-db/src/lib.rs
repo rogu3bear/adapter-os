@@ -17,10 +17,15 @@ use tracing::{debug, info, warn};
 // Query constants for SELECT column lists
 pub mod constants;
 
+// Core adapter repository/version model
+pub mod adapter_repositories;
+pub mod crypto_at_rest;
+
 // Database abstraction layer
 pub mod api_keys;
 pub mod chat_sessions_kv;
 pub mod collections_kv;
+pub mod coreml_fusion_pairs;
 pub mod documents_kv;
 pub mod factory;
 pub mod kv_backend;
@@ -30,7 +35,10 @@ pub mod kv_metrics;
 pub mod policy_audit_kv;
 pub mod rag;
 pub mod replay_kv;
+pub mod repository_training_policies;
 pub mod sqlite_backend;
+pub mod storage_issues;
+pub mod storage_reconciliation;
 pub mod telemetry_kv;
 pub mod tenant_execution_policies;
 pub mod tenant_policies;
@@ -39,7 +47,14 @@ pub mod tenant_settings;
 pub mod traits;
 
 // Re-export commonly used types
+pub use adapter_repositories::{
+    AdapterRepository, AdapterRepositoryPolicy, AdapterVersion, AdapterVersionRuntimeState,
+    CreateDraftVersionParams, CreateRepositoryParams, CreateVersionParams, RepositoryGroup,
+    UpsertAdapterRepositoryPolicyParams, UpsertRuntimeStateParams,
+};
+pub use coreml_fusion_pairs::{CoremlFusionPair, CreateCoremlFusionPairParams};
 pub use factory::{DbFactory, StorageBackend as DbStorageBackend};
+pub use repository_training_policies::RepositoryTrainingPolicy;
 pub use traits::{
     AdapterRecord, AdapterStrengthOverride, CreatePackageRequest, CreateStackRequest,
     DatabaseBackend, DatabaseBackendType, DatabaseConfig, PackageRecord, StackRecord,
@@ -53,6 +68,8 @@ pub use kv_isolation_scan::{
     KvIsolationFinding, KvIsolationIssue, KvIsolationScanConfig, KvIsolationScanReport,
     KvIsolationTenantSummary,
 };
+pub use storage_issues::{NewStorageIssue, StorageIssue};
+pub use storage_reconciliation::{StorageIssueParams, StorageReconciliationIssue};
 
 // Re-export KV metrics types
 pub use kv_metrics::{
@@ -577,11 +594,42 @@ impl Db {
     pub async fn connect(path: &str) -> Result<Self> {
         use std::time::Duration;
 
-        let database_url = if path.starts_with("sqlite:") {
+        // Special-case in-memory connections to avoid producing the invalid
+        // `sqlite://:memory:` URI, which SQLite cannot open.
+        let database_url = if matches!(path, ":memory:" | "sqlite://:memory:") {
+            "sqlite::memory:".to_string()
+        } else if path.starts_with("sqlite:") {
             path.to_string()
         } else {
             format!("sqlite://{}", path)
         };
+
+        // Ensure parent directories exist for on-disk databases; SQLite will fail
+        // with code 14 ("unable to open database file") if the path's parent
+        // directory is missing.
+        if !database_url.contains(":memory:") {
+            let fs_path = database_url
+                .trim_start_matches("sqlite://")
+                .trim_start_matches("file:")
+                .split('?')
+                .next()
+                .unwrap_or_default();
+
+            if !fs_path.is_empty() {
+                if let Some(parent) = std::path::Path::new(fs_path)
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                {
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        AosError::Database(format!(
+                            "Failed to create database directory {}: {}",
+                            parent.display(),
+                            e
+                        ))
+                    })?;
+                }
+            }
+        }
 
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
@@ -600,7 +648,7 @@ impl Db {
 
     /// Connect to SQLite database using DATABASE_URL environment variable
     pub async fn connect_env() -> Result<Self> {
-        let resolved = resolve_database_url();
+        let resolved = resolve_database_url()?;
         let database_url = resolved.path.to_string_lossy().to_string();
         info!(
             database_url = %database_url,
@@ -608,6 +656,69 @@ impl Db {
             "Connecting to database from environment/default"
         );
         Self::connect(&database_url).await
+    }
+
+    /// Resolve the canonical auth session relation, creating a compatibility view if needed.
+    ///
+    /// Preferred relation: `auth_sessions`.
+    /// Fallback: if `user_sessions` exists, create a view `auth_sessions` projecting legacy columns.
+    /// Returns the relation name or an error if neither exists.
+    pub async fn resolve_session_table(&self) -> Result<String> {
+        let Some(pool) = self.pool_opt() else {
+            return Err(AosError::Database(
+                "SQL backend unavailable for auth session resolution".to_string(),
+            ));
+        };
+
+        async fn has_relation(pool: &SqlitePool, name: &str) -> Result<bool> {
+            let exists: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','view') AND name = ?",
+            )
+            .bind(name)
+            .fetch_one(pool)
+            .await?;
+            Ok(exists > 0)
+        }
+
+        if has_relation(pool, "auth_sessions").await? {
+            return Ok("auth_sessions".to_string());
+        }
+
+        if has_relation(pool, "user_sessions").await? {
+            sqlx::query(
+                r#"
+                CREATE VIEW IF NOT EXISTS auth_sessions AS
+                SELECT
+                    jti,
+                    COALESCE(session_id, jti) AS session_id,
+                    user_id,
+                    tenant_id,
+                    device_id,
+                    rot_id,
+                    refresh_hash,
+                    refresh_expires_at,
+                    ip_address,
+                    user_agent,
+                    created_at,
+                    last_activity,
+                    CAST(
+                        CASE
+                            WHEN typeof(expires_at) = 'integer' THEN expires_at
+                            ELSE strftime('%s', expires_at)
+                        END AS INTEGER
+                    ) AS expires_at,
+                    COALESCE(locked, 0) AS locked
+                FROM user_sessions
+                "#,
+            )
+            .execute(pool)
+            .await?;
+            return Ok("auth_sessions".to_string());
+        }
+
+        Err(AosError::Database(
+            "Missing session table (auth_sessions or user_sessions)".to_string(),
+        ))
     }
 
     /// Create a new Db instance with configuration from environment variables
@@ -650,7 +761,7 @@ impl Db {
         use tracing::info;
 
         // Read database URL from environment
-        let resolved_db = resolve_database_url();
+        let resolved_db = resolve_database_url()?;
         let database_url = resolved_db.path.to_string_lossy().to_string();
 
         // Read storage mode from environment
@@ -727,7 +838,7 @@ impl Db {
     /// # Note
     /// This is available in both test and non-test builds for maximum flexibility.
     pub async fn new_in_memory() -> Result<Self> {
-        let db = Self::connect(":memory:").await?;
+        let db = Self::connect("sqlite::memory:").await?;
         db.migrate().await?;
         Ok(db)
     }
@@ -789,8 +900,40 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
 
+        // Apply compatibility fixes for schema drift between signed migrations and code expectations.
+        self.ensure_adapter_lora_strength_column().await?;
+
         // Verify database version after migration
         self.verify_migration_version(&migrations_path).await?;
+
+        Ok(())
+    }
+
+    /// Backfill the `lora_strength` column on adapters if migrations missed it.
+    async fn ensure_adapter_lora_strength_column(&self) -> Result<()> {
+        let exists: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM pragma_table_info('adapters') WHERE name = 'lora_strength' LIMIT 1",
+        )
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to inspect adapters schema: {}", e)))?;
+
+        if exists.is_none() {
+            warn!("Adapters table missing lora_strength column; applying runtime patch");
+            sqlx::query("ALTER TABLE adapters ADD COLUMN lora_strength REAL DEFAULT 1.0")
+                .execute(self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to add lora_strength column: {}", e))
+                })?;
+            // Backfill existing rows to preserve deterministic defaults.
+            sqlx::query("UPDATE adapters SET lora_strength = 1.0 WHERE lora_strength IS NULL")
+                .execute(self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to backfill lora_strength: {}", e))
+                })?;
+        }
 
         Ok(())
     }
@@ -941,7 +1084,7 @@ impl Db {
 
                 // Mark as unloaded in database (within transaction)
                 sqlx::query(
-                    "UPDATE adapters SET load_state = 'unloaded', updated_at = datetime('now') WHERE adapter_id = ?",
+                    "UPDATE adapters SET load_state = 'cold', current_state = 'unloaded', updated_at = datetime('now') WHERE adapter_id = ?",
                 )
                 .bind(&adapter_id)
                 .execute(&mut *tx)
@@ -1069,7 +1212,8 @@ impl Db {
                 sqlx::query(
                     r#"
                     UPDATE adapters
-                    SET load_state = 'unloaded',
+                    SET load_state = 'cold',
+                        current_state = 'unloaded',
                         last_heartbeat = NULL,
                         updated_at = datetime('now')
                     WHERE adapter_id = ?
@@ -2366,6 +2510,11 @@ pub mod crypto_audit;
 pub use adapter_snapshots::{AdapterTrainingSnapshot, CreateSnapshotParams};
 pub mod inference_evidence;
 pub use inference_evidence::{CreateEvidenceParams, InferenceEvidence};
+pub mod inference_trace;
+pub use inference_trace::{
+    recompute_receipt, SqlTraceSink, TraceReceipt, TraceReceiptVerification, TraceSink, TraceStart,
+    TraceTokenInput,
+};
 pub mod batch_jobs;
 pub use batch_jobs::{
     BatchItemRecord, BatchJobRecord, CreateBatchItemParams, CreateBatchJobParams,

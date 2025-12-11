@@ -26,6 +26,7 @@ pub mod merkle;
 pub mod metrics;
 pub mod middleware;
 pub mod monitoring;
+pub mod observability;
 pub mod performance_monitoring;
 pub mod replay;
 pub mod report;
@@ -92,6 +93,7 @@ pub use monitoring::{
     PerformanceAlertPayload, PerformanceThreshold, PerformanceThresholdMonitor,
     PolicyViolationAlertPayload, TelemetrySink, ThresholdRange,
 };
+pub use observability::*;
 pub use performance_monitoring::{
     LatencySample, PerformanceMonitoringService, PerformanceSnapshot, ThroughputSample,
 };
@@ -375,6 +377,36 @@ impl TelemetryWriter {
         event: crate::events::PolicyHashValidationEvent,
     ) -> Result<()> {
         self.log("policy.hash_validation", event)
+    }
+
+    /// Log a health lifecycle event using the canonical builder helpers.
+    pub fn log_health_lifecycle(
+        &self,
+        identity: IdentityEnvelope,
+        event: crate::observability::HealthLifecycleEvent,
+    ) -> Result<()> {
+        let evt = crate::observability::build_health_event(identity, event)?;
+        self.log_event(evt)
+    }
+
+    /// Log an inference metrics event using the canonical builder helpers.
+    pub fn log_inference_metrics(
+        &self,
+        identity: IdentityEnvelope,
+        event: crate::observability::InferenceMetricsEvent,
+    ) -> Result<()> {
+        let evt = crate::observability::build_inference_metrics_event(identity, event)?;
+        self.log_event(evt)
+    }
+
+    /// Log a routing telemetry event with RouterDecision metadata.
+    pub fn log_routing_event(
+        &self,
+        identity: IdentityEnvelope,
+        event: crate::observability::RoutingTelemetryEvent,
+    ) -> Result<()> {
+        let evt = crate::observability::build_routing_event(identity, event)?;
+        self.log_event(evt)
     }
 
     /// Log a residency probe event

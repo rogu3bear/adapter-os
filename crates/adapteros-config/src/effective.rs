@@ -21,13 +21,16 @@
 
 use crate::guards::ConfigGuards;
 use crate::precedence::DeterministicConfig;
+use crate::schema::parse_bool;
 use crate::ConfigLoader;
-use adapteros_core::{AosError, BackendProfile, Result, SeedMode};
+use crate::CoreMLComputePreference;
+use adapteros_core::{AosError, BackendKind, Result, SeedMode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::OnceLock;
+use tracing::warn;
 
 /// Global effective configuration instance
 static EFFECTIVE_CONFIG: OnceLock<EffectiveConfig> = OnceLock::new();
@@ -58,10 +61,16 @@ pub struct EffectiveConfig {
     pub alerting: AlertingSection,
     /// Model configuration
     pub model: ModelSection,
+    /// CoreML-specific configuration
+    pub coreml: CoremlSection,
     /// Authentication configuration
     pub auth: AuthSection,
     /// Inference configuration
     pub inference: InferenceSection,
+    /// Health configuration (adapter thresholds)
+    pub health: HealthSection,
+    /// Self-hosting agent configuration
+    pub self_hosting: SelfHostingSection,
     /// Source tracking for each config key
     sources: HashMap<String, String>,
     /// Whether running in production mode
@@ -189,12 +198,14 @@ pub struct AlertingSection {
 pub struct ModelSection {
     /// Path to model directory
     pub path: Option<PathBuf>,
-    /// Model backend: auto, coreml, metal, mlx
-    pub backend: String,
+    /// Default model backend (auto/coreml/mlx/metal/cpu)
+    pub backend: BackendKind,
     /// Canonical base model identifier
     pub base_id: Option<String>,
     /// Root directory containing base models
     pub cache_root: Option<PathBuf>,
+    /// Maximum in-process model cache size (MB)
+    pub cache_max_mb: Option<u64>,
     /// Tokenizer path
     pub tokenizer_path: Option<PathBuf>,
     /// Manifest path
@@ -206,10 +217,35 @@ pub struct ModelSection {
 pub struct InferenceSection {
     /// Seed mode for request-scoped derivation
     pub seed_mode: SeedMode,
-    /// Backend profile selection for workers
-    pub backend_profile: BackendProfile,
+    /// Backend selection for workers (legacy name preserved)
+    pub backend_profile: BackendKind,
     /// Worker identifier used in seed derivation
     pub worker_id: Option<u32>,
+}
+
+/// Health configuration for adapters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthSection {
+    /// Adapter-specific health thresholds
+    pub adapter: AdapterHealthThresholds,
+}
+
+/// Thresholds applied when computing adapter health.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterHealthThresholds {
+    /// Drift value above which an adapter is at least degraded
+    pub drift_hard_threshold: f64,
+    /// Drift value that blocks promotion for high-tier adapters
+    pub high_tier_block_threshold: f64,
+}
+
+/// CoreML section configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoremlSection {
+    /// Preferred CoreML compute units
+    pub compute_preference: CoreMLComputePreference,
+    /// Whether to enforce production-mode constraints (ANE-only)
+    pub production_mode: bool,
 }
 
 /// Authentication configuration
@@ -225,6 +261,42 @@ pub struct AuthSection {
     pub lockout_threshold: u32,
     /// Lockout cooldown in seconds
     pub lockout_cooldown: u64,
+}
+
+/// Self-hosting agent mode
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SelfHostingMode {
+    /// Disabled (no background actions)
+    Off,
+    /// Enabled with automatic promotions gated by metrics threshold
+    On,
+    /// Enabled but promotions require human approval
+    Safe,
+}
+
+impl FromStr for SelfHostingMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "on" => Ok(Self::On),
+            "safe" => Ok(Self::Safe),
+            _ => Ok(Self::Off),
+        }
+    }
+}
+
+/// Self-hosting agent configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SelfHostingSection {
+    /// Mode: off/on/safe
+    pub mode: SelfHostingMode,
+    /// Allowed repo IDs the agent may manage
+    pub repo_allowlist: Vec<String>,
+    /// Minimum metric score required for auto-promotion (on mode only)
+    pub promotion_threshold: f64,
+    /// Whether human approval is required for promotions
+    pub require_human_approval: bool,
 }
 
 /// Source of a configuration value (for debugging/observability)
@@ -269,8 +341,11 @@ impl EffectiveConfig {
         let metrics = Self::build_metrics_section(&config);
         let alerting = Self::build_alerting_section(&config);
         let model = Self::build_model_section(&config);
+        let coreml = Self::build_coreml_section(&config);
         let auth = Self::build_auth_section(&config);
         let inference = Self::build_inference_section(&config, is_production);
+        let health = Self::build_health_section(&config);
+        let self_hosting = Self::build_self_hosting_section(&config);
 
         let effective_config = Self {
             inner: config,
@@ -283,8 +358,11 @@ impl EffectiveConfig {
             metrics,
             alerting,
             model,
+            coreml,
             auth,
             inference,
+            health,
+            self_hosting,
             sources,
             is_production,
         };
@@ -451,9 +529,9 @@ impl EffectiveConfig {
                     .push("NonDeterministic seed_mode is not permitted in production".to_string());
             }
 
-            if self.inference.backend_profile == BackendProfile::AutoDev {
+            if self.inference.backend_profile == BackendKind::Auto {
                 errors.push(
-                    "Production mode requires inference.backend_profile to be explicit (coreml|metal|mlx)"
+                    "Production mode requires inference.backend_profile to be explicit (coreml|metal|mlx|cpu)"
                         .to_string(),
                 );
             }
@@ -718,14 +796,24 @@ impl EffectiveConfig {
     }
 
     fn build_model_section(config: &DeterministicConfig) -> ModelSection {
+        let default_backend = BackendKind::Auto;
+        let backend = config.get("model.backend").map(|raw| {
+            BackendKind::from_str(raw).map_err(|err| {
+                warn!(backend = raw, error = %err, "Invalid model backend, falling back to default");
+                err
+            })
+        });
+
+        let resolved_backend = backend.and_then(|res| res.ok()).unwrap_or(default_backend);
+
         ModelSection {
             path: config.get("model.path").map(PathBuf::from),
-            backend: config
-                .get("model.backend")
-                .cloned()
-                .unwrap_or_else(|| "auto".to_string()),
+            backend: resolved_backend,
             base_id: config.get("base_model.id").cloned(),
             cache_root: config.get("base_model.cache_root").map(PathBuf::from),
+            cache_max_mb: config
+                .get("model.cache.max.mb")
+                .and_then(|v| v.parse().ok()),
             tokenizer_path: config.get("tokenizer.path").map(PathBuf::from),
             manifest_path: config.get("manifest.path").map(PathBuf::from),
         }
@@ -735,6 +823,12 @@ impl EffectiveConfig {
         config: &DeterministicConfig,
         is_production: bool,
     ) -> InferenceSection {
+        let backend_default = if is_production {
+            BackendKind::Metal
+        } else {
+            BackendKind::Auto
+        };
+
         let seed_mode = config
             .get("inference.seed.mode")
             .and_then(|v| SeedMode::from_str(v).ok())
@@ -748,14 +842,18 @@ impl EffectiveConfig {
 
         let backend_profile = config
             .get("inference.backend.profile")
-            .and_then(|v| BackendProfile::from_str(v).ok())
-            .unwrap_or_else(|| {
-                if is_production {
-                    BackendProfile::Metal
-                } else {
-                    BackendProfile::AutoDev
-                }
-            });
+            .map(|raw| {
+                BackendKind::from_str(raw).map_err(|err| {
+                    warn!(
+                        backend = raw,
+                        error = %err,
+                        "Invalid inference backend, falling back to default"
+                    );
+                    err
+                })
+            })
+            .and_then(|res| res.ok())
+            .unwrap_or(backend_default);
 
         let worker_id = config
             .get("inference.worker.id")
@@ -765,6 +863,74 @@ impl EffectiveConfig {
             seed_mode,
             backend_profile,
             worker_id,
+        }
+    }
+
+    fn build_health_section(config: &DeterministicConfig) -> HealthSection {
+        let drift_hard_threshold = config
+            .get("health.adapter.drift_hard_threshold")
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.15);
+
+        let high_tier_block_threshold = config
+            .get("health.adapter.high_tier_block_threshold")
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(drift_hard_threshold);
+
+        HealthSection {
+            adapter: AdapterHealthThresholds {
+                drift_hard_threshold,
+                high_tier_block_threshold,
+            },
+        }
+    }
+
+    fn build_self_hosting_section(config: &DeterministicConfig) -> SelfHostingSection {
+        let mode = config
+            .get("self_hosting.mode")
+            .and_then(|v| SelfHostingMode::from_str(v).ok())
+            .unwrap_or(SelfHostingMode::Off);
+
+        let repo_allowlist = config
+            .get("self_hosting.repo_allowlist")
+            .map(|raw| {
+                raw.split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let promotion_threshold = config
+            .get("self_hosting.promotion_threshold")
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.0);
+
+        let require_human_approval = matches!(mode, SelfHostingMode::Safe);
+
+        SelfHostingSection {
+            mode,
+            repo_allowlist,
+            promotion_threshold,
+            require_human_approval,
+        }
+    }
+
+    fn build_coreml_section(config: &DeterministicConfig) -> CoremlSection {
+        let compute_preference = config
+            .get("coreml.compute_preference")
+            .and_then(|v| CoreMLComputePreference::from_str(v).ok())
+            .unwrap_or_default();
+
+        let production_mode = config
+            .get("coreml.production_mode")
+            .and_then(|v| parse_bool(v).ok())
+            .unwrap_or(false);
+
+        CoremlSection {
+            compute_preference,
+            production_mode,
         }
     }
 
@@ -880,6 +1046,48 @@ mod tests {
         );
         assert_eq!(ConfigValueSource::Cli.to_string(), "cli");
         assert_eq!(ConfigValueSource::Default.to_string(), "default");
+    }
+
+    #[test]
+    fn coreml_section_uses_defaults_when_unset() {
+        use crate::precedence::DeterministicConfig;
+        use std::collections::HashMap;
+
+        let empty = DeterministicConfig::new_for_test(HashMap::new());
+        let effective =
+            EffectiveConfig::from_deterministic(empty).expect("default config should build");
+
+        assert_eq!(
+            effective.coreml.compute_preference,
+            CoreMLComputePreference::CpuAndGpu
+        );
+        assert!(
+            !effective.coreml.production_mode,
+            "production mode should default to false"
+        );
+    }
+
+    #[test]
+    fn coreml_section_applies_config_overrides() {
+        use crate::precedence::DeterministicConfig;
+        use std::collections::HashMap;
+
+        let mut values = HashMap::new();
+        values.insert(
+            "coreml.compute_preference".to_string(),
+            "cpu_and_ne".to_string(),
+        );
+        values.insert("coreml.production_mode".to_string(), "true".to_string());
+
+        let config = DeterministicConfig::new_for_test(values);
+        let effective =
+            EffectiveConfig::from_deterministic(config).expect("coreml config should build");
+
+        assert_eq!(
+            effective.coreml.compute_preference,
+            CoreMLComputePreference::CpuAndNe
+        );
+        assert!(effective.coreml.production_mode);
     }
 
     #[test]
@@ -1007,5 +1215,41 @@ mod tests {
             prod_mixed_effective.is_err(),
             "Production mode should reject mixed paths"
         );
+    }
+
+    #[test]
+    fn health_section_uses_defaults_when_unset() {
+        use crate::precedence::DeterministicConfig;
+        use std::collections::HashMap;
+
+        let empty = DeterministicConfig::new_for_test(HashMap::new());
+        let effective =
+            EffectiveConfig::from_deterministic(empty).expect("default config should build");
+
+        assert!((effective.health.adapter.drift_hard_threshold - 0.15).abs() < f64::EPSILON);
+        assert!((effective.health.adapter.high_tier_block_threshold - 0.10).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn health_section_applies_overrides() {
+        use crate::precedence::DeterministicConfig;
+        use std::collections::HashMap;
+
+        let mut values = HashMap::new();
+        values.insert(
+            "health.adapter.drift_hard_threshold".to_string(),
+            "0.25".to_string(),
+        );
+        values.insert(
+            "health.adapter.high_tier_block_threshold".to_string(),
+            "0.2".to_string(),
+        );
+
+        let config = DeterministicConfig::new_for_test(values);
+        let effective =
+            EffectiveConfig::from_deterministic(config).expect("health config should build");
+
+        assert!((effective.health.adapter.drift_hard_threshold - 0.25).abs() < f64::EPSILON);
+        assert!((effective.health.adapter.high_tier_block_threshold - 0.2).abs() < f64::EPSILON);
     }
 }

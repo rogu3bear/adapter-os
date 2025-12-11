@@ -247,7 +247,11 @@ describe('useDocumentsApi - Mutations', () => {
       const file = new File(['content'], 'uploaded.pdf', { type: 'application/pdf' });
       await result.current.uploadDocument({ file, name: 'uploaded.pdf' });
 
-      expect(mockUploadDocument).toHaveBeenCalledWith(file, 'uploaded.pdf');
+      expect(mockUploadDocument).toHaveBeenCalledWith({
+        file,
+        name: 'uploaded.pdf',
+        description: undefined,
+      });
       expect(result.current.isUploading).toBe(false);
 
       // Verify invalidateQueries was called with correct query key

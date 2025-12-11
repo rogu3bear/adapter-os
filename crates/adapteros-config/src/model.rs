@@ -14,6 +14,7 @@
 //! ```
 
 use crate::path_resolver::{resolve_model_path, DEV_MODEL_PATH};
+use adapteros_core::backend::BackendKind;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -51,49 +52,8 @@ pub fn load_dotenv() {
     });
 }
 
-/// Backend preference for model execution
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum BackendPreference {
-    /// Automatic backend selection based on system capabilities
-    #[default]
-    Auto,
-    /// Prefer CoreML backend (ANE acceleration, production)
-    #[serde(rename = "coreml")]
-    CoreML,
-    /// Prefer Metal backend (legacy, fallback)
-    Metal,
-    /// Prefer MLX backend (research, training)
-    Mlx,
-}
-
-impl std::fmt::Display for BackendPreference {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BackendPreference::Auto => write!(f, "auto"),
-            BackendPreference::CoreML => write!(f, "coreml"),
-            BackendPreference::Metal => write!(f, "metal"),
-            BackendPreference::Mlx => write!(f, "mlx"),
-        }
-    }
-}
-
-impl std::str::FromStr for BackendPreference {
-    type Err = AosError;
-
-    fn from_str(s: &str) -> Result<Self> {
-        match s.to_lowercase().as_str() {
-            "auto" => Ok(BackendPreference::Auto),
-            "coreml" => Ok(BackendPreference::CoreML),
-            "metal" => Ok(BackendPreference::Metal),
-            "mlx" => Ok(BackendPreference::Mlx),
-            _ => Err(AosError::Config(format!(
-                "Unknown backend preference: '{}'. Expected one of: auto, coreml, metal, mlx",
-                s
-            ))),
-        }
-    }
-}
+/// Canonical backend preference used in config (alias of BackendKind).
+pub type BackendPreference = BackendKind;
 
 /// Unified model configuration
 ///
@@ -179,7 +139,7 @@ impl ModelConfig {
     ///
     /// Reads:
     /// - `AOS_MODEL_PATH` - path to model directory/file
-    /// - `AOS_MODEL_BACKEND` - preferred backend (auto, coreml, metal, mlx)
+    /// - `AOS_MODEL_BACKEND` - preferred backend (auto, coreml, metal, mlx, cpu)
     ///
     /// Returns default config if environment variables are not set.
     pub fn from_env() -> Result<Self> {
@@ -686,6 +646,7 @@ mod tests {
         assert_eq!(BackendPreference::CoreML.to_string(), "coreml");
         assert_eq!(BackendPreference::Metal.to_string(), "metal");
         assert_eq!(BackendPreference::Mlx.to_string(), "mlx");
+        assert_eq!(BackendPreference::CPU.to_string(), "cpu");
     }
 
     #[test]
@@ -709,6 +670,10 @@ mod tests {
         assert_eq!(
             "AUTO".parse::<BackendPreference>().unwrap(),
             BackendPreference::Auto
+        );
+        assert_eq!(
+            "cpu".parse::<BackendPreference>().unwrap(),
+            BackendPreference::CPU
         );
         assert!("invalid".parse::<BackendPreference>().is_err());
     }

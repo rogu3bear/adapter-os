@@ -211,7 +211,7 @@ pub fn bad_gateway<E: std::fmt::Display>(msg: &str, e: E) -> (StatusCode, Json<E
         StatusCode::BAD_GATEWAY,
         Json(
             ErrorResponse::new(msg)
-                .with_code("INTERNAL_SERVER_ERROR")
+                .with_code("BAD_GATEWAY")
                 .with_string_details(e.to_string()),
         ),
     )

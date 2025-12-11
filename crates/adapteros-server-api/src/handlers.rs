@@ -10,6 +10,11 @@ use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
 use adapteros_core::tenant_snapshot::TenantStateSnapshot;
 use adapteros_core::{AosError, B3Hash};
+use adapteros_db::{
+    AdapterRepository, AdapterVersionRuntimeState,
+    CreateDraftVersionParams as CreateDraftAdapterVersionParams,
+    CreateRepositoryParams as CreateAdapterRepositoryParams, UpsertAdapterRepositoryPolicyParams,
+};
 use adapteros_lora_lifecycle::GpuIntegrityReport;
 use adapteros_types::training::LoraTier;
 use sqlx::{Row, Sqlite, Transaction};
@@ -24,7 +29,9 @@ use axum::response::Response;
 use chrono::Utc;
 use serde_json::json;
 use serde_json::Value;
-use utoipa::ToSchema;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 pub mod activity;
@@ -42,6 +49,7 @@ pub mod chat_sessions;
 pub mod chunked_upload;
 pub mod code;
 pub mod collections;
+pub mod coreml_verification;
 pub mod dashboard;
 pub mod datasets;
 pub mod diagnostics;
@@ -63,6 +71,7 @@ pub mod models;
 pub mod monitoring;
 pub mod node_detail;
 pub mod notifications;
+pub mod orchestration;
 pub mod owner_chat;
 pub mod owner_cli;
 pub mod packages;
@@ -87,6 +96,7 @@ pub mod telemetry;
 pub mod tenant_policies;
 pub mod tenants;
 pub mod training;
+pub mod training_datasets;
 pub mod tutorials;
 pub mod utils;
 pub mod worker_detail;
@@ -111,7 +121,7 @@ pub use tenant_policies::{
 };
 
 // Re-export auth handlers (including utoipa path types)
-pub use auth::{__path_auth_login, auth_login, auth_logout, auth_me};
+pub use auth::{__path_auth_login, auth_login, auth_me};
 pub use auth_enhanced::{
     __path_mfa_disable_handler, __path_mfa_start_handler, __path_mfa_status_handler,
     __path_mfa_verify_handler, mfa_disable_handler, mfa_start_handler, mfa_status_handler,
@@ -122,6 +132,7 @@ pub use auth_enhanced::{
 pub use training::*;
 
 // Re-export health and system info handlers
+pub use coreml_verification::*;
 pub use health::*;
 pub use system_info::*;
 
@@ -152,8 +163,7 @@ use axum::{
 pub use domain_adapters::*;
 use serde::{Deserialize, Serialize};
 // use serde_json::json; // unused
-use std::collections::HashMap;
-use tracing::{error, info_span, warn};
+use tracing::{error, info, info_span, warn};
 
 /// Upsert a synthetic directory adapter and optionally activate it.
 ///
@@ -1867,7 +1877,7 @@ pub async fn get_base_model_status(
         // Get model details
         let model = state
             .db
-            .get_model(&status_record.model_id)
+            .get_model_for_tenant(&tenant_id, &status_record.model_id)
             .await
             .map_err(|e| {
                 (
@@ -2392,7 +2402,7 @@ pub async fn worker_spawn(
         .node_id(&req.node_id)
         .plan_id(&req.plan_id)
         .uds_path(&uds_path)
-        .status("starting");
+        .status(adapteros_core::WorkerStatus::Created.as_str());
     builder = builder.pid(pid);
     let params = builder.build().map_err(|e| {
         (
@@ -5435,6 +5445,7 @@ pub async fn list_adapters(
             hash_b3: adapter.hash_b3.clone(),
             rank: adapter.rank,
             tier: adapter.tier.clone(),
+            assurance_tier: None,
             languages,
             framework: adapter.framework.clone(),
             category: Some(adapter.category.clone()),
@@ -5461,10 +5472,1188 @@ pub async fn list_adapters(
             pinned: None,
             memory_bytes: None,
             deduplicated: None,
+            drift_reference_backend: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
+            drift_tier: None,
+            drift_metric: None,
+            drift_loss_metric: None,
+            drift_slice_size: None,
+            drift_slice_offset: None,
         });
     }
 
     Ok(Json(responses))
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ListAdapterRepositoriesParams {
+    pub base_model_id: Option<String>,
+    pub archived: Option<bool>,
+}
+
+/// Create a new adapter repository
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-repositories",
+    request_body = CreateRepositoryRequest,
+    responses(
+        (status = 201, description = "Repository created", body = CreateRepositoryResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 400, description = "Validation error", body = ErrorResponse)
+    )
+)]
+pub async fn create_adapter_repository(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<CreateRepositoryRequest>,
+) -> Result<(StatusCode, Json<CreateRepositoryResponse>), (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+    validate_tenant_isolation(&claims, &req.tenant_id)?;
+
+    let repo_id = state
+        .db
+        .create_adapter_repository(CreateAdapterRepositoryParams {
+            tenant_id: &claims.tenant_id,
+            name: &req.name,
+            base_model_id: req.base_model_id.as_deref(),
+            default_branch: req.default_branch.as_deref(),
+            created_by: Some(&claims.sub),
+            description: req.description.as_deref(),
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("failed to create repository")
+                        .with_code("VALIDATION_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateRepositoryResponse { repo_id }),
+    ))
+}
+
+/// Get repository metadata
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/adapter-repositories/{repo_id}",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "Repository", body = AdapterRepositoryResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    )
+)]
+pub async fn get_adapter_repository(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+) -> Result<Json<AdapterRepositoryResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterList)?;
+
+    let repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch repository")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let repo = match repo {
+        Some(r) => r,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("repository not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(repo_id),
+                ),
+            ))
+        }
+    };
+
+    let policy = state
+        .db
+        .get_adapter_repository_policy(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch repository policy")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let training_policy = policy.map(|p| AdapterRepositoryPolicyResponse {
+        repo_id: p.repo_id,
+        preferred_backends: p
+            .preferred_backends_json
+            .as_ref()
+            .and_then(|json| serde_json::from_str(json).ok()),
+        coreml_allowed: p.coreml_allowed,
+        coreml_required: p.coreml_required,
+        autopromote_coreml: p.autopromote_coreml,
+        coreml_mode: p.coreml_mode,
+        repo_tier: p.repo_tier,
+        auto_rollback_on_trust_regress: p.auto_rollback_on_trust_regress,
+        created_at: p.created_at,
+    });
+
+    Ok(Json(AdapterRepositoryResponse {
+        id: repo.id,
+        tenant_id: repo.tenant_id,
+        name: repo.name,
+        base_model_id: repo.base_model_id,
+        default_branch: repo.default_branch,
+        archived: repo.archived != 0,
+        created_by: repo.created_by,
+        created_at: repo.created_at,
+        description: repo.description,
+        training_policy,
+    }))
+}
+
+/// Upsert repository training policy (backend/coreml preferences)
+#[utoipa::path(
+    tag = "system",
+    put,
+    path = "/v1/adapter-repositories/{repo_id}/policy",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    request_body = AdapterRepositoryPolicyRequest,
+    responses(
+        (status = 200, description = "Policy updated", body = AdapterRepositoryPolicyResponse),
+        (status = 404, description = "Repository not found", body = ErrorResponse)
+    )
+)]
+pub async fn upsert_adapter_repository_policy(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+    Json(req): Json<AdapterRepositoryPolicyRequest>,
+) -> Result<Json<AdapterRepositoryPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    let repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch repository")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if repo.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("repository not found").with_code("NOT_FOUND")),
+        ));
+    }
+
+    let preferred_backends_json = req
+        .preferred_backends
+        .as_ref()
+        .and_then(|v| serde_json::to_string(v).ok());
+
+    state
+        .db
+        .upsert_adapter_repository_policy(UpsertAdapterRepositoryPolicyParams {
+            repo_id: &repo_id,
+            tenant_id: &claims.tenant_id,
+            preferred_backends_json: preferred_backends_json.as_deref(),
+            coreml_allowed: req.coreml_allowed,
+            coreml_required: req.coreml_required,
+            autopromote_coreml: req.autopromote_coreml,
+            coreml_mode: req.coreml_mode,
+            repo_tier: req.repo_tier,
+            auto_rollback_on_trust_regress: req.auto_rollback_on_trust_regress,
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to upsert repository policy")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let policy = state
+        .db
+        .get_adapter_repository_policy(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch repository policy")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("policy not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    Ok(Json(AdapterRepositoryPolicyResponse {
+        repo_id: policy.repo_id,
+        preferred_backends: policy
+            .preferred_backends_json
+            .as_ref()
+            .and_then(|json| serde_json::from_str(json).ok()),
+        coreml_allowed: policy.coreml_allowed,
+        coreml_required: policy.coreml_required,
+        autopromote_coreml: policy.autopromote_coreml,
+        coreml_mode: policy.coreml_mode,
+        repo_tier: policy.repo_tier,
+        auto_rollback_on_trust_regress: policy.auto_rollback_on_trust_regress,
+        created_at: policy.created_at,
+    }))
+}
+
+/// Get repository training policy
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/adapter-repositories/{repo_id}/policy",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "Policy", body = AdapterRepositoryPolicyResponse),
+        (status = 404, description = "Not found", body = ErrorResponse)
+    )
+)]
+pub async fn get_adapter_repository_policy(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+) -> Result<Json<AdapterRepositoryPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterList)?;
+
+    let repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch repository")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if repo.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("repository not found").with_code("NOT_FOUND")),
+        ));
+    }
+
+    let policy = state
+        .db
+        .get_adapter_repository_policy(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch repository policy")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("policy not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    Ok(Json(AdapterRepositoryPolicyResponse {
+        repo_id: policy.repo_id,
+        preferred_backends: policy
+            .preferred_backends_json
+            .as_ref()
+            .and_then(|json| serde_json::from_str(json).ok()),
+        coreml_allowed: policy.coreml_allowed,
+        coreml_required: policy.coreml_required,
+        autopromote_coreml: policy.autopromote_coreml,
+        coreml_mode: policy.coreml_mode,
+        repo_tier: policy.repo_tier,
+        auto_rollback_on_trust_regress: policy.auto_rollback_on_trust_regress,
+        created_at: policy.created_at,
+    }))
+}
+
+/// Archive a repository
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-repositories/{repo_id}/archive",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 204, description = "Repository archived"),
+        (status = 404, description = "Repository not found", body = ErrorResponse)
+    )
+)]
+pub async fn archive_adapter_repository(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    let archived = state
+        .db
+        .archive_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to archive repository")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if !archived {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("repository not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(repo_id),
+            ),
+        ));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// List adapter repositories for the caller's tenant
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/adapter-repositories",
+    params(ListAdapterRepositoriesParams),
+    responses(
+        (status = 200, description = "List of adapter repositories", body = Vec<AdapterRepositoryResponse>),
+        (status = 401, description = "Unauthorized", body = ErrorResponse)
+    )
+)]
+pub async fn list_adapter_repositories(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<ListAdapterRepositoriesParams>,
+) -> Result<Json<Vec<AdapterRepositoryResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterList)?;
+
+    let repos = state
+        .db
+        .list_adapter_repositories(
+            &claims.tenant_id,
+            params.base_model_id.as_deref(),
+            params.archived,
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list adapter repositories")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let responses = repos
+        .into_iter()
+        .map(|repo: AdapterRepository| AdapterRepositoryResponse {
+            id: repo.id,
+            tenant_id: repo.tenant_id,
+            name: repo.name,
+            base_model_id: repo.base_model_id,
+            default_branch: repo.default_branch,
+            archived: repo.archived != 0,
+            created_by: repo.created_by,
+            created_at: repo.created_at,
+            description: repo.description,
+            training_policy: None,
+        })
+        .collect();
+
+    Ok(Json(responses))
+}
+
+/// Extract manifest lineage fields from a packaged .aos artifact.
+async fn manifest_lineage_from_aos(
+    aos_path: Option<&str>,
+) -> Option<(Option<Vec<String>>, Option<String>, Option<String>)> {
+    let path = aos_path?;
+    let data = tokio::fs::read(path).await.ok()?;
+    let file_view = adapteros_aos::open_aos(&data).ok()?;
+    let manifest: serde_json::Value = serde_json::from_slice(file_view.manifest_bytes).ok()?;
+
+    let dataset_version_ids = manifest
+        .get("dataset_version_ids")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<String>>()
+        })
+        .filter(|ids| !ids.is_empty());
+
+    let training_backend = manifest
+        .get("training_backend")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            manifest
+                .get("metadata")
+                .and_then(|m| m.get("training_backend"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+
+    let scope_path = manifest
+        .get("metadata")
+        .and_then(|m| m.get("scope_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Some((dataset_version_ids, training_backend, scope_path))
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct ListAdapterVersionsParams {
+    pub branch: Option<String>,
+    pub state: Option<String>,
+}
+
+fn compute_serveable_state(release_state: &str, trust_state: &str) -> (bool, Option<String>) {
+    let release_norm = release_state.trim().to_ascii_lowercase();
+    if release_norm != "active" && release_norm != "ready" {
+        return (
+            false,
+            Some(format!("release_state={} not serveable", release_state)),
+        );
+    }
+    let trust_norm = trust_state.trim().to_ascii_lowercase();
+    if matches!(
+        trust_norm.as_str(),
+        "blocked" | "blocked_regressed" | "needs_approval" | "unknown"
+    ) {
+        return (
+            false,
+            Some(format!("trust_state={} not serveable", trust_state)),
+        );
+    }
+    (true, None)
+}
+
+/// List adapter versions for a repository
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/adapter-repositories/{repo_id}/versions",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID"),
+        ListAdapterVersionsParams
+    ),
+    responses(
+        (status = 200, description = "List of adapter versions", body = Vec<AdapterVersionResponse>),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse)
+    )
+)]
+pub async fn list_adapter_versions(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+    Query(params): Query<ListAdapterVersionsParams>,
+) -> Result<Json<Vec<AdapterVersionResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterList)?;
+
+    let repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch repository")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if repo.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("repository not found").with_code("NOT_FOUND")),
+        ));
+    }
+
+    let state_filter: Option<Vec<String>> = params.state.as_ref().map(|s| vec![s.clone()]);
+    let state_refs: Option<Vec<&str>> = state_filter
+        .as_ref()
+        .map(|vals| vals.iter().map(|s| s.as_str()).collect());
+
+    let versions = state
+        .db
+        .list_adapter_versions_for_repo(
+            &claims.tenant_id,
+            &repo_id,
+            params.branch.as_deref(),
+            state_refs.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to list adapter versions")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let mut responses = Vec::new();
+    for version in versions {
+        let runtime_state = state
+            .db
+            .get_adapter_version_runtime_state(&version.id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to load runtime state")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .map(|s: AdapterVersionRuntimeState| s.runtime_state);
+
+        let db_lineage = state
+            .db
+            .list_dataset_versions_with_trust_for_adapter_version(&version.id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to load dataset versions")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
+        let manifest_lineage = manifest_lineage_from_aos(version.aos_path.as_deref()).await;
+        let manifest_ids = manifest_lineage
+            .as_ref()
+            .and_then(|(ids, _, _)| ids.clone());
+        let manifest_training_backend = manifest_lineage.as_ref().and_then(|(_, tb, _)| tb.clone());
+        let manifest_scope_path = manifest_lineage
+            .as_ref()
+            .and_then(|(_, _, scope)| scope.clone());
+
+        let db_ids: Vec<String> = db_lineage.iter().map(|(id, _)| id.clone()).collect();
+        if let Some(ref manifest_ids) = manifest_ids {
+            if !db_ids.is_empty() && manifest_ids != &db_ids {
+                tracing::warn!(
+                    version_id = %version.id,
+                    manifest_ids = ?manifest_ids,
+                    db_dataset_version_ids = ?db_ids,
+                    "Manifest lineage differs from DB mirror; preferring manifest"
+                );
+            }
+        }
+
+        let trust_map: HashMap<String, Option<String>> = db_lineage.into_iter().collect();
+
+        let dataset_version_ids = manifest_ids.filter(|ids| !ids.is_empty()).or_else(|| {
+            if db_ids.is_empty() {
+                None
+            } else {
+                Some(db_ids.clone())
+            }
+        });
+
+        let dataset_version_trust = dataset_version_ids.as_ref().map(|ids| {
+            ids.iter()
+                .map(|id| DatasetVersionTrustSnapshot {
+                    dataset_version_id: id.clone(),
+                    trust_at_training_time: trust_map.get(id).cloned().flatten(),
+                })
+                .collect()
+        });
+
+        let (serveable, serveable_reason) =
+            compute_serveable_state(&version.release_state, &version.adapter_trust_state);
+
+        responses.push(AdapterVersionResponse {
+            id: version.id,
+            repo_id: version.repo_id,
+            tenant_id: version.tenant_id,
+            version: version.version,
+            branch: version.branch,
+            aos_path: version.aos_path,
+            aos_hash: version.aos_hash,
+            manifest_schema_version: version.manifest_schema_version,
+            parent_version_id: version.parent_version_id,
+            code_commit_sha: version.code_commit_sha,
+            data_spec_hash: version.data_spec_hash,
+            training_backend: manifest_training_backend
+                .clone()
+                .or_else(|| version.training_backend.clone()),
+            coreml_used: Some(version.coreml_used),
+            coreml_device_type: version.coreml_device_type,
+            dataset_version_ids,
+            scope_path: manifest_scope_path,
+            dataset_version_trust,
+            adapter_trust_state: version.adapter_trust_state,
+            release_state: version.release_state,
+            metrics_snapshot_id: version.metrics_snapshot_id,
+            evaluation_summary: version.evaluation_summary,
+            created_at: version.created_at,
+            runtime_state,
+            serveable,
+            serveable_reason,
+        });
+    }
+
+    Ok(Json(responses))
+}
+
+/// Create a draft version for a repository
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-versions/draft",
+    request_body = CreateDraftVersionRequest,
+    responses(
+        (status = 201, description = "Draft version created", body = CreateDraftVersionResponse),
+        (status = 400, description = "Validation error", body = ErrorResponse),
+        (status = 404, description = "Repository not found", body = ErrorResponse)
+    )
+)]
+pub async fn create_draft_version(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<CreateDraftVersionRequest>,
+) -> Result<(StatusCode, Json<CreateDraftVersionResponse>), (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    // Ensure repository is owned by tenant
+    let repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &req.repo_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch repository")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if repo.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("repository not found").with_code("NOT_FOUND")),
+        ));
+    }
+
+    let version_id = state
+        .db
+        .create_adapter_draft_version(CreateDraftAdapterVersionParams {
+            repo_id: &req.repo_id,
+            tenant_id: &claims.tenant_id,
+            branch: &req.branch,
+            branch_classification: "protected",
+            parent_version_id: req.parent_version_id.as_deref(),
+            code_commit_sha: req.code_commit_sha.as_deref(),
+            data_spec_hash: req.data_spec_hash.as_deref(),
+            training_backend: None,
+            dataset_version_ids: None,
+            actor: Some(&claims.sub),
+            reason: None,
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("failed to create draft version")
+                        .with_code("VALIDATION_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateDraftVersionResponse { version_id }),
+    ))
+}
+
+/// Get adapter version details
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/adapter-versions/{version_id}",
+    params(
+        ("version_id" = String, Path, description = "Version ID")
+    ),
+    responses(
+        (status = 200, description = "Version", body = AdapterVersionResponse),
+        (status = 404, description = "Version not found", body = ErrorResponse)
+    )
+)]
+pub async fn get_adapter_version(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(version_id): Path<String>,
+) -> Result<Json<AdapterVersionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterList)?;
+
+    let version = state
+        .db
+        .get_adapter_version(&claims.tenant_id, &version_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to load adapter version")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let version = match version {
+        Some(v) => v,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("version not found").with_code("NOT_FOUND")),
+            ))
+        }
+    };
+
+    let db_lineage = state
+        .db
+        .list_dataset_versions_with_trust_for_adapter_version(&version.id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to load dataset versions")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let manifest_lineage = manifest_lineage_from_aos(version.aos_path.as_deref()).await;
+    let manifest_ids = manifest_lineage
+        .as_ref()
+        .and_then(|(ids, _, _)| ids.clone());
+    let manifest_training_backend = manifest_lineage.as_ref().and_then(|(_, tb, _)| tb.clone());
+    let manifest_scope_path = manifest_lineage
+        .as_ref()
+        .and_then(|(_, _, scope)| scope.clone());
+
+    let db_ids: Vec<String> = db_lineage.iter().map(|(id, _)| id.clone()).collect();
+    if let Some(ref manifest_ids) = manifest_ids {
+        if !db_ids.is_empty() && manifest_ids != &db_ids {
+            tracing::warn!(
+                version_id = %version.id,
+                manifest_ids = ?manifest_ids,
+                db_dataset_version_ids = ?db_ids,
+                "Manifest lineage differs from DB mirror; preferring manifest"
+            );
+        }
+    }
+
+    let trust_map: HashMap<String, Option<String>> = db_lineage.into_iter().collect();
+
+    let dataset_version_ids = manifest_ids.filter(|ids| !ids.is_empty()).or_else(|| {
+        if db_ids.is_empty() {
+            None
+        } else {
+            Some(db_ids.clone())
+        }
+    });
+
+    let dataset_version_trust = dataset_version_ids.as_ref().map(|ids| {
+        ids.iter()
+            .map(|id| DatasetVersionTrustSnapshot {
+                dataset_version_id: id.clone(),
+                trust_at_training_time: trust_map.get(id).cloned().flatten(),
+            })
+            .collect()
+    });
+
+    let (serveable, serveable_reason) =
+        compute_serveable_state(&version.release_state, &version.adapter_trust_state);
+
+    Ok(Json(AdapterVersionResponse {
+        id: version.id,
+        repo_id: version.repo_id,
+        tenant_id: version.tenant_id,
+        version: version.version,
+        branch: version.branch,
+        aos_path: version.aos_path,
+        aos_hash: version.aos_hash,
+        manifest_schema_version: version.manifest_schema_version,
+        parent_version_id: version.parent_version_id,
+        code_commit_sha: version.code_commit_sha,
+        data_spec_hash: version.data_spec_hash,
+        training_backend: manifest_training_backend
+            .clone()
+            .or_else(|| version.training_backend.clone()),
+        coreml_used: Some(version.coreml_used),
+        coreml_device_type: version.coreml_device_type,
+        dataset_version_ids,
+        scope_path: manifest_scope_path,
+        dataset_version_trust,
+        adapter_trust_state: version.adapter_trust_state,
+        release_state: version.release_state,
+        metrics_snapshot_id: version.metrics_snapshot_id,
+        evaluation_summary: version.evaluation_summary,
+        created_at: version.created_at,
+        runtime_state: None,
+        serveable,
+        serveable_reason,
+    }))
+}
+
+/// Promote a version on its branch
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-versions/{version_id}/promote",
+    request_body = PromoteVersionRequest,
+    responses(
+        (status = 204, description = "Version promoted"),
+        (status = 404, description = "Version not found", body = ErrorResponse)
+    )
+)]
+pub async fn promote_adapter_version_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(version_id): Path<String>,
+    Json(req): Json<PromoteVersionRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    // Fetch version to validate tenant/repo
+    let version = state
+        .db
+        .get_adapter_version(&claims.tenant_id, &version_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to load adapter version")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let version = match version {
+        Some(v) if v.repo_id == req.repo_id => v,
+        Some(_) => {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(
+                    ErrorResponse::new("version does not belong to repository")
+                        .with_code("TENANT_ISOLATION_ERROR"),
+                ),
+            ))
+        }
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("version not found").with_code("NOT_FOUND")),
+            ))
+        }
+    };
+
+    let (serveable, reason) =
+        compute_serveable_state(&version.release_state, &version.adapter_trust_state);
+    if !serveable {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("version is not serveable")
+                    .with_code("NOT_SERVEABLE")
+                    .with_string_details(reason.unwrap_or_else(|| "not serveable".to_string())),
+            ),
+        ));
+    }
+
+    state
+        .db
+        .promote_adapter_version(
+            &claims.tenant_id,
+            &version.repo_id,
+            &version_id,
+            Some(&claims.sub),
+            None,
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("failed to promote version")
+                        .with_code("VALIDATION_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    info!(
+        version_id = %version_id,
+        repo_id = %version.repo_id,
+        branch = %version.branch,
+        coreml_used = %version.coreml_used,
+        "Adapter version promoted"
+    );
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Roll back a branch to a target version
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-repositories/{repo_id}/versions/rollback",
+    request_body = RollbackVersionRequest,
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 204, description = "Rollback succeeded"),
+        (status = 404, description = "Repository or version not found", body = ErrorResponse)
+    )
+)]
+pub async fn rollback_adapter_version_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+    Json(req): Json<RollbackVersionRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    // Ensure repo exists
+    let repo_exists = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to fetch repository")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if repo_exists.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("repository not found").with_code("NOT_FOUND")),
+        ));
+    }
+
+    state
+        .db
+        .rollback_adapter_branch(
+            &claims.tenant_id,
+            &repo_id,
+            &req.branch,
+            &req.target_version_id,
+            Some(&claims.sub),
+            None,
+        )
+        .await
+        .map_err(|e| {
+            let status = if matches!(e, AosError::NotFound(_)) {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (
+                status,
+                Json(
+                    ErrorResponse::new("failed to rollback branch")
+                        .with_code("VALIDATION_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Tag a version for selector-based routing
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-versions/{version_id}/tag",
+    request_body = TagVersionRequest,
+    params(
+        ("version_id" = String, Path, description = "Version ID")
+    ),
+    responses(
+        (status = 204, description = "Tag upserted"),
+        (status = 404, description = "Version not found", body = ErrorResponse)
+    )
+)]
+pub async fn tag_adapter_version_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(version_id): Path<String>,
+    Json(req): Json<TagVersionRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    state
+        .db
+        .upsert_adapter_version_tag(&claims.tenant_id, &version_id, &req.tag_name)
+        .await
+        .map_err(|e| {
+            let status = if matches!(e, AosError::NotFound(_)) {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (
+                status,
+                Json(
+                    ErrorResponse::new("failed to tag version")
+                        .with_code("VALIDATION_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Resolve a version selector for a repository
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-repositories/{repo_id}/resolve-version",
+    request_body = ResolveVersionRequest,
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "Resolved version", body = ResolveVersionResponse),
+        (status = 404, description = "No matching version", body = ErrorResponse)
+    )
+)]
+pub async fn resolve_adapter_version_handler(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+    Json(req): Json<ResolveVersionRequest>,
+) -> Result<Json<ResolveVersionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterList)?;
+
+    let resolved = state
+        .db
+        .resolve_adapter_version(&claims.tenant_id, &repo_id, Some(req.selector.as_str()))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to resolve version")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if resolved.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("version not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(req.selector),
+            ),
+        ));
+    }
+
+    Ok(Json(ResolveVersionResponse {
+        version_id: resolved.map(|v| v.id),
+    }))
 }
 
 /// Get adapter by ID
@@ -5542,6 +6731,7 @@ pub async fn get_adapter(
         hash_b3: adapter.hash_b3.clone(),
         rank: adapter.rank,
         tier: adapter.tier.clone(),
+        assurance_tier: None,
         languages,
         framework: adapter.framework.clone(),
         category: Some(adapter.category.clone()),
@@ -5568,6 +6758,14 @@ pub async fn get_adapter(
         pinned: None,
         memory_bytes: None,
         deduplicated: None,
+        drift_reference_backend: None,
+        drift_baseline_backend: None,
+        drift_test_backend: None,
+        drift_tier: None,
+        drift_metric: None,
+        drift_loss_metric: None,
+        drift_slice_size: None,
+        drift_slice_offset: None,
     }))
 }
 /// Register new adapter
@@ -5811,6 +7009,7 @@ pub async fn register_adapter(
             hash_b3: req.hash_b3,
             rank: req.rank,
             tier: req.tier,
+            assurance_tier: None,
             version: "1.0".to_string(),
             lifecycle_state: "active".to_string(),
             languages: req.languages,
@@ -5832,6 +7031,14 @@ pub async fn register_adapter(
             pinned: Some(false),
             memory_bytes: Some(0),
             deduplicated: None,
+            drift_reference_backend: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
+            drift_tier: None,
+            drift_metric: None,
+            drift_loss_metric: None,
+            drift_slice_size: None,
+            drift_slice_offset: None,
         }),
     ))
 }
@@ -6171,6 +7378,7 @@ pub async fn load_adapter(
         hash_b3: adapter.hash_b3,
         rank: adapter.rank,
         tier: adapter.tier,
+        assurance_tier: None,
         version: adapter.version.clone(),
         lifecycle_state: adapter.lifecycle_state.clone(),
         languages: serde_json::from_str(adapter.languages_json.as_deref().unwrap_or("[]"))
@@ -6198,12 +7406,44 @@ pub async fn load_adapter(
         pinned: None,
         memory_bytes: None,
         deduplicated: None,
+        drift_reference_backend: None,
+        drift_baseline_backend: None,
+        drift_test_backend: None,
+        drift_tier: None,
+        drift_metric: None,
+        drift_loss_metric: None,
+        drift_slice_size: None,
+        drift_slice_offset: None,
     }))
 }
 
 fn parse_hash_b3(hash_b3: &str) -> Result<B3Hash, String> {
     let trimmed = hash_b3.strip_prefix("b3:").unwrap_or(hash_b3);
     B3Hash::from_hex(trimmed).map_err(|e| e.to_string())
+}
+
+/// Reject adapter/stack mutations when other requests are in-flight.
+pub(crate) fn guard_in_flight_requests(
+    in_flight: &AtomicUsize,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let current = in_flight.load(Ordering::SeqCst);
+    // Subtract the current request (handled by middleware) to avoid self-blocking.
+    let other_requests = current.saturating_sub(1);
+    if other_requests > 0 {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new("adapter in use, try again later")
+                    .with_code("ADAPTER_IN_USE")
+                    .with_string_details(format!(
+                        "{} other request(s) currently in flight",
+                        other_requests
+                    )),
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Unload an adapter from memory
@@ -6227,6 +7467,9 @@ pub async fn unload_adapter(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator, SRE, and Admin can unload adapters
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterUnload)?;
+
+    // Hot-swap guard: prevent unloading while other requests are active
+    guard_in_flight_requests(&state.in_flight_requests)?;
 
     // Get adapter from database
     let adapter = match state.db.get_adapter(&adapter_id).await {
@@ -6694,6 +7937,114 @@ pub async fn download_adapter_manifest(
 
     Ok(Json(manifest))
 }
+
+const METRIC_ADAPTER_HEALTH_CORRUPT: &str = "adapter_versions_health_corrupt";
+const METRIC_ADAPTER_HEALTH_UNSAFE: &str = "adapter_versions_health_unsafe";
+
+fn rollup_health_flag(
+    has_corrupt: bool,
+    trust_blocked: bool,
+    drift_triggered: bool,
+) -> adapteros_api_types::adapters::AdapterHealthFlag {
+    if has_corrupt {
+        adapteros_api_types::adapters::AdapterHealthFlag::Corrupt
+    } else if trust_blocked {
+        adapteros_api_types::adapters::AdapterHealthFlag::Unsafe
+    } else if drift_triggered {
+        adapteros_api_types::adapters::AdapterHealthFlag::Degraded
+    } else {
+        adapteros_api_types::adapters::AdapterHealthFlag::Healthy
+    }
+}
+
+fn select_primary_subcode(
+    overall: adapteros_api_types::adapters::AdapterHealthFlag,
+    subcodes: &[adapteros_api_types::adapters::AdapterHealthSubcode],
+) -> Option<adapteros_api_types::adapters::AdapterHealthSubcode> {
+    let domain_priority = match overall {
+        adapteros_api_types::adapters::AdapterHealthFlag::Corrupt => [
+            adapteros_api_types::adapters::AdapterHealthDomain::Storage,
+            adapteros_api_types::adapters::AdapterHealthDomain::Trust,
+            adapteros_api_types::adapters::AdapterHealthDomain::Drift,
+            adapteros_api_types::adapters::AdapterHealthDomain::Other,
+        ],
+        adapteros_api_types::adapters::AdapterHealthFlag::Unsafe => [
+            adapteros_api_types::adapters::AdapterHealthDomain::Trust,
+            adapteros_api_types::adapters::AdapterHealthDomain::Storage,
+            adapteros_api_types::adapters::AdapterHealthDomain::Drift,
+            adapteros_api_types::adapters::AdapterHealthDomain::Other,
+        ],
+        adapteros_api_types::adapters::AdapterHealthFlag::Degraded => [
+            adapteros_api_types::adapters::AdapterHealthDomain::Drift,
+            adapteros_api_types::adapters::AdapterHealthDomain::Trust,
+            adapteros_api_types::adapters::AdapterHealthDomain::Storage,
+            adapteros_api_types::adapters::AdapterHealthDomain::Other,
+        ],
+        adapteros_api_types::adapters::AdapterHealthFlag::Healthy => [
+            adapteros_api_types::adapters::AdapterHealthDomain::Drift,
+            adapteros_api_types::adapters::AdapterHealthDomain::Trust,
+            adapteros_api_types::adapters::AdapterHealthDomain::Storage,
+            adapteros_api_types::adapters::AdapterHealthDomain::Other,
+        ],
+    };
+
+    for domain in domain_priority {
+        if let Some(sub) = subcodes.iter().find(|s| s.domain == domain) {
+            return Some(sub.clone());
+        }
+    }
+
+    subcodes.first().cloned()
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+    use adapteros_api_types::adapters::{
+        AdapterHealthDomain, AdapterHealthFlag, AdapterHealthSubcode,
+    };
+
+    #[test]
+    fn trust_blocked_rolls_up_to_unsafe() {
+        let flag = rollup_health_flag(false, true, false);
+        assert_eq!(flag, AdapterHealthFlag::Unsafe);
+    }
+
+    #[test]
+    fn storage_corrupt_rolls_up_to_corrupt() {
+        let flag = rollup_health_flag(true, false, false);
+        assert_eq!(flag, AdapterHealthFlag::Corrupt);
+    }
+
+    #[test]
+    fn corrupt_overrides_trust_blocked() {
+        let flag = rollup_health_flag(true, true, false);
+        assert_eq!(flag, AdapterHealthFlag::Corrupt);
+    }
+
+    #[test]
+    fn primary_subcode_prefers_storage_when_corrupt() {
+        let subcodes = vec![
+            AdapterHealthSubcode {
+                domain: AdapterHealthDomain::Trust,
+                code: "trust_blocked".into(),
+                message: None,
+                data: None,
+            },
+            AdapterHealthSubcode {
+                domain: AdapterHealthDomain::Storage,
+                code: "hash_mismatch".into(),
+                message: None,
+                data: None,
+            },
+        ];
+
+        let primary =
+            select_primary_subcode(AdapterHealthFlag::Corrupt, &subcodes).expect("primary subcode");
+        assert_eq!(primary.domain, AdapterHealthDomain::Storage);
+        assert_eq!(primary.code, "hash_mismatch");
+    }
+}
 /// Get adapter health (activation logs, memory usage, policy violations)
 pub async fn get_adapter_health(
     State(state): State<AppState>,
@@ -6724,6 +8075,174 @@ pub async fn get_adapter_health(
 
     // CRITICAL: Validate tenant isolation - PRD-03
     validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
+    // Health thresholds (drift/per-tier)
+    let (drift_hard_threshold, high_tier_block_threshold) = adapteros_config::effective_config()
+        .map(|cfg| {
+            (
+                cfg.health.adapter.drift_hard_threshold,
+                cfg.health.adapter.high_tier_block_threshold,
+            )
+        })
+        .unwrap_or((0.15, 0.10));
+
+    // Attempt to resolve adapter version data
+    let version_id = adapter
+        .adapter_id
+        .clone()
+        .unwrap_or_else(|| adapter.id.clone());
+    let adapter_version = state
+        .db
+        .get_adapter_version(&adapter.tenant_id, &version_id)
+        .await
+        .ok()
+        .flatten();
+
+    // Dataset linkage + trust signals
+    let dataset_version_ids = state
+        .db
+        .list_dataset_versions_for_adapter_version(&version_id)
+        .await
+        .unwrap_or_default();
+    let mut datasets = Vec::new();
+    let mut trust_blocked = false;
+    for ds_version_id in dataset_version_ids {
+        if let Ok(Some(ds)) = state
+            .db
+            .get_training_dataset_version_for_tenant(&ds_version_id, &adapter.tenant_id)
+            .await
+        {
+            let blocked = ds.trust_state.eq_ignore_ascii_case("blocked")
+                || ds.trust_state.eq_ignore_ascii_case("blocked_regressed")
+                || ["regressed", "blocked", "unsafe", "blocked_regressed"]
+                    .iter()
+                    .any(|s| ds.overall_trust_status.eq_ignore_ascii_case(s));
+            if blocked {
+                trust_blocked = true;
+            }
+            datasets.push(adapteros_api_types::adapters::AdapterDatasetHealth {
+                dataset_version_id: ds.id.clone(),
+                trust_state: ds.trust_state.clone(),
+                overall_trust_status: Some(ds.overall_trust_status.clone()),
+            });
+        }
+    }
+
+    // Storage / reconciler signals
+    let storage_rows = adapteros_db::sqlx::query(
+        r#"
+        SELECT issue_type, severity, path, expected_hash, actual_hash, detected_at
+        FROM storage_reconciliation_issues
+        WHERE version_id = ?
+        ORDER BY detected_at DESC
+        LIMIT 5
+        "#,
+    )
+    .bind(&version_id)
+    .fetch_all(state.db.pool())
+    .await
+    .unwrap_or_default();
+
+    let mut storage_subcodes = Vec::new();
+    let mut has_corrupt = false;
+    for row in storage_rows {
+        let issue_type: String = row.try_get("issue_type").unwrap_or_default();
+        let severity: Option<String> = row.try_get("severity").ok();
+        let path: Option<String> = row.try_get("path").ok();
+        let expected_hash: Option<String> = row.try_get("expected_hash").ok();
+        let actual_hash: Option<String> = row.try_get("actual_hash").ok();
+        let detected_at: Option<String> = row.try_get("detected_at").ok();
+
+        let is_corrupt_issue = matches!(
+            issue_type.as_str(),
+            "missing_bytes" | "missing_file" | "hash_mismatch"
+        );
+        if is_corrupt_issue {
+            has_corrupt = true;
+        }
+        storage_subcodes.push(adapteros_api_types::adapters::AdapterHealthSubcode {
+            domain: adapteros_api_types::adapters::AdapterHealthDomain::Storage,
+            code: issue_type.clone(),
+            message: Some(format!(
+                "{} at {}",
+                issue_type,
+                path.clone().unwrap_or_default()
+            )),
+            data: Some(serde_json::json!({
+                "severity": severity,
+                "expected_hash": expected_hash,
+                "actual_hash": actual_hash,
+                "detected_at": detected_at
+            })),
+        });
+    }
+
+    // Drift summary placeholder (extend when drift metrics are available)
+    let drift_summary: Option<adapteros_api_types::adapters::AdapterDriftSummary> = None;
+    let mut drift_triggered = false;
+
+    // Backend/CoreML info surfaced for the UI
+    let backend =
+        adapter_version
+            .as_ref()
+            .map(|av| adapteros_api_types::adapters::AdapterBackendHealth {
+                backend: av.training_backend.clone(),
+                coreml_device_type: av.coreml_device_type.clone(),
+                coreml_used: Some(av.coreml_used),
+            });
+
+    let mut subcodes: Vec<adapteros_api_types::adapters::AdapterHealthSubcode> = Vec::new();
+
+    if let Some(ref summary) = drift_summary {
+        if summary.current >= drift_hard_threshold {
+            drift_triggered = true;
+            subcodes.push(adapteros_api_types::adapters::AdapterHealthSubcode {
+                domain: adapteros_api_types::adapters::AdapterHealthDomain::Drift,
+                code: "drift_high".to_string(),
+                message: Some(format!(
+                    "Drift {:.4} exceeds hard threshold {:.4}",
+                    summary.current, drift_hard_threshold
+                )),
+                data: Some(serde_json::json!({
+                    "current": summary.current,
+                    "hard_threshold": drift_hard_threshold,
+                    "tier_block_threshold": high_tier_block_threshold
+                })),
+            });
+        }
+    }
+
+    if trust_blocked {
+        subcodes.push(adapteros_api_types::adapters::AdapterHealthSubcode {
+            domain: adapteros_api_types::adapters::AdapterHealthDomain::Trust,
+            code: "trust_blocked".to_string(),
+            message: Some("Dataset trust is blocked/regressed".to_string()),
+            data: None,
+        });
+    }
+
+    subcodes.extend(storage_subcodes.clone());
+
+    let overall = rollup_health_flag(has_corrupt, trust_blocked, drift_triggered);
+    let primary_subcode = select_primary_subcode(overall, &subcodes);
+
+    if matches!(
+        overall,
+        adapteros_api_types::adapters::AdapterHealthFlag::Corrupt
+    ) {
+        state
+            .metrics_registry
+            .record_metric(METRIC_ADAPTER_HEALTH_CORRUPT.to_string(), 1.0)
+            .await;
+    } else if matches!(
+        overall,
+        adapteros_api_types::adapters::AdapterHealthFlag::Unsafe
+    ) {
+        state
+            .metrics_registry
+            .record_metric(METRIC_ADAPTER_HEALTH_UNSAFE.to_string(), 1.0)
+            .await;
+    }
 
     // Get adapter activations (last 100)
     let activations = state
@@ -6758,6 +8277,42 @@ pub async fn get_adapter_health(
     Ok(Json(AdapterHealthResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         adapter_id: adapter_id_clone,
+        health: overall,
+        primary_subcode,
+        subcodes,
+        drift_summary,
+        datasets,
+        storage: Some(adapteros_api_types::adapters::AdapterStorageHealth {
+            reconciler_status: if has_corrupt {
+                "corrupt".to_string()
+            } else {
+                "ok".to_string()
+            },
+            last_checked_at: storage_subcodes
+                .first()
+                .and_then(|s| s.data.as_ref())
+                .and_then(|d| d.get("detected_at"))
+                .and_then(|v| v.as_str().map(String::from)),
+            issues: if storage_subcodes.is_empty() {
+                None
+            } else {
+                Some(storage_subcodes)
+            },
+        }),
+        backend,
+        recent_activations: activations
+            .into_iter()
+            .take(10)
+            .map(|a| AdapterActivationResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                id: a.id,
+                adapter_id: a.adapter_id,
+                request_id: a.request_id,
+                gate_value: a.gate_value,
+                selected: a.selected == 1,
+                created_at: a.created_at,
+            })
+            .collect(),
         total_activations: total as i32,
         selected_count: selected as i32,
         avg_gate_value: avg_gate,
@@ -6784,19 +8339,6 @@ pub async fn get_adapter_health(
             .map(|(vtype, msg)| format!("{}: {}", vtype, msg))
             .collect()
         },
-        recent_activations: activations
-            .into_iter()
-            .take(10)
-            .map(|a| AdapterActivationResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                id: a.id,
-                adapter_id: a.adapter_id,
-                request_id: a.request_id,
-                gate_value: a.gate_value,
-                selected: a.selected == 1,
-                created_at: a.created_at,
-            })
-            .collect(),
     }))
 }
 
@@ -6813,11 +8355,14 @@ pub async fn get_adapter_health(
 )]
 pub async fn list_repositories(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<RepositoryResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    // Tenant-scoped listing: only return repos for caller's tenant
+    let tenant_id = &claims.tenant_id;
+
     let repos = state
         .db
-        .list_repositories("default", 100, 0)
+        .list_repositories(tenant_id, 100, 0)
         .await
         .map_err(|e| {
             (
@@ -8663,6 +10208,31 @@ pub async fn create_training_session(
         .as_ref()
         .and_then(|pa| serde_json::to_string(pa).ok());
 
+    let dataset_version_ids_core = req.dataset_version_ids.as_ref().map(|versions| {
+        versions
+            .iter()
+            .map(|v| adapteros_types::training::DatasetVersionSelection {
+                dataset_version_id: v.dataset_version_id.clone(),
+                weight: v.weight,
+            })
+            .collect()
+    });
+
+    let has_versions = dataset_version_ids_core
+        .as_ref()
+        .map(|v: &Vec<adapteros_types::training::DatasetVersionSelection>| !v.is_empty())
+        .unwrap_or(false);
+    let (synthetic_mode, data_lineage_mode) = if has_versions {
+        (false, adapteros_types::training::DataLineageMode::Versioned)
+    } else if req.dataset_id.is_some() {
+        (
+            false,
+            adapteros_types::training::DataLineageMode::DatasetOnly,
+        )
+    } else {
+        (true, adapteros_types::training::DataLineageMode::Synthetic)
+    };
+
     let job = state
         .training_service
         .start_training(
@@ -8670,7 +10240,12 @@ pub async fn create_training_session(
             config,
             req.template_id,
             req.repo_id,
+            req.target_branch,
+            req.base_version_id,
             req.dataset_id,                 // dataset_id
+            dataset_version_ids_core,       // dataset_version_ids
+            synthetic_mode,                 // synthetic_mode
+            data_lineage_mode,              // data_lineage_mode
             Some(claims.tenant_id.clone()), // tenant_id
             Some(claims.sub.clone()),       // initiated_by
             Some(claims.role.clone()),      // initiated_by_role
@@ -8688,6 +10263,10 @@ pub async fn create_training_session(
             post_actions_json,
             // Not a retry - new training job
             None,
+            None,                // versioning
+            req.code_commit_sha, // code_commit_sha
+            req.data_spec,       // data_spec_json
+            req.data_spec_hash,  // data_spec_hash
         )
         .await
         .map_err(|e| {

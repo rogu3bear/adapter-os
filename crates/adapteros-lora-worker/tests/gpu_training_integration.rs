@@ -328,9 +328,7 @@ async fn test_tokens_and_throughput_metrics_tracked() {
         .iter()
         .map(|ex| (ex.input.len() + ex.target.len()) as u64)
         .sum();
-    let completed_epochs = result
-        .stopped_at_epoch
-        .unwrap_or(requested_epochs as u32) as u64;
+    let completed_epochs = result.stopped_at_epoch.unwrap_or(requested_epochs as u32) as u64;
     let expected_tokens = tokens_per_epoch * completed_epochs;
 
     assert_eq!(

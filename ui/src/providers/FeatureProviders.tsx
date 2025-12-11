@@ -34,7 +34,7 @@ export function useTenant(): TenantContextValue {
 
 // Tenant Provider Component
 function TenantProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [selectedTenant, setSelectedTenantState] = useState<string>(() => {
     return localStorage.getItem('selectedTenant') || '';
   });
@@ -50,6 +50,14 @@ function TenantProvider({ children }: { children: ReactNode }) {
     return [];
   });
   const [isLoading, setIsLoading] = useState(true);
+
+  const clearTenantSelectionRequirement = useCallback(() => {
+    try {
+      sessionStorage.removeItem(TENANT_SELECTION_REQUIRED_KEY);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
 
   const refreshTenants = useCallback(async () => {
     try {
@@ -116,8 +124,6 @@ function TenantProvider({ children }: { children: ReactNode }) {
     }
   }, [user?.tenant_id]);
 
-  // refreshUser is stable from useAuth; keep out of deps lint warning
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const setSelectedTenant = useCallback(async (tenantId: string): Promise<boolean> => {
     // Validate tenant exists in list (unless we're still loading)
     if (!isLoading && tenants.length > 0 && !tenants.some((t) => t.id === tenantId)) {
@@ -127,6 +133,20 @@ function TenantProvider({ children }: { children: ReactNode }) {
         availableTenants: tenants.map((t) => t.id)
       });
       return false;
+    }
+
+    const alreadyActive =
+      tenantId === selectedTenant ||
+      (!!user?.tenant_id && tenantId === user.tenant_id);
+    if (alreadyActive) {
+      setSelectedTenantState(tenantId);
+      try {
+        localStorage.setItem('selectedTenant', tenantId);
+      } catch (error) {
+        logger.warn('Failed to save selected tenant to localStorage', { component: 'TenantProvider' });
+      }
+      clearTenantSelectionRequirement();
+      return true;
     }
 
     try {
@@ -145,21 +165,46 @@ function TenantProvider({ children }: { children: ReactNode }) {
           // ignore storage errors
         }
       }
-      try {
-        sessionStorage.removeItem(TENANT_SELECTION_REQUIRED_KEY);
-      } catch {
-        // ignore storage errors
-      }
+      clearTenantSelectionRequirement();
       await refreshUser().catch(err => {
         logger.warn('Failed to refresh user after tenant switch', { component: 'TenantProvider' }, toError(err));
       });
       return true;
     } catch (error) {
-      logger.error('Failed to switch tenant', { component: 'TenantProvider', tenantId }, toError(error));
-      toast.error('Unable to switch tenant. You may not have access.');
-      return false;
+      const err = toError(error) as { status?: number; code?: string };
+      if (err?.code === 'PARSE_ERROR') {
+        logger.warn('Tenant switch returned unparsable payload; assuming success', {
+          component: 'TenantProvider',
+          tenantId,
+        }, err);
+        setSelectedTenantState(tenantId);
+        clearTenantSelectionRequirement();
+        return true;
+      }
+
+      logger.error('Failed to switch tenant', { component: 'TenantProvider', tenantId }, err);
+
+      // Let the global session-expiry handler drive UX for 401s
+      if (err?.status === 401 || err?.code === 'SESSION_EXPIRED') {
+        return false;
+      }
+
+      if (err?.status === 403 || err?.code === 'TENANT_ACCESS_DENIED') {
+        toast.error('You do not have access to this tenant.');
+        return false;
+      }
+
+      logger.warn('Proceeding with local tenant selection despite switch error', {
+        component: 'TenantProvider',
+        tenantId,
+        errorCode: err?.code,
+        status: err?.status,
+      });
+      setSelectedTenantState(tenantId);
+      clearTenantSelectionRequirement();
+      return true;
     }
-  }, [tenants, isLoading]);
+  }, [tenants, isLoading, selectedTenant, user?.tenant_id, clearTenantSelectionRequirement, refreshUser]);
 
   // Only fetch tenants when user is authenticated
   useEffect(() => {
@@ -188,6 +233,13 @@ function TenantProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [user?.tenant_id, selectedTenant]);
+
+  useEffect(() => {
+    if (!selectedTenant) return;
+    if (tenants.some((t) => t.id === selectedTenant)) {
+      clearTenantSelectionRequirement();
+    }
+  }, [selectedTenant, tenants, clearTenantSelectionRequirement]);
 
   const value: TenantContextValue = {
     selectedTenant,

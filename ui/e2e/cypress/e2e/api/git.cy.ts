@@ -1,5 +1,5 @@
 // Git Integration API Tests
-import { validateErrorResponse } from '../../support/api-helpers';
+import { validateErrorResponse } from '../../../support/api-helpers';
 
 describe('Git Integration API', () => {
   beforeEach(() => {

@@ -1,0 +1,19 @@
+{
+  "global_seed": "0000000000000000000000000000000000000000000000000000000000000002",
+  "steps": [
+    {
+      "step": 0,
+      "input_id": 11,
+      "output_id": 21,
+      "gate_q15": 14000,
+      "adapter_id": "adapter-alpha"
+    },
+    {
+      "step": 1,
+      "input_id": 12,
+      "output_id": 22,
+      "gate_q15": 9000,
+      "adapter_id": "adapter-beta"
+    }
+  ]
+}

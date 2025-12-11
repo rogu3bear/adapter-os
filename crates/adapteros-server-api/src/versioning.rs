@@ -198,17 +198,10 @@ pub fn add_version_headers(mut response: Response, version: ApiVersion) -> Respo
 
 /// Versioning middleware
 pub async fn versioning_middleware(request: Request, next: Next) -> Response {
-    let path = request.uri().path();
-    let headers = request.headers();
-
-    // Negotiate version
-    let negotiation = negotiate_version(path, headers);
-
-    // Process request
-    let response = next.run(request).await;
-
-    // Add version headers to response
-    add_version_headers(response, negotiation.version)
+    // Delegate to the SSE-aware middleware implementation to ensure
+    // `text/event-stream` is preserved for stream endpoints while keeping the
+    // same version negotiation behavior.
+    crate::middleware::versioning::versioning_middleware(request, next).await
 }
 
 /// API version info response

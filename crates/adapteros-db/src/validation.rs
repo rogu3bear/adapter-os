@@ -5,6 +5,8 @@
 use crate::metadata::{validate_state_transition, validate_version, LifecycleState};
 use crate::Db;
 use adapteros_core::Result;
+use serde_json::Value;
+use sqlx::Row;
 use std::str::FromStr;
 use tracing::{debug, warn};
 
@@ -14,9 +16,11 @@ impl Db {
     /// This method enforces lifecycle state transition rules and tier-specific constraints.
     ///
     /// **Rules**:
-    /// - States must transition forward: draft → active → deprecated → retired
+    /// - State graph: draft → training → ready → active → deprecated → retired
+    /// - Rollback: active → ready is permitted when rolling back a rollout
+    /// - Failure: any state may transition to failed
     /// - Ephemeral adapters cannot be deprecated (must go directly to retired)
-    /// - Retired is a terminal state (no transitions out)
+    /// - Retired and failed are terminal states (no transitions out)
     ///
     /// **Example**:
     /// ```no_run
@@ -71,6 +75,80 @@ impl Db {
             new_state = ?new_state,
             "Updating adapter lifecycle state"
         );
+
+        if matches!(
+            new_state,
+            LifecycleState::Ready
+                | LifecycleState::Active
+                | LifecycleState::Deprecated
+                | LifecycleState::Retired
+        ) {
+            if adapter
+                .aos_file_path
+                .as_deref()
+                .map(str::is_empty)
+                .unwrap_or(true)
+                || adapter
+                    .aos_file_hash
+                    .as_deref()
+                    .map(str::is_empty)
+                    .unwrap_or(true)
+                || adapter
+                    .content_hash_b3
+                    .as_deref()
+                    .map(str::is_empty)
+                    .unwrap_or(true)
+            {
+                return Err(AosError::Validation(
+                    "Immutable .aos artifact (path, hash, content hash) required before entering ready/active/deprecated/retired"
+                        .to_string(),
+                ));
+            }
+        }
+
+        if matches!(new_state, LifecycleState::Active) {
+            let snapshot_exists: Option<i64> = sqlx::query_scalar(
+                "SELECT 1 FROM adapter_training_snapshots WHERE adapter_id = ? LIMIT 1",
+            )
+            .bind(adapter_id)
+            .fetch_optional(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to check training snapshot: {}", e)))?;
+
+            if snapshot_exists.is_none() {
+                return Err(AosError::Validation(
+                    "Active state requires a training snapshot/metrics evidence".to_string(),
+                ));
+            }
+
+            if let Some(repo_id) = adapter.repo_id.as_deref() {
+                let requested_branch = branch_from_metadata(&adapter.metadata_json);
+                let rows = sqlx::query("SELECT adapter_id, metadata_json FROM adapters WHERE repo_id = ? AND lifecycle_state = 'active'")
+                    .bind(repo_id)
+                    .fetch_all(&*self.pool())
+                    .await
+                    .map_err(|e| AosError::Database(format!("Failed to check active adapters: {}", e)))?;
+
+                for row in rows {
+                    let other_id: String = row.get(0);
+                    if other_id == adapter_id {
+                        continue;
+                    }
+                    let other_branch = branch_from_metadata(&row.get::<Option<String>, _>(1));
+                    let branches_conflict = match (&requested_branch, &other_branch) {
+                        (Some(req), Some(other)) => req == other,
+                        (Some(_), None) => true,
+                        (None, _) => true,
+                    };
+                    if branches_conflict {
+                        return Err(AosError::Validation(format!(
+                            "Active state requires uniqueness per repo/branch; adapter {} is already active for repo {}",
+                            other_id, repo_id
+                        )));
+                    }
+                }
+            }
+        }
 
         sqlx::query(
             "UPDATE adapters SET lifecycle_state = ?, updated_at = datetime('now') WHERE adapter_id = ?",
@@ -296,6 +374,17 @@ impl Db {
 
         Ok(())
     }
+}
+
+fn branch_from_metadata(metadata_json: &Option<String>) -> Option<String> {
+    metadata_json.as_ref().and_then(|raw| {
+        let parsed: Value = serde_json::from_str(raw).ok()?;
+        parsed
+            .get("branch")
+            .and_then(|v| v.as_str())
+            .or_else(|| parsed.get("git_branch").and_then(|v| v.as_str()))
+            .map(|s| s.to_string())
+    })
 }
 
 #[cfg(test)]

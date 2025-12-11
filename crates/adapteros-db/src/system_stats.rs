@@ -25,10 +25,10 @@ impl Db {
         Ok(count)
     }
 
-    /// Count active workers (workers with status 'serving' or 'starting')
+    /// Count active workers (non-terminal lifecycle states)
     pub async fn count_active_workers(&self) -> Result<i64> {
         let count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM workers WHERE status IN ('serving', 'starting')",
+            "SELECT COUNT(*) FROM workers WHERE status IN ('created','registered','healthy','draining')",
         )
         .fetch_one(self.pool())
         .await
@@ -99,10 +99,10 @@ impl Db {
         Ok(count)
     }
 
-    /// Count loaded models (adapters with load_state = 'loaded')
+    /// Count loaded models (adapters with ready current_state or legacy loaded state)
     pub async fn count_loaded_models(&self) -> Result<i64> {
         let count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM adapters WHERE load_state = 'loaded'",
+            "SELECT COUNT(*) FROM adapters WHERE current_state IN ('warm', 'hot', 'resident') OR load_state IN ('loaded', 'warm')",
         )
         .fetch_one(self.pool())
         .await

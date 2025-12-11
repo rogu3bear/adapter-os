@@ -247,10 +247,8 @@ function TelemetryFiltersTab() {
     queryKey: ['telemetry-filtered', tenantId, eventType, level, limit],
     queryFn: () =>
       apiClient.getTelemetryEvents({
-        tenantId: tenantId || undefined,
-        eventType: eventType || undefined,
-        level: level || undefined,
         limit,
+        eventTypes: eventType ? [eventType] : undefined,
       }),
   });
 

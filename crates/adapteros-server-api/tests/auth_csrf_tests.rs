@@ -12,15 +12,16 @@ use adapteros_api_types::auth::LoginRequest;
 use adapteros_db::users::Role;
 use adapteros_server_api::auth::hash_password;
 use adapteros_server_api::handlers::auth::auth_login;
+use adapteros_server_api::ip_extraction::ClientIp;
 use adapteros_server_api::middleware::csrf_middleware;
 use adapteros_server_api::types::ErrorResponse;
 use axum::body::to_bytes;
 use axum::body::Body;
 use axum::http::header::SET_COOKIE;
-use axum::http::{Request, StatusCode};
+use axum::http::{HeaderMap, Request, StatusCode};
 use axum::middleware;
 use axum::routing::post;
-use axum::{extract::State, Json, Router};
+use axum::{extract::State, Extension, Json, Router};
 use tower::ServiceExt;
 
 fn csrf_app() -> Router {
@@ -53,9 +54,14 @@ async fn login_sets_auth_refresh_and_csrf_cookies() -> anyhow::Result<()> {
         totp_code: None,
     };
 
-    let (headers, Json(_body)) = auth_login(State(state.clone()), Json(request))
-        .await
-        .expect("login should succeed");
+    let (headers, Json(_body)) = auth_login(
+        State(state.clone()),
+        HeaderMap::new(),
+        Extension(ClientIp("127.0.0.1".to_string())),
+        Json(request),
+    )
+    .await
+    .expect("login should succeed");
 
     let cookies: Vec<String> = headers
         .get_all(SET_COOKIE)

@@ -7,16 +7,22 @@ import { ModelSelector } from '@/components/ModelSelector';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { PageHeader as IaPageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useNavigate, Link } from 'react-router-dom';
 import { useSystemMetrics, useMetricsSnapshot } from '@/hooks/useSystem';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatMetricValue, hasUsableMetric } from '@/utils/metrics';
 import { logger } from '@/utils/logger';
+import { useTraining } from '@/hooks/useTraining';
+import { useRepos } from '@/hooks/useReposApi';
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { data: datasetsData } = useTraining.useDatasets(undefined, { staleTime: 15000 });
+  const { data: trainingJobsData } = useTraining.useTrainingJobs(undefined, { staleTime: 15000 });
+  const { data: reposData } = useRepos();
   const {
     metrics: systemMetrics,
     isLoading: metricsLoading,
@@ -128,6 +134,48 @@ export default function DashboardPage() {
     };
   }, [healthSummary, metricsSnapshot]);
 
+  const datasetCounts = useMemo(() => {
+    const counts = {
+      total: datasetsData?.datasets?.length ?? 0,
+      trust: {
+        allowed: 0,
+        allowed_with_warning: 0,
+        needs_approval: 0,
+        blocked: 0,
+        unknown: 0,
+      },
+    };
+    datasetsData?.datasets?.forEach(ds => {
+      const state = (ds.trust_state as keyof typeof counts.trust) ?? 'unknown';
+      counts.trust[state] = (counts.trust[state] ?? 0) + 1;
+    });
+    return counts;
+  }, [datasetsData]);
+
+  const repoHealthCounts = useMemo(() => {
+    const counts: Record<string, number> = { healthy: 0, degraded: 0, unsafe: 0, corrupt: 0, unknown: 0 };
+    reposData?.forEach(repo => {
+      const activeVersion =
+        repo.branches?.find(b => b.default)?.latest_active_version ||
+        repo.branches?.map(b => b.latest_active_version).find(Boolean);
+      const health = (activeVersion?.health_state ?? 'unknown') as keyof typeof counts;
+      counts[health] = (counts[health] ?? 0) + 1;
+    });
+    return counts;
+  }, [reposData]);
+
+  const alerts = useMemo(() => {
+    const blockedDatasets = (datasetsData?.datasets || []).filter(ds => ds.trust_state === 'blocked').slice(0, 3);
+    const unsafeRepos = (reposData || []).filter(repo => {
+      const activeVersion =
+        repo.branches?.find(b => b.default)?.latest_active_version ||
+        repo.branches?.map(b => b.latest_active_version).find(Boolean);
+      return activeVersion?.health_state === 'unsafe' || activeVersion?.health_state === 'corrupt';
+    }).slice(0, 3);
+    const failedJobs = (trainingJobsData?.jobs || []).filter(j => j.status === 'failed').slice(0, 3);
+    return { blockedDatasets, unsafeRepos, failedJobs };
+  }, [datasetsData, reposData, trainingJobsData]);
+
   const hasTrafficData = useMemo(
     () =>
       hasUsableMetric([
@@ -217,6 +265,70 @@ export default function DashboardPage() {
         </IaPageHeader>
       }
     >
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Overview</CardTitle>
+            <CardDescription>Datasets, repositories, and jobs</CardDescription>
+          </CardHeader>
+          <CardFooter className="flex w-full justify-between text-sm">
+            <div>
+              <div className="font-semibold">{datasetCounts.total}</div>
+              <div className="text-muted-foreground">Datasets</div>
+            </div>
+            <div>
+              <div className="font-semibold">{reposData?.length ?? 0}</div>
+              <div className="text-muted-foreground">Repositories</div>
+            </div>
+            <div>
+              <div className="font-semibold">{trainingJobsData?.jobs?.length ?? 0}</div>
+              <div className="text-muted-foreground">Training jobs</div>
+            </div>
+          </CardFooter>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Trust & Health</CardTitle>
+            <CardDescription>Latest trust and health signals</CardDescription>
+          </CardHeader>
+          <CardFooter className="flex flex-wrap gap-3 text-sm">
+            <span className="text-muted-foreground">Trust blocked: {datasetCounts.trust.blocked}</span>
+            <span className="text-muted-foreground">Trust warn: {datasetCounts.trust.allowed_with_warning}</span>
+            <span className="text-muted-foreground">Adapters unsafe: {repoHealthCounts.unsafe || 0}</span>
+            <span className="text-muted-foreground">Adapters corrupt: {repoHealthCounts.corrupt || 0}</span>
+          </CardFooter>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Alerts</CardTitle>
+            <CardDescription>Blocked datasets, unsafe adapters, failed jobs</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {alerts.blockedDatasets.length === 0 && alerts.unsafeRepos.length === 0 && alerts.failedJobs.length === 0 && (
+              <div className="text-muted-foreground">No alerts detected.</div>
+            )}
+            {alerts.blockedDatasets.map(ds => (
+              <div key={ds.id} className="flex items-center justify-between">
+                <span>Dataset {ds.name}</span>
+                <Badge variant="destructive">Blocked</Badge>
+              </div>
+            ))}
+            {alerts.unsafeRepos.map(repo => (
+              <div key={repo.id} className="flex items-center justify-between">
+                <span>Repo {repo.name}</span>
+                <Badge variant="destructive">Unsafe</Badge>
+              </div>
+            ))}
+            {alerts.failedJobs.map(job => (
+              <div key={job.id} className="flex items-center justify-between">
+                <span>Job {job.id}</span>
+                <Badge variant="secondary">Failed</Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">
         <Card className="h-full">
           <CardHeader>

@@ -11,6 +11,7 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::if_same_then_else)]
 
+pub mod backend_policy;
 pub mod policy_integrity;
 pub mod policy_pack;
 pub mod policy_packs;
@@ -54,6 +55,7 @@ pub use registry::{
 
 pub use abstention::should_abstain;
 pub use access_control::{AccessControlManager, AccessDecision, AccessPolicy, RoleDefinition};
+pub use backend_policy::enforce_backend_policy;
 pub use code_metrics::{
     AnswerRelevanceRate, CodeMetrics, CompileSuccessRate, MetricsSummary, TestPass1,
 };

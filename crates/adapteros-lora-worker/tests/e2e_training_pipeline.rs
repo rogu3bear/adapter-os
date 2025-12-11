@@ -133,6 +133,19 @@ async fn test_e2e_full_pipeline() {
         Some("cpu"),
         "metadata should also record training_backend"
     );
+    assert_eq!(
+        packaged.manifest.training_backend_details.as_deref(),
+        Some("cpu_train"),
+        "training_backend_details should be derived from backend"
+    );
+    assert!(
+        packaged.manifest.coreml.is_none(),
+        "coreml section should be absent for non-coreml backend"
+    );
+    assert!(
+        packaged.manifest.placement.is_none(),
+        "placement section should be absent when not provided"
+    );
 
     // Step 4: Verify output
     assert!(

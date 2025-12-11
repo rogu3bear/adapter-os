@@ -291,12 +291,16 @@ impl Db {
             if let Some(repo) = self.get_tenant_kv_repo() {
                 match repo.list_tenants_kv().await {
                     Ok(mut kv_tenants) => {
-                        kv_tenants.sort_by(|a, b| {
-                            b.created_at
-                                .cmp(&a.created_at)
-                                .then_with(|| a.id.cmp(&b.id))
-                        });
-                        return Ok(kv_tenants.into_iter().map(Tenant::from).collect());
+                        if kv_tenants.is_empty() && self.storage_mode().sql_fallback_enabled() {
+                            self.record_kv_read_fallback("tenants.list.empty");
+                        } else {
+                            kv_tenants.sort_by(|a, b| {
+                                b.created_at
+                                    .cmp(&a.created_at)
+                                    .then_with(|| a.id.cmp(&b.id))
+                            });
+                            return Ok(kv_tenants.into_iter().map(Tenant::from).collect());
+                        }
                     }
                     Err(e) if self.storage_mode().sql_fallback_enabled() => {
                         self.record_kv_read_fallback("tenants.list.error");
@@ -332,22 +336,26 @@ impl Db {
             if let Some(repo) = self.get_tenant_kv_repo() {
                 match repo.list_tenants_kv().await {
                     Ok(mut kv_tenants) => {
-                        kv_tenants.sort_by(|a, b| {
-                            b.created_at
-                                .cmp(&a.created_at)
-                                .then_with(|| a.id.cmp(&b.id))
-                        });
-
-                        let total = kv_tenants.len() as i64;
-                        let start = offset.max(0) as usize;
-                        let end = (start + limit.max(0) as usize).min(kv_tenants.len());
-                        let window = if start < end {
-                            kv_tenants[start..end].to_vec()
+                        if kv_tenants.is_empty() && self.storage_mode().sql_fallback_enabled() {
+                            self.record_kv_read_fallback("tenants.list_paginated.empty");
                         } else {
-                            Vec::new()
-                        };
+                            kv_tenants.sort_by(|a, b| {
+                                b.created_at
+                                    .cmp(&a.created_at)
+                                    .then_with(|| a.id.cmp(&b.id))
+                            });
 
-                        return Ok((window.into_iter().map(Tenant::from).collect(), total));
+                            let total = kv_tenants.len() as i64;
+                            let start = offset.max(0) as usize;
+                            let end = (start + limit.max(0) as usize).min(kv_tenants.len());
+                            let window = if start < end {
+                                kv_tenants[start..end].to_vec()
+                            } else {
+                                Vec::new()
+                            };
+
+                            return Ok((window.into_iter().map(Tenant::from).collect(), total));
+                        }
                     }
                     Err(e) if self.storage_mode().sql_fallback_enabled() => {
                         self.record_kv_read_fallback("tenants.list_paginated.error");

@@ -9,6 +9,7 @@ pub mod cli_telemetry;
 pub mod commands;
 pub mod error_codes;
 pub mod formatting;
+pub mod http_client;
 pub mod output;
 
 /// Backend type selection for inference (mirrors the binary crate definition).

@@ -1,10 +1,15 @@
 import { defineConfig } from 'cypress';
+import path from 'path';
+
+const projectRoot = path.resolve(__dirname);
+const supportFile = path.resolve(projectRoot, 'cypress/support/index.ts');
 
 export default defineConfig({
+  projectRoot,
   e2e: {
     baseUrl: process.env.CYPRESS_BASE_URL || 'http://localhost:3200',
     specPattern: 'cypress/e2e/**/*.cy.ts',
-    supportFile: 'cypress/support/index.ts',
+    supportFile,
     video: false,
     screenshotOnRunFailure: true,
     // Increased timeouts for slow API endpoints (model import, inference, etc.)

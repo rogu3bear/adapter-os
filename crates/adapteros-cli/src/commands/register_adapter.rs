@@ -1,7 +1,7 @@
 //! Register LoRA adapter command (canonical .aos path)
 
 use crate::output::OutputWriter;
-use adapteros_aos::{compute_scope_hash, open_aos, BackendTag};
+use adapteros_aos::{compute_scope_hash, open_aos, BackendTag, AOS_MAGIC};
 use adapteros_core::{AosError, B3Hash};
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::Db;
@@ -103,13 +103,60 @@ pub struct RegistrationResult {
 
 pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<RegistrationResult> {
     let canonical_path = fs::canonicalize(&req.aos_path).unwrap_or(req.aos_path.clone());
-    let data = fs::read(&canonical_path).map_err(|e| {
+    let mut data = fs::read(&canonical_path).map_err(|e| {
         AosError::Io(format!(
             "Failed to read .aos file {}: {}",
             canonical_path.display(),
             e
         ))
     })?;
+
+    const LEGACY_REJECTION_MSG: &str =
+        "Unsupported legacy AOS 1.x bundle; please repackage as AOS2";
+
+    // TODO(v0.15.0): remove AOS_ALLOW_LEGACY_AOS after legacy bundles are repackaged (temporary
+    // escape hatch). Tracked in docs/issues/AOS_ALLOW_LEGACY_AOS_REMOVAL.md.
+    let allow_legacy = std::env::var("AOS_ALLOW_LEGACY_AOS")
+        .ok()
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+
+    let mut legacy_seen_count: Option<u64> = None;
+    let mut legacy_accepted_recorded = false;
+
+    // Ensure schema compatibility for legacy/in-memory DBs.
+    ensure_adapter_schema(db).await?;
+
+    let legacy_magic_header = data.len() >= 4 && &data[0..4] == b"AOS\x00";
+    if legacy_magic_header {
+        let seen = LEGACY_BUNDLES_SEEN.fetch_add(1, Ordering::Relaxed) + 1;
+        legacy_seen_count = Some(seen);
+        if !allow_legacy {
+            warn!(
+                code = "LEGACY_AOS_REJECTED",
+                adapter_id = %req.adapter_id,
+                tenant_id = %req.tenant_id,
+                path = %canonical_path.display(),
+                legacy_seen = seen,
+                "Rejecting legacy AOS bundle (AOS_ALLOW_LEGACY_AOS not enabled)"
+            );
+            return Err(AosError::Validation(LEGACY_REJECTION_MSG.to_string()).into());
+        }
+
+        let accepted = LEGACY_BUNDLES_ACCEPTED.fetch_add(1, Ordering::Relaxed) + 1;
+        warn!(
+            code = "LEGACY_AOS_ACCEPTED",
+            adapter_id = %req.adapter_id,
+            tenant_id = %req.tenant_id,
+            path = %canonical_path.display(),
+            legacy_seen = seen,
+            legacy_accepted = accepted,
+            "DEPRECATED: legacy AOS bundle accepted; upgrade required"
+        );
+        legacy_accepted_recorded = true;
+        // Patch legacy magic to current magic so downstream parser succeeds.
+        data[0..4].copy_from_slice(&AOS_MAGIC);
+    }
 
     let file_view = open_aos(&data)?;
     let manifest: Value = serde_json::from_slice(file_view.manifest_bytes).map_err(|e| {
@@ -212,9 +259,6 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
         );
     }
 
-    const LEGACY_REJECTION_MSG: &str =
-        "Unsupported legacy AOS 1.x bundle; please repackage as AOS2";
-
     let validation = SingleFileAdapterValidator::validate(&canonical_path)
         .await
         .map_err(|e| {
@@ -224,25 +268,25 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
                 e
             ))
         })?;
-    // TODO(v0.15.0): remove AOS_ALLOW_LEGACY_AOS after legacy bundles are repackaged (temporary
-    // escape hatch). Tracked in docs/issues/AOS_ALLOW_LEGACY_AOS_REMOVAL.md.
-    let allow_legacy = std::env::var("AOS_ALLOW_LEGACY_AOS")
-        .ok()
-        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false);
 
-    let legacy_validation_error = validation
+    let legacy_magic_error_from_validation = validation
         .errors
         .iter()
-        .any(|msg| msg.to_ascii_lowercase().contains("legacy aos"));
-    let has_non_legacy_errors = validation
-        .errors
-        .iter()
-        .any(|msg| !msg.to_ascii_lowercase().contains("legacy aos"));
+        .any(|msg| msg.to_ascii_lowercase().contains("invalid aos magic"));
+    let mut legacy_magic_error = legacy_magic_error_from_validation || legacy_magic_header;
 
-    let mut legacy_seen_count = None;
+    let legacy_marker = |msg: &str| {
+        let lower = msg.to_ascii_lowercase();
+        lower.contains("legacy aos") || lower.contains("invalid aos magic")
+    };
+
+    let mut legacy_validation_error =
+        validation.errors.iter().any(|msg| legacy_marker(msg)) || legacy_magic_error;
+    let mut has_non_legacy_errors = validation.errors.iter().any(|msg| !legacy_marker(msg));
+
     if legacy_validation_error {
-        let seen = LEGACY_BUNDLES_SEEN.fetch_add(1, Ordering::Relaxed) + 1;
+        let seen = legacy_seen_count
+            .unwrap_or_else(|| LEGACY_BUNDLES_SEEN.fetch_add(1, Ordering::Relaxed) + 1);
         legacy_seen_count = Some(seen);
         warn!(
             code = "LEGACY_AOS_SEEN",
@@ -267,7 +311,7 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
         return Err(AosError::Validation(LEGACY_REJECTION_MSG.to_string()).into());
     }
 
-    if legacy_validation_error && allow_legacy {
+    if legacy_validation_error && allow_legacy && !legacy_accepted_recorded {
         let accepted = LEGACY_BUNDLES_ACCEPTED.fetch_add(1, Ordering::Relaxed) + 1;
         warn!(
             code = "LEGACY_AOS_ACCEPTED",
@@ -278,10 +322,28 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
             legacy_accepted = accepted,
             "DEPRECATED: legacy AOS bundle accepted; upgrade required"
         );
+        legacy_accepted_recorded = true;
     }
 
     let validation_has_only_legacy = legacy_validation_error && !has_non_legacy_errors;
-    let validation_passed = validation.is_valid || (validation_has_only_legacy && allow_legacy);
+
+    if legacy_magic_error && !allow_legacy {
+        warn!(
+            code = "LEGACY_AOS_REJECTED",
+            adapter_id = %req.adapter_id,
+            tenant_id = %req.tenant_id,
+            path = %canonical_path.display(),
+            legacy_seen = legacy_seen_count.unwrap_or_else(|| LEGACY_BUNDLES_SEEN.load(Ordering::Relaxed)),
+            "Rejecting legacy AOS bundle (AOS_ALLOW_LEGACY_AOS not enabled)"
+        );
+        return Err(AosError::Validation(LEGACY_REJECTION_MSG.to_string()).into());
+    }
+
+    let validation_passed = if legacy_magic_error && allow_legacy {
+        true
+    } else {
+        validation.is_valid || (validation_has_only_legacy && allow_legacy)
+    };
 
     if !validation_passed {
         let detail = if validation.errors.is_empty() {
@@ -289,7 +351,42 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
         } else {
             validation.errors.join("; ")
         };
-        return Err(AosError::Validation(format!("Adapter validation failed: {}", detail)).into());
+        let detail_lower = detail.to_ascii_lowercase();
+        legacy_magic_error = legacy_magic_error || detail_lower.contains("invalid aos magic");
+
+        if legacy_magic_error {
+            let seen = LEGACY_BUNDLES_SEEN.fetch_add(1, Ordering::Relaxed) + 1;
+            if !allow_legacy {
+                warn!(
+                    code = "LEGACY_AOS_REJECTED",
+                    adapter_id = %req.adapter_id,
+                    tenant_id = %req.tenant_id,
+                    path = %canonical_path.display(),
+                    legacy_seen = seen,
+                    "Rejecting legacy AOS bundle (AOS_ALLOW_LEGACY_AOS not enabled)"
+                );
+                return Err(AosError::Validation(LEGACY_REJECTION_MSG.to_string()).into());
+            }
+
+            if !legacy_accepted_recorded {
+                let accepted = LEGACY_BUNDLES_ACCEPTED.fetch_add(1, Ordering::Relaxed) + 1;
+                warn!(
+                    code = "LEGACY_AOS_ACCEPTED",
+                    adapter_id = %req.adapter_id,
+                    tenant_id = %req.tenant_id,
+                    path = %canonical_path.display(),
+                    legacy_seen = seen,
+                    legacy_accepted = accepted,
+                    "DEPRECATED: legacy AOS bundle accepted; upgrade required"
+                );
+                legacy_accepted_recorded = true;
+            }
+            // Allow continuation for legacy magic when explicitly permitted.
+        } else {
+            return Err(
+                AosError::Validation(format!("Adapter validation failed: {}", detail)).into(),
+            );
+        }
     }
 
     let weights_hash = blake3::hash(weights_data).to_hex().to_string();
@@ -316,7 +413,7 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
         .hash_b3(&weights_hash)
         .rank(req.rank as i32)
         .tier(&req.tier)
-        .scope(effective_scope.as_deref().unwrap_or("project"))
+        .scope(effective_scope.as_deref().unwrap_or("global"))
         .domain(Some(domain))
         .purpose(Some(group))
         .metadata_json(metadata_json.clone())
@@ -364,6 +461,26 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
         aos_path: canonical_path.to_string_lossy().to_string(),
         status: "registered".to_string(),
     })
+}
+
+async fn ensure_adapter_schema(db: &Db) -> Result<()> {
+    let has_lora_strength: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('adapters') WHERE name = 'lora_strength'",
+    )
+    .fetch_one(&*db.pool())
+    .await
+    .unwrap_or(1);
+
+    if has_lora_strength == 0 {
+        sqlx::query("ALTER TABLE adapters ADD COLUMN lora_strength REAL")
+            .execute(&*db.pool())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to add lora_strength column: {}", e))
+            })?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

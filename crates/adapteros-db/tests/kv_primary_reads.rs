@@ -201,6 +201,30 @@ async fn test_kv_primary_reads_from_kv_first() {
     assert_eq!(adapter.rank, 16);
 }
 
+#[tokio::test]
+async fn test_list_all_adapters_system_prefers_kv() {
+    let (db, _temp_dir) = create_kv_primary_db().await;
+
+    let kv = db.kv_backend().unwrap().clone();
+    insert_adapter_to_kv(
+        kv.as_ref(),
+        "default-tenant",
+        "kv-list-all-1",
+        "KV List Adapter",
+        "b3:kv_list_hash",
+        8,
+    )
+    .await;
+
+    let adapters = db.list_all_adapters_system().await.unwrap();
+    assert!(
+        adapters
+            .iter()
+            .any(|a| a.adapter_id.as_deref() == Some("kv-list-all-1")),
+        "KV adapter should be returned when SQL lacks the record"
+    );
+}
+
 // ============================================================================
 // Test X: Dual-write stores adapter_id primary key in KV
 // ============================================================================

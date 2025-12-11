@@ -10,8 +10,9 @@
 //! - Metrics for telemetry system health
 //! - Graceful degradation when subsystems fail
 
-use adapteros_core::circuit_breaker::{
-    CircuitBreaker, CircuitBreakerConfig, StandardCircuitBreaker,
+use adapteros_core::{
+    circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, StandardCircuitBreaker},
+    AosError,
 };
 use adapteros_telemetry::unified_events::TelemetryEvent;
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, RwLock};
 use tracing::{info, warn};
+
+type CoreResult<T> = std::result::Result<T, AosError>;
 
 /// Telemetry system health status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -845,11 +848,12 @@ impl TelemetryBuffer {
     pub fn query(
         &self,
         filters: &adapteros_telemetry::unified_events::TelemetryFilters,
-    ) -> Vec<TelemetryEvent> {
+    ) -> CoreResult<Vec<TelemetryEvent>> {
+        filters.validate()?;
         // Use blocking read since this is a synchronous method
         let events = match self.events.try_read() {
             Ok(events) => events,
-            Err(_) => return Vec::new(), // Return empty if lock is held
+            Err(_) => return Ok(Vec::new()), // Return empty if lock is held
         };
 
         let mut filtered: Vec<TelemetryEvent> = events
@@ -924,7 +928,7 @@ impl TelemetryBuffer {
             filtered.truncate(limit);
         }
 
-        filtered
+        Ok(filtered)
     }
 
     /// Get backpressure metrics
@@ -1232,12 +1236,48 @@ impl From<adapteros_telemetry::metrics::MetricsSnapshot> for crate::types::Metri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_core::identity::IdentityEnvelope;
+    use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
 
     #[tokio::test]
     async fn test_telemetry_buffer() {
         let buffer = TelemetryBuffer::new(10);
         assert!(buffer.is_empty().await);
         assert_eq!(buffer.len().await, 0);
+    }
+
+    #[tokio::test]
+    async fn telemetry_buffer_requires_tenant_filter() {
+        let buffer = TelemetryBuffer::new(4);
+        let identity = IdentityEnvelope::new(
+            "tenant-test".to_string(),
+            "domain".to_string(),
+            "purpose".to_string(),
+            "rev".to_string(),
+        );
+        let event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "started".to_string(),
+            identity,
+        )
+        .build()
+        .unwrap();
+
+        buffer.push(event).await.unwrap();
+
+        let err = buffer
+            .query(&adapteros_telemetry::unified_events::TelemetryFilters::default())
+            .unwrap_err();
+        assert!(
+            format!("{}", err).contains("tenant_id"),
+            "error should mention missing tenant_id"
+        );
+
+        let filters =
+            adapteros_telemetry::unified_events::TelemetryFilters::with_tenant("tenant-test");
+        let events = buffer.query(&filters).unwrap();
+        assert_eq!(events.len(), 1);
     }
 
     #[tokio::test]

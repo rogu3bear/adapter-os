@@ -38,10 +38,11 @@ fn bench_router_decision(c: &mut Criterion) {
     let features = vec![0.1f32; 64];
     let priors = vec![1.0f32; 8];
     let adapter_info = vec![]; // Empty adapter info for basic routing
+    let policy_mask = PolicyMask::allow_all(&Vec::<String>::new(), None);
 
     group.bench_function("route_8x64", |b| {
         b.iter(|| {
-            let _ = router.route_with_adapter_info(&features, &priors, &adapter_info);
+            let _ = router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask);
         });
     });
     group.finish();

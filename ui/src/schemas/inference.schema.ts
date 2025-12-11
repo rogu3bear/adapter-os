@@ -76,6 +76,13 @@ export const InferRequestSchema = z.object({
     .default('auto')
     .describe('Backend to use for inference (auto|mlx|coreml|metal)'),
 
+  // Model selection
+  model: z.string()
+    .min(1, 'Model identifier cannot be empty')
+    .max(100, 'Model identifier too long')
+    .optional()
+    .describe('Base model identifier'),
+
   // Require evidence (for audit trail)
   require_evidence: z.boolean()
     .optional()

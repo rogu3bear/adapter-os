@@ -202,6 +202,7 @@ function inferComponentFile(route: RouteConfig): string {
   const pathToFile: Record<string, string> = {
     '/owner': 'pages/OwnerHome/index.tsx',
     '/dashboard': 'pages/DashboardPage.tsx',
+    '/repos': 'pages/Repositories/RepositoriesShell.tsx',
     '/adapters': 'pages/AdaptersPage.tsx',
     '/training': 'pages/Training/TrainingPage.tsx',
     '/training/jobs': 'pages/Training/TrainingJobsPage.tsx',
@@ -250,6 +251,9 @@ function inferComponentFile(route: RouteConfig): string {
   if (pathToFile[path]) return pathToFile[path];
 
   // Dynamic routes - infer from path structure
+  if (path.includes('/repos/')) {
+    return 'pages/Repositories/RepositoriesShell.tsx';
+  }
   if (path.includes(':adapterId')) {
     if (path.endsWith('/activations')) return 'pages/Adapters/AdapterActivations.tsx';
     if (path.endsWith('/lineage')) return 'pages/Adapters/AdapterLineage.tsx';
@@ -395,6 +399,7 @@ export const HUB_DEFINITIONS: Record<string, {
  */
 export const PRIMARY_SPINE = [
   '/workflow',
+  '/repos',
   '/adapters',
   '/training',
   '/router-config',

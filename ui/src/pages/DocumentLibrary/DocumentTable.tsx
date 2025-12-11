@@ -113,7 +113,7 @@ export function DocumentTable({ documents, loading, onDelete, onRefresh, isDelet
   }
 
   return (
-    <Card>
+    <Card data-cy="documents-card">
       <CardHeader className="flex flex-row items-center justify-end">
         <Button variant="outline" size="sm" onClick={onRefresh}>
           <RefreshCw className="h-4 w-4 mr-2" />
@@ -121,7 +121,7 @@ export function DocumentTable({ documents, loading, onDelete, onRefresh, isDelet
         </Button>
       </CardHeader>
       <CardContent>
-        <Table>
+        <Table data-cy="documents-table">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -134,7 +134,12 @@ export function DocumentTable({ documents, loading, onDelete, onRefresh, isDelet
           </TableHeader>
           <TableBody>
             {documents.map((doc) => (
-              <TableRow key={doc.document_id}>
+              <TableRow
+                key={doc.document_id}
+                data-cy="document-row"
+                data-doc-id={doc.document_id}
+                data-doc-name={doc.name}
+              >
                 <TableCell className="font-medium">
                   <div className="flex items-center space-x-2">
                     <FileText className="h-4 w-4 text-muted-foreground" />

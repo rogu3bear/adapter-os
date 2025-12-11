@@ -56,6 +56,19 @@ export interface ChatSessionTrace {
 }
 
 /**
+ * Evidence item associated with a chat message
+ */
+export interface ChatEvidenceItem {
+  document_id: string;
+  document_name: string;
+  chunk_id: string;
+  page_number: number | null;
+  text_preview: string;
+  relevance_score: number;
+  rank: number;
+}
+
+/**
  * Request to create a new chat session
  * POST /v1/chat/sessions
  */

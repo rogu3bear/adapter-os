@@ -78,13 +78,18 @@ export function DocumentUploader() {
       <CardContent className="pt-6">
         <div
           {...getRootProps()}
+          data-cy="document-dropzone"
           className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
             isDragActive
               ? 'border-primary bg-primary/5'
               : 'border-gray-300 hover:border-primary/50'
           } ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
-          <input {...getInputProps()} />
+          <input
+            {...getInputProps()}
+            name="file"
+            data-cy="document-file-input"
+          />
           <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
           {isDragActive ? (
             <p className="text-lg font-medium">Drop files here...</p>
@@ -149,7 +154,7 @@ export function DocumentUploader() {
                   >
                     Clear All
                   </Button>
-                  <Button onClick={uploadFiles}>
+                  <Button data-cy="document-upload-button" onClick={uploadFiles}>
                     Upload {pendingFiles.length} File
                     {pendingFiles.length !== 1 ? 's' : ''}
                   </Button>

@@ -1,5 +1,6 @@
 //! Deterministic seed derivation using HKDF
 
+use crate::backend::BackendKind;
 use crate::hash::B3Hash;
 use crate::{AosError, Result};
 use hkdf::Hkdf;
@@ -76,71 +77,22 @@ impl FromStr for SeedMode {
     }
 }
 
-/// Backend profile identifier for explicit backend selection
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum BackendProfile {
-    AutoDev,
-    CoreML,
-    Metal,
-    Mlx,
-}
-
-impl BackendProfile {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            BackendProfile::AutoDev => "autodev",
-            BackendProfile::CoreML => "coreml",
-            BackendProfile::Metal => "metal",
-            BackendProfile::Mlx => "mlx",
-        }
-    }
-}
-
-impl Default for BackendProfile {
-    fn default() -> Self {
-        BackendProfile::AutoDev
-    }
-}
-
-impl fmt::Display for BackendProfile {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl FromStr for BackendProfile {
-    type Err = AosError;
-
-    fn from_str(s: &str) -> Result<Self> {
-        let normalized = s.to_ascii_lowercase();
-        match normalized.as_str() {
-            "autodev" | "auto" => Ok(BackendProfile::AutoDev),
-            "coreml" => Ok(BackendProfile::CoreML),
-            "metal" => Ok(BackendProfile::Metal),
-            "mlx" => Ok(BackendProfile::Mlx),
-            _ => Err(AosError::Config(format!(
-                "Invalid backend profile: {} (expected autodev, coreml, metal, mlx)",
-                s
-            ))),
-        }
-    }
-}
-
 /// Shared execution profile for request-scoped execution
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ExecutionProfile {
     pub seed_mode: SeedMode,
-    pub backend_profile: BackendProfile,
+    /// Backend preference for this request. Defaults to the CoreML-first
+    /// inference priority (`BackendKind::inference_priority()`), falling back
+    /// through MLX → Metal → CPU as capabilities allow.
+    pub backend_profile: BackendKind,
 }
 
 impl Default for ExecutionProfile {
     fn default() -> Self {
         Self {
             seed_mode: SeedMode::BestEffort,
-            backend_profile: BackendProfile::AutoDev,
+            backend_profile: BackendKind::default_inference_backend(),
         }
     }
 }

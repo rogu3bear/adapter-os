@@ -35,6 +35,12 @@ pub mod adapters;
 /// Training job and configuration types
 pub mod training;
 
+/// CoreML placement specification types
+pub mod coreml;
+
+/// Repository assurance tiers
+pub mod repository;
+
 /// Router decision and candidate types
 pub mod routing;
 
@@ -85,5 +91,10 @@ pub use adapters::{
 /// Re-export all core primitives (identity, temporal, pagination) for ergonomic access.
 /// These domain-agnostic types form the foundation for all domain-specific types.
 pub use core::*;
+pub use coreml::{
+    CoreMLGating, CoreMLMode, CoreMLOpKind, CoreMLPlacementBinding, CoreMLPlacementShape,
+    CoreMLPlacementSpec, CoreMLProjection, CoreMLTargetRef,
+};
+pub use repository::RepoTier;
 pub use routing::{RouterCandidate, RouterDecision};
 pub use telemetry::{EventType, LogLevel, TelemetryBundle, TelemetryEvent, TelemetryFilters};

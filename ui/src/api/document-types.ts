@@ -31,6 +31,15 @@ export interface Document {
   updated_at: string | null;
 }
 
+/** Response from processing a document */
+export interface ProcessDocumentResponse {
+  schema_version: string;
+  document_id: string;
+  status: string;
+  chunk_count: number;
+  indexed_at: string;
+}
+
 /** Document chunk with embedding data */
 export interface DocumentChunk {
   schema_version: string;

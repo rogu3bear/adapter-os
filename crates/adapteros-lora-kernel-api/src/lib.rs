@@ -331,6 +331,28 @@ pub trait FusedKernels: Send + Sync {
         ))
     }
 
+    /// Attach a preloaded adapter for hot-swap backends.
+    ///
+    /// Default: no-op for backends that treat `load_adapter` as attach.
+    fn attach_adapter(&mut self, _id: u16) -> Result<()> {
+        Ok(())
+    }
+
+    /// Detach an adapter without requiring backend restart.
+    ///
+    /// Default: forwards to `unload_adapter` so existing implementations
+    /// continue freeing backend resources.
+    fn detach_adapter(&mut self, id: u16) -> Result<()> {
+        self.unload_adapter(id)
+    }
+
+    /// Switch active adapter in-place (optional optimization).
+    ///
+    /// Default: no-op; backends can override to track an active slot.
+    fn switch_adapter(&mut self, _id: u16) -> Result<()> {
+        Ok(())
+    }
+
     /// Unload adapter at runtime (hot-swap)
     ///
     /// Default implementation returns error for backends that don't support hot-swap
@@ -474,6 +496,7 @@ pub struct GpuBufferFingerprint {
 }
 
 /// Mock kernels implementation for testing
+#[derive(Debug)]
 pub struct MockKernels {
     device_name: String,
 }
@@ -531,6 +554,7 @@ impl Default for MockKernels {
 ///
 /// This kernel always fails on `run_step()` to test that strict mode
 /// properly prevents backend fallback when the primary backend fails.
+#[derive(Debug)]
 pub struct FailingKernel {
     device_name: String,
     fail_message: String,
