@@ -1,7 +1,7 @@
 # AdapterOS Security Architecture
 
-**Document Version:** 1.0
-**Last Updated:** 2025-11-19
+**Document Version:** 2.0
+**Last Updated:** 2025-12-11
 **Status:** Production Ready
 **Maintained by:** AdapterOS Security Team
 
@@ -13,33 +13,38 @@
 2. [Authentication](#authentication)
 3. [Authorization (RBAC)](#authorization-rbac)
 4. [Token Management](#token-management)
-5. [IP Access Control](#ip-access-control)
-6. [Rate Limiting](#rate-limiting)
-7. [Tenant Isolation](#tenant-isolation)
-8. [Audit Logging](#audit-logging)
-9. [Session Management](#session-management)
-10. [Security Best Practices](#security-best-practices)
-11. [API Reference](#api-reference)
+5. [Cryptographic Architecture](#cryptographic-architecture)
+6. [Secure Enclave Integration](#secure-enclave-integration)
+7. [Keychain Integration](#keychain-integration)
+8. [IP Access Control](#ip-access-control)
+9. [Rate Limiting](#rate-limiting)
+10. [Tenant Isolation](#tenant-isolation)
+11. [Audit Logging](#audit-logging)
+12. [Session Management](#session-management)
+13. [Security Testing](#security-testing)
+14. [Security Best Practices](#security-best-practices)
+15. [Troubleshooting](#troubleshooting)
+16. [API Reference](#api-reference)
 
 ---
 
 ## Overview
 
-AdapterOS implements defense-in-depth security with multiple layers:
+AdapterOS implements defense-in-depth security with multiple layers providing comprehensive protection across authentication, cryptography, hardware security, and operational controls.
 
-```
-┌─────────────────────────────────────────────────┐
-│           Request Flow Security Layers          │
-├─────────────────────────────────────────────────┤
-│ 1. IP Access Control (Allowlist/Denylist)      │
-│ 2. Rate Limiting (Per-Tenant DDoS Protection)  │
-│ 3. JWT Validation (Ed25519 Signatures)         │
-│ 4. Token Revocation Check (Blacklist)          │
-│ 5. Session Activity Tracking                   │
-│ 6. RBAC Permission Check (Deny-by-Default)     │
-│ 7. Tenant Isolation Validation                 │
-│ 8. Audit Logging (Immutable Trail)             │
-└─────────────────────────────────────────────────┘
+### Security Layers
+
+```mermaid
+graph TD
+    subgraph "Request Flow Security Layers"
+        A[1. IP Access Control] --> B[2. Rate Limiting]
+        B --> C[3. JWT Validation]
+        C --> D[4. Token Revocation Check]
+        D --> E[5. Session Activity Tracking]
+        E --> F[6. RBAC Permission Check]
+        F --> G[7. Tenant Isolation Validation]
+        G --> H[8. Audit Logging]
+    end
 ```
 
 ### Key Security Principles
@@ -50,6 +55,8 @@ AdapterOS implements defense-in-depth security with multiple layers:
 - **Audit Everything:** Comprehensive logging of all security events
 - **Tenant Isolation:** Strict boundaries between tenants
 - **Time-Limited Tokens:** 8-hour JWT expiry with refresh mechanism
+- **Hardware Security:** Secure Enclave integration when available
+- **Cryptographic Protection:** Hardware-backed signing and encryption
 
 ---
 
@@ -124,11 +131,28 @@ curl -X POST https://api.adapteros.local/v1/auth/bootstrap \
 
 **Security:** Bootstrap is **disabled** after the first user is created.
 
+### Development Authentication
+
+For debug builds only:
+
+```bash
+# Option 1: NO_AUTH mode
+NO_AUTH=1 cargo run --bin adapteros-server
+
+# Option 2: Dev bypass
+AOS_DEV_NO_AUTH=1 cargo run --bin adapteros-server
+
+# Option 3: Custom JWT secret
+AOS_DEV_JWT_SECRET="my-test-secret" cargo run --bin adapteros-server
+```
+
+**Warning:** Never use development authentication in production.
+
 ---
 
 ## Authorization (RBAC)
 
-> **Full Reference:** See [RBAC.md](RBAC.md) for comprehensive role-based access control documentation including all 40 permissions and usage examples.
+> **Full Reference:** See [ACCESS_CONTROL.md](ACCESS_CONTROL.md) for comprehensive access control documentation including RBAC, tenant isolation, all 56 permissions, and usage examples.
 
 ### Role Hierarchy
 
@@ -149,8 +173,6 @@ graph TD
     SRE --> Viewer
     Compliance --> Viewer
 ```
-
-**Text representation:** `Admin > Operator > SRE > Compliance > Viewer`
 
 ### Permission Matrix
 
@@ -180,33 +202,6 @@ graph TD
 | AuditView           | ✅    | ❌       | ✅  | ✅         | ❌     |
 | **Nodes**           |       |          |     |            |        |
 | NodeManage          | ✅    | ❌       | ❌  | ❌         | ❌     |
-
-### Role Descriptions
-
-#### 1. Admin
-- **Full Control:** All permissions
-- **Use Cases:** System configuration, user management, policy enforcement
-- **Security:** Bypasses tenant isolation (can access all tenants)
-
-#### 2. Operator
-- **Runtime Operations:** Manage adapters, training, inference
-- **Use Cases:** Day-to-day operations, model deployment
-- **Restrictions:** Cannot delete adapters, manage tenants, or sign policies
-
-#### 3. SRE
-- **Infrastructure & Debugging:** Troubleshoot, monitor, test inference
-- **Use Cases:** Performance debugging, incident response
-- **Restrictions:** Cannot register/delete adapters or start training
-
-#### 4. Compliance
-- **Audit & Policy Oversight:** View audit logs, validate policies
-- **Use Cases:** Compliance reviews, policy audits
-- **Restrictions:** Read-only except for policy validation
-
-#### 5. Viewer
-- **Strict Read-Only:** View all resources
-- **Use Cases:** Stakeholder visibility, reporting
-- **Restrictions:** No write operations whatsoever
 
 ### Usage in Handlers
 
@@ -265,6 +260,425 @@ SELECT COUNT(*) FROM revoked_tokens WHERE jti = ?
 ```
 
 **Performance:** Indexed lookup (~0.1ms), negligible overhead
+
+---
+
+## Cryptographic Architecture
+
+### Core Cryptographic Operations
+
+AdapterOS provides a comprehensive cryptographic foundation with hardware-backed security, cross-platform key management, and deterministic execution guarantees.
+
+```mermaid
+graph TD
+    subgraph "Cryptographic Stack"
+        A[Application Layer] --> B[Key Provider]
+        B --> C{Platform}
+        C -->|macOS| D[Security Framework]
+        C -->|Linux| E[Secret Service / Kernel Keyring]
+        C -->|Fallback| F[Encrypted JSON]
+        D --> G[Secure Enclave]
+        E --> H[Keychain Daemon]
+        F --> I[AES-256-GCM]
+    end
+```
+
+### Digital Signatures (Ed25519)
+
+**Purpose:** Identity verification, bundle signing, and cryptographic receipts
+
+```rust
+use adapteros_crypto::{KeyAlgorithm, KeyProvider};
+
+let provider = KeyProvider::new(KeyProviderConfig::default()).await?;
+let key_handle = provider.generate("my-key", KeyAlgorithm::Ed25519).await?;
+let signature = provider.sign("my-key", b"Hello, world!").await?;
+```
+
+**Properties:**
+- Ed25519 elliptic curve signatures
+- Deterministic signatures (same message = same signature)
+- 32-byte public keys, 64-byte signatures
+- Hardware acceleration when available
+
+### Symmetric Encryption (AES-256-GCM)
+
+**Purpose:** Data confidentiality, envelope encryption, secure communication
+
+```rust
+use adapteros_crypto::envelope::Envelope;
+
+let envelope = Envelope::encrypt(b"secret data", "recipient-key-id").await?;
+let plaintext = envelope.decrypt("recipient-key-id").await?;
+```
+
+**Properties:**
+- AES-256-GCM authenticated encryption
+- 96-bit nonces (automatically generated)
+- 128-bit authentication tags
+- No padding required
+
+### Hashing (BLAKE3)
+
+**Purpose:** Content addressing, integrity verification, deterministic identifiers
+
+```rust
+use adapteros_core::B3Hash;
+
+let hash = B3Hash::hash(b"data");
+let hex_string = hash.to_hex();
+```
+
+**Properties:**
+- 256-bit output
+- Cryptographically secure
+- High performance (SIMD optimized)
+- Used for all content addressing in AdapterOS
+
+### Cryptographic Security Features (S6-S9)
+
+#### S6: Secure Enclave (SEP) Attestation
+
+Hardware-backed key generation and attestation using Apple's Secure Enclave Processor on M-series Macs.
+
+**Features:**
+- Chip detection (M1/M2/M3/M4)
+- SEP availability check
+- Hardware-backed keys (P-256 ECDSA)
+- Attestation chain (X.509 certificates)
+- Graceful fallback to software keys
+
+**API Usage:**
+```rust
+use adapteros_crypto::{
+    check_sep_availability, generate_sep_key_with_attestation,
+    detect_chip_generation, SepChipGeneration,
+};
+
+// Check availability
+let availability = check_sep_availability();
+if availability.available {
+    println!("SEP available on {}", availability.chip_generation);
+}
+
+// Generate key with attestation
+let nonce = b"random-nonce-123456789012345678901234";
+let attestation = generate_sep_key_with_attestation("my-key", nonce).await?;
+```
+
+#### S7: Key Rotation Daemon
+
+Automatic key rotation system with configurable intervals and comprehensive audit logging.
+
+**Features:**
+- Automatic rotation based on interval (default: 90 days)
+- Manual rotation via API
+- Rotation history with signed receipts
+- Grace periods for historical decryption
+- Policy enforcement (max historical keys)
+
+**API Usage:**
+```rust
+use adapteros_crypto::{RotationDaemon, RotationPolicy};
+
+let policy = RotationPolicy {
+    rotation_interval_secs: 90 * 24 * 3600, // 90 days
+    grace_period_secs: 7 * 24 * 3600,        // 7 days
+    max_historical_keys: 10,
+    auto_rotate: true,
+};
+
+let daemon = Arc::new(RotationDaemon::new(provider, policy));
+let handle = daemon.clone().start();
+
+// Manual rotation
+let receipt = daemon.force_rotate("my-key").await?;
+```
+
+#### S8: Audit Logging for Crypto Operations
+
+Comprehensive, immutable audit trail for all cryptographic operations with Ed25519 signatures.
+
+**Features:**
+- Logs all encrypt/decrypt, key generation, rotation, deletion
+- Digital signatures and verification tracking
+- Structured audit entries with timestamps
+- Tamper detection via Ed25519 signatures
+- Queryable audit trail by operation, key ID, user, result, time range
+
+**API Usage:**
+```rust
+use adapteros_crypto::{CryptoAuditLogger, CryptoOperation};
+
+let logger = Arc::new(CryptoAuditLogger::new());
+
+// Log successful operation
+logger.log_success(
+    CryptoOperation::Encrypt,
+    Some("key-123".to_string()),
+    Some("user-456".to_string()),
+    serde_json::json!({"data_size": 2048}),
+).await?;
+
+// Query by operation
+let encryptions = logger.query_by_operation(CryptoOperation::Encrypt).await;
+```
+
+#### S9: Policy-Based Crypto Enforcement
+
+Enforces cryptographic policies for all operations, integrated with AdapterOS's policy packs.
+
+**Features:**
+- Algorithm policies (approved/banned lists)
+- Key size policies (minimum sizes per algorithm)
+- Key age policies (maximum age before rotation)
+- Operation policies (permitted operations per algorithm)
+- Hardware backing policies (require SEP/HSM)
+- FIPS 140-2 compliance mode
+
+**API Usage:**
+```rust
+use adapteros_crypto::{CryptoPolicyEnforcer, CryptoPolicy};
+
+let enforcer = CryptoPolicyEnforcer::with_default_policy(audit_logger);
+
+// Validate algorithm
+enforcer.validate_algorithm(&KeyAlgorithm::Ed25519).await?;
+
+// Validate key size
+enforcer.validate_key_size(&KeyAlgorithm::Aes256Gcm, 256).await?;
+
+// Comprehensive validation
+enforcer.validate_crypto_operation(
+    &KeyAlgorithm::Aes256Gcm,
+    &CryptoOperation::Encrypt,
+    Some(256),              // key size
+    Some(30 * 24 * 3600),   // key age
+    false,                  // hardware backed
+).await?;
+```
+
+### Security Properties
+
+#### Threat Model
+
+**Assumptions:**
+- OS keychain backends are trustworthy
+- Hardware (Secure Enclave) is not compromised
+- User credentials are not compromised
+
+**Protections:**
+- Memory zeroization after use
+- No plaintext key material in logs
+- Hardware-backed operations when available
+- Fine-grained access controls
+
+#### Deterministic Execution
+
+All cryptographic operations support deterministic execution for reproducibility:
+
+```rust
+use adapteros_deterministic_exec::GlobalSeed;
+
+// Set global seed for deterministic randomness
+let seed = GlobalSeed::get_or_init(seed_hash);
+
+// All subsequent crypto operations are deterministic
+let key = provider.generate("deterministic-key", KeyAlgorithm::Ed25519).await?;
+```
+
+---
+
+## Secure Enclave Integration
+
+### Overview
+
+Hardware-backed key generation and attestation using Apple's Secure Enclave Processor on M-series Macs.
+
+### Security Architecture
+
+```mermaid
+graph TD
+    subgraph "Secure Enclave Security Model"
+        A[Application AdapterOS] -->|1. Key Generation Request| B[Secure Enclave Hardware]
+        B -->|2. Key Handle Returned| A
+        A -->|3. Signing Request| B
+        B -->|4. Signature Returned| A
+        A -->|5. Attestation Request| B
+        B -->|6. Attestation Data| A
+    end
+```
+
+### Security Properties
+
+1. **Key Protection:** Keys never leave Secure Enclave
+2. **No Key Export:** Hardware-enforced key export prevention
+3. **Hardware Attestation:** Cryptographic proof of key origin
+4. **Process Isolation:** Secure Enclave operates in isolated execution environment
+5. **Memory Protection:** Secure Enclave memory is encrypted and protected
+
+### Threat Model Analysis
+
+| Component | Threats | Mitigations |
+|-----------|---------|-------------|
+| **Key Generation** | Key interception, weak entropy | Hardware-based RNG, Secure Enclave isolation |
+| **Key Storage** | Key extraction, memory scraping | Keys never leave Secure Enclave, hardware protection |
+| **Signing Operations** | Signature forgery, replay attacks | Hardware-backed signing, request authentication |
+| **Attestation** | Attestation spoofing, man-in-the-middle | Hardware-rooted certificates, cryptographic verification |
+| **Keychain Access** | Unauthorized keychain access | Keychain ACLs, process restrictions |
+
+### Implementation
+
+```rust
+use security_framework::{
+    key::SecKey,
+    keychain::Keychain,
+};
+
+pub struct SecureEnclaveConnection {
+    keychain: Keychain,
+    key_alias: String,
+}
+
+impl SecureEnclaveConnection {
+    pub fn generate_keypair(&self, alias: &str) -> Result<PublicKey> {
+        // Generate Ed25519 keypair in Secure Enclave
+        let key_attributes = [
+            (kSecAttrKeyType, kSecAttrKeyTypeEd25519),
+            (kSecAttrKeySizeInBits, 256),
+            (kSecAttrTokenID, kSecAttrTokenIDSecureEnclave),
+            (kSecAttrIsPermanent, true),
+            (kSecAttrLabel, alias),
+        ];
+
+        let key = SecKey::generate(&key_attributes)?;
+        let pubkey = key.public_key()?;
+
+        // Store key reference in keychain
+        self.keychain.add_item(&key)?;
+
+        Ok(PublicKey::from_bytes(pubkey.bytes()))
+    }
+
+    pub fn sign(&self, alias: &str, data: &[u8]) -> Result<Signature> {
+        let key = self.keychain.find_item(alias)?;
+        let signature = key.sign(data, kSecPaddingPKCS1)?;
+        Ok(Signature::from_bytes(signature))
+    }
+}
+```
+
+### Configuration
+
+```toml
+[secd]
+# Secure Enclave settings
+enable_secure_enclave = true
+key_alias = "aos-host-signing"
+keychain_name = "AdapterOS-SecureEnclave"
+
+# Enhanced security settings
+require_hardware_attestation = true
+attestation_timeout_secs = 30
+attestation_verification_level = "strict"
+
+# Key lifecycle
+key_rotation_interval_days = 365
+backup_enabled = false  # Keys never leave Secure Enclave
+```
+
+---
+
+## Keychain Integration
+
+### Overview
+
+AdapterOS provides secure cryptographic key storage across multiple platforms using native OS keychain facilities.
+
+### Supported Backends
+
+#### macOS (Security Framework)
+
+**Primary Backend:** macOS Security Framework via secure CLI commands
+
+- **Storage:** Keychain database protected by user login credentials
+- **Hardware Integration:** Secure Enclave support on Apple Silicon
+- **Security:** Command injection prevention with input validation
+
+#### Linux (Multiple Backends)
+
+**Primary Backend:** freedesktop Secret Service (D-Bus)
+- **Daemons:** GNOME Keyring, KDE KWallet
+- **Storage:** Encrypted keyring files in `~/.local/share/keyrings/`
+- **Fallback:** Linux kernel keyring (keyutils)
+
+**Secondary Backend:** Linux kernel keyring
+- **Storage:** In-kernel memory (not persisted to disk)
+- **Headless Support:** Works without D-Bus or desktop session
+
+#### Password-Based Fallback
+
+**Fallback Backend:** Encrypted JSON keystore
+- **Storage:** AES-256-GCM encrypted file
+- **KDF:** Argon2id with high iteration count
+- **Opt-in:** Requires `ADAPTEROS_KEYCHAIN_FALLBACK=pass:<password>` environment variable
+
+### Schema Definitions
+
+#### macOS Keychain Attributes
+
+| Attribute | Value | Description |
+|-----------|-------|-------------|
+| `kSecClass` | `kSecClassGenericPassword` | Item class for generic secrets |
+| `kSecAttrService` | `"adapteros"` | Service namespace |
+| `kSecAttrAccount` | `"<key_id>-<type>"` | Unique identifier |
+| `kSecAttrLabel` | `"AdapterOS <Type> Key: <key_id>"` | Human-readable label |
+| `kSecAttrAccessible` | `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` | Access policy |
+
+#### Linux Secret Service Schema
+
+| Attribute | Value | Description |
+|-----------|-------|-------------|
+| `service` | `"adapteros"` | Service namespace |
+| `key-type` | `"ed25519" | "symmetric"` | Algorithm type |
+| `key-id` | `"<key_id>"` | Unique identifier |
+| `label` | `"AdapterOS <Type> Key: <key_id>"` | Human-readable label |
+
+### Key Lifecycle
+
+#### Key Generation
+1. Generate via platform-specific API or software crypto
+2. Store in appropriate backend with proper attributes
+3. Cache `KeyHandle` in memory for performance
+
+#### Key Retrieval
+1. Lookup by service/account or attributes
+2. Backend handles decryption automatically
+3. Validate key format and length
+4. Return cached handle if available
+
+#### Key Rotation
+1. Create new key with same ID
+2. Store new key (overwrites existing)
+3. Delete old key from backend
+4. Generate cryptographically signed rotation receipt
+
+#### Key Deletion
+1. Find key by ID
+2. Delete from backend storage
+3. Remove from memory cache
+4. Log deletion operation
+
+### Security Considerations
+
+#### Backend Security Properties
+
+| Backend | At-Rest Encryption | Hardware Security | Headless Support |
+|---------|-------------------|-------------------|------------------|
+| macOS Keychain | ✅ User credentials | ✅ Secure Enclave | ❌ |
+| Linux Secret Service | ✅ User credentials | ❌ | ❌ |
+| Linux Kernel Keyring | ✅ Kernel protection | ❌ | ✅ |
+| Password Fallback | ✅ AES-256-GCM | ❌ | ✅ |
 
 ---
 
@@ -429,6 +843,7 @@ CREATE TABLE audit_logs (
 - **Training:** Start, cancel, completion
 - **Policies:** Apply, sign, validate
 - **Tenants:** Create, update, pause
+- **Cryptography:** All crypto operations (S8)
 
 ### Query Examples
 
@@ -497,6 +912,88 @@ curl -X DELETE https://api.adapteros.local/v1/auth/sessions/abc123 \
 
 ---
 
+## Security Testing
+
+### Security Regression Test Suite
+
+AdapterOS includes a comprehensive security regression test suite that automatically detects security vulnerabilities.
+
+#### Test Categories
+
+**1. Static Analysis (Compile-Time Detection)**
+
+- **test_no_unsafe_in_public_api** - Scans for unsafe blocks in public functions
+- **test_no_panics_in_crypto** - Validates no unwrap/expect/panic in crypto code
+- **test_constant_time_operations** - Checks for timing-sensitive operations
+- **test_input_validation** - Ensures public APIs validate untrusted input
+- **test_error_information_leakage** - Validates no sensitive data in error messages
+- **test_hkdf_seeding** - Ensures randomness uses HKDF, not direct RNG
+
+**2. Runtime Validation (Execution-Time Tests)**
+
+- **test_secret_zeroization** - Validates SecretKey implements ZeroizeOnDrop
+- **test_cryptographic_operations_validity** - Tests core cryptographic properties
+- **test_serialization_security** - Ensures secrets cannot be serialized
+- **test_concurrent_signing_safety** - Validates thread-safe crypto operations
+- **test_signature_tampering_detection** - Verifies tampered signatures fail
+
+**3. Configuration & Dependency Checks**
+
+- **test_dependency_audit** - Checks required security crates are present
+
+#### Running Security Tests
+
+```bash
+# Run all security tests
+cargo test --test security_regression_suite -- --nocapture
+
+# Run specific test
+cargo test --test security_regression_suite test_no_unsafe_in_public_api -- --nocapture
+
+# Run with backtrace for debugging
+RUST_BACKTRACE=1 cargo test --test security_regression_suite
+```
+
+#### Common Remediation Patterns
+
+**Unsafe Code in Public API:**
+```rust
+// ❌ BEFORE: Unsafe in public API
+pub fn verify_signature(key: &PublicKey) -> Result<()> {
+    unsafe { validate_pointer(key as *const _) }
+}
+
+// ✅ AFTER: Safe wrapper around FFI boundary
+pub fn verify_signature(key: &PublicKey) -> Result<()> {
+    validate_internal(key)?  // Safety: FFI is internal only
+}
+```
+
+**Panics in Crypto Code:**
+```rust
+// ❌ BEFORE
+let sig = signature.unwrap();
+
+// ✅ AFTER
+let sig = signature.ok_or_else(|| AosError::Crypto("Invalid sig".into()))?;
+```
+
+**Timing-Sensitive Operations:**
+```rust
+// ❌ BEFORE
+if key == expected {
+    return Ok(());
+}
+
+// ✅ AFTER
+use subtle::ConstantTimeEq;
+if key.ct_eq(&expected).into() {
+    return Ok(());
+}
+```
+
+---
+
 ## Security Best Practices
 
 ### 1. Production Checklist
@@ -505,10 +1002,14 @@ curl -X DELETE https://api.adapteros.local/v1/auth/sessions/abc123 \
 - [ ] Configure IP allowlist for admin endpoints
 - [ ] Set appropriate rate limits per tenant
 - [ ] Enable audit logging
+- [ ] Enable Secure Enclave on Apple Silicon
+- [ ] Configure key rotation intervals
+- [ ] Enable FIPS mode if required
 - [ ] Rotate JWT signing keys periodically
 - [ ] Monitor failed authentication attempts
 - [ ] Review audit logs regularly
 - [ ] Backup revoked tokens table
+- [ ] Run security regression tests
 
 ### 2. Key Rotation
 
@@ -573,6 +1074,51 @@ ORDER BY attempts DESC;
 
 ---
 
+## Troubleshooting
+
+### Common Issues
+
+#### macOS Keychain Locked
+- Symptom: `errSecAuthFailed` or permission errors
+- Solution: Unlock Keychain Access application
+
+```bash
+# Unlock keychain
+security unlock-keychain
+```
+
+#### Linux D-Bus Unavailable
+- Symptom: Secret service connection fails
+- Solution: Start desktop session or install keyring daemon
+
+```bash
+# Start GNOME keyring
+gnome-keyring-daemon --start
+```
+
+#### Secure Enclave Not Available
+- Check if running on Apple Silicon
+- Verify macOS version (13.0+ for attestation)
+
+```bash
+# Check Secure Enclave status
+system_profiler SPHardwareDataType | grep -i "secure enclave"
+```
+
+#### Password Fallback Wrong Password
+- Symptom: Decryption fails with authentication error
+- Solution: Verify `ADAPTEROS_KEYCHAIN_FALLBACK` value
+
+```bash
+# Check environment variable
+echo $ADAPTEROS_KEYCHAIN_FALLBACK
+
+# Reset keystore if needed
+rm ~/.adapteros-keys.enc
+```
+
+---
+
 ## API Reference
 
 ### Authentication Endpoints
@@ -617,10 +1163,11 @@ ORDER BY attempts DESC;
 
 ## See Also
 
-- [RBAC.md](RBAC.md) - Complete RBAC permission matrix and role specifications
+- [ACCESS_CONTROL.md](ACCESS_CONTROL.md) - Complete access control guide including RBAC, tenant isolation, permissions, and best practices
 - [AUTHENTICATION.md](AUTHENTICATION.md) - Detailed authentication flow and token management
-- [CLAUDE.md (RBAC section)](../CLAUDE.md#rbac-5-roles-40-permissions) - Quick reference for RBAC implementation
+- [POLICIES.md](POLICIES.md) - Policy enforcement and policy packs
+- [CLAUDE.md](../CLAUDE.md) - Developer guide and security best practices
 
 ---
 
-**Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
+**Copyright:** © 2025 MLNavigator Inc / James KC Auchterlonie. All rights reserved.

@@ -1,288 +1,473 @@
 # AdapterOS Documentation
 
-Welcome to the AdapterOS documentation. This directory contains comprehensive technical documentation for understanding, deploying, and extending the **LORAX (Low Rank Adapter Exchange)** inference runtime.
+> **LORAX (Low Rank Adapter Exchange)** — Offline-capable, UMA-optimized multi-LoRA orchestration on Apple Silicon
 
-## Quick Navigation
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/mlnavigator/adapter-os)
+[![License](https://img.shields.io/badge/license-Apache%202.0%20%7C%20MIT-blue)](../LICENSE-APACHE)
+[![Rust Version](https://img.shields.io/badge/rust-nightly-orange)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey)](https://www.apple.com/mac/)
 
-### 🎓 New to AdapterOS?
+---
 
-- **[Getting Started with Diagrams](GETTING_STARTED_WITH_DIAGRAMS.md)** ⭐ **START HERE**
-  - Plain-language explanation of how everything works
-  - Visual tour with real-world examples
-  - No technical background required
-  - Learn through diagrams and stories
+## Quick Links
 
-### 🚀 Getting Started
-- **[Quick Start Guide](QUICKSTART.md)** - Get up and running in 10 minutes
-  - Backend setup and configuration
-  - Web UI deployment
-  - Common tasks and troubleshooting
+| Category | Links |
+|----------|-------|
+| **Getting Started** | [Quickstart](QUICKSTART.md) • [Authentication](AUTHENTICATION.md) • [Configuration](CONFIGURATION.md) |
+| **Development** | [CLI Guide](CLI_GUIDE.md) • [API Reference](API_REFERENCE.md) • [Testing](TESTING.md) |
+| **Operations** | [Deployment](DEPLOYMENT.md) • [Troubleshooting](TROUBLESHOOTING.md) • [Operations](OPERATIONS.md) |
+| **Security** | [Security Guide](SECURITY.md) • [Policies](POLICIES.md) • [Access Control](ACCESS_CONTROL.md) |
+| **Backends** | [MLX](MLX_GUIDE.md) • [CoreML](COREML_BACKEND.md) • [Metal](METAL_BACKEND.md) |
 
-### 🏗️ Core Architecture
+---
 
-#### **Visual Guides** ⭐
+## Overview
 
-- **[Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)** - Code-verified architecture diagrams
-  - Complete system architecture with exact crate names and file paths
-  - Inference pipeline flow with step-by-step code references
-  - Router scoring algorithm with feature weights and Q15 quantization
-  - Memory management system with watchdog and lifecycle
-  - API stack with all routes, handlers, and middleware
-  - Worker architecture with UDS server and safety mechanisms
+AdapterOS is a **single-node, multi-tenant ML inference platform** optimized for Apple Silicon. It enables hot-swappable LoRA adapters with deterministic execution, zero network egress during serving, and enterprise-grade security.
 
+### Architecture Diagram
 
-- **[Diagram Reference Guide](DIAGRAM_REFERENCE.md)** - Quick lookup and navigation
-  - Diagram locations and quick links
-  - Search by topic or role
-  - Diagram maintenance guidelines
-  - FAQ and troubleshooting
+```mermaid
+graph TB
+    subgraph "Control Plane (Port 8080)"
+        API[adapteros-server<br/>HTTP/REST API]
+        AUTH[JWT Auth<br/>Tenant Isolation]
+        POLICY[Policy Engine<br/>24 Policy Packs]
+        DB[(SQLite<br/>160+ Migrations)]
+    end
 
-#### **System Documentation**
+    subgraph "Inference Pipeline"
+        CORE[InferenceCore<br/>Route & Execute]
+        ROUTER[K-Sparse Router<br/>Q15 Quantization]
+        SELECTOR[Worker Selection<br/>Load Balancing]
+    end
 
-- **[Architecture Index](ARCHITECTURE_INDEX.md)** - Complete architecture documentation hub
-- **[Architecture Patterns](ARCHITECTURE_PATTERNS.md)** - Detailed patterns with code references
-- **[System Architecture](ARCHITECTURE.md)** - High-level system design and component overview
-  - Worker architecture and inference pipeline
-  - Router and adapter management
-  - Memory management and eviction
-  - Policy enforcement system
+    subgraph "Workers (UDS)"
+        W1[aos-worker-1<br/>MLX Backend]
+        W2[aos-worker-2<br/>CoreML/ANE]
+        W3[aos-worker-3<br/>Metal Backend]
+    end
 
-- **[Control Plane](CONTROL-PLANE.md)** - Control plane architecture and APIs
-  - Tenant management
-  - Plan building and promotion
-  - Telemetry and metrics collection
-  - REST API reference
+    subgraph "Backend Kernels"
+        MLX[MLX<br/>C++ FFI]
+        COREML[CoreML<br/>ANE Acceleration]
+        METAL[Metal<br/>GPU Shaders]
+    end
 
-- **[Database Schema](database-schema/README.md)** - Database design and workflow animations
-  - Static ER diagrams with comprehensive field documentation
-  - Animated workflow sequences for operational processes
-  - Real-time monitoring and performance visualization
-  - Security and compliance workflows
+    subgraph "Storage & Lifecycle"
+        STORAGE[Adapter Storage<br/>BLAKE3 Hashing]
+        LIFECYCLE[Lifecycle Manager<br/>Hot-swap & Eviction]
+        TELEMETRY[Telemetry Events<br/>Audit Trail]
+    end
 
-### 🤖 Model Integration
-- **[MLX Integration](MLX_INTEGRATION.md)** - Apple MLX framework integration
-  - Model loading and conversion
-  - C++ FFI bindings
-  - Metal kernel integration
-  - Performance optimization
+    API --> AUTH
+    AUTH --> POLICY
+    POLICY --> CORE
+    CORE --> ROUTER
+    ROUTER --> SELECTOR
+    SELECTOR --> W1
+    SELECTOR --> W2
+    SELECTOR --> W3
+    W1 --> MLX
+    W2 --> COREML
+    W3 --> METAL
+    CORE --> STORAGE
+    CORE --> LIFECYCLE
+    CORE --> TELEMETRY
+    LIFECYCLE --> STORAGE
+    DB -.-> API
+    DB -.-> LIFECYCLE
+    DB -.-> TELEMETRY
 
-- **[Qwen Integration](QWEN-INTEGRATION.md)** - Qwen model support
-  - Model configuration
-  - Tokenizer setup
-  - Chat templates
-  - Fine-tuning guide
+    style API fill:#4A90E2
+    style CORE fill:#E85D75
+    style ROUTER fill:#F5A623
+    style W1 fill:#7ED321
+    style W2 fill:#7ED321
+    style W3 fill:#7ED321
+    style DB fill:#50E3C2
+```
 
-### 🔧 Advanced Topics
+### Key Features
 
-#### Code Intelligence
-- **[Code Intelligence Overview](code-intelligence/README.md)** - Complete code analysis stack
-  - Architecture and design
-  - Multi-language support
-  - Framework detection
-  - Patch generation and validation
+- **Multi-Backend Support**: CoreML (ANE), MLX, Metal — choose the best backend for your workload
+- **K-Sparse Routing**: Dynamic adapter mixing with Q15 quantized gates
+- **Deterministic Replay**: HKDF-SHA256 seed derivation, reproducible outputs
+- **Zero Network Egress**: All serving happens locally via Unix Domain Sockets
+- **Hot-Swap Adapters**: Load/unload adapters without restarting workers
+- **Policy Enforcement**: 24 policy packs with audit trails and Merkle chains
+- **Multi-Tenant**: Full tenant isolation with JWT authentication
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- macOS with Apple Silicon (M1/M2/M3/M4)
+- Rust nightly (see `rust-toolchain.toml`)
+- Xcode Command Line Tools
+- pnpm 9+ (for UI development)
+
+### Quick Start
+
+```bash
+# 1. Clone and setup
+git clone https://github.com/mlnavigator/adapter-os.git
+cd adapter-os
+direnv allow  # Load .env + .env.local
+
+# 2. Build the project
+make build
+
+# 3. Run migrations
+cargo sqlx migrate run
+
+# 4. Start the system
+./start  # Starts backend + UI via service-manager.sh
+
+# 5. Access the UI
+open http://localhost:3200
+```
 
 **Detailed Guides:**
-- [Architecture](code-intelligence/code-intelligence-ARCHITECTURE.md) - System design and components
-- [Tiers](code-intelligence/CODE-INTELLIGENCE-TIERS.md) - Feature tiers and capabilities
-- [API Reference](code-intelligence/CODE-API-REGISTRY.md) - REST API documentation
-- [CLI Commands](code-intelligence/CODE-CLI-COMMANDS.md) - Command-line interface
-- [Policies](code-intelligence/CODE-POLICIES.md) - Policy configuration
-- [Router Features](code-intelligence/CODE-ROUTER-FEATURES.md) - Routing integration
-- [Evaluation](code-intelligence/CODE-EVALUATION.md) - Metrics and testing
 
-#### UI Component Hierarchy
-- **[UI Component Hierarchy](UI-COMPONENT-HIERARCHY.md)** - React component structure and relationships
+- [**QUICKSTART.md**](QUICKSTART.md) — Complete setup guide with troubleshooting
+- [**ENVIRONMENT_SETUP.md**](ENVIRONMENT_SETUP.md) — Environment configuration
+- [**AUTHENTICATION.md**](AUTHENTICATION.md) — Auth setup and JWT configuration
 
-#### Policy Engine Outline
-- **[Policy Engine Outline](POLICY-ENGINE-OUTLINE.md)** - High-level policy enforcement architecture
+---
 
-#### Metal Kernels
-- **[Metal Kernels](metal/PHASE4-METAL-KERNELS.md)** - Custom Metal GPU kernels
-  - Fused attention operations
-  - LoRA application kernels
-  - Quantization support
-  - Performance optimization
+## Core Documentation
 
-#### Foreign Function Interface (FFI)
-- **[FFI Guide](FFI_GUIDE.md)** - Complete guide to FFI in AdapterOS
-  - What FFI is and why it's used
-  - Architecture and performance characteristics
-  - Security model and best practices
-  - Quick reference for all FFI types
-- **[Objective-C++ FFI Patterns](OBJECTIVE_CPP_FFI_PATTERNS.md)** - Detailed ObjC++ patterns
-  - Memory safety principles
-  - Buffer transfer patterns
-  - Object lifetime management
-  - Metal and CoreML-specific patterns
+### System Architecture
 
-### 🔒 Safety & Security
-- **[Runaway Prevention](RUNAWAY-PREVENTION.md)** - Safety mechanisms
-  - Memory pressure handling
-  - Router skew detection
-  - Determinism enforcement
-  - Incident response procedures
+| Document | Description |
+|----------|-------------|
+| [**CONCEPTS.md**](CONCEPTS.md) | Core concepts: Adapters, Router, Plans, Control Points |
+| [**INFERENCE_FLOW.md**](INFERENCE_FLOW.md) | End-to-end inference pipeline walkthrough |
+| [**LIFECYCLE.md**](LIFECYCLE.md) | Adapter lifecycle management and hot-swap |
+| [**control-plane.md**](control-plane.md) | Control plane architecture and APIs |
 
-- **[Code Graph Specification](CODEGRAPH-SPEC.md)** - Code analysis security
-  - Graph construction
-  - Security boundaries
-  - Validation rules
+### API & CLI
+
+| Document | Description |
+|----------|-------------|
+| [**API_REFERENCE.md**](API_REFERENCE.md) | Complete REST API reference (189+ endpoints, LLM interface, examples) |
+| [**API_GUIDES.md**](API_GUIDES.md) | API workflow guides (versioning, tenant management, promotion workflow) |
+| [**CLI_GUIDE.md**](CLI_GUIDE.md) | Command-line interface reference (`aosctl`) |
+
+### Database
+
+| Document | Description |
+|----------|-------------|
+| [**DATABASE.md**](DATABASE.md) | Comprehensive database documentation: schema, KV operations, migrations, troubleshooting |
+
+---
+
+## Operations
+
+### Deployment
+
+| Document | Description |
+|----------|-------------|
+| [**DEPLOYMENT.md**](DEPLOYMENT.md) | Deployment guide for production environments |
+| [**deployment-guide.md**](deployment-guide.md) | Step-by-step deployment procedures |
+| [**PRODUCTION_OPERATIONS.md**](PRODUCTION_OPERATIONS.md) | Production operations and maintenance |
+| [**PRODUCTION_BACKUP_RESTORE.md**](PRODUCTION_BACKUP_RESTORE.md) | Backup and disaster recovery |
+
+### Monitoring & Troubleshooting
+
+| Document | Description |
+|----------|-------------|
+| [**PRODUCTION_MONITORING.md**](PRODUCTION_MONITORING.md) | Production monitoring setup and dashboards |
+| [**MONITORING_SETUP_README.md**](MONITORING_SETUP_README.md) | Monitoring configuration guide |
+| [**monitoring.md**](monitoring.md) | Monitoring architecture and metrics |
+| [**TROUBLESHOOTING.md**](TROUBLESHOOTING.md) | Common issues and solutions |
+| [**system-metrics.md**](system-metrics.md) | System metrics reference |
+
+---
+
+## Development
+
+### Testing & Quality
+
+| Document | Description |
+|----------|-------------|
+| [**TEST_QUICK_REFERENCE.md**](TEST_QUICK_REFERENCE.md) | Testing quick reference and best practices |
+| [**SECURITY_TESTING.md**](SECURITY_TESTING.md) | Security testing guide |
+| [**SECURITY_TEST_README.md**](SECURITY_TEST_README.md) | Security test suite documentation |
+| [**DEMO_GUIDE.md**](DEMO_GUIDE.md) | Demo scenarios and test cases |
+
+### Error Handling
+
+| Document | Description |
+|----------|-------------|
+| [**ERRORS.md**](ERRORS.md) | Comprehensive error handling guide (codes, patterns, helpers, best practices) |
+
+### Deprecations & Changes
+
+| Document | Description |
+|----------|-------------|
+| [**DEPRECATIONS.md**](DEPRECATIONS.md) | Deprecated features and migration paths |
+| [**STUB_IMPLEMENTATIONS.md**](STUB_IMPLEMENTATIONS.md) | Stub implementations and placeholders |
+
+---
+
+## Backend Guides
+
+### MLX Backend
+
+| Document | Description |
+|----------|-------------|
+| [**MLX_INTEGRATION.md**](MLX_INTEGRATION.md) | MLX backend integration guide |
+| [**MLX_BACKEND_DEPLOYMENT_GUIDE.md**](MLX_BACKEND_DEPLOYMENT_GUIDE.md) | MLX deployment and configuration |
+| [**MLX_INSTALLATION_GUIDE.md**](MLX_INSTALLATION_GUIDE.md) | MLX installation steps |
+| [**MLX_QUICK_REFERENCE.md**](MLX_QUICK_REFERENCE.md) | MLX quick reference |
+| [**MLX_TROUBLESHOOTING.md**](MLX_TROUBLESHOOTING.md) | MLX troubleshooting guide |
+| [**MLX_ROUTER_HOTSWAP_INTEGRATION.md**](MLX_ROUTER_HOTSWAP_INTEGRATION.md) | MLX hot-swap integration |
+| [**MLX_MIGRATION_GUIDE.md**](MLX_MIGRATION_GUIDE.md) | Migrating to MLX backend |
+| [**MLX_VS_COREML_GUIDE.md**](MLX_VS_COREML_GUIDE.md) | MLX vs CoreML comparison |
+| [**MLX_MEMORY.md**](MLX_MEMORY.md) | MLX memory management |
+| [**MLX_METAL_DEVICE_ACCESS.md**](MLX_METAL_DEVICE_ACCESS.md) | MLX Metal device access |
+| [**MLX_HKDF_SEEDING.md**](MLX_HKDF_SEEDING.md) | HKDF seeding in MLX backend |
+
+### CoreML Backend
+
+| Document | Description |
+|----------|-------------|
+| [**COREML_INTEGRATION.md**](COREML_INTEGRATION.md) | CoreML backend with ANE acceleration |
+| [**COREML_ATTESTATION_DETAILS.md**](COREML_ATTESTATION_DETAILS.md) | CoreML attestation and verification |
+| [**coreml_training_backend.md**](coreml_training_backend.md) | CoreML training backend guide |
+
+### Metal Backend
+
+| Document | Description |
+|----------|-------------|
+| [**METAL_BUILD_SYSTEM_INTEGRATION.md**](METAL_BUILD_SYSTEM_INTEGRATION.md) | Metal build system integration |
+| [**METAL_TOOLCHAIN_SETUP.md**](METAL_TOOLCHAIN_SETUP.md) | Metal toolchain setup guide |
+
+### FFI & Low-Level
+
+| Document | Description |
+|----------|-------------|
+| [**FFI_GUIDE.md**](FFI_GUIDE.md) | Complete FFI guide (Rust ↔ C++/ObjC++) |
+| [**OBJECTIVE_CPP_FFI_PATTERNS.md**](OBJECTIVE_CPP_FFI_PATTERNS.md) | Objective-C++ FFI patterns |
+
+---
+
+## Security & Policies
+
+### Security
+
+| Document | Description |
+|----------|-------------|
+| [**SECURITY.md**](SECURITY.md) | Security architecture and best practices |
+| [**CRYPTO.md**](CRYPTO.md) | Cryptography overview (BLAKE3, HKDF) |
+| [**CRYPTO_SECURITY_S6_S9.md**](CRYPTO_SECURITY_S6_S9.md) | Cryptographic security details |
+| [**ACCESS_CONTROL.md**](ACCESS_CONTROL.md) | Access control guide (RBAC + tenant isolation) |
+| [**SECURE_ENCLAVE_INTEGRATION_ENHANCED.md**](SECURE_ENCLAVE_INTEGRATION_ENHANCED.md) | Secure Enclave integration |
+| [**secure-enclave-integration.md**](secure-enclave-integration.md) | Secure Enclave basics |
+| [**keychain-integration.md**](keychain-integration.md) | macOS Keychain integration |
+
+### Policy Enforcement
+
+| Document | Description |
+|----------|-------------|
+| [**POLICIES.md**](POLICIES.md) | Policy system overview (24 policy packs) |
+| [**POLICY_ENFORCEMENT.md**](POLICY_ENFORCEMENT.md) | Policy enforcement architecture |
+| [**POLICY_ENFORCEMENT_MIDDLEWARE.md**](POLICY_ENFORCEMENT_MIDDLEWARE.md) | Policy middleware implementation |
+| [**POLICY_ENFORCEMENT_MIDDLEWARE_IMPLEMENTATION_GUIDE.md**](POLICY_ENFORCEMENT_MIDDLEWARE_IMPLEMENTATION_GUIDE.md) | Middleware implementation guide |
+| [**policy-engine-outline.md**](policy-engine-outline.md) | Policy engine high-level outline |
+| [**DEV_BYPASS_POLICY.md**](DEV_BYPASS_POLICY.md) | Development bypass policy (debug only) |
+
+---
+
+## Training
+
+### Training Guides
+
+| Document | Description |
+|----------|-------------|
+| [**TRAINING_PIPELINE.md**](TRAINING_PIPELINE.md) | Training pipeline architecture |
+| [**TRAINING_METRICS.md**](TRAINING_METRICS.md) | Training metrics and evaluation |
+| [**TRAINING_PROVENANCE.md**](TRAINING_PROVENANCE.md) | Training provenance tracking |
+| [**TRAINING_VERSIONING.md**](TRAINING_VERSIONING.md) | Training version management |
+| [**RUNBOOK_TRAINING_LINEAGE_TRUST.md**](RUNBOOK_TRAINING_LINEAGE_TRUST.md) | Training lineage trust runbook |
+
+### Dataset Management
+
+| Document | Description |
+|----------|-------------|
+| [**USER_GUIDE_DATASETS.md**](USER_GUIDE_DATASETS.md) | Dataset management user guide |
+| [**DATASET_TRAINING_INTEGRATION.md**](DATASET_TRAINING_INTEGRATION.md) | Dataset-training integration |
+| [**GPU_TRAINING_INTEGRATION.md**](GPU_TRAINING_INTEGRATION.md) | GPU training integration guide |
+
+---
+
+## Reference
+
+### Glossary & Concepts
+
+| Document | Description |
+|----------|-------------|
+| [**GLOSSARY.md**](GLOSSARY.md) | Terminology and definitions |
+| [**CONCEPTS.md**](CONCEPTS.md) | Core concepts deep dive |
+
+### Determinism & Replay
+
+| Document | Description |
+|----------|-------------|
+| [**DETERMINISM.md**](DETERMINISM.md) | Comprehensive determinism and replay guide |
+
+### Configuration
+
+| Document | Description |
+|----------|-------------|
+| [**CONFIG_PRECEDENCE.md**](CONFIG_PRECEDENCE.md) | Configuration precedence rules |
+
+### User Flows
+
+| Document | Description |
+|----------|-------------|
+| [**USER_FLOW.md**](USER_FLOW.md) | End-to-end user workflows |
+
+---
+
+## Key Workflows
+
+### Inference Flow
+
+```
+HTTP Request → Auth/Policy → InferenceCore → Router Decision (K-sparse, Q15)
+                                    ↓
+                            Worker Selection (UDS)
+                                    ↓
+                            Kernel Execution (Backend)
+                                    ↓
+                            Response + Evidence + Telemetry
+```
+
+**See**: [INFERENCE_FLOW.md](INFERENCE_FLOW.md)
+
+### Training Flow
+
+```
+API Request → TrainingService → Orchestrator → Worker (Trainer)
+                                                    ↓
+                                              Adapter Packaging (Q15)
+                                                    ↓
+                                              Registry → Lifecycle
+```
+
+**See**: [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md)
+
+### Adapter Lifecycle
+
+```
+Upload → Validation → Storage (BLAKE3) → Registry → Loading
+                                              ↓
+                                         Hot-Swap → Eviction
+```
+
+**See**: [LIFECYCLE.md](LIFECYCLE.md)
+
+---
+
+## Critical Invariants
+
+| Invariant | Location | Notes |
+|-----------|----------|-------|
+| All inference through `InferenceCore` | `inference_core.rs` | Bypassing breaks auditability |
+| Q15 denominator = 32767.0 | `lora-router/src/lib.rs` | **NOT 32768** — precision-critical |
+| `tenant_id` in all queries | All handlers | FK triggers enforce isolation |
+| No `-ffast-math` flags | `Cargo.toml` | Breaks determinism |
+| FK constraints enabled | `db/lib.rs` | `foreign_keys=true` required |
+
+**See**: [DETERMINISM.md](DETERMINISM.md)
+
+---
 
 ## Documentation by Audience
 
 ### For Developers
-Start here if you're building on AdapterOS or contributing to the codebase:
-1. [Quick Start Guide](QUICKSTART.md)
-2. [System Architecture](ARCHITECTURE.md)
-3. [Code Intelligence](code-intelligence/README.md)
-4. See `examples/` in project root
+
+1. [QUICKSTART.md](QUICKSTART.md) — Get running in 10 minutes
+2. [CLI_GUIDE.md](CLI_GUIDE.md) — Master the `aosctl` CLI
+3. [API_REFERENCE.md](API_REFERENCE.md) — Browse all 225 API endpoints
+4. [CONCEPTS.md](CONCEPTS.md) — Understand core abstractions
+5. [INFERENCE_FLOW.md](INFERENCE_FLOW.md) — Follow the inference pipeline
 
 ### For Operators
-Start here if you're deploying and managing AdapterOS:
-1. [Quick Start Guide](QUICKSTART.md)
-2. [Control Plane](CONTROL-PLANE.md)
-3. [Runaway Prevention](RUNAWAY-PREVENTION.md)
-4. [MLX Integration](MLX_INTEGRATION.md)
+
+1. [DEPLOYMENT.md](DEPLOYMENT.md) — Production deployment guide
+2. [PRODUCTION_OPERATIONS.md](PRODUCTION_OPERATIONS.md) — Day-2 operations
+3. [PRODUCTION_MONITORING.md](PRODUCTION_MONITORING.md) — Setup monitoring
+4. [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — Resolve common issues
+5. [PRODUCTION_BACKUP_RESTORE.md](PRODUCTION_BACKUP_RESTORE.md) — Disaster recovery
 
 ### For Researchers
-Start here if you're experimenting with models and adapters:
-1. [System Architecture](ARCHITECTURE.md)
-2. [MLX Integration](MLX_INTEGRATION.md)
-3. [Qwen Integration](QWEN-INTEGRATION.md)
-4. [Metal Kernels](metal/PHASE4-METAL-KERNELS.md)
+
+1. [MLX_INTEGRATION.md](MLX_INTEGRATION.md) — MLX backend deep dive
+2. [COREML_INTEGRATION.md](COREML_INTEGRATION.md) — CoreML/ANE acceleration
+3. [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) — Training architecture
+4. [TRAINING_METRICS.md](TRAINING_METRICS.md) — Evaluation metrics
+5. [FFI_GUIDE.md](FFI_GUIDE.md) — Low-level FFI patterns
 
 ### For Security Auditors
-Start here if you're evaluating AdapterOS for compliance:
-1. [Runaway Prevention](RUNAWAY-PREVENTION.md)
-2. [Code Graph Specification](CODEGRAPH-SPEC.md)
-3. [Code Intelligence Policies](code-intelligence/CODE-POLICIES.md)
-4. See policy rulesets in project workspace rules
 
-## API Documentation
+1. [SECURITY.md](SECURITY.md) — Security architecture
+2. [POLICIES.md](POLICIES.md) — Policy enforcement system
+3. [ACCESS_CONTROL.md](ACCESS_CONTROL.md) — Access control (RBAC + tenant isolation)
+4. [CRYPTO.md](CRYPTO.md) — Cryptographic foundations
 
-### REST API
-- **[API Reference](API_REFERENCE.md)** - Complete API endpoint documentation
-  - All REST API endpoints (225 total)
-  - Authentication and authorization
-  - Request/response formats
-  - Route-to-handler mappings
-- **[Postman Collection](postman/AdapterOS_API.postman_collection.json)** - API testing collection
-- Control Plane API: See [CONTROL-PLANE.md](CONTROL-PLANE.md)
-- Authentication API: See [AUTHENTICATION.md](AUTHENTICATION.md)
-- Code Intelligence API: See [code-intelligence/CODE-API-REGISTRY.md](code-intelligence/CODE-API-REGISTRY.md)
-- OpenAPI Specification: See [api.md](API.md) (auto-generated)
+---
 
-### Rust API
-Generate and browse Rust API documentation:
-```bash
-cargo doc --no-deps --open
-```
+## Environment & Platform
 
-## Directory Structure
+- **Platform**: macOS with Apple Silicon (M1/M2/M3/M4)
+- **Database**: SQLite at `var/aos-cp.sqlite3`
+- **Default Model**: Qwen2.5-7B (4-bit quantized)
+- **Rust**: Nightly (see `rust-toolchain.toml`)
+- **UI**: React 18 + TypeScript + Vite + TanStack Query
 
-```
-docs/
-├── README.md                    # This file
-├── QUICKSTART.md               # Quick start guide
-├── architecture.md             # System architecture
-├── control-plane.md            # Control plane docs
-├── MLX_INTEGRATION.md          # MLX integration
-├── qwen-integration.md         # Qwen model docs
-├── runaway-prevention.md       # Safety mechanisms
-├── codegraph-spec.md           # Code graph spec
-├── database-schema/            # Database schema documentation
-│   ├── README.md              # Schema documentation index
-│   ├── schema-diagram.md       # Static ER diagram
-│   ├── workflows/             # Animated workflow diagrams
-│   │   ├── adapter-lifecycle.md
-│   │   ├── promotion-pipeline.md
-│   │   ├── monitoring-flow.md
-│   │   └── ...                # Additional workflows
-│   └── examples/              # Usage examples and tutorials
-├── code-intelligence/          # Code intelligence docs
-│   ├── README.md              # Code intelligence overview
-│   ├── code-intelligence-architecture.md
-│   ├── code-intelligence-tiers.md
-│   ├── code-api-*.md          # API documentation
-│   ├── code-cli-commands.md   # CLI reference
-│   ├── code-policies.md       # Policy configuration
-│   └── ...                    # Additional guides
-└── metal/                      # Metal kernel docs
-    └── phase4-metal-kernels.md
-```
-
-## Key Concepts
-
-### Adapters
-LoRA (Low-Rank Adaptation) modules that modify base model behavior:
-- Loaded dynamically based on routing decisions
-- Memory-efficient with shared base model
-- Tiered by importance and activation frequency
-
-### Router
-K-sparse routing system that selects top-K adapters per token:
-- Quantized gates (Q15) for efficiency
-- Entropy floor to prevent collapse
-- Code-aware routing with feature extraction
-
-### Plan
-Immutable deployment unit containing:
-- Model configuration
-- Adapter registry
-- Policy rules
-- Kernel hashes
-
-### Control Point (CP)
-Versioned configuration snapshot for promotion and rollback:
-- Deterministic execution
-- Gate-checked promotion
-- Audit trail with telemetry
-
-### Telemetry
-Event logging system for observability:
-- Canonical JSON format
-- BLAKE3 hashing for integrity
-- Bundle rotation and signing
-
+---
 
 ## Contributing to Documentation
 
 When adding or updating documentation:
+
 1. Follow the existing structure and format
 2. Add navigation links to this README
 3. Use clear headings and code examples
-4. Update the API documentation when changing interfaces
-5. Keep the quick start guide up to date
+4. Update API documentation when changing interfaces
+5. Keep the quick start guide current
+6. Run `make check` before committing
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root for general contribution guidelines.
 
+---
+
 ## Getting Help
 
-- **Questions**: Check the relevant documentation section above
-- **Issues**: Review troubleshooting in [QUICKSTART.md](QUICKSTART.md)
-- **Examples**: See `examples/` directory in project root
-- **Tests**: See `tests/` directory for usage patterns
-- **API Reference**: Run `cargo doc --open`
+- **Quick Questions**: Check [QUICKSTART.md](QUICKSTART.md) or [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- **API Questions**: See [API_REFERENCE.md](API_REFERENCE.md)
+- **CLI Help**: Run `./aosctl --help` or see [CLI_GUIDE.md](CLI_GUIDE.md)
+- **Rust API Docs**: Run `cargo doc --no-deps --open`
+- **Examples**: See `examples/` and `tests/` directories in project root
+
+---
 
 ## License
 
 AdapterOS is dual-licensed under Apache 2.0 or MIT at your option.
-See [LICENSE-APACHE](../LICENSE-APACHE) and [LICENSE-MIT](../LICENSE-MIT) for details.
+
+- [Apache License 2.0](../LICENSE-APACHE)
+- [MIT License](../LICENSE-MIT)
 
 ---
 
-## See Also
-
-- [ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md) - Detailed architecture patterns with diagrams
-- [ARCHITECTURE_INDEX.md](ARCHITECTURE_INDEX.md) - Complete architecture documentation index
-- [FEATURE_FLAGS.md](FEATURE_FLAGS.md) - Feature flag reference
-- [LOCAL_BUILD.md](LOCAL_BUILD.md) - Local build guide
-- [MLX_INTEGRATION.md](MLX_INTEGRATION.md) - MLX backend integration
-- [COREML_INTEGRATION.md](COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
-- [ADR_MULTI_BACKEND_STRATEGY.md](ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision
-
----
-
-**Last Updated**: November 13, 2025
+**Last Updated**: December 11, 2025
 **AdapterOS Version**: alpha-v0.04-unstable
 **Maintained by**: [@rogu3bear](https://github.com/rogu3bear)
-
+**MLNavigator Inc**

@@ -2,25 +2,68 @@
 
 **Comprehensive troubleshooting guide for common AdapterOS deployment, configuration, and runtime issues.**
 
+**Last Updated:** 2025-12-11
+**Version:** 2.0
+**Maintained By:** AdapterOS Support Team
+
 ---
 
 ## Table of Contents
 
-- [Quick Diagnosis](#quick-diagnosis)
-- [Startup Issues](#startup-issues)
-- [Authentication Problems](#authentication-problems)
-- [Performance Issues](#performance-issues)
-- [Memory Issues](#memory-issues)
+- [Quick Diagnostics](#quick-diagnostics)
+- [Common Issues and Solutions](#common-issues-and-solutions)
+- [Build Issues](#build-issues)
+- [Runtime Issues](#runtime-issues)
 - [Database Issues](#database-issues)
-- [Network Issues](#network-issues)
-- [Adapter Issues](#adapter-issues)
-- [Training Issues](#training-issues)
-- [Monitoring Issues](#monitoring-issues)
-- [Security Issues](#security-issues)
+- [Network and Port Issues](#network-and-port-issues)
+- [Backend-Specific Issues](#backend-specific-issues)
+- [Getting Help](#getting-help)
 
 ---
 
-## Quick Diagnosis
+## Quick Diagnostics
+
+### Diagnostic Flowchart
+
+```mermaid
+flowchart TD
+    A[Issue Detected] --> B{Service Running?}
+    B -->|No| C[Check Port Conflicts]
+    B -->|Yes| D{Health Endpoint OK?}
+
+    C --> C1[lsof -ti:8080]
+    C1 --> C2[make prepare]
+    C2 --> C3[Restart Service]
+
+    D -->|No| E{Database Connected?}
+    D -->|Yes| F{Performance Issue?}
+
+    E -->|No| E1[Check SQLite File]
+    E1 --> E2[Run Migrations]
+    E2 --> C3
+
+    E -->|Yes| G{Auth Working?}
+
+    G -->|No| G1[Check JWT Keys]
+    G1 --> G2[Dev Mode: AOS_DEV_NO_AUTH=1]
+    G2 --> C3
+
+    G -->|Yes| H{Backend Issue?}
+
+    H -->|Yes| I[Check Backend Logs]
+    I --> J{Stub Active?}
+    J -->|Yes| K[Enable Feature Flags]
+    J -->|No| L[Check Backend Config]
+
+    F -->|Yes| M{High Memory?}
+    M -->|Yes| M1[Check Adapter Count]
+    M1 --> M2[Evict Adapters]
+    M -->|No| N{High Latency?}
+    N -->|Yes| N1[Check Worker Threads]
+    N1 --> N2[Monitor Queue Depth]
+
+    H -->|No| O[Check Application Logs]
+```
 
 ### System Health Check
 
@@ -34,477 +77,539 @@ ps aux | grep adapteros-server
 curl -f http://localhost:8080/healthz && echo "✓ Health OK" || echo "✗ Health FAIL"
 curl -f http://localhost:8080/readyz && echo "✓ Ready OK" || echo "✗ Ready FAIL"
 
-# Check recent logs
-tail -20 /var/log/adapteros/server.log
+# Check recent logs (macOS/Linux)
+tail -20 var/aos-cp.log 2>/dev/null || journalctl -u adapteros-server -n 20
 
 # Check system resources
-df -h /var/lib/adapteros
-free -h
+df -h var/
+free -h 2>/dev/null || vm_stat  # macOS uses vm_stat
 
-# Check database connectivity
-psql -h localhost -U adapteros -d adapteros_prod -c "SELECT 1;" && echo "✓ DB OK" || echo "✗ DB FAIL"
+# Check database connectivity (SQLite)
+sqlite3 var/aos-cp.sqlite3 "SELECT 1;" && echo "✓ DB OK" || echo "✗ DB FAIL"
 ```
 
 ### Log Analysis Commands
 
 ```bash
 # Show last 50 lines with timestamps
-tail -50 /var/log/adapteros/server.log | cut -d' ' -f1-3
+tail -50 var/aos-cp.log | grep -E '^\d{4}-\d{2}-\d{2}'
 
 # Search for errors in last hour
-grep "$(date -d '1 hour ago' '+%Y-%m-%d %H')" /var/log/adapteros/server.log | grep -i error
+grep "ERROR" var/aos-cp.log | tail -20
 
 # Count errors by type
-grep -i error /var/log/adapteros/server.log | cut -d' ' -f4- | sort | uniq -c | sort -nr
+grep "ERROR" var/aos-cp.log | cut -d' ' -f4- | sort | uniq -c | sort -nr
 
 # Show memory-related warnings
-grep -i "memory\|eviction\|headroom" /var/log/adapteros/server.log | tail -10
+grep -i "memory\|eviction\|headroom" var/aos-cp.log | tail -10
+
+# Check for stub warnings (indicating missing features)
+grep -i "stub\|fallback\|mock" var/aos-cp.log | tail -10
 ```
 
 ---
 
-## Startup Issues
+## Common Issues and Solutions
+
+### "Dev Bypass" Button Not Visible
+
+**Symptoms:**
+- Login screen doesn't show dev bypass option
+- Only username/password fields visible
+
+**Cause:**
+- Server not running in development mode
+- `AOS_DEV_NO_AUTH` not set
+
+**Solution:**
+
+```bash
+# Check if dev mode is enabled
+grep "AOS_DEV_NO_AUTH" .env .env.local
+
+# Enable dev bypass
+echo "AOS_DEV_NO_AUTH=1" >> .env.local
+
+# Restart server
+make dev-no-auth
+```
+
+### Training Takes Too Long
+
+**Symptoms:**
+- Training job stuck at low percentage
+- Estimated time keeps increasing
+- No progress for several minutes
+
+**Diagnosis:**
+
+```bash
+# Check training job status
+curl -s http://localhost:8080/api/v1/training/jobs | jq '.[] | {id, status, progress}'
+
+# Check system resources
+top -l 1 | grep CPU  # macOS
+top -bn1 | grep Cpu  # Linux
+
+# Check if stub backend is active
+grep "stub\|fallback" var/aos-cp.log | grep -i "mlx\|metal\|coreml"
+```
+
+**Solutions:**
+
+1. **Use smaller file:**
+   ```bash
+   # Check file size
+   ls -lh training/dataset.jsonl
+
+   # Reduce to first 100 lines
+   head -100 training/dataset.jsonl > training/dataset_small.jsonl
+   ```
+
+2. **Reduce epochs:**
+   - In UI: Change epochs from 3 to 1
+   - In config: Set `num_epochs = 1`
+
+3. **Enable GPU acceleration:**
+   ```bash
+   # Check if MLX is enabled
+   cargo tree -p adapteros-lora-worker -f "{p} {f}" | grep mlx
+
+   # Rebuild with MLX (macOS only)
+   cargo build --release --features mlx-backend
+   ```
+
+### Adapter Won't Load
+
+**Symptoms:**
+- Load button doesn't change status
+- Status remains "Unloaded" or "Cold"
+- "Out of memory" or "Eviction required" errors
+
+**Diagnosis:**
+
+```bash
+# Check system memory
+free -h 2>/dev/null || vm_stat | grep "Pages free"
+
+# Check adapter count
+curl -s http://localhost:8080/api/v1/metrics/system | jq '.adapters.loaded_count'
+
+# Check adapter file integrity
+./aosctl adapter inspect var/adapters/my_adapter.aos
+```
+
+**Solutions:**
+
+1. **Free up memory:**
+   ```bash
+   # Unload unused adapters via UI or API
+   curl -X POST http://localhost:8080/api/v1/adapters/{adapter_id}/unload
+   ```
+
+2. **Check file corruption:**
+   ```bash
+   # Re-upload adapter if corrupted
+   # Verify file exists
+   ls -lh var/adapters/
+   ```
+
+3. **Restart system:**
+   ```bash
+   make dev  # Restarts with clean state
+   ```
+
+### No Difference in Compare Mode
+
+**Symptoms:**
+- Base model and adapter responses are identical
+- Adapter doesn't seem to affect output
+- Expected style/terminology missing
+
+**Cause:**
+- Prompt not related to training data
+- Adapter not actually loaded
+- Training data too small/generic
+
+**Solutions:**
+
+1. **Verify adapter is loaded:**
+   ```bash
+   curl -s http://localhost:8080/api/v1/adapters | jq '.[] | {id, status, name}'
+   ```
+
+2. **Use related prompts:**
+   - If trained on Python code, ask Python-specific questions
+   - Use terminology from your training file
+   - Ask for code examples similar to training data
+
+3. **Retrain with better data:**
+   - Use larger file (100+ lines)
+   - Use domain-specific content
+   - Increase epochs to 3-5
+
+### Permission Denied Errors
+
+**Symptoms:**
+- "403 Forbidden" on API calls
+- "Insufficient permissions" errors
+- Tenant isolation violations
+
+**Diagnosis:**
+
+```bash
+# Check authentication
+curl -v http://localhost:8080/api/v1/adapters
+
+# Verify dev bypass is active
+grep "Dev bypass" var/aos-cp.log | tail -5
+```
+
+**Solutions:**
+
+1. **Use dev bypass login:**
+   - Click "Dev Bypass (No Auth)" button in UI
+   - Or set `AOS_DEV_NO_AUTH=1` and restart
+
+2. **Check JWT token:**
+   ```bash
+   # If using token-based auth
+   echo $TOKEN | cut -d'.' -f2 | base64 -d 2>/dev/null | jq .
+   ```
+
+---
+
+## Build Issues
+
+### Port Binding Conflicts
+
+**Symptoms:**
+- "Address already in use" error
+- Server fails to start on port 8080 or 3200
+- `make dev` or `make ui-dev` fails
+
+**Diagnosis:**
+
+```bash
+# Check what's using port 8080
+lsof -ti:8080
+lsof -ti:3200
+
+# See process details
+lsof -i:8080
+```
+
+**Solution:**
+
+```bash
+# Quick fix: Use make prepare
+make prepare  # Stops services, cleans ports
+
+# Manual cleanup
+lsof -ti:8080 | xargs kill -9
+lsof -ti:3200 | xargs kill -9
+
+# Or change ports in config
+export AOS_SERVER_PORT=8081
+export AOS_UI_PORT=3201
+```
+
+### Compilation Failures
+
+**Symptoms:**
+- `cargo build` fails
+- Missing dependencies or features
+- Linker errors
+
+**Diagnosis:**
+
+```bash
+# Check Rust toolchain
+rustc --version
+cargo --version
+
+# Check for nightly
+cat rust-toolchain.toml
+
+# Verify feature flags
+cargo tree -p adapteros-lora-worker -f "{p} {f}"
+```
+
+**Solutions:**
+
+1. **Clean and rebuild:**
+   ```bash
+   cargo clean
+   cargo build --release
+   ```
+
+2. **Update toolchain:**
+   ```bash
+   rustup update nightly
+   rustup default nightly  # If required by rust-toolchain.toml
+   ```
+
+3. **Fix feature flags:**
+   ```bash
+   # MLX backend (macOS only)
+   cargo build --release --features mlx-backend
+
+   # CoreML backend (macOS only)
+   cargo build --release --features coreml-backend
+
+   # Metal backend (macOS only)
+   cargo build --release --features metal-backend
+   ```
+
+4. **Check SQLx migrations:**
+   ```bash
+   # Prepare offline mode
+   cargo sqlx prepare --workspace
+
+   # Or use online mode
+   export DATABASE_URL=sqlite:var/aos-cp.sqlite3
+   cargo build
+   ```
+
+### Missing Metal Shaders
+
+**Symptoms:**
+- "Metal kernels not found" error
+- Metal backend fails to initialize
+- Shader compilation errors
+
+**Solution (macOS only):**
+
+```bash
+# Build Metal shaders
+make metal
+
+# Verify metallib exists
+ls -la crates/adapteros-lora-kernel-mtl/metal/kernels.metallib
+
+# Check Metal support
+system_profiler SPDisplaysDataType | grep Metal
+```
+
+### Migration Signature Errors
+
+**Symptoms:**
+- "Migration signature mismatch" error
+- Database initialization fails
+- SQLx prepare fails
+
+**Diagnosis:**
+
+```bash
+# Check migration files
+ls -la migrations/
+
+# Verify signatures file
+cat migrations/signatures.json | jq .
+```
+
+**Solution:**
+
+```bash
+# Regenerate signatures
+rm migrations/signatures.json
+cargo sqlx migrate run
+
+# Or use fresh database
+rm var/aos-cp.sqlite3
+cargo sqlx migrate run
+```
+
+---
+
+## Runtime Issues
 
 ### Server Won't Start
 
 **Symptoms:**
 - Service fails to start
 - No process visible in `ps`
-- Systemd reports failure
+- Immediate exit after launch
 
 **Diagnosis:**
+
 ```bash
-# Check systemd status
-systemctl status adapteros-server
+# Try running directly to see errors
+cargo run --bin adapteros-server
 
-# Check for configuration errors
-./target/release/adapteros-server --config configs/production.toml --dry-run
+# Check configuration
+cat configs/aos.toml
 
-# Validate configuration file
-cat configs/production.toml | grep -v '^#' | grep -v '^$'
-
-# Check file permissions
-ls -la configs/production.toml
-ls -la var/jwt_*.pem
+# Verify environment
+env | grep AOS_
 ```
 
 **Common Solutions:**
 
-1. **Configuration File Issues**
+1. **Configuration file issues:**
    ```bash
-   # Check TOML syntax
-   python3 -c "import tomllib; tomllib.load(open('configs/production.toml', 'rb'))"
+   # Validate TOML syntax (requires Python)
+   python3 -c "import tomllib; tomllib.load(open('configs/aos.toml', 'rb'))"
 
-   # Validate required fields
-   grep -E "^(database|server|security)" configs/production.toml
+   # Check for required fields
+   grep -E "database_url|server_port" configs/aos.toml
    ```
 
-2. **Database Connection Issues**
+2. **Database initialization:**
    ```bash
-   # Test database connection
-   psql -h localhost -U adapteros -d adapteros_prod -c "SELECT version();"
+   # Create database directory
+   mkdir -p var/
 
-   # Check database is running
-   pg_isready -h localhost -p 5432
-
-   # Verify database exists
-   psql -h localhost -U postgres -l | grep adapteros_prod
+   # Run migrations
+   cargo sqlx migrate run --database-url sqlite:var/aos-cp.sqlite3
    ```
 
-3. **Permission Issues**
+3. **Permission issues:**
    ```bash
-   # Check adapter directory permissions
-   ls -ld /var/lib/adapteros/
-   ls -ld /var/lib/adapteros/adapters/
+   # Check directory permissions
+   ls -ld var/
 
-   # Check log directory permissions
-   ls -ld /var/log/adapteros/
-
-   # Fix permissions if needed
-   sudo chown -R adapteros:adapteros /var/lib/adapteros/
-   sudo chown -R adapteros:adapteros /var/log/adapteros/
-   ```
-
-4. **Port Binding Issues**
-   ```bash
-   # Check if port is already in use
-   netstat -tlnp | grep :8080
-
-   # Try different port
-   sed -i 's/port = 8080/port = 8081/' configs/production.toml
+   # Fix if needed
+   chmod 755 var/
    ```
 
 ### Adapter Loading Failures
 
 **Symptoms:**
 - Server starts but adapters fail to load
-- Warnings about missing adapters in logs
-- Inference requests fail
+- "Adapter corrupted" errors
+- Missing adapter warnings in logs
 
 **Diagnosis:**
+
 ```bash
 # Check adapter directory
-ls -la /var/lib/adapteros/adapters/
+ls -la var/adapters/
 
-# Check for adapter manifest files
-find /var/lib/adapteros/adapters/ -name "*.json" | head -5
+# Test adapter integrity
+./aosctl adapter inspect var/adapters/*.aos
 
-# Check adapter loading logs
-grep "adapter.*load\|adapter.*error" /var/log/adapteros/server.log | tail -10
-
-# Verify adapter file integrity
-for adapter in /var/lib/adapteros/adapters/*.aos; do
-  echo "Checking $adapter..."
-  file "$adapter"
-done
+# Check loading logs
+grep "adapter.*load\|adapter.*error" var/aos-cp.log | tail -20
 ```
 
 **Solutions:**
 
-1. **Re-import Base Model**
+1. **Fix corrupted adapters:**
+   ```bash
+   # Identify corrupted files
+   for adapter in var/adapters/*.aos; do
+     ./aosctl adapter inspect "$adapter" || echo "CORRUPTED: $adapter"
+   done
+
+   # Remove corrupted files
+   rm var/adapters/corrupted_adapter.aos
+   ```
+
+2. **Re-import base model:**
    ```bash
    # Check if base model exists
    ls -la models/qwen2.5-7b-mlx/
 
-   # Re-import if missing
-   ./target/release/aosctl import-model \
-     --name qwen2.5-7b-instruct \
-     --weights models/qwen2.5-7b-mlx/weights.safetensors \
-     --config models/qwen2.5-7b-mlx/config.json \
-     --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
+   # Download if missing (example)
+   # Follow model download instructions in docs/
    ```
 
-2. **Fix Adapter File Corruption**
+### High Memory Usage
+
+**Symptoms:**
+- Memory usage > 85%
+- Adapters fail to load
+- System becomes slow/unresponsive
+- OOM errors
+
+**Diagnosis:**
+
+```bash
+# Check current memory usage
+curl -s http://localhost:8080/api/v1/metrics/system | jq '.memory'
+
+# Check system memory
+free -h 2>/dev/null || vm_stat
+
+# Check loaded adapters
+curl -s http://localhost:8080/api/v1/adapters | jq '.[] | select(.status == "Loaded") | {id, name, memory_mb}'
+```
+
+**Solutions:**
+
+1. **Immediate relief:**
    ```bash
-   # Identify corrupted adapters
-   for adapter in /var/lib/adapteros/adapters/*.aos; do
-     if ! ./target/release/aosctl adapter inspect "$adapter" >/dev/null 2>&1; then
-       echo "Corrupted: $adapter"
-       mv "$adapter" "${adapter}.corrupted"
-     fi
+   # Unload least-used adapters (via UI or API)
+   curl -X POST http://localhost:8080/api/v1/adapters/{adapter_id}/unload
+   ```
+
+2. **Configuration changes:**
+   ```toml
+   # configs/aos.toml
+   [memory]
+   min_headroom_pct = 20  # Increase from default
+   max_adapters_per_tenant = 5  # Reduce from default
+   ```
+
+3. **System-level:**
+   ```bash
+   # Check for memory leaks
+   while true; do
+     echo "$(date): $(curl -s http://localhost:8080/api/v1/metrics/system | jq '.memory.used_bytes')"
+     sleep 60
    done
 
-   # Re-upload corrupted adapters
+   # Restart if memory leak suspected
+   make dev
    ```
-
----
-
-## Authentication Problems
-
-### Login Failures
-
-**Symptoms:**
-- Users can't log in
-- "Invalid credentials" errors
-- JWT token generation fails
-
-**Diagnosis:**
-```bash
-# Test login endpoint
-curl -v -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com","password":"password"}'
-
-# Check JWT key files
-ls -la var/jwt_*.pem
-
-# Validate key permissions
-stat var/jwt_private.pem
-stat var/jwt_public.pem
-
-# Check authentication logs
-grep -i "auth\|login\|jwt" /var/log/adapteros/server.log | tail -10
-```
-
-**Solutions:**
-
-1. **JWT Key Issues**
-   ```bash
-   # Regenerate keys if corrupted
-   openssl genpkey -algorithm Ed25519 -out var/jwt_private_new.pem
-   openssl pkey -in var/jwt_private_new.pem -pubout -out var/jwt_public_new.pem
-
-   # Update configuration
-   sed -i 's|private_key_file = "var/jwt_private.pem"|private_key_file = "var/jwt_private_new.pem"|' configs/production.toml
-   sed -i 's|public_key_file = "var/jwt_public.pem"|public_key_file = "var/jwt_public_new.pem"|' configs/production.toml
-
-   # Restart server
-   systemctl restart adapteros-server
-
-   # Replace old keys after testing
-   mv var/jwt_private_new.pem var/jwt_private.pem
-   mv var/jwt_public_new.pem var/jwt_public.pem
-   ```
-
-2. **User Database Issues**
-   ```sql
-   -- Check if user exists
-   SELECT id, email, role FROM users WHERE email = 'admin@example.com';
-
-   -- Reset password if needed (for development only)
-   UPDATE users SET password_hash = '$2b$10$...' WHERE email = 'admin@example.com';
-   ```
-
-### Invalid Token Errors
-
-**Symptoms:**
-- API requests fail with 401 Unauthorized
-- Tokens work initially but expire quickly
-
-**Diagnosis:**
-```bash
-# Decode JWT token to check expiry
-echo "your.jwt.token" | cut -d'.' -f2 | base64 -d 2>/dev/null | jq '.exp, .iat'
-
-# Check token expiry configuration
-grep "token_expiry\|jwt" configs/production.toml
-
-# Check system time sync
-date
-curl -s http://worldtimeapi.org/api/timezone/Etc/UTC.txt | grep "UTC:"
-```
-
-**Solutions:**
-
-1. **Time Synchronization Issues**
-   ```bash
-   # Sync system time
-   sudo ntpdate pool.ntp.org
-
-   # Enable NTP
-   sudo systemctl enable ntpd
-   sudo systemctl start ntpd
-   ```
-
-2. **Token Expiry Configuration**
-   ```toml
-   # Increase token expiry for development
-   [auth]
-   token_expiry_hours = 24
-
-   # Or decrease for production security
-   [auth]
-   token_expiry_hours = 8
-   ```
-
----
-
-## Performance Issues
 
 ### High Latency
 
 **Symptoms:**
-- Inference requests take longer than expected
-- p95 latency > 200ms
-- User complaints about slow responses
+- Inference requests take > 2 seconds
+- p95 latency above target
+- Slow UI responses
 
 **Diagnosis:**
+
 ```bash
-# Check current latency metrics
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/metrics/system | jq '.inference.avg_latency_ms'
+# Check latency metrics
+curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference.avg_latency_ms'
 
 # Check queue depth
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/metrics/system | jq '.inference.queue_depth'
+curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference.queue_depth'
 
-# Monitor request patterns
-tail -f /var/log/adapteros/server.log | grep "inference_request"
+# Monitor requests
+tail -f var/aos-cp.log | grep "inference_request"
 
 # Check system load
 uptime
-top -b -n1 | head -20
+top -l 1  # macOS
 ```
 
 **Solutions:**
 
-1. **Increase Worker Threads**
+1. **Check for stub backends:**
+   ```bash
+   # Stub backends are much slower
+   grep -i "stub\|fallback" var/aos-cp.log | tail -10
+
+   # Enable real backend (macOS)
+   cargo build --release --features mlx-backend
+   ```
+
+2. **Reduce adapter mixing:**
    ```toml
-   # Update production.toml
-   [server]
-   workers = 16  # Increase from 8
-   ```
-
-2. **Reduce K-Sparse Value**
-   ```bash
-   # Temporarily reduce adapter count per request
-   curl -X POST \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{"k_sparse": 2}' \
-     http://localhost:8080/api/v1/system/config
-   ```
-
-3. **Optimize Adapter Selection**
-   ```bash
-   # Check which adapters are most used
-   curl -H "Authorization: Bearer $TOKEN" \
-     http://localhost:8080/api/v1/adapters | jq '.[] | {id, activations: .metrics.total_activations}' | sort_by(.activations) | reverse
-   ```
-
-### Low Throughput
-
-**Symptoms:**
-- System handles fewer requests than expected
-- Tokens/sec below target
-- Queue depth consistently high
-
-**Diagnosis:**
-```bash
-# Check throughput metrics
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/metrics/system | jq '.inference.tokens_per_sec'
-
-# Monitor CPU usage
-top -p $(pgrep adapteros-server) -n 1
-
-# Check memory usage
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/metrics/system | jq '.memory.used_bytes / .memory.total_bytes'
-
-# Check for bottlenecks
-iostat -x 1 5
-```
-
-**Solutions:**
-
-1. **CPU Bottleneck**
-   ```bash
-   # Check current worker count
-   ps aux | grep adapteros-server | wc -l
-
-   # Increase workers if CPU < 80%
-   ```
-
-2. **Memory Bottleneck**
-   ```bash
-   # Check memory headroom
-   curl -H "Authorization: Bearer $TOKEN" \
-     http://localhost:8080/api/v1/metrics/system | jq '.memory.headroom_pct'
-
-   # Evict unused adapters
-   curl -X POST \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{"adapter_id": "least_used_adapter"}' \
-     http://localhost:8080/api/v1/system/evict-adapter
-   ```
-
----
-
-## Memory Issues
-
-### Out of Memory Errors
-
-**Symptoms:**
-- System crashes with OOM
-- Adapters fail to load
-- Memory usage > 95%
-
-**Diagnosis:**
-```bash
-# Check current memory usage
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/metrics/system | jq '.memory'
-
-# Check system memory
-free -h
-
-# Check adapter memory usage
-for adapter in $(curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/adapters | jq -r '.[].id'); do
-  echo "Adapter: $adapter"
-  curl -s -H "Authorization: Bearer $TOKEN" \
-    http://localhost:8080/api/v1/metrics/adapters/$adapter | jq '.memory_usage_mb'
-done
-
-# Check memory-related logs
-grep -i "memory\|eviction\|oom" /var/log/adapteros/server.log | tail -20
-```
-
-**Solutions:**
-
-1. **Immediate Memory Relief**
-   ```bash
-   # Reduce K-sparse value
-   curl -X POST \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{"k_sparse": 1}' \
-     http://localhost:8080/api/v1/system/config
-
-   # Evict largest adapters
-   curl -H "Authorization: Bearer $TOKEN" \
-     http://localhost:8080/api/v1/adapters | jq '.[] | {id, memory: .metrics.memory_usage_mb}' | sort_by(.memory) | reverse | head -3
-   ```
-
-2. **Permanent Configuration Changes**
-   ```toml
-   # Update production.toml
-   [memory]
-   min_headroom_pct = 20  # Increase from 15%
-   max_adapters_per_tenant = 10  # Reduce from 20
-
+   # configs/aos.toml
    [router]
-   k_sparse = 2  # Reduce from 3
+   k_sparse = 1  # Reduce from 3 for faster inference
    ```
 
-3. **System Memory Tuning**
+3. **Check backend status:**
    ```bash
-   # Enable swap if needed (temporary)
-   sudo fallocate -l 8G /swapfile
-   sudo chmod 600 /swapfile
-   sudo mkswap /swapfile
-   sudo swapon /swapfile
-
-   # Add to /etc/fstab for persistence
-   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-   ```
-
-### Memory Leaks
-
-**Symptoms:**
-- Memory usage gradually increases over time
-- System requires periodic restarts
-- Performance degrades over time
-
-**Diagnosis:**
-```bash
-# Monitor memory usage over time
-while true; do
-  date
-  curl -s -H "Authorization: Bearer $TOKEN" \
-    http://localhost:8080/api/v1/metrics/system | jq '.memory.used_bytes'
-  sleep 300
-done
-
-# Check for memory leaks in logs
-grep -i "leak\|alloc\|dealloc" /var/log/adapteros/server.log
-
-# Profile memory usage
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/debug/pprof/heap > heap.prof
-```
-
-**Solutions:**
-
-1. **Restart Services**
-   ```bash
-   # Graceful restart
-   systemctl restart adapteros-server
-
-   # Monitor memory after restart
-   curl -H "Authorization: Bearer $TOKEN" \
-     http://localhost:8080/api/v1/metrics/system | jq '.memory.used_bytes'
-   ```
-
-2. **Check for Memory Fragmentation**
-   ```bash
-   # Monitor adapter loading/unloading
-   grep "adapter.*load\|adapter.*unload\|eviction" /var/log/adapteros/server.log | tail -20
-
-   # Check eviction policy effectiveness
-   curl -H "Authorization: Bearer $TOKEN" \
-     http://localhost:8080/api/v1/metrics/system | jq '.adapters.loaded_count'
+   # Ensure GPU/ANE is being used
+   sudo powermetrics --samplers gpu_power -n 1 | grep "GPU"  # macOS
    ```
 
 ---
@@ -514,591 +619,442 @@ curl -H "Authorization: Bearer $TOKEN" \
 ### Connection Failures
 
 **Symptoms:**
-- Database connection errors
+- "Database connection error"
 - Service starts but API calls fail
-- "connection refused" errors
+- SQLite file locked
 
 **Diagnosis:**
+
 ```bash
 # Test database connectivity
-psql -h localhost -U adapteros -d adapteros_prod -c "SELECT 1;"
+sqlite3 var/aos-cp.sqlite3 "SELECT 1;"
 
-# Check PostgreSQL status
-sudo systemctl status postgresql@15
+# Check if file exists and is readable
+ls -la var/aos-cp.sqlite3
 
-# Check database logs
-tail -20 /usr/local/var/log/postgres.log
+# Check for locks
+lsof var/aos-cp.sqlite3
 
-# Check connection pool
-psql -h localhost -U adapteros -d adapteros_prod -c "SELECT * FROM pg_stat_activity WHERE datname = 'adapteros_prod';"
+# Check database schema version
+sqlite3 var/aos-cp.sqlite3 "PRAGMA user_version;"
 ```
 
 **Solutions:**
 
-1. **Restart Database**
+1. **File permissions:**
    ```bash
-   sudo systemctl restart postgresql@15
-
-   # Wait for startup
-   sleep 10
-
-   # Test connection
-   psql -h localhost -U adapteros -d adapteros_prod -c "SELECT 1;"
+   # Fix permissions
+   chmod 644 var/aos-cp.sqlite3
+   chmod 755 var/
    ```
 
-2. **Check Connection Limits**
-   ```sql
-   -- Check current connections
-   SELECT count(*) FROM pg_stat_activity WHERE datname = 'adapteros_prod';
-
-   -- Check max connections
-   SHOW max_connections;
-
-   -- Check connection pool settings in AdapterOS config
-   grep "pool_size" configs/production.toml
-   ```
-
-3. **Database Configuration Issues**
+2. **Database locked:**
    ```bash
-   # Check database URL in config
-   grep "database.*url" configs/production.toml
+   # Check for multiple server instances
+   ps aux | grep adapteros-server
 
-   # Test with different connection string
-   psql "postgresql://adapteros:password@localhost/adapteros_prod" -c "SELECT 1;"
+   # Kill duplicate instances
+   pkill -f adapteros-server
+
+   # Restart single instance
+   make dev
    ```
 
-### Query Performance Issues
+3. **Corrupted database:**
+   ```bash
+   # Backup current database
+   cp var/aos-cp.sqlite3 var/aos-cp.sqlite3.backup
+
+   # Check integrity
+   sqlite3 var/aos-cp.sqlite3 "PRAGMA integrity_check;"
+
+   # If corrupted, restore from backup or recreate
+   rm var/aos-cp.sqlite3
+   cargo sqlx migrate run
+   ```
+
+### Migration Failures
 
 **Symptoms:**
-- Database queries are slow
-- API responses delayed
-- High database CPU usage
+- "Migration failed" errors on startup
+- Schema version mismatch
+- Foreign key constraint errors
 
 **Diagnosis:**
-```sql
--- Check slow queries
-SELECT query, total_time, calls, mean_time
-FROM pg_stat_statements
-ORDER BY mean_time DESC
-LIMIT 10;
 
--- Check table bloat
-SELECT schemaname, tablename, n_dead_tup, n_live_tup,
-       n_dead_tup::float / (n_live_tup + n_dead_tup) * 100 as bloat_ratio
-FROM pg_stat_user_tables
-WHERE n_dead_tup > 0
-ORDER BY bloat_ratio DESC;
+```bash
+# Check current migration version
+sqlite3 var/aos-cp.sqlite3 "SELECT * FROM _sqlx_migrations ORDER BY version DESC LIMIT 5;"
 
--- Check index usage
-SELECT indexname, idx_scan, idx_tup_read, idx_tup_fetch
-FROM pg_stat_user_indexes
-WHERE idx_scan = 0
-ORDER BY idx_tup_read DESC;
+# List migration files
+ls migrations/*.sql | tail -5
+
+# Check for migration errors in logs
+grep "migration" var/aos-cp.log | tail -20
 ```
 
 **Solutions:**
 
-1. **Database Maintenance**
-   ```sql
-   -- Vacuum analyze
-   VACUUM ANALYZE;
+1. **Run migrations manually:**
+   ```bash
+   # Run all pending migrations
+   cargo sqlx migrate run --database-url sqlite:var/aos-cp.sqlite3
 
-   -- Reindex unused indexes
-   REINDEX DATABASE adapteros_prod;
+   # Or use CLI
+   ./aosctl db migrate
    ```
 
-2. **Query Optimization**
-   ```sql
-   -- Create missing indexes
-   CREATE INDEX CONCURRENTLY ON rag_documents USING hnsw (embedding vector_cosine_ops);
-   CREATE INDEX CONCURRENTLY ON inference_requests (created_at);
+2. **Reset database (dev only):**
+   ```bash
+   # WARNING: Deletes all data
+   rm var/aos-cp.sqlite3
+   cargo sqlx migrate run
+   make dev
    ```
 
-3. **Connection Pool Tuning**
-   ```toml
-   # Update production.toml
-   [db]
-   pool_size = 30  # Increase if needed
-   max_lifetime = 1800  # 30 minutes
+3. **Fix foreign key issues:**
+   ```bash
+   # Check if foreign keys are enabled
+   sqlite3 var/aos-cp.sqlite3 "PRAGMA foreign_keys;"
+
+   # Should return 1 (enabled)
+   # If not, check lib.rs opens with foreign_keys=true
    ```
 
 ---
 
-## Network Issues
+## Network and Port Issues
+
+### Port Conflicts
+
+**Symptoms:**
+- "Address already in use"
+- Server fails to bind to port
+- Systemd service fails
+
+**Diagnosis:**
+
+```bash
+# Check what's using ports
+lsof -i:8080
+lsof -i:3200
+
+# Check with netstat
+netstat -an | grep LISTEN | grep -E '8080|3200'
+```
+
+**Solutions:**
+
+```bash
+# Method 1: Kill conflicting process
+lsof -ti:8080 | xargs kill -9
+
+# Method 2: Use make prepare (comprehensive cleanup)
+make prepare
+
+# Method 3: Change port
+export AOS_SERVER_PORT=8081
+make dev
+```
 
 ### Connection Refused
 
 **Symptoms:**
 - Cannot connect to service
-- "connection refused" errors
-- Port appears closed
+- "Connection refused" errors
+- curl/browser can't reach server
 
 **Diagnosis:**
+
 ```bash
 # Check if service is listening
-netstat -tlnp | grep :8080
-
-# Check firewall rules
-sudo pfctl -s rules | grep 8080
+lsof -i:8080
 
 # Test local connectivity
 curl -v http://localhost:8080/healthz
+curl -v http://127.0.0.1:8080/healthz
 
-# Check network interface
-ip addr show | grep inet
+# Check firewall (macOS)
+sudo pfctl -s rules | grep 8080
 ```
 
 **Solutions:**
 
-1. **Firewall Configuration**
+1. **Service not running:**
    ```bash
-   # Check Packet Filter rules
-   sudo pfctl -s rules
+   # Start service
+   make dev
 
-   # Add rule for port 8080
-   echo "pass in on en0 proto tcp to port 8080" | sudo pfctl -a adapteros -f -
-
-   # Reload rules
-   sudo pfctl -f /etc/pf.conf
+   # Verify it's listening
+   lsof -i:8080
    ```
 
-2. **Service Binding**
+2. **Firewall blocking (macOS):**
+   ```bash
+   # Allow port through firewall
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add $(which adapteros-server)
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp $(which adapteros-server)
+   ```
+
+3. **Wrong bind address:**
    ```toml
-   # Check server configuration
+   # configs/aos.toml
    [server]
    bind_address = "0.0.0.0"  # Allow external connections
    port = 8080
    ```
 
-### SSL/TLS Issues
+### CORS Issues (UI Development)
 
 **Symptoms:**
-- HTTPS connections fail
-- Certificate validation errors
-- Mixed content warnings
+- Browser console shows CORS errors
+- UI can't reach API
+- "Access-Control-Allow-Origin" errors
 
 **Diagnosis:**
+
 ```bash
-# Test SSL connection
-openssl s_client -connect localhost:8443 -servername localhost
+# Check if both servers are running
+lsof -i:8080  # Backend
+lsof -i:3200  # Frontend
 
-# Check certificate validity
-openssl x509 -in /etc/ssl/certs/adapteros.crt -text | grep -A2 "Validity"
-
-# Test with curl
-curl -v https://localhost:8443/healthz
+# Test CORS headers
+curl -v -H "Origin: http://localhost:3200" http://localhost:8080/healthz
 ```
 
-**Solutions:**
+**Solution:**
 
-1. **Certificate Issues**
-   ```bash
-   # Renew certificate
-   certbot renew
+```bash
+# Ensure both are running with correct config
+# Terminal 1: Backend
+make dev-no-auth
 
-   # Restart web server
-   sudo systemctl restart nginx
+# Terminal 2: Frontend
+cd ui && pnpm dev
 
-   # Check certificate chain
-   openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/adapteros.crt
-   ```
-
-2. **SSL Configuration**
-   ```nginx
-   # Nginx SSL configuration
-   server {
-       listen 443 ssl http2;
-       server_name adapteros.example.com;
-
-       ssl_certificate /etc/letsencrypt/live/adapteros.example.com/fullchain.pem;
-       ssl_certificate_key /etc/letsencrypt/live/adapteros.example.com/privkey.pem;
-
-       ssl_protocols TLSv1.2 TLSv1.3;
-       ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512;
-       ssl_prefer_server_ciphers off;
-   }
-   ```
+# Or use canonical start script
+./start
+```
 
 ---
 
-## Adapter Issues
+## Backend-Specific Issues
 
-### Adapter Loading Errors
+### CoreML Backend Issues (macOS Only)
 
 **Symptoms:**
-- Adapters fail to load at startup
-- "adapter corrupted" errors
-- Missing adapter warnings
+- "CoreML not available" errors
+- ANE not being utilized
+- Slower than expected inference
 
 **Diagnosis:**
+
 ```bash
-# Check adapter files
-ls -la /var/lib/adapteros/adapters/
+# Check if running on macOS
+uname -s  # Should show "Darwin"
 
-# Test adapter integrity
-for adapter in /var/lib/adapteros/adapters/*.aos; do
-  echo "Testing $adapter..."
-  ./target/release/aosctl adapter inspect "$adapter" || echo "FAILED: $adapter"
-done
+# Check CoreML availability
+system_profiler SPSoftwareDataType | grep "System Version"
 
-# Check loading logs
-grep "adapter.*load\|adapter.*error\|adapter.*fail" /var/log/adapteros/server.log | tail -20
+# Check for ANE (Apple Neural Engine)
+system_profiler SPiBridgeDataType 2>/dev/null | grep "Model Name"
+
+# Check if CoreML backend is enabled
+cargo tree -p adapteros-lora-kernel-coreml -f "{p} {f}"
+
+# Look for CoreML logs
+grep -i "coreml" var/aos-cp.log | tail -10
 ```
 
 **Solutions:**
 
-1. **Re-upload Corrupted Adapters**
+1. **Enable CoreML backend:**
    ```bash
-   # Identify corrupted adapters
-   find /var/lib/adapteros/adapters/ -name "*.aos" -exec ./target/release/aosctl adapter inspect {} \; 2>&1 | grep -v "OK" | cut -d: -f1
-
-   # Remove corrupted files
-   # Re-upload from backup or original source
+   # Rebuild with CoreML support
+   cargo build --release --features coreml-backend
    ```
 
-2. **Check File Permissions**
+2. **Verify CoreML models:**
    ```bash
-   # Fix adapter file permissions
-   sudo chown -R adapteros:adapteros /var/lib/adapteros/adapters/
-   sudo chmod 644 /var/lib/adapteros/adapters/*.aos
+   # Check for .mlmodel or .mlmodelc files
+   find . -name "*.mlmodel*"
    ```
 
-### Router Selection Issues
+3. **Check macOS version:**
+   - CoreML requires macOS 11.0+ (Big Sur)
+   - ANE requires M1+ chips (not Intel Macs)
+
+### MLX Backend Issues (macOS Only)
 
 **Symptoms:**
-- Wrong adapters selected for requests
-- Poor inference quality
-- Router calibration errors
+- "MLX stub implementation active"
+- No GPU acceleration
+- Very slow inference
+- Training takes hours instead of minutes
 
 **Diagnosis:**
+
 ```bash
-# Check router configuration
-grep -A10 "\[router\]" configs/production.toml
+# Check if MLX feature is enabled
+cargo tree -p adapteros-lora-worker -f "{p} {f}" | grep mlx
 
-# Check router metrics
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/metrics/system | jq '.router'
+# Check for stub warnings in logs
+grep -i "stub" var/aos-cp.log | grep -i "mlx"
 
-# Check router logs
-grep -i "router\|select\|calibrat" /var/log/adapteros/server.log | tail -20
+# Check if MLX library is installed
+brew list | grep mlx
+pip3 list | grep mlx
 
-# Test router selection
-curl -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Test prompt",
-    "adapters": ["auto"],
-    "debug": true
-  }' \
-  http://localhost:8080/api/v1/inference/chat
+# Verify Apple Silicon
+uname -m  # Should show "arm64"
 ```
 
 **Solutions:**
 
-1. **Router Recalibration**
+1. **Install MLX library:**
    ```bash
-   # Trigger router recalibration
-   curl -X POST \
-     -H "Authorization: Bearer $TOKEN" \
-     http://localhost:8080/api/v1/system/router-recalibrate
+   # Install via pip
+   pip3 install mlx
+
+   # Or build from source
+   git clone https://github.com/ml-explore/mlx.git
+   cd mlx && mkdir build && cd build
+   cmake .. && make -j
+   sudo make install
    ```
 
-2. **Update Router Configuration**
-   ```toml
-   # Adjust router settings
-   [router]
-   k_sparse = 3
-   entropy_floor = 0.05  # Increase for more diverse selection
-   gate_quant = "q15"
+2. **Enable MLX feature:**
+   ```bash
+   # Rebuild with MLX enabled
+   cargo build --release --features mlx-backend
+
+   # Set environment variable
+   echo "AOS_BACKEND=mlx" >> .env.local
    ```
 
----
+3. **Verify stub is NOT active:**
+   ```bash
+   # Should NOT see "stub" in version
+   cargo run --bin adapteros-server 2>&1 | grep -i "mlx.*version"
 
-## Training Issues
+   # Should see "MLX GPU backend initialized"
+   grep "MLX.*initialized" var/aos-cp.log
+   ```
 
-### Training Job Failures
+### Metal Backend Issues (macOS Only)
 
 **Symptoms:**
-- Training jobs fail to start
-- Jobs crash during training
-- Poor training metrics
+- Metal kernel compilation fails
+- "Metal not available" errors
+- GPU not being utilized
 
 **Diagnosis:**
+
 ```bash
-# Check training job status
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/training/jobs | jq '.[] | {id, status, error}'
+# Check Metal support
+system_profiler SPDisplaysDataType | grep Metal
 
-# Check training logs
-tail -50 /var/log/adapteros/training.log
+# Check if Metal backend is enabled
+cargo tree -p adapteros-lora-kernel-mtl -f "{p} {f}"
 
-# Check system resources during training
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/metrics/system
+# Check for compiled shaders
+ls -la crates/adapteros-lora-kernel-mtl/metal/kernels.metallib
 
-# Validate training dataset
-head -5 /data/training/dataset.jsonl | jq .
-wc -l /data/training/dataset.jsonl
+# Monitor GPU usage during inference
+sudo powermetrics --samplers gpu_power -n 5
 ```
 
 **Solutions:**
 
-1. **Resource Issues**
+1. **Build Metal shaders:**
    ```bash
-   # Check available memory for training
-   free -h
+   make metal
 
-   # Reduce batch size if OOM
-   sed -i 's/batch_size = 8/batch_size = 4/' training_config.json
+   # Verify compilation
+   ls -lh crates/adapteros-lora-kernel-mtl/metal/kernels.metallib
    ```
 
-2. **Dataset Issues**
+2. **Enable Metal backend:**
    ```bash
-   # Validate JSONL format
-   while read -r line; do
-     echo "$line" | jq . || echo "Invalid JSON: $line"
-   done < /data/training/dataset.jsonl | head -5
-
-   # Check dataset size
-   ls -lh /data/training/dataset.jsonl
+   cargo build --release --features metal-backend
    ```
 
-### Training Performance Issues
+3. **Check GPU availability:**
+   ```bash
+   # List Metal devices
+   system_profiler SPDisplaysDataType | grep -A10 "Metal"
 
-**Symptoms:**
-- Training is very slow
-- GPU utilization is low
-- Loss not decreasing
+   # On M-series Macs, you should see Metal Family 8 or 9
+   ```
 
-**Diagnosis:**
+### Stub Detection and Resolution
+
+**How to Identify Active Stubs:**
+
 ```bash
-# Monitor training progress
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/training/jobs/train_123 | jq '.progress, .metrics, .current_epoch'
+# Method 1: Check logs for stub warnings
+grep -i "stub\|fallback\|mock" var/aos-cp.log | tail -20
 
-# Check system resource usage
-top -p $(pgrep adapteros-server) -n 1
+# Method 2: Check feature flags
+cargo tree --workspace -f "{p} {f}" | grep -E "mlx|metal|coreml"
 
-# Check Metal GPU usage (on macOS)
-sudo powermetrics --samplers gpu_power | grep -A5 "GPU"
-
-# Check training configuration
-cat training_config.json | jq '.config'
+# Method 3: Check runtime version strings
+curl -s http://localhost:8080/api/v1/debug/backends | jq .
 ```
 
-**Solutions:**
+**Common Stub Indicators:**
 
-1. **Optimize Training Configuration**
-   ```json
-   {
-     "config": {
-       "batch_size": 8,
-       "gradient_accumulation_steps": 2,
-       "learning_rate": 0.00005,
-       "warmup_steps": 100,
-       "weight_decay": 0.01,
-       "max_grad_norm": 1.0
-     }
-   }
-   ```
+| Log Message | Meaning | Solution |
+|------------|---------|----------|
+| "MLX stub implementation active" | MLX not compiled in | Add `--features mlx-backend` |
+| "using software-based fallback" | No Secure Enclave | Expected on dev machines |
+| "Mock KMS" in logs | Mock KMS backend active | Configure real KMS provider |
+| "stub-0.1.0" in version | Stub backend | Rebuild with real backend |
 
-2. **Hardware Acceleration Issues**
-   ```bash
-   # Check Metal framework availability
-   system_profiler SPDisplaysDataType | grep Metal
+**Production Readiness Checklist:**
 
-   # Verify Metal kernel compilation
-   ls -la metal/kernels.metallib
-   ```
+Before deploying to production, verify NO stubs are active:
 
----
-
-## Monitoring Issues
-
-### Metrics Not Appearing
-
-**Symptoms:**
-- Prometheus can't scrape metrics
-- Grafana dashboards show no data
-- `/metrics` endpoint returns errors
-
-**Diagnosis:**
 ```bash
-# Test metrics endpoint
-curl -f http://localhost:8080/metrics | head -10
+# Should return empty (no stub warnings)
+grep -i "stub\|fallback" var/aos-cp.log | grep -v "development\|test"
 
-# Check metrics configuration
-grep -A5 "\[telemetry\]" configs/production.toml
+# All features should show "enabled"
+cargo tree --workspace -f "{p} {f}" | grep -E "mlx|metal|coreml"
 
-# Check Prometheus configuration
-cat /etc/prometheus/prometheus.yml | grep -A5 adapteros
-
-# Test Prometheus targets
-curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job == "adapteros")'
+# Health check should show real backends
+curl http://localhost:8080/api/v1/metrics/system | jq '.backends'
 ```
 
-**Solutions:**
+### Backend Selection Strategy
 
-1. **Enable Metrics in Configuration**
-   ```toml
-   [telemetry]
-   enabled = true
-   prometheus_port = 9090
-   json_output = "/var/log/adapteros/telemetry.jsonl"
-   ```
+**Decision Tree:**
 
-2. **Fix Prometheus Configuration**
-   ```yaml
-   scrape_configs:
-     - job_name: 'adapteros'
-       static_configs:
-         - targets: ['localhost:8080']
-       metrics_path: '/metrics'
-       scrape_interval: 15s
-   ```
+```mermaid
+flowchart TD
+    A[Select Backend] --> B{Platform?}
+    B -->|macOS M1+| C{Use Case?}
+    B -->|macOS Intel| D[Metal Backend]
+    B -->|Linux/Windows| E[CPU Only / Stub]
 
-### Alert Not Firing
+    C -->|Inference| F{Priority?}
+    C -->|Training| G[MLX Backend]
 
-**Symptoms:**
-- Alerts don't trigger when conditions are met
-- Alertmanager not sending notifications
+    F -->|Speed| H[CoreML + ANE]
+    F -->|Flexibility| I[MLX Backend]
+    F -->|Compatibility| J[Metal Backend]
 
-**Diagnosis:**
-```bash
-# Check alert rules
-cat /etc/prometheus/alerts.yml
-
-# Test alert conditions manually
-curl -s http://localhost:8080/metrics | grep adapteros_memory_usage | awk '{print $2}'
-
-# Check Alertmanager status
-curl http://localhost:9093/api/v2/alerts
-
-# Check alert logs
-tail -20 /var/log/prometheus/alertmanager.log
+    style H fill:#90EE90
+    style I fill:#87CEEB
+    style J fill:#FFD700
 ```
 
-**Solutions:**
+**Recommendations:**
 
-1. **Fix Alert Rules**
-   ```yaml
-   groups:
-   - name: adapteros
-     rules:
-     - alert: HighMemoryUsage
-       expr: adapteros_memory_usage_bytes / adapteros_memory_total_bytes > 0.85
-       for: 5m
-       labels:
-         severity: warning
-       annotations:
-         summary: "AdapterOS memory usage above 85%"
-   ```
-
-2. **Configure Alertmanager**
-   ```yaml
-   route:
-     group_by: ['alertname']
-     group_wait: 10s
-     group_interval: 10s
-     repeat_interval: 1h
-     receiver: 'email'
-   receivers:
-   - name: 'email'
-     email_configs:
-     - to: 'ops@company.com'
-       from: 'alerts@company.com'
-   ```
-
----
-
-## Security Issues
-
-### Unauthorized Access Attempts
-
-**Symptoms:**
-- Multiple failed login attempts
-- Suspicious IP addresses in logs
-- Brute force attack indicators
-
-**Diagnosis:**
-```bash
-# Check authentication logs
-grep -i "login\|auth\|unauthorized" /var/log/adapteros/server.log | tail -50
-
-# Check failed login attempts
-grep "invalid credentials" /var/log/adapteros/server.log | cut -d' ' -f1 | uniq -c | sort -nr
-
-# Check rate limiting
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/metrics/system | jq '.security.rate_limited_requests'
-```
-
-**Solutions:**
-
-1. **Enable Rate Limiting**
-   ```toml
-   [security.rate_limiting]
-   enabled = true
-   requests_per_minute = 30
-   burst = 10
-   ```
-
-2. **Configure Account Lockout**
-   ```toml
-   [auth]
-   max_login_attempts = 5
-   lockout_duration_minutes = 30
-   ```
-
-3. **IP-based Blocking**
-   ```bash
-   # Check for suspicious IPs
-   grep "POST /api/v1/auth/login" /var/log/adapteros/server.log | awk '{print $1}' | sort | uniq -c | sort -nr | head -10
-
-   # Add to firewall if needed
-   sudo pfctl -t blocked_ips -T add suspicious.ip.address
-   ```
-
-### Certificate Expiry
-
-**Symptoms:**
-- SSL certificate warnings
-- HTTPS connections failing
-- Certificate expiry alerts
-
-**Diagnosis:**
-```bash
-# Check certificate expiry
-openssl x509 -in /etc/ssl/certs/adapteros.crt -text | grep -A2 "Validity"
-
-# Calculate days until expiry
-openssl x509 -in /etc/ssl/certs/adapteros.crt -enddate -noout | cut -d= -f2 | xargs -I {} date -d {} +%s | awk '{print int(($1 - systime()) / 86400)}'
-
-# Check certificate chain
-openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/adapteros.crt
-```
-
-**Solutions:**
-
-1. **Renew Certificate**
-   ```bash
-   # Using Let's Encrypt
-   certbot renew --cert-name adapteros.example.com
-
-   # Manual renewal
-   openssl req -new -key adapteros.key -out adapteros.csr
-   # Submit CSR to CA and install new certificate
-   ```
-
-2. **Update Certificate Configuration**
-   ```bash
-   # Reload web server configuration
-   sudo systemctl reload nginx
-
-   # Check certificate is loaded
-   curl -v https://adapteros.example.com/healthz 2>&1 | grep "SSL certificate verify ok"
-   ```
+- **Apple Silicon (M1/M2/M3/M4):** Use MLX backend for best performance
+- **macOS Intel:** Use Metal backend (limited performance)
+- **Development/Testing:** Stubs are acceptable
+- **Production:** Always use real backends, never stubs
 
 ---
 
@@ -1107,21 +1063,22 @@ openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/adapter
 ### When to Escalate
 
 **Critical Issues (Escalate Immediately):**
-- Service completely down
+- Service completely down in production
 - Data loss or corruption
 - Security breach
-- Production impacting performance issues
+- Memory leak causing crashes
 
 **High Priority Issues (Escalate within 1 hour):**
 - Partial service degradation
 - Authentication system failures
 - Memory usage > 95%
-- Training job failures
+- All training jobs failing
 
 **Normal Issues (Escalate within 4 hours):**
 - Performance degradation < 50%
-- Monitoring alerts
-- Configuration issues
+- Single adapter loading failures
+- UI rendering issues
+- Configuration questions
 
 ### Diagnostic Information to Collect
 
@@ -1130,32 +1087,80 @@ When escalating issues, always include:
 ```bash
 # System information
 uname -a
-sw_vers  # macOS
-free -h
-df -h
+sw_vers  # macOS only
+
+# Memory info
+free -h 2>/dev/null || vm_stat
+
+# Disk space
+df -h var/
 
 # Service status
-systemctl status adapteros-server
-ps aux | grep adapteros
+ps aux | grep adapteros-server
 
-# Recent logs
-tail -100 /var/log/adapteros/server.log
+# Recent logs (last 100 lines)
+tail -100 var/aos-cp.log
 
 # Configuration (redact secrets)
-grep -v "password\|secret\|key" configs/production.toml
+grep -v "password\|secret\|key" configs/aos.toml
 
 # Current metrics
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/metrics/system
+curl -s http://localhost:8080/api/v1/metrics/system | jq .
 
 # Database status
-psql -h localhost -U adapteros -d adapteros_prod -c "SELECT version();"
-psql -h localhost -U adapteros -d adapteros_prod -c "SELECT COUNT(*) FROM adapters;"
+sqlite3 var/aos-cp.sqlite3 "PRAGMA integrity_check;"
+sqlite3 var/aos-cp.sqlite3 "SELECT COUNT(*) FROM adapters;"
+
+# Backend status
+cargo tree --workspace -f "{p} {f}" | grep -E "mlx|metal|coreml"
+grep -i "stub\|fallback" var/aos-cp.log | tail -20
 ```
+
+### Quick Reference Commands
+
+```bash
+# Stop everything and restart fresh
+make prepare && make dev
+
+# Check system health
+curl http://localhost:8080/healthz && echo OK
+
+# View real-time logs
+tail -f var/aos-cp.log
+
+# Check what's using ports
+lsof -i:8080 -i:3200
+
+# Memory usage
+curl -s http://localhost:8080/api/v1/metrics/system | jq '.memory'
+
+# Loaded adapters
+curl -s http://localhost:8080/api/v1/adapters | jq '.[] | {name, status}'
+
+# Training jobs
+curl -s http://localhost:8080/api/v1/training/jobs | jq '.[] | {id, status}'
+```
+
+### Common Error Codes
+
+| Code | Meaning | Common Cause |
+|------|---------|--------------|
+| 401 | Unauthorized | Auth not bypassed in dev mode |
+| 403 | Forbidden | Tenant isolation violation |
+| 404 | Not Found | Adapter/model not loaded |
+| 409 | Conflict | Adapter name already exists |
+| 500 | Internal Server Error | Check logs for details |
+| 501 | Not Implemented | Stub endpoint or disabled feature |
+| 503 | Service Unavailable | Backend not ready |
+
+### Support Channels
+
+- **GitHub Issues:** https://github.com/mlnavigator/adapter-os/issues
+- **Documentation:** `/Users/mln-dev/Dev/adapter-os/docs/`
+- **In-App Help:** Navigate to `/help` in UI
 
 ---
 
-**Last Updated:** 2025-01-15
-**Version:** 1.0
-**Maintained By:** AdapterOS Support Team
+**This troubleshooting guide should resolve most common AdapterOS issues. For issues not covered here, please escalate with complete diagnostic information.**
 
-This troubleshooting guide should resolve most common AdapterOS issues. For issues not covered here, please escalate with complete diagnostic information.
+**MLNavigator Inc © 2025**

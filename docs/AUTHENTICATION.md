@@ -2,50 +2,23 @@
 
 ## Overview
 
-AdapterOS uses a comprehensive JWT-based authentication system with environment-specific configurations to support secure production deployments while maintaining developer convenience.
-
-**Citations:**
-- `crates/adapteros-server-api/src/state.rs` L151-242: AuthMode and AuthConfig structures
-- `crates/adapteros-server-api/src/middleware.rs` L1-272: Environment-aware middleware
-- `crates/adapteros-server-api/src/errors.rs` L13-88: Authentication error types
+AdapterOS currently uses short-lived JWT access tokens plus refresh/session cookies. The authoritative behavior comes from:
+- `crates/adapteros-server-api/src/handlers/auth_enhanced.rs` (login, refresh, dev bypass/bootstrap)
+- `crates/adapteros-server-api/src/middleware/mod.rs` (auth/dual/optional auth, tenant guard, CSRF)
+- `crates/adapteros-server-api/src/auth_common.rs` (token TTLs, cookie attributes, dev login gating)
+- `crates/adapteros-server-api/src/security/mod.rs` (tenant isolation, lockouts, revocation baseline)
+- UI client: `ui/src/api/client.ts` (in-memory bearer token, cookie-based refresh with `credentials: 'include'`)
 
 ## Architecture
 
-### Authentication Modes
+### Authentication Modes (current behavior)
 
-The system supports three authentication modes:
-
-#### Development Mode
-- **Purpose**: Local development and testing
-- **Features**:
-  - Accepts development tokens (e.g., `adapteros-local`)
-  - Lenient validation with warning logs
-  - Auto-login capabilities
-- **Configuration**: `auth.mode = "development"` in `configs/cp.toml`
-- **Security**: Should NEVER be used in production
-
-**Citation**: `crates/adapteros-server-api/src/state.rs` L154-160
-
-#### Production Mode
-- **Purpose**: Live deployment environments
-- **Features**:
-  - Strict JWT validation only
-  - No development tokens accepted
-  - Comprehensive security logging
-- **Configuration**: `auth.mode = "production"` in `configs/cp.toml`
-- **Security**: Full authentication required for all requests
-
-**Citation**: `crates/adapteros-server-api/src/middleware.rs` L48-67
-
-#### Mixed Mode
-- **Purpose**: Staging and testing environments
-- **Features**:
-  - Supports both development and production tokens
-  - Flexible validation strategies
-- **Configuration**: `auth.mode = "mixed"` in `configs/cp.toml`
-- **Use Case**: Pre-production validation
-
-**Citation**: `crates/adapteros-server-api/src/middleware.rs` L104-133
+- **Production mode flag**: `server.production_mode` controls HTTPS/cookie defaults. In production mode HMAC/HS256 is rejected; EdDSA keys are required (`auth_middleware`).
+- **Standard auth**: JWT Bearer tokens validated from `Authorization: Bearer`, `token` query param, or `auth_token` cookie. Validation re-checks the session (SQL or KV), tenant token baseline, and token revocation.
+- **Dev no-auth bypass**: `AOS_DEV_NO_AUTH=1` works only in debug builds; release builds ignore it. Injects synthetic admin claims with `admin_tenants=["*"]` and `tenant_id="system"`.
+- **Dev login endpoint**: `/v1/auth/dev-bypass` is compiled only with `--features dev-bypass` **and** `debug_assertions`, and still requires `security.dev_login_enabled=true`. It mints an admin JWT for tenant `default`, ensures the dev user exists, and sets cookies/CSRF like a normal login.
+- **Bootstrap**: `/v1/auth/bootstrap` creates the first admin only when no users exist; it is public but guarded by user-count check.
+- **API keys**: `Authorization: ApiKey <token>` hashes to a stored record; roles/scopes drive `Claims.role/roles`, and tenant mismatch is rejected.
 
 ## JWT Token Management
 
@@ -54,75 +27,57 @@ The system supports three authentication modes:
 JWT tokens contain the following claims:
 - `sub`: User ID
 - `email`: User email address
-- `role`: User role (Admin, Operator, User, etc.)
-- `tenant_id`: Tenant identifier
+- `role`: Primary role (Admin, Operator, User, etc.)
+- `roles`: Role list (primary first)
+- `tenant_id`: Tenant identifier (required for all tokens)
+- `admin_tenants`: Tenant allowlist for admins (empty = own tenant only; `"*"` only appears in dev bypass/debug)
+- `session_id`: Session/JTI identifier (set on access tokens)
+- `device_id`: Optional device binding (refresh + access)
 - `exp`: Expiration timestamp
 - `iat`: Issued at timestamp
 - `jti`: JWT ID for tracking and revocation
 - `nbf`: Not before timestamp
+- `iss`: Must be `adapteros-server`
 
-**Citation**: `crates/adapteros-server-api/src/auth.rs` L12-23
+**Citation**: `crates/adapteros-server-api/src/auth.rs`
 
 ### Token Lifecycle
 
-1. **Login**: User authenticates with credentials
-   - Endpoint: `POST /v1/auth/login`
-   - Returns: JWT token + user information
-   - **Citation**: `crates/adapteros-server-api/src/handlers.rs` L481-568
+1. **Login** (`POST /v1/auth/login`)
+   - Returns a JSON body with `token`, plus `auth_token` (HttpOnly), `refresh_token` (HttpOnly), and `csrf_token` cookies.
+   - Access token TTL: `security.access_token_ttl_seconds` (default 15 minutes). Session/refresh TTL: `auth.session_lifetime` or `security.session_ttl_seconds` (default 2 hours).
+   - MFA (TOTP/backup code) enforced when enabled on the user.
 
-2. **Token Usage**: Token sent in Authorization header
-   - Format: `Authorization: Bearer <token>`
-   - Validated on each request
-   - **Citation**: `crates/adapteros-server-api/src/middleware.rs` L135-154
+2. **Token Usage**
+   - `Authorization: Bearer <token>` or `auth_token` cookie; query param `token` is also accepted.
+   - Every request validates the token signature, `iss`, `tenant_id`, session (SQL or KV), tenant token baseline, and revocation list.
+   - Unsafe methods with an auth cookie require `X-CSRF-Token` matching the `csrf_token` cookie (double-submit).
 
-3. **Token Refresh**: Automatically refresh before expiry
-   - Endpoint: `POST /v1/auth/refresh`
-   - Triggers: Less than 1 hour until expiry
-   - **Citation**: `crates/adapteros-server-api/src/handlers.rs` L2247-2310
-   - **Citation**: `ui/src/api/client.ts` L125-137
+3. **Token Refresh** (`POST /v1/auth/refresh`)
+   - Public route but requires a valid `refresh_token` cookie; performs refresh-token validation, session lookup, revocation, and tenant baseline checks.
+   - Issues a new access token (body + `auth_token` cookie), rotates `refresh_token`, and sets a new `csrf_token`.
+   - UI client performs one silent refresh on 401 before surfacing expiry (`ApiClient.performRefresh`).
 
-4. **Logout**: Client-side token removal
-   - Endpoint: `POST /v1/auth/logout`
-   - Stateless JWT (no server tracking)
-   - **Citation**: `crates/adapteros-server-api/src/handlers.rs` L2219-2225
+4. **Logout** (`POST /v1/auth/logout`)
+   - Clears auth/refresh/CSRF cookies. Tokens remain valid until expiry or explicit revocation; session revocation can be done via `/v1/auth/sessions/{jti}` or the revocation list.
 
-### Token Expiry
+### Token Expiry (current defaults)
 
-- **Default Expiry**: 8 hours
-- **Configurable**: `auth.token_expiry_hours` in configuration
-- **Auto-Refresh**: Triggers when < 1 hour remaining
-- **Grace Period**: 1 hour refresh window
-
-**Citations**:
-- `crates/adapteros-server-api/src/state.rs` L189-190
-- `crates/adapteros-server-api/src/auth.rs` L175-179
+- Access tokens: 15 minutes (`security.access_token_ttl_seconds`, legacy `security.token_ttl_seconds` fallback).
+- Refresh/session cookies: 2 hours (`auth.session_lifetime` or `security.session_ttl_seconds`, defaulting to `DEFAULT_SESSION_TTL_SECS`).
+- Tenant baselines: tokens with `iat` before `tenants.token_issued_at_min` are rejected.
+- Revocation: `jti` checked against the revocation list on every authenticated request and during refresh.
 
 ## Frontend Integration
 
 ### API Client
 
-The frontend API client (`ui/src/api/client.ts`) provides:
+The frontend API client (`ui/src/api/client.ts`) currently:
 
-1. **Secure Token Storage**
-   - localStorage with validation
-   - Development fallback for local testing
-   - **Citation**: `ui/src/api/client.ts` L38-60
-
-2. **Automatic Token Refresh**
-   - Checks every 5 minutes
-   - Refreshes when < 1 hour remaining
-   - **Citation**: `ui/src/api/client.ts` L87-102
-
-3. **Request Retry Logic**
-   - Intercepts 401 errors
-   - Attempts token refresh
-   - Retries failed request
-   - **Citation**: `ui/src/api/client.ts` L278-298
-
-4. **Token Validation**
-   - Checks token structure
-   - Validates expiration
-   - **Citation**: `ui/src/api/client.ts` L62-85
+1. Keeps the bearer token in memory (not localStorage); refreshed tokens update the in-memory value.
+2. Uses `credentials: 'include'` so auth/refresh/CSRF cookies are sent; unsafe requests with cookies must set `X-CSRF-Token` to the cookie value.
+3. On 401, performs a single silent refresh via `/v1/auth/refresh`; if that fails and a bearer token was present, it calls `markSessionExpired()`.
+4. Exposes `devBypass()` which calls `/v1/auth/dev-bypass`; success requires the backend to be compiled with `dev-bypass`, running in debug, and `security.dev_login_enabled=true`.
 
 ### Authentication Flow
 
@@ -203,73 +158,40 @@ enable_rate_limiting = true
 
 ### Frontend Configuration
 
-The frontend automatically detects the environment and adjusts authentication behavior:
-
-- **Development**: Uses `adapteros-local` token by default
-- **Production**: Requires valid JWT tokens from login
-- **Dev bypass policy**: `VITE_ENABLE_DEV_BYPASS` controls `/login?dev=true` and the “Use dev bypass” UI control.
-  - **Dev**: ON by default.
-  - **Staging**: OFF by default; can be turned ON temporarily for demos.
-  - **Production**: OFF.
-  - Dev-bypass sessions are for demo/admin only and always display the banner.
-- See `docs/DEV_BYPASS_POLICY.md` for the operational matrix and TTL guidance.
-
-**Citation**: `ui/src/api/client.ts` L38-60
+Frontend knobs:
+- `VITE_API_URL` sets the base path (defaults to `/api`).
+- Dev bypass UI button simply calls `/v1/auth/dev-bypass`; it only works when the backend is compiled with `dev-bypass`, running in debug, and `security.dev_login_enabled=true`.
+- Cookies are always sent (`credentials: 'include'`); there is no localStorage token cache.
+- See `docs/DEV_BYPASS_POLICY.md` for the UI banner matrix; backend gating still controls success.
 
 ## Security Considerations
 
 ### Production Checklist
 
-- [ ] Set `auth.mode = "production"` in configuration
-- [ ] Remove or disable `auth.dev_token` setting
-- [ ] Enable `security.require_https = true`
-- [ ] Configure strict `security.cors_origins`
-- [ ] Enable `security.enable_rate_limiting`
-- [ ] Use strong JWT secrets (HMAC mode) or keypairs (EdDSA mode)
-- [ ] Configure appropriate token expiry times
-- [ ] Enable security event logging
-- [ ] Monitor failed authentication attempts
+- [ ] `server.production_mode = true`; `security.jwt_mode = "eddsa"` (HMAC disabled in production paths).
+- [ ] `security.dev_login_enabled = false`; do not build with `dev-bypass` in production.
+- [ ] HTTPS + Secure cookies enabled; SameSite set appropriately for your deployment.
+- [ ] Configure CORS and rate limiting; monitor auth attempts and revocations.
+- [ ] Keep access tokens short-lived (15m default); set session TTL appropriately.
 
 ### Token Security
 
-1. **Storage**: Tokens stored in localStorage (browser)
-   - Consider httpOnly cookies for enhanced security
-   - Clear tokens on logout
-
-2. **Transmission**: Always use HTTPS in production
-   - Prevents token interception
-   - Required for security
-
-3. **Expiration**: Tokens auto-expire after configured duration
-   - Refresh before expiration
-   - Logout required after expiration
-
-4. **Revocation**: Stateless JWT (no server-side tracking)
-   - Tokens valid until expiration
-   - Consider implementing revocation list for critical cases
-
-**Citations**:
-- `crates/adapteros-server-api/src/errors.rs` L13-56
-- `ui/src/api/client.ts` L183-197
+1. **Storage**: Access token kept in memory; cookies are HttpOnly (CSRF cookie is not) with SameSite and Secure defaults.
+2. **Transmission**: HTTPS required in production; SameSite=None forces Secure cookies.
+3. **Expiration**: Access ~15m, refresh/session ~2h by default; client refreshes once on 401.
+4. **Revocation & baselines**: `session_id`/`jti` checked for revocation and tenant baselines on every request and during refresh.
 
 ## Error Handling
 
 ### Authentication Errors
 
-The system provides detailed error codes:
-
-- `INVALID_TOKEN`: Token format or signature invalid
-- `TOKEN_EXPIRED`: Token has expired
-- `REFRESH_FAILED`: Token refresh attempt failed
-- `AUTH_REQUIRED`: No authentication provided
-- `INSUFFICIENT_PERMISSIONS`: User lacks required role
-- `RATE_LIMIT_EXCEEDED`: Too many attempts
-- `ACCOUNT_LOCKED`: Account temporarily locked
-- `INVALID_CREDENTIALS`: Login credentials incorrect
-- `MISSING_AUTH_HEADER`: Authorization header missing
-- `INVALID_AUTH_FORMAT`: Authorization format incorrect
-
-**Citation**: `crates/adapteros-server-api/src/errors.rs` L13-88
+Current responses include (see middleware + `auth_enhanced` handlers):
+- `UNAUTHORIZED` for missing/invalid Authorization or missing session
+- `SESSION_EXPIRED` for expired/locked/missing sessions or invalid refresh
+- `TOKEN_REVOKED` when `jti` is revoked
+- `TENANT_ISOLATION_ERROR` for cross-tenant violations
+- `DEV_BYPASS_DISABLED` when calling `/v1/auth/dev-bypass` without backend gating enabled
+- `USER_NOT_FOUND` when a JWT refers to a deleted user (`/v1/auth/me`)
 
 ### Error Recovery
 
@@ -281,169 +203,44 @@ The system provides detailed error codes:
 
 ## API Endpoints
 
-### Public Endpoints (No Auth Required)
+### Public Endpoints (No Auth Middleware)
 
-- `POST /v1/auth/login` - User login
-- `GET /healthz` - Health check
-- `GET /readyz` - Readiness check
-- `GET /v1/meta` - API metadata
+- `POST /v1/auth/login`
+- `POST /v1/auth/refresh` (requires valid `refresh_token` cookie)
+- `POST /v1/auth/bootstrap` (only when no users exist)
+- `GET /v1/auth/config`
+- `GET /v1/auth/health`
+- `GET /v1/meta`, `/healthz`, `/readyz`, `/system/ready`
+- Dev-only (debug + `dev-bypass` feature): `POST /v1/auth/dev-bypass`, `POST /v1/dev/bootstrap`
 
-**Citation**: `crates/adapteros-server-api/src/routes.rs` L212-217
+### Protected Endpoints (Auth Middleware)
 
-### Protected Endpoints (Auth Required)
+- `POST /v1/auth/logout`, `GET /v1/auth/me`
+- MFA: `/v1/auth/mfa/status|start|verify|disable`
+- Sessions: `GET /v1/auth/sessions`, `DELETE /v1/auth/sessions/{jti}`, `GET /v1/auth/tenants`, `POST /v1/auth/tenants/switch`
+- API keys: `/v1/api-keys`, `/v1/api-keys/{id}`
+- Tenant-scoped resources (`/v1/tenants/...`) also pass `tenant_route_guard_middleware` and `validate_tenant_isolation`.
 
-#### Authentication Management
-- `POST /v1/auth/logout` - User logout
-- `GET /v1/auth/me` - Get current user info
-- `POST /v1/auth/refresh` - Refresh authentication token
-- `POST /v1/auth/logout-all` - Logout from all sessions
-- `GET /v1/auth/sessions` - List active sessions
-- `DELETE /v1/auth/sessions/{session_id}` - Revoke specific session
-- `POST /v1/auth/token/rotate` - Rotate API token
-- `GET /v1/auth/token` - Get token metadata
-- `PUT /v1/auth/profile` - Update user profile
-- `GET /v1/auth/config` - Get authentication configuration
-- `PUT /v1/auth/config` - Update authentication configuration
+## Dev-only shortcuts and hardening
 
-#### Resource Endpoints
-- All `/v1/adapters/*` endpoints
-- All `/v1/tenants/*` endpoints
-- All `/v1/workers/*` endpoints
-- (and more)
-
-**Citation**: `crates/adapteros-server-api/src/routes.rs` L256-697
-
-## ServicePanel Authentication Management
-
-AdapterOS includes a comprehensive authentication management interface accessible through the ServicePanel at port 3300. The "Authentication" tab provides administrators with runtime control over authentication settings and session management.
-
-### Authentication Settings
-
-**Production Mode Toggle**
-- Enables/disables strict security policies
-- Automatically disables development features when enabled
-- Requires server restart for some changes
-
-**Development Token Control**
-- Toggle development bypass authentication
-- Only available when production mode is disabled
-- Provides instant access for development workflows
-
-**JWT Configuration Display**
-- Shows current JWT signing mode (HMAC/EdDSA)
-- Displays token expiry settings
-- Requires restart for algorithm changes
-
-### Session Management
-
-**Active Sessions List**
-- Displays all current authentication sessions
-- Shows session creation time and last activity
-- Identifies current session vs other sessions
-
-**Session Actions**
-- **Rotate Token**: Generates new JWT with same claims
-- **Revoke Session**: Invalidates specific session (client-side)
-- **Logout All**: Clears all stored tokens across devices
-
-**Security Status Dashboard**
-- Visual indicators for production mode status
-- Development token availability
-- Token expiry time remaining
-
-### Configuration Management
-
-**Runtime Configuration Updates**
-- Toggle production mode (enforces security policies)
-- Enable/disable development features
-- Automatic validation prevents invalid configurations
-
-**Audit Trail**
-- All configuration changes are logged
-- Session management actions tracked
-- Security events monitored
-
-**Citation**: `ui/src/components/AuthenticationSettings.tsx` L1-456
-**Citation**: `ui/src/components/ServicePanel.tsx` L267-451
+- `AOS_DEV_NO_AUTH`: Debug builds only; release builds ignore it. Injects admin claims with `admin_tenants=["*"]`, `tenant_id="system"`.
+- `/v1/auth/dev-bypass`: Debug + `dev-bypass` feature + `security.dev_login_enabled=true` required. Issues an admin token for tenant `default`, ensures the dev user exists, and sets auth/refresh/CSRF cookies. Returns `DEV_BYPASS_DISABLED` otherwise.
+- Tenant isolation: `/tenants/{id}` routes use `tenant_route_guard_middleware` and `validate_tenant_isolation` (admin_tenants allowlist; wildcard only for dev bypass/no-auth).
 
 ## Development Workflow
 
-### Local Development
-
-1. Start server in development mode:
-   ```bash
-   cd /Users/star/Dev/adapter-os
-   ./target/debug/adapteros-server --skip-pf-check --config configs/cp.toml
-   ```
-
-2. Start UI dev server:
-   ```bash
-   cd ui
-   pnpm dev
-   ```
-
-3. Access UI at `http://localhost:3200`
-   - Auto-authenticates with dev token
-   - No login required
-
-### Testing Authentication
-
-1. **Test Login**:
-   ```bash
-   curl -X POST http://localhost:8080/api/v1/auth/login \
-     -H "Content-Type: application/json" \
-     -d '{"email": "admin@example.com", "password": "password"}'
-   ```
-
-2. **Test Protected Endpoint**:
-   ```bash
-   TOKEN="your-jwt-token-here"
-   curl http://localhost:8080/api/v1/adapters \
-     -H "Authorization: Bearer $TOKEN"
-   ```
-
-3. **Test Token Refresh**:
-   ```bash
-   curl -X POST http://localhost:8080/api/v1/auth/refresh \
-     -H "Authorization: Bearer $TOKEN"
-   ```
+1. Start the control plane (debug build) with config keys set; use `AOS_DEV_NO_AUTH=1` only for debugging.
+2. UI dev server: `cd ui && pnpm dev` (uses `/api` by default, sends cookies).
+3. Authenticate by:
+   - Standard login: `curl -X POST http://localhost:8080/v1/auth/login ...` (returns bearer + cookies).
+   - Dev bypass (only when compiled + enabled as above): `curl -X POST http://localhost:8080/v1/auth/dev-bypass`.
+4. Test refresh: `curl -X POST http://localhost:8080/v1/auth/refresh --cookie "refresh_token=...; csrf_token=..." -H "X-CSRF-Token: <csrf_token>"`.
 
 ## Troubleshooting
 
-### White Page / 401 Errors
-
-**Problem**: UI shows white page or constant 401 errors  
-**Cause**: Missing or invalid authentication token  
-**Solution**:
-1. Clear localStorage: `localStorage.clear()`
-2. Refresh browser
-3. Verify server is in development mode
-
-**Citations**:
-- `ui/src/api/client.ts` L278-298
-- `ui/TROUBLESHOOTING.md`
-
-### Token Expired Errors
-
-**Problem**: Frequent "token expired" errors  
-**Cause**: Token expiry too short or refresh not working  
-**Solution**:
-1. Increase `auth.token_expiry_hours` in configuration
-2. Check token refresh logic in browser console
-3. Verify server time is synchronized
-
-**Citation**: `ui/src/api/client.ts` L104-123
-
-### Development Token Not Working
-
-**Problem**: `adapteros-local` token rejected  
-**Cause**: Server not in development or mixed mode  
-**Solution**:
-1. Check `auth.mode` in `configs/cp.toml`
-2. Verify `auth.dev_token` is configured
-3. Restart server after configuration changes
-
-**Citation**: `crates/adapteros-server-api/src/middleware.rs` L69-102
+- **401s in UI**: Ensure cookies are present; clear cookies (not localStorage) and re-login. If compiled without `dev-bypass`, the dev bypass button will fail with `DEV_BYPASS_DISABLED`.
+- **Token expired**: Check `security.access_token_ttl_seconds` and `security.session_ttl_seconds`; verify system clock and that refresh requests include cookies + CSRF header.
+- **Cross-tenant denial**: Confirm `admin_tenants` includes the target tenant or wildcard (debug-only).
 
 ## References
 
@@ -474,15 +271,10 @@ AdapterOS includes a comprehensive authentication management interface accessibl
 6. **Enhanced Audit Logging**: Comprehensive security event tracking with alerting
 7. **Federated Authentication**: SAML and enterprise SSO integration
 
-## Recently Implemented Features
+## Status Notes
 
-1. **✅ Session Management**: Client-side session tracking and management UI
-2. **✅ Role-Based Access Control**: Multi-role system (Admin/Operator/Compliance/Viewer)
-3. **✅ Token Rotation**: API token rotation with new JTI generation
-4. **✅ Authentication Configuration UI**: ServicePanel authentication management interface
-5. **✅ Production Mode Gating**: Runtime security policy enforcement
-
-**Note**: These enhancements should be implemented with careful consideration of the stateless JWT design and performance implications.
+- Role-based access and tenant isolation are enforced in middleware/handlers as described above.
+- Token rotation and API-key management exist in the backend; a dedicated UI for rotation/session management is not yet present and should be treated as backlog.
 
 ---
 
@@ -496,13 +288,6 @@ AdapterOS includes a comprehensive authentication management interface accessibl
   - Average response time: < 500ms
   - P95 response time: < 750ms
   - Throughput: > 100 requests/second (single client)
-
-#### Token Metadata Retrieval
-- **Endpoint**: `GET /v1/auth/token`
-- **Expected Performance**:
-  - Average response time: < 100ms
-  - P95 response time: < 200ms
-  - Throughput: > 500 requests/second (single client)
 
 #### Session Management
 - **Endpoint**: `GET /v1/auth/sessions`
@@ -525,8 +310,8 @@ cargo test --features extended-tests test_auth_performance_characteristics -- --
 
 ### Security vs Performance Trade-offs
 
-- **Stateless JWT Design**: No server-side session storage reduces attack surface but requires validation on each request
-- **Token Refresh Strategy**: Short-lived tokens reduce exposure window but require database lookup for user validation
+- **Session-validated JWTs**: Tokens are short-lived and still check session + revocation + tenant baselines, adding DB/KV lookups per request.
+- **Token Refresh Strategy**: Short-lived access tokens reduce exposure; refresh requires session lookup and rotation.
 
 ### Monitoring and Alerting
 
@@ -542,4 +327,4 @@ cargo test --features extended-tests test_auth_performance_characteristics -- --
 - Authentication failure rate >1% (warning)
 - Authentication failure rate >5% (critical)
 
-MLNavigator Inc 2025-12-08.
+MLNavigator Inc 2025-12-10.

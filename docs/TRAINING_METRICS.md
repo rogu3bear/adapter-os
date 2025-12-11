@@ -2,8 +2,7 @@
 
 Complete guide to the comprehensive training metrics infrastructure in AdapterOS.
 
-**Author:** Claude Code
-**Last Updated:** 2025-11-21
+**Last Updated:** 2025-12-11
 **Location:** `crates/adapteros-lora-worker/src/training/`
 
 ---
@@ -765,6 +764,10 @@ config.learning_rate *= factor;
 ## References
 
 - [CLAUDE.md - Training Pipeline](../CLAUDE.md)
-- [docs/TRAINING_PIPELINE.md](TRAINING_PIPELINE.md)
+- [TRAINING.md](TRAINING.md) - Main training guide
 - [crates/adapteros-lora-worker/src/training/](../crates/adapteros-lora-worker/src/training/)
 - [crates/adapteros-telemetry/](../crates/adapteros-telemetry/)
+
+---
+
+MLNavigator Inc 2025-12-11

@@ -1,43 +1,188 @@
 # AdapterOS Deployment Guide
 
-**Complete production deployment guide with multi-node setup, Kubernetes orchestration, air-gapped deployment, and scaling guidelines.**
+**Complete deployment guide for AdapterOS, covering single-node production setup, air-gapped deployment, authentication, and verification.**
 
 ---
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Installation Methods](#installation-methods)
-3. [Single-Node Production Setup](#single-node-production-setup)
-4. [Authentication Configuration](#authentication-configuration)
-5. [Multi-Node Cluster Setup](#multi-node-cluster-setup)
-6. [Kubernetes Deployment](#kubernetes-deployment)
-7. [Air-Gapped Deployment](#air-gapped-deployment)
-8. [Scaling Guidelines](#scaling-guidelines)
-9. [Production Checklist](#production-checklist)
-10. [Troubleshooting](#troubleshooting)
+1. [Deployment Overview](#deployment-overview)
+2. [Prerequisites](#prerequisites)
+3. [Single-Node Deployment](#single-node-deployment)
+4. [Configuration](#configuration)
+5. [Verification Steps](#verification-steps)
+6. [Air-Gapped Deployment](#air-gapped-deployment)
+7. [Multi-Node Cluster Setup](#multi-node-cluster-setup)
+8. [Kubernetes Deployment](#kubernetes-deployment)
+9. [Authentication Configuration](#authentication-configuration)
+10. [Scaling Guidelines](#scaling-guidelines)
+11. [Production Checklist](#production-checklist)
+12. [Troubleshooting](#troubleshooting)
+
+---
+
+## Deployment Overview
+
+AdapterOS is an ML inference platform powered by **LORAX (Low Rank Adapter Exchange)** — an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon.
+
+### Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph Client["Client Layer"]
+        HTTP[HTTP/REST API]
+        CLI[aosctl CLI]
+        UI[Web UI :3200]
+    end
+
+    subgraph ControlPlane["Control Plane :8080"]
+        API[API Server<br/>adapteros-server]
+        Auth[JWT Auth]
+        Policy[Policy Engine<br/>22 Policy Packs]
+        DB[(SQLite DB<br/>var/aos-cp.sqlite3)]
+    end
+
+    subgraph Worker["Worker Layer"]
+        UDS[Unix Domain Socket]
+        Router[K-Sparse Router<br/>Q15 Quantization]
+        Backend[Multi-Backend<br/>CoreML/Metal/MLX]
+        Memory[UMA Memory<br/>Adapter Cache]
+    end
+
+    subgraph Storage["Storage Layer"]
+        Adapters[Adapter Registry<br/>.aos packages]
+        Models[Base Models<br/>safetensors]
+        Telemetry[Telemetry Bundles<br/>JSONL]
+    end
+
+    HTTP --> API
+    CLI --> API
+    UI --> API
+
+    API --> Auth
+    Auth --> Policy
+    Policy --> DB
+
+    API -.UDS.-> UDS
+    UDS --> Router
+    Router --> Backend
+    Backend --> Memory
+
+    Memory --> Adapters
+    Backend --> Models
+    Policy --> Telemetry
+
+    style ControlPlane fill:#e1f5ff,stroke:#333
+    style Worker fill:#fff4e1,stroke:#333
+    style Storage fill:#e8f8e8,stroke:#333
+```
+
+### Deployment Flow
+
+```mermaid
+flowchart TD
+    Start([Start Deployment]) --> PreCheck{Prerequisites<br/>Met?}
+
+    PreCheck -->|No| InstallDeps[Install Dependencies<br/>Rust, Xcode CLI Tools]
+    InstallDeps --> PreCheck
+
+    PreCheck -->|Yes| ChooseMethod{Installation<br/>Method}
+
+    ChooseMethod -->|Graphical| Installer[GUI Installer<br/>make installer]
+    ChooseMethod -->|Manual| Build[Build from Source<br/>cargo build --release]
+    ChooseMethod -->|Air-Gapped| Bundle[Transfer Bundle<br/>adapteros-airgap.tar.gz]
+
+    Installer --> InitDB[Initialize Database<br/>aosctl db migrate]
+    Build --> InitDB
+    Bundle --> InitDB
+
+    InitDB --> Tenant[Create Tenant<br/>aosctl init-tenant]
+    Tenant --> LoadModel[Load Base Model<br/>Qwen2.5-7B]
+    LoadModel --> Config[Configure Production<br/>configs/production.toml]
+
+    Config --> Security{Security<br/>Mode}
+    Security -->|Production| SecConfig[Enable JWT + PF Rules]
+    Security -->|Development| DevConfig[Development Auth]
+
+    SecConfig --> StartCP[Start Control Plane<br/>adapteros-server]
+    DevConfig --> StartCP
+
+    StartCP --> StartWorker[Start Worker<br/>aos-worker via UDS]
+    StartWorker --> Verify[Verification]
+
+    Verify --> HealthCheck{Health Check<br/>Pass?}
+    HealthCheck -->|No| Debug[Check Logs]
+    Debug --> Verify
+
+    HealthCheck -->|Yes| Inference{Test Inference<br/>Success?}
+    Inference -->|No| Debug
+
+    Inference -->|Yes| Monitor[Enable Monitoring<br/>Prometheus + Grafana]
+    Monitor --> Complete([Deployment Complete])
+
+    style Start fill:#e1f5ff,stroke:#333
+    style Complete fill:#e8f8e8,stroke:#333
+    style Debug fill:#ffe1e1,stroke:#333
+```
+
+**Key Characteristics:**
+- **Single-Node**: Optimized for standalone deployment on Apple Silicon
+- **Multi-Tenant**: Isolated workspaces with RBAC
+- **Zero Egress**: No network traffic during inference (UDS-only)
+- **Deterministic**: Reproducible results with seed derivation
+- **Hot-Swap**: Live adapter loading without restart
 
 ---
 
 ## Prerequisites
 
 ### Hardware Requirements
-- **macOS 13.0+** with Apple Silicon (M1/M2/M3/M4)
-- **RAM**: ≥16GB (32GB+ recommended for production)
-- **Disk**: ≥100GB free space
-- **Network**: Gigabit Ethernet for multi-node
+
+- **Apple Silicon Mac** (M1/M2/M3/M4) - **Intel Macs NOT supported**
+- **Minimum RAM**: 16GB (32GB+ recommended for production)
+- **Disk Space**: 10GB minimum (100GB+ for production with multiple models)
+- **macOS Version**: 13.0+ (Ventura or later)
+- **Network**: Gigabit Ethernet for multi-node (optional)
 
 ### Software Requirements
-- **Rust 1.75+**: `rustup install stable`
-- **PostgreSQL 15+** with pgvector extension
-- **Metal SDK**: Included with Xcode Command Line Tools
+
+**Required:**
+- **Rust 1.75+**: Install via rustup
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+- **Xcode Command Line Tools**:
+  ```bash
+  xcode-select --install
+  ```
+- **Git**: For source code management
+
+**Optional:**
+- **PostgreSQL 15+** with pgvector (for multi-node RAG)
 - **Docker** (for containerized deployments)
+- **direnv** (for environment management)
+
+### Pre-Installation Checks
+
+```bash
+# Verify Apple Silicon
+uname -m  # Should output: arm64
+
+# Check available RAM
+sysctl hw.memsize  # Should be ≥17179869184 (16GB)
+
+# Check disk space
+df -h /  # Should have ≥10GB free
+
+# Verify macOS version
+sw_vers  # ProductVersion should be ≥13.0
+```
 
 ---
 
-## Installation Methods
+## Single-Node Deployment
 
-### Option 1: Graphical Installer (Recommended)
+### Method 1: Graphical Installer (Recommended)
 
 The native macOS installer provides guided setup with hardware validation:
 
@@ -54,33 +199,70 @@ make installer-open
 - Installation modes: Full (with model download) or Minimal (binaries only)
 - Air-gapped support for offline installations
 - Checkpoint recovery for interrupted installations
+- Determinism education post-install
 
-### Option 2: Manual Installation
+**Installation Steps:**
+1. Launch installer app
+2. Select installation mode (Full/Minimal)
+3. Choose installation directory
+4. Review hardware requirements
+5. Complete installation
+6. Follow post-install verification
+
+### Method 2: Manual Installation
+
+For custom deployments or development:
 
 ```bash
 # Clone the repository
 git clone https://github.com/rogu3bear/adapter-os.git
 cd adapter-os
 
-# Build the workspace
+# Build the workspace (release mode)
 cargo build --release
 
-# Initialize the database
+# Build Metal shaders
+make metal
+
+# Initialize database and create default tenant
+./target/release/aosctl db migrate
 ./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
 ```
 
----
+### Method 3: Quick Start Script
 
-## Single-Node Production Setup
+For rapid development setup:
 
-### 1. Database Configuration
+```bash
+# Use the canonical boot script
+./start
 
-#### PostgreSQL with pgvector
+# This runs:
+# - Backend server on port 8080
+# - UI dev server on port 3200
+# - Auto-configures routes and services
+```
+
+### Database Setup
+
+**Option 1: SQLite (Default - Single Node)**
+
+```bash
+# Database is automatically created at:
+# var/aos-cp.sqlite3
+
+# Verify database
+ls -lh var/aos-cp.sqlite3
+
+# Run migrations
+./target/release/aosctl db migrate
+```
+
+**Option 2: PostgreSQL (Multi-Node)**
 
 ```bash
 # Install PostgreSQL with pgvector
-brew install postgresql@15
-brew install pgvector
+brew install postgresql@15 pgvector
 
 # Start PostgreSQL
 brew services start postgresql@15
@@ -90,70 +272,83 @@ createdb adapteros_prod
 
 # Enable pgvector extension
 psql adapteros_prod -c "CREATE EXTENSION vector;"
-```
 
-#### Configure Environment
-
-```bash
-# Set database URL
+# Set environment variable
 export DATABASE_URL="postgresql://localhost/adapteros_prod"
-
-# RAG embedding dimension (must match model)
 export RAG_EMBED_DIM=3584
-
-# Set adapter storage path
-export AOS_ADAPTERS_ROOT=/var/lib/adapteros/adapters
 ```
 
-### 2. Build AdapterOS
+### Build AdapterOS
 
 ```bash
-# Clone repository
-git clone https://github.com/rogu3bear/adapter-os.git
-cd adapter-os
+# Single-node build (SQLite)
+cargo build --release
 
-# Build with production features
+# Multi-node build (PostgreSQL + RAG)
 cargo build --release --features rag-pgvector
 
-# Install binaries
+# Install binaries (optional)
 sudo cp target/release/aosctl /usr/local/bin/
 sudo cp target/release/adapteros-server /usr/local/bin/
+sudo cp target/release/aos-worker /usr/local/bin/
 ```
 
-### 3. Initialize System
+### Initialize System
 
 ```bash
 # Run database migrations
-aosctl db migrate
+./target/release/aosctl db migrate
 
-# Initialize default tenant
-aosctl init-tenant --id production --uid 1000 --gid 1000
+# Create production tenant
+./target/release/aosctl init-tenant \
+  --id production \
+  --uid 5000 \
+  --gid 5000
 
-# Import base model
-aosctl import-model \
+# Verify tenant creation
+./target/release/aosctl list-tenants
+```
+
+### Load Base Model
+
+```bash
+# Import base model (example: Qwen2.5-7B)
+./target/release/aosctl import-model \
   --name qwen2.5-7b-instruct \
   --weights models/qwen2.5-7b-mlx/weights.safetensors \
   --config models/qwen2.5-7b-mlx/config.json \
   --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
+
+# Verify model import
+./target/release/aosctl list-models
 ```
 
-### 4. Configure Production Settings
+---
+
+## Configuration
+
+### Production Configuration
 
 Create `configs/production.toml`:
 
 ```toml
 [server]
 port = 8080
-bind_address = "0.0.0.0"
+bind_address = "0.0.0.0"  # Or "127.0.0.1" for localhost only
 workers = 4
 
 [db]
-url = "postgresql://localhost/adapteros_prod"
-pool_size = 20
+# SQLite (single-node)
+url = "sqlite:var/aos-cp.sqlite3"
+
+# PostgreSQL (multi-node) - uncomment for cluster setup
+# url = "postgresql://adapteros:password@localhost/adapteros_prod"
+# pool_size = 20
 
 [security]
 require_pf_deny = true  # Enforce packet filter rules
 jwt_secret_path = "/etc/adapteros/jwt.secret"
+mtls_required = false  # Set true for mutual TLS
 
 [paths]
 plan_dir = "/var/lib/adapteros/plans"
@@ -161,12 +356,12 @@ artifact_dir = "/var/lib/adapteros/artifacts"
 adapters_root = "/var/lib/adapteros/adapters"
 
 [router]
-k_sparse = 3
-entropy_floor = 0.02
-gate_quant = "q15"
+k_sparse = 3              # Number of adapters to activate
+entropy_floor = 0.02      # Minimum routing entropy
+gate_quant = "q15"        # Q15 quantization (32767 denominator)
 
 [memory]
-min_headroom_pct = 15
+min_headroom_pct = 15     # Reserve 15% UMA memory
 evict_order = ["ephemeral_ttl", "cold_lru", "warm_lru"]
 
 [telemetry]
@@ -197,43 +392,21 @@ output = true
 adapters = true
 deterministic_io = true
 drift = true
-# Note: All adapteros-* crates enabled
 ```
 
-### 5. Start Services
+### Development Configuration
 
-```bash
-# Start server with production config
-adapteros-server --config configs/production.toml
-```
+Create `configs/cp-dev.toml`:
 
----
-
-## Authentication Configuration
-
-> **Note:** For detailed authentication setup, see [docs/AUTHENTICATION.md](AUTHENTICATION.md).
-
-### Pre-Deployment Security Checklist
-
-Before deploying to production, complete these authentication security checks:
-
-- [ ] JWT mode configured (`EdDSA` recommended for production)
-- [ ] Strong JWT secret generated or keypair configured
-- [ ] Authentication mode set to `production`
-- [ ] Development tokens disabled or removed
-- [ ] HTTPS enabled and enforced (if exposed externally)
-- [ ] CORS origins restricted to production domains
-- [ ] Rate limiting enabled
-- [ ] Token expiry configured appropriately (recommended: 8 hours)
-- [ ] Security logging enabled
-- [ ] Failed login monitoring configured
-
-### Environment Configurations
-
-#### Development Environment
-
-**Configuration** (`configs/cp-dev.toml`):
 ```toml
+[server]
+port = 8080
+bind_address = "127.0.0.1"
+workers = 2
+
+[db]
+url = "sqlite:var/aos-cp.sqlite3"
+
 [auth]
 mode = "development"
 dev_token = "adapteros-local"
@@ -241,141 +414,426 @@ token_expiry_hours = 24
 
 [security]
 require_https = false
+require_pf_deny = false  # Disabled for development
 cors_origins = ["http://localhost:3200"]
 enable_rate_limiting = false
-```
 
-**Starting the Server**:
-```bash
-./target/release/adapteros-server \
-  --skip-pf-check \
-  --config configs/cp-dev.toml
-```
+[router]
+k_sparse = 3
+entropy_floor = 0.02
+gate_quant = "q15"
 
-#### Production Environment
+[memory]
+min_headroom_pct = 10
 
-**Configuration** (`configs/cp-production.toml`):
-```toml
-[auth]
-mode = "production"  # Strict JWT only, NO dev_token
-token_expiry_hours = 8
-max_login_attempts = 5
-lockout_duration_minutes = 30
-
-[security]
-require_https = true
-cors_origins = [
-  "https://app.adapteros.example.com"
-]
-enable_rate_limiting = true
-```
-
-**Generate Production Keys**:
-```bash
-# Generate Ed25519 keypair (recommended for production)
-openssl genpkey -algorithm Ed25519 -out var/jwt_private.pem
-openssl pkey -in var/jwt_private.pem -pubout -out var/jwt_public.pem
-
-# Set restrictive permissions
-chmod 600 var/jwt_private.pem
-chmod 644 var/jwt_public.pem
-```
-
-### JWT Configuration Modes
-
-#### HMAC Mode (Simple, Shared Secret)
-**Use case:** Single-server deployments
-
-```bash
-# Generate secret
-openssl rand -base64 32 > var/jwt_secret.key
-
-# Set in config
-[jwt]
-mode = "hmac"
-secret_file = "var/jwt_secret.key"
-```
-
-#### EdDSA Mode (Public Key, More Secure)
-**Use case:** Production, distributed systems (recommended)
-
-```bash
-# Generate Ed25519 keypair
-openssl genpkey -algorithm Ed25519 -out var/jwt_private.pem
-openssl pkey -in var/jwt_private.pem -pubout -out var/jwt_public.pem
-
-# Set in config
-[jwt]
-mode = "eddsa"
-private_key_file = "var/jwt_private.pem"
-public_key_file = "var/jwt_public.pem"
-```
-
-### Security Hardening
-
-#### HTTPS Configuration (Nginx Reverse Proxy)
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name app.adapteros.example.com;
-
-    ssl_certificate /etc/letsencrypt/live/adapteros.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/adapteros.example.com/privkey.pem;
-
-    # Security headers
-    add_header Strict-Transport-Security "max-age=31536000" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-
-# Redirect HTTP to HTTPS
-server {
-    listen 80;
-    server_name app.adapteros.example.com;
-    return 301 https://$server_name$request_uri;
-}
-```
-
-#### Rate Limiting
-
-Configure in `configs/cp-production.toml`:
-```toml
-[security.rate_limiting]
+[telemetry]
 enabled = true
-requests_per_minute = 60
-burst = 10
+json_output = "var/logs/telemetry.jsonl"
 ```
 
-**Citation:** [source: crates/adapteros-server-api/src/rate_limit.rs] - Per-tenant token-bucket rate limiting
+### Environment Variables
 
-### Backup and Recovery
+Create `.env` file:
 
-**Backup JWT Keys**:
 ```bash
-# Create encrypted backup
-mkdir -p /backup/adapteros/jwt-keys/$(date +%Y%m%d)
-cp var/jwt_*.pem /backup/adapteros/jwt-keys/$(date +%Y%m%d)/
-tar czf - /backup/adapteros/jwt-keys/$(date +%Y%m%d)/ | \
-  openssl enc -aes-256-cbc -salt -out /backup/adapteros/jwt-keys-$(date +%Y%m%d).tar.gz.enc
+# Database
+DATABASE_URL=sqlite:var/aos-cp.sqlite3
+# DATABASE_URL=postgresql://localhost/adapteros_prod  # For PostgreSQL
+
+# Paths
+AOS_ADAPTERS_ROOT=/var/lib/adapteros/adapters
+AOS_PLAN_DIR=/var/lib/adapteros/plans
+
+# RAG (if using pgvector)
+RAG_EMBED_DIM=3584
+
+# Development
+RUST_LOG=info
+RUST_BACKTRACE=1
+
+# Authentication (development only)
+AOS_DEV_NO_AUTH=1  # Bypass auth in debug builds
+# AOS_DEV_JWT_SECRET=my-test-secret  # Or use custom secret
 ```
 
-**Key Rotation Procedure:**
-1. Generate new keypair
-2. Configure old public key for validation
-3. Configure new private key for signing
-4. Wait for all old tokens to expire
-5. Remove old public key
+**Load environment with direnv:**
 
-**For detailed authentication troubleshooting:** See [docs/AUTHENTICATION.md](AUTHENTICATION.md) and [docs/DEPLOYMENT_AUTH.md](DEPLOYMENT_AUTH.md) (archived).
+```bash
+# Install direnv
+brew install direnv
+
+# Enable for current directory
+direnv allow
+
+# Variables auto-load from .env and .env.local
+```
+
+**Manual loading:**
+
+```bash
+set -a
+source .env
+source .env.local
+set +a
+```
+
+### Plan Building
+
+Plans define execution configuration for inference:
+
+**Step 1: Create Manifest**
+
+Create `manifests/production-plan.yaml`:
+
+```yaml
+schema: adapteros.manifest.v3
+base:
+  model_id: "Qwen2.5-7B-Instruct"
+  model_hash: "b3:9089587768b6a4fd"
+  arch: "Qwen2ForCausalLM"
+  vocab_size: 152064
+  hidden_dim: 3584
+  n_layers: 28
+  n_heads: 28
+router:
+  k_sparse: 3
+  gate_quant: "q15"
+  entropy_floor: 0.02
+  tau: 1.0
+  sample_tokens_full: 128
+telemetry:
+  schema_hash: "b3:stub"
+  sampling:
+    token: 0.05
+    router: 1.0
+    inference: 1.0
+  router_full_tokens: 128
+  bundle:
+    max_events: 500000
+    max_bytes: 268435456
+policies:
+  egress: "deny_all"
+  access:
+    adapters: "RBAC"
+    datasets: "ABAC"
+seeds:
+  global: "b3:deadbeef"
+```
+
+**Step 2: Build Plan**
+
+```bash
+./target/release/aosctl build-plan \
+  --manifest manifests/production-plan.yaml \
+  --output plan/production-plan \
+  --tenant-id production
+```
+
+**Step 3: Verify Plan**
+
+```bash
+# List plans
+./target/release/aosctl list-plans --tenant-id production
+
+# Inspect plan details
+./target/release/aosctl plan-info \
+  --plan-id production-plan \
+  --tenant-id production
+```
+
+---
+
+## Verification Steps
+
+### Step 1: Start Services
+
+```bash
+# Start control plane
+./target/release/adapteros-server --config configs/production.toml
+
+# In separate terminal: Start worker
+./target/release/aos-worker \
+  --tenant production \
+  --socket /var/run/aos/production/inference.sock \
+  --backend mlx
+```
+
+### Step 2: Health Checks
+
+```bash
+# Control plane health
+curl http://localhost:8080/healthz
+
+# Expected output:
+# {"status":"ok","version":"1.0.0"}
+
+# Worker status
+./target/release/aosctl worker-status --tenant production
+
+# Expected output:
+# Worker Status: READY
+# Backend: mlx
+# Adapters Loaded: 0
+# Memory Usage: 5.2GB / 32GB (16% used)
+```
+
+### Step 3: Test Inference
+
+**Via CLI:**
+
+```bash
+./target/release/aosctl infer \
+  --prompt "Explain how AdapterOS works in 50 words" \
+  --max-tokens 100 \
+  --tenant production
+```
+
+**Via HTTP API:**
+
+```bash
+# Get JWT token first (production mode)
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"password"}' \
+  | jq -r '.token')
+
+# Run inference
+curl -X POST http://localhost:8080/v1/inference \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "prompt": "Explain how AdapterOS works",
+    "max_tokens": 100,
+    "tenant_id": "production"
+  }'
+```
+
+### Step 4: Verify Determinism
+
+```bash
+# Run determinism test suite
+make determinism-check
+
+# Or manually test same prompt twice:
+./target/release/aosctl infer \
+  --prompt "Hello world" \
+  --seed 42 \
+  --temperature 0.0 \
+  > output1.txt
+
+./target/release/aosctl infer \
+  --prompt "Hello world" \
+  --seed 42 \
+  --temperature 0.0 \
+  > output2.txt
+
+# Outputs should be identical
+diff output1.txt output2.txt
+```
+
+### Step 5: Monitor System Metrics
+
+```bash
+# System metrics
+./target/release/aosctl system-metrics
+
+# Expected output:
+# Memory: 5.2GB / 32GB (16% used, 27GB free)
+# Adapters: 0 loaded
+# Inference Rate: 0 req/s
+# Avg Latency: N/A
+
+# Check telemetry
+tail -f /var/log/adapteros/telemetry.jsonl
+```
+
+### Step 6: Verify Policy Enforcement
+
+```bash
+# Check active policies
+./target/release/aosctl list-policies
+
+# Test egress policy (should fail)
+./target/release/aosctl infer \
+  --prompt "Make an HTTP request" \
+  --adapter network-adapter
+
+# Expected: Policy violation error
+```
+
+---
+
+## Air-Gapped Deployment
+
+For environments without internet access:
+
+### Air-Gapped Installation Flow
+
+```mermaid
+flowchart TD
+    subgraph Connected[Connected Machine]
+        Build[1. Build System<br/>make build]
+        Bundle[2. Create Bundle<br/>tar -czf adapteros-airgap.tar.gz]
+
+        Build --> Bundle
+    end
+
+    subgraph Transfer[Transfer]
+        Bundle --> Media[3. Copy to USB/Media]
+        Media --> AirGap[4. Transfer to Air-Gapped Machine]
+    end
+
+    subgraph AirGapped[Air-Gapped Machine]
+        Extract[5. Extract Bundle<br/>tar -xzf]
+        Bootstrap[6. Run Bootstrap<br/>bootstrap_with_checkpoints.sh]
+        Verify[7. Verify Installation]
+
+        AirGap --> Extract
+        Extract --> Bootstrap
+
+        Bootstrap --> CheckBin{Binaries<br/>Present?}
+        CheckBin -->|No| Fail1[❌ Installation Failed]
+        CheckBin -->|Yes| CheckMetal{Metal Kernels<br/>Compiled?}
+
+        CheckMetal -->|No| Fail2[❌ Metal Compilation Failed]
+        CheckMetal -->|Yes| CheckDB{Database<br/>Initialized?}
+
+        CheckDB -->|No| Fail3[❌ DB Initialization Failed]
+        CheckDB -->|Yes| Success([✅ Installation Complete])
+
+        Verify --> CheckBin
+    end
+
+    style Build fill:#e1f5ff,stroke:#333
+    style Bootstrap fill:#fff4e1,stroke:#333
+    style Success fill:#e8f8e8,stroke:#333
+    style Fail1 fill:#ffe1e1,stroke:#333
+    style Fail2 fill:#ffe1e1,stroke:#333
+    style Fail3 fill:#ffe1e1,stroke:#333
+```
+
+### Step 1: Prepare Offline Bundle
+
+On a machine with internet access:
+
+```bash
+# Clone repository with vendored dependencies
+git clone --recursive https://github.com/rogu3bear/adapter-os.git
+cd adapter-os
+
+# Build the complete system
+make build
+
+# Vendor Rust dependencies
+cargo vendor
+
+# Build offline
+cargo build --release --offline
+
+# Create installation bundle
+tar -czf adapteros-airgap.tar.gz \
+  target/release/aosctl \
+  target/release/adapteros-server \
+  target/release/aos-worker \
+  configs/ \
+  metal/ \
+  migrations/ \
+  manifests/ \
+  models/ \
+  scripts/bootstrap_with_checkpoints.sh
+```
+
+**Installation Bundle Contents:**
+- Compiled binaries (`aosctl`, `adapteros-server`, `aos-worker`)
+- Precompiled Metal kernels (`.metallib`)
+- Configuration files
+- Database migrations
+- Manifest templates
+- Pre-downloaded models (optional)
+
+### Step 2: Transfer and Install
+
+On the air-gapped machine:
+
+```bash
+# Extract the bundle
+tar -xzf adapteros-airgap.tar.gz
+
+# Run air-gapped bootstrap
+bash scripts/bootstrap_with_checkpoints.sh \
+  /tmp/adapteros_install.state \
+  minimal \
+  true \
+  false
+
+# Install binaries
+sudo cp target/release/* /usr/local/bin/
+```
+
+### Step 3: Configure Zero Egress
+
+Edit `configs/airgap.toml`:
+
+```toml
+[security]
+require_pf_deny = true
+zero_network_egress = true
+
+[egress]
+# Block all network except Unix sockets
+allowed_protocols = []
+unix_socket_only = true
+pf_rules_path = "/etc/pf.anchors/adapteros"
+```
+
+### Step 4: Packet Filter (PF) Rules
+
+Create `/etc/pf.anchors/adapteros`:
+
+```
+# Block all outbound traffic from AdapterOS process
+block drop out proto tcp from any to any user adapteros
+block drop out proto udp from any to any user adapteros
+block drop out proto icmp from any to any user adapteros
+
+# Allow loopback only
+pass out proto tcp from 127.0.0.1 to 127.0.0.1 user adapteros
+pass out on lo0 user adapteros
+```
+
+Enable PF rules:
+
+```bash
+# Load anchor
+sudo pfctl -f /etc/pf.conf
+sudo pfctl -a adapteros -f /etc/pf.anchors/adapteros
+sudo pfctl -e
+
+# Verify PF is active
+sudo pfctl -s info
+
+# Test with tcpdump (should show NO outbound traffic)
+sudo tcpdump -i any -n src host <server_ip>
+```
+
+### Step 5: Verify Air-Gapped Operation
+
+```bash
+# Check binaries
+./target/release/aosctl --version
+./target/release/adapteros-server --version
+
+# Verify Metal kernels compiled
+ls metal/*.metallib
+
+# Check database initialization
+ls var/aos-cp.sqlite3
+
+# Start services and verify no network traffic
+./target/release/adapteros-server --config configs/airgap.toml &
+sleep 5
+sudo lsof -i -P | grep adapteros  # Should show NO network connections
+```
 
 ---
 
@@ -404,6 +862,7 @@ On **Node 1** (leader):
 # Configure PostgreSQL for remote access
 # Edit postgresql.conf
 listen_addresses = '*'
+max_connections = 100
 
 # Edit pg_hba.conf (add nodes 2 and 3)
 host    adapteros_prod    adapteros    192.168.1.0/24    md5
@@ -414,6 +873,9 @@ psql -c "GRANT ALL PRIVILEGES ON DATABASE adapteros_prod TO adapteros;"
 
 # Restart PostgreSQL
 brew services restart postgresql@15
+
+# Verify remote connection
+psql -h 192.168.1.10 -U adapteros -d adapteros_prod
 ```
 
 ### 2. Worker Node Configuration
@@ -427,7 +889,7 @@ export DATABASE_URL="postgresql://adapteros:secure_password@192.168.1.10/adapter
 # Set federation mode
 export AOS_FEDERATION_MODE=cluster
 
-# Set node ID
+# Set unique node ID
 export AOS_NODE_ID=node2  # or node3
 
 # Build and start worker
@@ -439,9 +901,13 @@ Worker config (`configs/worker.toml`):
 
 ```toml
 [server]
-port = 8081  # Different port per worker
+port = 8081  # Different port per worker (8081, 8082, etc.)
 bind_address = "0.0.0.0"
 workers = 8
+
+[db]
+url = "postgresql://adapteros:secure_password@192.168.1.10/adapteros_prod"
+pool_size = 20
 
 [federation]
 mode = "cluster"
@@ -457,9 +923,14 @@ Leader election is automatic via PostgreSQL:
 
 ```sql
 -- Check current leader
-SELECT node_id, elected_at 
-FROM cluster_nodes 
+SELECT node_id, elected_at
+FROM cluster_nodes
 WHERE is_leader = TRUE;
+
+-- View all cluster nodes
+SELECT node_id, is_leader, last_heartbeat, status
+FROM cluster_nodes
+ORDER BY elected_at;
 ```
 
 ---
@@ -616,96 +1087,184 @@ kubectl apply -f k8s/adapteros.yaml
 
 # Check status
 kubectl get pods -n adapteros
+kubectl logs -f deployment/adapteros -n adapteros
 ```
 
 ---
 
-## Air-Gapped Deployment
+## Authentication Configuration
 
-> **Note:** For detailed air-gapped installation, see [docs/deployment-guide.md](DEPLOYMENT-GUIDE.md) (archived for reference).
+> **Note:** For detailed authentication setup, see [docs/AUTHENTICATION.md](AUTHENTICATION.md).
 
-### 1. Prepare Offline Bundle
+### Pre-Deployment Security Checklist
 
-On a machine with internet access:
+Before deploying to production, complete these authentication security checks:
 
-```bash
-# Clone repository with vendored dependencies
-git clone --recursive https://github.com/rogu3bear/adapter-os.git
-cd adapter-os
+- [ ] JWT mode configured (`EdDSA` recommended for production)
+- [ ] Strong JWT secret generated or keypair configured
+- [ ] Authentication mode set to `production`
+- [ ] Development tokens disabled or removed
+- [ ] HTTPS enabled and enforced (if exposed externally)
+- [ ] CORS origins restricted to production domains
+- [ ] Rate limiting enabled
+- [ ] Token expiry configured appropriately (recommended: 8 hours)
+- [ ] Security logging enabled
+- [ ] Failed login monitoring configured
 
-# Vendor Rust dependencies
-cargo vendor
+### Development Environment
 
-# Build offline
-cargo build --release --offline
-
-# Package everything
-tar czf adapteros-offline-bundle.tar.gz \
-  target/release/aosctl \
-  target/release/adapteros-server \
-  models/ \
-  configs/ \
-  metal/
-```
-
-### 2. Transfer and Install
-
-On air-gapped machine:
-
-```bash
-# Extract bundle
-tar xzf adapteros-offline-bundle.tar.gz
-
-# Install binaries
-sudo cp target/release/* /usr/local/bin/
-
-# Set up local database
-brew install postgresql@15
-createdb adapteros_airgap
-```
-
-### 3. Configure Zero Egress
-
-Edit `configs/airgap.toml`:
+**Configuration** (`configs/cp-dev.toml`):
 
 ```toml
+[auth]
+mode = "development"
+dev_token = "adapteros-local"
+token_expiry_hours = 24
+
 [security]
-require_pf_deny = true
-zero_network_egress = true
-
-[egress]
-# Block all network except Unix sockets
-allowed_protocols = []
-unix_socket_only = true
-pf_rules_path = "/etc/pf.anchors/adapteros"
+require_https = false
+cors_origins = ["http://localhost:3200"]
+enable_rate_limiting = false
 ```
 
-### 4. Packet Filter Rules
-
-Create `/etc/pf.anchors/adapteros`:
-
-```
-# Block all network traffic from AdapterOS process
-block drop out proto tcp from any to any user adapteros
-block drop out proto udp from any to any user adapteros
-block drop out proto icmp from any to any user adapteros
-
-# Allow localhost only
-pass out proto tcp from 127.0.0.1 to 127.0.0.1 user adapteros
-pass out on lo0 user adapteros
-```
-
-Enable rules:
+**Starting the Server**:
 
 ```bash
-# Load anchor
-sudo pfctl -f /etc/pf.conf
-sudo pfctl -a adapteros -f /etc/pf.anchors/adapteros
-sudo pfctl -e
-
-# Verify with tcpdump (should show no outbound traffic)
-sudo tcpdump -i any -n src host <server_ip>
+./target/release/adapteros-server \
+  --skip-pf-check \
+  --config configs/cp-dev.toml
 ```
+
+**Development Auth Bypass** (Debug builds only):
+
+```bash
+# Option 1: No-auth bypass
+AOS_DEV_NO_AUTH=1 cargo run --bin adapteros-server
+
+# Option 2: Custom JWT secret
+AOS_DEV_JWT_SECRET="my-test-secret" cargo run --bin adapteros-server
+```
+
+### Production Environment
+
+**Configuration** (`configs/cp-production.toml`):
+
+```toml
+[auth]
+mode = "production"  # Strict JWT only, NO dev_token
+token_expiry_hours = 8
+max_login_attempts = 5
+lockout_duration_minutes = 30
+
+[security]
+require_https = true
+cors_origins = [
+  "https://app.adapteros.example.com"
+]
+enable_rate_limiting = true
+```
+
+### JWT Configuration Modes
+
+#### HMAC Mode (Simple, Shared Secret)
+
+**Use case:** Single-server deployments
+
+```bash
+# Generate secret
+openssl rand -base64 32 > var/jwt_secret.key
+
+# Set restrictive permissions
+chmod 600 var/jwt_secret.key
+
+# Set in config
+[jwt]
+mode = "hmac"
+secret_file = "var/jwt_secret.key"
+```
+
+#### EdDSA Mode (Public Key, More Secure)
+
+**Use case:** Production, distributed systems (recommended)
+
+```bash
+# Generate Ed25519 keypair
+openssl genpkey -algorithm Ed25519 -out var/jwt_private.pem
+openssl pkey -in var/jwt_private.pem -pubout -out var/jwt_public.pem
+
+# Set restrictive permissions
+chmod 600 var/jwt_private.pem
+chmod 644 var/jwt_public.pem
+
+# Set in config
+[jwt]
+mode = "eddsa"
+private_key_file = "var/jwt_private.pem"
+public_key_file = "var/jwt_public.pem"
+```
+
+### HTTPS Configuration (Nginx Reverse Proxy)
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name app.adapteros.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/adapteros.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/adapteros.example.com/privkey.pem;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    server_name app.adapteros.example.com;
+    return 301 https://$server_name$request_uri;
+}
+```
+
+### Rate Limiting
+
+Configure in `configs/cp-production.toml`:
+
+```toml
+[security.rate_limiting]
+enabled = true
+requests_per_minute = 60
+burst = 10
+```
+
+### Backup and Recovery
+
+**Backup JWT Keys**:
+
+```bash
+# Create encrypted backup
+mkdir -p /backup/adapteros/jwt-keys/$(date +%Y%m%d)
+cp var/jwt_*.pem /backup/adapteros/jwt-keys/$(date +%Y%m%d)/
+tar czf - /backup/adapteros/jwt-keys/$(date +%Y%m%d)/ | \
+  openssl enc -aes-256-cbc -salt -out /backup/adapteros/jwt-keys-$(date +%Y%m%d).tar.gz.enc
+```
+
+**Key Rotation Procedure:**
+
+1. Generate new keypair
+2. Configure old public key for validation
+3. Configure new private key for signing
+4. Wait for all old tokens to expire
+5. Remove old public key
 
 ---
 
@@ -714,6 +1273,7 @@ sudo tcpdump -i any -n src host <server_ip>
 ### Worker Pool Sizing
 
 Formula:
+
 ```
 workers = min(physical_cores, max_concurrent_requests / avg_latency_secs)
 ```
@@ -758,25 +1318,35 @@ cold_threshold_mins = 60
 warm_threshold_mins = 15
 ```
 
+### Horizontal Scaling
+
+Add worker nodes with federation enabled:
+
+```bash
+# On new worker node
+export DATABASE_URL="postgresql://adapteros:password@leader-ip/adapteros_prod"
+export AOS_FEDERATION_MODE=cluster
+export AOS_NODE_ID=node4
+
+./target/release/adapteros-server --config configs/worker.toml
+```
+
+### Vertical Scaling
+
+Increase GPU memory allocation in configs:
+
+```toml
+[memory]
+min_headroom_pct = 10  # Allow more memory usage
+max_adapters_per_tenant = 30
+
+[router]
+k_sparse = 5  # Activate more adapters simultaneously
+```
+
 ---
 
 ## Production Checklist
-
-### Scaling Guidelines
-- Horizontal: Add worker nodes with federation enabled
-- Vertical: Increase GPU memory allocation in configs
-
-### Security Hardening
-- Enable JWT rotation in auth config
-- Set RBAC policies in cp.toml
-
-### Monitoring Setup
-- Configure Prometheus export
-- Set up alerting thresholds
-
-### Backup Strategies
-- Daily DB snapshots
-- Adapter registry backups
 
 ### Security
 
@@ -818,7 +1388,7 @@ warm_threshold_mins = 15
     for: 5m
     annotations:
       summary: "Inference p95 latency exceeds 100ms"
-  
+
   - alert: HighMemoryUsage
     expr: adapteros_memory_usage_bytes / adapteros_memory_total_bytes > 0.85
     for: 2m
@@ -846,17 +1416,6 @@ warm_threshold_mins = 15
 
 ---
 
-## References
-
-- [README.md](../README.md) - Quick start and feature overview
-- [docs/control-plane.md](CONTROL-PLANE.md) - API endpoints
-- [docs/rag-pgvector.md](RAG-PGVECTOR.md) - Vector database setup
-- [docs/POLICIES.md](POLICIES.md) - 22 policy packs
-
----
-
----
-
 ## Troubleshooting
 
 ### Authentication Issues
@@ -864,6 +1423,7 @@ warm_threshold_mins = 15
 **Issue: "unauthorized" errors in production**
 
 **Solutions:**
+
 ```bash
 # Verify configuration
 cat configs/cp-production.toml | grep -A5 "\[auth\]"
@@ -883,6 +1443,7 @@ tail -f /var/log/adapteros/server.log | grep -i auth
 **Issue: CORS errors in browser**
 
 **Solution:**
+
 ```toml
 # Update configs/cp-production.toml
 [security]
@@ -892,13 +1453,196 @@ cors_origins = [
 ]
 ```
 
-### Deployment Issues
+### Build and Compilation Issues
 
-**For detailed troubleshooting:** See archived [docs/DEPLOYMENT_AUTH.md](DEPLOYMENT_AUTH.md) for authentication-specific issues and [docs/deployment-guide.md](DEPLOYMENT-GUIDE.md) for air-gapped installation details.
+**Issue: Metal Kernel Compilation Failures**
+
+```bash
+# Rebuild Metal kernels
+cd metal && bash build.sh
+
+# Check for Xcode command line tools
+xcode-select --install
+
+# Verify metal compiler
+xcrun -sdk macosx metal --version
+```
+
+**Issue: Rust Compilation Errors**
+
+```bash
+# Clean and rebuild
+cargo clean && cargo build --release
+
+# Check Rust version
+rustc --version  # Should be 1.75+
+
+# Update Rust
+rustup update stable
+
+# Check feature flags
+cargo build --release --features rag-pgvector
+```
+
+### Database Issues
+
+**Issue: Database Connection Issues**
+
+```bash
+# Check database file permissions
+ls -la var/aos-cp.sqlite3
+
+# Reinitialize database
+rm var/aos-cp.sqlite3
+./target/release/aosctl db migrate
+
+# For PostgreSQL: check connection
+psql -h localhost -U adapteros -d adapteros_prod
+```
+
+**Issue: Migration Failures**
+
+```bash
+# Check migration status
+./target/release/aosctl db status
+
+# Verify migration signatures
+cat migrations/signatures.json
+
+# Re-run migrations
+./target/release/aosctl db migrate --force
+```
+
+### Worker Issues
+
+**Issue: Worker Startup Failures**
+
+```bash
+# Check socket permissions
+ls -la /var/run/aos/production/
+
+# Verify tenant exists
+./target/release/aosctl list-tenants
+
+# Check worker logs
+tail -f var/logs/worker.log
+
+# Verify backend availability
+./target/release/aosctl backend-info
+```
+
+**Issue: Inference Timeouts**
+
+```bash
+# Check worker health
+./target/release/aosctl worker-status --tenant production
+
+# Verify model loading
+./target/release/aosctl model-info --tenant production
+
+# Check memory usage
+./target/release/aosctl system-metrics
+
+# Increase timeout in config
+[worker.safety]
+inference_timeout_secs = 60  # Increase from 30
+```
+
+### Port Conflicts
+
+```bash
+# Clean up ports
+make prepare  # Stops services, cleans ports
+
+# Manual port cleanup
+lsof -ti:8080 | xargs kill
+lsof -ti:3200 | xargs kill
+
+# Check what's using a port
+lsof -i :8080
+```
+
+### Performance Issues
+
+**Issue: High Memory Usage**
+
+```bash
+# Check memory metrics
+./target/release/aosctl system-metrics
+
+# Reduce adapter cache
+[memory]
+max_adapters_per_tenant = 10  # Reduce from 20
+min_headroom_pct = 20  # Increase headroom
+
+# Force eviction
+./target/release/aosctl evict-adapters --tenant production
+```
+
+**Issue: Slow Inference**
+
+```bash
+# Profile inference
+./target/release/aosctl infer --prompt "test" --profile
+
+# Check backend performance
+./target/release/aosctl backend-bench --backend mlx
+
+# Optimize router
+[router]
+k_sparse = 2  # Reduce from 3
+```
+
+### Logging and Debugging
+
+Enable debug logging:
+
+```bash
+# Set environment variables
+export RUST_LOG=debug
+export RUST_BACKTRACE=1
+
+# Run with verbose output
+./target/release/aosctl serve --tenant production --plan my-plan --verbose
+
+# Check logs
+tail -f var/logs/server.log
+tail -f /var/log/adapteros/telemetry.jsonl
+```
+
+### Determinism Issues
+
+1. Check seed derivation (same inputs → same seeds)
+2. Verify router sorting (score DESC, index ASC tie-break)
+3. Confirm Q15 denominator = 32767.0
+4. Run `make determinism-check`
+
+### Health Check Failures
+
+```bash
+# Check control plane health
+curl http://localhost:8080/healthz
+
+# Check worker status
+./target/release/aosctl worker-status --tenant production
+
+# Monitor system metrics with interval
+./target/release/aosctl system-metrics --interval 30
+```
 
 ---
 
-**Version:** 1.1  
-**Last Updated:** 2025-01-15  
-**Consolidated from:** DEPLOYMENT.md, DEPLOYMENT_AUTH.md, deployment-guide.md  
+## References
+
+- [README.md](../README.md) - Quick start and feature overview
+- [CLAUDE.md](../CLAUDE.md) - Development guide
+- [docs/AUTHENTICATION.md](AUTHENTICATION.md) - Authentication details
+- [docs/POLICIES.md](POLICIES.md) - 22 policy packs
+- [docs/DETERMINISM.md](DETERMINISM.md) - Determinism and replay guarantees
+
+---
+
+**Version:** 2.0
+**Last Updated:** 2025-01-15
+**Consolidated from:** DEPLOYMENT.md, deployment-guide.md
 **Maintained By:** AdapterOS Team
