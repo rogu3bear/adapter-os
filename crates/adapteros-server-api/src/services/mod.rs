@@ -16,12 +16,23 @@
 //! - Maintainability (business logic in one place)
 
 pub mod adapter_service;
+pub mod dataset_domain;
 pub mod repo_url;
+pub mod training_dataset;
 pub mod training_service;
 
 // Re-export commonly used types
 pub use adapter_service::{
     AdapterHealthResponse, AdapterService, DefaultAdapterService, LifecycleTransitionResult,
+};
+pub use dataset_domain::{
+    CanonicalRow, DatasetDomain, DatasetDomainService, DatasetManifest, DatasetVersionDescriptor,
+    NormalizationNotes, RawDialect, RawFileDescriptor, RawIngestRequest, SamplingConfig,
+    SplitStats,
+};
+pub use training_dataset::{
+    DatasetFromCollectionParams, DatasetFromDocumentIdsParams, DatasetFromUploadParams,
+    DatasetFromUploadedDocumentParams, DefaultTrainingDatasetService, TrainingDatasetService,
 };
 pub use training_service::{
     DefaultTrainingService, TrainingCapacityInfo, TrainingService, TrainingValidationResult,

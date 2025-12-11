@@ -1,6 +1,8 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+use adapteros_storage::FsObjectStore;
+
 pub const FILES_DIR_NAME: &str = "files";
 pub const TEMP_DIR_NAME: &str = "temp";
 pub const CHUNKED_DIR_NAME: &str = "chunked";
@@ -48,4 +50,12 @@ pub fn resolve_dataset_root(state: &crate::state::AppState) -> PathBuf {
     env::current_dir()
         .unwrap_or_else(|_| Path::new("/").to_path_buf())
         .join(root)
+}
+
+/// Build a filesystem-backed object store rooted at configured dataset and adapter paths.
+pub fn object_store_for_state(state: &crate::state::AppState) -> FsObjectStore {
+    let cfg = state.config.read().expect("Config lock poisoned");
+    let dataset_root = cfg.paths.datasets_root.clone();
+    let adapter_root = cfg.paths.adapters_root.clone();
+    FsObjectStore::new(dataset_root, adapter_root)
 }

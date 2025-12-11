@@ -18,7 +18,7 @@ use adapteros_db::chat_sessions::{AddMessageParams, CreateChatSessionParams};
 use axum::{extract::State, http::StatusCode, response::Json, Extension};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -483,7 +483,9 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         router_seed: None,
         seed_mode: None,
         request_seed: None,
+        determinism: None,
         backend_profile: None,
+        coreml_mode: None,
         strict_mode: Some(false),
         determinism_mode: None,
         routing_determinism_mode: None,
@@ -537,26 +539,25 @@ async fn get_worker_uds_path(state: &AppState) -> Option<std::path::PathBuf> {
         }
     }
 
-    // Fallback to environment variable
-    if let Ok(socket_path) = std::env::var("AOS_WORKER_SOCKET") {
-        let path = std::path::PathBuf::from(&socket_path);
-        if path.exists() {
-            info!(
-                path = %path.display(),
-                "Using worker socket from AOS_WORKER_SOCKET for owner chat"
+    match resolve_worker_socket_for_cp() {
+        Ok(resolved) => {
+            if resolved.path.exists() {
+                info!(
+                    path = %resolved.path.display(),
+                    source = %resolved.source,
+                    "Using resolved worker socket fallback for owner chat"
+                );
+                return Some(resolved.path);
+            }
+            warn!(
+                path = %resolved.path.display(),
+                source = %resolved.source,
+                "Resolved worker socket does not exist for owner chat fallback"
             );
-            return Some(path);
         }
-    }
-
-    let resolved = resolve_worker_socket_for_cp();
-    if resolved.path.exists() {
-        info!(
-            path = %resolved.path.display(),
-            source = %resolved.source,
-            "Using resolved worker socket fallback for owner chat"
-        );
-        return Some(resolved.path);
+        Err(e) => {
+            error!(error = %e, "Failed to resolve worker socket for owner chat");
+        }
     }
 
     None

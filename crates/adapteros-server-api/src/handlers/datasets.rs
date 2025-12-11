@@ -5,28 +5,38 @@ mod paths;
 mod progress;
 mod tenant;
 
+// Re-export selected helpers for services and shared consumers
+pub use self::fs_utils::{clean_dataset_dir, ensure_dirs};
+pub use self::hashing::hash_file;
+pub use self::paths::{resolve_dataset_root, DatasetPaths};
+pub use self::tenant::bind_dataset_to_tenant;
+
 use self::chunked::{assemble_chunks, expected_chunks, persist_chunk, prepare_session};
-use self::fs_utils::{
-    clean_dataset_dir, clean_temp, ensure_dirs, finalize_file_move, write_temp_file,
-};
-use self::hashing::{hash_file, hash_multi};
-use self::paths::{resolve_dataset_root, DatasetPaths};
+use self::fs_utils::clean_temp;
+use self::hashing::hash_multi;
 use self::progress::emit_progress;
-use self::tenant::bind_dataset_to_tenant;
 use super::chunked_upload::{
     CompressionFormat, FileValidator, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
 use crate::citations::build_dataset_index;
-use crate::error_helpers::{bad_request, db_error, internal_error, not_found, payload_too_large};
+use crate::error_helpers::{
+    bad_request, db_error, forbidden, internal_error, not_found, payload_too_large,
+};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
+use crate::services::{
+    CanonicalRow, DatasetFromCollectionParams, DatasetFromDocumentIdsParams,
+    DefaultTrainingDatasetService, TrainingDatasetService,
+};
 use crate::state::AppState;
+use crate::storage_usage::compute_tenant_storage_usage;
 use crate::types::*;
 use adapteros_core::B3Hash;
 use adapteros_db::training_datasets::DatasetFile;
 use adapteros_deterministic_exec::spawn_deterministic;
+use adapteros_storage::{ByteStorage, FsByteStorage, StorageKey, StorageKind};
 use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
@@ -38,10 +48,12 @@ use axum::{
 };
 use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
+use std::sync::Arc;
 use tokio::fs;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use tracing::{debug, error, info, warn};
 use utoipa::{IntoParams, ToSchema};
@@ -53,14 +65,36 @@ const MAX_FILE_SIZE: usize = 100 * 1024 * 1024;
 /// Maximum total upload size (500MB)
 const MAX_TOTAL_SIZE: usize = 500 * 1024 * 1024;
 
+const DEFAULT_DATASET_HARD_QUOTA_BYTES: u64 = 10 * 1024 * 1024 * 1024; // 10 GiB
+const DEFAULT_SOFT_PCT: f64 = 0.8;
+
 /// Buffer size for streaming operations (64KB)
-const STREAM_BUFFER_SIZE: usize = 64 * 1024;
+pub(crate) const STREAM_BUFFER_SIZE: usize = 64 * 1024;
 
 /// Validation batch size to reduce database transaction overhead
 const VALIDATION_BATCH_SIZE: usize = 10;
 
+fn dataset_quota_limits() -> (u64, u64) {
+    let hard = std::env::var("AOS_DATASET_HARD_QUOTA_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_DATASET_HARD_QUOTA_BYTES);
+    let soft = std::env::var("AOS_DATASET_SOFT_QUOTA_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or_else(|| (hard as f64 * DEFAULT_SOFT_PCT) as u64);
+    (soft, hard)
+}
+
+fn quota_error(message: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::FORBIDDEN,
+        Json(ErrorResponse::new(message.into()).with_code("DATASET_QUOTA_EXCEEDED".to_string())),
+    )
+}
+
 /// Map validation status: 'pending' → 'draft' for API responses
-fn map_validation_status(status: &str) -> DatasetValidationStatus {
+pub(crate) fn map_validation_status(status: &str) -> DatasetValidationStatus {
     match status {
         "validating" => DatasetValidationStatus::Validating,
         "valid" => DatasetValidationStatus::Valid,
@@ -71,7 +105,7 @@ fn map_validation_status(status: &str) -> DatasetValidationStatus {
     }
 }
 
-fn map_validation_errors(errors: Option<String>) -> Option<Vec<String>> {
+pub(crate) fn map_validation_errors(errors: Option<String>) -> Option<Vec<String>> {
     errors.and_then(|raw| {
         serde_json::from_str::<Vec<String>>(&raw)
             .ok()
@@ -139,6 +173,16 @@ pub struct UploadChunkResponse {
     /// Resume token for resuming from next chunk (if not complete)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_token: Option<String>,
+}
+
+/// Request to apply an admin trust override to a dataset version
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DatasetTrustOverrideRequest {
+    /// Override state: allowed | allowed_with_warning | blocked | needs_approval
+    pub override_state: String,
+    /// Optional human-readable reason for auditability
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// Request to complete a chunked upload and create the dataset
@@ -222,6 +266,11 @@ pub async fn upload_dataset(
 
     let dataset_id = Uuid::now_v7().to_string();
     let paths = DatasetPaths::new(resolve_dataset_root(&state));
+    let adapters_root = {
+        let cfg = state.config.read().expect("Config lock poisoned");
+        cfg.paths.adapters_root.clone()
+    };
+    let storage = FsByteStorage::new(paths.files.clone(), adapters_root.into());
     ensure_dirs([
         paths.files.as_path(),
         paths.temp.as_path(),
@@ -230,10 +279,22 @@ pub async fn upload_dataset(
     ])
     .await?;
 
+    let adapters_root = {
+        let cfg = state.config.read().expect("Config lock poisoned");
+        cfg.paths.adapters_root.clone()
+    };
+    let storage = FsByteStorage::new(paths.files.clone(), adapters_root.into());
+
     let dataset_path = paths.dataset_dir(&dataset_id);
     let temp_path = paths.dataset_temp_dir(&dataset_id);
 
     ensure_dirs([dataset_path.as_path(), temp_path.as_path()]).await?;
+
+    let (soft_quota, hard_quota) = dataset_quota_limits();
+    let usage = compute_tenant_storage_usage(&state, &claims.tenant_id)
+        .await
+        .map_err(|e| internal_error(format!("Failed to compute storage usage: {}", e)))?;
+    let mut current_usage = usage.total_bytes();
 
     emit_progress(
         state.dataset_progress_tx.as_ref(),
@@ -291,9 +352,6 @@ pub async fn upload_dataset(
                     .map(|ct| ct.to_string())
                     .unwrap_or_else(|| "application/octet-stream".to_string());
 
-                // Stream file to temporary location
-                let temp_file_path = temp_path.join(&file_name);
-
                 let data = field
                     .bytes()
                     .await
@@ -320,15 +378,38 @@ pub async fn upload_dataset(
                     )));
                 }
 
-                // Write file
-                write_temp_file(&temp_file_path, &data).await?;
+                let predicted_usage = current_usage + total_size as u64;
+                if predicted_usage > hard_quota {
+                    clean_temp(&temp_path).await;
+                    return Err(quota_error(format!(
+                        "Dataset storage quota exceeded: {} > {} bytes",
+                        predicted_usage, hard_quota
+                    )));
+                }
+                if predicted_usage > soft_quota {
+                    warn!(
+                        tenant_id = %claims.tenant_id,
+                        predicted_usage,
+                        soft_quota,
+                        "Dataset storage soft quota exceeded"
+                    );
+                }
 
                 // Compute hash using B3Hash
                 let file_hash = hash_file(&data);
 
-                // Move file to permanent location
-                let permanent_path = dataset_path.join(&file_name);
-                finalize_file_move(&temp_file_path, &permanent_path).await?;
+                let key = StorageKey {
+                    tenant_id: Some(claims.tenant_id.clone()),
+                    object_id: dataset_id.clone(),
+                    version_id: None,
+                    file_name: file_name.clone(),
+                    kind: StorageKind::DatasetFile,
+                };
+                let location = storage
+                    .store_bytes(&key, &data)
+                    .await
+                    .map_err(|e| internal_error(format!("Failed to store dataset file: {}", e)))?;
+                let permanent_path = location.path;
 
                 file_count += 1;
 
@@ -358,6 +439,7 @@ pub async fn upload_dataset(
                     mime_type: Some(content_type),
                     created_at: chrono::Utc::now().to_rfc3339(),
                 });
+                current_usage += file_size as u64;
 
                 info!(
                     "Uploaded file {} ({} bytes) for dataset {}",
@@ -388,9 +470,10 @@ pub async fn upload_dataset(
     let dataset_hash = hash_multi(&file_hashes);
 
     // Store in database - associate dataset with the user's tenant
-    let dataset_id_result = state
+    state
         .db
-        .create_training_dataset(
+        .create_training_dataset_with_id(
+            &dataset_id,
             &dataset_name,
             if dataset_description.is_empty() {
                 None
@@ -571,22 +654,32 @@ pub async fn list_datasets(
 
     // Tenant isolation enforced at database level via list_training_datasets_for_tenant
     let is_admin = claims.role == "admin";
-    let responses: Vec<DatasetResponse> = datasets
-        .into_iter()
-        .filter(|d| {
-            // Non-admin users can only see datasets belonging to their tenant
-            if !is_admin {
-                match &d.tenant_id {
-                    Some(dt) if dt != &claims.tenant_id => return false,
-                    None => return false, // Datasets without tenant_id are hidden from non-admins
-                    _ => {}
-                }
+    let mut responses: Vec<DatasetResponse> = Vec::new();
+
+    for d in datasets.into_iter().filter(|d| {
+        // Non-admin users can only see datasets belonging to their tenant
+        if !is_admin {
+            match &d.tenant_id {
+                Some(dt) if dt != &claims.tenant_id => return false,
+                None => return false, // Datasets without tenant_id are hidden from non-admins
+                _ => {}
             }
-            true
-        })
-        .map(|d| DatasetResponse {
+        }
+        true
+    }) {
+        let latest_trusted = state
+            .db
+            .get_latest_trusted_dataset_version_for_dataset(&d.id)
+            .await
+            .map_err(|e| db_error(format!("Failed to load dataset versions: {}", e)))?;
+        let (dataset_version_id, trust_state) = latest_trusted
+            .map(|(v, trust)| (Some(v.id), Some(trust)))
+            .unwrap_or((None, None));
+
+        responses.push(DatasetResponse {
             schema_version: "1.0".to_string(),
             dataset_id: d.id,
+            dataset_version_id,
             name: d.name,
             description: d.description,
             file_count: d.file_count,
@@ -596,11 +689,12 @@ pub async fn list_datasets(
             storage_path: d.storage_path,
             validation_status: map_validation_status(&d.validation_status),
             validation_errors: map_validation_errors(d.validation_errors),
+            trust_state,
             created_by: d.created_by.unwrap_or_else(|| "system".to_string()),
             created_at: d.created_at,
             updated_at: d.updated_at,
-        })
-        .collect();
+        });
+    }
 
     Ok(Json(responses))
 }
@@ -645,9 +739,19 @@ pub async fn get_dataset(
         ));
     }
 
+    let latest_trusted = state
+        .db
+        .get_latest_trusted_dataset_version_for_dataset(&dataset.id)
+        .await
+        .map_err(|e| db_error(format!("Failed to load dataset versions: {}", e)))?;
+    let (dataset_version_id, trust_state) = latest_trusted
+        .map(|(v, trust)| (Some(v.id), Some(trust)))
+        .unwrap_or((None, None));
+
     Ok(Json(DatasetResponse {
         schema_version: "1.0".to_string(),
         dataset_id: dataset.id,
+        dataset_version_id,
         name: dataset.name,
         description: dataset.description,
         file_count: dataset.file_count,
@@ -657,9 +761,172 @@ pub async fn get_dataset(
         storage_path: dataset.storage_path,
         validation_status: map_validation_status(&dataset.validation_status),
         validation_errors: map_validation_errors(dataset.validation_errors),
+        trust_state,
         created_by: dataset.created_by.unwrap_or_else(|| "system".to_string()),
         created_at: dataset.created_at,
         updated_at: dataset.updated_at,
+    }))
+}
+
+/// List all versions for a dataset (ordered latest-first) with effective trust_state.
+#[utoipa::path(
+    get,
+    path = "/v1/datasets/{dataset_id}/versions",
+    params(
+        ("dataset_id" = String, Path, description = "Dataset ID")
+    ),
+    responses(
+        (status = 200, description = "Dataset versions", body = DatasetVersionsResponse),
+        (status = 403, description = "Tenant isolation violation"),
+        (status = 404, description = "Dataset not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn list_dataset_versions(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(dataset_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetView)?;
+
+    // Ensure dataset exists and enforce tenant isolation
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to load dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
+
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
+    } else if claims.role != "admin" {
+        return Err(forbidden(
+            "Access denied: dataset has no tenant association",
+        ));
+    }
+
+    let versions = state
+        .db
+        .list_dataset_versions_for_dataset(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to list dataset versions: {}", e)))?;
+
+    let summaries: Vec<DatasetVersionSummary> = versions
+        .into_iter()
+        .map(|(version, trust_state)| DatasetVersionSummary {
+            dataset_version_id: version.id,
+            version_number: version.version_number,
+            version_label: version.version_label,
+            hash_b3: Some(version.hash_b3),
+            storage_path: Some(version.storage_path),
+            trust_state: Some(trust_state),
+            created_at: version.created_at,
+        })
+        .collect();
+
+    Ok(Json(DatasetVersionsResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        dataset_id,
+        versions: summaries,
+    }))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateDatasetVersionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_json: Option<Value>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CreateDatasetVersionResponse {
+    pub dataset_id: String,
+    pub dataset_version_id: String,
+    pub version_number: i64,
+    pub trust_state: String,
+    pub created_at: String,
+}
+
+/// Create a dataset version explicitly (e.g., to pin a manifest before training).
+#[utoipa::path(
+    post,
+    path = "/v1/datasets/{dataset_id}/versions",
+    params(
+        ("dataset_id" = String, Path, description = "Dataset ID")
+    ),
+    request_body = CreateDatasetVersionRequest,
+    responses(
+        (status = 200, description = "Dataset version created", body = CreateDatasetVersionResponse),
+        (status = 403, description = "Tenant isolation violation"),
+        (status = 404, description = "Dataset not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn create_dataset_version(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(dataset_id): Path<String>,
+    Json(body): Json<CreateDatasetVersionRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetValidate)?;
+
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to load dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
+
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
+    } else if claims.role != "admin" {
+        return Err(forbidden(
+            "Access denied: dataset has no tenant association",
+        ));
+    }
+
+    let manifest_json = if let Some(v) = body.manifest_json {
+        Some(
+            serde_json::to_string(&v)
+                .map_err(|e| bad_request(format!("invalid manifest_json: {}", e)))?,
+        )
+    } else {
+        None
+    };
+
+    let version_id = state
+        .db
+        .create_training_dataset_version(
+            &dataset_id,
+            dataset.tenant_id.as_deref(),
+            body.version_label.as_deref(),
+            &dataset.storage_path,
+            &dataset.hash_b3,
+            body.manifest_path.as_deref(),
+            manifest_json.as_deref(),
+            Some(&claims.sub),
+        )
+        .await
+        .map_err(|e| db_error(format!("Failed to create dataset version: {}", e)))?;
+
+    let version = state
+        .db
+        .get_training_dataset_version(&version_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to fetch created dataset version: {}", e)))?
+        .ok_or_else(|| internal_error("Dataset version was created but not found"))?;
+
+    Ok(Json(CreateDatasetVersionResponse {
+        dataset_id,
+        dataset_version_id: version_id,
+        version_number: version.version_number,
+        trust_state: version.trust_state,
+        created_at: version.created_at,
     }))
 }
 
@@ -978,6 +1245,32 @@ pub async fn validate_dataset(
             internal_error(format!("Failed to update validation status: {}", e))
         })?;
 
+    // Mirror structural validation into dataset version trust pipeline
+    if let Ok(version_id) = state.db.ensure_dataset_version_exists(&dataset_id).await {
+        let _ = state
+            .db
+            .update_dataset_version_structural_validation(
+                &version_id,
+                validation_status,
+                validation_errors_str.as_deref(),
+            )
+            .await;
+        // Kick off tier2 safety validation asynchronously (stub pipeline)
+        spawn_tier2_safety_validation(state.clone(), version_id.clone(), claims.sub.clone());
+        let _ = state
+            .db
+            .record_dataset_version_validation_run(
+                &version_id,
+                "tier1_structural",
+                if is_valid { "valid" } else { "invalid" },
+                Some("structural"),
+                validation_errors_str.as_deref(),
+                None,
+                Some(claims.sub.as_str()),
+            )
+            .await;
+    }
+
     Ok(Json(ValidateDatasetResponse {
         schema_version: "1.0".to_string(),
         dataset_id,
@@ -989,6 +1282,191 @@ pub async fn validate_dataset(
             Some(validation_errors)
         },
         validated_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+/// Update semantic/safety statuses for a dataset version (Tier 2).
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct UpdateDatasetSafetyRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pii_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toxicity_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leak_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anomaly_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct UpdateDatasetSafetyResponse {
+    pub dataset_id: String,
+    pub dataset_version_id: String,
+    pub trust_state: String,
+    pub overall_safety_status: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/datasets/{dataset_id}/safety",
+    params(("dataset_id" = String, Path, description = "Dataset ID")),
+    request_body = UpdateDatasetSafetyRequest,
+    responses(
+        (status = 200, description = "Safety statuses updated", body = UpdateDatasetSafetyResponse),
+        (status = 404, description = "Dataset not found"),
+        (status = 403, description = "Tenant isolation violation"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn update_dataset_safety(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(dataset_id): Path<String>,
+    Json(body): Json<UpdateDatasetSafetyRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetValidate)?;
+
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
+
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
+    }
+
+    let version_id = state
+        .db
+        .ensure_dataset_version_exists(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to ensure dataset version: {}", e)))?;
+
+    // Compute overall safety for validation record
+    let overall_safety = {
+        let statuses = [
+            body.pii_status.as_deref().unwrap_or("unknown"),
+            body.toxicity_status.as_deref().unwrap_or("unknown"),
+            body.leak_status.as_deref().unwrap_or("unknown"),
+            body.anomaly_status.as_deref().unwrap_or("unknown"),
+        ];
+        if statuses
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case("block") || s.eq_ignore_ascii_case("unsafe"))
+        {
+            "block".to_string()
+        } else if statuses.iter().any(|s| s.eq_ignore_ascii_case("warn")) {
+            "warn".to_string()
+        } else if statuses.iter().all(|s| s.eq_ignore_ascii_case("unknown")) {
+            "unknown".to_string()
+        } else {
+            "clean".to_string()
+        }
+    };
+
+    let trust_state = state
+        .db
+        .update_dataset_version_safety_status(
+            &version_id,
+            body.pii_status.as_deref(),
+            body.toxicity_status.as_deref(),
+            body.leak_status.as_deref(),
+            body.anomaly_status.as_deref(),
+        )
+        .await
+        .map_err(|e| db_error(format!("Failed to update safety status: {}", e)))?;
+
+    let _ = state
+        .db
+        .record_dataset_version_validation_run(
+            &version_id,
+            "tier2_safety",
+            &overall_safety,
+            None,
+            None,
+            None,
+            Some(claims.sub.as_str()),
+        )
+        .await;
+
+    Ok(Json(UpdateDatasetSafetyResponse {
+        dataset_id,
+        dataset_version_id: version_id,
+        trust_state,
+        overall_safety_status: overall_safety,
+    }))
+}
+
+/// Admin override for dataset trust_state.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct TrustOverrideRequest {
+    pub trust_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrustOverrideResponse {
+    pub dataset_id: String,
+    pub dataset_version_id: String,
+    pub trust_state: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/datasets/{dataset_id}/trust_override",
+    params(("dataset_id" = String, Path, description = "Dataset ID")),
+    request_body = TrustOverrideRequest,
+    responses(
+        (status = 200, description = "Trust override applied", body = TrustOverrideResponse),
+        (status = 404, description = "Dataset not found"),
+        (status = 403, description = "Tenant isolation violation"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn override_dataset_trust(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(dataset_id): Path<String>,
+    Json(body): Json<TrustOverrideRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetValidate)?;
+
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
+
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
+    }
+
+    let version_id = state
+        .db
+        .ensure_dataset_version_exists(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to ensure dataset version: {}", e)))?;
+
+    state
+        .db
+        .create_dataset_version_override(
+            &version_id,
+            &body.trust_state,
+            body.reason.as_deref(),
+            &claims.sub,
+        )
+        .await
+        .map_err(|e| db_error(format!("Failed to create trust override: {}", e)))?;
+
+    Ok(Json(TrustOverrideResponse {
+        dataset_id,
+        dataset_version_id: version_id,
+        trust_state: body.trust_state,
     }))
 }
 
@@ -1080,6 +1558,82 @@ pub async fn preview_dataset(
     })))
 }
 
+/// Apply a trust override to the latest dataset version
+#[utoipa::path(
+    post,
+    path = "/v1/datasets/{dataset_id}/trust_override",
+    request_body = DatasetTrustOverrideRequest,
+    responses(
+        (status = 200, description = "Trust override applied"),
+        (status = 400, description = "Invalid override"),
+        (status = 404, description = "Dataset not found"),
+    ),
+    tag = "datasets"
+)]
+pub async fn apply_dataset_trust_override(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(dataset_id): Path<String>,
+    Json(payload): Json<DatasetTrustOverrideRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetValidate)?;
+
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to load dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
+
+    // Tenant isolation
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
+    }
+
+    let allowed_states = [
+        "allowed",
+        "allowed_with_warning",
+        "blocked",
+        "needs_approval",
+    ];
+    if !allowed_states
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case(payload.override_state.as_str()))
+    {
+        return Err(bad_request("Invalid override_state"));
+    }
+
+    let version_id = state
+        .db
+        .ensure_dataset_version_exists(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to ensure dataset version: {}", e)))?;
+
+    state
+        .db
+        .create_dataset_version_override(
+            &version_id,
+            payload.override_state.as_str(),
+            payload.reason.as_deref(),
+            &claims.sub,
+        )
+        .await
+        .map_err(|e| db_error(format!("Failed to create override: {}", e)))?;
+
+    let effective = state
+        .db
+        .get_effective_trust_state(&version_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to read effective trust_state: {}", e)))?
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Ok(Json(serde_json::json!({
+        "dataset_id": dataset_id,
+        "dataset_version_id": version_id,
+        "effective_trust_state": effective,
+    })))
+}
+
 /// Delete a dataset
 #[utoipa::path(
     delete,
@@ -1157,6 +1711,393 @@ pub async fn delete_dataset(
     .await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Spawn asynchronous tier2 safety validation (heuristic scan with trust gating).
+fn spawn_tier2_safety_validation(state: AppState, dataset_version_id: String, actor: String) {
+    tokio::spawn(async move {
+        // Record pending safety validation
+        let _ = state
+            .db
+            .record_dataset_version_validation_run(
+                &dataset_version_id,
+                "tier2_safety",
+                "pending",
+                Some("safety"),
+                None,
+                None,
+                Some(actor.as_str()),
+            )
+            .await;
+
+        let version = match state
+            .db
+            .get_training_dataset_version(&dataset_version_id)
+            .await
+        {
+            Ok(Some(v)) => v,
+            Ok(None) => {
+                let _ = state
+                    .db
+                    .record_dataset_version_validation_run(
+                        &dataset_version_id,
+                        "tier2_safety",
+                        "failed",
+                        Some("safety"),
+                        Some("Dataset version not found"),
+                        None,
+                        Some(actor.as_str()),
+                    )
+                    .await;
+                let _ = state
+                    .db
+                    .update_dataset_version_safety_status(
+                        &dataset_version_id,
+                        Some("unknown"),
+                        Some("unknown"),
+                        Some("unknown"),
+                        Some("unknown"),
+                    )
+                    .await;
+                return;
+            }
+            Err(e) => {
+                let msg = format!("Failed to load dataset version: {}", e);
+                let _ = state
+                    .db
+                    .record_dataset_version_validation_run(
+                        &dataset_version_id,
+                        "tier2_safety",
+                        "failed",
+                        Some("safety"),
+                        Some(msg.as_str()),
+                        None,
+                        Some(actor.as_str()),
+                    )
+                    .await;
+                let _ = state
+                    .db
+                    .update_dataset_version_safety_status(
+                        &dataset_version_id,
+                        Some("unknown"),
+                        Some("unknown"),
+                        Some("unknown"),
+                        Some("unknown"),
+                    )
+                    .await;
+                return;
+            }
+        };
+
+        match run_tier2_safety_scan(&version.storage_path).await {
+            Ok(outcome) => {
+                let pii_status = outcome.pii.status();
+                let toxicity_status = outcome.toxicity.status();
+                let leak_status = outcome.leak.status();
+                let anomaly_status = outcome.anomaly.status();
+
+                let _ = state
+                    .db
+                    .update_dataset_version_safety_status(
+                        &dataset_version_id,
+                        Some(pii_status.as_str()),
+                        Some(toxicity_status.as_str()),
+                        Some(leak_status.as_str()),
+                        Some(anomaly_status.as_str()),
+                    )
+                    .await;
+
+                record_safety_validation_runs(
+                    &state,
+                    &dataset_version_id,
+                    actor.as_str(),
+                    &outcome,
+                )
+                .await;
+            }
+            Err(err) => {
+                let msg = err;
+                let _ = state
+                    .db
+                    .record_dataset_version_validation_run(
+                        &dataset_version_id,
+                        "tier2_safety",
+                        "failed",
+                        Some("safety"),
+                        Some(msg.as_str()),
+                        None,
+                        Some(actor.as_str()),
+                    )
+                    .await;
+                let _ = state
+                    .db
+                    .update_dataset_version_safety_status(
+                        &dataset_version_id,
+                        Some("unknown"),
+                        Some("unknown"),
+                        Some("unknown"),
+                        Some("unknown"),
+                    )
+                    .await;
+            }
+        }
+    });
+}
+
+/// Safety signal sample cap to avoid large audit payloads
+const SAFETY_SAMPLE_LIMIT: usize = 5;
+const PROMPT_WARN_LEN: usize = 4096;
+const PROMPT_BLOCK_LEN: usize = 12000;
+
+#[derive(Default)]
+struct SignalAccumulator {
+    warn: usize,
+    block: usize,
+    reasons: Vec<String>,
+    sample_row_ids: Vec<String>,
+}
+
+impl SignalAccumulator {
+    fn note_warn(&mut self, reason: impl Into<String>, row_id: Option<&str>) {
+        self.warn += 1;
+        self.reasons.push(reason.into());
+        if let Some(id) = row_id {
+            push_sample(&mut self.sample_row_ids, id);
+        }
+    }
+
+    fn note_block(&mut self, reason: impl Into<String>, row_id: Option<&str>) {
+        self.block += 1;
+        self.reasons.push(reason.into());
+        if let Some(id) = row_id {
+            push_sample(&mut self.sample_row_ids, id);
+        }
+    }
+
+    fn status(&self) -> String {
+        if self.block > 0 {
+            "block".to_string()
+        } else if self.warn > 0 {
+            "warn".to_string()
+        } else {
+            "clean".to_string()
+        }
+    }
+}
+
+#[derive(Default)]
+struct SafetyScanOutcome {
+    pii: SignalAccumulator,
+    toxicity: SignalAccumulator,
+    leak: SignalAccumulator,
+    anomaly: SignalAccumulator,
+}
+
+fn push_sample(target: &mut Vec<String>, row_id: &str) {
+    if target.len() < SAFETY_SAMPLE_LIMIT {
+        target.push(row_id.to_string());
+    }
+}
+
+fn has_email_like_token(text: &str) -> bool {
+    text.split_whitespace().any(|token| {
+        let cleaned = token
+            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '@' && c != '.' && c != '-');
+        let mut parts = cleaned.split('@');
+        if let (Some(local), Some(domain)) = (parts.next(), parts.next()) {
+            !local.is_empty() && domain.contains('.')
+        } else {
+            false
+        }
+    })
+}
+
+fn has_secret_marker(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("aws_secret_access_key")
+        || lower.contains("aws_access_key_id")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+        || lower.contains("password=")
+        || lower.contains("secret=")
+        || lower.contains("-----begin")
+}
+
+fn has_toxic_marker(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    ["hate", "kill", "bomb", "terror", "violent"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+}
+
+fn classify_row(
+    row: &CanonicalRow,
+    seen_ids: &mut HashSet<String>,
+    outcome: &mut SafetyScanOutcome,
+) {
+    // Duplicate row_ids should not be allowed
+    if !seen_ids.insert(row.row_id.clone()) {
+        outcome
+            .anomaly
+            .note_block("duplicate_row_id", Some(&row.row_id));
+    }
+
+    // Length bounds
+    let prompt_len = row.prompt.len();
+    let response_len = row.response.len();
+    if prompt_len > PROMPT_BLOCK_LEN || response_len > PROMPT_BLOCK_LEN {
+        outcome
+            .anomaly
+            .note_block("text_too_long", Some(&row.row_id));
+    } else if prompt_len > PROMPT_WARN_LEN || response_len > PROMPT_WARN_LEN {
+        outcome
+            .anomaly
+            .note_warn("text_near_limit", Some(&row.row_id));
+    }
+
+    let combined = format!("{} {}", row.prompt, row.response);
+    if has_email_like_token(&combined) {
+        outcome
+            .pii
+            .note_warn("email_like_pattern", Some(&row.row_id));
+    }
+    if has_secret_marker(&combined) {
+        outcome.leak.note_block("secret_marker", Some(&row.row_id));
+    }
+    if has_toxic_marker(&combined) {
+        outcome
+            .toxicity
+            .note_warn("toxic_language", Some(&row.row_id));
+    }
+}
+
+async fn run_tier2_safety_scan(path: &str) -> Result<SafetyScanOutcome, String> {
+    let file = fs::File::open(path)
+        .await
+        .map_err(|e| format!("Failed to open dataset for safety scan: {}", e))?;
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines();
+    let mut outcome = SafetyScanOutcome::default();
+    let mut seen_ids: HashSet<String> = HashSet::new();
+
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|e| format!("Failed to read dataset line: {}", e))?
+    {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<CanonicalRow>(trimmed) {
+            Ok(row) => classify_row(&row, &mut seen_ids, &mut outcome),
+            Err(e) => outcome
+                .anomaly
+                .note_warn(format!("row_parse_error:{e}"), None),
+        }
+    }
+
+    Ok(outcome)
+}
+
+async fn record_safety_validation_runs(
+    state: &AppState,
+    dataset_version_id: &str,
+    actor: &str,
+    outcome: &SafetyScanOutcome,
+) {
+    let signals = [
+        ("pii", &outcome.pii),
+        ("toxicity", &outcome.toxicity),
+        ("leak", &outcome.leak),
+        ("anomaly", &outcome.anomaly),
+    ];
+
+    for (signal, acc) in signals {
+        let status = match acc.status().as_str() {
+            "block" => "block",
+            "warn" => "warn",
+            "clean" => "valid",
+            _ => "pending",
+        };
+        let reasons_json = if acc.reasons.is_empty() {
+            None
+        } else {
+            serde_json::to_string(&acc.reasons).ok()
+        };
+        let samples_json = if acc.sample_row_ids.is_empty() {
+            None
+        } else {
+            serde_json::to_string(&acc.sample_row_ids).ok()
+        };
+
+        let _ = state
+            .db
+            .record_dataset_version_validation_run(
+                dataset_version_id,
+                "tier2_safety",
+                status,
+                Some(signal),
+                reasons_json.as_deref(),
+                samples_json.as_deref(),
+                Some(actor),
+            )
+            .await;
+    }
+}
+
+#[cfg(test)]
+mod safety_scan_tests {
+    use super::*;
+
+    fn mk_row(prompt: &str, response: &str, row_id: &str) -> CanonicalRow {
+        CanonicalRow {
+            row_id: row_id.to_string(),
+            split: "train".into(),
+            prompt: prompt.into(),
+            response: response.into(),
+            weight: 1.0,
+            metadata: Default::default(),
+        }
+    }
+
+    #[test]
+    fn detects_email_secret_and_duplicates() {
+        let mut outcome = SafetyScanOutcome::default();
+        let mut seen = HashSet::new();
+        let row1 = mk_row("reach me at user@example.com", "ok", "row-1");
+        let row2 = mk_row("api_key=SECRET", "body", "row-2");
+        let row3 = mk_row("neutral", "text", "row-1"); // duplicate id
+
+        classify_row(&row1, &mut seen, &mut outcome);
+        classify_row(&row2, &mut seen, &mut outcome);
+        classify_row(&row3, &mut seen, &mut outcome);
+
+        assert_eq!(outcome.pii.status(), "warn");
+        assert_eq!(outcome.leak.status(), "block");
+        assert_eq!(outcome.anomaly.status(), "block");
+        assert!(outcome.pii.sample_row_ids.contains(&row1.row_id));
+        assert!(outcome.leak.sample_row_ids.contains(&row2.row_id));
+    }
+
+    #[tokio::test]
+    async fn safety_scan_marks_parse_errors_as_anomaly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("data.jsonl");
+        let row = mk_row("ok prompt", "resp", "row-1");
+        let content = format!(
+            "{}\n{}\n",
+            serde_json::to_string(&row).unwrap(),
+            "{invalid json"
+        );
+        fs::write(&path, content).await.unwrap();
+
+        let outcome = run_tier2_safety_scan(path.to_str().unwrap()).await.unwrap();
+        assert!(matches!(
+            outcome.anomaly.status().as_str(),
+            "warn" | "block"
+        ));
+    }
 }
 
 /// Query parameters for progress stream
@@ -1550,11 +2491,31 @@ pub async fn complete_chunked_upload(
     ])
     .await?;
 
-    let dataset_id = Uuid::now_v7().to_string();
-    let dataset_path = paths.dataset_dir(&dataset_id);
-    ensure_dirs([dataset_path.as_path()]).await?;
+    let adapters_root = {
+        let cfg = state.config.read().expect("Config lock poisoned");
+        cfg.paths.adapters_root.clone()
+    };
+    let storage = FsByteStorage::new(paths.files.clone(), adapters_root.into());
 
-    let output_path = dataset_path.join(&session.file_name);
+    let dataset_id = Uuid::now_v7().to_string();
+    let storage_key = StorageKey {
+        tenant_id: Some(claims.tenant_id.clone()),
+        object_id: dataset_id.clone(),
+        version_id: None,
+        file_name: session.file_name.clone(),
+        kind: StorageKind::DatasetFile,
+    };
+    let output_path = storage.path_for(&storage_key).map_err(|e| {
+        internal_error(format!(
+            "Failed to resolve storage path for dataset {}: {}",
+            dataset_id, e
+        ))
+    })?;
+    let dataset_path = output_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| paths.dataset_dir(&dataset_id));
+    ensure_dirs([dataset_path.as_path()]).await?;
 
     // Assemble chunks
     let (file_hash, total_bytes) = match assemble_chunks(&session, &output_path).await {
@@ -1596,6 +2557,26 @@ pub async fn complete_chunked_upload(
             return Err((status, Json(payload)));
         }
     };
+
+    let (soft_quota, hard_quota) = dataset_quota_limits();
+    let usage = compute_tenant_storage_usage(&state, &claims.tenant_id)
+        .await
+        .map_err(|e| internal_error(format!("Failed to compute storage usage: {}", e)))?;
+    let predicted_usage = usage.total_bytes() + total_bytes;
+    if predicted_usage > hard_quota {
+        return Err(quota_error(format!(
+            "Dataset storage quota exceeded: {} > {} bytes",
+            predicted_usage, hard_quota
+        )));
+    }
+    if predicted_usage > soft_quota {
+        warn!(
+            tenant_id = %claims.tenant_id,
+            predicted_usage,
+            soft_quota,
+            "Dataset storage soft quota exceeded"
+        );
+    }
 
     // Validate file format if requested
     if let Err(e) =
@@ -1829,6 +2810,9 @@ pub struct CreateDatasetFromDocumentsRequest {
     /// Single document ID (mutually exclusive with collection_id)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_id: Option<String>,
+    /// Multiple document IDs (mutually exclusive with collection_id)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_ids: Option<Vec<String>>,
     /// Collection ID to convert (mutually exclusive with document_id)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<String>,
@@ -1868,304 +2852,69 @@ pub async fn create_dataset_from_documents(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DatasetUpload)?;
 
-    // Validate: exactly one of document_id or collection_id must be provided
-    let (document_ids, source_name) = match (&request.document_id, &request.collection_id) {
-        (Some(doc_id), None) => {
-            // Single document mode
-            let doc = state
-                .db
-                .get_document(&claims.tenant_id, doc_id)
-                .await
-                .map_err(|e| db_error(format!("Failed to get document: {}", e)))?
-                .ok_or_else(|| not_found("Document"))?;
+    // Validate exclusivity: only one source allowed
+    let multiple_sources = request.collection_id.is_some()
+        && (request.document_id.is_some() || request.document_ids.is_some());
+    if multiple_sources {
+        return Err(bad_request(
+            "Cannot specify both document_id/document_ids and collection_id. Provide exactly one.",
+        ));
+    }
 
-            // Tenant isolation check
-            validate_tenant_isolation(&claims, &doc.tenant_id)?;
+    let service = DefaultTrainingDatasetService::new(Arc::new(state.clone()));
 
-            // Check document is indexed (has chunks available)
-            if doc.status != "indexed" {
-                return Err(bad_request(format!(
-                    "Document must be indexed before conversion. Current status: {}",
-                    doc.status
-                )));
-            }
-
-            (
-                vec![doc.id.clone()],
-                format!("Training from doc: {}", doc.name),
-            )
+    let dataset = match (
+        request.document_ids,
+        request.document_id,
+        request.collection_id,
+    ) {
+        (Some(document_ids), None, None) => {
+            service
+                .create_from_document_ids(
+                    &claims,
+                    DatasetFromDocumentIdsParams {
+                        document_ids,
+                        name: request.name,
+                        description: request.description,
+                    },
+                )
+                .await?
         }
-        (None, Some(col_id)) => {
-            // Collection mode
-            let collection = state
-                .db
-                .get_collection(&claims.tenant_id, col_id)
-                .await
-                .map_err(|e| db_error(format!("Failed to get collection: {}", e)))?
-                .ok_or_else(|| not_found("Collection"))?;
-
-            // Tenant isolation check
-            validate_tenant_isolation(&claims, &collection.tenant_id)?;
-
-            // Get documents in collection
-            let docs = state
-                .db
-                .get_collection_documents(&claims.tenant_id, col_id)
-                .await
-                .map_err(|e| db_error(format!("Failed to get collection documents: {}", e)))?;
-
-            if docs.is_empty() {
-                return Err(bad_request("Collection is empty - no documents to convert"));
-            }
-
-            // Filter to indexed documents only, deterministic order
-            let mut indexed_docs: Vec<_> =
-                docs.into_iter().filter(|d| d.status == "indexed").collect();
-            indexed_docs.sort_by(|a, b| a.id.cmp(&b.id));
-
-            if indexed_docs.is_empty() {
-                return Err(bad_request(
-                    "No indexed documents in collection. Documents must be indexed before conversion.",
-                ));
-            }
-
-            let doc_ids = indexed_docs.iter().map(|d| d.id.clone()).collect();
-            (
-                doc_ids,
-                format!("Training from collection: {}", collection.name),
-            )
+        (None, Some(document_id), None) => {
+            service
+                .create_from_document_ids(
+                    &claims,
+                    DatasetFromDocumentIdsParams {
+                        document_ids: vec![document_id],
+                        name: request.name,
+                        description: request.description,
+                    },
+                )
+                .await?
         }
-        (Some(_), Some(_)) => {
+        (None, None, Some(collection_id)) => {
+            service
+                .create_from_collection(
+                    &claims,
+                    DatasetFromCollectionParams {
+                        collection_id,
+                        name: request.name,
+                        description: request.description,
+                    },
+                )
+                .await?
+        }
+        (None, None, None) => {
             return Err(bad_request(
-                "Cannot specify both document_id and collection_id. Provide exactly one.",
+                "Must provide either document_id, document_ids, or collection_id",
             ));
         }
-        (None, None) => {
+        _ => {
             return Err(bad_request(
-                "Must provide either document_id or collection_id",
+                "Cannot specify both document_id/document_ids and collection_id. Provide exactly one.",
             ));
         }
     };
 
-    // Safety limits
-    const MAX_CHUNKS: usize = 50_000; // Max chunks to prevent massive datasets
-    const MAX_FILE_SIZE: i64 = 100 * 1024 * 1024; // 100MB max JSONL file
-
-    // Get chunks for all documents with deterministic ordering
-    // SECURITY: tenant_id enforced at DB level
-    let chunks = state
-        .db
-        .get_chunks_for_documents(&claims.tenant_id, &document_ids)
-        .await
-        .map_err(|e| db_error(format!("Failed to get document chunks: {}", e)))?;
-
-    if chunks.is_empty() {
-        return Err(bad_request(
-            "No text chunks found in the selected documents",
-        ));
-    }
-
-    if chunks.len() > MAX_CHUNKS {
-        return Err(bad_request(format!(
-            "Too many chunks ({}). Maximum allowed is {}. Try selecting fewer documents.",
-            chunks.len(),
-            MAX_CHUNKS
-        )));
-    }
-
-    // Generate JSONL content: {"text": "<chunk_text>"} per chunk
-    let mut jsonl_lines: Vec<String> = Vec::with_capacity(chunks.len());
-    for chunk in &chunks {
-        if let Some(text) = &chunk.text_preview {
-            if !text.trim().is_empty() {
-                // Escape for JSON and create line
-                let json_obj = serde_json::json!({ "text": text });
-                jsonl_lines.push(json_obj.to_string());
-            }
-        }
-    }
-
-    if jsonl_lines.is_empty() {
-        return Err(bad_request(
-            "No non-empty text chunks found in the selected documents",
-        ));
-    }
-
-    let jsonl_content = jsonl_lines.join("\n");
-    let content_bytes = jsonl_content.as_bytes();
-    let file_size = content_bytes.len() as i64;
-
-    if file_size > MAX_FILE_SIZE {
-        return Err(bad_request(format!(
-            "Generated dataset too large ({} bytes). Maximum allowed is {} bytes.",
-            file_size, MAX_FILE_SIZE
-        )));
-    }
-
-    // Compute BLAKE3 hash
-    let content_hash = hash_file(content_bytes);
-
-    let dataset_name = request.name.unwrap_or(source_name);
-
-    let dataset_paths = DatasetPaths::new(resolve_dataset_root(&state));
-    ensure_dirs([
-        dataset_paths.files.as_path(),
-        dataset_paths.temp.as_path(),
-        dataset_paths.chunked.as_path(),
-        dataset_paths.logs.as_path(),
-    ])
-    .await?;
-
-    // Create dataset record first to get the canonical ID
-    // Use a placeholder path initially, then update after directory creation
-    let dataset_id = state
-        .db
-        .create_training_dataset(
-            &dataset_name,
-            request.description.as_deref(),
-            "jsonl",
-            &content_hash,
-            "", // Placeholder - will update after creating directory
-            Some(&claims.sub),
-        )
-        .await
-        .map_err(|e| db_error(format!("Failed to create dataset record: {}", e)))?;
-
-    // Now create directory with the canonical ID
-    let dataset_path = dataset_paths.dataset_dir(&dataset_id);
-    if let Err(e) = ensure_dirs([dataset_path.as_path()]).await {
-        // Cleanup: delete DB record on failure
-        if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
-            warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
-        }
-        return Err(e);
-    }
-
-    // Write JSONL file
-    let file_name = "training.jsonl";
-    let file_path = dataset_path.join(file_name);
-    if let Err(e) = fs::write(&file_path, content_bytes).await {
-        // Cleanup both directory and DB record
-        clean_dataset_dir(&dataset_path).await;
-        if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
-            warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
-        }
-        return Err(internal_error(format!(
-            "Failed to write dataset file: {}",
-            e
-        )));
-    }
-
-    // Update storage path now that we have the real path
-    if let Err(e) = state
-        .db
-        .update_dataset_storage_path(&dataset_id, &dataset_path.to_string_lossy())
-        .await
-    {
-        clean_dataset_dir(&dataset_path).await;
-        if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
-            warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
-        }
-        return Err(db_error(format!("Failed to update storage path: {}", e)));
-    }
-
-    // CRITICAL: Associate dataset with user's tenant for tenant isolation
-    if let Err(e) = bind_dataset_to_tenant(&state.db, &dataset_id, &claims.tenant_id).await {
-        clean_dataset_dir(&dataset_path).await;
-        if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
-            warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
-        }
-        return Err(e);
-    }
-
-    // Add file record
-    if let Err(e) = state
-        .db
-        .add_dataset_file(
-            &dataset_id,
-            file_name,
-            &file_path.to_string_lossy(),
-            file_size,
-            &content_hash,
-            Some("application/jsonl"),
-        )
-        .await
-    {
-        clean_dataset_dir(&dataset_path).await;
-        if let Err(cleanup_err) = state.db.delete_training_dataset(&dataset_id).await {
-            warn!(dataset_id = %dataset_id, error = %cleanup_err, "Failed to cleanup orphaned dataset record");
-        }
-        return Err(db_error(format!("Failed to add file record: {}", e)));
-    }
-
-    // Run actual validation instead of hardcoding "valid"
-    // The JSONL we generate should always be valid, but run through the same
-    // validation pipeline for consistency
-    let validation_result =
-        FileValidator::quick_validate(&file_path, "jsonl", STREAM_BUFFER_SIZE).await;
-
-    let (validation_status, validation_errors) = match validation_result {
-        Ok(()) => ("valid".to_string(), None),
-        Err(e) => ("invalid".to_string(), Some(e.to_string())),
-    };
-
-    state
-        .db
-        .update_dataset_validation(
-            &dataset_id,
-            &validation_status,
-            validation_errors.as_deref(),
-        )
-        .await
-        .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
-
-    let response_validation_status = map_validation_status(&validation_status);
-    let response_validation_errors = map_validation_errors(validation_errors);
-
-    let now = chrono::Utc::now().to_rfc3339();
-
-    // Audit log
-    let _ = log_success(
-        &state.db,
-        &claims,
-        actions::DATASET_CREATE,
-        resources::DATASET,
-        Some(&dataset_id),
-    )
-    .await;
-
-    // Build citation index for training files (best-effort)
-    if let Err(e) = build_dataset_index(&state, &dataset_id, &claims.tenant_id).await {
-        warn!(
-            dataset_id = %dataset_id,
-            error = %e,
-            "Failed to build dataset citation index (document-derived)"
-        );
-    }
-
-    info!(
-        dataset_id = %dataset_id,
-        name = %dataset_name,
-        chunks = chunks.len(),
-        lines = jsonl_lines.len(),
-        size_bytes = file_size,
-        "Created dataset from documents"
-    );
-
-    Ok(Json(DatasetResponse {
-        schema_version: "1.0".to_string(),
-        dataset_id,
-        name: dataset_name,
-        description: request.description,
-        file_count: 1,
-        total_size_bytes: file_size,
-        format: "jsonl".to_string(),
-        hash: content_hash,
-        storage_path: dataset_path.to_string_lossy().to_string(),
-        validation_status: response_validation_status,
-        validation_errors: response_validation_errors,
-        created_by: claims.sub.clone(),
-        created_at: now.clone(),
-        updated_at: now,
-    }))
+    Ok(Json(dataset))
 }

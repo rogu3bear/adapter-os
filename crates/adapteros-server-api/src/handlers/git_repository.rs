@@ -500,6 +500,7 @@ pub async fn train_repository_adapter(
         rank: request.config.rank as u32,
         alpha: request.config.alpha as u32,
         targets: request.config.targets.clone(),
+        coreml_placement: None,
         epochs: request.config.epochs as u32,
         learning_rate: request.config.learning_rate,
         batch_size: request.config.batch_size as u32,
@@ -515,6 +516,9 @@ pub async fn train_repository_adapter(
         checkpoint_frequency: None,
         max_checkpoints: None,
         preferred_backend: None,
+        backend_policy: None,
+        coreml_training_fallback: None,
+        enable_coreml_export: Some(false),
         require_gpu: false,
         max_gpu_memory_mb: None,
     };
@@ -526,21 +530,30 @@ pub async fn train_repository_adapter(
             training_config,
             None, // template_id
             Some(repo_id.clone()),
-            None,                           // dataset_id
-            Some(claims.tenant_id.clone()), // tenant_id (6th parameter)
-            Some(claims.sub.clone()),       // initiated_by (7th parameter)
-            Some(claims.role.clone()),      // initiated_by_role (8th parameter)
-            None,                           // base_model_id
-            None,                           // collection_id
-            None,                           // scope
-            None,                           // lora_tier
-            Some("codebase".to_string()),   // category
-            None,                           // description
-            None,                           // language
-            None,                           // framework_id
-            None,                           // framework_version
-            None,                           // post_actions_json
-            None,                           // retry_of_job_id
+            None, // target_branch
+            None, // base_version_id
+            None, // dataset_id
+            None, // dataset_version_ids
+            true, // synthetic_mode
+            adapteros_types::training::DataLineageMode::Synthetic,
+            Some(claims.tenant_id.clone()),
+            Some(claims.sub.clone()),
+            Some(claims.role.clone()),
+            None,                         // base_model_id
+            None,                         // collection_id
+            None,                         // scope
+            None,                         // lora_tier
+            Some("codebase".to_string()), // category
+            None,                         // description
+            None,                         // language
+            None,                         // framework_id
+            None,                         // framework_version
+            None,                         // post_actions_json
+            None,                         // retry_of_job_id
+            None,                         // versioning
+            None,                         // code_commit_sha
+            None,                         // data_spec_json
+            None,                         // data_spec_hash
         )
         .await
         .map_err(|e| {

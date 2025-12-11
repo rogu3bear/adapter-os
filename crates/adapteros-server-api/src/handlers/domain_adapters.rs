@@ -681,7 +681,9 @@ pub async fn test_domain_adapter(
                 router_seed: None,
                 seed_mode: None,
                 request_seed: None,
+                fusion_interval: None,
                 backend_profile: None,
+                coreml_mode: None,
                 pinned_adapter_ids: None,
                 determinism_mode: "strict".to_string(), // Determinism tests use strict mode
                 strict_mode: true,
@@ -972,7 +974,9 @@ pub async fn execute_domain_adapter(
             router_seed: None,
             seed_mode: None,
             request_seed: None,
+            fusion_interval: None,
             backend_profile: None,
+            coreml_mode: None,
             pinned_adapter_ids: None,
             determinism_mode: "strict".to_string(), // Default to strict mode for domain adapter execution
             strict_mode: true,

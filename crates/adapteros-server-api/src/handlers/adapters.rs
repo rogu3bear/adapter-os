@@ -472,7 +472,7 @@ pub struct AdapterDetailResponse {
     pub current_state: String,
     /// Alias for runtime state (unloaded/cold/warm/hot/resident)
     pub runtime_state: String,
-    /// Release lifecycle state (draft/active/deprecated/retired)
+    /// Release lifecycle state (draft/training/ready/active/deprecated/retired/failed)
     pub lifecycle_state: String,
     pub tier: String,
     pub pinned: bool,
@@ -1624,7 +1624,7 @@ pub async fn get_adapter_stats(
         selected_count,
         avg_gate_value,
         selection_rate,
-        lifecycle_state: adapter.current_state,
+        lifecycle_state: adapter.lifecycle_state,
         last_activated: adapter.last_activated,
         created_at: adapter.created_at,
     }))
@@ -2036,6 +2036,7 @@ pub async fn import_adapter(
             hash_b3: existing.hash_b3,
             rank: existing.rank,
             tier: existing.tier,
+            assurance_tier: None,
             languages: vec![],
             framework: existing.framework,
             category: Some(existing.category),
@@ -2057,6 +2058,14 @@ pub async fn import_adapter(
             pinned: Some(existing.pinned != 0),
             memory_bytes: Some(existing.memory_bytes),
             deduplicated: Some(true),
+            drift_reference_backend: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
+            drift_tier: None,
+            drift_metric: None,
+            drift_slice_size: None,
+            drift_slice_offset: None,
+            drift_loss_metric: None,
         }));
     }
 
@@ -2225,7 +2234,11 @@ pub async fn import_adapter(
     // B. Base Model Compatibility Check
     let base_model = manifest.get("base_model").and_then(|v| v.as_str());
     let resolved_base_model_id: Option<String> = if let Some(base_model_name) = base_model {
-        match state.db.get_model_by_name(base_model_name).await {
+        match state
+            .db
+            .get_model_by_name_for_tenant(&claims.tenant_id, base_model_name)
+            .await
+        {
             Ok(Some(model)) => Some(model.id),
             Ok(None) => {
                 warn!(
@@ -2492,6 +2505,7 @@ pub async fn import_adapter(
         hash_b3: weights_hash,
         rank,
         tier: tier.to_string(),
+        assurance_tier: None,
         languages: vec![],
         framework: None,
         category: None,
@@ -2517,6 +2531,14 @@ pub async fn import_adapter(
         pinned: None,
         memory_bytes: None,
         deduplicated: Some(false),
+        drift_reference_backend: None,
+        drift_baseline_backend: None,
+        drift_test_backend: None,
+        drift_tier: None,
+        drift_metric: None,
+        drift_slice_size: None,
+        drift_slice_offset: None,
+        drift_loss_metric: None,
     }))
 }
 

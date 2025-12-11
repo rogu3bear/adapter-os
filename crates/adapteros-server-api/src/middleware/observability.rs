@@ -41,15 +41,18 @@ pub async fn observability_middleware(req: Request<Body>, next: Next) -> Respons
 
     // Capture context (tenant/user) if present; context_middleware will attach it.
     let ctx = response.extensions().get::<Arc<RequestContext>>().cloned();
-    let (tenant_id, user_id) = ctx
+    let (tenant_id, user_id, principal_id, principal_type, auth_mode) = ctx
         .as_ref()
         .map(|ctx| {
             (
                 Some(ctx.tenant_id().to_string()),
                 Some(ctx.user_id().to_string()),
+                ctx.principal().map(|p| p.principal_id.to_string()),
+                ctx.principal().map(|p| format!("{:?}", p.principal_type)),
+                Some(format!("{:?}", ctx.auth_mode())),
             )
         })
-        .unwrap_or((None, None));
+        .unwrap_or((None, None, None, None, None));
 
     ensure_request_id_header(&mut response, &request_id);
 
@@ -67,10 +70,17 @@ pub async fn observability_middleware(req: Request<Body>, next: Next) -> Respons
         };
 
         let mut new_response = (status, Json(envelope)).into_response();
+        // We generate a fresh, uncompressed error envelope; drop any compression
+        // headers from the original response to avoid content-decoding failures
+        // in clients when the body no longer matches the encoding.
+        new_response.headers_mut().remove(header::CONTENT_ENCODING);
 
         // Preserve non-content headers from the original response.
         for (name, value) in parts.headers.iter() {
-            if name == header::CONTENT_LENGTH || name == header::CONTENT_TYPE {
+            if name == header::CONTENT_LENGTH
+                || name == header::CONTENT_TYPE
+                || name == header::CONTENT_ENCODING
+            {
                 continue;
             }
             new_response
@@ -91,6 +101,9 @@ pub async fn observability_middleware(req: Request<Body>, next: Next) -> Respons
             detail = detail.as_deref().unwrap_or(""),
             tenant_id = tenant_id.as_deref().unwrap_or(""),
             user_id = user_id.as_deref().unwrap_or(""),
+            principal_id = principal_id.as_deref().unwrap_or(""),
+            principal_type = principal_type.as_deref().unwrap_or(""),
+            auth_mode = auth_mode.as_deref().unwrap_or(""),
             duration_ms = duration_ms,
             "request_error"
         );
@@ -106,6 +119,9 @@ pub async fn observability_middleware(req: Request<Body>, next: Next) -> Respons
             duration_ms = duration_ms,
             tenant_id = tenant_id.as_deref().unwrap_or(""),
             user_id = user_id.as_deref().unwrap_or(""),
+            principal_id = principal_id.as_deref().unwrap_or(""),
+            principal_type = principal_type.as_deref().unwrap_or(""),
+            auth_mode = auth_mode.as_deref().unwrap_or(""),
             "request_complete"
         );
         response

@@ -553,6 +553,7 @@ pub async fn execute_replay_session(
         seed_mode: None,
         request_seed: None,
         backend_profile: None,
+        coreml_mode: None,
         max_tokens: req.max_tokens,
         temperature: 0.7, // Default, could be stored in session
         top_k: None,

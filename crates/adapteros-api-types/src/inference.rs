@@ -1,6 +1,9 @@
 //! Inference types
 
+use adapteros_core::{backend::BackendKind, FusionInterval};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
+use adapteros_types::coreml::CoreMLMode;
+use adapteros_types::routing::B3Hash;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -23,6 +26,10 @@ pub struct InferRequest {
     /// Optional domain hint to bias package/adapters
     #[serde(skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
+    /// Fusion interval policy (per_request|per_segment|per_token)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub fusion_interval: Option<FusionInterval>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,6 +40,12 @@ pub struct InferRequest {
     pub top_p: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
+    /// Explicit backend preference (auto|coreml|mlx|metal|cpu)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<BackendKind>,
+    /// CoreML mode for backend selection (coreml_strict|coreml_preferred|backend_auto)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_mode: Option<CoreMLMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,6 +93,9 @@ pub struct InferResponse {
     pub latency_ms: u64,
     /// Adapters used for this inference (also available in trace)
     pub adapters_used: Vec<String>,
+    /// Verifiable run receipt for audit/replay
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_receipt: Option<RunReceipt>,
     /// Source citations for the response
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub citations: Vec<Citation>,
@@ -109,6 +125,18 @@ pub struct InferResponse {
     /// Backend used to execute the request (e.g., coreml, metal, mlx)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_used: Option<String>,
+    /// Requested CoreML compute preference (if applicable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_compute_preference: Option<String>,
+    /// CoreML compute units actually used (if applicable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_compute_units: Option<String>,
+    /// Whether CoreML leveraged GPU for this inference (if applicable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_gpu_used: Option<bool>,
+    /// Backend selected after fallback (if different from requested)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_backend: Option<String>,
     /// Whether backend fallback occurred during execution
     #[serde(default)]
     pub fallback_triggered: bool,
@@ -158,7 +186,34 @@ pub struct InferenceTrace {
     pub router_decisions: Vec<RouterDecision>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub router_decision_chain: Option<Vec<RouterDecisionChainEntry>>,
+    /// Fusion intervals and fused tensor hashes for determinism evidence
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fusion_intervals: Option<Vec<FusionIntervalTrace>>,
     pub latency_ms: u64,
+}
+
+/// Fusion interval boundary with fused tensor hash evidence
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct FusionIntervalTrace {
+    pub interval_id: String,
+    pub start_token: usize,
+    pub end_token: usize,
+    pub fused_weight_hash: B3Hash,
+}
+
+/// Verifiable run receipt (hash chain over per-token decisions)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct RunReceipt {
+    pub trace_id: String,
+    pub run_head_hash: B3Hash,
+    pub output_digest: B3Hash,
+    pub receipt_digest: B3Hash,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attestation: Option<String>,
 }
 
 /// Candidate adapter entry for router trace
@@ -197,6 +252,11 @@ pub struct RouterDecisionChainEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_hash: Option<String>,
     pub entry_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub policy_mask_digest: Option<B3Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_overrides_applied: Option<PolicyOverrideFlags>,
 }
 
 /// Router decision at a specific position (canonical schema)
@@ -210,4 +270,20 @@ pub struct RouterDecision {
     pub tau: f32,
     pub entropy_floor: f32,
     pub stack_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String)]
+    pub policy_mask_digest: Option<B3Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_overrides_applied: Option<PolicyOverrideFlags>,
+}
+
+/// Flags describing which policy overrides affected routing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PolicyOverrideFlags {
+    pub allow_list: bool,
+    pub deny_list: bool,
+    pub trust_state: bool,
 }

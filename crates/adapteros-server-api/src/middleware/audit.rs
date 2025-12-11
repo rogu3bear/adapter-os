@@ -130,6 +130,18 @@ pub async fn audit_middleware(
     if let (Some(config), Some(ctx)) = (audit_config, ctx) {
         // Only audit authenticated requests
         if let Some(claims) = &ctx.claims {
+            let principal_id = ctx
+                .principal()
+                .map(|p| p.principal_id.clone())
+                .unwrap_or_else(|| claims.sub.clone());
+            let principal_type = ctx
+                .principal()
+                .map(|p| format!("{:?}", p.principal_type))
+                .unwrap_or_else(|| "unknown".to_string());
+            let auth_mode = ctx
+                .principal()
+                .map(|p| format!("{:?}", p.auth_mode))
+                .unwrap_or_else(|| "unknown".to_string());
             let status = response.status();
             let resource_id = config.extract_resource_id(&path);
 
@@ -157,7 +169,9 @@ pub async fn audit_middleware(
                         method = %method,
                         path = %path,
                         status = %status.as_u16(),
-                        user_id = %claims.sub,
+                        user_id = %principal_id,
+                        principal_type = %principal_type,
+                        auth_mode = %auth_mode,
                         "Audit: operation succeeded"
                     );
                 }
@@ -187,7 +201,9 @@ pub async fn audit_middleware(
                             method = %method,
                             path = %path,
                             status = %status.as_u16(),
-                            user_id = %claims.sub,
+                        user_id = %principal_id,
+                        principal_type = %principal_type,
+                        auth_mode = %auth_mode,
                             "Audit: operation failed"
                         );
                     }

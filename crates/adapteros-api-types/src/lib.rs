@@ -14,6 +14,7 @@ fn schema_version() -> String {
 pub mod adapters;
 pub mod auth;
 pub mod dashboard;
+pub mod dataset_domain;
 pub mod domain_adapters;
 pub mod execution_policy;
 pub mod git;
@@ -21,6 +22,7 @@ pub mod inference;
 pub mod metrics;
 pub mod model_status;
 pub mod nodes;
+pub mod orchestration;
 pub mod packages;
 pub mod plans;
 pub mod provenance;
@@ -34,15 +36,22 @@ pub mod training;
 pub mod workers;
 
 // Re-export commonly used types
+pub use adapteros_types::coreml::{
+    CoreMLGating, CoreMLMode, CoreMLOpKind, CoreMLPlacementBinding, CoreMLPlacementShape,
+    CoreMLPlacementSpec, CoreMLProjection, CoreMLTargetRef,
+};
+pub use adapteros_types::repository::RepoTier;
 pub use adapters::*;
 pub use auth::*;
 pub use dashboard::*;
+pub use dataset_domain::*;
 pub use domain_adapters::*;
 pub use execution_policy::*;
 pub use git::*;
 pub use inference::*;
 pub use metrics::*;
 pub use nodes::*;
+pub use orchestration::*;
 pub use packages::*;
 pub use plans::*;
 pub use provenance::*;

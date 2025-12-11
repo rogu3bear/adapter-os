@@ -4,10 +4,11 @@ use crate::auth::{
     issue_access_token_ed25519, issue_access_token_hmac, issue_refresh_token_ed25519,
     issue_refresh_token_ed25519_with_kv, issue_refresh_token_hmac,
     issue_refresh_token_hmac_with_kv, validate_refresh_token_ed25519, validate_refresh_token_hmac,
-    verify_password, Claims, JWT_ISSUER,
+    verify_password, AuthMode, Claims, PrincipalType, JWT_ISSUER,
 };
 use crate::auth_common::{
     attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, clear_auth_cookies, AuthConfig,
+    AuthContext,
 };
 use crate::ip_extraction::ClientIp;
 use crate::mfa::{
@@ -16,8 +17,9 @@ use crate::mfa::{
     BackupCode,
 };
 use crate::security::{
-    check_login_lockout, create_session, get_session_by_id, get_user_sessions, lock_session,
-    revoke_token, track_auth_attempt, upsert_user_session,
+    check_login_lockout, create_session, get_session_by_id, get_tenant_token_baseline,
+    get_user_sessions, is_token_revoked, lock_session, revoke_token, track_auth_attempt,
+    upsert_user_session,
 };
 use crate::state::AppState;
 use crate::types::ErrorResponse;
@@ -26,11 +28,13 @@ use adapteros_api_types::auth::{
     MfaEnrollVerifyResponse, MfaStatusResponse, SwitchTenantRequest, SwitchTenantResponse,
     TenantListResponse, TenantSummary,
 };
+use adapteros_core::identity::IdentityEnvelope;
 use adapteros_db::auth_sessions_kv::AuthSessionKvRepository;
 use adapteros_db::{
     users::{Role, User},
     Db,
 };
+use adapteros_telemetry::{build_auth_event, make_auth_payload};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -108,6 +112,8 @@ fn audit_claims_for_user(user: &User, tenant_id: &str) -> Claims {
         jti: String::new(),
         nbf: 0,
         iss: JWT_ISSUER.to_string(),
+        auth_mode: AuthMode::BearerToken,
+        principal_type: Some(PrincipalType::User),
     }
 }
 
@@ -151,6 +157,34 @@ async fn log_auth_event(
             None,
         )
         .await;
+}
+
+async fn emit_auth_event(
+    state: &AppState,
+    principal_id: &str,
+    tenant_id: &str,
+    flow_type: &str,
+    success: bool,
+    error_code: Option<&str>,
+) {
+    let identity = IdentityEnvelope::new(
+        tenant_id.to_string(),
+        "api".to_string(),
+        "auth".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
+
+    let payload = make_auth_payload(
+        principal_id.to_string(),
+        tenant_id.to_string(),
+        flow_type.to_string(),
+        success,
+        error_code.map(|c| c.to_string()),
+    );
+
+    if let Ok(event) = build_auth_event(identity, payload) {
+        let _ = state.telemetry_buffer.push(event).await;
+    }
 }
 
 async fn collect_tenant_summaries(
@@ -437,6 +471,8 @@ pub async fn login_handler(
                 jti: String::new(),
                 nbf: 0,
                 iss: JWT_ISSUER.to_string(),
+                auth_mode: AuthMode::BearerToken,
+                principal_type: Some(PrincipalType::User),
             });
 
         log_auth_event(
@@ -555,6 +591,8 @@ pub async fn login_handler(
                     jti: String::new(),
                     nbf: 0,
                     iss: JWT_ISSUER.to_string(),
+                    auth_mode: AuthMode::BearerToken,
+                    principal_type: Some(PrincipalType::User),
                 };
 
                 log_auth_event(
@@ -566,6 +604,16 @@ pub async fn login_handler(
                     "failure",
                     Some("too many failed attempts"),
                     Some(&client_ip.0),
+                )
+                .await;
+
+                emit_auth_event(
+                    &state,
+                    &req.email,
+                    &anon_claims.tenant_id,
+                    "login",
+                    false,
+                    Some("ACCOUNT_LOCKED"),
                 )
                 .await;
 
@@ -629,6 +677,16 @@ pub async fn login_handler(
             "failure",
             Some("invalid password"),
             Some(&client_ip.0),
+        )
+        .await;
+
+        emit_auth_event(
+            &state,
+            &user.id,
+            &tenant_id,
+            "login",
+            false,
+            Some("INVALID_CREDENTIALS"),
         )
         .await;
 
@@ -1060,6 +1118,8 @@ pub async fn login_handler(
     )
     .await;
 
+    emit_auth_event(&state, &user.id, &tenant_id, "login", true, None).await;
+
     info!(
         user_id = %user.id,
         email = %user.email,
@@ -1085,6 +1145,20 @@ pub async fn login_handler(
             Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
         )
     })?;
+    let csrf_token = uuid::Uuid::new_v4().to_string();
+    attach_csrf_cookie(
+        &mut response_headers,
+        &csrf_token,
+        &auth_cfg,
+        auth_cfg.effective_ttl(),
+    )
+    .map_err(|e| {
+        warn!(error = %e, "Failed to attach csrf cookie");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("cookie error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
 
     Ok((
         response_headers,
@@ -1102,6 +1176,17 @@ pub async fn login_handler(
 }
 
 /// Logout handler - revokes current token
+#[utoipa::path(
+    post,
+    path = "/v1/auth/logout",
+    responses(
+        (status = 200, description = "Logout successful", body = LogoutResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "auth",
+    security(("bearerAuth" = []))
+)]
 pub async fn logout_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -1157,6 +1242,8 @@ pub async fn logout_handler(
         )
         .await
         .ok();
+
+    emit_auth_event(&state, &claims.sub, &claims.tenant_id, "logout", true, None).await;
 
     info!(user_id = %claims.sub, jti = %claims.jti, "User logged out");
 
@@ -1254,6 +1341,52 @@ pub async fn refresh_token_handler(
     let incoming_rot = refresh_claims.rot_id.clone();
     let refresh_hash = blake3::hash(refresh_token.as_bytes()).to_hex().to_string();
     let now_ts = Utc::now().timestamp();
+
+    // Enforce tenant token baseline (refresh issued_at must meet baseline)
+    if let Some(baseline) = get_tenant_token_baseline(&state.db, &refresh_claims.tenant_id)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Failed to load tenant token baseline during refresh");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+    {
+        if let Ok(baseline_dt) = chrono::DateTime::parse_from_rfc3339(&baseline) {
+            if refresh_claims.iat < baseline_dt.timestamp() {
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(
+                        ErrorResponse::new("session expired")
+                            .with_code("SESSION_EXPIRED")
+                            .with_string_details("refresh issued before tenant baseline"),
+                    ),
+                ));
+            }
+        }
+    }
+
+    // Ensure session hasn't been explicitly revoked
+    let revoked = is_token_revoked(&state.db, &session_id)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Failed to check revocation during refresh");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?;
+    if revoked {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(
+                ErrorResponse::new("token revoked")
+                    .with_code("TOKEN_REVOKED")
+                    .with_string_details("session revoked"),
+            ),
+        ));
+    }
 
     let session = get_session_by_id(&state.db, &session_id)
         .await
@@ -1654,6 +1787,16 @@ pub async fn refresh_token_handler(
         )
     })?;
 
+    emit_auth_event(
+        &state,
+        &refresh_claims.sub,
+        &refresh_claims.tenant_id,
+        "refresh",
+        true,
+        None,
+    )
+    .await;
+
     info!(
         user_id = %refresh_claims.sub,
         session_id = %session_id,
@@ -1756,6 +1899,7 @@ pub async fn switch_tenant_handler(
     Json(req): Json<SwitchTenantRequest>,
 ) -> Result<(HeaderMap, Json<SwitchTenantResponse>), (StatusCode, Json<ErrorResponse>)> {
     let target_tenant = req.tenant_id;
+    let dev_no_auth = cfg!(debug_assertions) && std::env::var("AOS_DEV_NO_AUTH").is_ok();
 
     // Fast path: same tenant
     if target_tenant == claims.tenant_id {
@@ -1799,6 +1943,33 @@ pub async fn switch_tenant_handler(
                         "You have no role in this tenant. Request access from an admin.",
                     ),
             ),
+        ));
+    }
+
+    // Dev no-auth bypass: synthesize a response without hitting user DB/session tables.
+    if dev_no_auth {
+        let tenants = collect_tenant_summaries(
+            &state,
+            &claims.sub,
+            &claims.role,
+            &target_tenant,
+            &claims.admin_tenants,
+        )
+        .await?;
+
+        let headers = HeaderMap::new();
+        return Ok((
+            headers,
+            Json(SwitchTenantResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                token: "dev-no-auth".to_string(),
+                user_id: claims.sub.clone(),
+                tenant_id: target_tenant,
+                role: claims.role.clone(),
+                expires_in: (claims.exp - claims.iat).max(0) as u64,
+                tenants: Some(tenants),
+                mfa_level: None,
+            }),
         ));
     }
 
@@ -2183,6 +2354,8 @@ pub async fn dev_bypass_handler(
             jti: String::new(),
             nbf: 0,
             iss: JWT_ISSUER.to_string(),
+            auth_mode: AuthMode::DevBypass,
+            principal_type: Some(PrincipalType::DevBypass),
         };
         log_auth_event(
             &state.db,
@@ -2272,11 +2445,92 @@ pub async fn dev_bypass_handler(
         ctx.admin_tenants = vec![ADMIN_TENANT_WILDCARD.to_string()];
     }
 
-    let token = build_auth_token(&ctx, &auth_cfg, None).map_err(|err| {
+    let session_id = format!("sess-dev-{}", Uuid::now_v7());
+    let roles_vec = vec![ctx.role.to_string()];
+
+    let token = if state.use_ed25519 {
+        issue_access_token_ed25519(
+            &ctx.user.id,
+            &ctx.user.email,
+            &ctx.role.to_string(),
+            &roles_vec,
+            &ctx.tenant_id,
+            &ctx.admin_tenants,
+            None,
+            &session_id,
+            None,
+            &state.ed25519_keypair,
+            Some(auth_cfg.access_ttl()),
+        )
+    } else {
+        issue_access_token_hmac(
+            &ctx.user.id,
+            &ctx.user.email,
+            &ctx.role.to_string(),
+            &roles_vec,
+            &ctx.tenant_id,
+            &ctx.admin_tenants,
+            None,
+            &session_id,
+            None,
+            &state.jwt_secret,
+            Some(auth_cfg.access_ttl()),
+        )
+    }
+    .map_err(|err| {
         warn!(error = %err, "Failed to generate dev bypass token");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let rot_id = format!("rot-{}", Uuid::now_v7());
+    let refresh_token = if state.use_ed25519 {
+        issue_refresh_token_ed25519(
+            &ctx.user.id,
+            &ctx.tenant_id,
+            &roles_vec,
+            None,
+            &session_id,
+            &rot_id,
+            &state.ed25519_keypair,
+            Some(auth_cfg.effective_ttl()),
+        )
+    } else {
+        issue_refresh_token_hmac(
+            &ctx.user.id,
+            &ctx.tenant_id,
+            &roles_vec,
+            None,
+            &session_id,
+            &rot_id,
+            &state.jwt_secret,
+            Some(auth_cfg.effective_ttl()),
+        )
+    }
+    .map_err(|err| {
+        warn!(error = %err, "Failed to generate dev bypass refresh token");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    let refresh_claims = if state.use_ed25519 {
+        validate_refresh_token_ed25519(
+            &refresh_token,
+            &state.ed25519_public_keys,
+            &state.ed25519_public_key,
+        )
+    } else {
+        validate_refresh_token_hmac(&refresh_token, &state.hmac_keys, &state.jwt_secret)
+    }
+    .map_err(|e| {
+        warn!(error = %e, "Refresh token validation failed after generation");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
         )
     })?;
 
@@ -2297,19 +2551,35 @@ pub async fn dev_bypass_handler(
         )
     })?;
 
-    let expires_at = Utc::now() + Duration::seconds(auth_cfg.effective_ttl() as i64);
-    create_session(
+    let response_expires_in = std::cmp::max(auth_cfg.access_ttl(), 60);
+    let session_ttl = std::cmp::max(auth_cfg.effective_ttl(), response_expires_in);
+    let session_expires_at = Utc::now() + Duration::seconds(session_ttl as i64);
+    let refresh_expires_at = Utc
+        .timestamp_opt(refresh_claims.exp, 0)
+        .single()
+        .unwrap_or_else(Utc::now);
+    let refresh_hash = blake3::hash(refresh_token.as_bytes()).to_hex().to_string();
+    upsert_user_session(
         &state.db,
-        &claims.jti,
+        &session_id,
         &user_id,
         &tenant_id,
-        &expires_at.to_rfc3339(),
+        None,
+        Some(&rot_id),
+        Some(&refresh_hash),
+        &refresh_expires_at.to_rfc3339(),
         Some(&client_ip.0),
         user_agent.as_deref(),
+        false,
     )
     .await
     .map_err(|e| {
-        warn!(error = %e, user_id = %user_id, "Failed to create dev bypass session - aborted");
+        warn!(
+            error = %e,
+            user_id = %user_id,
+            session_id = %session_id,
+            "Failed to upsert dev bypass session - aborted"
+        );
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new("session creation failed").with_code("SESSION_ERROR")),
@@ -2356,7 +2626,7 @@ pub async fn dev_bypass_handler(
             Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
         )
     })?;
-    attach_refresh_cookie(&mut response_headers, &token, &auth_cfg).map_err(|err| {
+    attach_refresh_cookie(&mut response_headers, &refresh_token, &auth_cfg).map_err(|err| {
         warn!(error = %err, "Failed to attach refresh cookie for dev bypass");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -2372,7 +2642,7 @@ pub async fn dev_bypass_handler(
             user_id: ctx.user.id.clone(),
             tenant_id: ctx.user.tenant_id.clone(),
             role: ctx.role.to_string(),
-            expires_in: auth_cfg.effective_ttl(),
+            expires_in: response_expires_in,
             tenants: Some(tenants),
             mfa_level: None,
         }),

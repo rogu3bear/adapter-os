@@ -264,10 +264,21 @@ pub async fn telemetry_events_stream(
             let filters = adapteros_telemetry::unified_events::TelemetryFilters {
                 start_time: Some(start_time_dt),
                 limit: Some(100), // Limit batch size
+                tenant_id: Some(tenant_id.clone()),
                 ..Default::default()
             };
 
-            let events = state.telemetry_buffer.query(&filters);
+            let events = match state.telemetry_buffer.query(&filters) {
+                Ok(events) => events,
+                Err(err) => {
+                    warn!(error = %err, "Failed to query telemetry buffer for stream");
+                    let error_json = format!("{{\"error\": \"telemetry query failed: {}\"}}", err);
+                    return Some((
+                        Ok(Event::default().event("error").data(error_json)),
+                        (state, last_timestamp, tenant_id, has_permission, true),
+                    ));
+                }
+            };
 
             // Get current timestamp for next iteration
             let current_timestamp = std::time::SystemTime::now()

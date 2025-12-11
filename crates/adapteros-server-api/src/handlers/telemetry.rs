@@ -178,12 +178,31 @@ pub async fn query_logs(
         )
     })?;
 
-    let parsed_filters = match normalize_log_filters(&params) {
+    let mut parsed_filters = match normalize_log_filters(&params) {
         Ok(filters) => filters,
         Err(err) => return Err((StatusCode::BAD_REQUEST, Json(err))),
     };
 
-    let events = state.telemetry_buffer.query(&parsed_filters.telemetry);
+    if parsed_filters.telemetry.tenant_id.is_none() {
+        parsed_filters.telemetry.tenant_id = Some(claims.tenant_id.clone());
+    }
+    if parsed_filters.realtime.tenant_id.is_none() {
+        parsed_filters.realtime.tenant_id = Some(claims.tenant_id.clone());
+    }
+
+    let events = state
+        .telemetry_buffer
+        .query(&parsed_filters.telemetry)
+        .map_err(|err| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("invalid telemetry filters")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(err.to_string()),
+                ),
+            )
+        })?;
     Ok(Json(events))
 }
 
@@ -198,7 +217,7 @@ pub async fn stream_logs(
         warn!("Unauthorized access to log stream");
     }
 
-    let filters_for_stream = match normalize_log_filters(&params) {
+    let mut filters_for_stream = match normalize_log_filters(&params) {
         Ok(filters) => filters.realtime,
         Err(err) => {
             warn!(
@@ -208,6 +227,10 @@ pub async fn stream_logs(
             NormalizedLogFilters::default()
         }
     };
+
+    if filters_for_stream.tenant_id.is_none() {
+        filters_for_stream.tenant_id = Some(claims.tenant_id.clone());
+    }
 
     let rx = state.telemetry_tx.subscribe();
 
@@ -588,7 +611,19 @@ async fn load_recent_activity_events(
     }
     telemetry_filters.limit = Some((limit * 2).clamp(1, 200));
 
-    let telemetry_events = state.telemetry_buffer.query(&telemetry_filters);
+    let telemetry_events = state
+        .telemetry_buffer
+        .query(&telemetry_filters)
+        .map_err(|err| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("invalid telemetry filters")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(err.to_string()),
+                ),
+            )
+        })?;
     for event in telemetry_events {
         if !event_type_matches(&event.event_type, event_type_filter) {
             continue;

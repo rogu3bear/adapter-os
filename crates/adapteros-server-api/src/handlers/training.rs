@@ -13,16 +13,74 @@ use crate::state::AppState;
 use crate::types::*;
 use adapteros_config::resolve_worker_socket_for_cp;
 use adapteros_core::AosError;
-use adapteros_orchestrator::TrainingJobStatus;
+use adapteros_db::adapter_repositories::CreateDraftVersionParams;
+use adapteros_db::{
+    CreateDraftVersionParams as CreateDraftAdapterVersionParams,
+    CreateVersionParams as CreateAdapterVersionParams,
+};
+use adapteros_orchestrator::{
+    training::{compute_combined_data_spec_hash, TrainingVersioningContext},
+    TrainingJobStatus,
+};
+use adapteros_types::training::{
+    BranchClassification, DataLineageMode, DatasetVersionSelection as CoreDatasetVersionSelection,
+    TrainingBackendKind, TrainingBackendPolicy,
+};
 use axum::{
     extract::State,
     extract::{Extension, Path, Query},
     http::StatusCode,
     response::Json,
 };
+use blake3::Hasher;
+use chrono::Utc;
+use serde::Deserialize;
 use std::sync::Arc;
 use tracing::{error, info, warn};
+use utoipa::IntoParams;
 use uuid::Uuid;
+
+const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
+const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
+const METRIC_TRUST_NEEDS_APPROVAL: &str = "training_jobs_rejected_trust_needs_approval";
+
+// Canonical tokens for public trust state surfaces.
+const CANONICAL_TRUST_STATES: &[&str] = &[
+    "allowed",
+    "allowed_with_warning",
+    "needs_approval",
+    "blocked",
+    "unknown",
+];
+
+fn canonical_trust_state(raw: &str) -> String {
+    let normalized = match raw.trim().to_ascii_lowercase().as_str() {
+        "allowed" => "allowed",
+        "allowed_with_warning" | "warn" => "allowed_with_warning",
+        "needs_approval" => "needs_approval",
+        "blocked" | "blocked_regressed" => "blocked",
+        "unknown" => "unknown",
+        other => {
+            warn!(state = %other, "Unknown trust_state; normalizing to unknown");
+            "unknown"
+        }
+    };
+
+    // Guardrail: ensure only canonical tokens escape public APIs.
+    if !CANONICAL_TRUST_STATES.contains(&normalized) {
+        warn!(state = %normalized, "Non-canonical trust_state emitted; forcing unknown");
+        "unknown".to_string()
+    } else {
+        normalized.to_string()
+    }
+}
+
+async fn record_training_rejection_metric(state: &AppState, series: &str) {
+    state
+        .metrics_registry
+        .record_metric(series.to_string(), 1.0)
+        .await;
+}
 
 /// List training jobs with optional filters
 #[utoipa::path(
@@ -181,6 +239,56 @@ pub async fn get_training_job(
     Ok(Json(TrainingJobResponse::from(job)))
 }
 
+/// Trigger a CoreML export for a completed training job
+#[utoipa::path(
+    post,
+    path = "/v1/training/jobs/{job_id}/export/coreml",
+    params(
+        ("job_id" = String, Path, description = "Training job ID")
+    ),
+    responses(
+        (status = 200, description = "CoreML export triggered", body = TrainingJobResponse),
+        (status = 400, description = "Export failed", body = ErrorResponse),
+        (status = 404, description = "Job not found", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn export_coreml_training_job(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(job_id): Path<String>,
+) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingStart)?;
+
+    // Execute export via orchestrator (per-tenant enforcement)
+    let job = state
+        .training_service
+        .export_coreml_for_job(&job_id)
+        .await
+        .map_err(|e| {
+            error!(job_id = %job_id, error = %e, "Failed to export CoreML for training job");
+            let error_str = e.to_string();
+            let status = if error_str.to_lowercase().contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (
+                status,
+                Json(
+                    ErrorResponse::new(&format!("Failed to export CoreML: {}", e))
+                        .with_code("EXPORT_ERROR"),
+                ),
+            )
+        })?;
+
+    if let Some(ref job_tenant_id) = job.tenant_id {
+        validate_tenant_isolation(&claims, job_tenant_id)?;
+    }
+
+    Ok(Json(TrainingJobResponse::from(job)))
+}
+
 fn build_training_error_response(error: &AosError) -> (StatusCode, Json<ErrorResponse>) {
     let error_message = error.to_string();
     let is_validation_variant = matches!(error, AosError::Validation(_));
@@ -239,6 +347,68 @@ pub async fn start_training(
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse::new("Adapter name is required").with_code("VALIDATION_ERROR")),
         ));
+    }
+
+    // Enforce tenant isolation and commit provenance for system repositories
+    if let Some(repo_id) = request.repo_id.as_deref() {
+        // Prefer code repository lookup; fall back to adapter repository if not found
+        let repo_tenant = match state
+            .db
+            .get_repository_by_repo_id(&claims.tenant_id, repo_id)
+            .await
+        {
+            Ok(Some(repo)) => Some(repo.tenant_id),
+            Ok(None) => state
+                .db
+                .get_adapter_repository(&claims.tenant_id, repo_id)
+                .await
+                .map_err(|e| {
+                    error!(repo_id = %repo_id, error = %e, "Failed to load adapter repository");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to load repository")
+                                .with_code("INTERNAL_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?
+                .map(|repo| repo.tenant_id),
+            Err(e) => {
+                error!(repo_id = %repo_id, error = %e, "Failed to load repository");
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to load repository")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                ));
+            }
+        };
+
+        if let Some(ref repo_tenant_id) = repo_tenant {
+            validate_tenant_isolation(&claims, repo_tenant_id)?;
+
+            if repo_tenant_id == "system"
+                && request
+                    .code_commit_sha
+                    .as_deref()
+                    .map(str::trim)
+                    .map(|s| s.is_empty())
+                    .unwrap_or(true)
+            {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new(
+                            "code_commit_sha is required for system-owned repositories",
+                        )
+                        .with_code("VALIDATION_ERROR"),
+                    ),
+                ));
+            }
+        }
     }
 
     // Check if evidence policy is enforced for this tenant
@@ -423,13 +593,488 @@ pub async fn start_training(
     }
 
     // Convert request config to training config
-    let config = training_config_from_request(request.config);
+    let mut config = training_config_from_request(request.config);
+
+    // Resolve repository + branch context (required for versioning)
+    let repo_id = match request.repo_id.clone() {
+        Some(id) => id,
+        None => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("repo_id is required for training")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            ))
+        }
+    };
+
+    let repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, repo_id = %repo_id, "Failed to load adapter repository");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to load repository")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Repository not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(repo_id.clone()),
+                ),
+            )
+        })?;
+
+    let target_branch = request
+        .target_branch
+        .clone()
+        .unwrap_or_else(|| repo.default_branch.clone());
+
+    // Validate parent version (if provided) belongs to same repo/tenant
+    if let Some(ref base_version_id) = request.base_version_id {
+        let base_version = state
+            .db
+            .get_adapter_version(&claims.tenant_id, base_version_id)
+            .await
+            .map_err(|e| {
+                error!(
+                    error = %e,
+                    version_id = %base_version_id,
+                    "Failed to load base adapter version"
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to load base version")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new("Base version not found")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(base_version_id.clone()),
+                    ),
+                )
+            })?;
+
+        if base_version.repo_id != repo.id {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Base version does not belong to repository")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            ));
+        }
+    }
+
+    let data_spec_json = request.data_spec.clone();
+    let mut data_spec_hash = data_spec_json.as_ref().map(|json| {
+        let mut hasher = Hasher::new();
+        hasher.update(json.as_bytes());
+        hasher.finalize().to_hex().to_string()
+    });
+
+    fn parse_backend_kind(label: &str) -> Option<TrainingBackendKind> {
+        match label.to_ascii_lowercase().as_str() {
+            "coreml" => Some(TrainingBackendKind::CoreML),
+            "mlx" => Some(TrainingBackendKind::Mlx),
+            "metal" => Some(TrainingBackendKind::Metal),
+            "cpu" => Some(TrainingBackendKind::Cpu),
+            _ => None,
+        }
+    }
+
+    // Apply repository policy (CoreML allowances and backend preferences)
+    let repo_policy = state
+        .db
+        .get_adapter_repository_policy(&claims.tenant_id, &repo.id)
+        .await
+        .map_err(|e| {
+            error!(
+                error = %e,
+                repo_id = %repo_id,
+                "Failed to load adapter repository policy"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to load repository policy")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if let Some(policy) = repo_policy {
+        if policy.coreml_required {
+            if config.preferred_backend.is_none() {
+                config.preferred_backend = Some(TrainingBackendKind::CoreML);
+            } else if !matches!(config.preferred_backend, Some(TrainingBackendKind::CoreML)) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("CoreML backend required by repository policy")
+                            .with_code("POLICY_VIOLATION"),
+                    ),
+                ));
+            }
+            config.backend_policy = Some(TrainingBackendPolicy::CoremlOnly);
+        }
+
+        if config.preferred_backend.is_none() {
+            if let Some(pref_json) = policy.preferred_backends_json.as_ref() {
+                if let Ok(preferred) = serde_json::from_str::<Vec<String>>(pref_json) {
+                    for backend in preferred {
+                        if let Some(kind) = parse_backend_kind(&backend) {
+                            config.preferred_backend = Some(kind);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !policy.coreml_allowed
+            && matches!(config.preferred_backend, Some(TrainingBackendKind::CoreML))
+        {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("CoreML backend disallowed by repository policy")
+                        .with_code("POLICY_VIOLATION"),
+                ),
+            ));
+        }
+    }
+    let requested_backend = config.preferred_backend.map(|b| b.to_string());
+
+    if matches!(
+        request.data_lineage_mode,
+        Some(DataLineageMode::LegacyUnpinned)
+    ) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("lineage_mode=legacy_unpinned is blocked for new jobs")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    let branch_classification = request
+        .branch_classification
+        .unwrap_or(BranchClassification::Protected);
+
+    let synthetic_mode = request.synthetic_mode;
+
+    let dataset_version_ids_core: Option<Vec<CoreDatasetVersionSelection>> =
+        request.dataset_version_ids.as_ref().map(|versions| {
+            versions
+                .iter()
+                .map(|v| CoreDatasetVersionSelection {
+                    dataset_version_id: v.dataset_version_id.clone(),
+                    weight: v.weight,
+                })
+                .collect()
+        });
+
+    if let Some(dataset_versions) = dataset_version_ids_core.as_ref() {
+        if dataset_versions.is_empty() {
+            record_training_rejection_metric(&state, METRIC_LINEAGE_REQUIRED).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("dataset_version_ids cannot be empty")
+                        .with_code("LINEAGE_REQUIRED"),
+                ),
+            ));
+        }
+    }
+
+    let has_dataset_versions = dataset_version_ids_core
+        .as_ref()
+        .map(|versions| !versions.is_empty())
+        .unwrap_or(false);
+
+    if synthetic_mode && has_dataset_versions {
+        record_training_rejection_metric(&state, METRIC_LINEAGE_REQUIRED).await;
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("synthetic_mode=true requires dataset_version_ids to be empty")
+                    .with_code("LINEAGE_REQUIRED"),
+            ),
+        ));
+    }
+
+    if !synthetic_mode && !has_dataset_versions {
+        record_training_rejection_metric(&state, METRIC_LINEAGE_REQUIRED).await;
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(
+                    "dataset_version_ids are required for non-synthetic training jobs",
+                )
+                .with_code("LINEAGE_REQUIRED"),
+            ),
+        ));
+    }
+
+    let data_lineage_mode = if synthetic_mode {
+        DataLineageMode::Synthetic
+    } else {
+        DataLineageMode::Versioned
+    };
+
+    if let Some(mode) = request.data_lineage_mode {
+        if mode != data_lineage_mode {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("data_lineage_mode does not match inferred mode")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            ));
+        }
+    }
+
+    let high_assurance_tenant = match state.db.get_tenant(&claims.tenant_id).await {
+        Ok(Some(tenant)) => tenant
+            .status
+            .as_deref()
+            .map(|s| {
+                let lowered = s.to_ascii_lowercase();
+                lowered == "production" || lowered == "high_assurance"
+            })
+            .unwrap_or(false),
+        Ok(None) => false,
+        Err(e) => {
+            error!(tenant_id = %claims.tenant_id, error = %e, "Failed to load tenant for assurance check");
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to evaluate tenant assurance level")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    };
+
+    if high_assurance_tenant && matches!(data_lineage_mode, DataLineageMode::DatasetOnly) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(
+                    "dataset_version_ids are required for high-assurance tenants (set synthetic_mode=true for diagnostics)",
+                )
+                .with_code("LINEAGE_REQUIRED"),
+            ),
+        ));
+    }
+
+    info!(
+        repo_id = %repo.id,
+        tenant_id = %claims.tenant_id,
+        preferred_backend = ?requested_backend,
+        dataset_version_ids = ?dataset_version_ids_core
+            .as_ref()
+            .map(|v| v.iter().map(|d| d.dataset_version_id.clone()).collect::<Vec<_>>()),
+        "Training request backend/dataset selection recorded"
+    );
+
+    if let Some(dataset_versions) = dataset_version_ids_core.as_ref() {
+        let mut combined_inputs: Vec<(String, String, f32)> = Vec::new();
+
+        for sel in dataset_versions {
+            let ds_version = state
+                .db
+                .get_training_dataset_version_for_tenant(&sel.dataset_version_id, &claims.tenant_id)
+                .await
+                .map_err(|e| {
+                    error!(
+                        error = %e,
+                        dataset_version_id = %sel.dataset_version_id,
+                        "Failed to load dataset version"
+                    );
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(
+                            ErrorResponse::new("Failed to load dataset version")
+                                .with_code("VALIDATION_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?
+                .ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(
+                            ErrorResponse::new("Dataset version not found")
+                                .with_code("NOT_FOUND")
+                                .with_string_details(sel.dataset_version_id.clone()),
+                        ),
+                    )
+                })?;
+
+            let trust_state = canonical_trust_state(&ds_version.trust_state);
+            match trust_state.as_str() {
+                "blocked" => {
+                    record_training_rejection_metric(&state, METRIC_TRUST_BLOCKED).await;
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(
+                            ErrorResponse::new(&format!(
+                                "dataset version {} trust_state={} blocks training",
+                                sel.dataset_version_id, trust_state
+                            ))
+                            .with_code("DATASET_TRUST_BLOCKED"),
+                        ),
+                    ));
+                }
+                "needs_approval" | "unknown" => {
+                    record_training_rejection_metric(&state, METRIC_TRUST_NEEDS_APPROVAL).await;
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(
+                            ErrorResponse::new(&format!(
+                                "dataset version {} trust_state={} blocks training",
+                                sel.dataset_version_id, trust_state
+                            ))
+                            .with_code("DATASET_TRUST_NEEDS_APPROVAL"),
+                        ),
+                    ));
+                }
+                _ => {}
+            }
+
+            let weight = if sel.weight <= 0.0 { 1.0 } else { sel.weight };
+            combined_inputs.push((
+                sel.dataset_version_id.clone(),
+                ds_version.hash_b3.clone(),
+                weight,
+            ));
+        }
+
+        // Deterministic combined hash over all dataset manifests (weight-sensitive)
+        let combined_hash = if combined_inputs.len() == 1 && data_spec_hash.is_none() {
+            combined_inputs[0].1.clone()
+        } else {
+            compute_combined_data_spec_hash(&combined_inputs)
+        };
+
+        if let Some(ref expected_hash) = data_spec_hash {
+            if expected_hash != &combined_hash {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("data_spec_hash mismatch vs dataset manifests")
+                            .with_code("DATA_SPEC_HASH_MISMATCH"),
+                    ),
+                ));
+            }
+        }
+
+        data_spec_hash = Some(combined_hash);
+    }
+
+    // Create draft adapter version before enqueuing training
+    let adapter_version_id = state
+        .db
+        .create_adapter_draft_version(CreateDraftAdapterVersionParams {
+            repo_id: &repo.id,
+            tenant_id: &claims.tenant_id,
+            branch: &target_branch,
+            branch_classification: branch_classification.as_str(),
+            parent_version_id: request.base_version_id.as_deref(),
+            code_commit_sha: request.code_commit_sha.as_deref(),
+            data_spec_hash: data_spec_hash.as_deref(),
+            training_backend: requested_backend.as_deref(),
+            dataset_version_ids: dataset_version_ids_core
+                .as_ref()
+                .map(|v| {
+                    v.iter()
+                        .map(|d| d.dataset_version_id.clone())
+                        .collect::<Vec<_>>()
+                })
+                .as_deref(),
+            actor: Some(&claims.sub),
+            reason: Some("training_start"),
+        })
+        .await
+        .map_err(|e| {
+            error!(error = %e, repo_id = %repo_id, "Failed to create adapter version draft");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to create adapter version")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    let version_label = format!("draft-{}", &adapter_version_id[..8]);
+
+    let versioning_context = TrainingVersioningContext {
+        adapter_version_id: adapter_version_id.clone(),
+        version_label: version_label.clone(),
+        branch: target_branch.clone(),
+        repo_id: repo.id.clone(),
+        repo_name: repo.name.clone(),
+        parent_version_id: request.base_version_id.clone(),
+        draft_version_id: Some(adapter_version_id.clone()),
+        code_commit_sha: request.code_commit_sha.clone(),
+        data_spec_json: data_spec_json.clone(),
+        data_spec_hash: data_spec_hash.clone(),
+    };
 
     // Serialize post_actions to JSON if provided
     let post_actions_json = request
         .post_actions
         .as_ref()
         .and_then(|pa| serde_json::to_string(pa).ok());
+
+    if let Some(dataset_versions) = dataset_version_ids_core.as_ref() {
+        let ids: Vec<String> = dataset_versions
+            .iter()
+            .map(|v| v.dataset_version_id.clone())
+            .collect();
+        state
+            .db
+            .upsert_adapter_version_dataset_versions(&claims.tenant_id, &adapter_version_id, &ids)
+            .await
+            .map_err(|e| {
+                error!(
+                    error = %e,
+                    version_id = %adapter_version_id,
+                    "Failed to link dataset versions to adapter version"
+                );
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("Failed to link dataset versions")
+                            .with_code("VALIDATION_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+    }
 
     // Start training via service
     let job = state
@@ -438,8 +1083,13 @@ pub async fn start_training(
             request.adapter_name.clone(),
             config,
             request.template_id.clone(),
-            request.repo_id.clone(),
+            Some(repo_id.clone()),
+            Some(target_branch.clone()),
+            request.base_version_id.clone(),
             request.dataset_id.clone(),
+            dataset_version_ids_core.clone(),
+            synthetic_mode,
+            data_lineage_mode,
             Some(claims.tenant_id.clone()),
             Some(claims.sub.clone()),
             Some(claims.role.clone()),
@@ -457,6 +1107,12 @@ pub async fn start_training(
             post_actions_json,
             // Not a retry - new training job
             None,
+            // Versioning context (draft)
+            Some(versioning_context),
+            // Provenance passthrough
+            request.code_commit_sha.clone(),
+            data_spec_json.clone(),
+            data_spec_hash.clone(),
         )
         .await
         .map_err(|e| {
@@ -498,6 +1154,17 @@ pub async fn start_training(
         "Started training job"
     );
 
+    // Project training job into repository/version model (best-effort)
+    let repo_id = request
+        .repo_id
+        .clone()
+        .or_else(|| job.repo_id.clone())
+        .unwrap_or_else(|| format!("repo-{}", job.id));
+    let target_branch = request
+        .target_branch
+        .clone()
+        .unwrap_or_else(|| "main".to_string());
+
     Ok(Json(TrainingJobResponse::from(job)))
 }
 
@@ -536,6 +1203,129 @@ mod tests {
             "Dataset ds-123 is not validated (status: draft)"
         );
     }
+
+    #[test]
+    fn canonical_trust_state_normalizes_legacy_tokens() {
+        assert_eq!(canonical_trust_state("warn"), "allowed_with_warning");
+        assert_eq!(canonical_trust_state("blocked_regressed"), "blocked");
+        assert_eq!(canonical_trust_state("Unknown"), "unknown");
+    }
+
+    #[test]
+    fn canonical_trust_state_rejects_non_canonical_tokens() {
+        assert_eq!(canonical_trust_state("custom-state"), "unknown");
+    }
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "snake_case")]
+pub struct PromoteVersionQuery {
+    /// Branch to promote on; defaults to the version's branch
+    pub branch: Option<String>,
+}
+
+/// Promote an adapter version to active for a branch
+#[utoipa::path(
+    post,
+    path = "/v1/training/repos/{repo_id}/versions/{version_id}/promote",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID"),
+        ("version_id" = String, Path, description = "Adapter version ID"),
+        PromoteVersionQuery
+    ),
+    responses(
+        (status = 204, description = "Version promoted to active"),
+        (status = 404, description = "Version not found", body = ErrorResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn promote_version(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((repo_id, version_id)): Path<(String, String)>,
+    Query(params): Query<PromoteVersionQuery>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingStart)?;
+
+    let version = state
+        .db
+        .get_adapter_version(&claims.tenant_id, &version_id)
+        .await
+        .map_err(|e| {
+            error!(
+                version_id = %version_id,
+                error = %e,
+                "Failed to load adapter version for promotion"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to load adapter version")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Adapter version not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(version_id.clone()),
+                ),
+            )
+        })?;
+
+    if version.repo_id != repo_id {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Version does not belong to repository")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    let branch = params.branch.unwrap_or(version.branch.clone());
+
+    state
+        .db
+        .promote_adapter_version(
+            &claims.tenant_id,
+            &repo_id,
+            &version_id,
+            Some(&claims.sub),
+            Some("training_promotion"),
+        )
+        .await
+        .map_err(|e| {
+            error!(
+                repo_id = %repo_id,
+                version_id = %version_id,
+                error = %e,
+                "Failed to promote adapter version"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to promote version")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    info!(
+        repo_id = %repo_id,
+        version_id = %version_id,
+        branch = %branch,
+        "Promoted adapter version to active"
+    );
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Cancel a running training job
@@ -598,7 +1388,16 @@ pub async fn cancel_training(
 
     // Create UDS client for worker communication
     let uds_client = adapteros_client::UdsClient::default();
-    let socket_path = resolve_worker_socket_for_cp();
+    let socket_path = resolve_worker_socket_for_cp().map_err(|e| {
+        error!(job_id = %job_id, error = %e, "Failed to resolve worker socket for CP");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new(&format!("Invalid worker socket path: {}", e))
+                    .with_code("CONFIG_ERROR"),
+            ),
+        )
+    })?;
     let socket_path_str = socket_path.path.to_string_lossy().to_string();
     info!(
         job_id = %job_id,
@@ -737,6 +1536,10 @@ pub async fn retry_training(
     }
 
     // Create a new job with the same configuration, linking to original as retry
+    let data_lineage_mode = original_job
+        .data_lineage_mode
+        .unwrap_or(DataLineageMode::Versioned);
+
     let new_job = state
         .training_service
         .start_training(
@@ -744,7 +1547,12 @@ pub async fn retry_training(
             original_job.config.clone(),
             original_job.template_id.clone(),
             original_job.repo_id.clone(),
+            original_job.target_branch.clone(),
+            original_job.base_version_id.clone(),
             original_job.dataset_id.clone(),
+            original_job.dataset_version_ids.clone(),
+            original_job.synthetic_mode,
+            data_lineage_mode,
             original_job.tenant_id.clone(),
             Some(claims.sub.clone()),
             Some(claims.role.clone()),
@@ -760,6 +1568,10 @@ pub async fn retry_training(
             original_job.post_actions_json.clone(),
             // Link to original job for retry chain tracking
             Some(job_id.clone()),
+            None, // versioning (reuse existing versioning if needed)
+            original_job.code_commit_sha.clone(),
+            original_job.data_spec_json.clone(),
+            original_job.data_spec_hash.clone(),
         )
         .await
         .map_err(|e| {

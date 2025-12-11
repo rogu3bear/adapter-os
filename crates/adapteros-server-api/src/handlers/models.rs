@@ -11,10 +11,13 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use crate::uds_client::UdsClient;
 use adapteros_api_types::ModelLoadStatus;
-use adapteros_config::{resolve_base_model_location, DEFAULT_MODEL_CACHE_ROOT};
+use adapteros_config::{
+    resolve_base_model_location, resolve_worker_socket_for_cp, DEFAULT_MODEL_CACHE_ROOT,
+};
 use adapteros_db::users::Role;
 use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;
+use tracing::{error, warn};
 
 /// Resource type for model audit logs
 const RESOURCE_MODEL: &str = "model";
@@ -50,7 +53,7 @@ pub struct ImportModelRequest {
     pub model_name: String,
     pub model_path: String,
     pub format: String,  // "mlx", "safetensors", "pytorch", "gguf"
-    pub backend: String, // "mlx-ffi", "metal"
+    pub backend: String, // "mlx", "mlx-ffi", "metal"
     pub capabilities: Option<Vec<String>>, // ["chat", "completion", "embeddings"]
     pub metadata: Option<serde_json::Value>,
 }
@@ -167,7 +170,7 @@ pub async fn load_model(
     // Check if model exists in database
     let model = state
         .db
-        .get_model(&model_id)
+        .get_model_for_tenant(tenant_id, &model_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch model {}: {}", model_id, e);
@@ -583,7 +586,7 @@ pub async fn unload_model(
     // Check if model exists in database
     let model = state
         .db
-        .get_model(&model_id)
+        .get_model_for_tenant(tenant_id, &model_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch model {}: {}", model_id, e);
@@ -845,15 +848,17 @@ pub async fn unload_model(
 )]
 pub async fn get_model_status(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     use tracing::{error, warn};
 
+    let tenant_id = &claims.tenant_id;
+
     // Check if model exists in database
     let model = state
         .db
-        .get_model(&model_id)
+        .get_model_for_tenant(tenant_id, &model_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch model {}: {}", model_id, e);
@@ -960,15 +965,17 @@ pub async fn get_model_status(
 )]
 pub async fn validate_model(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelValidationResponse>, (StatusCode, Json<ErrorResponse>)> {
     use tracing::{error, warn};
 
+    let tenant_id = &claims.tenant_id;
+
     // Check if model exists in database
     let model = state
         .db
-        .get_model(&model_id)
+        .get_model_for_tenant(tenant_id, &model_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch model {}: {}", model_id, e);
@@ -1206,7 +1213,7 @@ pub async fn import_model(
     }
 
     // Validate backend
-    let valid_backends = ["mlx-ffi", "metal"];
+    let valid_backends = ["mlx", "mlx-ffi", "metal"];
     if !valid_backends.contains(&req.backend.as_str()) {
         warn!("Invalid backend: {}", req.backend);
         return Err((
@@ -1649,7 +1656,11 @@ pub async fn get_all_models_status(
         let latest = aggregated.latest;
 
         // Get model details
-        let model = match state.db.get_model(&model_id).await {
+        let model = match if let Some(tenant_id) = tenant_filter {
+            state.db.get_model_for_tenant(tenant_id, &model_id).await
+        } else {
+            state.db.get_model(&model_id).await
+        } {
             Ok(Some(m)) => m,
             Ok(None) => {
                 error!("Model not found: {}", model_id);
@@ -1716,17 +1727,20 @@ async fn get_worker_socket_path(state: &AppState, _tenant_id: &str) -> Option<Pa
         }
     }
 
-    // Try environment variable fallback
-    if let Ok(socket_path) = std::env::var("AOS_WORKER_SOCKET") {
-        if !socket_path.is_empty() {
-            return Some(PathBuf::from(socket_path));
+    match resolve_worker_socket_for_cp() {
+        Ok(resolved) => {
+            if resolved.path.exists() {
+                return Some(resolved.path);
+            }
+            warn!(
+                path = %resolved.path.display(),
+                source = %resolved.source,
+                "Resolved worker socket path does not exist for models helper"
+            );
         }
-    }
-
-    // Default development path
-    let default_path = PathBuf::from("var/run/worker.sock");
-    if default_path.exists() {
-        return Some(default_path);
+        Err(e) => {
+            error!(error = %e, "Failed to resolve worker socket for models helper");
+        }
     }
 
     None

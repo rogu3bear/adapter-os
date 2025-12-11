@@ -13,6 +13,7 @@
 //! **Safety**: Only available when `AOS_ALLOW_DEBUG_DETERMINISM_OVERRIDE=true`
 
 use crate::auth::Claims;
+use crate::backpressure::check_uma_backpressure;
 use crate::chat_context::build_chat_prompt;
 use crate::inference_core::InferenceCore;
 use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
@@ -139,19 +140,20 @@ pub async fn debug_infer_with_mode(
 
     // Parse and validate override mode if provided
     let (was_overridden, effective_mode_str) = if let Some(ref mode_str) = query.mode {
-        let override_mode: crate::inference_core::DeterminismMode = mode_str.parse().map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("Invalid determinism mode")
-                        .with_code("INVALID_MODE")
-                        .with_string_details(format!(
-                            "{}. Valid values: strict, besteffort, relaxed",
-                            e
-                        )),
-                ),
-            )
-        })?;
+        let override_mode: crate::inference_core::DeterminismMode =
+            mode_str.parse().map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("Invalid determinism mode")
+                            .with_code("INVALID_MODE")
+                            .with_string_details(format!(
+                                "{}. Valid values: strict, besteffort, relaxed",
+                                e
+                            )),
+                    ),
+                )
+            })?;
 
         // CRITICAL: Heavy logging for audit trail
         warn!(
@@ -186,22 +188,7 @@ pub async fn debug_infer_with_mode(
     )
     .await;
 
-    // Check UMA pressure - same as normal inference
-    let pressure_str = state.uma_monitor.get_current_pressure().to_string();
-    let is_high_pressure = pressure_str == "High" || pressure_str == "Critical";
-    if is_high_pressure {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("service under memory pressure")
-                    .with_code("BACKPRESSURE")
-                    .with_string_details(format!(
-                        "level={}, retry_after_secs=30, action=reduce max_tokens or retry later",
-                        pressure_str
-                    )),
-            ),
-        ));
-    }
+    check_uma_backpressure(&state)?;
 
     // PRD-06: Enforce policies at OnRequestBeforeRouting hook
     let routing_hook_ctx = create_hook_context(

@@ -25,6 +25,7 @@ use crate::types::*;
 use adapteros_core::SeedMode;
 use adapteros_db::{CreateReplayExecutionParams, UpdateReplayExecutionParams};
 use adapteros_policy::hooks::PolicyHook;
+use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
@@ -183,7 +184,7 @@ pub async fn check_availability(
     }
 
     // PRD-02: Check manifest/backend compatibility with available workers
-    let workers = state.db.list_serving_workers().await.unwrap_or_default();
+    let workers = state.db.list_healthy_workers().await.unwrap_or_default();
 
     let compatible_worker = workers.iter().find(|w| {
         // Check manifest hash match (strict)
@@ -606,7 +607,7 @@ pub async fn execute_replay(
         })?;
 
     // Build InferenceRequestInternal from replay metadata (PRD-02)
-    let determinism_ctx = DeterminismContext::from_replay_metadata(&metadata).map_err(|e| {
+    let determinism_ctx = crate::determinism_context::from_replay_metadata(&metadata).map_err(|e| {
         warn!(
             inference_id = %inference_id,
             replay_id = %replay_id,
@@ -641,12 +642,16 @@ pub async fn execute_replay(
         stack_routing_determinism_mode: None,
         domain_hint: None,
         effective_adapter_ids: if base_only { Some(Vec::new()) } else { None },
-        determinism_mode: None,
-        routing_determinism_mode: None,
+        determinism_mode: metadata
+            .determinism_mode
+            .clone()
+            .or_else(|| Some("strict".to_string())),
+        routing_determinism_mode: Some(RoutingDeterminismMode::Deterministic),
         adapter_strength_overrides: None,
-        seed_mode: None,
+        seed_mode: Some(sampling_params.seed_mode.unwrap_or(SeedMode::BestEffort)),
         request_seed: Some(determinism_ctx.request_seed()),
         backend_profile: None,
+        coreml_mode: None,
         max_tokens: sampling_params.max_tokens,
         temperature: sampling_params.temperature,
         top_k: sampling_params.top_k,

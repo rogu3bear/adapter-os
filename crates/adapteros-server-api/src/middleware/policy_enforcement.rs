@@ -32,7 +32,10 @@ use axum::{
     response::Response,
     Json,
 };
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, warn};
 
 /// Policy enforcement middleware
@@ -102,6 +105,30 @@ pub async fn policy_enforcement_middleware(
         metadata: None,
     };
 
+    // #region agent log
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
+    {
+        let timestamp_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let log_line = format!(
+            r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H2","location":"middleware/policy_enforcement.rs:pre-validate","message":"policy request","data":{{"request_id":"{}","operation":"{}","request_type":"{:?}","priority":"{:?}","tenant_present":{},"user_present":{}}},"timestamp":{}}}"#,
+            policy_request.request_id,
+            operation,
+            policy_request.request_type,
+            policy_request.context.priority,
+            policy_request.tenant_id.is_some(),
+            policy_request.user_id.is_some(),
+            timestamp_ms
+        );
+        let _ = writeln!(file, "{log_line}");
+    }
+    // #endregion
+
     debug!(
         request_id = %request_id,
         operation = %operation,
@@ -113,6 +140,35 @@ pub async fn policy_enforcement_middleware(
 
     match policy_manager.validate_request(&policy_request) {
         Ok(validation_result) => {
+            let blocking_count = validation_result
+                .violations
+                .iter()
+                .filter(|v| is_blocking_severity(&v.severity))
+                .count();
+
+            // #region agent log
+            if let Ok(mut file) = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
+            {
+                let timestamp_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis();
+                let log_line = format!(
+                    r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H2","location":"middleware/policy_enforcement.rs:post-validate","message":"policy result","data":{{"request_id":"{}","valid":{},"violations":{},"warnings":{},"blocking":{}}},"timestamp":{}}}"#,
+                    policy_request.request_id,
+                    validation_result.valid,
+                    validation_result.violations.len(),
+                    validation_result.warnings.len(),
+                    blocking_count,
+                    timestamp_ms
+                );
+                let _ = writeln!(file, "{log_line}");
+            }
+            // #endregion
+
             if !validation_result.valid {
                 // Request has policy violations
                 let blocking_violations: Vec<&PolicyViolation> = validation_result
@@ -184,6 +240,23 @@ pub async fn policy_enforcement_middleware(
             Ok(next.run(req).await)
         }
         Err(e) => {
+            // #region agent log
+            if let Ok(mut file) = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
+            {
+                let timestamp_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis();
+                let log_line = format!(
+                    r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H3","location":"middleware/policy_enforcement.rs:error","message":"policy validation error","data":{{"request_id":"{}","operation":"{}","error":"{}"}},"timestamp":{}}}"#,
+                    policy_request.request_id, operation, e, timestamp_ms
+                );
+                let _ = writeln!(file, "{log_line}");
+            }
+            // #endregion
             // Policy validation failed (system error, not policy violation)
             error!(
                 request_id = %request_id,

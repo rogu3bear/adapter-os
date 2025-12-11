@@ -1,5 +1,6 @@
 //! Health check and system status handlers
 
+use crate::boot_state::BootState;
 use crate::state::AppState;
 use crate::supervisor_client;
 use crate::types::*;
@@ -37,9 +38,17 @@ pub async fn health() -> impl IntoResponse {
     )
 )]
 pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
+    let mut ready_status = "ready".to_string();
+
     // Check boot state - only return ready if in Ready state
     if let Some(ref boot_state) = state.boot_state {
-        let current = boot_state.current_state();
+        let mut current = boot_state.current_state();
+
+        // During early startup, treat an uninitialized state as booting to avoid
+        // reporting "stopped" in readiness responses.
+        if matches!(current, BootState::Stopped) {
+            current = BootState::Booting;
+        }
         if current.is_maintenance() {
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -74,6 +83,10 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
                 }),
             );
         }
+
+        if boot_state.is_fully_ready() {
+            ready_status = "fully-ready".to_string();
+        }
     }
 
     // Check database connectivity
@@ -82,7 +95,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
             StatusCode::OK,
             Json(HealthResponse {
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                status: "ready".to_string(),
+                status: ready_status,
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 models: None,
             }),
@@ -226,12 +239,22 @@ fn determine_overall_status(
     services: &[AdapterServiceStatus],
     supervisor_available: bool,
 ) -> &'static str {
-    if !supervisor_available || services.iter().any(|s| s.state == "failed") {
-        "error"
-    } else if services.iter().any(|s| s.status == "running") {
+    // Fail only when a service is explicitly failed
+    if services.iter().any(|s| s.state == "failed") {
+        return "error";
+    }
+
+    let any_running = services
+        .iter()
+        .any(|s| s.status == "running" || s.status == "active");
+
+    if any_running {
         "active"
-    } else {
+    } else if supervisor_available {
         "inactive"
+    } else {
+        // Supervisor absent but no failures: treat as active for single-node setups
+        "active"
     }
 }
 

@@ -10,7 +10,9 @@ use crate::state::AppState;
 use adapteros_core::error::AosError;
 use adapteros_db::adapters::Adapter;
 use adapteros_lora_lifecycle::AdapterState;
+use adapteros_manifest::AssuranceTier;
 use async_trait::async_trait;
+use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
@@ -299,7 +301,7 @@ impl AdapterService for DefaultAdapterService {
         let adapter = self
             .state
             .db
-            .get_adapter(adapter_id)
+            .get_adapter_for_tenant(tenant_id, adapter_id)
             .await
             .map_err(|e| {
                 error!(adapter_id = %adapter_id, error = %e, "Failed to fetch adapter");
@@ -316,6 +318,39 @@ impl AdapterService for DefaultAdapterService {
                 "Tenant isolation violation: adapter belongs to {}, requested by {}",
                 adapter.tenant_id, tenant_id
             )));
+        }
+
+        if let Some(drift_meta) = adapter
+            .metadata_json
+            .as_deref()
+            .and_then(parse_drift_gate_metadata)
+        {
+            let decision = evaluate_drift_gate(&drift_meta);
+            match decision {
+                DriftDecision::Block => {
+                    warn!(
+                        adapter_id = %adapter_id,
+                        baseline = ?drift_meta.baseline_backend,
+                        test_backend = ?drift_meta.test_backend,
+                        "Promotion blocked: drift exceeds high-tier thresholds or missing metrics"
+                    );
+                    return Err(AosError::Validation(
+                        "Adapter promotion blocked by drift gate".to_string(),
+                    ));
+                }
+                DriftDecision::ReviewRequired => {
+                    warn!(
+                        adapter_id = %adapter_id,
+                        weight_l_inf = ?drift_meta.weight_l_inf,
+                        loss_l_inf = ?drift_meta.loss_l_inf,
+                        tier = ?drift_meta.tier,
+                        "Drift exceeds standard thresholds; promotion allowed but requires review"
+                    );
+                }
+                DriftDecision::RecordOnly => {
+                    // no-op
+                }
+            }
         }
 
         let old_state = adapter.current_state.clone();
@@ -402,7 +437,7 @@ impl AdapterService for DefaultAdapterService {
         let adapter = self
             .state
             .db
-            .get_adapter(adapter_id)
+            .get_adapter_for_tenant(tenant_id, adapter_id)
             .await
             .map_err(|e| {
                 error!(adapter_id = %adapter_id, error = %e, "Failed to fetch adapter");
@@ -488,7 +523,7 @@ impl AdapterService for DefaultAdapterService {
         let adapter = self
             .state
             .db
-            .get_adapter(adapter_id)
+            .get_adapter_for_tenant(tenant_id, adapter_id)
             .await
             .map_err(|e| {
                 error!(adapter_id = %adapter_id, error = %e, "Failed to fetch adapter");
@@ -524,6 +559,102 @@ impl AdapterService for DefaultAdapterService {
             AosError::Database(format!("Failed to fetch adapter: {}", e))
         })
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DriftDecision {
+    RecordOnly,
+    ReviewRequired,
+    Block,
+}
+
+#[derive(Debug, Clone)]
+struct DriftGateMetadata {
+    tier: AssuranceTier,
+    weight_l_inf: Option<f64>,
+    loss_l_inf: Option<f64>,
+    baseline_backend: Option<String>,
+    test_backend: Option<String>,
+}
+
+fn parse_assurance_tier_str(value: Option<&str>) -> AssuranceTier {
+    match value.map(|s| s.to_lowercase()) {
+        Some(ref v) if v == "low" => AssuranceTier::Low,
+        Some(ref v) if v == "high" => AssuranceTier::High,
+        _ => AssuranceTier::Standard,
+    }
+}
+
+fn parse_drift_gate_metadata(raw: &str) -> Option<DriftGateMetadata> {
+    let value: Value = serde_json::from_str(raw).ok()?;
+
+    let tier = value
+        .get("assurance_tier")
+        .or_else(|| value.get("drift_tier"))
+        .and_then(|v| v.as_str());
+    let tier = parse_assurance_tier_str(tier);
+
+    let weight_l_inf = value
+        .get("drift_metric")
+        .or_else(|| value.get("drift_weight_metric"))
+        .and_then(|v| v.as_f64());
+    let loss_l_inf = value
+        .get("drift_loss_metric")
+        .or_else(|| value.get("drift_loss_l_inf"))
+        .and_then(|v| v.as_f64());
+
+    let baseline_backend = value
+        .get("drift_baseline_backend")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let test_backend = value
+        .get("drift_test_backend")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Some(DriftGateMetadata {
+        tier,
+        weight_l_inf,
+        loss_l_inf,
+        baseline_backend,
+        test_backend,
+    })
+}
+
+fn evaluate_drift_gate(meta: &DriftGateMetadata) -> DriftDecision {
+    const HIGH_WEIGHT_EPS: f64 = 1e-6;
+    const HIGH_LOSS_EPS: f64 = 1e-4;
+    const STANDARD_WEIGHT_EPS: f64 = 5e-5;
+    const STANDARD_LOSS_EPS: f64 = 5e-4;
+
+    match meta.tier {
+        AssuranceTier::Low => DriftDecision::RecordOnly,
+        AssuranceTier::Standard => {
+            if exceeds(meta.weight_l_inf, STANDARD_WEIGHT_EPS)
+                || exceeds(meta.loss_l_inf, STANDARD_LOSS_EPS)
+            {
+                DriftDecision::ReviewRequired
+            } else {
+                DriftDecision::RecordOnly
+            }
+        }
+        AssuranceTier::High => {
+            if meta.weight_l_inf.is_none() && meta.loss_l_inf.is_none() {
+                return DriftDecision::Block;
+            }
+            if exceeds(meta.weight_l_inf, HIGH_WEIGHT_EPS)
+                || exceeds(meta.loss_l_inf, HIGH_LOSS_EPS)
+            {
+                DriftDecision::Block
+            } else {
+                DriftDecision::RecordOnly
+            }
+        }
+    }
+}
+
+fn exceeds(metric: Option<f64>, limit: f64) -> bool {
+    metric.map(|m| m > limit).unwrap_or(false)
 }
 
 #[cfg(test)]

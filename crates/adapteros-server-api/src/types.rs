@@ -1,6 +1,7 @@
 use adapteros_config::PlacementWeights as ConfigPlacementWeights;
-use adapteros_core::{BackendProfile, SeedMode};
+use adapteros_core::{determinism::DeterminismContext, BackendKind, SeedMode};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
+use adapteros_types::coreml::CoreMLMode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -24,6 +25,39 @@ pub struct ApiErrorBody {
     pub detail: Option<String>,
     /// Correlation ID that matches the `x-request-id` header and server logs
     pub request_id: String,
+}
+
+/// Structured UMA backpressure error payload
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UmaBackpressureError {
+    /// UMA pressure level (Low, Medium, High, Critical)
+    pub level: String,
+    /// Suggested retry interval in seconds
+    pub retry_after_secs: u32,
+    /// Suggested client action
+    pub action: String,
+}
+
+impl UmaBackpressureError {
+    pub fn new(level: impl Into<String>) -> Self {
+        Self {
+            level: level.into(),
+            retry_after_secs: 30,
+            action: "reduce max_tokens or retry later".to_string(),
+        }
+    }
+}
+
+impl From<UmaBackpressureError> for ErrorResponse {
+    fn from(err: UmaBackpressureError) -> Self {
+        ErrorResponse::new("service under memory pressure")
+            .with_code("BACKPRESSURE")
+            .with_details(serde_json::json!({
+                "level": err.level,
+                "retry_after_secs": err.retry_after_secs,
+                "action": err.action,
+            }))
+    }
 }
 
 // ===== Operation Progress Event Type =====
@@ -1044,9 +1078,16 @@ pub struct WorkerInferRequest {
     /// Request-scoped seed used by the worker (32 bytes)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_seed: Option<[u8; 32]>,
+    /// Canonical determinism context for routing and replay
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Object)]
+    pub determinism: Option<DeterminismContext>,
     /// Backend profile requested for execution
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub backend_profile: Option<BackendProfile>,
+    pub backend_profile: Option<BackendKind>,
+    /// CoreML mode for backend selection
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_mode: Option<CoreMLMode>,
     /// Determinism mode to apply in the worker (strict, besteffort, relaxed)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
@@ -1111,6 +1152,27 @@ pub struct WorkerInferResponse {
     /// Whether backend fallback occurred during execution
     #[serde(default)]
     pub fallback_triggered: bool,
+    /// Requested CoreML compute preference (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_compute_preference: Option<String>,
+    /// CoreML compute units actually used (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_compute_units: Option<String>,
+    /// Whether CoreML leveraged GPU for this inference (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_gpu_used: Option<bool>,
+    /// Hash of the fused CoreML package manifest used (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_package_hash: Option<String>,
+    /// Expected fused CoreML package hash if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_expected_package_hash: Option<String>,
+    /// Whether the actual hash mismatched the expected value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_hash_mismatch: Option<bool>,
+    /// Backend selected after fallback (if different from requested)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_backend: Option<String>,
     /// Determinism mode applied after resolution
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub determinism_mode_applied: Option<String>,
@@ -1842,6 +1904,7 @@ pub fn training_config_from_request(
         rank: req.rank,
         alpha: req.alpha,
         targets: req.targets,
+        coreml_placement: req.coreml_placement,
         epochs: req.epochs,
         learning_rate: req.learning_rate,
         batch_size: req.batch_size,
@@ -1857,6 +1920,9 @@ pub fn training_config_from_request(
         checkpoint_frequency: None,
         max_checkpoints: None,
         preferred_backend: req.preferred_backend,
+        backend_policy: req.backend_policy,
+        coreml_training_fallback: req.coreml_training_fallback,
+        enable_coreml_export: req.enable_coreml_export,
         require_gpu: req.require_gpu.unwrap_or(false),
         max_gpu_memory_mb: req.max_gpu_memory_mb,
     }
@@ -1926,6 +1992,38 @@ pub fn training_template_to_response(
         epochs: template.config.epochs,
         learning_rate: template.config.learning_rate,
         batch_size: template.config.batch_size,
+    }
+}
+
+#[cfg(test)]
+mod training_config_tests {
+    use super::*;
+    use adapteros_types::training::TrainingBackendKind;
+
+    #[test]
+    fn training_config_from_request_preserves_coreml_intent_and_fallback() {
+        let req = TrainingConfigRequest {
+            rank: 4,
+            alpha: 8,
+            targets: vec!["q_proj".to_string()],
+            coreml_placement: None,
+            epochs: 1,
+            learning_rate: 0.001,
+            batch_size: 2,
+            warmup_steps: None,
+            max_seq_length: None,
+            gradient_accumulation_steps: None,
+            preferred_backend: Some(TrainingBackendKind::CoreML),
+            backend_policy: None,
+            coreml_training_fallback: Some(TrainingBackendKind::Mlx),
+            enable_coreml_export: None,
+            require_gpu: Some(false),
+            max_gpu_memory_mb: None,
+        };
+
+        let cfg = training_config_from_request(req);
+        assert_eq!(cfg.preferred_backend, Some(TrainingBackendKind::CoreML));
+        assert_eq!(cfg.coreml_training_fallback, Some(TrainingBackendKind::Mlx));
     }
 }
 
@@ -2644,7 +2742,9 @@ pub struct InferenceRequestInternal {
     /// Request-scoped seed derived by control plane
     pub request_seed: Option<[u8; 32]>,
     /// Backend profile selected for execution
-    pub backend_profile: Option<BackendProfile>,
+    pub backend_profile: Option<BackendKind>,
+    /// CoreML mode selected for this request
+    pub coreml_mode: Option<CoreMLMode>,
 
     // === Sampling Parameters ===
     /// Maximum tokens to generate
@@ -2719,6 +2819,7 @@ impl InferenceRequestInternal {
             seed_mode: None,
             request_seed: None,
             backend_profile: None,
+            coreml_mode: None,
             max_tokens: 100,
             temperature: 0.7,
             top_k: None,
@@ -2792,6 +2893,18 @@ pub struct InferenceResult {
     pub backend_used: Option<String>,
     /// Whether backend fallback occurred during execution
     pub fallback_triggered: bool,
+    /// Requested CoreML compute preference (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_compute_preference: Option<String>,
+    /// CoreML compute units actually used (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_compute_units: Option<String>,
+    /// Whether CoreML leveraged GPU for this inference (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_gpu_used: Option<bool>,
+    /// Backend selected after fallback (if different from requested)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_backend: Option<String>,
     /// Determinism mode applied after resolution
     pub determinism_mode_applied: Option<String>,
     /// Replay guarantee level computed for this inference
@@ -2814,6 +2927,9 @@ pub struct RouterDecisionRecord {
     pub entropy: f64,
     /// Selected adapter IDs
     pub selected_adapters: Vec<String>,
+    /// Fusion interval identifier active for this decision
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval_id: Option<String>,
 }
 
 /// Router candidate record for decision audit
@@ -2980,7 +3096,8 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             routing_determinism_mode: req.routing_determinism_mode.clone(),
             seed_mode: None,
             request_seed: None,
-            backend_profile: None,
+            backend_profile: req.backend,
+            coreml_mode: req.coreml_mode,
             max_tokens: req.max_tokens.unwrap_or(100),
             temperature: req.temperature.unwrap_or(0.7),
             top_k: req.top_k,
@@ -3042,6 +3159,9 @@ impl From<InferenceResult> for InferResponse {
                             tau: 1.0,            // Default tau
                             entropy_floor: 0.02, // Default entropy floor
                             stack_hash: None,
+                            interval_id: rd.interval_id.clone(),
+                            policy_mask_digest: None,
+                            policy_overrides_applied: None,
                         }
                     })
                     .collect(),
@@ -3054,6 +3174,10 @@ impl From<InferenceResult> for InferResponse {
             unavailable_pinned_adapters: result.unavailable_pinned_adapters,
             pinned_routing_fallback: result.pinned_routing_fallback,
             backend_used: result.backend_used,
+            coreml_compute_preference: result.coreml_compute_preference,
+            coreml_compute_units: result.coreml_compute_units,
+            coreml_gpu_used: result.coreml_gpu_used,
+            fallback_backend: result.fallback_backend,
             fallback_triggered: result.fallback_triggered,
             determinism_mode_applied: result.determinism_mode_applied,
             replay_guarantee: result.replay_guarantee,
@@ -3147,7 +3271,7 @@ pub struct SamplingParams {
     pub seed_mode: Option<SeedMode>,
     /// Backend profile requested for execution
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend_profile: Option<BackendProfile>,
+    pub backend_profile: Option<BackendKind>,
     /// Request seed (hex) provided to worker
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_seed_hex: Option<String>,

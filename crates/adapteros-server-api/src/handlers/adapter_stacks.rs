@@ -1,6 +1,7 @@
 use crate::audit_helper::{log_failure, log_success, resources};
 use crate::auth::Claims;
 use crate::error_helpers::{db_error, internal_error, not_found};
+use crate::handlers::guard_in_flight_requests;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -36,7 +37,8 @@ pub struct CreateStackRequest {
     pub workflow_type: Option<WorkflowType>,
     pub metadata: Option<HashMap<String, String>>,
     /// Determinism mode for this stack (strict, besteffort, relaxed)
-    /// If not specified, uses global config
+    /// If not specified, inherits tenant execution policy default when set,
+    /// otherwise falls back to the global default determinism mode (strict by default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
     /// Routing determinism mode for this stack (deterministic/adaptive)
@@ -144,7 +146,7 @@ pub async fn create_stack(
 
     // Check if adding this stack would exceed limits
     let current_adapters_loaded: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM adapters WHERE load_state IN ('loaded', 'warm', 'hot', 'resident')",
+        "SELECT COUNT(*) FROM adapters WHERE current_state IN ('warm', 'hot', 'resident') OR load_state IN ('loaded', 'warm')",
     )
     .fetch_one(state.db.pool())
     .await
@@ -812,6 +814,9 @@ pub async fn deactivate_stack(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterLoad)?;
+
+    // Hot-swap safeguard: block deactivation while other requests are active
+    guard_in_flight_requests(&state.in_flight_requests)?;
 
     let tenant_id = claims.tenant_id.clone();
 

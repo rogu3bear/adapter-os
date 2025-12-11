@@ -315,4 +315,34 @@ mod tests {
             Some(HeaderValue::from_static("text/event-stream").as_bytes())
         );
     }
+
+    #[tokio::test]
+    async fn sets_event_stream_content_type_for_stream_path_with_vendor_accept() {
+        use axum::{body::Body, http::Request, response::Response, routing::get, Router};
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route(
+                "/v1/stream/notifications",
+                get(|| async { Response::new(Body::empty()) }),
+            )
+            .layer(axum::middleware::from_fn(versioning_middleware));
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/stream/notifications")
+                    .header(header::ACCEPT, "application/vnd.aos.v1+json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.headers()
+                .get(header::CONTENT_TYPE)
+                .map(HeaderValue::as_bytes),
+            Some(HeaderValue::from_static("text/event-stream").as_bytes())
+        );
+    }
 }

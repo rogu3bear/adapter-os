@@ -78,7 +78,7 @@ pub struct WorkerManifestFetchResponse {
 pub struct WorkerStatusNotification {
     /// Worker ID
     pub worker_id: String,
-    /// New status (starting, serving, draining, stopped, crashed)
+    /// New status (created, registered, healthy, draining, stopped, error)
     pub status: String,
     /// Reason for the status change
     pub reason: String,
@@ -128,7 +128,7 @@ pub struct WorkerStatusUpdate {
 pub struct WorkerHeartbeatRequest {
     /// Worker ID sending the heartbeat
     pub worker_id: String,
-    /// Current status (e.g., serving, draining)
+    /// Current status (e.g., healthy, draining)
     pub status: String,
     /// Optional memory usage percentage
     #[serde(skip_serializing_if = "Option::is_none")]

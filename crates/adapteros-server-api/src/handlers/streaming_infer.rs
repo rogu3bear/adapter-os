@@ -12,7 +12,8 @@
 //! data: [DONE]
 //! ```
 
-use crate::auth::{Claims, JWT_ISSUER};
+use crate::auth::{AuthMode, Claims, PrincipalType, JWT_ISSUER};
+use crate::backpressure::check_uma_backpressure;
 use crate::chat_context::build_chat_prompt;
 use crate::citations::collect_citations_for_adapters;
 use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence};
@@ -25,6 +26,7 @@ use crate::uds_client::UdsClient;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_policy::hooks::PolicyHook;
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
+use adapteros_types::coreml::CoreMLMode;
 use axum::{
     extract::{Extension, State},
     http::StatusCode,
@@ -52,6 +54,9 @@ pub struct StreamingInferRequest {
     /// Model identifier (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// CoreML mode for backend selection (coreml_strict|coreml_preferred|backend_auto)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_mode: Option<CoreMLMode>,
     /// Per-request override for router determinism (deterministic/adaptive)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = String)]
@@ -127,6 +132,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             seed_mode: None,
             request_seed: None,
             backend_profile: None,
+            coreml_mode: req.coreml_mode,
             max_tokens: req.max_tokens,
             temperature: req.temperature,
             top_k: req.top_k,
@@ -357,22 +363,7 @@ pub async fn streaming_infer_with_progress(
         ));
     };
 
-    // Check UMA pressure
-    let pressure_str = state.uma_monitor.get_current_pressure().to_string();
-    let is_high_pressure = pressure_str == "High" || pressure_str == "Critical";
-    if is_high_pressure {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("service under memory pressure")
-                    .with_code("BACKPRESSURE")
-                    .with_string_details(format!(
-                        "level={}, retry_after_secs=30, action=reduce max_tokens or retry later",
-                        pressure_str
-                    )),
-            ),
-        ));
-    }
+    check_uma_backpressure(&state)?;
 
     // Generate request ID for hook contexts
     let request_id = uuid::Uuid::new_v4().to_string();
@@ -511,22 +502,7 @@ pub async fn streaming_infer(
         ));
     }
 
-    // Check UMA pressure
-    let pressure_str = state.uma_monitor.get_current_pressure().to_string();
-    let is_high_pressure = pressure_str == "High" || pressure_str == "Critical";
-    if is_high_pressure {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("service under memory pressure")
-                    .with_code("BACKPRESSURE")
-                    .with_string_details(format!(
-                        "level={}, retry_after_secs=30, action=reduce max_tokens or retry later",
-                        pressure_str
-                    )),
-            ),
-        ));
-    }
+    check_uma_backpressure(&state)?;
 
     // Generate request ID
     let request_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
@@ -787,67 +763,11 @@ pub async fn streaming_infer(
     )
     .await;
 
-    // Get available workers with manifest filtering
-    let required_manifest = state.manifest_hash.as_deref();
-    let workers = if let Some(manifest_hash) = required_manifest {
-        // Use manifest-aware worker selection for production
-        state
-            .db
-            .list_compatible_workers_for_tenant(manifest_hash, &claims.tenant_id)
-            .await
-            .map_err(|e| {
-                error!(error = %e, manifest_hash = %manifest_hash, "Failed to list compatible workers");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to list compatible workers")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?
-    } else {
-        // Fallback: no manifest filtering - use serving workers (returns WorkerWithBinding)
-        state.db.list_serving_workers().await.map_err(|e| {
-            error!(error = %e, "Failed to list workers");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to list workers")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-    };
-
-    // Resolve UDS path using health-aware worker selection
-    let worker = state
-        .health_monitor
-        .as_ref()
-        .and_then(|hm| hm.get_best_worker_with_binding(&workers))
-        .or_else(|| workers.first())
-        .ok_or_else(|| {
-            let msg = if required_manifest.is_some() {
-                format!(
-                    "No compatible workers available for manifest={} and tenant={}",
-                    required_manifest.unwrap_or("unknown"),
-                    claims.tenant_id
-                )
-            } else {
-                "No healthy workers available".to_string()
-            };
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(
-                    ErrorResponse::new(&msg)
-                        .with_code("NO_COMPATIBLE_WORKER")
-                        .with_string_details(
-                            "All workers are crashed, incompatible, or unavailable",
-                        ),
-                ),
-            )
-        })?;
+    let core = InferenceCore::new(&state);
+    let worker = core
+        .select_worker_for_tenant(&claims.tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     let uds_path_buf = std::path::PathBuf::from(&worker.uds_path);
 
     // Clone data for the stream
@@ -1107,6 +1027,8 @@ impl LoadingStreamState {
                                     jti: uuid::Uuid::new_v4().to_string(),
                                     nbf: 0,
                                     iss: JWT_ISSUER.to_string(),
+                                    auth_mode: AuthMode::BearerToken,
+                                    principal_type: Some(PrincipalType::InternalService),
                                 },
                                 &request_id,
                                 PolicyHook::OnAfterInference,
@@ -1208,90 +1130,60 @@ impl LoadingStreamState {
         let adapter_id = self.adapter_id.clone();
         let state = self.state.clone();
         let tenant_id = self.tenant_id.clone();
+        let state_for_load = state.clone();
+        let tenant_id_for_load = tenant_id.clone();
+        let adapter_id_for_load = adapter_id.clone();
 
         // Wrap the actual load operation with LoadCoordinator
         // This ensures only one request actually triggers the load
         let _handle = state
             .load_coordinator
-            .load_or_wait(&adapter_id.clone(), || async move {
-                // Get available workers with manifest filtering
-                let required_manifest = state.manifest_hash.as_deref();
-                let workers = if let Some(manifest_hash) = required_manifest {
-                    state
-                        .db
-                        .list_compatible_workers_for_tenant(manifest_hash, &tenant_id)
+            .load_or_wait(&adapter_id, move || {
+                let state = state_for_load.clone();
+                let tenant_id = tenant_id_for_load.clone();
+                let adapter_id = adapter_id_for_load.clone();
+                async move {
+                    let core = InferenceCore::new(&state);
+                    let worker = core
+                        .select_worker_for_tenant(&tenant_id)
+                        .await
+                        .map_err(|e| adapteros_core::AosError::Worker(e.to_string()))?;
+
+                    let uds_path = std::path::PathBuf::from(&worker.uds_path);
+                    let uds_client = UdsClient::new(Duration::from_secs(30));
+
+                    // Send load request via HTTP endpoint
+                    let load_request = serde_json::json!({
+                        "adapter_id": adapter_id,
+                        "command": "load"
+                    });
+
+                    uds_client
+                        .send_http_request(&uds_path, "POST", "/adapter/load", Some(load_request))
                         .await
                         .map_err(|e| {
-                            adapteros_core::AosError::Database(format!(
-                                "Failed to list compatible workers: {}",
+                            adapteros_core::AosError::Lifecycle(format!(
+                                "Failed to send load command: {}",
                                 e
                             ))
-                        })?
-                } else {
-                    // Fallback: no manifest filtering - use serving workers (returns WorkerWithBinding)
-                    state.db.list_serving_workers().await.map_err(|e| {
-                        adapteros_core::AosError::Database(format!("Failed to list workers: {}", e))
-                    })?
-                };
+                        })?;
 
-                if workers.is_empty() {
-                    let msg = if required_manifest.is_some() {
-                        format!(
-                            "No compatible workers for manifest={} and tenant={}",
-                            required_manifest.unwrap_or("unknown"),
-                            tenant_id
-                        )
-                    } else {
-                        "No workers available".to_string()
-                    };
-                    return Err(adapteros_core::AosError::Lifecycle(msg));
+                    info!(adapter_id = %adapter_id, "Triggered adapter load");
+
+                    // Return a dummy AdapterHandle since we don't have the actual handle yet
+                    // The lifecycle manager will track the actual state
+                    Ok(adapteros_lora_lifecycle::loader::AdapterHandle {
+                        adapter_id: 0, // Placeholder
+                        path: uds_path,
+                        memory_bytes: 0,
+                        metadata: adapteros_lora_lifecycle::loader::AdapterMetadata {
+                            num_parameters: 0,
+                            rank: None,
+                            target_modules: vec![],
+                            ..Default::default()
+                        },
+                    })
                 }
-
-                // Send load request to worker via UDS using HTTP POST - use health-aware selection
-                let worker = state
-                    .health_monitor
-                    .as_ref()
-                    .and_then(|hm| hm.get_best_worker_with_binding(&workers))
-                    .or_else(|| workers.first())
-                    .ok_or_else(|| {
-                        adapteros_core::AosError::Lifecycle(
-                            "No healthy workers available".to_string(),
-                        )
-                    })?;
-                let uds_path = std::path::PathBuf::from(&worker.uds_path);
-                let uds_client = UdsClient::new(Duration::from_secs(30));
-
-                // Send load request via HTTP endpoint
-                let load_request = serde_json::json!({
-                    "adapter_id": adapter_id,
-                    "command": "load"
-                });
-
-                uds_client
-                    .send_http_request(&uds_path, "POST", "/adapter/load", Some(load_request))
-                    .await
-                    .map_err(|e| {
-                        adapteros_core::AosError::Lifecycle(format!(
-                            "Failed to send load command: {}",
-                            e
-                        ))
-                    })?;
-
-                info!(adapter_id = %adapter_id, "Triggered adapter load");
-
-                // Return a dummy AdapterHandle since we don't have the actual handle yet
-                // The lifecycle manager will track the actual state
-                Ok(adapteros_lora_lifecycle::loader::AdapterHandle {
-                    adapter_id: 0, // Placeholder
-                    path: std::path::PathBuf::from(&workers[0].uds_path),
-                    memory_bytes: 0,
-                    metadata: adapteros_lora_lifecycle::loader::AdapterMetadata {
-                        num_parameters: 0,
-                        rank: None,
-                        target_modules: vec![],
-                        ..Default::default()
-                    },
-                })
             })
             .await
             .map_err(|e| format!("Load coordination failed: {}", e))?;
@@ -1350,6 +1242,8 @@ impl LoadingStreamState {
             jti: uuid::Uuid::new_v4().to_string(),
             nbf: 0,
             iss: JWT_ISSUER.to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
         };
 
         // Convert StreamingInferRequest to InferenceRequestInternal
@@ -1602,6 +1496,7 @@ impl StreamState {
             seed_mode: None,
             request_seed: None,
             backend_profile: None,
+            coreml_mode: None,
             max_tokens: self.max_tokens,
             temperature: self.temperature,
             top_k: None,
@@ -1705,6 +1600,8 @@ impl StreamState {
                             jti: uuid::Uuid::new_v4().to_string(),
                             nbf: 0,
                             iss: JWT_ISSUER.to_string(),
+                            auth_mode: AuthMode::BearerToken,
+                            principal_type: Some(PrincipalType::InternalService),
                         },
                         &request_id,
                         PolicyHook::OnAfterInference,
@@ -2026,6 +1923,7 @@ mod tests {
         let streaming_req = StreamingInferRequest {
             prompt: "Test prompt".to_string(),
             model: Some("test-model".to_string()),
+            coreml_mode: None,
             stack_id: None,
             max_tokens: 100,
             temperature: 0.8,
@@ -2061,6 +1959,8 @@ mod tests {
             jti: "test-jti".to_string(),
             nbf: 0,
             iss: JWT_ISSUER.to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
         };
 
         // Convert using From implementation
@@ -2099,6 +1999,7 @@ mod tests {
         let streaming_req = StreamingInferRequest {
             prompt: "Test".to_string(),
             model: None,
+            coreml_mode: None,
             stack_id: None,
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
@@ -2133,6 +2034,8 @@ mod tests {
             jti: uuid::Uuid::new_v4().to_string(),
             nbf: 0,
             iss: JWT_ISSUER.to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
         };
 
         let internal: InferenceRequestInternal = (&streaming_req, &claims).into();

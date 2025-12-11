@@ -1,4 +1,4 @@
-use adapteros_core::{BackendProfile, SeedMode};
+use adapteros_core::{BackendKind, DeterminismMode, SeedMode};
 use adapteros_crypto::Keypair;
 use adapteros_db::git::FileChangeEvent;
 use adapteros_db::{sqlx, Db, KvIsolationScanReport};
@@ -96,6 +96,9 @@ pub struct ApiConfig {
     /// Authentication configuration
     #[serde(default)]
     pub auth: AuthConfigApi,
+    /// Self-hosting agent configuration
+    #[serde(default)]
+    pub self_hosting: SelfHostingConfigApi,
     /// Performance configuration
     #[serde(default)]
     pub performance: PerformanceConfigApi,
@@ -109,7 +112,7 @@ pub struct ApiConfig {
     pub seed_mode: SeedMode,
     /// Backend profile to request for execution
     #[serde(default)]
-    pub backend_profile: BackendProfile,
+    pub backend_profile: BackendKind,
     /// Worker identifier used in seed derivation
     #[serde(default)]
     pub worker_id: u32,
@@ -125,6 +128,18 @@ pub struct MetricsConfig {
     pub bearer_token: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SelfHostingConfigApi {
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub repo_allowlist: Vec<String>,
+    #[serde(default)]
+    pub promotion_threshold: f64,
+    #[serde(default)]
+    pub require_human_approval: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeneralConfig {
     pub system_name: Option<String>,
@@ -132,7 +147,7 @@ pub struct GeneralConfig {
     pub api_base_url: Option<String>,
     /// Global default determinism mode (strict, besteffort, relaxed)
     #[serde(default)]
-    pub determinism_mode: Option<String>,
+    pub determinism_mode: Option<DeterminismMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -254,6 +269,7 @@ impl Default for ApiConfig {
             server: Default::default(),
             security: Default::default(),
             auth: Default::default(),
+            self_hosting: Default::default(),
             performance: Default::default(),
             paths: crate::config::PathsConfig {
                 artifacts_root: "var/artifacts".to_string(),
@@ -269,11 +285,7 @@ impl Default for ApiConfig {
             } else {
                 SeedMode::Strict
             },
-            backend_profile: if cfg!(debug_assertions) {
-                BackendProfile::AutoDev
-            } else {
-                BackendProfile::Metal
-            },
+            backend_profile: BackendKind::default_inference_backend(),
             worker_id: 0,
         }
     }
@@ -749,6 +761,16 @@ impl AppState {
         registry: Arc<crate::plugin_registry::PluginRegistry>,
     ) -> Self {
         self.plugin_registry = registry;
+        self
+    }
+
+    /// Override the training service (e.g., to inject DB/storage-backed orchestration).
+    ///
+    /// Defaults to the in-memory `TrainingService::new()` created in `AppState::new`.
+    /// This helper lets the server wire the orchestrator with persistent storage while
+    /// keeping tests free to swap in their own instances.
+    pub fn with_training_service(mut self, training_service: Arc<TrainingService>) -> Self {
+        self.training_service = training_service;
         self
     }
 

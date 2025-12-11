@@ -6,9 +6,10 @@ use crate::types::*;
 use adapteros_api_types::workers::{
     WorkerRegistrationRequest, WorkerRegistrationResponse, WorkerStatusNotification,
 };
-use adapteros_core::version::API_SCHEMA_VERSION;
+use adapteros_core::{identity::IdentityEnvelope, version::API_SCHEMA_VERSION, WorkerStatus};
 use adapteros_db::users::Role;
 use adapteros_db::workers::{is_schema_compatible, WorkerRegistrationParams};
+use adapteros_telemetry::{build_health_event, make_health_payload, HealthEventKind};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -20,6 +21,39 @@ use tracing::{error, info, warn};
 #[derive(Deserialize)]
 pub struct ListWorkersQuery {
     pub tenant_id: Option<String>,
+}
+
+async fn push_worker_health_event(
+    state: &AppState,
+    tenant_id: &str,
+    worker_id: &str,
+    kind: HealthEventKind,
+    previous_status: Option<String>,
+    new_status: Option<String>,
+    error: Option<String>,
+) {
+    let identity = IdentityEnvelope::new(
+        tenant_id.to_string(),
+        "control_plane".to_string(),
+        "worker_lifecycle".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
+
+    let payload = make_health_payload(
+        worker_id.to_string(),
+        tenant_id.to_string(),
+        kind,
+        previous_status,
+        new_status,
+        None,
+        None,
+        error,
+    );
+
+    if let Ok(event) = build_health_event(identity, payload) {
+        let buffer = state.telemetry_buffer.clone();
+        let _ = buffer.push(event).await;
+    }
 }
 
 /// Spawn worker via node agent
@@ -90,7 +124,7 @@ pub async fn worker_spawn(
         .node_id(&req.node_id)
         .plan_id(&req.plan_id)
         .uds_path(&uds_path)
-        .status("starting");
+        .status(WorkerStatus::Created.as_str());
     builder = builder.pid(pid);
     let params = builder
         .build()
@@ -110,7 +144,7 @@ pub async fn worker_spawn(
         plan_id: req.plan_id,
         uds_path,
         pid: Some(pid),
-        status: "starting".to_string(),
+        status: WorkerStatus::Created.as_str().to_string(),
         started_at: chrono::Utc::now().to_rfc3339(),
         last_seen_at: None,
     }))
@@ -234,7 +268,7 @@ pub async fn stop_worker(
     let previous_status = worker.status.clone();
 
     // Use validated state transitions
-    // Transition to 'draining' first (valid from 'serving' state)
+    // Transition to 'draining' first (valid from 'healthy' state)
     match state
         .db
         .transition_worker_status(
@@ -358,8 +392,8 @@ pub async fn stop_worker(
 /// 2. The worker's manifest_hash matches the plan's expected manifest_hash_b3
 /// 3. The schema_version is compatible
 ///
-/// On successful registration, the worker is inserted with status 'starting'.
-/// The worker must then call the status notification endpoint to transition to 'serving'.
+/// On successful registration, the worker is inserted with status 'registered'.
+/// The worker must then call the status notification endpoint to transition to 'healthy'.
 ///
 /// **Note:** This endpoint is called by workers, not by users. No auth required.
 ///
@@ -409,16 +443,10 @@ pub async fn register_worker(
         .map_err(|e| db_error_msg("failed to check worker existence", e))?;
 
     if exists {
-        warn!(
+        info!(
             worker_id = %req.worker_id,
-            "Worker already registered, rejecting duplicate registration"
+            "Worker already present; updating registration metadata"
         );
-        return Ok(Json(WorkerRegistrationResponse {
-            accepted: false,
-            worker_id: req.worker_id,
-            rejection_reason: Some("Worker already registered".into()),
-            heartbeat_interval_secs: 30,
-        }));
     }
 
     // 2. Get plan and extract expected manifest_hash
@@ -520,7 +548,7 @@ pub async fn register_worker(
         worker_id = %req.worker_id,
         tenant_id = %req.tenant_id,
         plan_id = %req.plan_id,
-        "Worker registered successfully with status 'starting'"
+        "Worker registered successfully with status 'registered'"
     );
 
     // 7. Log successful registration (via tracing since no Claims available)
@@ -535,6 +563,17 @@ pub async fn register_worker(
         capabilities = ?req.capabilities,
         "Worker registration successful"
     );
+
+    push_worker_health_event(
+        &state,
+        &req.tenant_id,
+        &req.worker_id,
+        HealthEventKind::WorkerRegistered,
+        None,
+        Some("registered".to_string()),
+        None,
+    )
+    .await;
 
     Ok(Json(WorkerRegistrationResponse {
         accepted: true,
@@ -582,6 +621,25 @@ pub async fn notify_worker_status(
         reason = %req.reason,
         "Worker status notification received"
     );
+
+    let worker_row = state
+        .db
+        .get_worker(&req.worker_id)
+        .await
+        .map_err(|e| db_error_msg("failed to fetch worker", e))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Worker not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Worker ID: {}", req.worker_id)),
+                ),
+            )
+        })?;
+
+    let previous_status = Some(worker_row.status.clone());
+    let worker_tenant_id = worker_row.tenant_id.clone();
 
     // Use transition_worker_status which validates and records history
     state
@@ -631,6 +689,23 @@ pub async fn notify_worker_status(
         status = %req.status,
         "Worker status updated successfully"
     );
+
+    let event_kind = if req.status.to_ascii_lowercase() == "crashed" {
+        HealthEventKind::FatalError
+    } else {
+        HealthEventKind::HealthStateChange
+    };
+
+    push_worker_health_event(
+        &state,
+        &worker_tenant_id,
+        &req.worker_id,
+        event_kind,
+        previous_status,
+        Some(req.status.clone()),
+        Some(req.reason.clone()),
+    )
+    .await;
 
     Ok(Json(serde_json::json!({
         "success": true,

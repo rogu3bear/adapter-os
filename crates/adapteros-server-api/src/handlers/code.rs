@@ -1,5 +1,6 @@
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use axum::{
@@ -158,6 +159,9 @@ pub async fn register_repo(
 ) -> Result<Json<RegisterRepositoryResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::CodeScan)?;
 
+    // Enforce tenant isolation: caller must belong to repo tenant
+    validate_tenant_isolation(&claims, &req.tenant_id)?;
+
     // Check if repository already exists
     let existing = state
         .db
@@ -224,6 +228,9 @@ pub async fn scan_repo(
     Json(req): Json<ScanRepositoryRequest>,
 ) -> Result<Json<ScanJobResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::CodeScan)?;
+
+    // Enforce tenant isolation: caller must belong to repo tenant
+    validate_tenant_isolation(&claims, &req.tenant_id)?;
 
     // Get repository
     let repo = state
@@ -398,8 +405,8 @@ pub async fn list_repositories(
 ) -> Result<Json<RepositoryListResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::CodeView)?;
 
-    // Default tenant for now
-    let tenant_id = "default";
+    // Tenant-scoped listing
+    let tenant_id = claims.tenant_id.as_str();
     let page = query.page.unwrap_or(1);
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = (page - 1) * limit;
@@ -469,7 +476,7 @@ pub async fn get_repository(
 ) -> Result<Json<RepositoryDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::CodeView)?;
 
-    let tenant_id = "default";
+    let tenant_id = claims.tenant_id.as_str();
 
     let repo = state
         .db

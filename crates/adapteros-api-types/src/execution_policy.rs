@@ -12,6 +12,7 @@
 //! - PUT /v1/tenants/{tenant_id}/execution-policy
 //! - DELETE /v1/tenants/{tenant_id}/execution-policy
 
+use adapteros_core::backend::BackendKind;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -29,6 +30,15 @@ pub struct DeterminismPolicy {
     /// Empty array means all modes are allowed (permissive default).
     #[serde(default)]
     pub allowed_modes: Vec<String>,
+
+    /// Optional allowlist of permitted backends for inference.
+    /// When present, requests for other backends will be rejected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_backends: Option<Vec<BackendKind>>,
+
+    /// Optional denylist of backends; takes precedence over allowlist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub denied_backends: Option<Vec<BackendKind>>,
 
     /// Default mode when not specified in inference request.
     /// Must be one of the allowed_modes (or any mode if allowed_modes is empty).
@@ -75,6 +85,8 @@ impl Default for DeterminismPolicy {
                 "besteffort".to_string(),
                 "relaxed".to_string(),
             ],
+            allowed_backends: None,
+            denied_backends: None,
             default_mode: default_determinism_mode(),
             require_seed: false,
             allow_fallback: true,

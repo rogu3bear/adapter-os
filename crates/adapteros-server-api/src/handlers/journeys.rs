@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 use tracing::{info, warn};
 use utoipa::ToSchema;
 
@@ -81,7 +82,8 @@ pub async fn get_journey(
 
     // ITAR check
     if ["security-compliance", "incident-response"].contains(&journey_type.as_str()) {
-        let tenant_row = sqlx::query!("SELECT itar_flag FROM tenants WHERE id = ?", tenant_id)
+        let tenant_row = sqlx::query("SELECT itar_flag FROM tenants WHERE id = ?")
+            .bind(tenant_id)
             .fetch_optional(state.db.pool())
             .await
             .map_err(|e| {
@@ -93,7 +95,8 @@ pub async fn get_journey(
             })?;
 
         if let Some(row) = tenant_row {
-            if row.itar_flag != 0 && !is_admin {
+            let itar_flag: i64 = row.try_get("itar_flag").unwrap_or(0);
+            if itar_flag != 0 && !is_admin {
                 return Err((
                     StatusCode::FORBIDDEN,
                     Json(
@@ -115,16 +118,16 @@ pub async fn get_journey(
     match journey_type.as_str() {
         "adapter-lifecycle" => {
             info!("Querying adapter lifecycle for {}", id);
-            let rows = sqlx::query!(
+            let rows = sqlx::query(
                 r#"
                 SELECT id, current_state, updated_at, memory_bytes, activation_count
                 FROM adapters
                 WHERE id = ? AND tenant_id = ?
                 ORDER BY updated_at ASC
                 "#,
-                id,
-                tenant_id
             )
+            .bind(&id)
+            .bind(tenant_id)
             .fetch_all(state.db.pool())
             .await
             .map_err(|e| {
@@ -139,8 +142,13 @@ pub async fn get_journey(
             })?;
 
             for row in rows {
+                let current_state: String = row.try_get("current_state").unwrap_or_default();
+                let updated_at: String = row.try_get("updated_at").unwrap_or_default();
+                let memory_bytes: Option<i64> = row.try_get("memory_bytes").unwrap_or(None);
+                let activation_count: Option<i64> = row.try_get("activation_count").unwrap_or(None);
+
                 let timestamp: DateTime<Utc> =
-                    NaiveDateTime::parse_from_str(&row.updated_at, "%Y-%m-%dT%H:%M:%S%.fZ")
+                    NaiveDateTime::parse_from_str(&updated_at, "%Y-%m-%dT%H:%M:%S%.fZ")
                         .map_err(|parse_err| {
                             warn!("Timestamp parse failed: {}", parse_err);
                             (
@@ -154,11 +162,11 @@ pub async fn get_journey(
                         .and_utc();
 
                 states.push(JourneyState {
-                    state: row.current_state,
+                    state: current_state,
                     timestamp: timestamp.to_rfc3339(),
                     details: serde_json::json!({
-                        "memory_bytes": row.memory_bytes,
-                        "activation_count": row.activation_count,
+                        "memory_bytes": memory_bytes,
+                        "activation_count": activation_count,
                     }),
                 });
             }
@@ -169,10 +177,10 @@ pub async fn get_journey(
             info!("Querying promotion pipeline for {}", id);
             // Note: promotions table doesn't have status or approver columns in current schema
             // This would need to be updated when the promotions schema is extended
-            let promotions = sqlx::query!(
+            let promotions = sqlx::query(
                 "SELECT cpid, created_at, promoted_by FROM promotions WHERE cpid = ? ORDER BY created_at ASC",
-                id
             )
+            .bind(&id)
             .fetch_all(state.db.pool())
             .await
             .map_err(|e| {
@@ -183,8 +191,9 @@ pub async fn get_journey(
             })?;
 
             for promo in promotions {
+                let created_at: String = promo.try_get("created_at").unwrap_or_default();
                 let timestamp: DateTime<Utc> =
-                    NaiveDateTime::parse_from_str(&promo.created_at, "%Y-%m-%dT%H:%M:%S%.fZ")
+                    NaiveDateTime::parse_from_str(&created_at, "%Y-%m-%dT%H:%M:%S%.fZ")
                         .map_err(|parse_err| {
                             warn!("Timestamp parse failed: {}", parse_err);
                             (
@@ -201,8 +210,8 @@ pub async fn get_journey(
                     state: "completed".to_string(), // Default state since status column doesn't exist
                     timestamp: timestamp.to_rfc3339(),
                     details: serde_json::json!({
-                        "cpid": promo.cpid,
-                        "promoted_by": promo.promoted_by,
+                        "cpid": promo.try_get::<String,_>("cpid").unwrap_or_default(),
+                        "promoted_by": promo.try_get::<Option<String>,_>("promoted_by").unwrap_or(None),
                     }),
                 });
             }
@@ -213,7 +222,7 @@ pub async fn get_journey(
             info!("Querying monitoring flow for {}", id);
             // Note: system_metrics table doesn't have tenant_id, worker_id, metric_key, or value columns
             // Using available columns and adapting the query structure
-            let metrics = sqlx::query!(
+            let metrics = sqlx::query(
                 "SELECT cpu_usage, memory_usage, timestamp FROM system_metrics ORDER BY timestamp DESC LIMIT 10"
             )
             .fetch_all(state.db.pool())
@@ -226,18 +235,18 @@ pub async fn get_journey(
             })?;
 
             for metric in metrics {
+                let cpu_usage: f64 = metric.try_get("cpu_usage").unwrap_or(0.0);
+                let memory_usage: f64 = metric.try_get("memory_usage").unwrap_or(0.0);
+                let ts_raw: i64 = metric.try_get("timestamp").unwrap_or(0);
                 let timestamp: DateTime<Utc> =
-                    DateTime::from_timestamp(metric.timestamp, 0).unwrap_or_else(Utc::now);
+                    DateTime::from_timestamp(ts_raw, 0).unwrap_or_else(Utc::now);
 
                 states.push(JourneyState {
-                    state: format!(
-                        "cpu: {:.2}%, mem: {:.2}%",
-                        metric.cpu_usage, metric.memory_usage
-                    ),
+                    state: format!("cpu: {:.2}%, mem: {:.2}%", cpu_usage, memory_usage),
                     timestamp: timestamp.to_rfc3339(),
                     details: serde_json::json!({
-                        "cpu_usage": metric.cpu_usage,
-                        "memory_usage": metric.memory_usage,
+                        "cpu_usage": cpu_usage,
+                        "memory_usage": memory_usage,
                     }),
                 });
             }

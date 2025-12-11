@@ -10,6 +10,7 @@
 //! All inference execution is routed through InferenceCore for unified handling.
 
 use crate::auth::Claims;
+use crate::backpressure::check_uma_backpressure;
 use crate::chat_context::build_chat_prompt;
 use crate::inference_core::InferenceCore;
 use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
@@ -76,22 +77,7 @@ pub async fn infer(
     )
     .await;
 
-    // Check UMA pressure - compare by string to avoid version conflicts between crates
-    let pressure_str = state.uma_monitor.get_current_pressure().to_string();
-    let is_high_pressure = pressure_str == "High" || pressure_str == "Critical";
-    if is_high_pressure {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("service under memory pressure")
-                    .with_code("BACKPRESSURE")
-                    .with_string_details(format!(
-                        "level={}, retry_after_secs=30, action=reduce max_tokens or retry later",
-                        pressure_str
-                    )),
-            ),
-        ));
-    }
+    check_uma_backpressure(&state)?;
 
     // PRD-06: Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
     let routing_hook_ctx = create_hook_context(

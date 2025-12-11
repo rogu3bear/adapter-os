@@ -7,10 +7,15 @@
 //! - Compression
 //! - Caching (ETags, conditional requests)
 
-use crate::auth::{validate_access_token_ed25519, validate_token, Claims};
+use crate::auth::{
+    validate_access_token_ed25519, validate_token, AuthMode, Claims, Principal, PrincipalType,
+};
 use crate::ip_extraction::{extract_client_ip, ClientIp};
 use crate::security::is_token_revoked;
-use crate::security::{get_session_by_id, update_session_activity, validate_tenant_isolation};
+use crate::security::{
+    get_session_by_id, get_tenant_token_baseline, update_session_activity,
+    validate_tenant_isolation,
+};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::identity::IdentityEnvelope;
@@ -20,7 +25,7 @@ use axum::{
     extract::State,
     http::{header, HeaderMap, Request, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
     Json,
 };
 use blake3::Hasher;
@@ -66,6 +71,72 @@ fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
         })
 }
 
+fn error_response(
+    status: StatusCode,
+    code: &'static str,
+    message: impl Into<String>,
+) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        status,
+        Json(ErrorResponse::new(message.into()).with_code(code)),
+    )
+}
+
+fn unauthenticated(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    error_response(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", msg)
+}
+
+fn session_expired(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(
+            ErrorResponse::new("session expired")
+                .with_code("SESSION_EXPIRED")
+                .with_string_details(msg.into()),
+        ),
+    )
+}
+
+fn token_revoked(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(
+            ErrorResponse::new("token revoked")
+                .with_code("TOKEN_REVOKED")
+                .with_string_details(msg.into()),
+        ),
+    )
+}
+
+fn forbidden(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    error_response(StatusCode::FORBIDDEN, "FORBIDDEN", msg)
+}
+
+fn tenant_isolation_error(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    error_response(StatusCode::FORBIDDEN, "TENANT_ISOLATION_ERROR", msg)
+}
+
+fn csrf_error(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::FORBIDDEN,
+        Json(
+            ErrorResponse::new("csrf validation failed")
+                .with_code("CSRF_ERROR")
+                .with_string_details(msg.into()),
+        ),
+    )
+}
+
+fn build_principal_from_claims(
+    claims: &mut Claims,
+    principal_type: PrincipalType,
+    auth_mode: AuthMode,
+) -> Principal {
+    claims.auth_mode = auth_mode.clone();
+    claims.principal_type = Some(principal_type.clone());
+    Principal::from_claims(claims, principal_type, auth_mode)
+}
+
 pub mod audit;
 pub mod caching;
 pub mod compression;
@@ -82,28 +153,10 @@ pub use policy_enforcement::policy_enforcement_middleware;
 pub use request_id::request_id_middleware;
 pub use versioning::{versioning_middleware, ApiVersion, DeprecationInfo};
 
-/// SECURITY: Dev no-auth bypass is only available in debug builds
-/// This function is compile-time restricted to debug_assertions builds
-#[cfg(debug_assertions)]
+/// SECURITY: Dev no-auth bypass is centralized in crate::auth so release builds
+/// always ignore AOS_DEV_NO_AUTH and log once there.
 fn dev_no_auth_enabled() -> bool {
-    env::var("AOS_DEV_NO_AUTH")
-        .map(|v| {
-            let lower = v.to_ascii_lowercase();
-            matches!(lower.as_str(), "1" | "true" | "yes" | "on")
-        })
-        .unwrap_or(false)
-}
-
-/// SECURITY: In release builds, dev_no_auth is NEVER enabled
-#[cfg(not(debug_assertions))]
-fn dev_no_auth_enabled() -> bool {
-    // SECURITY: Always return false in release builds, regardless of environment variable
-    if env::var("AOS_DEV_NO_AUTH").is_ok() {
-        tracing::error!(
-            "AOS_DEV_NO_AUTH detected in release build - this flag is ignored in production"
-        );
-    }
-    false
+    crate::auth::dev_no_auth_enabled()
 }
 
 fn dev_no_auth_claims() -> Claims {
@@ -127,6 +180,8 @@ fn dev_no_auth_claims() -> Claims {
         jti: Uuid::new_v4().to_string(),
         nbf: now.timestamp(),
         iss: crate::auth::JWT_ISSUER.to_string(),
+        auth_mode: AuthMode::DevBypass,
+        principal_type: Some(PrincipalType::DevBypass),
     }
 }
 
@@ -151,18 +206,58 @@ pub async fn tenant_route_guard_middleware(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     if let Some(path_tenant) = extract_tenant_id_from_path(req.uri().path()) {
-        let claims = req.extensions().get::<Claims>().cloned().ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(
-                    ErrorResponse::new("unauthorized")
-                        .with_code("UNAUTHORIZED")
-                        .with_string_details("missing auth claims for tenant-scoped route"),
-                ),
-            )
-        })?;
+        let auth_mode = req
+            .extensions()
+            .get::<AuthMode>()
+            .cloned()
+            .unwrap_or(AuthMode::Unauthenticated);
+        let principal = req.extensions().get::<Principal>().cloned();
+        let claims = req
+            .extensions()
+            .get::<Claims>()
+            .cloned()
+            .ok_or_else(|| unauthenticated("missing auth claims for tenant-scoped route"))?;
 
-        validate_tenant_isolation(&claims, &path_tenant)?;
+        let principal_id = principal
+            .as_ref()
+            .map(|p| p.principal_id.as_str())
+            .unwrap_or(&claims.sub);
+        let principal_type = principal
+            .as_ref()
+            .map(|p| format!("{:?}", p.principal_type))
+            .unwrap_or_else(|| "unknown".to_string());
+        let is_cross_tenant = claims.tenant_id != path_tenant;
+
+        if let Err((_, Json(err_body))) = validate_tenant_isolation(&claims, &path_tenant) {
+            tracing::warn!(
+                principal_id = %principal_id,
+                principal_type = %principal_type,
+                auth_mode = ?auth_mode,
+                requested_tenant = %path_tenant,
+                caller_tenant = %claims.tenant_id,
+                code = %err_body.code,
+                detail = ?err_body.details,
+                "Tenant isolation rejected"
+            );
+            let detail = err_body
+                .details
+                .as_ref()
+                .and_then(|d| d.as_str())
+                .unwrap_or_else(|| err_body.error.as_str())
+                .to_string();
+            return Err(tenant_isolation_error(detail));
+        }
+
+        if is_cross_tenant {
+            tracing::info!(
+                principal_id = %principal_id,
+                principal_type = %principal_type,
+                auth_mode = ?auth_mode,
+                requested_tenant = %path_tenant,
+                caller_tenant = %claims.tenant_id,
+                "Tenant isolation granted for cross-tenant access"
+            );
+        }
     }
 
     Ok(next.run(req).await)
@@ -213,14 +308,7 @@ pub async fn lifecycle_gate(
 }
 
 fn unauthorized_api_key() -> (StatusCode, Json<ErrorResponse>) {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(
-            ErrorResponse::new("unauthorized")
-                .with_code("UNAUTHORIZED")
-                .with_string_details("invalid api key"),
-        ),
-    )
+    unauthenticated("invalid api key")
 }
 
 async fn validate_api_key(
@@ -301,6 +389,8 @@ async fn validate_api_key(
         jti: format!("api-key:{}", record.id),
         nbf: now.timestamp(),
         iss: crate::auth::JWT_ISSUER.to_string(),
+        auth_mode: AuthMode::ApiKey,
+        principal_type: Some(PrincipalType::ApiKey),
     };
 
     Ok((claims, ApiKeyToken(token.to_string())))
@@ -317,7 +407,7 @@ async fn validate_access_token_with_session(
     state: &AppState,
     token: &str,
 ) -> Result<Claims, (StatusCode, Json<ErrorResponse>)> {
-    let claims = if state.use_ed25519 {
+    let mut claims = if state.use_ed25519 {
         validate_access_token_ed25519(token, &state.ed25519_public_keys, &state.ed25519_public_key)
     } else {
         // Legacy HMAC path retains session validation below
@@ -325,46 +415,53 @@ async fn validate_access_token_with_session(
     }
     .map_err(|e| {
         tracing::warn!(error = %e, "Token validation failed");
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("unauthorized").with_code("UNAUTHORIZED")),
-        )
+        unauthenticated("token validation failed")
     })?;
 
     if claims.iss != crate::auth::JWT_ISSUER {
         tracing::warn!(iss = %claims.iss, "Invalid token issuer");
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(
-                ErrorResponse::new("unauthorized")
-                    .with_code("UNAUTHORIZED")
-                    .with_string_details("invalid issuer"),
-            ),
-        ));
+        return Err(unauthenticated("invalid issuer"));
     }
 
     if claims.tenant_id.is_empty() {
         tracing::warn!("Token missing tenant_id");
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(
-                ErrorResponse::new("unauthorized")
-                    .with_code("UNAUTHORIZED")
-                    .with_string_details("missing tenant"),
-            ),
-        ));
+        return Err(unauthenticated("missing tenant"));
     }
 
-    let session_id = claims.session_id.clone().ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(
-                ErrorResponse::new("unauthorized")
-                    .with_code("UNAUTHORIZED")
-                    .with_string_details("missing session"),
-            ),
-        )
-    })?;
+    // Enforce tenant baseline (token issued_at must be >= tenant baseline)
+    if let Some(baseline) = get_tenant_token_baseline(&state.db, &claims.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = %e, "Failed to load tenant token baseline");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            )
+        })?
+    {
+        if let Ok(baseline_dt) = chrono::DateTime::parse_from_rfc3339(&baseline) {
+            if claims.iat < baseline_dt.timestamp() {
+                tracing::warn!(
+                    tenant_id = %claims.tenant_id,
+                    token_iat = claims.iat,
+                    baseline = %baseline,
+                    "Token issued before tenant baseline"
+                );
+                return Err(token_revoked("token issued before tenant baseline"));
+            }
+        } else {
+            tracing::warn!(
+                tenant_id = %claims.tenant_id,
+                baseline = %baseline,
+                "Unable to parse tenant token baseline"
+            );
+        }
+    }
+
+    let session_id = claims
+        .session_id
+        .clone()
+        .ok_or_else(|| unauthenticated("missing session"))?;
 
     // Validate KV session linkage if backend is present
     let now_ts = Utc::now().timestamp();
@@ -376,26 +473,12 @@ async fn validate_access_token_with_session(
                 let expiry = session.refresh_expires_at.unwrap_or(session.expires_at);
                 if now >= expiry {
                     tracing::warn!(session_id = %session_id, "Session expired");
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(
-                            ErrorResponse::new("session expired")
-                                .with_code("SESSION_EXPIRED")
-                                .with_string_details("session no longer valid"),
-                        ),
-                    ));
+                    return Err(session_expired("session no longer valid"));
                 }
 
                 if session.locked {
                     tracing::warn!(session_id = %session_id, "Session locked");
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(
-                            ErrorResponse::new("session expired")
-                                .with_code("SESSION_EXPIRED")
-                                .with_string_details("session locked"),
-                        ),
-                    ));
+                    return Err(session_expired("session locked"));
                 }
 
                 if let (Some(token_device), Some(session_device)) =
@@ -408,14 +491,7 @@ async fn validate_access_token_with_session(
                             session_device = %session_device,
                             "Device mismatch for session"
                         );
-                        return Err((
-                            StatusCode::UNAUTHORIZED,
-                            Json(
-                                ErrorResponse::new("unauthorized")
-                                    .with_code("UNAUTHORIZED")
-                                    .with_string_details("device mismatch"),
-                            ),
-                        ));
+                        return Err(unauthenticated("device mismatch"));
                     }
                 }
 
@@ -425,14 +501,7 @@ async fn validate_access_token_with_session(
             }
             Ok(None) => {
                 tracing::warn!(session_id = %session_id, "Session not found in KV");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(
-                        ErrorResponse::new("unauthorized")
-                            .with_code("UNAUTHORIZED")
-                            .with_string_details("session not found"),
-                    ),
-                ));
+                return Err(session_expired("session not found"));
             }
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to load session from KV");
@@ -456,14 +525,7 @@ async fn validate_access_token_with_session(
 
                 if session.locked != 0 || session_exp_ts <= now_ts {
                     tracing::warn!(session_id = %session_id, "Session expired or locked (SQL)");
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(
-                            ErrorResponse::new("session expired")
-                                .with_code("SESSION_EXPIRED")
-                                .with_string_details("session no longer valid"),
-                        ),
-                    ));
+                    return Err(session_expired("session no longer valid"));
                 }
 
                 if let (Some(token_device), Some(session_device)) =
@@ -476,14 +538,7 @@ async fn validate_access_token_with_session(
                             session_device = %session_device,
                             "Device mismatch for session (SQL)"
                         );
-                        return Err((
-                            StatusCode::UNAUTHORIZED,
-                            Json(
-                                ErrorResponse::new("unauthorized")
-                                    .with_code("UNAUTHORIZED")
-                                    .with_string_details("device mismatch"),
-                            ),
-                        ));
+                        return Err(unauthenticated("device mismatch"));
                     }
                 }
 
@@ -493,14 +548,7 @@ async fn validate_access_token_with_session(
             }
             Ok(None) => {
                 tracing::warn!(session_id = %session_id, "Session not found in SQL");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(
-                        ErrorResponse::new("unauthorized")
-                            .with_code("UNAUTHORIZED")
-                            .with_string_details("session not found"),
-                    ),
-                ));
+                return Err(session_expired("session not found"));
             }
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to load session from SQL");
@@ -511,6 +559,9 @@ async fn validate_access_token_with_session(
             }
         }
     }
+
+    claims.auth_mode = AuthMode::BearerToken;
+    claims.principal_type.get_or_insert(PrincipalType::User);
 
     Ok(claims)
 }
@@ -549,14 +600,7 @@ pub async fn csrf_middleware(
                 .map(|s| s.to_string());
 
             if cookie_token.is_none() || header_token != cookie_token {
-                return Err((
-                    StatusCode::FORBIDDEN,
-                    Json(
-                        ErrorResponse::new("csrf validation failed")
-                            .with_code("CSRF_ERROR")
-                            .with_string_details("Missing or invalid CSRF token"),
-                    ),
-                ));
+                return Err(csrf_error("Missing or invalid CSRF token"));
             }
         }
     }
@@ -571,9 +615,14 @@ pub async fn auth_middleware(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     if dev_no_auth_enabled() {
-        let claims = dev_no_auth_claims();
+        let mut claims = dev_no_auth_claims();
+        let auth_mode = AuthMode::DevBypass;
+        let principal =
+            build_principal_from_claims(&mut claims, PrincipalType::DevBypass, auth_mode.clone());
         let tenant_id = claims.tenant_id.clone();
         tracing::info!("Dev no-auth bypass enabled; skipping authentication");
+        req.extensions_mut().insert(auth_mode);
+        req.extensions_mut().insert(principal.clone());
         req.extensions_mut().insert(claims);
         let identity = IdentityEnvelope::new(
             tenant_id,
@@ -585,10 +634,25 @@ pub async fn auth_middleware(
         return Ok(next.run(req).await);
     }
 
+    let is_prod = state
+        .runtime_mode
+        .as_ref()
+        .map(|m| m.is_prod())
+        .unwrap_or(false);
+    if is_prod && !state.use_ed25519 {
+        tracing::error!("HMAC/HS256 auth disabled in production; set security.jwt_mode=eddsa");
+        return Err(error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            "EdDSA is required in production",
+        ));
+    }
+
     // Extract client IP address from headers for audit logging
     if let Some(ip) = extract_client_ip(req.headers()) {
         req.extensions_mut().insert(ClientIp(ip));
     }
+    req.extensions_mut().insert(AuthMode::Unauthenticated);
 
     let auth_header = req
         .headers()
@@ -606,21 +670,28 @@ pub async fn auth_middleware(
 
     enum AuthToken<'a> {
         ApiKey(&'a str),
-        Jwt(&'a str),
+        Jwt(&'a str, JwtSource),
+    }
+
+    #[derive(Clone, Copy)]
+    enum JwtSource {
+        Bearer,
+        Query,
+        Cookie,
     }
 
     let token = if let Some(header) = auth_header {
         if let Some(api_key) = header.strip_prefix("ApiKey ") {
             Some(AuthToken::ApiKey(api_key))
         } else if let Some(bearer) = header.strip_prefix("Bearer ") {
-            Some(AuthToken::Jwt(bearer))
+            Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
         } else {
             None
         }
     } else if let Some(q) = query_token.as_deref() {
-        Some(AuthToken::Jwt(q))
+        Some(AuthToken::Jwt(q, JwtSource::Query))
     } else if let Some(c) = cookie_token.as_deref() {
-        Some(AuthToken::Jwt(c))
+        Some(AuthToken::Jwt(c, JwtSource::Cookie))
     } else {
         None
     };
@@ -628,9 +699,17 @@ pub async fn auth_middleware(
     if let Some(token) = token {
         match token {
             AuthToken::ApiKey(api_token) => {
-                let (claims, api_key_token) = validate_api_key(&state, api_token).await?;
+                let (mut claims, api_key_token) = validate_api_key(&state, api_token).await?;
+                let auth_mode = AuthMode::ApiKey;
+                let principal = build_principal_from_claims(
+                    &mut claims,
+                    PrincipalType::ApiKey,
+                    auth_mode.clone(),
+                );
                 let tenant_id = claims.tenant_id.clone();
                 let token_exp = claims.exp;
+                req.extensions_mut().insert(auth_mode.clone());
+                req.extensions_mut().insert(principal);
                 req.extensions_mut().insert(claims);
                 req.extensions_mut().insert(api_key_token);
                 let identity = IdentityEnvelope::new(
@@ -656,9 +735,13 @@ pub async fn auth_middleware(
 
                 return Ok(response);
             }
-            AuthToken::Jwt(token) => {
+            AuthToken::Jwt(token, source) => {
+                let auth_mode = match source {
+                    JwtSource::Cookie => AuthMode::Cookie,
+                    _ => AuthMode::BearerToken,
+                };
                 match validate_access_token_with_session(&state, token).await {
-                    Ok(claims) => {
+                    Ok(mut claims) => {
                         #[cfg(debug_assertions)]
                         tracing::debug!(
                             user_id = %claims.sub,
@@ -671,14 +754,7 @@ pub async fn auth_middleware(
                         match is_token_revoked(&state.db, &claims.jti).await {
                             Ok(true) => {
                                 tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used");
-                                return Err((
-                                    StatusCode::UNAUTHORIZED,
-                                    Json(
-                                        ErrorResponse::new("token revoked")
-                                            .with_code("TOKEN_REVOKED")
-                                            .with_string_details("this token has been revoked"),
-                                    ),
-                                ));
+                                return Err(token_revoked("this token has been revoked"));
                             }
                             Ok(false) => { /* Token not revoked, continue */ }
                             Err(e) => {
@@ -693,8 +769,15 @@ pub async fn auth_middleware(
                             }
                         }
 
+                        let principal = build_principal_from_claims(
+                            &mut claims,
+                            PrincipalType::User,
+                            auth_mode.clone(),
+                        );
                         let tenant_id = claims.tenant_id.clone();
                         let token_exp = claims.exp;
+                        req.extensions_mut().insert(auth_mode.clone());
+                        req.extensions_mut().insert(principal);
                         req.extensions_mut().insert(claims);
                         let identity = IdentityEnvelope::new(
                             tenant_id,
@@ -712,16 +795,7 @@ pub async fn auth_middleware(
                                 now = now,
                                 "Token expired during request processing"
                             );
-                            return Err((
-                                StatusCode::UNAUTHORIZED,
-                                Json(
-                                    ErrorResponse::new("session expired")
-                                        .with_code("SESSION_EXPIRED")
-                                        .with_string_details(
-                                            "token expired during request processing",
-                                        ),
-                                ),
-                            ));
+                            return Err(session_expired("token expired during request processing"));
                         }
 
                         return Ok(response);
@@ -733,14 +807,7 @@ pub async fn auth_middleware(
     }
 
     tracing::warn!("Missing or invalid Authorization header");
-    Err((
-        StatusCode::UNAUTHORIZED,
-        Json(
-            ErrorResponse::new("unauthorized")
-                .with_code("UNAUTHORIZED")
-                .with_string_details("missing or invalid Authorization header"),
-        ),
-    ))
+    Err(unauthenticated("missing or invalid Authorization header"))
 }
 
 /// Extract and validate API key OR JWT from Authorization header
@@ -750,9 +817,14 @@ pub async fn dual_auth_middleware(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     if dev_no_auth_enabled() {
-        let claims = dev_no_auth_claims();
+        let mut claims = dev_no_auth_claims();
+        let auth_mode = AuthMode::DevBypass;
+        let principal =
+            build_principal_from_claims(&mut claims, PrincipalType::DevBypass, auth_mode.clone());
         let tenant_id = claims.tenant_id.clone();
         tracing::info!("Dev no-auth bypass enabled; skipping authentication");
+        req.extensions_mut().insert(auth_mode);
+        req.extensions_mut().insert(principal.clone());
         req.extensions_mut().insert(claims);
         let identity = IdentityEnvelope::new(
             tenant_id,
@@ -764,10 +836,25 @@ pub async fn dual_auth_middleware(
         return Ok(next.run(req).await);
     }
 
+    let is_prod = state
+        .runtime_mode
+        .as_ref()
+        .map(|m| m.is_prod())
+        .unwrap_or(false);
+    if is_prod && !state.use_ed25519 {
+        tracing::error!("HMAC/HS256 auth disabled in production; set security.jwt_mode=eddsa");
+        return Err(error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            "EdDSA is required in production",
+        ));
+    }
+
     // Extract client IP address from headers for audit logging
     if let Some(ip) = extract_client_ip(req.headers()) {
         req.extensions_mut().insert(ClientIp(ip));
     }
+    req.extensions_mut().insert(AuthMode::Unauthenticated);
 
     let auth_header = req
         .headers()
@@ -785,21 +872,28 @@ pub async fn dual_auth_middleware(
 
     enum AuthToken<'a> {
         ApiKey(&'a str),
-        Jwt(&'a str),
+        Jwt(&'a str, JwtSource),
+    }
+
+    #[derive(Clone, Copy)]
+    enum JwtSource {
+        Bearer,
+        Query,
+        Cookie,
     }
 
     let token = if let Some(header) = auth_header {
         if let Some(api_key) = header.strip_prefix("ApiKey ") {
             Some(AuthToken::ApiKey(api_key))
         } else if let Some(bearer) = header.strip_prefix("Bearer ") {
-            Some(AuthToken::Jwt(bearer))
+            Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
         } else {
             None
         }
     } else if let Some(q) = query_token.as_deref() {
-        Some(AuthToken::Jwt(q))
+        Some(AuthToken::Jwt(q, JwtSource::Query))
     } else if let Some(c) = cookie_token.as_deref() {
-        Some(AuthToken::Jwt(c))
+        Some(AuthToken::Jwt(c, JwtSource::Cookie))
     } else {
         None
     };
@@ -807,8 +901,16 @@ pub async fn dual_auth_middleware(
     if let Some(token) = token {
         match token {
             AuthToken::ApiKey(api_token) => {
-                let (claims, api_key_token) = validate_api_key(&state, api_token).await?;
+                let (mut claims, api_key_token) = validate_api_key(&state, api_token).await?;
+                let auth_mode = AuthMode::ApiKey;
+                let principal = build_principal_from_claims(
+                    &mut claims,
+                    PrincipalType::ApiKey,
+                    auth_mode.clone(),
+                );
                 let tenant_id = claims.tenant_id.clone();
+                req.extensions_mut().insert(auth_mode.clone());
+                req.extensions_mut().insert(principal);
                 req.extensions_mut().insert(claims);
                 req.extensions_mut().insert(api_key_token);
                 let identity = IdentityEnvelope::new(
@@ -820,9 +922,13 @@ pub async fn dual_auth_middleware(
                 req.extensions_mut().insert(identity);
                 return Ok(next.run(req).await);
             }
-            AuthToken::Jwt(token) => {
+            AuthToken::Jwt(token, source) => {
+                let auth_mode = match source {
+                    JwtSource::Cookie => AuthMode::Cookie,
+                    _ => AuthMode::BearerToken,
+                };
                 match validate_access_token_with_session(&state, token).await {
-                    Ok(claims) => {
+                    Ok(mut claims) => {
                         #[cfg(debug_assertions)]
                         tracing::debug!(
                             user_id = %claims.sub,
@@ -835,14 +941,7 @@ pub async fn dual_auth_middleware(
                         match is_token_revoked(&state.db, &claims.jti).await {
                             Ok(true) => {
                                 tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used (dual auth)");
-                                return Err((
-                                    StatusCode::UNAUTHORIZED,
-                                    Json(
-                                        ErrorResponse::new("token revoked")
-                                            .with_code("TOKEN_REVOKED")
-                                            .with_string_details("this token has been revoked"),
-                                    ),
-                                ));
+                                return Err(token_revoked("this token has been revoked"));
                             }
                             Ok(false) => { /* Token not revoked, continue */ }
                             Err(e) => {
@@ -857,7 +956,14 @@ pub async fn dual_auth_middleware(
                             }
                         }
 
+                        let principal = build_principal_from_claims(
+                            &mut claims,
+                            PrincipalType::User,
+                            auth_mode.clone(),
+                        );
                         let tenant_id = claims.tenant_id.clone();
+                        req.extensions_mut().insert(auth_mode.clone());
+                        req.extensions_mut().insert(principal);
                         req.extensions_mut().insert(claims);
                         let identity = IdentityEnvelope::new(
                             tenant_id,
@@ -877,14 +983,7 @@ pub async fn dual_auth_middleware(
     }
 
     tracing::warn!("Missing or invalid Authorization header");
-    Err((
-        StatusCode::UNAUTHORIZED,
-        Json(
-            ErrorResponse::new("unauthorized")
-                .with_code("UNAUTHORIZED")
-                .with_string_details("missing or invalid Authorization header"),
-        ),
-    ))
+    Err(unauthenticated("missing or invalid Authorization header"))
 }
 
 /// Optional authentication middleware - validates token if present, allows request if not
@@ -902,9 +1001,14 @@ pub async fn optional_auth_middleware(
     next: Next,
 ) -> Response {
     if dev_no_auth_enabled() {
-        let claims = dev_no_auth_claims();
+        let mut claims = dev_no_auth_claims();
+        let auth_mode = AuthMode::DevBypass;
+        let principal =
+            build_principal_from_claims(&mut claims, PrincipalType::DevBypass, auth_mode.clone());
         let tenant_id = claims.tenant_id.clone();
         tracing::debug!("Dev no-auth bypass enabled; injecting dev claims");
+        req.extensions_mut().insert(auth_mode);
+        req.extensions_mut().insert(principal.clone());
         req.extensions_mut().insert(claims);
         let identity = IdentityEnvelope::new(
             tenant_id,
@@ -916,10 +1020,26 @@ pub async fn optional_auth_middleware(
         return next.run(req).await;
     }
 
+    let is_prod = state
+        .runtime_mode
+        .as_ref()
+        .map(|m| m.is_prod())
+        .unwrap_or(false);
+    if is_prod && !state.use_ed25519 {
+        tracing::error!("HMAC/HS256 auth disabled in production; set security.jwt_mode=eddsa");
+        let (status, body) = error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            "EdDSA is required in production",
+        );
+        return (status, body).into_response();
+    }
+
     // Extract client IP address from headers for audit logging
     if let Some(ip) = extract_client_ip(req.headers()) {
         req.extensions_mut().insert(ClientIp(ip));
     }
+    req.extensions_mut().insert(AuthMode::Unauthenticated);
 
     let auth_header = req
         .headers()
@@ -937,21 +1057,28 @@ pub async fn optional_auth_middleware(
 
     enum AuthToken<'a> {
         ApiKey(&'a str),
-        Jwt(&'a str),
+        Jwt(&'a str, JwtSource),
+    }
+
+    #[derive(Clone, Copy)]
+    enum JwtSource {
+        Bearer,
+        Query,
+        Cookie,
     }
 
     let token = if let Some(header) = auth_header {
         if let Some(api_key) = header.strip_prefix("ApiKey ") {
             Some(AuthToken::ApiKey(api_key))
         } else if let Some(bearer) = header.strip_prefix("Bearer ") {
-            Some(AuthToken::Jwt(bearer))
+            Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
         } else {
             None
         }
     } else if let Some(q) = query_token.as_deref() {
-        Some(AuthToken::Jwt(q))
+        Some(AuthToken::Jwt(q, JwtSource::Query))
     } else if let Some(c) = cookie_token.as_deref() {
-        Some(AuthToken::Jwt(c))
+        Some(AuthToken::Jwt(c, JwtSource::Cookie))
     } else {
         None
     };
@@ -959,8 +1086,16 @@ pub async fn optional_auth_middleware(
     if let Some(token) = token {
         match token {
             AuthToken::ApiKey(api_token) => match validate_api_key(&state, api_token).await {
-                Ok((claims, api_key_token)) => {
+                Ok((mut claims, api_key_token)) => {
+                    let auth_mode = AuthMode::ApiKey;
+                    let principal = build_principal_from_claims(
+                        &mut claims,
+                        PrincipalType::ApiKey,
+                        auth_mode.clone(),
+                    );
                     let tenant_id = claims.tenant_id.clone();
+                    req.extensions_mut().insert(auth_mode.clone());
+                    req.extensions_mut().insert(principal);
                     req.extensions_mut().insert(claims);
                     req.extensions_mut().insert(api_key_token);
                     let identity = IdentityEnvelope::new(
@@ -975,9 +1110,13 @@ pub async fn optional_auth_middleware(
                     tracing::debug!(error = ?e, "API key validation failed, proceeding unauthenticated");
                 }
             },
-            AuthToken::Jwt(token) => {
+            AuthToken::Jwt(token, source) => {
+                let auth_mode = match source {
+                    JwtSource::Cookie => AuthMode::Cookie,
+                    _ => AuthMode::BearerToken,
+                };
                 match validate_access_token_with_session(&state, token).await {
-                    Ok(claims) => {
+                    Ok(mut claims) => {
                         let should_skip_auth = match is_token_revoked(&state.db, &claims.jti).await
                         {
                             Ok(true) => {
@@ -1003,7 +1142,14 @@ pub async fn optional_auth_middleware(
                                 "JWT validated successfully (optional auth)"
                             );
 
+                            let principal = build_principal_from_claims(
+                                &mut claims,
+                                PrincipalType::User,
+                                auth_mode.clone(),
+                            );
                             let tenant_id = claims.tenant_id.clone();
+                            req.extensions_mut().insert(auth_mode.clone());
+                            req.extensions_mut().insert(principal);
                             req.extensions_mut().insert(claims);
                             let identity = IdentityEnvelope::new(
                                 tenant_id,
@@ -1050,14 +1196,7 @@ pub fn require_role(
         return Ok(());
     }
 
-    Err((
-        StatusCode::FORBIDDEN,
-        Json(
-            ErrorResponse::new("insufficient permissions")
-                .with_code("FORBIDDEN")
-                .with_string_details(format!("required role: {:?}", required)),
-        ),
-    ))
+    Err(forbidden(format!("required role: {:?}", required)))
 }
 
 /// Check if user has any of the specified roles
@@ -1076,10 +1215,7 @@ pub fn require_any_role(
         return Ok(());
     }
 
-    Err((
-        StatusCode::FORBIDDEN,
-        Json(ErrorResponse::new("insufficient permissions").with_code("INTERNAL_ERROR")),
-    ))
+    Err(forbidden("insufficient permissions"))
 }
 
 #[cfg(test)]

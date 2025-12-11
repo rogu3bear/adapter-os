@@ -21,7 +21,7 @@
 //! 2. doc_id ASC (alphabetical tie-breaking)
 //!
 //! This ensures identical queries against identical DB state return documents
-//! in the same order every time. See docs/RAG_DETERMINISM.md for details.
+//! in the same order every time. See docs/DETERMINISM.md for details.
 
 use crate::state::AppState;
 use adapteros_core::B3Hash;

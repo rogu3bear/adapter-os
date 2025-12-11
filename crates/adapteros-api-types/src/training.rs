@@ -1,10 +1,48 @@
 //! Training types
 
-use adapteros_types::training::{LoraTier, TrainingConfig, TrainingJob, TrainingTemplate};
+use adapteros_types::{
+    coreml::CoreMLPlacementSpec,
+    training::{
+        BranchClassification, DataLineageMode,
+        DatasetVersionSelection as CoreDatasetVersionSelection, LoraTier, TrainingBackendKind,
+        TrainingBackendPolicy, TrainingConfig, TrainingJob, TrainingTemplate,
+    },
+};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::schema_version;
+
+fn default_dataset_weight() -> f32 {
+    1.0
+}
+
+/// Dataset version selector with optional sampling weight (API surface).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DatasetVersionSelection {
+    pub dataset_version_id: String,
+    #[serde(default = "default_dataset_weight")]
+    pub weight: f32,
+}
+
+/// Trust snapshot for a dataset version captured at training time.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DatasetVersionTrustSnapshot {
+    pub dataset_version_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_at_training_time: Option<String>,
+}
+
+impl From<CoreDatasetVersionSelection> for DatasetVersionSelection {
+    fn from(core: CoreDatasetVersionSelection) -> Self {
+        Self {
+            dataset_version_id: core.dataset_version_id,
+            weight: core.weight,
+        }
+    }
+}
 
 /// Dataset validation status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
@@ -46,7 +84,23 @@ pub struct TrainingConfigRequest {
     pub gradient_accumulation_steps: Option<u32>,
     /// Optional GPU backend preference (coreml, mlx, metal, cpu)
     #[serde(default)]
-    pub preferred_backend: Option<String>,
+    #[schema(value_type = String)]
+    pub preferred_backend: Option<TrainingBackendKind>,
+    /// Backend policy when CoreML is preferred (coreml_only/coreml_else_fallback/auto)
+    #[serde(default)]
+    #[schema(value_type = String)]
+    pub backend_policy: Option<TrainingBackendPolicy>,
+    /// Explicit fallback when CoreML is requested and unavailable
+    #[serde(default)]
+    #[schema(value_type = String)]
+    pub coreml_training_fallback: Option<TrainingBackendKind>,
+    /// Optional CoreML placement spec for training/export alignment
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = serde_json::Value)]
+    pub coreml_placement: Option<CoreMLPlacementSpec>,
+    /// Opt-in CoreML export after successful training
+    #[serde(default)]
+    pub enable_coreml_export: Option<bool>,
     /// Require GPU acceleration (error if no GPU backend can be initialized)
     #[serde(default)]
     pub require_gpu: Option<bool>,
@@ -63,7 +117,30 @@ pub struct StartTrainingRequest {
     pub config: TrainingConfigRequest,
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
+    /// Target branch for the produced adapter version
+    pub target_branch: Option<String>,
+    /// Branch classification controlling promotion guardrails (protected/high/sandbox)
+    pub branch_classification: Option<BranchClassification>,
+    /// Base adapter version ID (for finetuning an existing version)
+    pub base_version_id: Option<String>,
+    /// Code commit SHA when training is tied to source control
+    pub code_commit_sha: Option<String>,
+    /// Data spec (DSL or JSON) used for this run
+    pub data_spec: Option<String>,
+    /// Canonical hash of the dataset manifest(s) used when the job was created
+    pub data_spec_hash: Option<String>,
+    /// Hyperparameters payload (structured JSON)
+    pub hyperparameters: Option<String>,
     pub dataset_id: Option<String>,
+    /// Dataset versions to train on (with optional sampling weights)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_version_ids: Option<Vec<DatasetVersionSelection>>,
+    /// Allow synthetic/diagnostic training data instead of datasets
+    #[serde(default)]
+    pub synthetic_mode: bool,
+    /// Caller-declared lineage quality (overrides computed default)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_lineage_mode: Option<DataLineageMode>,
     /// Base model ID for provenance tracking
     pub base_model_id: Option<String>,
     /// Document collection ID for provenance tracking
@@ -132,7 +209,25 @@ pub struct TrainingJobResponse {
     pub adapter_name: String,
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
+    pub repo_name: Option<String>,
+    pub target_branch: Option<String>,
+    pub base_version_id: Option<String>,
+    pub draft_version_id: Option<String>,
+    pub adapter_version_id: Option<String>,
+    pub produced_version_id: Option<String>,
+    pub code_commit_sha: Option<String>,
+    pub data_spec_hash: Option<String>,
     pub dataset_id: Option<String>,
+    /// Dataset versions used for this job (order preserved)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_ids: Option<Vec<DatasetVersionSelection>>,
+    /// Trust snapshot for dataset versions at training start
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_trust: Option<Vec<DatasetVersionTrustSnapshot>>,
+    #[serde(default)]
+    pub synthetic_mode: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_lineage_mode: Option<DataLineageMode>,
     /// Base model ID used for training
     pub base_model_id: Option<String>,
     /// Document collection ID used for training
@@ -181,11 +276,33 @@ pub struct TrainingJobResponse {
 
     // Backend and determinism
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_backend: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_training_fallback: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub backend: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_device: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_export_requested: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_export_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_export_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_fused_package_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_package_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_metadata_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_base_manifest_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_adapter_hash_b3: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub determinism_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -222,6 +339,12 @@ pub struct TrainingJobResponse {
     pub manifest_per_layer_hashes: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics_snapshot_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_spec: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hyperparameters: Option<String>,
 }
 
 impl From<TrainingJob> for TrainingJobResponse {
@@ -232,7 +355,35 @@ impl From<TrainingJob> for TrainingJobResponse {
             adapter_name: job.adapter_name,
             template_id: job.template_id,
             repo_id: job.repo_id,
+            repo_name: job.repo_name,
+            target_branch: job.target_branch,
+            base_version_id: job.base_version_id,
+            draft_version_id: job.draft_version_id,
+            adapter_version_id: job.adapter_version_id.clone(),
+            produced_version_id: job
+                .produced_version_id
+                .or_else(|| job.adapter_version_id.clone()),
+            code_commit_sha: job.code_commit_sha,
+            data_spec: job.data_spec_json,
+            data_spec_hash: job.data_spec_hash,
             dataset_id: job.dataset_id,
+            dataset_version_ids: job.dataset_version_ids.map(|versions| {
+                versions
+                    .into_iter()
+                    .map(DatasetVersionSelection::from)
+                    .collect()
+            }),
+            dataset_version_trust: job.dataset_version_trust.map(|entries| {
+                entries
+                    .into_iter()
+                    .map(|snapshot| DatasetVersionTrustSnapshot {
+                        dataset_version_id: snapshot.dataset_version_id,
+                        trust_at_training_time: snapshot.trust_at_training_time,
+                    })
+                    .collect()
+            }),
+            synthetic_mode: job.synthetic_mode,
+            data_lineage_mode: job.data_lineage_mode,
             base_model_id: job.base_model_id,
             collection_id: job.collection_id,
             build_id: job.build_id,
@@ -261,9 +412,20 @@ impl From<TrainingJob> for TrainingJobResponse {
             error_message: job.error_message,
             estimated_completion: None, // Calculate if needed
             // Backend/determinism
+            requested_backend: job.requested_backend,
+            backend_policy: job.backend_policy,
+            coreml_training_fallback: job.coreml_training_fallback,
             backend: job.backend,
             backend_reason: job.backend_reason,
             backend_device: job.backend_device,
+            coreml_export_requested: job.coreml_export_requested,
+            coreml_export_status: job.coreml_export_status,
+            coreml_export_reason: job.coreml_export_reason,
+            coreml_fused_package_hash: job.coreml_fused_package_hash,
+            coreml_package_path: job.coreml_package_path,
+            coreml_metadata_path: job.coreml_metadata_path,
+            coreml_base_manifest_hash: job.coreml_base_manifest_hash,
+            coreml_adapter_hash_b3: job.coreml_adapter_hash_b3,
             determinism_mode: job.determinism_mode,
             training_seed: job.training_seed,
             require_gpu: job.require_gpu,
@@ -282,7 +444,44 @@ impl From<TrainingJob> for TrainingJobResponse {
             manifest_base_model: job.manifest_base_model,
             manifest_per_layer_hashes: job.manifest_per_layer_hashes,
             signature_status: job.signature_status,
+            metrics_snapshot_id: None,
+            hyperparameters: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn training_job_response_includes_dataset_versions() {
+        let mut job = TrainingJob::new(
+            "job-1".to_string(),
+            "adapter".to_string(),
+            TrainingConfig::default(),
+        );
+        job.dataset_version_ids = Some(vec![adapteros_types::training::DatasetVersionSelection {
+            dataset_version_id: "ds-ver-1".to_string(),
+            weight: 1.0,
+        }]);
+        job.dataset_version_trust = Some(vec![
+            adapteros_types::training::DatasetVersionTrustSnapshot {
+                dataset_version_id: "ds-ver-1".to_string(),
+                trust_at_training_time: Some("allowed".to_string()),
+            },
+        ]);
+        job.data_lineage_mode = Some(adapteros_types::training::DataLineageMode::Versioned);
+
+        let resp: TrainingJobResponse = job.into();
+        let versions = resp.dataset_version_ids.expect("dataset_version_ids");
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].dataset_version_id, "ds-ver-1");
+        let trust = resp.dataset_version_trust.expect("dataset_version_trust");
+        assert_eq!(trust[0].dataset_version_id, "ds-ver-1");
+        assert_eq!(trust[0].trust_at_training_time.as_deref(), Some("allowed"));
+        assert!(!resp.synthetic_mode);
+        assert_eq!(resp.data_lineage_mode, Some(DataLineageMode::Versioned));
     }
 }
 
@@ -310,6 +509,7 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             rank: req.rank,
             alpha: req.alpha,
             targets: req.targets,
+            coreml_placement: req.coreml_placement,
             epochs: req.epochs,
             learning_rate: req.learning_rate,
             batch_size: req.batch_size,
@@ -325,6 +525,9 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             checkpoint_frequency: Some(5),
             max_checkpoints: Some(3),
             preferred_backend: req.preferred_backend,
+            backend_policy: req.backend_policy,
+            coreml_training_fallback: req.coreml_training_fallback,
+            enable_coreml_export: req.enable_coreml_export,
             require_gpu: req.require_gpu.unwrap_or(false),
             max_gpu_memory_mb: req.max_gpu_memory_mb,
         }
@@ -415,6 +618,9 @@ pub struct DatasetResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
     pub dataset_id: String,
+    /// Latest trusted dataset version (effective trust applied; may be None if no trusted versions)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
     pub name: String,
     pub description: Option<String>,
     pub file_count: i32,
@@ -425,9 +631,40 @@ pub struct DatasetResponse {
     pub validation_status: DatasetValidationStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validation_errors: Option<Vec<String>>,
+    /// Effective trust_state for the selected dataset_version_id (allowed/allowed_with_warning/blocked/needs_approval)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_state: Option<String>,
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// Summary of a dataset version (used for dataset detail views and selectors)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DatasetVersionSummary {
+    pub dataset_version_id: String,
+    pub version_number: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hash_b3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_path: Option<String>,
+    /// Effective trust_state for this version (includes overrides)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_state: Option<String>,
+    pub created_at: String,
+}
+
+/// Dataset versions list response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DatasetVersionsResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub dataset_id: String,
+    pub versions: Vec<DatasetVersionSummary>,
 }
 
 /// Dataset statistics response

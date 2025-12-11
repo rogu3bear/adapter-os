@@ -18,6 +18,8 @@ use axum::extract::{Extension, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
+use std::path::Path;
+use tokio::fs;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 
@@ -52,6 +54,22 @@ pub struct StorageStatsResponse {
     pub safe_to_cutover: bool,
     /// Evidence supporting the cutover decision
     pub cutover_evidence: Vec<String>,
+}
+
+const DEFAULT_TENANT_HARD_QUOTA_BYTES: u64 = 10 * 1024 * 1024 * 1024; // 10 GiB
+const DEFAULT_SOFT_PCT: f64 = 0.8;
+/// Tenant-scoped storage usage summary
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TenantStorageUsageResponse {
+    pub tenant_id: String,
+    pub dataset_bytes: u64,
+    pub artifact_bytes: u64,
+    pub dataset_versions: i64,
+    pub adapter_versions: i64,
+    pub soft_limit_bytes: u64,
+    pub hard_limit_bytes: u64,
+    pub soft_exceeded: bool,
+    pub hard_exceeded: bool,
 }
 
 /// Record counts for SQL tables
@@ -188,6 +206,63 @@ pub async fn get_storage_stats(
     }))
 }
 
+/// GET /v1/storage/tenant-usage - Tenant-scoped storage usage summary
+#[utoipa::path(
+    get,
+    path = "/v1/storage/tenant-usage",
+    responses(
+        (status = 200, description = "Tenant storage usage", body = TenantStorageUsageResponse)
+    ),
+    tag = "storage",
+    security(("bearer_token" = []))
+)]
+pub async fn get_tenant_storage_usage(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<TenantStorageUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = claims.tenant_id.clone();
+
+    let dataset_bytes = state
+        .db
+        .sum_dataset_sizes_for_tenant(&tenant_id)
+        .await
+        .unwrap_or(0) as u64;
+    let dataset_versions = state
+        .db
+        .count_dataset_versions_for_tenant(&tenant_id)
+        .await
+        .unwrap_or(0);
+    let adapter_versions = state
+        .db
+        .count_adapter_versions_for_tenant(&tenant_id)
+        .await
+        .unwrap_or(0);
+
+    let adapters_root = {
+        let cfg = state.config.read().expect("Config lock poisoned");
+        std::path::PathBuf::from(&cfg.paths.adapters_root.clone())
+    };
+    let artifact_bytes = artifact_usage(&adapters_root, &tenant_id).await;
+
+    let total_bytes = dataset_bytes + artifact_bytes;
+    let (dataset_soft, dataset_hard) = dataset_quota_limits();
+    let (artifact_soft, artifact_hard) = artifact_quota_limits();
+    let soft_limit_bytes = dataset_soft + artifact_soft;
+    let hard_limit_bytes = dataset_hard + artifact_hard;
+
+    Ok(Json(TenantStorageUsageResponse {
+        tenant_id,
+        dataset_bytes,
+        artifact_bytes,
+        dataset_versions,
+        adapter_versions,
+        soft_limit_bytes,
+        hard_limit_bytes,
+        soft_exceeded: total_bytes > soft_limit_bytes,
+        hard_exceeded: total_bytes > hard_limit_bytes,
+    }))
+}
+
 fn compute_cutover_evidence(snapshot: &KvMetricsSnapshot) -> (bool, Vec<String>) {
     let safe_lag = snapshot.dual_write_lag_p95_ms <= 10_000.0;
     let safe_drift = snapshot.drift_detections_total == 0;
@@ -207,6 +282,53 @@ fn compute_cutover_evidence(snapshot: &KvMetricsSnapshot) -> (bool, Vec<String>)
         "kv_only_dry_run=not_tracked".to_string(),
     ];
     (safe_lag && safe_drift && safe_fallback, evidence)
+}
+
+fn dataset_quota_limits() -> (u64, u64) {
+    let hard = std::env::var("AOS_DATASET_HARD_QUOTA_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_TENANT_HARD_QUOTA_BYTES);
+    let soft = std::env::var("AOS_DATASET_SOFT_QUOTA_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or_else(|| (hard as f64 * DEFAULT_SOFT_PCT) as u64);
+    (soft, hard)
+}
+
+fn artifact_quota_limits() -> (u64, u64) {
+    let hard = std::env::var("AOS_ARTIFACT_HARD_QUOTA_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_TENANT_HARD_QUOTA_BYTES);
+    let soft = std::env::var("AOS_ARTIFACT_SOFT_QUOTA_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or_else(|| (hard as f64 * DEFAULT_SOFT_PCT) as u64);
+    (soft, hard)
+}
+
+async fn artifact_usage(adapters_root: &std::path::Path, tenant_id: &str) -> u64 {
+    let root = adapters_root.join(tenant_id);
+    let mut total: u64 = 0;
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        let mut entries = match tokio::fs::read_dir(&dir).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if let Ok(meta) = entry.metadata().await {
+                if meta.is_dir() {
+                    stack.push(path);
+                } else {
+                    total = total.saturating_add(meta.len());
+                }
+            }
+        }
+    }
+    total
 }
 
 /// Collect record counts from SQL backend

@@ -35,6 +35,24 @@ pub struct TrainingCapacityInfo {
     pub can_start_new_job: bool,
 }
 
+fn trust_state_block_rule(state: &str) -> Option<(&'static str, &'static str)> {
+    match state {
+        "allowed" | "allowed_with_warning" => None,
+        "blocked" => Some((
+            "DATASET_TRUST_BLOCKED",
+            "Dataset trust_state is blocked; override or adjust the dataset to proceed.",
+        )),
+        "needs_approval" | "unknown" => Some((
+            "DATASET_TRUST_NEEDS_APPROVAL",
+            "Dataset trust_state requires approval or validation before training.",
+        )),
+        _ => Some((
+            "DATASET_TRUST_NEEDS_APPROVAL",
+            "Dataset trust_state requires approval or validation before training.",
+        )),
+    }
+}
+
 /// Training service trait for job management
 ///
 /// This trait defines API-level operations for training jobs,
@@ -147,7 +165,44 @@ impl TrainingService for DefaultTrainingService {
                         }
                     }
 
-                    // Check validation status if evidence policy is enforced
+                    // Ensure a dataset version exists and evaluate trust state
+                    let version_id = self
+                        .state
+                        .db
+                        .ensure_dataset_version_exists(ds_id)
+                        .await
+                        .map_err(|e| {
+                            AosError::Database(format!(
+                                "Failed to ensure dataset version for {}: {}",
+                                ds_id, e
+                            ))
+                        })?;
+
+                    let effective_trust = self
+                        .state
+                        .db
+                        .get_effective_trust_state(&version_id)
+                        .await
+                        .map_err(|e| {
+                            AosError::Database(format!(
+                                "Failed to load trust state for dataset version {}: {}",
+                                version_id, e
+                            ))
+                        })?
+                        .unwrap_or_else(|| "needs_approval".to_string());
+
+                    if let Some((code, guidance)) = trust_state_block_rule(&effective_trust) {
+                        return Ok(TrainingValidationResult {
+                            is_valid: false,
+                            error_message: Some(format!(
+                                "{} (dataset_version_id: {}, trust_state: {})",
+                                guidance, version_id, effective_trust
+                            )),
+                            error_code: Some(code.to_string()),
+                        });
+                    }
+
+                    // If evidence policy is enforced, require structural valid
                     if check_evidence_policy && ds.validation_status != "valid" {
                         return Ok(TrainingValidationResult {
                             is_valid: false,
@@ -325,5 +380,32 @@ mod tests {
         assert_eq!(info.running_jobs, 3);
         assert_eq!(info.available_slots, 2);
         assert!(info.can_start_new_job);
+    }
+
+    #[test]
+    fn trust_block_code_matches_states() {
+        assert_eq!(
+            trust_state_block_rule("blocked"),
+            Some((
+                "DATASET_TRUST_BLOCKED",
+                "Dataset trust_state is blocked; override or adjust the dataset to proceed."
+            ))
+        );
+        assert_eq!(
+            trust_state_block_rule("needs_approval"),
+            Some((
+                "DATASET_TRUST_NEEDS_APPROVAL",
+                "Dataset trust_state requires approval or validation before training."
+            ))
+        );
+        assert_eq!(trust_state_block_rule("allowed"), None);
+        assert_eq!(trust_state_block_rule("allowed_with_warning"), None);
+        assert_eq!(
+            trust_state_block_rule("unknown"),
+            Some((
+                "DATASET_TRUST_NEEDS_APPROVAL",
+                "Dataset trust_state requires approval or validation before training."
+            ))
+        );
     }
 }
