@@ -85,9 +85,22 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
   const [showDetails, setShowDetails] = useState(false);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [devBypassError, setDevBypassError] = useState<string | null>(null);
+  const isConfigLoading = configStatus === 'loading';
+  const configLoadFailed = configStatus === 'error';
+  const isMountedRef = useRef(true);
+  const healthAbortRef = useRef<AbortController | null>(null);
+  const authConfigAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    isMountedRef.current = false;
+    healthAbortRef.current?.abort();
+    authConfigAbortRef.current?.abort();
+  }, []);
 
   const fetchHealth = useCallback(async () => {
+    healthAbortRef.current?.abort();
     const controller = new AbortController();
+    healthAbortRef.current = controller;
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
     try {
@@ -97,13 +110,22 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
         false, // skipRetry
         controller.signal
       );
-      clearTimeout(timeoutId);
+      if (controller.signal.aborted || !isMountedRef.current) {
+        return;
+      }
       setHealth(healthRes);
       setHealthError(null);
 
       try {
-        const systemRes = await apiClient.getHealthzAll();
-        setSystemHealth(systemRes);
+        const systemRes = await apiClient.request<SystemHealthResponse>(
+          '/healthz/all',
+          { method: 'GET' },
+          false,
+          controller.signal
+        );
+        if (!controller.signal.aborted && isMountedRef.current) {
+          setSystemHealth(systemRes);
+        }
       } catch {
         // System details may not be available yet; keep previous value if any.
       }
@@ -111,12 +133,19 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
       const status = healthRes.status === 'healthy' ? 'ready' : 'issue';
       setBackendStatus(status);
     } catch (err) {
-      clearTimeout(timeoutId);
+      if (controller.signal.aborted || !isMountedRef.current) {
+        return;
+      }
       setBackendStatus('issue');
       if (err instanceof Error && err.name === 'AbortError') {
         setHealthError('Health check timed out.');
       } else {
         setHealthError('Unable to reach system health.');
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      if (healthAbortRef.current === controller) {
+        healthAbortRef.current = null;
       }
     }
   }, []);
@@ -124,12 +153,18 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
   const loadAuthConfig = useCallback(async () => {
     setConfigStatus('loading');
     setConfigError(null);
+    authConfigAbortRef.current?.abort();
+    const controller = new AbortController();
+    authConfigAbortRef.current = controller;
     try {
-      const config = await apiClient.getAuthConfig();
+      const config = await apiClient.getAuthConfig(controller.signal);
+      if (controller.signal.aborted || !isMountedRef.current) {
+        return;
+      }
       const allowsDevBypass = (config.dev_bypass_allowed ?? false) && devBypassFlagEnabled;
       setDevBypassAllowed(allowsDevBypass);
       setShowTotpField(config.mfa_required ?? false);
-      logger.info('Auth config TTLs', {
+      logger.debug('Auth config TTLs', {
         component: 'LoginForm',
         access_token_ttl_minutes: config.access_token_ttl_minutes,
         session_timeout_minutes: config.session_timeout_minutes,
@@ -137,14 +172,21 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
       onConfigLoaded?.(config);
       setConfigStatus('ready');
     } catch (err) {
+      if (controller.signal.aborted || !isMountedRef.current) {
+        return;
+      }
       setConfigStatus('error');
       setConfigError('Unable to load sign-in settings. You can still try to sign in.');
       logger.warn('Auth config load failed', {
         component: 'LoginForm',
         operation: 'authConfig',
       });
+    } finally {
+      if (authConfigAbortRef.current === controller) {
+        authConfigAbortRef.current = null;
+      }
     }
-  }, [onConfigLoaded]);
+  }, [devBypassFlagEnabled, onConfigLoaded]);
 
   // Initial fetch on mount, then poll with adaptive timing
   const hasFetchedRef = useRef(false);
@@ -154,7 +196,10 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
       fetchHealth();
     }
     const interval = setInterval(fetchHealth, backendStatus === 'ready' ? 10000 : 2500);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      healthAbortRef.current?.abort();
+    };
   }, [fetchHealth, backendStatus]);
 
   useEffect(() => {
@@ -402,13 +447,11 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
 
             {isReady ? (
               <>
-                {(configStatus === 'loading' || configStatus === 'error') && (
+                {isConfigLoading && (
                   <section className="rounded-lg border bg-card p-5 space-y-3" aria-live="polite">
                     <h2 className="text-xl font-semibold">Preparing sign-in</h2>
                     <p className="text-sm text-muted-foreground">
-                      {configStatus === 'loading'
-                        ? 'Loading sign-in settings...'
-                        : configError || 'Unable to load sign-in settings. You can still continue.'}
+                      Loading sign-in settings...
                     </p>
                     <div className="flex gap-3">
                       <Button
@@ -416,9 +459,9 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
                         variant="outline"
                         size="sm"
                         onClick={loadAuthConfig}
-                        disabled={configStatus === 'loading'}
+                        disabled={isConfigLoading}
                       >
-                        {configStatus === 'loading' ? (
+                        {isConfigLoading ? (
                           <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                             Loading
@@ -431,146 +474,167 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
                   </section>
                 )}
 
-                <section className="rounded-lg border bg-card p-8 space-y-6">
-                  <h2 className="text-xl font-semibold">Sign in</h2>
-                  <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" aria-label="Login form">
-                    {lockoutMessage && (
-                      <Alert variant="destructive">
-                        <AlertDescription>{lockoutMessage}</AlertDescription>
-                      </Alert>
-                    )}
-
-                    {error && (
-                      <Alert variant="destructive">
-                        <AlertDescription>{error}</AlertDescription>
-                      </Alert>
-                    )}
-
-                    <div className="grid gap-5 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input
-                          id="email"
-                          type="email"
-                          placeholder="you@example.com"
-                          autoComplete="email"
-                          aria-describedby={errors.email ? 'email-error' : undefined}
-                          aria-invalid={errors.email ? 'true' : 'false'}
-                          {...register('email')}
-                          disabled={isLoading || isDevBypassLoading}
-                        />
-                        {errors.email && (
-                          <p id="email-error" className="text-sm text-destructive" role="alert">
-                            {errors.email.message}
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="password">Password</Label>
-                        <Input
-                          id="password"
-                          type="password"
-                          placeholder="Enter your password"
-                          autoComplete="current-password"
-                          aria-describedby={errors.password ? 'password-error' : undefined}
-                          aria-invalid={errors.password ? 'true' : 'false'}
-                          {...register('password')}
-                          disabled={isLoading || isDevBypassLoading}
-                        />
-                        {errors.password && (
-                          <p id="password-error" className="text-sm text-destructive" role="alert">
-                            {errors.password.message}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {showTotpField ? (
-                      <div className="space-y-2 max-w-sm">
-                        <Label htmlFor="totp">TOTP code</Label>
-                        <Input
-                          id="totp"
-                          type="text"
-                          inputMode="numeric"
-                          placeholder="6-digit code"
-                          autoComplete="one-time-code"
-                          aria-describedby={errors.totp ? 'totp-error' : undefined}
-                          aria-invalid={errors.totp ? 'true' : 'false'}
-                          {...register('totp')}
-                          disabled={isLoading || isDevBypassLoading}
-                        />
-                        {errors.totp && (
-                          <p id="totp-error" className="text-sm text-destructive" role="alert">
-                            {errors.totp.message}
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShowTotpField(true)}
-                        className="px-0 w-fit"
-                      >
-                        Add TOTP code (if prompted)
-                      </Button>
-                    )}
-
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <Button
-                        type="submit"
-                        className="w-full sm:w-auto"
-                        disabled={
-                          isLoading ||
-                          isDevBypassLoading ||
-                          !!lockoutMessage ||
-                          !watchedFields.email?.trim() ||
-                          !watchedFields.password?.trim()
-                        }
-                      >
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Signing in...
-                          </>
-                        ) : (
-                          'Sign in'
-                        )}
-                      </Button>
-                    </div>
-                  </form>
-                </section>
-
-                {devBypassAllowed && (
-                  <section className="rounded-lg border bg-card p-5 space-y-3">
-                    <h2 className="text-base font-semibold">Development</h2>
-                    <p className="text-sm text-muted-foreground">
-                      Available in local or staging environments.
-                    </p>
-                    {devBypassError && (
-                      <Alert variant="destructive">
-                        <AlertDescription>{devBypassError}</AlertDescription>
-                      </Alert>
-                    )}
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={handleDevBypass}
-                      disabled={isDevBypassLoading || isLoading}
-                      className="w-full sm:w-auto"
-                    >
-                      {isDevBypassLoading ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Activating dev bypass...
-                        </>
-                      ) : (
-                        'Use dev bypass'
+                {!isConfigLoading && (
+                  <>
+                    <section className="rounded-lg border bg-card p-8 space-y-6">
+                      <h2 className="text-xl font-semibold">Sign in</h2>
+                      {configLoadFailed && (
+                        <Alert>
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <AlertDescription>
+                              {configError || 'Unable to load sign-in settings. You can still try to sign in.'}
+                            </AlertDescription>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={loadAuthConfig}
+                            >
+                              Retry
+                            </Button>
+                          </div>
+                        </Alert>
                       )}
-                    </Button>
-                  </section>
+                      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" aria-label="Login form">
+                        {lockoutMessage && (
+                          <Alert variant="destructive">
+                            <AlertDescription>{lockoutMessage}</AlertDescription>
+                          </Alert>
+                        )}
+
+                        {error && (
+                          <Alert variant="destructive">
+                            <AlertDescription>{error}</AlertDescription>
+                          </Alert>
+                        )}
+
+                        <div className="grid gap-5 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor="email">Email</Label>
+                            <Input
+                              id="email"
+                              type="email"
+                              placeholder="you@example.com"
+                              autoComplete="email"
+                              aria-describedby={errors.email ? 'email-error' : undefined}
+                              aria-invalid={errors.email ? 'true' : 'false'}
+                              {...register('email')}
+                              disabled={isLoading || isDevBypassLoading}
+                            />
+                            {errors.email && (
+                              <p id="email-error" className="text-sm text-destructive" role="alert">
+                                {errors.email.message}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="password">Password</Label>
+                            <Input
+                              id="password"
+                              type="password"
+                              placeholder="Enter your password"
+                              autoComplete="current-password"
+                              aria-describedby={errors.password ? 'password-error' : undefined}
+                              aria-invalid={errors.password ? 'true' : 'false'}
+                              {...register('password')}
+                              disabled={isLoading || isDevBypassLoading}
+                            />
+                            {errors.password && (
+                              <p id="password-error" className="text-sm text-destructive" role="alert">
+                                {errors.password.message}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {showTotpField ? (
+                          <div className="space-y-2 max-w-sm">
+                            <Label htmlFor="totp">TOTP code</Label>
+                            <Input
+                              id="totp"
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="6-digit code"
+                              autoComplete="one-time-code"
+                              aria-describedby={errors.totp ? 'totp-error' : undefined}
+                              aria-invalid={errors.totp ? 'true' : 'false'}
+                              {...register('totp')}
+                              disabled={isLoading || isDevBypassLoading}
+                            />
+                            {errors.totp && (
+                              <p id="totp-error" className="text-sm text-destructive" role="alert">
+                                {errors.totp.message}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowTotpField(true)}
+                            className="px-0 w-fit"
+                          >
+                            Add TOTP code (if prompted)
+                          </Button>
+                        )}
+
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <Button
+                            type="submit"
+                            className="w-full sm:w-auto"
+                            disabled={
+                              isLoading ||
+                              isDevBypassLoading ||
+                              !!lockoutMessage ||
+                              !watchedFields.email?.trim() ||
+                              !watchedFields.password?.trim()
+                            }
+                          >
+                            {isLoading ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Signing in...
+                              </>
+                            ) : (
+                              'Sign in'
+                            )}
+                          </Button>
+                        </div>
+                      </form>
+                    </section>
+
+                    {devBypassAllowed && (
+                      <section className="rounded-lg border bg-card p-5 space-y-3">
+                        <h2 className="text-base font-semibold">Development</h2>
+                        <p className="text-sm text-muted-foreground">
+                          Available in local or staging environments.
+                        </p>
+                        {devBypassError && (
+                          <Alert variant="destructive">
+                            <AlertDescription>{devBypassError}</AlertDescription>
+                          </Alert>
+                        )}
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={handleDevBypass}
+                          disabled={isDevBypassLoading || isLoading}
+                          className="w-full sm:w-auto"
+                        >
+                          {isDevBypassLoading ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Activating dev bypass...
+                            </>
+                          ) : (
+                            'Use dev bypass'
+                          )}
+                        </Button>
+                      </section>
+                    )}
+                  </>
                 )}
               </>
             ) : (

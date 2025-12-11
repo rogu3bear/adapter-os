@@ -26,6 +26,7 @@ import { FILE_VALIDATION } from './TrainingWizard/constants';
 import { TrainingWizardProvider, SimpleDatasetMode, ConversionStatus } from './TrainingWizard/context';
 import { useDocuments } from '@/hooks/useDocumentsApi';
 import { useCollections } from '@/hooks/useCollectionsApi';
+import { useTrainingDataOrchestrator } from '@/hooks/useTrainingDataOrchestrator';
 import { CategoryStep } from './TrainingWizard/steps/CategoryStep';
 import { BasicInfoStep } from './TrainingWizard/steps/BasicInfoStep';
 import { SimpleDatasetStep } from './TrainingWizard/steps/SimpleDatasetStep';
@@ -99,6 +100,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [conversionStatus, setConversionStatus] = useState<ConversionStatus>('idle');
   const [conversionError, setConversionError] = useState<string | null>(null);
+  const { orchestrate: orchestrateTrainingData } = useTrainingDataOrchestrator();
 
   const initialState: WizardState = {
     currentStep: 0,
@@ -342,16 +344,29 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         sourceName = col?.name || 'Untitled Collection';
       }
 
-      const response = await apiClient.createDatasetFromDocuments({
-        documentId: selectedDocumentId || undefined,
-        collectionId: selectedCollectionId || undefined,
-        name: selectedDocumentId
-          ? `Training from doc: ${sourceName}`
-          : `Training from collection: ${sourceName}`,
-      });
+      const orchestrationResult = await orchestrateTrainingData(
+        selectedDocumentId
+          ? {
+              kind: 'document' as const,
+              documentId: selectedDocumentId,
+              name: `Training from doc: ${sourceName}`,
+              description: `Training dataset derived from document ${sourceName}`,
+            }
+          : {
+              kind: 'collection' as const,
+              collectionId: selectedCollectionId as string,
+              name: `Training from collection: ${sourceName}`,
+              description: `Training dataset derived from collection ${sourceName}`,
+            }
+      );
 
-      // Use dataset_id directly from flat response (not wrapped in .dataset)
-      const newDatasetId = response.dataset_id;
+      const newDatasetId = orchestrationResult.datasetId;
+      const datasetName =
+        orchestrationResult.datasetName ||
+        (selectedDocumentId
+          ? `Training from doc: ${sourceName}`
+          : `Training from collection: ${sourceName}`);
+      const validationStatus = orchestrationResult.validationStatus || 'valid';
 
       // Update state with new dataset
       updateState({
@@ -364,10 +379,10 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
       setDatasets(prev => [
         {
           id: newDatasetId,
-          name: response.name,
-          validation_status: response.validation_status || 'valid',
-          file_count: response.file_count || 1,
-          total_size_bytes: response.total_size_bytes || 0,
+          name: datasetName,
+          validation_status: validationStatus,
+          file_count: 1,
+          total_size_bytes: 0,
         },
         ...prev.filter(d => d.id !== newDatasetId),
       ]);

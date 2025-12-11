@@ -68,8 +68,8 @@ export function InferenceOutput({
   const isActivelyStreaming = isStreaming && response.finish_reason === null;
 
   return (
-    <div className="space-y-4">
-      <Card>
+    <div className="space-y-4" data-cy="inference-output">
+      <Card data-cy="inference-result">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
@@ -83,11 +83,11 @@ export function InferenceOutput({
               )}
             </CardTitle>
             <div className="flex gap-2">
-              <Badge variant="outline" className="gap-1">
+              <Badge variant="outline" className="gap-1" data-cy="latency">
                 <Clock className="h-3 w-3" />
                 {response.latency_ms || ('trace' in response && response.trace && typeof response.trace === 'object' && response.trace !== null && 'latency_ms' in response.trace ? (response.trace as { latency_ms: number }).latency_ms : 0)}ms
               </Badge>
-              <Badge variant="outline" className="gap-1">
+              <Badge variant="outline" className="gap-1" data-cy="token-usage">
                 <FileText className="h-3 w-3" />
                 {response.token_count || 0} tokens
               </Badge>

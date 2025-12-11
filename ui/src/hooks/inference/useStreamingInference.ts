@@ -98,7 +98,7 @@ export interface UseStreamingInferenceReturn {
   /** Current tokens per second */
   tokensPerSecond: number;
   /** Start a new streaming inference operation */
-  startStreaming: (prompt: string) => Promise<void>;
+  startStreaming: (prompt: string, overrides?: Partial<InferenceConfig>) => Promise<void>;
   /** Cancel the current streaming operation */
   cancelStreaming: () => void;
   /** Reset streaming state to initial values */
@@ -164,7 +164,7 @@ export function useStreamingInference(
   /**
    * Start a new streaming inference operation
    */
-  const startStreaming = useCallback(async (prompt: string) => {
+  const startStreaming = useCallback(async (prompt: string, overrides?: Partial<InferenceConfig>) => {
     // Reset state
     setStreamingState({
       isStreaming: true,
@@ -178,6 +178,8 @@ export function useStreamingInference(
     abortControllerRef.current = new AbortController();
     const startTime = Date.now();
     let tokenCount = 0;
+    const effectiveBackend = overrides?.backend ?? config.backend ?? 'auto';
+    const effectiveModel = overrides?.model ?? config.model;
 
     logger.info('Starting streaming inference', {
       component: 'useStreamingInference',
@@ -185,22 +187,28 @@ export function useStreamingInference(
       promptLength: prompt.length,
       adapterId,
       stackId,
+      backend: effectiveBackend,
+      model: effectiveModel,
     });
 
     try {
       await apiClient.streamInfer(
         {
           prompt,
-          backend: config.backend || 'auto',
-          max_tokens: config.max_tokens,
-          temperature: config.temperature,
-          top_k: config.top_k,
-          top_p: config.top_p,
-          seed: config.seed,
-          routing_determinism_mode: config.routing_determinism_mode,
-          adapter_stack: stackId
-            ? [stackId]
-            : (adapterId && adapterId !== 'none' ? [adapterId] : undefined),
+          backend: effectiveBackend,
+          model: effectiveModel,
+          max_tokens: overrides?.max_tokens ?? config.max_tokens,
+          temperature: overrides?.temperature ?? config.temperature,
+          top_k: overrides?.top_k ?? config.top_k,
+          top_p: overrides?.top_p ?? config.top_p,
+          seed: overrides?.seed ?? config.seed,
+          routing_determinism_mode: overrides?.routing_determinism_mode ?? config.routing_determinism_mode,
+          adapter_stack: overrides?.adapter_stack
+            ? overrides.adapter_stack as string[]
+            : stackId
+              ? [stackId]
+              : (adapterId && adapterId !== 'none' ? [adapterId] : undefined),
+          adapters: overrides?.adapters ?? undefined,
         },
         {
           onToken: (token: string, chunk: StreamingChunk) => {

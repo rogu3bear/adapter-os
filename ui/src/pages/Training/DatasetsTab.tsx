@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -45,14 +45,14 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  FileCode,
   Trash2,
   Eye,
   AlertCircle,
   Play,
 } from 'lucide-react';
-import type { Dataset, DatasetSourceType, DatasetValidationStatus } from '@/api/training-types';
-import { formatTimestamp, formatNumber } from '@/utils/format';
+import type { Dataset, DatasetSourceType, DatasetValidationStatus, TrustState } from '@/api/training-types';
+import { formatTimestamp, formatNumber, formatBytes } from '@/utils/format';
+import { TrustBadge as TrustPill } from '@/components/shared/TrustHealthBadge';
 
 const STATUS_CONFIG: Record<DatasetValidationStatus, {
   icon: React.ElementType;
@@ -162,23 +162,33 @@ const DatasetTableRow = ({
       </div>
     </TableCell>
     <TableCell>
-      <Badge variant="outline">{formatSourceType(dataset.source_type)}</Badge>
+      <Badge variant="outline">
+        {dataset.dataset_type ? dataset.dataset_type : formatSourceType(dataset.source_type)}
+      </Badge>
     </TableCell>
-    <TableCell className="text-muted-foreground">{dataset.language || '-'}</TableCell>
-    <TableCell className="text-muted-foreground">{formatNumber(dataset.file_count || 0)}</TableCell>
-    <TableCell className="text-muted-foreground">{formatNumber(dataset.total_tokens || 0)}</TableCell>
+    <TableCell className="text-muted-foreground font-mono text-xs">
+      {dataset.dataset_version_id || '—'}
+    </TableCell>
+    <TableCell>
+      <TrustPill state={dataset.trust_state} reason={dataset.trust_reason} size="sm" />
+    </TableCell>
     <TableCell>
       <StatusBadge status={dataset.validation_status} />
     </TableCell>
+    <TableCell className="text-muted-foreground">
+      {formatBytes(dataset.total_size_bytes || 0)}
+    </TableCell>
     <TableCell className="text-sm text-muted-foreground">
-      {formatTimestamp(dataset.created_at, 'long')}
+      {dataset.created_by || '—'}
     </TableCell>
     <TableCell>
       <div className="flex items-center gap-1">
         <Button size="sm" variant="outline" onClick={() => onView(dataset.id)} title="View collection details">
           <Eye className="h-4 w-4" />
         </Button>
-        {dataset.validation_status === 'valid' && canStartTraining && (
+        {dataset.validation_status === 'valid' &&
+          (dataset.trust_state === 'allowed' || dataset.trust_state === 'allowed_with_warning') &&
+          canStartTraining && (
           <Button
             size="sm"
             variant="default"
@@ -233,12 +243,12 @@ const DatasetsTable = ({
       <TableHeader>
         <TableRow>
           <TableHead>{TERMS.datasetName}</TableHead>
-          <TableHead>Source Type</TableHead>
-          <TableHead>Language</TableHead>
-          <TableHead>{TERMS.documents}</TableHead>
-          <TableHead>Tokens</TableHead>
+          <TableHead>Type</TableHead>
+          <TableHead>Latest version</TableHead>
+          <TableHead>Trust</TableHead>
           <TableHead>{TERMS.datasetStatus}</TableHead>
-          <TableHead>Created</TableHead>
+          <TableHead>Total size</TableHead>
+          <TableHead>Owner</TableHead>
           <TableHead>Actions</TableHead>
         </TableRow>
       </TableHeader>
@@ -286,7 +296,7 @@ const DatasetsCard = ({
     <CardHeader>
       <CardTitle className="flex items-center gap-2">
         <Database className="h-5 w-5" />
-        Document Collections
+        Datasets
         {datasets.length > 0 && (
           <span className="text-sm font-normal text-muted-foreground">({datasets.length} total)</span>
         )}
@@ -396,6 +406,10 @@ const DatasetDetailDialog = ({
               <p className="font-medium">{dataset.name}</p>
             </div>
             <div>
+              <Label className="text-muted-foreground">Version</Label>
+              <p className="font-mono text-sm">{dataset.dataset_version_id || '-'}</p>
+            </div>
+            <div>
               <Label className="text-muted-foreground">ID</Label>
               <p className="font-mono text-sm">{dataset.id}</p>
             </div>
@@ -414,6 +428,10 @@ const DatasetDetailDialog = ({
             <div>
               <Label className="text-muted-foreground">Status</Label>
               <StatusBadge status={dataset.validation_status} />
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Trust</Label>
+              <TrustPill state={dataset.trust_state} reason={dataset.trust_reason} />
             </div>
             <div>
               <Label className="text-muted-foreground">Files</Label>
@@ -508,6 +526,39 @@ export function DatasetsTab() {
   });
 
   const datasets = datasetsData?.datasets || [];
+  const [searchTerm, setSearchTerm] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | string>('all');
+  const [trustFilter, setTrustFilter] = useState<TrustState | 'all'>('all');
+  const [ownerFilter, setOwnerFilter] = useState<string>('all');
+
+  const owners = useMemo(() => {
+    const set = new Set<string>();
+    datasets.forEach(ds => set.add(ds.created_by || 'unknown'));
+    return Array.from(set);
+  }, [datasets]);
+
+  const filteredDatasets = useMemo(() => {
+    return datasets
+      .filter(ds => {
+        if (typeFilter !== 'all') {
+          const kind = (ds.dataset_type || ds.source_type || 'unknown').toString();
+          if (kind !== typeFilter) return false;
+        }
+        if (trustFilter !== 'all') {
+          const trust = ds.trust_state ?? 'unknown';
+          if (trust !== trustFilter) return false;
+        }
+        if (ownerFilter !== 'all' && (ds.created_by || 'unknown') !== ownerFilter) {
+          return false;
+        }
+        if (searchTerm.trim()) {
+          const term = searchTerm.toLowerCase();
+          if (!ds.name.toLowerCase().includes(term)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
+  }, [datasets, typeFilter, trustFilter, ownerFilter, searchTerm]);
 
   useEffect(() => {
     const shouldOpenUpload = (location.state as { openUpload?: boolean } | null)?.openUpload;
@@ -540,12 +591,63 @@ export function DatasetsTab() {
 
   return (
     <div className="space-y-6">
-      <ActionBar
-        canUpload={can('dataset:upload')}
-        onOpenUpload={() => setIsUploadDialogOpen(true)}
-        onRefresh={refetch}
-        isLoading={isLoading}
-      />
+      <div className="space-y-3">
+        <ActionBar
+          canUpload={can('dataset:upload')}
+          onOpenUpload={() => setIsUploadDialogOpen(true)}
+          onRefresh={refetch}
+          isLoading={isLoading}
+        />
+        <div className="flex flex-wrap items-center gap-3 rounded-md border bg-card/50 p-3">
+          <Input
+            placeholder="Search by name"
+            className="w-56"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v)}>
+            <SelectTrigger className="w-[170px]">
+              <SelectValue placeholder="Dataset type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              <SelectItem value="training">Training</SelectItem>
+              <SelectItem value="eval">Eval</SelectItem>
+              <SelectItem value="red_team">Red team</SelectItem>
+              <SelectItem value="logs">Logs</SelectItem>
+              <SelectItem value="other">Other</SelectItem>
+              <SelectItem value="uploaded_files">Uploaded</SelectItem>
+              <SelectItem value="code_repo">Code repo</SelectItem>
+              <SelectItem value="generated">Generated</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={trustFilter} onValueChange={(v) => setTrustFilter(v as TrustState | 'all')}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Trust state" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All trust</SelectItem>
+              <SelectItem value="allowed">Allowed</SelectItem>
+              <SelectItem value="allowed_with_warning">Allowed w/ warning</SelectItem>
+              <SelectItem value="needs_approval">Needs approval</SelectItem>
+              <SelectItem value="blocked">Blocked</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={ownerFilter} onValueChange={(v) => setOwnerFilter(v)}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Owner" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All owners</SelectItem>
+              {owners.map(owner => (
+                <SelectItem key={owner} value={owner}>
+                  {owner === 'unknown' ? 'Unknown' : owner}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
       <PageErrors errors={errors} />
 
@@ -561,7 +663,7 @@ export function DatasetsTab() {
       )}
 
       <DatasetsCard
-        datasets={datasets}
+        datasets={filteredDatasets}
         isLoading={isLoading}
         canStartTraining={can('training:start')}
         canValidate={can('dataset:validate')}

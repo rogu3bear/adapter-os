@@ -10,6 +10,7 @@ import { getStorageKey, type ChatSession as LocalChatSession } from '@/types/cha
 import type { ChatMessage as LocalChatMessage } from '@/components/chat/ChatMessage';
 import { logger } from '@/utils/logger';
 import apiClient from '@/api/client';
+import type { ApiError } from '@/api/client';
 import type {
   ChatSession,
   ChatMessage,
@@ -20,6 +21,7 @@ import { toast } from 'sonner';
 
 const MIGRATION_KEY_PREFIX = 'chat_sessions_migrated_';
 const SESSION_QUERY_KEY = 'chat-sessions';
+const UNSUPPORTED_MESSAGE = 'Chat history is not supported for this version.';
 
 /**
  * Convert backend ChatSession to local ChatSession format
@@ -225,6 +227,10 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const [sessions, setSessions] = useState<LocalChatSession[]>([]);
   const migrationAttempted = useRef(false);
+  const [backendUnsupported, setBackendUnsupported] = useState(false);
+  const [unsupportedReason, setUnsupportedReason] = useState<string | null>(null);
+  const unsupportedToastShown = useRef(false);
+  const unsupportedMessage = unsupportedReason ?? UNSUPPORTED_MESSAGE;
 
   const matchesOptions = useCallback(
     (session: LocalChatSession) => {
@@ -239,9 +245,28 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
     [options.documentId, options.sourceType]
   );
 
+  const notifyUnsupported = useCallback(() => {
+    if (!backendUnsupported) {
+      return false;
+    }
+    if (!unsupportedToastShown.current) {
+      toast.info(unsupportedMessage);
+      unsupportedToastShown.current = true;
+    }
+    return true;
+  }, [backendUnsupported, unsupportedMessage]);
+
   // Fetch sessions from backend
   const { data: backendSessions = [], isLoading: isLoadingSessions } = useQuery({
     queryKey: [SESSION_QUERY_KEY, tenantId, options.sourceType, options.documentId],
+    enabled: !backendUnsupported,
+    retry: (failureCount, error) => {
+      const status = (error as ApiError | undefined)?.status;
+      if (status === 404 || status === 501) {
+        return false;
+      }
+      return failureCount < 3;
+    },
     queryFn: async () => {
       try {
         return await apiClient.listChatSessions({
@@ -250,6 +275,14 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
           document_id: options.documentId,
         });
       } catch (error) {
+        const status = (error as ApiError | undefined)?.status;
+        if (status === 404 || status === 501) {
+          setBackendUnsupported(true);
+          setUnsupportedReason(UNSUPPORTED_MESSAGE);
+          notifyUnsupported();
+          return [];
+        }
+
         logger.error('Failed to fetch sessions from backend', {
           component: 'useChatSessionsApi',
           operation: 'fetchSessions',
@@ -262,8 +295,20 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
     refetchOnWindowFocus: true,
   });
 
+  useEffect(() => {
+    if (backendUnsupported) {
+      setIsLoadingInitial(false);
+      setSessions([]);
+    }
+  }, [backendUnsupported]);
+
   // One-time migration on mount
   useEffect(() => {
+    if (backendUnsupported) {
+      setIsLoadingInitial(false);
+      return;
+    }
+
     if (migrationAttempted.current || isLoadingSessions) {
       return;
     }
@@ -301,12 +346,12 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
     };
 
     performMigration();
-  }, [tenantId, queryClient, isLoadingSessions]);
+  }, [backendUnsupported, tenantId, queryClient, isLoadingSessions]);
 
   // Convert backend sessions to local format and fetch messages
   useEffect(() => {
     const loadSessionsWithMessages = async () => {
-      if (isLoadingSessions || backendSessions.length === 0) {
+      if (backendUnsupported || isLoadingSessions || backendSessions.length === 0) {
         setSessions([]);
         return;
       }
@@ -338,7 +383,7 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
     };
 
     loadSessionsWithMessages();
-  }, [backendSessions, isLoadingSessions, tenantId, matchesOptions]);
+  }, [backendUnsupported, backendSessions, isLoadingSessions, tenantId, matchesOptions]);
 
   // Create session mutation
   type CreateSessionParams = {
@@ -477,6 +522,11 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
       sourceType?: string,
       sessionConfig?: Record<string, unknown>
     ): Promise<LocalChatSession> => {
+      if (backendUnsupported) {
+        notifyUnsupported();
+        throw new Error(unsupportedMessage);
+      }
+
       try {
         return await createSessionMutation.mutateAsync({
           name,
@@ -496,11 +546,16 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
         throw error;
       }
     },
-    [createSessionMutation]
+    [backendUnsupported, createSessionMutation, notifyUnsupported, unsupportedMessage]
   );
 
   const updateSession = useCallback(
     async (sessionId: string, updates: Partial<LocalChatSession>) => {
+      if (backendUnsupported) {
+        notifyUnsupported();
+        return;
+      }
+
       const collectionId =
         updates.collectionId !== undefined ? updates.collectionId : undefined;
       const payload: UpdateChatSessionRequest = {};
@@ -561,11 +616,16 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
         toast.error('Failed to update chat session');
       }
     },
-    []
+    [backendUnsupported, notifyUnsupported]
   );
 
   const addMessage = useCallback(
     (sessionId: string, message: LocalChatMessage) => {
+      if (backendUnsupported) {
+        notifyUnsupported();
+        return;
+      }
+
       addMessageMutation.mutate(
         { sessionId, message },
         {
@@ -580,7 +640,7 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
         }
       );
     },
-    [addMessageMutation]
+    [addMessageMutation, backendUnsupported, notifyUnsupported]
   );
 
   const updateMessage = useCallback(
@@ -606,6 +666,11 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
 
   const deleteSession = useCallback(
     (sessionId: string) => {
+      if (backendUnsupported) {
+        notifyUnsupported();
+        return;
+      }
+
       // Optimistically remove from local state
       setSessions((prev) => prev.filter((session) => session.id !== sessionId));
 
@@ -623,7 +688,7 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
         },
       });
     },
-    [tenantId, deleteSessionMutation, queryClient]
+    [backendUnsupported, deleteSessionMutation, notifyUnsupported, queryClient, tenantId]
   );
 
   const getSession = useCallback(
@@ -635,6 +700,11 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
 
   const updateSessionCollection = useCallback(
     (sessionId: string, collectionId: string | null) => {
+      if (backendUnsupported) {
+        notifyUnsupported();
+        return;
+      }
+
       updateSessionCollectionMutation.mutate(
         { sessionId, collectionId },
         {
@@ -650,12 +720,14 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
         }
       );
     },
-    [updateSessionCollectionMutation]
+    [backendUnsupported, notifyUnsupported, updateSessionCollectionMutation]
   );
 
   return {
     sessions,
     isLoading: isLoadingInitial || isLoadingSessions,
+    isUnsupported: backendUnsupported,
+    unsupportedReason,
     createSession,
     updateSession,
     addMessage,

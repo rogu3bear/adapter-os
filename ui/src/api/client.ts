@@ -20,6 +20,7 @@ import * as ownerTypes from '@/api/owner-types';
 import * as systemStateTypes from '@/api/system-state-types';
 import * as adapterTypes from '@/api/adapter-types';
 import * as replayTypes from '@/api/replay-types';
+import * as repoTypes from '@/api/repo-types';
 import { logger, toError } from '@/utils/logger';
 import { SystemMetrics } from '@/api/types';
 import { enhanceError, isTransientError, isTimeoutError } from '@/utils/errorMessages';
@@ -28,6 +29,7 @@ import { retryWithBackoff, RetryConfig, RetryResult, createRetryWrapper } from '
 import { LoginResponseSchema } from '@/schemas/common.schema';
 import { captureException } from '@/stores/errorStore';
 import { markSessionExpired } from '@/auth/session';
+import { isCoremlPackageUiEnabled } from '@/config/featureFlags';
 
 // Type-safe API error with extended properties
 export interface ApiError extends Error {
@@ -97,6 +99,8 @@ class ApiClient {
       return this.refreshPromise;
     }
 
+    const hadBearerToken = Boolean(this.token);
+
     this.refreshPromise = (async () => {
       const refreshUrl = `${this.baseUrl}/v1/auth/refresh`;
       const resp = await fetch(refreshUrl, {
@@ -109,7 +113,11 @@ class ApiClient {
 
       if (!resp.ok) {
         this.token = undefined;
-        markSessionExpired();
+        // Only signal expiry when we previously held a bearer token; initial unauthenticated
+        // loads (no token yet) should fail quietly without forcing a logout loop.
+        if (hadBearerToken) {
+          markSessionExpired();
+        }
         const err = new Error('Session expired') as ApiError;
         err.code = 'SESSION_EXPIRED';
         err.status = resp.status;
@@ -507,11 +515,30 @@ class ApiClient {
       return {} as T;
     }
 
+    const rawBody = await response.text();
+    if (!rawBody || rawBody.trim() === '') {
+      return {} as T;
+    }
+
     try {
-      return await response.json();
+      return JSON.parse(rawBody) as T;
     } catch (parseError) {
       // JSON parsing error - enhance with user-friendly messaging
       const originalError = toError(parseError);
+      const contentType = response.headers.get('content-type') || '';
+
+      // Some endpoints may return empty or non-JSON bodies on success (e.g., legacy handlers).
+      if (!contentType.toLowerCase().includes('json')) {
+        logger.warn('Received non-JSON response, returning empty object', {
+          component: 'ApiClient',
+          operation: 'request',
+          method,
+          path,
+          requestId,
+          contentType,
+        });
+        return {} as T;
+      }
 
       // Create enhanced error with PARSE_ERROR code
       const enhancedError = new Error('Invalid response from server') as ApiError;
@@ -520,7 +547,8 @@ class ApiClient {
       enhancedError.details = {
         originalMessage: originalError.message,
         responseStatus: response.status,
-        contentType: response.headers.get('content-type'),
+        contentType,
+        bodyPreview: rawBody.slice(0, 200),
       };
 
       // Enhance with user-friendly messaging
@@ -554,7 +582,9 @@ class ApiClient {
         });
       }
 
-      throw userFriendlyError;
+      // For successful responses with unparsable bodies, fall back to empty object
+      // to avoid blocking the UI while still emitting diagnostics above.
+      return {} as T;
     }
   }
 
@@ -736,8 +766,8 @@ class ApiClient {
     });
   }
 
-  async getAuthConfig(): Promise<types.AuthConfigResponse> {
-    return this.request<types.AuthConfigResponse>('/v1/auth/config');
+  async getAuthConfig(cancelToken?: AbortSignal): Promise<types.AuthConfigResponse> {
+    return this.request<types.AuthConfigResponse>('/v1/auth/config', {}, false, cancelToken);
   }
 
   async updateAuthConfig(data: types.UpdateAuthConfigRequest): Promise<types.AuthConfigResponse> {
@@ -804,6 +834,119 @@ class ApiClient {
     if (params?.framework) qs.append('framework', params.framework);
     const query = qs.toString() ? `?${qs.toString()}` : '';
     return this.requestList<types.Adapter>(`/v1/adapters${query}`);
+  }
+
+  async getCoremlPackageStatus(
+    adapterId: string,
+    modelId?: string
+  ): Promise<adapterTypes.CoremlPackageStatus> {
+    if (!isCoremlPackageUiEnabled()) {
+      return { supported: false, export_available: false, verification_status: 'unsupported' };
+    }
+    if (!adapterId) {
+      return { supported: false, export_available: false, verification_status: 'unknown' };
+    }
+    const qs = new URLSearchParams();
+    if (modelId) {
+      qs.append('model_id', modelId);
+    }
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    try {
+      const resp = await this.request<adapterTypes.CoremlPackageStatusResponse>(
+        `/v1/adapters/${encodeURIComponent(adapterId)}/coreml/status${query}`
+      );
+      return resp.status ?? (resp as unknown as adapterTypes.CoremlPackageStatus);
+    } catch (error) {
+      const apiErr = error as ApiError;
+      if (apiErr?.status === 404 || apiErr?.status === 501) {
+        return {
+          supported: false,
+          export_available: false,
+          verification_status: 'unsupported',
+          notes: apiErr?.detail ? [apiErr.detail] : undefined,
+        };
+      }
+      throw enhanceError(apiErr ?? (error as Error), {
+        operation: 'coreml_status',
+        adapterId,
+        modelId,
+      });
+    }
+  }
+
+  async triggerCoremlExport(
+    adapterId: string,
+    modelId?: string
+  ): Promise<adapterTypes.CoremlPackageActionResponse> {
+    if (!isCoremlPackageUiEnabled()) {
+      return {
+        message: 'CoreML export is disabled in this build',
+        status: { supported: false, export_available: false, verification_status: 'unsupported' },
+      };
+    }
+    const qs = new URLSearchParams();
+    if (modelId) {
+      qs.append('model_id', modelId);
+    }
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    try {
+      return await this.request<adapterTypes.CoremlPackageActionResponse>(
+        `/v1/adapters/${encodeURIComponent(adapterId)}/coreml/export${query}`,
+        { method: 'POST' },
+        false,
+        undefined,
+        true
+      );
+    } catch (error) {
+      const apiErr = error as ApiError;
+      const detail =
+        apiErr?.detail ||
+        apiErr?.message ||
+        (apiErr?.status === 404 || apiErr?.status === 501
+          ? 'CoreML export not supported by server'
+          : 'CoreML export request failed');
+      const err = enhanceError(apiErr ?? (error as Error), {
+        operation: 'coreml_export',
+        adapterId,
+        modelId,
+        detail,
+      });
+      throw err;
+    }
+  }
+
+  async triggerCoremlVerification(
+    adapterId: string
+  ): Promise<adapterTypes.CoremlPackageActionResponse> {
+    if (!isCoremlPackageUiEnabled()) {
+      return {
+        message: 'CoreML verification is disabled in this build',
+        status: { supported: false, export_available: false, verification_status: 'unsupported' },
+      };
+    }
+    try {
+      return await this.request<adapterTypes.CoremlPackageActionResponse>(
+        `/v1/adapters/${encodeURIComponent(adapterId)}/coreml/verify`,
+        { method: 'POST' },
+        false,
+        undefined,
+        true
+      );
+    } catch (error) {
+      const apiErr = error as ApiError;
+      const detail =
+        apiErr?.detail ||
+        apiErr?.message ||
+        (apiErr?.status === 404 || apiErr?.status === 501
+          ? 'CoreML verification not supported by server'
+          : 'CoreML verification request failed');
+      const err = enhanceError(apiErr ?? (error as Error), {
+        operation: 'coreml_verification',
+        adapterId,
+        detail,
+      });
+      throw err;
+    }
   }
 
   async preflightAdapterLoad(
@@ -1085,6 +1228,27 @@ class ApiClient {
     return this.request<types.AdapterLineageResponse>(`/v1/adapters/${adapterId}/lineage`);
   }
 
+  async getAdapterVersionLineage(
+    adapterVersionId: string,
+    params?: types.LineageQueryParams
+  ): Promise<types.LineageGraphResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.direction) queryParams.set('direction', params.direction);
+    if (params?.include_evidence !== undefined) {
+      queryParams.set('include_evidence', String(params.include_evidence));
+    }
+    if (params?.limit_per_level !== undefined) {
+      queryParams.set('limit_per_level', String(params.limit_per_level));
+    }
+    if (params?.cursors) {
+      Object.entries(params.cursors).forEach(([level, cursor]) => {
+        queryParams.append(`cursor[${level}]`, cursor);
+      });
+    }
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.LineageGraphResponse>(`/v1/lineage/adapter_versions/${adapterVersionId}${query}`);
+  }
+
   async promoteAdapterLifecycle(adapterId: string, reason: string): Promise<types.LifecycleTransitionResponse> {
     return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/lifecycle/promote`, {
       method: 'POST',
@@ -1265,20 +1429,22 @@ class ApiClient {
     const formData = new FormData();
     formData.append('name', request.name);
     formData.append('source_type', request.source_type);
+    formData.append('format', request.format ?? 'jsonl');
+    if (request.description) formData.append('description', request.description);
     if (request.language) formData.append('language', request.language);
     if (request.framework) formData.append('framework', request.framework);
     if (request.repository_url) formData.append('repository_url', request.repository_url);
     if (request.branch) formData.append('branch', request.branch);
     if (request.commit_hash) formData.append('commit_hash', request.commit_hash);
     if (request.files) {
-      request.files.forEach((file, index) => {
-        formData.append(`files[${index}]`, file);
+      request.files.forEach((file) => {
+        formData.append('files', file);
       });
     }
 
-    const url = `${this.baseUrl}/v1/datasets`;
-    const requestId = await this.computeRequestId('POST', '/v1/datasets', request.name);
-    this.logRequest(requestId, 'POST', '/v1/datasets');
+    const url = `${this.baseUrl}/v1/datasets/upload`;
+    const requestId = await this.computeRequestId('POST', '/v1/datasets/upload', request.name);
+    this.logRequest(requestId, 'POST', '/v1/datasets/upload');
 
     const response = await fetch(url, {
       method: 'POST',
@@ -1301,7 +1467,44 @@ class ApiClient {
       throw new Error(errorMessage);
     }
 
-    return response.json();
+    type UploadDatasetResponse = {
+      schema_version?: string;
+      dataset_id: string;
+      name: string;
+      description?: string;
+      file_count?: number;
+      total_size_bytes?: number;
+      format?: string;
+      hash?: string;
+      storage_path?: string;
+      created_at?: string;
+    };
+
+    const raw = (await response.json()) as UploadDatasetResponse;
+    const createdAt = raw.created_at ?? new Date().toISOString();
+
+    const dataset: trainingTypes.Dataset = {
+      id: raw.dataset_id,
+      name: raw.name,
+      hash_b3: raw.hash ?? '',
+      source_type: request.source_type,
+      language: request.language,
+      framework: request.framework,
+      file_count: raw.file_count ?? request.files?.length ?? 0,
+      total_size_bytes: raw.total_size_bytes ?? 0,
+      total_tokens: 0,
+      validation_status: 'draft',
+      created_at: createdAt,
+      updated_at: createdAt,
+      format: raw.format ?? request.format ?? 'jsonl',
+      storage_path: raw.storage_path,
+      description: raw.description,
+    };
+
+    return {
+      schema_version: raw.schema_version ?? '1.0',
+      dataset,
+    };
   }
 
   async listDatasets(params?: { page?: number; page_size?: number }): Promise<trainingTypes.ListDatasetsResponse> {
@@ -1314,6 +1517,7 @@ class ApiClient {
     // DEFENSIVE: Use extractArrayFromResponse to handle potential PaginatedResponse migration
     type BackendDataset = {
       dataset_id: string;
+      dataset_version_id?: string;
       name: string;
       hash: string;
       total_size_bytes: number;
@@ -1326,6 +1530,13 @@ class ApiClient {
       created_at: string;
       updated_at: string;
       description?: string;
+      trust_state?: string;
+      trust_reason?: string;
+      overall_safety_status?: string;
+      pii_status?: string;
+      toxicity_status?: string;
+      leak_status?: string;
+      anomaly_status?: string;
     };
     const rawResponse = await this.request<unknown>(`/v1/datasets${query ? `?${query}` : ''}`);
     const response = extractArrayFromResponse<BackendDataset>(rawResponse);
@@ -1333,6 +1544,7 @@ class ApiClient {
     // Map backend responses to frontend Dataset type
     const datasets: trainingTypes.Dataset[] = response.map((d) => ({
       id: d.dataset_id,
+      dataset_version_id: d.dataset_version_id,
       name: d.name,
       hash_b3: d.hash,
       source_type: 'uploaded_files' as trainingTypes.DatasetSourceType, // Default, parse from metadata_json if needed
@@ -1347,6 +1559,13 @@ class ApiClient {
       validation_errors: d.validation_errors,
       created_by: d.created_by,
       description: d.description,
+      trust_state: (d.trust_state as trainingTypes.TrustState) ?? 'unknown',
+      trust_reason: d.trust_reason,
+      overall_safety_status: d.overall_safety_status,
+      pii_status: d.pii_status,
+      toxicity_status: d.toxicity_status,
+      leak_status: d.leak_status,
+      anomaly_status: d.anomaly_status,
     }));
     
     return {
@@ -1361,6 +1580,7 @@ class ApiClient {
   async getDataset(datasetId: string): Promise<trainingTypes.Dataset> {
     const response = await this.request<{
       dataset_id: string;
+      dataset_version_id?: string;
       name: string;
       hash: string;
       total_size_bytes: number;
@@ -1373,6 +1593,13 @@ class ApiClient {
       created_at: string;
       updated_at: string;
       description?: string;
+      trust_state?: string;
+      trust_reason?: string;
+      overall_safety_status?: string;
+      pii_status?: string;
+      toxicity_status?: string;
+      leak_status?: string;
+      anomaly_status?: string;
     }>(`/v1/datasets/${datasetId}`);
     
     // Try to get statistics for total_tokens
@@ -1398,6 +1625,7 @@ class ApiClient {
     // Map backend response to frontend Dataset type
     return {
       id: response.dataset_id,
+      dataset_version_id: response.dataset_version_id,
       name: response.name,
       hash_b3: response.hash,
       source_type: sourceType,
@@ -1412,7 +1640,67 @@ class ApiClient {
       validation_errors: response.validation_errors,
       created_by: response.created_by,
       description: response.description,
+      trust_state: (response.trust_state as trainingTypes.TrustState) ?? 'unknown',
+      trust_reason: response.trust_reason,
+      overall_safety_status: response.overall_safety_status,
+      pii_status: response.pii_status,
+      toxicity_status: response.toxicity_status,
+      leak_status: response.leak_status,
+      anomaly_status: response.anomaly_status,
     };
+  }
+
+  async listDatasetVersions(datasetId: string): Promise<trainingTypes.DatasetVersionListResponse> {
+    const response = await this.request<trainingTypes.DatasetVersionListResponse>(
+      `/v1/datasets/${encodeURIComponent(datasetId)}/versions`,
+    );
+
+    return {
+      ...response,
+      versions: (response.versions || []).map((v) => ({
+        ...v,
+        trust_state: (v.trust_state as trainingTypes.TrustState) ?? 'unknown',
+      })),
+    };
+  }
+
+  /**
+   * Apply or update a dataset trust override for the latest version.
+   *
+   * POST /v1/datasets/:datasetId/trust_override
+   */
+  async applyDatasetTrustOverride(
+    datasetId: string,
+    payload: trainingTypes.DatasetTrustOverrideRequest
+  ): Promise<trainingTypes.DatasetTrustOverrideResponse> {
+    return this.request<trainingTypes.DatasetTrustOverrideResponse>(
+      `/v1/datasets/${encodeURIComponent(datasetId)}/trust_override`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  async getDatasetVersionLineage(
+    datasetVersionId: string,
+    params?: types.LineageQueryParams
+  ): Promise<types.LineageGraphResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.direction) queryParams.set('direction', params.direction);
+    if (params?.include_evidence !== undefined) {
+      queryParams.set('include_evidence', String(params.include_evidence));
+    }
+    if (params?.limit_per_level !== undefined) {
+      queryParams.set('limit_per_level', String(params.limit_per_level));
+    }
+    if (params?.cursors) {
+      Object.entries(params.cursors).forEach(([level, cursor]) => {
+        queryParams.append(`cursor[${level}]`, cursor);
+      });
+    }
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<types.LineageGraphResponse>(`/v1/lineage/dataset_versions/${datasetVersionId}${query}`);
   }
 
   async validateDataset(datasetId: string): Promise<trainingTypes.DatasetValidationResult> {
@@ -1433,7 +1721,9 @@ class ApiClient {
    * Either documentId or collectionId must be provided (mutually exclusive).
    */
   async createDatasetFromDocuments(params: {
+    document_ids?: string[];
     documentId?: string;
+    collection_id?: string;
     collectionId?: string;
     name?: string;
     description?: string;
@@ -1441,8 +1731,9 @@ class ApiClient {
     return this.request<trainingTypes.CreateDatasetFromDocumentsResponse>('/v1/datasets/from-documents', {
       method: 'POST',
       body: JSON.stringify({
+        document_ids: params.document_ids,
         document_id: params.documentId,
-        collection_id: params.collectionId,
+        collection_id: params.collection_id ?? params.collectionId,
         name: params.name,
         description: params.description,
       }),
@@ -1582,6 +1873,10 @@ class ApiClient {
   // Metrics
   async getSystemMetrics(): Promise<types.SystemMetrics> {
     return this.request<types.SystemMetrics>('/v1/metrics/system');
+  }
+
+  async getTenantStorageUsage(): Promise<apiTypes.TenantStorageUsageResponse> {
+    return this.request<apiTypes.TenantStorageUsageResponse>('/v1/storage/tenant-usage');
   }
 
   async getQualityMetrics(): Promise<types.QualityMetrics> {
@@ -2482,19 +2777,20 @@ class ApiClient {
     startTime?: string;
     endTime?: string;
     eventType?: string;
+    eventTypes?: string[];
     level?: string;
   }): Promise<types.TelemetryEvent[]> {
     const params = new URLSearchParams();
     if (filters?.limit) params.append('limit', filters.limit.toString());
-    if (filters?.tenantId) params.append('tenant_id', filters.tenantId);
-    if (filters?.userId) params.append('user_id', filters.userId);
-    if (filters?.startTime) params.append('start_time', filters.startTime);
-    if (filters?.endTime) params.append('end_time', filters.endTime);
-    if (filters?.eventType) params.append('event_type', filters.eventType);
-    if (filters?.level) params.append('level', filters.level);
+
+    const normalizedEventTypes =
+      filters?.eventTypes?.length ? filters.eventTypes : filters?.eventType ? [filters.eventType] : [];
+    normalizedEventTypes.forEach((evt) => params.append('event_types[]', evt));
 
     const queryString = params.toString();
-    return this.requestList<types.TelemetryEvent>(`/v1/telemetry/events${queryString ? `?${queryString}` : ''}`);
+    return this.requestList<types.TelemetryEvent>(
+      `/v1/telemetry/events/recent${queryString ? `?${queryString}` : ''}`,
+    );
   }
 
   // Logs API methods
@@ -4771,6 +5067,20 @@ class ApiClient {
   }
 
   /**
+   * Get evidence attached to a chat message
+   *
+   * GET /v1/chat/messages/:message_id/evidence
+   *
+   * @param messageId - Message ID
+   * @returns Evidence items for the message
+   */
+  async getMessageEvidence(messageId: string): Promise<chatTypes.ChatEvidenceItem[]> {
+    return this.requestList<chatTypes.ChatEvidenceItem>(
+      `/v1/chat/messages/${encodeURIComponent(messageId)}/evidence`
+    );
+  }
+
+  /**
    * Get session summary with message and trace counts
    *
    * GET /v1/chat/sessions/:session_id/summary
@@ -5353,18 +5663,37 @@ class ApiClient {
    * @returns Uploaded document metadata
    */
   async uploadDocument(
-    file: File,
+    params: File | { file: File; name?: string; description?: string },
     name?: string
   ): Promise<documentTypes.Document> {
+    const file = params instanceof File ? params : params.file;
+    const providedName = params instanceof File ? name : params.name;
+    const description = params instanceof File ? undefined : params.description;
+
     const formData = new FormData();
     formData.append('file', file);
-    if (name) formData.append('name', name);
+    if (providedName) formData.append('name', providedName);
+    if (description) formData.append('description', description);
 
     return this.request<documentTypes.Document>('/v1/documents/upload', {
       method: 'POST',
       body: formData,
       headers: {}, // Let browser set Content-Type for FormData
     });
+  }
+
+  /**
+   * Process an uploaded document (parse, chunk, embed, index)
+   *
+   * POST /v1/documents/:id/process
+   */
+  async processDocument(
+    documentId: string
+  ): Promise<documentTypes.ProcessDocumentResponse> {
+    return this.request<documentTypes.ProcessDocumentResponse>(
+      `/v1/documents/${encodeURIComponent(documentId)}/process`,
+      { method: 'POST' }
+    );
   }
 
   /**
@@ -5489,6 +5818,20 @@ class ApiClient {
   }
 
   /**
+   * List documents not yet in the specified collection
+   *
+   * GET /v1/collections/:id/available-documents
+   *
+   * @param collectionId - Collection ID
+   * @returns Array of available documents
+   */
+  async listAvailableDocuments(collectionId: string): Promise<documentTypes.Document[]> {
+    return this.requestList<documentTypes.Document>(
+      `/v1/collections/${encodeURIComponent(collectionId)}/available-documents`
+    );
+  }
+
+  /**
    * Delete a collection
    *
    * DELETE /v1/collections/:id
@@ -5520,6 +5863,24 @@ class ApiClient {
       {
         method: 'POST',
         body: JSON.stringify(request),
+      }
+    );
+  }
+
+  /**
+   * Add multiple documents to a collection
+   *
+   * POST /v1/collections/:id/documents (bulk)
+   */
+  async addDocumentsToCollection(
+    collectionId: string,
+    documentIds: string[]
+  ): Promise<void> {
+    await this.request<void>(
+      `/v1/collections/${encodeURIComponent(collectionId)}/documents`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ document_ids: documentIds }),
       }
     );
   }
@@ -5728,6 +6089,222 @@ class ApiClient {
     }
 
     return response.blob();
+  }
+
+  // ============================================================================
+  // Repository API Methods
+  // ============================================================================
+
+  /**
+   * List adapter repositories (system adapter repos, not code repos).
+   *
+   * GET /v1/adapter-repositories
+   */
+  async listAdapterRepositories(): Promise<repoTypes.AdapterRepositorySummary[]> {
+    return this.requestList<repoTypes.AdapterRepositorySummary>('/v1/adapter-repositories');
+  }
+
+  /**
+   * Get adapter repository policy (backend/coreml settings).
+   *
+   * GET /v1/adapter-repositories/:repoId/policy
+   */
+  async getAdapterRepositoryPolicy(repoId: string): Promise<repoTypes.AdapterRepositoryPolicy> {
+    return this.request<repoTypes.AdapterRepositoryPolicy>(
+      `/v1/adapter-repositories/${encodeURIComponent(repoId)}/policy`
+    );
+  }
+
+  /**
+   * Update adapter repository policy (backend/coreml settings).
+   *
+   * PUT /v1/adapter-repositories/:repoId/policy
+   */
+  async updateAdapterRepositoryPolicy(
+    repoId: string,
+    payload: repoTypes.UpdateAdapterRepositoryPolicyRequest
+  ): Promise<repoTypes.AdapterRepositoryPolicy> {
+    return this.request<repoTypes.AdapterRepositoryPolicy>(
+      `/v1/adapter-repositories/${encodeURIComponent(repoId)}/policy`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /**
+   * List repositories grouped by base model.
+   *
+   * GET /v1/repos
+   */
+  async listRepos(): Promise<repoTypes.RepoSummary[]> {
+    return this.requestList<repoTypes.RepoSummary>('/v1/repos');
+  }
+
+  /**
+   * Create a new repository.
+   *
+   * POST /v1/repos
+   */
+  async createRepo(payload: repoTypes.CreateRepoRequest): Promise<repoTypes.RepoDetail> {
+    return this.request<repoTypes.RepoDetail>('/v1/repos', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * Get repository metadata.
+   *
+   * GET /v1/repos/:repoId
+   */
+  async getRepo(repoId: string): Promise<repoTypes.RepoDetail> {
+    return this.request<repoTypes.RepoDetail>(`/v1/repos/${encodeURIComponent(repoId)}`);
+  }
+
+  /**
+   * Update repository metadata (description, tags, default branch, status).
+   *
+   * PATCH /v1/repos/:repoId
+   */
+  async updateRepo(
+    repoId: string,
+    payload: repoTypes.UpdateRepoRequest
+  ): Promise<repoTypes.RepoDetail> {
+    return this.request<repoTypes.RepoDetail>(
+      `/v1/repos/${encodeURIComponent(repoId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /**
+   * List versions for a repository.
+   *
+   * GET /v1/repos/:repoId/versions
+   */
+  async listRepoVersions(repoId: string): Promise<repoTypes.RepoVersionSummary[]> {
+    return this.requestList<repoTypes.RepoVersionSummary>(
+      `/v1/repos/${encodeURIComponent(repoId)}/versions`
+    );
+  }
+
+  /**
+   * Get version detail for a repository.
+   *
+   * GET /v1/repos/:repoId/versions/:versionId
+   */
+  async getRepoVersion(
+    repoId: string,
+    versionId: string
+  ): Promise<repoTypes.RepoVersionDetail> {
+    return this.request<repoTypes.RepoVersionDetail>(
+      `/v1/repos/${encodeURIComponent(repoId)}/versions/${encodeURIComponent(versionId)}`
+    );
+  }
+
+  /**
+   * Get combined timeline events from version history and training jobs.
+   *
+   * GET /v1/repos/:repoId/timeline
+   */
+  async getRepoTimeline(repoId: string): Promise<repoTypes.RepoTimelineEvent[]> {
+    return this.requestList<repoTypes.RepoTimelineEvent>(
+      `/v1/repos/${encodeURIComponent(repoId)}/timeline`
+    );
+  }
+
+  /**
+   * List training jobs associated with a repository.
+   *
+   * GET /v1/repos/:repoId/training-jobs
+   */
+  async listRepoTrainingJobs(repoId: string): Promise<repoTypes.RepoTrainingJobLink[]> {
+    return this.requestList<repoTypes.RepoTrainingJobLink>(
+      `/v1/repos/${encodeURIComponent(repoId)}/training-jobs`
+    );
+  }
+
+  /**
+   * Promote a version to Active (per branch).
+   *
+   * POST /v1/repos/:repoId/versions/:versionId/promote
+   */
+  async promoteRepoVersion(
+    repoId: string,
+    versionId: string,
+    payload?: repoTypes.PromoteVersionRequest
+  ): Promise<repoTypes.RepoVersionDetail> {
+    return this.request<repoTypes.RepoVersionDetail>(
+      `/v1/repos/${encodeURIComponent(repoId)}/versions/${encodeURIComponent(versionId)}/promote`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload ?? {}),
+      },
+      false,
+      undefined,
+      true
+    );
+  }
+
+  /**
+   * Rollback branch to a prior version.
+   *
+   * POST /v1/repos/:repoId/versions/:versionId/rollback
+   */
+  async rollbackRepoVersion(
+    repoId: string,
+    versionId: string,
+    payload?: repoTypes.RollbackVersionRequest
+  ): Promise<repoTypes.RepoVersionDetail> {
+    return this.request<repoTypes.RepoVersionDetail>(
+      `/v1/repos/${encodeURIComponent(repoId)}/versions/${encodeURIComponent(versionId)}/rollback`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload ?? {}),
+      }
+    );
+  }
+
+  /**
+   * Tag a version.
+   *
+   * POST /v1/repos/:repoId/versions/:versionId/tags
+   */
+  async tagRepoVersion(
+    repoId: string,
+    versionId: string,
+    payload: repoTypes.TagVersionRequest
+  ): Promise<repoTypes.RepoVersionDetail> {
+    return this.request<repoTypes.RepoVersionDetail>(
+      `/v1/repos/${encodeURIComponent(repoId)}/versions/${encodeURIComponent(versionId)}/tags`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /**
+   * Start new training based on a version.
+   *
+   * POST /v1/repos/:repoId/versions/:versionId/train
+   */
+  async startTrainingFromVersion(
+    repoId: string,
+    versionId: string,
+    payload: repoTypes.StartTrainingFromVersionRequest
+  ): Promise<repoTypes.RepoTrainingJobLink> {
+    return this.request<repoTypes.RepoTrainingJobLink>(
+      `/v1/repos/${encodeURIComponent(repoId)}/versions/${encodeURIComponent(versionId)}/train`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
   }
 
   // ============================================================================

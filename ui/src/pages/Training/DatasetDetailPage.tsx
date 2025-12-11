@@ -1,9 +1,9 @@
 // DatasetDetailPage - Full dataset detail view with tabs
 // Displays comprehensive dataset information including overview, files, preview, and validation
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Trash2, CheckCircle, AlertCircle, Play, ExternalLink } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Trash2, CheckCircle, AlertCircle, Play, ExternalLink, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -18,15 +18,17 @@ import FeatureLayout from '@/layout/FeatureLayout';
 import { useTraining } from '@/hooks/useTraining';
 import { useRBAC } from '@/hooks/useRBAC';
 import { logger } from '@/utils/logger';
-import type { Dataset, DatasetValidationStatus } from '@/api/training-types';
+import type { Dataset, DatasetValidationStatus, DatasetVersionSummary, TrustState } from '@/api/training-types';
 import { TrainingWizard } from '@/components/TrainingWizard';
+import { useLineage } from '@/hooks/useLineage';
+import { LineageViewer } from '@/components/lineage/LineageViewer';
 
 import DatasetOverview from './DatasetOverview';
 import DatasetFiles from './DatasetFiles';
 import DatasetPreview from './DatasetPreview';
 import DatasetValidation from './DatasetValidation';
 
-type TabValue = 'overview' | 'files' | 'preview' | 'validation';
+type TabValue = 'overview' | 'files' | 'preview' | 'validation' | 'lineage';
 type TrainingJobSummary = { id: string; status: string; progress_pct?: number };
 
 const STATUS_CONFIG: Record<DatasetValidationStatus, {
@@ -73,6 +75,26 @@ function StatusBadge({ status }: { status: DatasetValidationStatus }) {
   );
 }
 
+const TRUST_CONFIG: Record<TrustState, { icon: React.ElementType; className: string; label: string }> = {
+  allowed: { icon: CheckCircle, className: 'text-green-500', label: 'Allowed' },
+  allowed_with_warning: { icon: AlertCircle, className: 'text-amber-500', label: 'Allowed w/ warning' },
+  blocked: { icon: AlertCircle, className: 'text-red-500', label: 'Blocked' },
+  needs_approval: { icon: Clock, className: 'text-orange-500', label: 'Needs approval' },
+  unknown: { icon: Clock, className: 'text-muted-foreground', label: 'Unknown' },
+};
+
+function TrustBadge({ state }: { state: TrustState | undefined }) {
+  const trustState = state ?? 'unknown';
+  const config = TRUST_CONFIG[trustState] || TRUST_CONFIG.unknown;
+  const Icon = config.icon;
+  return (
+    <Badge variant="outline" className="gap-1">
+      <Icon className={`h-3 w-3 ${config.className}`} />
+      <span>{config.label}</span>
+    </Badge>
+  );
+}
+
 const LoadingView = () => (
   <FeatureLayout title="Dataset Details">
     <LoadingState message="Loading dataset details..." />
@@ -108,9 +130,11 @@ function HeaderSection({
   isValidating,
   isDeleting,
   onNavigateBack,
+  trustState,
 }: {
   datasetId: string;
   status: DatasetValidationStatus;
+  trustState?: TrustState;
   canStartTraining: boolean;
   canValidate: boolean;
   canDelete: boolean;
@@ -121,6 +145,10 @@ function HeaderSection({
   isDeleting: boolean;
   onNavigateBack: () => void;
 }) {
+  const trustBlocked =
+    !trustState || trustState === 'unknown' || trustState === 'blocked' || trustState === 'needs_approval';
+  const trustBlockedReason = trustBlocked ? 'Training disabled until dataset trust is allowed' : undefined;
+  const trustWarn = trustState === 'allowed_with_warning';
   const showValidate = (status === 'draft' || status === 'invalid') && canValidate;
   return (
     <div className="flex items-center justify-between">
@@ -128,16 +156,32 @@ function HeaderSection({
         <BackButton onClick={onNavigateBack} />
         <p className="text-sm text-muted-foreground">{datasetId}</p>
         <StatusBadge status={status} />
+        <TrustBadge state={trustState} />
       </div>
       <div className="flex items-center gap-2">
+        {trustWarn && (
+          <Badge variant="outline" className="text-amber-600 border-amber-400">
+            Trust warning
+          </Badge>
+        )}
         {status === 'valid' && canStartTraining && (
-          <Button onClick={onStartTraining}>
+          <Button
+            data-cy="dataset-start-training"
+            onClick={onStartTraining}
+            disabled={trustBlocked}
+            title={trustBlockedReason}
+          >
             <Play className="mr-2 h-4 w-4" />
             Start Training Job
           </Button>
         )}
         {showValidate && (
-          <Button variant="outline" onClick={onValidate} disabled={isValidating}>
+          <Button
+            data-cy="dataset-validate"
+            variant="outline"
+            onClick={onValidate}
+            disabled={isValidating}
+          >
             <CheckCircle className="mr-2 h-4 w-4" />
             {isValidating ? 'Validating...' : 'Validate'}
           </Button>
@@ -224,16 +268,26 @@ function OverviewTab({
   relatedJobs,
   onNavigateJob,
   onViewAllJobs,
+  versions,
+  isLoadingVersions,
 }: {
   dataset: Dataset;
   isLoading: boolean;
   relatedJobs: TrainingJobSummary[];
   onNavigateJob: (jobId: string) => void;
   onViewAllJobs: () => void;
+  versions: DatasetVersionSummary[];
+  isLoadingVersions: boolean;
 }) {
   return (
     <div className="space-y-6">
-      <DatasetOverview dataset={dataset} isLoading={isLoading} />
+      <DatasetOverview
+        dataset={dataset}
+        isLoading={isLoading}
+        versions={versions}
+        isLoadingVersions={isLoadingVersions}
+        latestVersionId={dataset.dataset_version_id}
+      />
       <TrainingJobsCard jobs={relatedJobs} onNavigateJob={onNavigateJob} onViewAll={onViewAllJobs} />
     </div>
   );
@@ -270,6 +324,9 @@ export default function DatasetDetailPage() {
   const { can } = useRBAC();
   const [activeTab, setActiveTab] = useState<TabValue>('overview');
   const [isTrainingWizardOpen, setIsTrainingWizardOpen] = useState(false);
+  const [lineageDirection, setLineageDirection] = useState<'both' | 'upstream' | 'downstream'>('both');
+  const [includeEvidence, setIncludeEvidence] = useState(true);
+  const [lineageCursors, setLineageCursors] = useState<Record<string, string>>({});
 
   const {
     data: dataset,
@@ -280,9 +337,33 @@ export default function DatasetDetailPage() {
     enabled: !!datasetId,
   });
 
+  const {
+    data: versionsData,
+    isLoading: isLoadingVersions,
+  } = useTraining.useDatasetVersions(datasetId || '', {
+    enabled: !!datasetId,
+  });
+
   // Fetch training jobs using this dataset (server-side filtered)
   const { data: jobsData } = useTraining.useTrainingJobs({ dataset_id: datasetId });
   const relatedJobs: TrainingJobSummary[] = jobsData?.jobs || [];
+
+  const datasetVersionId = useMemo(() => dataset?.dataset_version_id || datasetId || '', [dataset?.dataset_version_id, datasetId]);
+  const datasetVersions = versionsData?.versions || [];
+
+  const {
+    data: lineageData,
+    isLoading: isLoadingLineage,
+    refetch: refetchLineage,
+  } = useLineage('dataset_version', datasetVersionId, {
+    params: {
+      direction: lineageDirection,
+      include_evidence: includeEvidence,
+      limit_per_level: 6,
+      cursors: lineageCursors,
+    },
+    enabled: Boolean(datasetVersionId),
+  });
 
   const { mutateAsync: validateDataset, isPending: isValidating } = useTraining.useValidateDataset({
     onSuccess: () => {
@@ -318,6 +399,43 @@ export default function DatasetDetailPage() {
     }
   }, [datasetId, deleteDataset]);
 
+  const handleNavigateLineageNode = useCallback(
+    (node: { type?: string; id: string; href?: string }) => {
+      if (node.href) {
+        navigate(node.href);
+        return;
+      }
+      switch (node.type) {
+        case 'dataset':
+        case 'dataset_version':
+          navigate(`/training/datasets/${node.id}`);
+          return;
+        case 'training_job':
+          navigate(`/training/jobs/${node.id}`);
+          return;
+        case 'adapter_version':
+          navigate(`/adapters/${node.id}`);
+          return;
+        case 'document':
+          navigate(`/documents/${node.id}`);
+          return;
+        default:
+          return;
+      }
+    },
+    [navigate],
+  );
+
+  const handleLineageLoadMore = useCallback(
+    (level: { type: string; next_cursor?: string }) => {
+      if (!level.next_cursor) return;
+      setLineageCursors((prev) => ({
+        ...prev,
+        [level.type]: level.next_cursor!,
+      }));
+    },
+    [],
+  );
 
   if (isLoading) {
     return <LoadingView />;
@@ -333,6 +451,7 @@ export default function DatasetDetailPage() {
         <HeaderSection
           datasetId={dataset.id}
           status={dataset.validation_status}
+          trustState={dataset.trust_state}
           canStartTraining={can('training:start')}
           canValidate={can('dataset:validate')}
           canDelete={can('dataset:delete')}
@@ -345,17 +464,20 @@ export default function DatasetDetailPage() {
         />
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="files">Files</TabsTrigger>
             <TabsTrigger value="preview">Preview</TabsTrigger>
             <TabsTrigger value="validation">Validation</TabsTrigger>
+            <TabsTrigger value="lineage">Lineage</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-6">
             <OverviewTab
               dataset={dataset}
               isLoading={isLoading}
+              versions={datasetVersions}
+              isLoadingVersions={isLoadingVersions}
               relatedJobs={relatedJobs}
               onNavigateJob={(jobId) => navigate(`/training/jobs/${jobId}`)}
               onViewAllJobs={() => navigate(`/training/jobs?dataset_id=${datasetId}`)}
@@ -372,6 +494,24 @@ export default function DatasetDetailPage() {
 
           <TabsContent value="validation" className="mt-6">
             <DatasetValidation dataset={dataset} onValidate={handleValidate} isValidating={isValidating} />
+          </TabsContent>
+
+          <TabsContent value="lineage" className="mt-6">
+            <LineageViewer
+              title="Dataset Lineage"
+              data={lineageData ?? null}
+              isLoading={isLoadingLineage}
+              onRefresh={() => {
+                setLineageCursors({});
+                refetchLineage();
+              }}
+              direction={lineageDirection}
+              includeEvidence={includeEvidence}
+              onChangeDirection={setLineageDirection}
+              onToggleEvidence={() => setIncludeEvidence((v) => !v)}
+              onNavigateNode={handleNavigateLineageNode}
+              onLoadMore={(level) => handleLineageLoadMore(level)}
+            />
           </TabsContent>
         </Tabs>
 

@@ -6,6 +6,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { toast } from 'sonner';
 import type {
   Evidence,
   CreateEvidenceRequest,
@@ -102,11 +103,35 @@ export function useEvidenceApi(filter?: ListEvidenceQuery) {
     },
   });
 
+  type DeleteEvidenceParams = string | { evidenceId: string; datasetId?: string; adapterId?: string };
+
   const deleteMutation = useMutation({
-    mutationFn: (evidenceId: string) => apiClient.deleteEvidence(evidenceId),
-    onSuccess: (_data, evidenceId) => {
+    mutationFn: (params: DeleteEvidenceParams) => {
+      const evidenceId = typeof params === 'string' ? params : params.evidenceId;
+      return apiClient.deleteEvidence(evidenceId);
+    },
+    onSuccess: (_data, params) => {
+      const evidenceId = typeof params === 'string' ? params : params.evidenceId;
+      const datasetId = typeof params === 'string' ? undefined : params.datasetId;
+      const adapterId = typeof params === 'string' ? undefined : params.adapterId;
+
       queryClient.invalidateQueries({ queryKey: evidenceKeys.lists() });
       queryClient.removeQueries({ queryKey: evidenceKeys.detail(evidenceId) });
+
+      if (datasetId) {
+        queryClient.invalidateQueries({ queryKey: evidenceKeys.byDataset(datasetId) });
+      }
+      if (adapterId) {
+        queryClient.invalidateQueries({ queryKey: evidenceKeys.byAdapter(adapterId) });
+      }
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('404') || message.includes('Not Found')) {
+        toast.error('Evidence deletion is not available on this backend (v0.9).');
+        return;
+      }
+      toast.error('Failed to delete evidence');
     },
   });
 

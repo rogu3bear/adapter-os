@@ -8,7 +8,21 @@ export interface TrainingJob {
   adapter_name?: string;
   template_id?: string;
   repo_id?: string;
+  branch?: string;
+  repo_name?: string;
+  target_branch?: string;
+  adapter_version_id?: string;
+  produced_version_id?: string;
+  draft_version_id?: string;
   dataset_id?: string;
+  dataset_version_ids?: DatasetVersionSelection[];
+  synthetic_mode?: boolean;
+  data_lineage_mode?: DataLineageMode;
+  branch_classification?: BranchClassification;
+  dataset_version_trust?: DatasetVersionTrustSnapshot[];
+  data_spec?: string;
+  data_spec_hash?: string;
+  dataset_version_id?: string;
   adapter_id?: string;
   config?: TrainingConfig;
   status: TrainingStatus;
@@ -40,9 +54,26 @@ export interface TrainingJob {
   build_id?: string;
   config_hash_b3?: string;
   weights_hash_b3?: string;
+  data_spec_hash?: string;
+  backend_policy?: string;
+  requested_backend?: string;
+  coreml_training_fallback?: string;
   backend?: string;
   backend_reason?: string;
   backend_device?: string;
+  backend_policy_mode?: string;
+  backend_attempts?: BackendAttempt[];
+  coreml_attempted?: boolean;
+  coreml_used?: boolean;
+  coreml_device_type?: string;
+  coreml_export_requested?: boolean;
+  coreml_export_status?: string;
+  coreml_export_reason?: string;
+  coreml_fused_package_hash?: string;
+  coreml_package_path?: string;
+  coreml_metadata_path?: string;
+  coreml_base_manifest_hash?: string;
+  coreml_adapter_hash_b3?: string;
   determinism_mode?: string;
   training_seed?: number;
   require_gpu?: boolean;
@@ -55,12 +86,19 @@ export interface TrainingJob {
   throughput_examples_per_sec?: number;
   gpu_utilization_pct?: number;
   peak_gpu_memory_mb?: number;
+  drift_metrics?: DriftMetrics;
+  loss_curve?: number[];
   aos_path?: string;
   package_hash_b3?: string;
   manifest_rank?: number;
   manifest_base_model?: string;
   manifest_per_layer_hashes?: boolean;
   signature_status?: string;
+  // Trust snapshot captured at training time
+  dataset_trust_state?: TrustState;
+  dataset_trust_reason?: string;
+  error_category?: TrainingErrorCategory;
+  error_detail?: string;
 
   // Category metadata
   category?: string;
@@ -89,6 +127,16 @@ export interface TrainingJob {
 
 export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
+export interface DatasetVersionSelection {
+  dataset_version_id: string;
+  weight?: number;
+}
+
+export interface DatasetVersionTrustSnapshot {
+  dataset_version_id: string;
+  trust_at_training_time?: string;
+}
+
 export interface TrainingConfig {
   adapter_id?: string;
   dataset_id?: string;
@@ -103,6 +151,9 @@ export interface TrainingConfig {
   max_seq_length?: number;
   gradient_accumulation_steps?: number;
   preferred_backend?: string;
+  backend_policy?: string;
+  coreml_training_fallback?: string;
+  enable_coreml_export?: boolean;
   require_gpu?: boolean;
   max_gpu_memory_mb?: number;
   save_steps?: number;
@@ -130,6 +181,7 @@ export interface StartTrainingRequest {
   template_id?: string;
   repo_id?: string;
   dataset_id?: string;
+  dataset_version_ids?: DatasetVersionSelection[];
 
   // Provenance tracking
   base_model_id?: string;         // Base model used for training
@@ -163,6 +215,7 @@ export interface PostActionsRequest {
   package?: boolean;              // Package adapter after training (default: true)
   register?: boolean;             // Register adapter in registry (default: true)
   create_stack?: boolean;         // Create new stack with adapter (default: true, NOT set as default)
+  activate_stack?: boolean;       // Activate the created stack (default: false)
   tier?: string;                  // Tier to assign: persistent, warm, ephemeral (default: warm)
   adapters_root?: string;         // Custom adapters root directory
 }
@@ -179,6 +232,9 @@ export interface TrainingConfigRequest {
   max_seq_length?: number;
   gradient_accumulation_steps?: number;
   preferred_backend?: string;
+  backend_policy?: string;
+  coreml_training_fallback?: string;
+  enable_coreml_export?: boolean;
   require_gpu?: boolean;
   max_gpu_memory_mb?: number;
   // Additional UI fields (sent to backend if supported)
@@ -188,6 +244,9 @@ export interface TrainingConfigRequest {
   eval_steps?: number;
   logging_steps?: number;
 }
+
+export type DataLineageMode = 'versioned' | 'dataset_only' | 'synthetic' | 'legacy_unpinned';
+export type BranchClassification = 'protected' | 'high' | 'sandbox';
 
 // UI-only fields for form state (not sent to backend directly)
 export interface StartTrainingRequestUIExtras {
@@ -199,6 +258,19 @@ export interface StartTrainingRequestUIExtras {
 export interface TrainingResponse {
   schema_version: string;
   job: TrainingJob;
+}
+
+export type TrustState = 'allowed' | 'allowed_with_warning' | 'blocked' | 'needs_approval' | 'unknown';
+
+export interface DatasetTrustOverrideRequest {
+  override_state: TrustState;
+  reason: string;
+}
+
+export interface DatasetTrustOverrideResponse {
+  dataset_id: string;
+  dataset_version_id: string;
+  effective_trust_state?: TrustState;
 }
 
 export interface ListTrainingJobsResponse {
@@ -233,8 +305,41 @@ export interface TrainingMetrics {
   peak_gpu_memory_mb?: number;
 }
 
+export type BackendAttemptResult = 'selected' | 'failed' | 'skipped';
+
+export interface BackendAttempt {
+  backend: string;
+  result?: BackendAttemptResult;
+  reason?: string;
+  error_category?: TrainingErrorCategory;
+  error_code?: string;
+  coreml?: {
+    attempted?: boolean;
+    used?: boolean;
+    device_type?: string;
+  };
+  started_at?: string;
+  completed_at?: string;
+}
+
+export type TrainingErrorCategory =
+  | 'coreml_compile'
+  | 'dataset_trust'
+  | 'storage'
+  | 'backend'
+  | 'policy'
+  | 'other';
+
+export interface DriftMetrics {
+  drift_score?: number;
+  drift_tokens?: number;
+  baseline_loss?: number;
+  window_seconds?: number;
+}
+
 export interface Dataset {
   id: string;
+  dataset_version_id?: string;
   name: string;
   hash_b3: string;
   source_type: DatasetSourceType;
@@ -260,10 +365,33 @@ export interface Dataset {
   collection_method?: CollectionMethod;
   ownership?: string;
   tenant_id?: string;
+  trust_state?: TrustState;
+  trust_reason?: string;
+  overall_safety_status?: string;
+  pii_status?: string;
+  toxicity_status?: string;
+  leak_status?: string;
+  anomaly_status?: string;
   // Usage and evidence counts (computed)
   usage_count?: number;
   evidence_count?: number;
   linked_adapters?: string[];
+}
+
+export interface DatasetVersionSummary {
+  dataset_version_id: string;
+  version_number: number;
+  version_label?: string;
+  hash_b3?: string;
+  storage_path?: string;
+  trust_state?: TrustState;
+  created_at: string;
+}
+
+export interface DatasetVersionListResponse {
+  schema_version: string;
+  dataset_id: string;
+  versions: DatasetVersionSummary[];
 }
 
 export type TrainingDataset = Dataset;
@@ -280,6 +408,8 @@ export interface CreateDatasetRequest {
   language?: string;
   framework?: string;
   files?: File[];
+  description?: string;
+  format?: string;
   repository_url?: string;
   branch?: string;
   commit_hash?: string;
@@ -297,6 +427,7 @@ export interface DatasetResponse {
  */
 export interface CreateDatasetFromDocumentsRequest {
   document_id?: string;
+  document_ids?: string[];
   collection_id?: string;
   name?: string;
   description?: string;

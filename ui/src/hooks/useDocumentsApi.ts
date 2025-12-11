@@ -69,14 +69,14 @@ export function useDocumentChunks(documentId: string | undefined) {
  * Hook for uploading a document (custom operation - uses File instead of standard create)
  */
 export function useUploadDocument(
-  options?: Omit<UseMutationOptions<Document, Error, { file: File; name?: string }, unknown>, 'mutationFn'>
+  options?: Omit<UseMutationOptions<Document, Error, { file: File; name?: string; description?: string }, unknown>, 'mutationFn'>
 ) {
   const queryClient = useQueryClient();
   const { onSuccess, ...restOptions } = options ?? {};
 
-  return useMutation<Document, Error, { file: File; name?: string }>({
-    mutationFn: ({ file, name }: { file: File; name?: string }) =>
-      apiClient.uploadDocument(file, name),
+  return useMutation<Document, Error, { file: File; name?: string; description?: string }>({
+    mutationFn: ({ file, name, description }: { file: File; name?: string; description?: string }) =>
+      apiClient.uploadDocument({ file, name, description }),
     ...restOptions,
     onSuccess: async (data, variables, ...rest) => {
       queryClient.invalidateQueries({ queryKey: documentKeys.lists() });

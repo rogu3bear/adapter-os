@@ -350,6 +350,7 @@ export function useBatchInference(options: UseBatchInferenceOptions): UseBatchIn
       const batchItems = batchPrompts.map((prompt, idx) => ({
         id: `batch-${Date.now()}-${idx}`,
         prompt: sanitizeInput(prompt),
+        model: config.model,
         max_tokens: config.max_tokens,
         temperature: config.temperature,
         top_k: config.top_k,
@@ -364,6 +365,7 @@ export function useBatchInference(options: UseBatchInferenceOptions): UseBatchIn
       // Call batch inference API
       const response = await apiClient.batchInfer({
         backend: config.backend || 'auto',
+        model: config.model,
         requests: batchItems,
       });
 

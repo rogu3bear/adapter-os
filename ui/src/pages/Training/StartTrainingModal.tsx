@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FormModal } from '@/components/shared/Modal';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,7 +13,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { useTraining } from '@/hooks/useTraining';
 import { AlertCircle } from 'lucide-react';
-import type { StartTrainingRequest, TrainingConfigRequest } from '@/api/training-types';
+import type { StartTrainingRequest, TrainingConfigRequest, DatasetVersionSelection } from '@/api/training-types';
+import { useTenant } from '@/providers/FeatureProviders';
 
 interface StartTrainingModalProps {
   open: boolean;
@@ -25,15 +26,16 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
   const [adapterName, setAdapterName] = useState('');
   const [datasetId, setDatasetId] = useState('');
   const [templateId, setTemplateId] = useState('');
-  const [repoId, setRepoId] = useState('');
   const [learningRate, setLearningRate] = useState('0.0001');
   const [epochs, setEpochs] = useState('3');
   const [batchSize, setBatchSize] = useState('8');
   const [rank, setRank] = useState('16');
   const [alpha, setAlpha] = useState('32');
+  const [datasetVersionSelections, setDatasetVersionSelections] = useState<DatasetVersionSelection[]>([]);
 
   const { data: datasetsData } = useTraining.useDatasets();
   const { data: templatesData } = useTraining.useTemplates();
+  const { selectedTenant, tenants } = useTenant();
 
   const { mutateAsync: startTraining, isPending, error } = useTraining.useStartTraining({
     onSuccess: (job) => {
@@ -47,7 +49,6 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
     setAdapterName('');
     setDatasetId('');
     setTemplateId('');
-    setRepoId('');
     setLearningRate('0.0001');
     setEpochs('3');
     setBatchSize('8');
@@ -59,6 +60,12 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
     // Check dataset validation status
     if (datasetId && selectedDataset && selectedDataset.validation_status !== 'valid') {
       return; // Will be prevented by disabled button, but add check for safety
+    }
+    if (!datasetId) {
+      return;
+    }
+    if (datasetVersionMissing) {
+      return;
     }
 
     const config: TrainingConfigRequest = {
@@ -73,8 +80,8 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
       adapter_name: adapterName,
       config,
       ...(datasetId && { dataset_id: datasetId }),
+      ...(datasetVersionSelections.length > 0 && { dataset_version_ids: datasetVersionSelections }),
       ...(templateId && { template_id: templateId }),
-      ...(repoId && { repo_id: repoId }),
     };
 
     await startTraining(request);
@@ -83,7 +90,26 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
   const datasets = datasetsData?.datasets || [];
   const templates = templatesData || [];
   const selectedDataset = datasets.find(d => d.id === datasetId);
-  const isDatasetValid = !datasetId || selectedDataset?.validation_status === 'valid';
+  const selectedDatasetVersionId = selectedDataset?.dataset_version_id;
+  const datasetVersionMissing = Boolean(datasetId) && Boolean(selectedDataset) && !selectedDatasetVersionId;
+  const isDatasetValid = !datasetId || (selectedDataset?.validation_status === 'valid' && !datasetVersionMissing);
+  const selectedTenantStatus = tenants.find((t) => t.id === selectedTenant)?.status?.toLowerCase();
+  const isHighAssuranceTenant =
+    selectedTenantStatus === 'production' || selectedTenantStatus === 'high_assurance';
+
+  useEffect(() => {
+    if (!datasetId && datasets.length > 0) {
+      setDatasetId(datasets[0].id);
+    }
+  }, [datasets, datasetId]);
+
+  useEffect(() => {
+    if (selectedDatasetVersionId) {
+      setDatasetVersionSelections([{ dataset_version_id: selectedDatasetVersionId, weight: 1 }]);
+    } else {
+      setDatasetVersionSelections([]);
+    }
+  }, [selectedDatasetVersionId]);
 
   return (
     <FormModal
@@ -94,7 +120,7 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
       onSubmit={handleSubmit}
       submitText="Start Training"
       isSubmitting={isPending}
-      isValid={isDatasetValid}
+      isValid={isDatasetValid && !!datasetId && !datasetVersionMissing}
       onCancel={resetForm}
     >
       {error && (
@@ -123,12 +149,11 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
 
           <div>
             <Label htmlFor="datasetId">Dataset</Label>
-            <Select value={datasetId || "__none__"} onValueChange={(v) => setDatasetId(v === "__none__" ? "" : v)}>
+            <Select value={datasetId} onValueChange={setDatasetId}>
               <SelectTrigger id="datasetId">
-                <SelectValue placeholder="Select dataset (optional)" />
+              <SelectValue placeholder="Select dataset (required)" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__">None</SelectItem>
                 {datasets.map((dataset) => (
                   <SelectItem key={dataset.id} value={dataset.id}>
                     <div className="flex items-center gap-2">
@@ -136,6 +161,9 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
                       <Badge variant="outline" className="text-xs">
                         {dataset.validation_status}
                       </Badge>
+              <Badge variant="outline" className="text-xs">
+                {dataset.dataset_version_id ?? 'no-version'}
+              </Badge>
                     </div>
                   </SelectItem>
                 ))}
@@ -146,6 +174,15 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   Dataset must be validated before training. Current status: {selectedDataset.validation_status}
+                </AlertDescription>
+              </Alert>
+            )}
+            {datasetVersionMissing && (
+              <Alert variant="destructive" className="mt-2">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  This dataset has no version bound. Please create a dataset version before training.
+                  {isHighAssuranceTenant ? ' High-assurance tenants require versioned lineage.' : ''}
                 </AlertDescription>
               </Alert>
             )}
@@ -166,16 +203,6 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <div>
-            <Label htmlFor="repoId">Repository ID</Label>
-            <Input
-              id="repoId"
-              value={repoId}
-              onChange={(e) => setRepoId(e.target.value)}
-              placeholder="optional"
-            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

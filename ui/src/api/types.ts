@@ -51,3 +51,4 @@ export * from '@/api/federation-types';
 export * from '@/api/plugin-types';
 export * from '@/api/streaming-types';
 export * from '@/api/owner-types';
+export * from '@/api/lineage-types';

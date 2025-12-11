@@ -41,8 +41,9 @@ import {
   Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
-import { InferRequest, InferResponse, InferenceSession, Adapter, InferenceConfig } from '@/api/types';
+import apiClient, { ApiError } from '@/api/client';
+import { InferRequest, InferResponse, InferenceSession, Adapter, InferenceConfig, BackendName, BackendStatus, BackendCapability, HardwareCapabilities, CoremlPackageStatus } from '@/api/types';
+import { isCoremlPackageUiEnabled } from '@/config/featureFlags';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { logger, toError } from '@/utils/logger';
 import { useSearchParams } from 'react-router-dom';
@@ -59,6 +60,7 @@ import { usePromptTemplates, PromptTemplate as PromptTemplateType } from '@/hook
 import { InferenceRequestSchema, BatchPromptSchema } from '@/schemas';
 import { useAdapterStacks, useGetDefaultStack, useSetDefaultStack } from '@/hooks/useAdmin';
 import { ZodError } from 'zod';
+import { ModelSelector } from './ModelSelector';
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
@@ -106,13 +108,71 @@ const recordPrivacySafeMetrics = (operation: string, data: Record<string, unknow
   });
 };
 
+const formatStatusLabel = (value?: string, fallback: string = 'Unknown'): string => {
+  if (!value) return fallback;
+  const normalized = value.replace(/_/g, ' ').trim();
+  if (!normalized) return fallback;
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
+const extractCoremlErrorMessage = (error: unknown, fallback: string): string => {
+  const apiErr = error as ApiError;
+  if (apiErr?.detail) return apiErr.detail;
+  if (apiErr?.message) return apiErr.message;
+  const parsed = toError(error);
+  return parsed.message || fallback;
+};
+
+const BACKEND_LABELS: Record<BackendName, string> = {
+  auto: 'Auto (router)',
+  coreml: 'CoreML',
+  mlx: 'MLX',
+  metal: 'Metal',
+};
+
+const BACKEND_PRIORITY: BackendName[] = ['coreml', 'mlx', 'metal', 'auto'];
+
+const BACKEND_PREF_KEY = 'inference-backend-preferences';
+const LAST_MODEL_KEY = 'inference-last-model';
+
+interface BackendOption {
+  name: BackendName;
+  available: boolean;
+  status?: BackendStatus['status'];
+  mode?: BackendStatus['mode'];
+  notes?: string[];
+  hardwareHint?: string;
+}
+
 
 function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps) {
   const [searchParams] = useSearchParams();
   const { can, userRole } = useRBAC();
   const { errors, addError, clearError } = usePageErrors();
+  const coremlUiEnabled = isCoremlPackageUiEnabled();
   const [mode, setMode] = useState<'single' | 'comparison'>('single');
   const [inferenceMode, setInferenceMode] = useState<'standard' | 'streaming' | 'batch'>('standard');
+  const [selectedModelId, setSelectedModelId] = useState<string>(() => {
+    try {
+      return localStorage.getItem(LAST_MODEL_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
+  const [backendPreferences, setBackendPreferences] = useState<Record<string, BackendName>>(() => {
+    try {
+      const raw = localStorage.getItem(BACKEND_PREF_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, BackendName>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [backendOptions, setBackendOptions] = useState<BackendOption[]>([{ name: 'auto', available: true }]);
+  const [backendStatusLoading, setBackendStatusLoading] = useState(false);
+  const [backendError, setBackendError] = useState<string | null>(null);
+  const [backendWarning, setBackendWarning] = useState<string | null>(null);
+  const [lastBackendUsed, setLastBackendUsed] = useState<string | null>(null);
+  const [hardwareCapabilities, setHardwareCapabilities] = useState<HardwareCapabilities | null>(null);
   const [prompt, setPrompt] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
@@ -120,6 +180,9 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   const [selectedStackId, setSelectedStackId] = useState<string>('');
   const [adapterStrength, setAdapterStrength] = useState<number | null>(null);
   const [isAdapterStrengthUpdating, setIsAdapterStrengthUpdating] = useState(false);
+  const [coremlStatus, setCoremlStatus] = useState<CoremlPackageStatus | null>(null);
+  const [coremlStatusLoading, setCoremlStatusLoading] = useState(false);
+  const [coremlAction, setCoremlAction] = useState<'export' | 'verify' | null>(null);
 
   // Fetch stacks and default stack
   const { data: stacks = [] } = useAdapterStacks();
@@ -204,6 +267,149 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   });
   const visibleHint = getVisibleHint();
 
+  const determineDefaultBackend = useCallback((): BackendName => {
+    for (const backend of BACKEND_PRIORITY) {
+      if (backend === 'auto') {
+        return 'auto';
+      }
+      const option = backendOptions.find((o) => o.name === backend);
+      if (option?.available) {
+        return backend;
+      }
+    }
+    return 'auto';
+  }, [backendOptions]);
+
+  const persistBackendPreference = useCallback((modelId: string, backend: BackendName) => {
+    setBackendPreferences((prev) => {
+      const next = { ...prev, [modelId || '__default']: backend };
+      try {
+        localStorage.setItem(BACKEND_PREF_KEY, JSON.stringify(next));
+      } catch {
+        // best-effort persistence
+      }
+      return next;
+    });
+  }, []);
+
+  const getPreferredBackend = useCallback((modelId: string): BackendName => {
+    const key = modelId || '__default';
+    const stored = backendPreferences[key] || backendPreferences['__default'];
+    return stored || determineDefaultBackend();
+  }, [backendPreferences, determineDefaultBackend]);
+
+  // Load backend availability/capabilities
+  useEffect(() => {
+    let cancelled = false;
+    const fetchBackends = async () => {
+      setBackendStatusLoading(true);
+      try {
+        const [statusList, capabilities] = await Promise.all([
+          apiClient.listBackends().catch(() => null),
+          apiClient.getBackendCapabilities().catch(() => null),
+        ]);
+
+        if (cancelled) return;
+
+        const statusByName = new Map(statusList?.backends?.map((b) => [b.backend, b]));
+        const capabilityByName = new Map(capabilities?.backends?.map((b) => [b.backend, b.capabilities]));
+
+        if (capabilities?.hardware) {
+          setHardwareCapabilities(capabilities.hardware);
+        }
+
+        const options: BackendOption[] = (['auto', 'coreml', 'mlx', 'metal'] as BackendName[]).map((name) => {
+          if (name === 'auto') {
+            return { name, available: true, status: 'healthy' };
+          }
+          const status = statusByName.get(name) as BackendStatus | undefined;
+          const capability = capabilityByName.get(name) as BackendCapability[] | undefined;
+          const isAvailable = Boolean(
+            capability?.some((c) => c.available) && status?.status !== 'unavailable'
+          );
+          const hardwareHint = name === 'coreml' && capabilities?.hardware?.ane_available
+            ? 'ANE + GPU'
+            : name === 'metal' && capabilities?.hardware?.gpu_available
+              ? capabilities.hardware?.gpu_type || 'GPU'
+              : undefined;
+
+          return {
+            name,
+            available: isAvailable,
+            status: status?.status,
+            mode: status?.mode,
+            notes: status?.warnings || status?.notes,
+            hardwareHint,
+          };
+        });
+
+        setBackendOptions(options);
+        setBackendError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setBackendError(err instanceof Error ? err.message : 'Failed to load backend capabilities');
+        setBackendOptions([{ name: 'auto', available: true }]);
+      } finally {
+        if (!cancelled) {
+          setBackendStatusLoading(false);
+        }
+      }
+    };
+
+    fetchBackends();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Prefer CoreML by default when available; otherwise follow the priority chain.
+  useEffect(() => {
+    if (!selectedModelId || !backendOptions.length) return;
+
+    const stored =
+      backendPreferences[selectedModelId] || backendPreferences['__default'];
+    if (stored) return;
+
+    const preferred = determineDefaultBackend();
+    if (configA.backend !== preferred) {
+      setConfigA((prev) => ({ ...prev, model: selectedModelId, backend: preferred }));
+      setConfigB((prev) => ({ ...prev, model: selectedModelId, backend: preferred }));
+
+      if (preferred !== 'coreml') {
+        const coremlOption = backendOptions.find((o) => o.name === 'coreml');
+        const detail =
+          coremlOption?.notes?.[0] ||
+          coremlOption?.status ||
+          'CoreML unavailable';
+        setBackendWarning(
+          `Fell back from CoreML to ${BACKEND_LABELS[preferred] || preferred} (reason: ${detail})`
+        );
+      } else {
+        setBackendWarning(null);
+      }
+    }
+  }, [
+    backendOptions,
+    backendPreferences,
+    configA.backend,
+    determineDefaultBackend,
+    selectedModelId,
+    setConfigA,
+    setConfigB
+  ]);
+
+  // Keep config model/backend aligned with current selection or stored preference
+  useEffect(() => {
+    if (selectedModelId) {
+      const preferredBackend = getPreferredBackend(selectedModelId);
+      setConfigA((prev) => ({ ...prev, model: selectedModelId, backend: preferredBackend }));
+      setConfigB((prev) => ({ ...prev, model: selectedModelId, backend: preferredBackend }));
+      try {
+        localStorage.setItem(LAST_MODEL_KEY, selectedModelId);
+      } catch {
+        // ignore storage errors
+      }
+    }
+  }, [selectedModelId, getPreferredBackend, setConfigA, setConfigB]);
+
   const handleApplyTemplate = useCallback((template: PromptTemplateType) => {
     logger.info('Applying template', { templateId: template.id, templateName: template.name });
 
@@ -257,6 +463,96 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     setShowTemplateManager(true);
   }, []);
 
+  const handleModelChange = useCallback((modelId: string) => {
+    setSelectedModelId(modelId);
+    const preferredBackend = getPreferredBackend(modelId);
+    setConfigA((prev) => ({ ...prev, model: modelId, backend: preferredBackend }));
+    setConfigB((prev) => ({ ...prev, model: modelId, backend: preferredBackend }));
+    try {
+      localStorage.setItem(LAST_MODEL_KEY, modelId);
+    } catch {
+      // ignore storage errors
+    }
+  }, [getPreferredBackend, setConfigA, setConfigB]);
+
+  const resolveBackendSelection = useCallback(
+    (requested?: BackendName) => {
+      const target = requested || determineDefaultBackend();
+
+      if (target === 'auto') {
+        setBackendWarning(null);
+        return { backend: 'auto' as BackendName, reason: null };
+      }
+
+      const option = backendOptions.find((o) => o.name === target);
+      if (!option) {
+        const reason = 'Backend availability is unknown; using Auto.';
+        setBackendWarning(reason);
+        return { backend: 'auto' as BackendName, reason };
+      }
+
+      if (option.available) {
+        setBackendWarning(null);
+        return { backend: target, reason: null };
+      }
+
+      const startIndex = BACKEND_PRIORITY.indexOf(target);
+      const fallbackChain =
+        startIndex >= 0
+          ? BACKEND_PRIORITY.slice(startIndex + 1)
+          : BACKEND_PRIORITY;
+
+      const failedDetail =
+        option.notes?.[0] || option.status || 'unavailable';
+
+      for (const fallback of fallbackChain) {
+        if (fallback === 'auto') {
+          const reason = `${BACKEND_LABELS[target] || target} is unavailable; falling back to Auto.`;
+          setBackendWarning(reason);
+          return { backend: 'auto' as BackendName, reason };
+        }
+
+        const fallbackOption = backendOptions.find((o) => o.name === fallback);
+        if (fallbackOption?.available) {
+          const reason = `Fell back from ${BACKEND_LABELS[target] || target} to ${BACKEND_LABELS[fallback] || fallback} (reason: ${failedDetail})`;
+          setBackendWarning(reason);
+          return { backend: fallback, reason };
+        }
+      }
+
+      const reason = `${BACKEND_LABELS[target] || target} is unavailable; falling back to Auto.`;
+      setBackendWarning(reason);
+      return { backend: 'auto' as BackendName, reason };
+    },
+    [backendOptions, determineDefaultBackend]
+  );
+
+  const handleBackendChange = useCallback((backend: BackendName) => {
+    const { backend: resolvedBackend, reason } = resolveBackendSelection(backend);
+    if (reason) {
+      toast.info(reason);
+    }
+    setConfigA((prev) => ({ ...prev, backend: resolvedBackend }));
+    setConfigB((prev) => ({ ...prev, backend: resolvedBackend }));
+    setLastBackendUsed(resolvedBackend);
+    persistBackendPreference(selectedModelId || '__default', resolvedBackend);
+  }, [persistBackendPreference, selectedModelId, setConfigA, setConfigB, resolveBackendSelection]);
+
+  // Validate backend selection when availability data changes
+  useEffect(() => {
+    if (!backendOptions.length) return;
+    if (configA.backend) {
+      const { backend, reason } = resolveBackendSelection(configA.backend as BackendName);
+      if (backend !== configA.backend) {
+        setConfigA((prev) => ({ ...prev, backend }));
+        setConfigB((prev) => ({ ...prev, backend }));
+      }
+      if (reason) {
+        setBackendWarning(reason);
+      }
+    }
+  }, [backendOptions, configA.backend, resolveBackendSelection, setConfigA, setConfigB]);
+
   const setDeterminismMode = useCallback(
     (mode: 'deterministic' | 'adaptive') => {
       setConfigA(prev => ({ ...prev, routing_determinism_mode: mode }));
@@ -287,6 +583,135 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     },
     [selectedAdapterId]
   );
+
+  const refreshCoremlStatus = useCallback(async () => {
+    if (!coremlUiEnabled) {
+      setCoremlStatus({
+        supported: false,
+        export_available: false,
+        verification_status: 'unsupported',
+      });
+      setCoremlStatusLoading(false);
+      return;
+    }
+    if (!selectedAdapterId || selectedAdapterId === 'none') {
+      setCoremlStatus(null);
+      return;
+    }
+    setCoremlStatusLoading(true);
+    try {
+      const status = await apiClient.getCoremlPackageStatus(
+        selectedAdapterId,
+        selectedModelId || undefined
+      );
+      setCoremlStatus(status);
+    } catch (error) {
+      logger.warn('Failed to load CoreML package status', {
+        component: 'InferencePlayground',
+        operation: 'coremlStatus',
+        adapterId: selectedAdapterId,
+        modelId: selectedModelId,
+        error: toError(error),
+      });
+      setCoremlStatus((prev) => prev ?? { supported: false, export_available: false, verification_status: 'unknown' });
+    } finally {
+      setCoremlStatusLoading(false);
+    }
+  }, [coremlUiEnabled, selectedAdapterId, selectedModelId]);
+
+  const handleCoremlExport = useCallback(async () => {
+    if (!coremlUiEnabled) {
+      toast.info('CoreML export is not yet supported in this UI.');
+      return;
+    }
+    if (!selectedAdapterId || selectedAdapterId === 'none') {
+      toast.info('Select an adapter to request a CoreML export.');
+      return;
+    }
+    setCoremlAction('export');
+    try {
+      const resp = await apiClient.triggerCoremlExport(
+        selectedAdapterId,
+        selectedModelId || undefined
+      );
+      if (resp?.status?.supported === false) {
+        const message = resp?.message || 'CoreML export not supported by server';
+        toast.error(message);
+        setCoremlStatus(resp.status);
+        return;
+      }
+      if (resp?.message) {
+        toast.success(resp.message);
+      } else {
+        toast.success('CoreML export requested');
+      }
+      if (resp?.status) {
+        setCoremlStatus(resp.status);
+      } else {
+        await refreshCoremlStatus();
+      }
+    } catch (error) {
+      const message = extractCoremlErrorMessage(error, 'Failed to request CoreML export');
+      toast.error(message);
+      logger.error(
+        'CoreML export request failed',
+        {
+          component: 'InferencePlayground',
+          operation: 'coremlExport',
+          adapterId: selectedAdapterId,
+          modelId: selectedModelId,
+        },
+        toError(error)
+      );
+    } finally {
+      setCoremlAction(null);
+    }
+  }, [coremlUiEnabled, refreshCoremlStatus, selectedAdapterId, selectedModelId]);
+
+  const handleCoremlVerification = useCallback(async () => {
+    if (!coremlUiEnabled) {
+      toast.info('CoreML verification is not yet supported in this UI.');
+      return;
+    }
+    if (!selectedAdapterId || selectedAdapterId === 'none') {
+      toast.info('Select an adapter to verify its CoreML package.');
+      return;
+    }
+    setCoremlAction('verify');
+    try {
+      const resp = await apiClient.triggerCoremlVerification(selectedAdapterId);
+      if (resp?.status?.supported === false) {
+        const message = resp?.message || 'CoreML verification not supported by server';
+        toast.error(message);
+        setCoremlStatus(resp.status);
+        return;
+      }
+      if (resp?.message) {
+        toast.success(resp.message);
+      } else {
+        toast.success('CoreML verification requested');
+      }
+      if (resp?.status) {
+        setCoremlStatus(resp.status);
+      } else {
+        await refreshCoremlStatus();
+      }
+    } catch (error) {
+      const message = extractCoremlErrorMessage(error, 'Failed to request CoreML verification');
+      toast.error(message);
+      logger.error(
+        'CoreML verification request failed',
+        {
+          component: 'InferencePlayground',
+          operation: 'coremlVerify',
+          adapterId: selectedAdapterId,
+        },
+        toError(error)
+      );
+    } finally {
+      setCoremlAction(null);
+    }
+  }, [coremlUiEnabled, refreshCoremlStatus, selectedAdapterId]);
 
 
   useEffect(() => {
@@ -361,6 +786,10 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     }
   }, [adapters, selectedAdapterId]);
 
+  useEffect(() => {
+    refreshCoremlStatus();
+  }, [refreshCoremlStatus]);
+
   const saveSession = useCallback((config: InferenceConfig, response: InferResponse) => {
     const selectedStack = stacks.find(s => s.id === selectedStackId);
     const session = saveCurrentSession(config, response);
@@ -380,6 +809,16 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     setResponse(null);
 
     try {
+      const { backend: resolvedBackend, reason: backendReason } = resolveBackendSelection(config.backend as BackendName);
+      if (backendReason) {
+        toast.info(backendReason);
+      }
+      setLastBackendUsed(resolvedBackend);
+      if (resolvedBackend !== config.backend) {
+        setConfigA((prev) => ({ ...prev, backend: resolvedBackend }));
+        setConfigB((prev) => ({ ...prev, backend: resolvedBackend }));
+      }
+
       // Resolve stack to adapter IDs for validation
       const validationAdapterIds = selectedStackId
         ? (() => {
@@ -396,6 +835,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
         top_k: config.top_k,
         top_p: config.top_p,
         backend: config.backend || 'auto',
+        model: selectedModelId || config.model,
         seed: config.seed,
         require_evidence: config.require_evidence,
         adapter_stack: validationAdapterIds,
@@ -413,9 +853,12 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
 
         const inferenceRequest: InferRequest = {
           ...config,
+          backend: resolvedBackend,
+          model: selectedModelId || config.model,
           adapter_stack: adapterIds,
         };
         const response = await apiClient.infer(inferenceRequest, {}, false, signal);
+        setLastBackendUsed(response.backend_used || response.backend || resolvedBackend);
         setResponse(response);
         saveSession(config, response);
         return response;
@@ -452,7 +895,21 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     setResponse(null);
 
     try {
-      await startStreaming(config.prompt);
+      const { backend: resolvedBackend, reason: backendReason } = resolveBackendSelection(config.backend as BackendName);
+      if (backendReason) {
+        toast.info(backendReason);
+      }
+
+      const streamingConfig: InferenceConfig = {
+        ...config,
+        backend: resolvedBackend,
+        model: selectedModelId || config.model,
+      };
+      setConfigA(prev => ({ ...prev, backend: resolvedBackend, model: streamingConfig.model }));
+      setConfigB(prev => ({ ...prev, backend: resolvedBackend, model: streamingConfig.model }));
+      setLastBackendUsed(resolvedBackend);
+
+      await startStreaming(streamingConfig.prompt, streamingConfig);
       // startStreaming handles all the state updates internally
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Streaming inference failed');
@@ -460,7 +917,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     } finally {
       setLoading(false);
     }
-  }, [startStreaming, clearError, addError]);
+  }, [startStreaming, clearError, addError, resolveBackendSelection, selectedModelId, setConfigA, setConfigB]);
 
 
   const handleExport = (config: InferenceConfig, response: InferResponse | null) => {
@@ -556,6 +1013,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
       onChange={(values) => setConfig({ ...config, ...values })}
       isOpen={showAdvanced}
       onOpenChange={setShowAdvanced}
+      hideBackendSelect={true}
     />
   );
 
@@ -596,8 +1054,76 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     );
   };
 
+  const activeBackend = (lastBackendUsed || configA.backend || 'auto') as BackendName;
+  const activeBackendOption = backendOptions.find(opt => opt.name === activeBackend);
+  const activeBackendLabel = `${BACKEND_LABELS[activeBackend] || activeBackend}${activeBackendOption?.hardwareHint ? ` (${activeBackendOption.hardwareHint})` : ''}${activeBackendOption?.status ? ` · ${activeBackendOption.status}` : ''}`;
+  const selectedAdapter = adapters.find((a) => a.id === selectedAdapterId);
+  const coremlOption = backendOptions.find((o) => o.name === 'coreml');
+  const coremlOptionExists = Boolean(coremlOption);
+  const coremlAvailable = coremlOptionExists ? Boolean(coremlOption?.available) : false;
+  const coremlUnavailableReason = coremlOptionExists
+    ? (!coremlAvailable
+      ? coremlOption?.notes?.[0] || coremlOption?.status || 'CoreML unavailable or denied by policy'
+      : null)
+    : (backendStatusLoading ? null : 'CoreML unavailable or denied by policy');
+  const resolvedCoremlStatus: CoremlPackageStatus | null = coremlStatus || (selectedAdapter
+    ? {
+        export_available: selectedAdapter.coreml_export_available,
+        export_status: selectedAdapter.coreml_export_status,
+        verified: selectedAdapter.coreml_export_verified,
+        verification_status: selectedAdapter.coreml_verification_status,
+        export_last_exported_at: selectedAdapter.coreml_export_last_exported_at,
+        verified_at: selectedAdapter.coreml_export_last_verified_at,
+        supported: selectedAdapter.coreml_export_available !== undefined ? true : undefined,
+      }
+    : null);
+  const coremlMismatch = coremlUiEnabled && resolvedCoremlStatus?.coreml_hash_mismatch === true;
+  const exportStatusLabel = !coremlUiEnabled
+    ? 'Not supported yet'
+    : resolvedCoremlStatus?.export_status
+      ? formatStatusLabel(
+          resolvedCoremlStatus.export_status,
+          resolvedCoremlStatus.export_available ? 'Ready' : 'Not exported'
+        )
+      : (resolvedCoremlStatus?.export_available ? 'Ready' : 'Not exported');
+  const verificationStatusLabel = !coremlUiEnabled
+    ? 'Not supported yet'
+    : coremlMismatch
+      ? 'Mismatch'
+      : resolvedCoremlStatus?.verification_status
+        ? formatStatusLabel(
+            resolvedCoremlStatus.verification_status,
+            resolvedCoremlStatus.verified ? 'Passed' : 'Not verified'
+          )
+        : (resolvedCoremlStatus?.verified ? 'Passed' : 'Not verified');
+  const exportVariant = !coremlUiEnabled
+    ? 'outline'
+    : resolvedCoremlStatus?.export_status === 'failed'
+      ? 'destructive'
+      : resolvedCoremlStatus?.export_status === 'pending'
+        ? 'secondary'
+        : resolvedCoremlStatus?.export_available
+          ? 'default'
+          : 'outline';
+  const verificationVariant =
+    !coremlUiEnabled
+      ? 'outline'
+      : coremlMismatch || resolvedCoremlStatus?.verification_status === 'failed'
+        ? 'destructive'
+        : resolvedCoremlStatus?.verification_status === 'pending'
+          ? 'secondary'
+          : (resolvedCoremlStatus?.verified || resolvedCoremlStatus?.verification_status === 'passed')
+            ? 'default'
+            : 'outline';
+  const coremlActionsSupported = coremlUiEnabled && resolvedCoremlStatus?.supported !== false;
+  const coremlActionDisabled =
+    !coremlUiEnabled || !coremlAvailable || !selectedAdapterId || selectedAdapterId === 'none' || !coremlActionsSupported || Boolean(coremlAction) || coremlStatusLoading;
+  const showCoremlUnavailableBadge = coremlUiEnabled && !coremlAvailable && (coremlOptionExists || !backendStatusLoading);
+  const coremlExpectedHash = resolvedCoremlStatus?.coreml_expected_package_hash;
+  const coremlActualHash = resolvedCoremlStatus?.coreml_package_hash;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-cy="inference-page">
 
       {/* Consolidated Error Display */}
       <PageErrors errors={errors} />
@@ -754,6 +1280,194 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                     </AlertDescription>
                   </Alert>
                 )}
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1">
+                    Base Model
+                    <GlossaryTooltip termId="inference-base-model">
+                      <span className="cursor-help text-muted-foreground hover:text-foreground">
+                        <HelpCircle className="h-3 w-3" />
+                      </span>
+                    </GlossaryTooltip>
+                  </Label>
+                  <ModelSelector
+                    value={selectedModelId}
+                    onChange={handleModelChange}
+                    disabled={backendStatusLoading}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Choose a loaded model; backend preferences are remembered per model.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-1">
+                      Backend
+                      <GlossaryTooltip termId="inference-backend">
+                        <span className="cursor-help text-muted-foreground hover:text-foreground">
+                          <HelpCircle className="h-3 w-3" />
+                        </span>
+                      </GlossaryTooltip>
+                    </Label>
+                    <Badge variant="secondary" className="text-xs gap-1" data-cy="active-backend-tag">
+                      {activeBackendLabel || 'Auto (router)'}
+                    </Badge>
+                  </div>
+                  <Select
+                    value={configA.backend || 'auto'}
+                    onValueChange={(value) => handleBackendChange(value as BackendName)}
+                    disabled={backendStatusLoading}
+                  >
+                    <SelectTrigger data-cy="backend-selector">
+                      <SelectValue placeholder="Select backend" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {backendOptions.map((option) => (
+                        <SelectItem
+                          key={option.name}
+                          value={option.name}
+                          data-cy={`backend-option-${option.name}`}
+                          disabled={!option.available && option.name !== 'auto'}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>{BACKEND_LABELS[option.name] || option.name}</span>
+                            <Badge
+                              variant={option.available ? 'default' : 'secondary'}
+                              className="text-[10px]"
+                            >
+                              {option.available ? 'available' : 'fallback to auto'}
+                            </Badge>
+                            {option.mode && (
+                              <Badge variant="outline" className="text-[10px]">
+                                {option.mode}
+                              </Badge>
+                            )}
+                          </div>
+                          {option.hardwareHint && (
+                            <div className="text-[11px] text-muted-foreground ml-6">{option.hardwareHint}</div>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {backendWarning && (
+                    <Alert variant="destructive" data-cy="backend-fallback-alert">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription>{backendWarning}</AlertDescription>
+                    </Alert>
+                  )}
+                  {backendError && (
+                    <Alert variant="default">
+                      <AlertDescription>{backendError}</AlertDescription>
+                    </Alert>
+                  )}
+                  {hardwareCapabilities && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Hardware: {hardwareCapabilities.ane_available ? 'ANE' : 'No ANE'} ·{' '}
+                      {hardwareCapabilities.gpu_available ? hardwareCapabilities.gpu_type || 'GPU' : 'No GPU'} ·{' '}
+                      {hardwareCapabilities.cpu_model || 'CPU'}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-1">
+                      CoreML package
+                      <GlossaryTooltip termId="coreml">
+                        <span className="cursor-help text-muted-foreground hover:text-foreground">
+                          <HelpCircle className="h-3 w-3" />
+                        </span>
+                      </GlossaryTooltip>
+                    </Label>
+                    {coremlStatusLoading && (
+                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-label="Loading CoreML status" />
+                    )}
+                  </div>
+                  {!coremlUiEnabled ? (
+                    <p className="text-[11px] text-muted-foreground" data-cy="coreml-disabled-note">
+                      CoreML export and verification are not yet supported in this build.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2" data-cy="coreml-status-panel">
+                        <Badge variant={exportVariant} className="text-[11px]" data-cy="coreml-export-badge">
+                          Export: {exportStatusLabel}
+                        </Badge>
+                        <Badge variant={verificationVariant} className="text-[11px]" data-cy="coreml-verification-badge">
+                          Verification: {verificationStatusLabel}
+                        </Badge>
+                        {coremlMismatch && (
+                          <Badge variant="destructive" className="text-[11px]" data-cy="coreml-mismatch-badge">
+                            Verification mismatch
+                          </Badge>
+                        )}
+                        {showCoremlUnavailableBadge && (
+                          <Badge variant="secondary" className="text-[11px]" data-cy="coreml-unavailable-badge">
+                            CoreML fallback · {coremlUnavailableReason || 'unavailable'}
+                          </Badge>
+                        )}
+                        {!coremlActionsSupported && (
+                          <Badge variant="outline" className="text-[11px]" data-cy="coreml-unsupported-badge">
+                            CoreML actions unsupported by server
+                          </Badge>
+                        )}
+                      </div>
+                      {coremlMismatch && (
+                        <Alert variant="destructive" data-cy="coreml-mismatch-alert">
+                          <AlertTriangle className="h-4 w-4" />
+                          <AlertDescription>
+                            Verification reported a CoreML package hash mismatch. Re-run verification after refreshing the package or check registry integrity.
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                      {(coremlExpectedHash || coremlActualHash) && (
+                        <p className="text-[11px] text-muted-foreground" data-cy="coreml-hash-info">
+                          {coremlExpectedHash ? `Expected: ${coremlExpectedHash}` : 'Expected hash unavailable'}
+                          {coremlActualHash ? ` · Actual: ${coremlActualHash}` : ''}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground">
+                        {selectedAdapterId === 'none'
+                          ? 'Select an adapter to view CoreML export and verification status.'
+                          : coremlAvailable
+                            ? 'CoreML is preferred. If blocked by policy or hardware, the UI will show the fallback backend.'
+                            : `CoreML is unavailable; inference will fall back automatically (${coremlUnavailableReason || 'no reason reported'}).`}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          data-cy="coreml-export-trigger"
+                          onClick={handleCoremlExport}
+                          disabled={coremlActionDisabled}
+                          className="h-8"
+                        >
+                          {coremlAction === 'export' ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          ) : (
+                            <Download className="h-4 w-4 mr-2" />
+                          )}
+                          Request CoreML export
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          data-cy="coreml-verify-trigger"
+                          onClick={handleCoremlVerification}
+                          disabled={coremlActionDisabled}
+                          className="h-8"
+                        >
+                          {coremlAction === 'verify' ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          ) : (
+                            <History className="h-4 w-4 mr-2" />
+                          )}
+                          Re-run verification
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="stack" className="flex items-center gap-1">
@@ -1010,6 +1724,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                   </div>
                   <Textarea
                     id="prompt"
+                    data-cy="prompt-input"
                     placeholder="Enter your prompt here..."
                     value={configA.prompt}
 
@@ -1097,6 +1812,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                 <div className="flex gap-2">
                   <Button
                     className={`flex-1 ${!can('inference:execute') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    data-cy="run-inference-btn"
                     onClick={() => {
                       if (inferenceMode === 'streaming') {
                         handleStreamingInfer(configA, setResponseA, setIsLoadingA);

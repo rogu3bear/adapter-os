@@ -17,6 +17,7 @@ import type { TrainingJob } from '@/api/training-types';
 import { Badge } from '@/components/ui/badge';
 import { parsePreselectParams, removeParams } from '@/utils/urlParams';
 import { filterJobsByAdapter } from './TrainingJobsTab';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 function TrainingJobsPageContent({ preselectedAdapterId, preselectedDatasetId }: { preselectedAdapterId?: string; preselectedDatasetId?: string }) {
   const { can } = useRBAC();
@@ -27,6 +28,10 @@ function TrainingJobsPageContent({ preselectedAdapterId, preselectedDatasetId }:
   const [isStartDialogOpen, setIsStartDialogOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [adapterFilter, setAdapterFilter] = useState<string | undefined>(undefined);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [backendFilter, setBackendFilter] = useState<string>('all');
+  const [repoFilter, setRepoFilter] = useState<string>('all');
+  const [coremlOnly, setCoremlOnly] = useState<boolean>(false);
 
   const {
     data: jobsData,
@@ -46,6 +51,31 @@ function TrainingJobsPageContent({ preselectedAdapterId, preselectedDatasetId }:
 
   const jobs = jobsData?.jobs || [];
   const adapterFilteredJobs = useMemo(() => filterJobsByAdapter(jobs, adapterFilter), [adapterFilter, jobs]);
+  const backendOptions = useMemo(
+    () => Array.from(new Set(jobs.map(j => (j.backend || '').toLowerCase()).filter(Boolean))),
+    [jobs]
+  );
+  const repoOptions = useMemo(
+    () => Array.from(new Set(jobs.map(j => j.repo_id).filter(Boolean))) as string[],
+    [jobs]
+  );
+  const filteredJobs = useMemo(() => {
+    return adapterFilteredJobs.filter(job => {
+      if (statusFilter !== 'all' && job.status !== statusFilter) return false;
+      if (backendFilter !== 'all' && (job.backend || '').toLowerCase() !== backendFilter) return false;
+      if (repoFilter !== 'all' && job.repo_id !== repoFilter) return false;
+      if (coremlOnly) {
+        const coremlUsed = Boolean(
+          (job.backend || '').toLowerCase().includes('coreml') ||
+          (job.backend_device || '').toLowerCase().includes('ane') ||
+          job.coreml_export_requested ||
+          job.coreml_training_fallback === 'used'
+        );
+        if (!coremlUsed) return false;
+      }
+      return true;
+    });
+  }, [adapterFilteredJobs, statusFilter, backendFilter, repoFilter, coremlOnly]);
   const lastUpdated = new Date();
   const activeJobIds = new Set(jobs.filter(j => j.status === 'running' || j.status === 'pending').map(j => j.id));
 
@@ -141,6 +171,54 @@ function TrainingJobsPageContent({ preselectedAdapterId, preselectedDatasetId }:
           </Button>
         </div>
       )}
+      <div className="flex flex-wrap items-center gap-3 rounded-md border bg-card/50 p-3">
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All status</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="running">Running</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="failed">Failed</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={backendFilter} onValueChange={setBackendFilter}>
+          <SelectTrigger className="w-[170px]">
+            <SelectValue placeholder="Backend" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All backends</SelectItem>
+            {backendOptions.map(option => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={repoFilter} onValueChange={setRepoFilter}>
+          <SelectTrigger className="w-[170px]">
+            <SelectValue placeholder="Repository" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All repos</SelectItem>
+            {repoOptions.map(option => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant={coremlOnly ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setCoremlOnly(prev => !prev)}
+        >
+          CoreML only
+        </Button>
+      </div>
 
       <Card>
         <CardHeader>
@@ -156,7 +234,7 @@ function TrainingJobsPageContent({ preselectedAdapterId, preselectedDatasetId }:
         </CardHeader>
         <CardContent>
           <TrainingJobTable
-            jobs={adapterFilteredJobs}
+            jobs={filteredJobs}
             isLoading={isLoading}
             onViewJob={handleViewJob}
             onCancelJob={handleCancelJob}

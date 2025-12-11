@@ -7,12 +7,15 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { LoadingState } from '@/components/ui/loading-state';
 import apiClient from '@/api/client';
-import type { Dataset } from '@/api/training-types';
+import type { Dataset, DatasetVersionSummary } from '@/api/training-types';
 import { formatBytes, formatTimestamp, formatNumber } from '@/utils/format';
 
 interface DatasetOverviewProps {
   dataset: Dataset;
   isLoading: boolean;
+  versions?: DatasetVersionSummary[];
+  isLoadingVersions?: boolean;
+  latestVersionId?: string;
 }
 
 interface DatasetStatistics {
@@ -33,7 +36,13 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   generated: 'Generated',
 };
 
-export default function DatasetOverview({ dataset, isLoading }: DatasetOverviewProps) {
+export default function DatasetOverview({
+  dataset,
+  isLoading,
+  versions = [],
+  isLoadingVersions = false,
+  latestVersionId,
+}: DatasetOverviewProps) {
   const { data: statistics, isLoading: isLoadingStats } = useQuery<DatasetStatistics>({
     queryKey: ['dataset', dataset.id, 'statistics'],
     queryFn: async () => {
@@ -67,9 +76,19 @@ export default function DatasetOverview({ dataset, isLoading }: DatasetOverviewP
               <p className="font-mono text-sm">{dataset.id}</p>
             </div>
             <div>
+              <Label className="text-muted-foreground">Version</Label>
+              <p className="font-mono text-sm">{dataset.dataset_version_id || '-'}</p>
+            </div>
+            <div>
               <Label className="text-muted-foreground">Source Type</Label>
               <Badge variant="outline" className="mt-1">
                 {sourceTypeLabel}
+              </Badge>
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Trust</Label>
+              <Badge variant="outline" className="mt-1">
+                {dataset.trust_state ?? 'unknown'}
               </Badge>
             </div>
             <div>
@@ -89,6 +108,40 @@ export default function DatasetOverview({ dataset, isLoading }: DatasetOverviewP
               <p className="text-sm">{formatTimestamp(dataset.updated_at, 'long')}</p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Versions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Dataset Versions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoadingVersions ? (
+            <LoadingState message="Loading versions..." />
+          ) : versions.length > 0 ? (
+            <div className="space-y-2">
+              {versions.map((v) => (
+                <div key={v.dataset_version_id} className="flex items-start justify-between rounded border p-3">
+                  <div className="space-y-1">
+                    <p className="font-mono text-xs break-all">{v.dataset_version_id}</p>
+                    <p className="text-xs text-muted-foreground">
+                      v{v.version_number}
+                      {v.version_label ? ` • ${v.version_label}` : ''} • {formatTimestamp(v.created_at, 'short')}
+                    </p>
+                  </div>
+                  <Badge variant="outline">{v.trust_state ?? 'unknown'}</Badge>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No versions available yet.</p>
+          )}
+          {latestVersionId && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Latest trusted version used for training: <span className="font-mono">{latestVersionId}</span>
+            </p>
+          )}
         </CardContent>
       </Card>
 

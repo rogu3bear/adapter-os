@@ -9,6 +9,7 @@ import type {
   StartTrainingRequest,
   CreateDatasetRequest,
   DatasetResponse,
+  DatasetVersionListResponse,
   ListTrainingJobsResponse,
   TrainingArtifactsResponse,
   CreateDatasetFromDocumentsResponse,
@@ -43,6 +44,7 @@ const QUERY_KEYS = {
   chatBootstrap: (jobId: string) => ['training', 'chat-bootstrap', jobId] as const,
   datasets: ['training', 'datasets'] as const,
   dataset: (id: string) => ['training', 'datasets', id] as const,
+  datasetVersions: (id: string) => ['training', 'datasets', id, 'versions'] as const,
   templates: ['training', 'templates'] as const,
   template: (id: string) => ['training', 'templates', id] as const,
 };
@@ -174,6 +176,18 @@ export function useDataset(
   });
 }
 
+export function useDatasetVersions(
+  datasetId: string,
+  options?: Omit<UseQueryOptions<DatasetVersionListResponse, Error>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery<DatasetVersionListResponse, Error>({
+    queryKey: QUERY_KEYS.datasetVersions(datasetId),
+    queryFn: () => apiClient.listDatasetVersions(datasetId),
+    enabled: !!datasetId,
+    ...options,
+  });
+}
+
 export function useCreateDataset(
   options?: UseMutationOptions<DatasetResponse, Error, CreateDatasetRequest>
 ) {
@@ -210,7 +224,7 @@ export function useCreateDatasetFromDocuments(
   options?: UseMutationOptions<
     CreateDatasetFromDocumentsResponse,
     Error,
-    { documentId?: string; collectionId?: string; name?: string; description?: string }
+    { document_ids?: string[]; documentId?: string; collectionId?: string; name?: string; description?: string }
   >
 ) {
   const queryClient = useQueryClient();
@@ -219,7 +233,7 @@ export function useCreateDatasetFromDocuments(
   return useMutation<
     CreateDatasetFromDocumentsResponse,
     Error,
-    { documentId?: string; collectionId?: string; name?: string; description?: string }
+    { document_ids?: string[]; documentId?: string; collectionId?: string; name?: string; description?: string }
   >({
     mutationFn: (params) => apiClient.createDatasetFromDocuments(params),
     ...restOptions,
@@ -308,6 +322,7 @@ export const useTraining = {
   useJobArtifacts,
   useDatasets,
   useDataset,
+  useDatasetVersions,
   useCreateDataset,
   useValidateDataset,
   useDeleteDataset,

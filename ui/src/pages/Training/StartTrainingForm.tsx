@@ -33,8 +33,11 @@ import type {
   StartTrainingRequest,
   TrainingConfigRequest,
   Dataset,
+  DatasetVersionSelection,
+  TrustState,
 } from '@/api/training-types';
 import type { ModelWithStatsResponse, BaseModelStatus } from '@/api/api-types';
+import { useTenant } from '@/providers/FeatureProviders';
 
 interface StartTrainingFormProps {
   onSuccess: (jobId: string) => void;
@@ -46,6 +49,13 @@ export function resolveDatasetPrefill(datasets: Dataset[], desiredId?: string): 
   if (!desiredId) return undefined;
   const match = datasets.find((d) => d.id === desiredId);
   return match ? desiredId : undefined;
+}
+
+export function buildDatasetVersionSelections(
+  dataset?: Dataset,
+): DatasetVersionSelection[] | undefined {
+  if (!dataset?.dataset_version_id) return undefined;
+  return [{ dataset_version_id: dataset.dataset_version_id, weight: 1 }];
 }
 
 const DEFAULT_CONFIG: TrainingConfigRequest = {
@@ -63,6 +73,30 @@ const DEFAULT_CONFIG: TrainingConfigRequest = {
   eval_steps: 500,
   logging_steps: 100,
 };
+
+const TRUST_BLOCK_MESSAGES: Record<string, string> = {
+  DATASET_TRUST_BLOCKED: 'Dataset trust_state is blocked; override or adjust the dataset to proceed.',
+  DATASET_TRUST_NEEDS_APPROVAL: 'Dataset trust_state requires approval or validation before training.',
+};
+
+function trustStateBlockCode(state: TrustState | string): string | null {
+  switch ((state ?? 'unknown').toString().toLowerCase()) {
+    case 'allowed':
+    case 'allowed_with_warning':
+      return null;
+    case 'blocked':
+      return 'DATASET_TRUST_BLOCKED';
+    case 'needs_approval':
+    case 'unknown':
+    default:
+      return 'DATASET_TRUST_NEEDS_APPROVAL';
+  }
+}
+
+function trustStateBlockMessage(state: TrustState | string): string | null {
+  const code = trustStateBlockCode(state);
+  return code ? TRUST_BLOCK_MESSAGES[code] : null;
+}
 
 export function StartTrainingForm({
   onSuccess,
@@ -91,13 +125,26 @@ export function StartTrainingForm({
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [selectedModelToLoad, setSelectedModelToLoad] = useState<string>('');
+  const [datasetVersionSelections, setDatasetVersionSelections] = useState<DatasetVersionSelection[]>([]);
 
   // Validation state
   const [nameError, setNameError] = useState<string | null>(null);
 
   // Get selected dataset validation status
-  const selectedDataset = datasets.find(d => d.id === datasetId);
-  const isDatasetValid = !datasetId || selectedDataset?.validation_status === 'valid';
+  const selectedDataset = datasets.find((d) => d.id === datasetId);
+  const selectedDatasetVersionId = selectedDataset?.dataset_version_id;
+  const isDatasetValid = !!datasetId && (!selectedDataset || selectedDataset.validation_status === 'valid');
+  const trustState = selectedDataset?.trust_state ?? 'unknown';
+  const trustBlocked = Boolean(trustStateBlockCode(trustState));
+  const trustWarn = trustState === 'allowed_with_warning';
+  const trustBlockMessageText = trustStateBlockMessage(trustState);
+  const datasetVersionMissing = Boolean(datasetId) && Boolean(selectedDataset) && !selectedDatasetVersionId;
+  const isDatasetTrainable = isDatasetValid && !trustBlocked && !datasetVersionMissing;
+
+  useEffect(() => {
+    const selections = buildDatasetVersionSelections(selectedDataset);
+    setDatasetVersionSelections(selections ?? []);
+  }, [selectedDataset]);
 
   // Check if a base model is loaded (from runtime status)
   const isModelLoaded = useMemo(() => {
@@ -112,6 +159,12 @@ export function StartTrainingForm({
     if (!baseModelStatus?.model_id) return models;
     return models.filter(m => m.id !== baseModelStatus.model_id);
   }, [models, baseModelStatus]);
+
+  // Tenant assurance (prod/high_assurance must use dataset versions)
+  const { selectedTenant, tenants } = useTenant();
+  const selectedTenantStatus = tenants.find((t) => t.id === selectedTenant)?.status?.toLowerCase();
+  const isHighAssuranceTenant =
+    selectedTenantStatus === 'production' || selectedTenantStatus === 'high_assurance';
 
   // Load templates, datasets, models, and base model status
   useEffect(() => {
@@ -133,6 +186,8 @@ export function StartTrainingForm({
         const prefillId = resolveDatasetPrefill(datasetsRes.datasets || [], preselectedDatasetId);
         if (prefillId) {
           setDatasetId(prefillId);
+        } else if ((datasetsRes.datasets?.length ?? 0) > 0) {
+          setDatasetId(prev => prev || datasetsRes.datasets![0]!.id);
         }
 
         if (initialTemplate) {
@@ -149,6 +204,15 @@ export function StartTrainingForm({
 
     loadData();
   }, [initialTemplate, preselectedDatasetId]);
+
+  // Keep dataset_version_ids selection in sync with the chosen dataset
+  useEffect(() => {
+    if (selectedDatasetVersionId) {
+      setDatasetVersionSelections([{ dataset_version_id: selectedDatasetVersionId, weight: 1.0 }]);
+    } else {
+      setDatasetVersionSelections([]);
+    }
+  }, [selectedDatasetVersionId]);
 
   // Handle loading a model
   const handleLoadModel = async () => {
@@ -223,6 +287,11 @@ export function StartTrainingForm({
       return;
     }
 
+    if (!datasetId) {
+      setError('Dataset is required for training');
+      return;
+    }
+
     if (!validateAdapterName(adapterName)) {
       setError('Invalid adapter name format');
       return;
@@ -231,6 +300,28 @@ export function StartTrainingForm({
     // Check dataset validation status
     if (datasetId && selectedDataset && selectedDataset.validation_status !== 'valid') {
       setError(`Dataset "${selectedDataset.name}" must be validated before training. Current status: ${selectedDataset.validation_status}`);
+      return;
+    }
+
+    if (selectedDataset && trustBlocked) {
+    const guidance =
+      trustBlockMessageText ??
+      `Dataset "${selectedDataset.name}" is not trainable (trust_state: ${trustState}).`;
+    setError(guidance);
+      return;
+    }
+
+    if (datasetVersionMissing) {
+      setError(
+        isHighAssuranceTenant
+          ? 'This high-assurance tenant requires dataset versions. Please create a dataset version before training.'
+          : 'This dataset has no version bound. Please create a dataset version before training.',
+      );
+      return;
+    }
+
+    if (datasetVersionSelections.length === 0) {
+      setError('Select at least one dataset version before starting training.');
       return;
     }
 
@@ -256,6 +347,7 @@ export function StartTrainingForm({
         config: configWithTargets,
         template_id: templateId || undefined,
         dataset_id: datasetId || undefined,
+        dataset_version_ids: datasetVersionSelections.length > 0 ? datasetVersionSelections : undefined,
         lora_tier: loraTier,
         scope: loraScope,
       };
@@ -527,7 +619,7 @@ export function StartTrainingForm({
             <Label htmlFor="dataset">Training Dataset</Label>
             <Select value={datasetId} onValueChange={setDatasetId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select a dataset (optional)" />
+                <SelectValue placeholder="Select a dataset (required)" />
               </SelectTrigger>
               <SelectContent>
                 {datasets.map((dataset) => (
@@ -537,17 +629,51 @@ export function StartTrainingForm({
                       <span className="text-xs text-muted-foreground">
                         {dataset.file_count} files, {dataset.total_tokens.toLocaleString()} tokens
                       </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {dataset.dataset_version_id
+                          ? `Version: ${dataset.dataset_version_id}`
+                          : 'No version bound'}
+                      </span>
                     </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {selectedDataset?.dataset_version_id && (
+              <p className="text-xs text-muted-foreground">
+                Using latest trusted version of this dataset for training.
+              </p>
+            )}
+            {datasetVersionMissing && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  This dataset has no version bound. Please create a dataset version before training.
+                </AlertDescription>
+              </Alert>
+            )}
             {selectedDataset && selectedDataset.validation_status !== 'valid' && (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>
                   Dataset "{selectedDataset.name}" is not validated (status: {selectedDataset.validation_status}).
                   Please validate the dataset before starting training.
+                </AlertDescription>
+              </Alert>
+            )}
+            {selectedDataset && trustBlocked && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  {trustBlockMessageText ?? `Dataset "${selectedDataset.name}" is blocked from training (trust_state: ${trustState}).`}
+                </AlertDescription>
+              </Alert>
+            )}
+            {selectedDataset && trustWarn && (
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  Dataset "{selectedDataset.name}" has trust warnings (trust_state: {trustState}). Review before proceeding.
                 </AlertDescription>
               </Alert>
             )}
@@ -688,8 +814,16 @@ export function StartTrainingForm({
         </Button>
         <Button
           type="submit"
-          disabled={isSubmitting || !isDatasetValid || !isModelLoaded}
-          title={!isModelLoaded ? 'A base model must be loaded before training' : !isDatasetValid ? 'Dataset must be validated before training' : undefined}
+          disabled={isSubmitting || !isDatasetTrainable || !isModelLoaded}
+          title={
+            !isModelLoaded
+              ? 'A base model must be loaded before training'
+              : !isDatasetTrainable
+                ? datasetVersionMissing
+                  ? 'Dataset must have a bound version before training'
+                  : 'Dataset must be validated and allowed by trust policy before training'
+                : undefined
+          }
         >
           {isSubmitting ? (
             <>

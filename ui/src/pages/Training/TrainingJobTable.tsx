@@ -11,7 +11,6 @@ import {
 import { VirtualizedTableRows } from '@/components/ui/virtualized-table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import {
   Activity,
@@ -24,6 +23,25 @@ import {
 } from 'lucide-react';
 import type { TrainingJob, TrainingStatus } from '@/api/training-types';
 import { formatDurationSeconds, formatTimestamp } from '@/utils/format';
+
+const normalizeBackendPolicy = (policy?: string): string => {
+  if (!policy) return 'unknown';
+  const normalized = policy.toLowerCase().replace(/-/g, '_');
+  switch (normalized) {
+    case 'auto':
+      return 'auto';
+    case 'coreml_only':
+    case 'coremlonly':
+      return 'coreml_only';
+    case 'coreml_else_fallback':
+    case 'coreml_else':
+    case 'coreml_fallback':
+    case 'coreml_elsefallback':
+      return 'coreml_else_fallback';
+    default:
+      return policy;
+  }
+};
 
 interface TrainingJobTableProps {
   jobs: TrainingJob[];
@@ -116,31 +134,31 @@ export function TrainingJobTable({
         <TableHeader>
           <TableRow role="row">
             <TableHead role="columnheader" scope="col">
-              <GlossaryTooltip termId="training-job-id">Job ID / Name</GlossaryTooltip>
+              <GlossaryTooltip termId="training-job-id">Job</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <GlossaryTooltip termId="training-dataset">Dataset</GlossaryTooltip>
+              Repository
+            </TableHead>
+            <TableHead role="columnheader" scope="col">
+              Branch
             </TableHead>
             <TableHead role="columnheader" scope="col">
               <GlossaryTooltip termId="training-status">Status</GlossaryTooltip>
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <GlossaryTooltip termId="training-backend">Backend</GlossaryTooltip>
+              Requested policy
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <GlossaryTooltip termId="training-progress">Progress</GlossaryTooltip>
+              Backend used
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <GlossaryTooltip termId="training-loss">Loss</GlossaryTooltip>
+              CoreML
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <GlossaryTooltip termId="training-throughput">Throughput</GlossaryTooltip>
+              Start time
             </TableHead>
             <TableHead role="columnheader" scope="col">
-              <GlossaryTooltip termId="training-epoch">Epoch</GlossaryTooltip>
-            </TableHead>
-            <TableHead role="columnheader" scope="col">
-              <GlossaryTooltip termId="training-created">Created</GlossaryTooltip>
+              Duration
             </TableHead>
             <TableHead role="columnheader" scope="col">
               <GlossaryTooltip termId="training-actions">Actions</GlossaryTooltip>
@@ -160,8 +178,17 @@ export function TrainingJobTable({
                 || typedJob.backend?.toLowerCase().includes('metal')
                 || typedJob.backend?.toLowerCase().includes('coreml')
                 || typedJob.require_gpu === true;
-              const tokensPerSecond = typedJob.tokens_per_second;
-              const examplesPerSecond = typedJob.throughput_examples_per_sec;
+              const coremlUsed = Boolean(
+                typedJob.coreml_export_requested ||
+                typedJob.coreml_training_fallback === 'used' ||
+                (typedJob.backend || '').toLowerCase().includes('coreml') ||
+                (typedJob.backend_device || '').toLowerCase().includes('ane')
+              );
+              const startedAt = typedJob.started_at
+                ? new Date(typedJob.started_at).getTime()
+                : typedJob.created_at
+                  ? new Date(typedJob.created_at).getTime()
+                  : undefined;
 
               return (
                 <TableRow key={typedJob.id} role="row">
@@ -178,69 +205,35 @@ export function TrainingJobTable({
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    <span className="truncate max-w-[calc(var(--base-unit)*37.5)] block" title={typedJob.dataset_id || '-'}>
-                      {typedJob.dataset_id ? typedJob.dataset_id.slice(0, 12) + '...' : '-'}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <StatusBadge status={typedJob.status} />
-                      {(typedJob.backend || typedJob.determinism_mode) && (
-                        <span className="text-xs text-muted-foreground">
-                          {typedJob.backend || 'backend n/a'} · {typedJob.determinism_mode || 'determinism n/a'}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1 min-w-[calc(var(--base-unit)*25)]">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">{backendLabel}</span>
-                        <Badge variant={usingGpu ? 'default' : 'secondary'} className="text-[10px]">
-                          {usingGpu ? 'GPU/Accelerator' : 'CPU'}
-                        </Badge>
-                      </div>
-                      <span
-                        className="text-xs text-muted-foreground truncate max-w-[calc(var(--base-unit)*37.5)]"
-                        title={backendDevice || backendLabel}
-                      >
-                        {backendDevice || 'device n/a'}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2 min-w-[calc(var(--base-unit)*30)]">
-                      <Progress
-                        value={typedJob.progress_pct ?? typedJob.progress ?? 0}
-                        className="w-20 h-2"
-                      />
-                      <span className="text-sm text-muted-foreground min-w-[calc(var(--base-unit)*9)]">
-                        {typedJob.progress_pct ?? typedJob.progress ?? 0}%
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground font-mono">
-                    {typedJob.current_loss?.toFixed(4) ?? typedJob.loss?.toFixed(4) ?? '-'}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground font-mono">
-                    <div className="flex flex-col leading-tight">
-                      <span>
-                        {tokensPerSecond !== undefined ? `${tokensPerSecond.toFixed(1)} tok/s` : 'N/A'}
-                      </span>
-                      {examplesPerSecond !== undefined && (
-                        <span className="text-xs text-muted-foreground">
-                          {examplesPerSecond.toFixed(2)} ex/s
-                        </span>
-                      )}
-                    </div>
+                    {typedJob.repo_id || typedJob.config?.repo_id || '—'}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {typedJob.current_epoch !== undefined && typedJob.total_epochs !== undefined
-                      ? `${typedJob.current_epoch}/${typedJob.total_epochs}`
-                      : '-'}
+                    {typedJob.config?.target_branch || typedJob.branch_classification || typedJob.config?.commit_sha || '—'}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={typedJob.status} />
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {formatTimestamp(typedJob.created_at || typedJob.started_at || '', 'long')}
+                    {normalizeBackendPolicy(typedJob.backend_policy)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {backendLabel}{' '}
+                    <Badge variant={usingGpu ? 'default' : 'secondary'} className="text-[10px] ml-2">
+                      {usingGpu ? 'GPU/Accelerator' : 'CPU'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {coremlUsed ? 'Yes' : 'No'}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {formatTimestamp(typedJob.started_at || typedJob.created_at || '', 'long')}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {startedAt && typedJob.completed_at
+                      ? formatDurationSeconds((new Date(typedJob.completed_at).getTime() - startedAt) / 1000)
+                      : startedAt && (typedJob.status === 'running' || typedJob.status === 'pending')
+                        ? formatDurationSeconds((Date.now() - startedAt) / 1000)
+                        : '—'}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">

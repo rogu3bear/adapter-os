@@ -1,4 +1,5 @@
 import { usePolling } from '@/hooks/usePolling';
+import { logger } from '@/utils/logger';
 import type { AdapterOSStatus } from '@/api/types';
 
 /**
@@ -28,10 +29,20 @@ export function useServiceStatus() {
         }
         if (!response.ok) {
           // Other errors - let polling handle retry
+          logger.warn('Service status check failed', {
+            component: 'useServiceStatus',
+            operation: 'getStatus',
+            status: response.status,
+            statusText: response.statusText,
+          });
           return null;
         }
         return await response.json();
-      } catch {
+      } catch (error) {
+        logger.warn('Service status request error', {
+          component: 'useServiceStatus',
+          operation: 'getStatus',
+        }, error as Error);
         // Network errors during startup - return null silently
         return null;
       }

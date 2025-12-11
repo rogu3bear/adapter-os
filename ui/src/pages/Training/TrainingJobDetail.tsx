@@ -37,8 +37,105 @@ import type {
   TrainingMetrics,
   TrainingArtifact,
   TrainingConfig,
+  BackendAttempt,
+  TrainingErrorCategory,
 } from '@/api/training-types';
 import type { TrainingProgressEvent } from '@/api/streaming-types';
+
+type BackendTimelineEntry = {
+  backend: string;
+  result: 'selected' | 'failed' | 'skipped';
+  reason?: string;
+  errorCategory?: TrainingErrorCategory;
+  coremlDevice?: string;
+};
+
+const normalizeBackendPolicy = (policy?: string): string => {
+  if (!policy) return 'unknown';
+  const normalized = policy.toLowerCase().replace(/-/g, '_');
+  switch (normalized) {
+    case 'auto':
+      return 'auto';
+    case 'coreml_only':
+    case 'coremlonly':
+      return 'coreml_only';
+    case 'coreml_else_fallback':
+    case 'coreml_else':
+    case 'coreml_fallback':
+    case 'coreml_elsefallback':
+      return 'coreml_else_fallback';
+    default:
+      return policy;
+  }
+};
+
+const formatDuration = (seconds?: number) => {
+  if (seconds === undefined || Number.isNaN(seconds)) return 'N/A';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  const hours = Math.floor(mins / 60);
+  const remainingMins = mins % 60;
+  if (hours > 0) return `${hours}h ${remainingMins}m`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+};
+
+export function buildBackendTimeline(job: TrainingJob, backendLabel: string): BackendTimelineEntry[] {
+  if (job.backend_attempts && job.backend_attempts.length > 0) {
+    return job.backend_attempts.map((attempt: BackendAttempt) => ({
+      backend: attempt.backend,
+      result: attempt.result ?? 'selected',
+      reason: attempt.reason,
+      errorCategory: attempt.error_category,
+      coremlDevice: attempt.coreml?.device_type,
+    }));
+  }
+
+  const requested = job.requested_backend || job.config?.preferred_backend;
+  const backendReason = job.backend_reason;
+
+  if (requested && backendLabel && requested !== backendLabel) {
+    return [
+      {
+        backend: requested,
+        result: 'failed',
+        reason: backendReason || 'Fallback from requested backend',
+        errorCategory: (requested.toLowerCase().includes('coreml') ? 'coreml_compile' : undefined) as TrainingErrorCategory | undefined,
+      },
+      {
+        backend: backendLabel,
+        result: 'selected',
+        reason: 'Used for this run',
+      },
+    ];
+  }
+
+  if (backendLabel && backendLabel !== 'unknown') {
+    return [{
+      backend: backendLabel,
+      result: 'selected',
+      reason: backendReason,
+    }];
+  }
+
+  return [];
+}
+
+export function classifyErrorCategory(job: TrainingJob): TrainingErrorCategory | undefined {
+  if (job.error_category) return job.error_category;
+  if (job.dataset_trust_state === 'blocked' || job.dataset_trust_state === 'needs_approval') {
+    return 'dataset_trust';
+  }
+
+  const message = (job.error_message || job.error_detail || '').toLowerCase();
+  if (!message) return undefined;
+
+  if (message.includes('coreml')) return 'coreml_compile';
+  if (message.includes('storage') || message.includes('filesystem') || message.includes('fs ')) return 'storage';
+  if (message.includes('backend') || message.includes('device')) return 'backend';
+
+  return 'other';
+}
 
 function TrainingJobDetailContent() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -217,11 +314,18 @@ function TrainingJobDetailContent() {
   const StatusIcon = statusConfig[job.status]?.icon || Clock;
   const statusClass = statusConfig[job.status]?.className || 'text-gray-500';
   const backendLabel = job.backend || metrics?.backend || 'unknown';
+  const requestedBackend = job.requested_backend || job.config?.preferred_backend;
+  const coremlFallback = job.coreml_training_fallback || job.config?.coreml_training_fallback;
   const backendDevice = job.backend_device || metrics?.backend_device;
   const backendDeviceLower = (backendDevice || '').toLowerCase();
   const backendLower = (job.backend || '').toLowerCase();
   const determinismLabel = job.determinism_mode || 'n/a';
   const seedLabel = job.training_seed !== undefined ? `seed ${job.training_seed}` : null;
+  const backendPolicyMode = normalizeBackendPolicy(
+    job.backend_policy_mode || job.backend_policy || job.config?.backend_policy
+  );
+  const backendTimeline = buildBackendTimeline(job, backendLabel);
+  const errorCategory = classifyErrorCategory(job);
   const usingGpu = (metrics?.using_gpu ?? job.require_gpu ?? false)
     || backendDeviceLower.includes('gpu')
     || backendDeviceLower.includes('ane')
@@ -232,11 +336,37 @@ function TrainingJobDetailContent() {
   const examplesProcessed = job.examples_processed ?? metrics?.examples_processed;
   const tokensPerSecond = job.tokens_per_second ?? metrics?.tokens_per_second;
   const examplesPerSecond = metrics?.throughput_examples_per_sec ?? job.throughput_examples_per_sec;
+  const batchSize = job.config?.batch_size;
+  const lossCurveSnippet = job.loss_curve?.slice(-5);
+  const driftMetrics = job.drift_metrics;
+  const durationSeconds = job.training_time_ms
+    ? job.training_time_ms / 1000
+    : (job.started_at && job.completed_at
+      ? (new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 1000
+      : undefined);
+  const repoLink = job.repo_id ? `/repos/${job.repo_id}` : undefined;
+  const coremlDeviceType = job.coreml_device_type
+    || backendTimeline.find(entry => entry.coremlDevice)?.coremlDevice
+    || backendDevice;
+  const coremlAttempted = job.coreml_attempted
+    ?? backendTimeline.some(entry => entry.backend.toLowerCase().includes('coreml'))
+    ?? (requestedBackend?.toLowerCase().includes('coreml'));
+  const coremlUsed = job.coreml_used ?? backendLower.includes('coreml');
+  const datasetVersionTrust = job.dataset_version_trust || [];
+  const adapterVersionId = (job as any).produced_version_id || (job as any).adapter_version_id;
   const hasPerformanceMetrics = latestLoss !== undefined
     || tokensProcessed !== undefined
     || examplesProcessed !== undefined
     || tokensPerSecond !== undefined
     || examplesPerSecond !== undefined;
+  const hasMetricsData = hasPerformanceMetrics
+    || durationSeconds !== undefined
+    || batchSize !== undefined
+    || (lossCurveSnippet && lossCurveSnippet.length > 0)
+    || driftMetrics !== undefined;
+  const datasetTrustState = job.dataset_trust_state;
+  const datasetTrustReason = job.dataset_trust_reason;
+  const dataSpecHash = job.data_spec_hash;
   const formatCount = (value?: number) => value !== undefined ? value.toLocaleString() : 'N/A';
   const formatRate = (value?: number, fractionDigits = 1) =>
     value !== undefined
@@ -332,8 +462,20 @@ function TrainingJobDetailContent() {
 
             {job.error_message && (
               <div className="p-3 bg-destructive/10 text-destructive rounded-lg">
-                <div className="font-medium">Error</div>
+                <div className="font-medium flex items-center gap-2">
+                  <span>Error</span>
+                  {errorCategory && (
+                    <Badge variant="outline" className="text-destructive border-destructive">
+                      {errorCategory}
+                    </Badge>
+                  )}
+                </div>
                 <div className="text-sm">{job.error_message}</div>
+                <div className="mt-2">
+                  <Button size="sm" variant="outline" onClick={() => setActiveTab('logs')}>
+                    View logs
+                  </Button>
+                </div>
               </div>
             )}
           </div>
@@ -368,7 +510,7 @@ function TrainingJobDetailContent() {
               <CardDescription>Placement and reproducibility for this run</CardDescription>
             </CardHeader>
             <CardContent>
-              <dl className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <dl className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <dt className="text-sm text-muted-foreground">Backend</dt>
                   <dd className="flex items-center gap-2 text-sm">
@@ -379,6 +521,22 @@ function TrainingJobDetailContent() {
                   </dd>
                   {job.backend_reason && (
                     <p className="text-xs text-muted-foreground mt-1">{job.backend_reason}</p>
+                  )}
+                  {requestedBackend && requestedBackend !== backendLabel && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Requested: {requestedBackend}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">Backend Policy</dt>
+                  <dd className="text-sm">
+                    {backendPolicyMode}
+                  </dd>
+                  {coremlFallback && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Fallback: {coremlFallback}
+                    </p>
                   )}
                 </div>
                 <div>
@@ -396,7 +554,47 @@ function TrainingJobDetailContent() {
                     )}
                   </dd>
                 </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">CoreML</dt>
+                  <dd className="text-sm space-y-1">
+                    <div>Attempted: {coremlAttempted ? 'yes' : 'no'}</div>
+                    <div>Used: {coremlUsed ? 'yes' : 'no'}</div>
+                    <div>Device: {coremlDeviceType || 'n/a'}</div>
+                  </dd>
+                </div>
               </dl>
+
+            {backendTimeline.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <div className="text-sm font-medium">Fallback path</div>
+                <div className="space-y-2">
+                  {backendTimeline.map((attempt, idx) => (
+                    <div
+                      key={`${attempt.backend}-${idx}`}
+                      className="flex flex-col md:flex-row md:items-center md:justify-between rounded-lg border p-3 gap-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{attempt.backend}</Badge>
+                        <Badge variant={attempt.result === 'selected' ? 'default' : attempt.result === 'failed' ? 'destructive' : 'secondary'}>
+                          {attempt.result}
+                        </Badge>
+                        {attempt.coremlDevice && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {attempt.coremlDevice}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground flex-1">
+                        {attempt.reason || 'No reason provided'}
+                        {attempt.errorCategory && (
+                          <span className="text-destructive ml-2">[{attempt.errorCategory}]</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             </CardContent>
           </Card>
 
@@ -406,13 +604,29 @@ function TrainingJobDetailContent() {
               <CardDescription>Latest training throughput metrics</CardDescription>
             </CardHeader>
             <CardContent>
-              {hasPerformanceMetrics ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {hasMetricsData ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   <div className="p-3 bg-muted rounded-lg">
                     <div className="text-sm text-muted-foreground">Latest Loss</div>
                     <div className="text-lg font-mono">
                       {latestLoss !== undefined ? latestLoss.toFixed(4) : 'N/A'}
                     </div>
+                  </div>
+                  {lossCurveSnippet && lossCurveSnippet.length > 0 && (
+                    <div className="p-3 bg-muted rounded-lg">
+                      <div className="text-sm text-muted-foreground">Loss Curve (last)</div>
+                      <div className="text-xs font-mono">
+                        {lossCurveSnippet.map(val => val.toFixed(3)).join(', ')}
+                      </div>
+                    </div>
+                  )}
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-sm text-muted-foreground">Duration</div>
+                    <div className="text-lg font-mono">{formatDuration(durationSeconds)}</div>
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-sm text-muted-foreground">Batch Size</div>
+                    <div className="text-lg font-mono">{batchSize ?? 'N/A'}</div>
                   </div>
                   <div className="p-3 bg-muted rounded-lg">
                     <div className="text-sm text-muted-foreground">Tokens Processed</div>
@@ -431,6 +645,19 @@ function TrainingJobDetailContent() {
                     <div className="text-sm text-muted-foreground">Examples/sec</div>
                     <div className="text-lg font-mono">{formatRate(examplesPerSecond, 2)}</div>
                   </div>
+                  {driftMetrics && (
+                    <div className="p-3 bg-muted rounded-lg">
+                      <div className="text-sm text-muted-foreground">Drift</div>
+                      <div className="text-sm">
+                        Score: <span className="font-mono">{driftMetrics.drift_score ?? 'n/a'}</span>
+                      </div>
+                      {driftMetrics.drift_tokens !== undefined && (
+                        <div className="text-xs text-muted-foreground">
+                          Tokens: {formatCount(driftMetrics.drift_tokens)}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-sm text-muted-foreground">
@@ -447,6 +674,28 @@ function TrainingJobDetailContent() {
             <CardContent>
               <dl className="grid grid-cols-2 gap-4">
                 <div>
+                  <dt className="text-sm text-muted-foreground">Repository</dt>
+                  <dd className="flex items-center gap-2 text-sm">
+                    {job.repo_id ? (
+                      <>
+                        <span className="font-mono">{job.repo_id}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => repoLink && navigate(repoLink)}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </Button>
+                      </>
+                    ) : (
+                      'n/a'
+                    )}
+                  </dd>
+                  {job.branch && (
+                    <p className="text-xs text-muted-foreground">Branch: {job.branch}</p>
+                  )}
+                </div>
+                <div>
                   <dt className="text-sm text-muted-foreground">Dataset ID</dt>
                   <dd className="flex items-center gap-2">
                     <span className="font-mono text-sm">{job.dataset_id || '-'}</span>
@@ -461,6 +710,55 @@ function TrainingJobDetailContent() {
                     )}
                   </dd>
                 </div>
+                {datasetTrustState && (
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Dataset Trust</dt>
+                    <dd className="text-sm">
+                      <Badge variant={datasetTrustState === 'blocked' || datasetTrustState === 'needs_approval' ? 'destructive' : 'outline'}>
+                        {datasetTrustState}
+                      </Badge>
+                      {datasetTrustReason && (
+                        <span className="text-xs text-muted-foreground ml-2">{datasetTrustReason}</span>
+                      )}
+                    </dd>
+                  </div>
+                )}
+                {job.dataset_version_ids && job.dataset_version_ids.length > 0 && (
+                  <div className="col-span-2">
+                    <dt className="text-sm text-muted-foreground">Dataset Versions</dt>
+                    <dd className="space-y-2">
+                      {job.dataset_version_ids.map((v) => {
+                        const trust = datasetVersionTrust.find(t => t.dataset_version_id === v.dataset_version_id);
+                        return (
+                          <div key={v.dataset_version_id} className="flex items-center justify-between rounded border p-2">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline">{v.dataset_version_id}</Badge>
+                              {v.weight !== undefined && (
+                                <span className="text-xs text-muted-foreground">wt {v.weight}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {trust?.trust_at_training_time && (
+                                <Badge variant={trust.trust_at_training_time === 'blocked' ? 'destructive' : 'secondary'}>
+                                  {trust.trust_at_training_time}
+                                </Badge>
+                              )}
+                              {job.dataset_id && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => navigate(`/training/datasets/${job.dataset_id}?datasetVersionId=${v.dataset_version_id}`)}
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </dd>
+                  </div>
+                )}
                 {job.adapter_id && (
                   <div>
                     <dt className="text-sm text-muted-foreground">Result Adapter ID</dt>
@@ -476,10 +774,35 @@ function TrainingJobDetailContent() {
                     </dd>
                   </div>
                 )}
+                {adapterVersionId && (
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Adapter Version</dt>
+                    <dd className="flex items-center gap-2">
+                      <span className="font-mono text-sm">{adapterVersionId}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(`/adapters/${adapterVersionId}`)}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </Button>
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-sm text-muted-foreground">Template ID</dt>
                   <dd className="font-mono text-sm">{job.template_id || '-'}</dd>
                 </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">Base Model</dt>
+                  <dd className="font-mono text-sm">{job.base_model_id || 'n/a'}</dd>
+                </div>
+                {dataSpecHash && (
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Data Spec Hash</dt>
+                    <dd className="font-mono text-sm break-all">{dataSpecHash}</dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-sm text-muted-foreground">GPU Requirements</dt>
                   <dd className="text-sm">
@@ -489,6 +812,12 @@ function TrainingJobDetailContent() {
                     )}
                   </dd>
                 </div>
+                {job.initiated_by && (
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Submitted By</dt>
+                    <dd className="text-sm">{job.initiated_by}</dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-sm text-muted-foreground">Created</dt>
                   <dd className="text-sm">

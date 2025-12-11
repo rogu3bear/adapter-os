@@ -29,8 +29,9 @@ import {
 import type { TrainingJob, TrainingConfigRequest, InferRequest, InferResponse } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { ProgressIndicator, ContextualLoading, loadingStates } from './ui/progress-indicator';
-import { SuccessFeedback, successTemplates } from './ui/success-feedback';
+import { SuccessFeedback, type NextStep } from './ui/success-feedback';
 import { useViewTransition } from '@/hooks/useViewTransition';
+import { useTrainingDataOrchestrator } from '@/hooks/useTrainingDataOrchestrator';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
@@ -169,7 +170,7 @@ export function SingleFileAdapterTrainer() {
   const [trainingMetrics, setTrainingMetrics] = useState<TrainingMetrics | null>(null);
   const [trainingError, setTrainingError] = useState<Error | null>(null);
   const [isTraining, setIsTraining] = useState(false);
-  const [uploadError, setUploadError] = useState<Error | null>(null);
+  const { state: dataState, orchestrate: prepareTrainingData, reset: resetTrainingData } = useTrainingDataOrchestrator();
 
   // Testing state
   const [testPrompt, setTestPrompt] = useState('');
@@ -220,11 +221,6 @@ export function SingleFileAdapterTrainer() {
     setStep('training');
 
     try {
-      // In a real implementation, we would:
-      // 1. Upload the file to a temp location
-      // 2. Convert it to the training dataset format
-      // 3. Start the training job via API
-
       // Convert form data to TrainingConfigRequest format
       const config: TrainingConfigRequest = {
         rank: data.rank,
@@ -238,13 +234,19 @@ export function SingleFileAdapterTrainer() {
       // Build full semantic adapter name
       const semanticAdapterName = `${data.tenant}/${data.domain}/${data.purpose}/${data.revision}`;
 
-      // For now, we'll create a training job with the file content
-      // Note: UI-only fields (dataset_path, adapters_root, package) removed
-      // In production, file upload would create a dataset_id to pass here
+      // Upload/process/convert to dataset via shared orchestrator
+      const { datasetId } = await prepareTrainingData({
+        kind: 'file',
+        file,
+        name: semanticAdapterName,
+        description: `Training dataset derived from ${file.name}`
+      });
+
       const response = await apiClient.startTraining({
         adapter_name: semanticAdapterName,
+        dataset_id: datasetId,
         config: config,
-        // dataset_id: would be set after file upload creates a dataset
+        post_actions: { create_stack: true, activate_stack: true },
       });
 
       setTrainingJob(response as TrainingJob);
@@ -370,12 +372,16 @@ export function SingleFileAdapterTrainer() {
   };
 
   const handleDownloadAdapter = () => {
-    if (!trainingJob?.artifact_path) {
+    const adapterId = trainingJob?.adapter_id;
+    if (adapterId) {
+      window.open(`/api/v1/adapters/${adapterId}/download`, '_blank');
       return;
     }
 
-    // In production, this would download the .aos file from the server
-    window.open(`/api/v1/training/jobs/${trainingJob.id}/artifacts`, '_blank');
+    // Fallback to training artifact endpoint if adapter download is unavailable
+    if (trainingJob?.aos_path) {
+      window.open(`/api/v1/training/jobs/${trainingJob.id}/artifacts`, '_blank');
+    }
   };
 
   const resetTrainer = () => {
@@ -386,50 +392,19 @@ export function SingleFileAdapterTrainer() {
     setTrainingJob(null);
     setTrainingMetrics(null);
     setTrainingError(null);
+    resetTrainingData();
     setTestPrompt('');
     setTestResult(null);
   };
 
-  const handleUploadToServer = async () => {
-    setUploadError(null);
-    if (!trainingJob?.artifact_path) {
-      setUploadError(new Error('No artifact available to upload'));
-      return;
-    }
-
-    try {
-      // Download the artifact
-      const response = await fetch(`/api/v1/training/jobs/${trainingJob.id}/artifacts`);
-      if (!response.ok) {
-        throw new Error('Failed to download artifact');
-      }
-
-      const blob = await response.blob();
-      const file = new File([blob], `${trainingJob.adapter_name || 'adapter'}.aos`, { type: 'application/octet-stream' });
-
-      // Upload via import API
-      const adapter = await apiClient.importAdapter(file, true);
-      // Success - could show success feedback
-      
-      // Optionally navigate to inference
-      if (window.confirm('Adapter uploaded successfully! Would you like to chat with it now?')) {
-        window.location.href = `/inference?adapter=${adapter.adapter_id}`;
-      }
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Upload failed');
-      setUploadError(error);
-      logger.error('Upload to server failed', { component: 'SingleFileAdapterTrainer' }, error);
-    }
-  };
-
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6 max-w-6xl mx-auto" data-cy="trainer-root">
       {/* Breadcrumb Navigation */}
       <BreadcrumbNavigation />
       
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold">Single-File Adapter Trainer</h1>
+        <h1 className="text-3xl font-bold" data-cy="trainer-title">Single-File Adapter Trainer</h1>
         <p className="text-muted-foreground">
           Train a custom adapter from a single file and test it interactively
         </p>
@@ -498,6 +473,7 @@ export function SingleFileAdapterTrainer() {
                 onChange={handleFileUpload}
                 accept=".txt,.json,.py,.js,.ts,.md"
                 className="hidden"
+                data-cy="trainer-file-input"
               />
               <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
               <p className="text-lg font-medium mb-2">
@@ -521,7 +497,7 @@ export function SingleFileAdapterTrainer() {
                   </pre>
                 </div>
 
-                <Button onClick={() => setStep('configure')} className="w-full">
+                <Button onClick={() => setStep('configure')} className="w-full" data-cy="trainer-continue-btn">
                   Continue to Configuration
                 </Button>
               </div>
@@ -720,13 +696,6 @@ export function SingleFileAdapterTrainer() {
                   resetTrainer();
                 }
               )}
-              {uploadError && (
-                <ErrorRecovery
-                  error={uploadError.message}
-                  onRetry={() => { setUploadError(null); handleUploadToServer(); }}
-                />
-              )}
-
               <div className="flex gap-3">
                 <Button type="button" variant="outline" onClick={() => setStep('upload')}>
                   Back
@@ -736,6 +705,7 @@ export function SingleFileAdapterTrainer() {
                   className="flex-1"
                   disabled={!can('training:start') || !isValid}
                   title={!can('training:start') ? 'Requires training:start permission' : (!isValid ? 'Please fix validation errors' : undefined)}
+                  data-cy="trainer-start-btn"
                 >
                   <Zap className="w-4 h-4 mr-2" />
                   Start Training
@@ -805,17 +775,64 @@ export function SingleFileAdapterTrainer() {
       {/* Step 4: Complete - Success & Next Steps */}
       {step === 'complete' && (
         <div className="space-y-6">
-          {successTemplates.trainingComplete(
-            fullAdapterName || `${formValues.tenant}/${formValues.domain}/${formValues.purpose}/${formValues.revision}`,
-            () => {
-              // Scroll to test section
-              const testSection = document.getElementById('test-section');
-              testSection?.scrollIntoView({ behavior: 'smooth' });
-            },
-            () => {
-              handleUploadToServer();
-              transitionTo('/inference?adapter=' + trainingJob?.adapter_id);
+          <SuccessFeedback
+            title="Training Complete!"
+            description={`Your adapter "${
+              fullAdapterName || `${formValues.tenant}/${formValues.domain}/${formValues.purpose}/${formValues.revision}`
+            }" has been trained${trainingJob?.stack_id ? ' and a stack was created (activation requested for this tenant).' : '.'}`}
+            variant="milestone"
+            nextSteps={
+              [
+                trainingJob?.adapter_id && {
+                  label: 'Chat with this adapter',
+                  action: () => transitionTo(`/inference?adapter=${trainingJob.adapter_id}`),
+                  primary: true
+                },
+                trainingJob?.stack_id && {
+                  label: 'View stack',
+                  action: () => transitionTo(`/stacks/${trainingJob.stack_id}`)
+                },
+                trainingJob?.adapter_id && {
+                  label: 'View adapter',
+                  action: () => transitionTo(`/adapters/${trainingJob.adapter_id}`)
+                },
+                { label: 'Export .aos (optional)', action: handleDownloadAdapter }
+              ].filter(Boolean) as NextStep[]
             }
+          />
+
+          {trainingJob && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Training Output</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Adapter created</span>
+                  <span className="font-mono text-xs">
+                    {trainingJob.adapter_id ?? 'pending'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Stack created/updated</span>
+                  <span className="font-mono text-xs">
+                    {trainingJob.stack_id ?? 'not requested'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Artifact (.aos)</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleDownloadAdapter}
+                    disabled={!trainingJob.adapter_id && !trainingJob.aos_path}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download .aos
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Test Inference */}
@@ -877,14 +894,49 @@ export function SingleFileAdapterTrainer() {
               <CardTitle>Next Steps</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button onClick={handleDownloadAdapter} variant="outline" className="w-full">
+              <Button
+                onClick={handleDownloadAdapter}
+                variant="outline"
+                className="w-full"
+                disabled={!trainingJob?.adapter_id && !trainingJob?.aos_path}
+              >
                 <Download className="w-4 h-4 mr-2" />
-                Download Adapter (.aos file)
+                Export Adapter (.aos)
               </Button>
-              <Button onClick={handleUploadToServer} className="w-full">
-                <Upload className="w-4 h-4 mr-2" />
-                Upload to Server & Chat
-              </Button>
+              {trainingJob?.adapter_id && (
+                <>
+                  <Button
+                    onClick={() => transitionTo(`/adapters/${trainingJob.adapter_id}`)}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    View Adapter Details
+                  </Button>
+                  <Button
+                    onClick={() => transitionTo(`/inference?adapter=${trainingJob.adapter_id}`)}
+                    className="w-full"
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    Chat with this Adapter
+                  </Button>
+                </>
+              )}
+              {trainingJob?.stack_id && (
+                <Button
+                  onClick={() => transitionTo(`/stacks/${trainingJob.stack_id}`)}
+                  variant="outline"
+                  className="w-full"
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  View Stack
+                </Button>
+              )}
+              {trainingJob?.stack_id && (
+                <p className="text-xs text-muted-foreground">
+                  Stack {trainingJob.stack_id} was created; activation was requested for this tenant.
+                </p>
+              )}
               <Button onClick={resetTrainer} variant="outline" className="w-full">
                 Train Another Adapter
               </Button>

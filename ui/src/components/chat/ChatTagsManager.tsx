@@ -126,7 +126,14 @@ export function ChatTagsManager({ sessionId, className }: ChatTagsManagerProps) 
           }}
         >
           <Tag className="w-3 h-3" />
-          <span>{tag.name}</span>
+          <span
+            style={{
+              color: tag.color || undefined,
+              borderColor: tag.color || undefined,
+            }}
+          >
+            {tag.name}
+          </span>
           <Button
             variant="ghost"
             size="icon"
